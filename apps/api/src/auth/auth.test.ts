@@ -148,31 +148,30 @@ describe('Session Configuration', () => {
 
 describe('Auth Configuration', () => {
   describe('createAuth', () => {
-    it('creates auth with handler and session helpers', () => {
+    it('creates auth with session and OTT helpers', () => {
       const config: AuthConfig = {
         baseUrl: 'http://localhost:3001',
         convexSiteUrl: 'https://test-123.convex.site',
       };
       const auth = createAuth(config);
-      expect(auth).toHaveProperty('handler');
       expect(auth).toHaveProperty('getSession');
+      expect(auth).toHaveProperty('exchangeOTT');
       expect(auth).toHaveProperty('signOut');
-      expect(typeof auth.handler).toBe('function');
       expect(typeof auth.getSession).toBe('function');
+      expect(typeof auth.exchangeOTT).toBe('function');
       expect(typeof auth.signOut).toBe('function');
     });
 
-    it('handler proxies to Convex and returns response', async () => {
+    it('getSession returns null when no cookies', async () => {
       const config: AuthConfig = {
         baseUrl: 'http://localhost:3001',
         convexSiteUrl: 'https://test-123.convex.site',
       };
       const auth = createAuth(config);
-      const req = new Request('http://localhost:3001/api/auth/get-session');
-      const res = await auth.handler(req);
-      expect(res).toBeInstanceOf(Response);
-      expect(res.status).toBeGreaterThanOrEqual(200);
-      expect(res.status).toBeLessThan(600);
+      const req = new Request('http://localhost:3001/connect');
+      // This will fail to reach Convex in tests, but should not throw
+      const session = await auth.getSession(req);
+      expect(session).toBeNull();
     });
 
     it('production config uses secure cookie attributes', () => {
