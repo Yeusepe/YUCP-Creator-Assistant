@@ -1,0 +1,25 @@
+{
+  "name": "@yucp/providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:ci": "bun test --coverage"
+  },
+  "dependencies": {
+    "@yucp/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "bun-types": "^1.1.0"
+  }
+}

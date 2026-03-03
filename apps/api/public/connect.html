@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Accounts | YUCP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
+        rel="stylesheet">
+    <link href="https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f6efee;
+            --text-primary: #7a7a9f;
+            --accent-orange: #d45d39;
+            --accent-blue: #224285;
+            --discord-blurple: #5865F2;
+            --gumroad-green: #36a9ae;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+        }
+
+        h1,
+        h2 {
+            font-family: "Airbnb Cereal App Black", sans-serif;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+
+        .connect-card {
+            background: #fff;
+            border: 1px solid #e0d6d4;
+            box-shadow: 0 20px 50px rgba(34, 66, 133, 0.05);
+        }
+
+        .platform-btn {
+            transition: all 0.25s ease;
+        }
+
+        .platform-btn:hover {
+            transform: scale(1.02) translateY(-2px);
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex flex-col">
+    <main class="flex-grow flex flex-col items-center justify-center px-4 py-12">
+        <div class="max-w-xl w-full connect-card rounded-[32px] p-12">
+            <div class="text-center mb-10">
+                <h1 class="text-4xl text-[#224285] mb-4">Connect Your <span class="text-[#d45d39]">Accounts</span></h1>
+                <p class="text-[#7a7a9f] font-medium">Link your platforms to enable verification for your Discord
+                    server.</p>
+            </div>
+
+            <div class="space-y-4">
+                <div
+                    class="platform-btn w-full flex items-center justify-between p-5 rounded-2xl bg-[#5865F2] text-white shadow-lg opacity-90">
+                    <div class="flex items-center gap-4">
+                        <div class="bg-white/20 p-2 rounded-lg">
+                            <img class="w-6 h-6 object-contain"
+                                src="https://cdn.brandfetch.io/idM8Hlme1a/w/800/h/620/theme/light/symbol.png?c=1bxid64Mup7aczewSAYMX&t=1668075053047"
+                                alt="Discord">
+                        </div>
+                        <span class="font-bold text-lg">Discord</span>
+                    </div>
+                    <span class="text-xs font-bold uppercase opacity-80">Connected</span>
+                </div>
+
+                <button type="button"
+                    class="platform-btn w-full flex items-center justify-between p-5 rounded-2xl bg-[#ff90e8] text-black shadow-lg shadow-[#ff90e8]/20 group"
+                    data-platform="gumroad">
+                    <div class="flex items-center gap-4">
+                        <div class="bg-black/10 p-2 rounded-lg">
+                            <img class="w-6 h-6 rounded-md object-cover"
+                                src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
+                                alt="Gumroad">
+                        </div>
+                        <span class="font-bold text-lg">Gumroad</span>
+                    </div>
+                    <span class="connect-badge text-xs font-bold uppercase opacity-80">Connect</span>
+                </button>
+
+                <button type="button"
+                    class="platform-btn w-full flex items-center justify-between p-5 rounded-2xl bg-[#9146FF] text-white shadow-lg shadow-[#9146FF]/20 group"
+                    data-platform="jinxxy">
+                    <div class="flex items-center gap-4">
+                        <div class="bg-white/20 p-2 rounded-lg">
+                            <img class="w-6 h-6 rounded-md object-cover"
+                                src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
+                                alt="Jinxxy">
+                        </div>
+                        <span class="font-bold text-lg">Jinxxy</span>
+                    </div>
+                    <span class="connect-badge text-xs font-bold uppercase opacity-80">Connect</span>
+                </button>
+            </div>
+
+            <div class="mt-10 pt-8 border-t border-[#e0d6d4]/60 flex flex-col gap-4">
+                <button id="done-btn"
+                    class="w-full py-4 rounded-2xl bg-[#d45d39] text-white font-bold text-lg hover:bg-[#c04d29] transition-colors">
+                    Done — Continue Setup in Discord
+                </button>
+                <p id="status" class="text-center text-sm text-[#7a7a9f] hidden"></p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const guildId = '__GUILD_ID__';
+        const token = '__TOKEN__';
+        const apiBase = '__API_BASE__';
+        let tenantId = null;
+
+        async function ensureTenantAndStatus() {
+            try {
+                const ensureRes = await fetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}&token=${encodeURIComponent(token || '')}`, { credentials: 'include' });
+                if (!ensureRes.ok) return;
+                const ensureData = await ensureRes.json();
+                tenantId = ensureData.tenantId;
+                if (!tenantId) return;
+
+                const statusRes = await fetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`, { credentials: 'include' });
+                if (!statusRes.ok) return;
+                const statusData = await statusRes.json();
+                updatePlatformCards(statusData);
+            } catch (_) {}
+        }
+
+        function updatePlatformCards(status) {
+            const gumroadBtn = document.querySelector('[data-platform="gumroad"]');
+            const jinxxyBtn = document.querySelector('[data-platform="jinxxy"]');
+            if (gumroadBtn && status?.gumroad) {
+                gumroadBtn.classList.remove('bg-[#ff90e8]', 'shadow-[#ff90e8]/20');
+                gumroadBtn.classList.add('bg-[#36a9ae]', 'opacity-90');
+                const badge = gumroadBtn.querySelector('.connect-badge');
+                if (badge) badge.textContent = 'Connected';
+                gumroadBtn.disabled = true;
+            }
+            if (jinxxyBtn && status?.jinxxy) {
+                jinxxyBtn.classList.add('opacity-90');
+                const badge = jinxxyBtn.querySelector('.connect-badge');
+                if (badge) badge.textContent = 'Connected';
+                jinxxyBtn.disabled = true;
+            }
+        }
+
+        ensureTenantAndStatus();
+        if (new URLSearchParams(window.location.search).get('gumroad') === 'connected') {
+            window.history.replaceState({}, '', window.location.pathname + '?guild_id=' + guildId + (token ? '&token=' + token : ''));
+            setTimeout(ensureTenantAndStatus, 500);
+        }
+
+        document.getElementById('done-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('done-btn');
+            const status = document.getElementById('status');
+            btn.disabled = true;
+            btn.textContent = 'Completing...';
+            status.classList.remove('hidden');
+            status.textContent = '';
+            status.className = 'text-center text-sm text-[#7a7a9f]';
+
+            try {
+                const res = await fetch(`${apiBase}/api/connect/complete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ guildId, token: token || undefined }),
+                });
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    status.textContent = 'Setup complete! You can close this window and continue in Discord.';
+                    status.className = 'text-center text-sm text-green-600';
+                    try { window.close(); } catch (_) { }
+                } else {
+                    status.textContent = data.error || 'Something went wrong.';
+                    status.className = 'text-center text-sm text-red-600';
+                    btn.disabled = false;
+                    btn.textContent = 'Done — Continue Setup in Discord';
+                }
+            } catch (err) {
+                status.textContent = 'Network error. Please try again.';
+                status.className = 'text-center text-sm text-red-600';
+                btn.disabled = false;
+                btn.textContent = 'Done — Continue Setup in Discord';
+            }
+        });
+
+        document.querySelectorAll('[data-platform]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const platform = btn.dataset.platform;
+                if (!tenantId) {
+                    alert('Please wait for the page to load.');
+                    return;
+                }
+                if (platform === 'gumroad') {
+                    window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
+                }
+                if (platform === 'jinxxy') {
+                    window.location.href = `${apiBase}/jinxxy-setup?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

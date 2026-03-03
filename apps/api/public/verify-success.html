@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verification Successful | YUCP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+    <link href="https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #f6efee;
+            --text-primary: #7a7a9f;
+            --text-secondary: #5e5e80;
+            --accent-mustard: #f0cc60;
+            --accent-orange: #d45d39;
+            --accent-blue: #224285;
+            --accent-green-dark: #3f7035;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            position: relative;
+        }
+        h1 {
+            font-family: "Airbnb Cereal App Black", sans-serif;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+        .success-checkmark {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 2rem;
+            position: relative;
+            z-index: 10;
+        }
+        .check-path {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            animation: dash 1.5s ease-in-out forwards;
+        }
+        @keyframes dash {
+            to { stroke-dashoffset: 0; }
+        }
+        .circle-path {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            animation: dash 1.2s ease-in-out forwards;
+        }
+        .brand-gradient-btn {
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-mustard));
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease;
+            box-shadow: 0 4px 20px rgba(212, 93, 57, 0.2);
+        }
+        .brand-gradient-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 10px 25px rgba(212, 93, 57, 0.3);
+        }
+        .fade-up {
+            animation: fadeUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        @keyframes fadeUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <main class="text-center max-w-2xl px-6 relative z-10">
+        <div class="success-checkmark">
+            <svg viewBox="0 0 100 100">
+                <circle class="circle-path" cx="50" cy="50" r="45" stroke="#3f7035" stroke-width="6" fill="none"></circle>
+                <path class="check-path" d="M30 50 L45 65 L70 35" stroke="#3f7035" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+        </div>
+        <h1 class="text-5xl md:text-6xl text-[#224285] mb-6 fade-up" style="animation-delay: 0.3s">
+            You're verified!
+        </h1>
+        <p class="text-xl md:text-2xl text-[#5e5e80] mb-12 leading-relaxed fade-up" style="animation-delay: 0.5s">
+            Your Discord account has been verified. Your roles will be updated shortly. You can return to Discord now.
+        </p>
+        <div class="fade-up" style="animation-delay: 0.7s">
+            <a id="return-btn" href="#" class="brand-gradient-btn inline-block px-12 py-5 rounded-full text-[#f6efee] text-xl font-bold uppercase tracking-widest no-underline">
+                Return to Discord
+            </a>
+        </div>
+        <div id="redirect-msg" class="mt-12 text-sm font-bold uppercase tracking-widest opacity-40 fade-up" style="animation-delay: 0.9s">
+            Redirecting in 5 seconds...
+        </div>
+        <div id="close-msg" class="mt-12 text-sm font-bold uppercase tracking-widest opacity-40 fade-up" style="animation-delay: 0.9s; display: none;">
+            You can close this tab.
+        </div>
+    </main>
+    <script>
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const returnTo = params.get('returnTo');
+            const btn = document.getElementById('return-btn');
+            const redirectMsg = document.getElementById('redirect-msg');
+            const closeMsg = document.getElementById('close-msg');
+
+            if (returnTo) {
+                btn.href = returnTo;
+                btn.textContent = 'Return to Discord';
+                let count = 5;
+                const interval = setInterval(function() {
+                    count--;
+                    redirectMsg.textContent = count > 0 ? 'Redirecting in ' + count + ' second' + (count !== 1 ? 's' : '') + '...' : 'Redirecting...';
+                    if (count <= 0) {
+                        clearInterval(interval);
+                        window.location.href = returnTo;
+                    }
+                }, 1000);
+            } else {
+                btn.href = '#';
+                btn.textContent = 'Close';
+                btn.onclick = function() { window.close(); return false; };
+                redirectMsg.style.display = 'none';
+                closeMsg.style.display = 'block';
+            }
+
+            window.addEventListener('load', function() {
+                if (typeof confetti === 'function') {
+                    confetti({
+                        particleCount: 150,
+                        spread: 100,
+                        origin: { y: 0.6 },
+                        colors: ['#f0cc60', '#d45d39', '#3f7035', '#224285'],
+                        disableForReducedMotion: true
+                    });
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

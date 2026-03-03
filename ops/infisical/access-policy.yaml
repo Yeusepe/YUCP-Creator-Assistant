@@ -1,0 +1,306 @@
+# Infisical Access Policy
+# =======================
+# Defines least-privilege access for service identities.
+# This is a documentation file - configure actual policies in Infisical UI.
+
+# =============================================================================
+# Project Configuration
+# =============================================================================
+
+projects:
+  dev:
+    slug: gumroad-dev
+    name: "Gumroad Creator Assistant - Development"
+    description: "Local development and feature branches"
+
+  preview:
+    slug: gumroad-preview
+    name: "Gumroad Creator Assistant - Preview"
+    description: "PR previews and staging deployments"
+
+  prod:
+    slug: gumroad-prod
+    name: "Gumroad Creator Assistant - Production"
+    description: "Production workloads"
+
+# =============================================================================
+# Service Identities
+# =============================================================================
+
+identities:
+  # API Service Identities
+  api-dev:
+    name: "API Development"
+    description: "Local API development identity"
+    type: machine
+    projects:
+      - project: dev
+        role: developer
+    allowed_paths:
+      - /api/*
+      - /infra/*
+    environments: [dev]
+
+  api-preview:
+    name: "API Preview"
+    description: "Preview deployment API identity"
+    type: machine
+    projects:
+      - project: preview
+        role: developer
+    allowed_paths:
+      - /api/*
+      - /infra/*
+    environments: [preview]
+
+  api-prod:
+    name: "API Production"
+    description: "Production API identity"
+    type: machine
+    projects:
+      - project: prod
+        role: developer
+    allowed_paths:
+      - /api/*
+      - /infra/*
+    environments: [prod]
+    # Production requires additional constraints
+    constraints:
+      ip_whitelist: true  # Configure in Infisical
+      time_based_access: false
+      mfa_required: false  # Machine identity
+
+  # Bot Service Identities
+  bot-dev:
+    name: "Bot Development"
+    description: "Local bot development identity"
+    type: machine
+    projects:
+      - project: dev
+        role: developer
+    allowed_paths:
+      - /bot/*
+      - /infra/convex/*
+    environments: [dev]
+
+  bot-preview:
+    name: "Bot Preview"
+    description: "Preview deployment bot identity"
+    type: machine
+    projects:
+      - project: preview
+        role: developer
+    allowed_paths:
+      - /bot/*
+      - /infra/convex/*
+    environments: [preview]
+
+  bot-prod:
+    name: "Bot Production"
+    description: "Production bot identity"
+    type: machine
+    projects:
+      - project: prod
+        role: developer
+    allowed_paths:
+      - /bot/*
+      - /infra/convex/*
+    environments: [prod]
+    constraints:
+      ip_whitelist: true
+      time_based_access: false
+      mfa_required: false
+
+  # CI/CD Identity
+  ci-cd:
+    name: "CI/CD Pipeline"
+    description: "Read-only access for CI/CD pipelines"
+    type: machine
+    projects:
+      - project: dev
+        role: viewer
+      - project: preview
+        role: viewer
+      - project: prod
+        role: viewer
+    allowed_paths:
+      - /*  # Read-only access to all paths
+    environments: [dev, preview, prod]
+    constraints:
+      ip_whitelist: false  # CI runs from various IPs
+      time_based_access: false
+      mfa_required: false
+      read_only: true
+
+  # Admin Identity (human users)
+  admin:
+    name: "Administrator"
+    description: "Full access for administrators"
+    type: human
+    projects:
+      - project: dev
+        role: admin
+      - project: preview
+        role: admin
+      - project: prod
+        role: admin
+    allowed_paths:
+      - /*  # Full access
+    environments: [dev, preview, prod]
+    constraints:
+      mfa_required: true
+      session_timeout: 8h
+
+# =============================================================================
+# Role Definitions (Built-in Infisical Roles)
+# =============================================================================
+
+roles:
+  admin:
+    description: "Full access to all environments, folders, secrets, and actions"
+    permissions:
+      - secrets:read
+      - secrets:write
+      - secrets:delete
+      - project:manage
+      - members:manage
+      - access_control:manage
+      - audit:read
+
+  developer:
+    description: "Read/write access to secrets, cannot manage project settings"
+    permissions:
+      - secrets:read
+      - secrets:write
+      - secrets:delete
+      - audit:read
+    denied:
+      - project:manage
+      - members:manage
+      - access_control:manage
+
+  viewer:
+    description: "Read-only access to secrets"
+    permissions:
+      - secrets:read
+      - audit:read
+    denied:
+      - secrets:write
+      - secrets:delete
+      - project:manage
+      - members:manage
+      - access_control:manage
+
+# =============================================================================
+# Path Access Matrix
+# =============================================================================
+
+path_access:
+  "/":
+    description: "Root path - admin only"
+    allowed_roles: [admin]
+
+  "/api/":
+    description: "API service secrets"
+    allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
+
+  "/api/auth/":
+    description: "Authentication secrets"
+    allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
+
+  "/api/database/":
+    description: "Database connection strings"
+    allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
+
+  "/api/integrations/":
+    description: "Third-party integration secrets"
+    allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
+
+  "/bot/":
+    description: "Discord bot secrets"
+    allowed_identities: [bot-dev, bot-preview, bot-prod, ci-cd, admin]
+
+  "/bot/discord/":
+    description: "Discord-specific credentials"
+    allowed_identities: [bot-dev, bot-preview, bot-prod, ci-cd, admin]
+
+  "/infra/":
+    description: "Infrastructure secrets"
+    allowed_identities: [api-dev, api-preview, api-prod, bot-dev, bot-preview, bot-prod, ci-cd, admin]
+
+  "/infra/convex/":
+    description: "Convex deployment secrets"
+    allowed_identities: [api-dev, api-preview, api-prod, bot-dev, bot-preview, bot-prod, ci-cd, admin]
+
+  "/infra/signing/":
+    description: "Webhook signing keys"
+    allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
+
+# =============================================================================
+# Environment Isolation
+# =============================================================================
+
+environment_isolation:
+  dev:
+    description: "Development environment"
+    can_access: []  # Cannot access other environments
+    cross_environment_reads: false
+
+  preview:
+    description: "Preview environment"
+    can_access: []  # Cannot access other environments
+    cross_environment_reads: false
+
+  prod:
+    description: "Production environment"
+    can_access: []  # Cannot access other environments
+    cross_environment_reads: false
+
+# =============================================================================
+# Audit Configuration
+# =============================================================================
+
+audit:
+  enabled: true
+  log_all_access: true
+  log_secret_reads: true
+  log_secret_writes: true
+  retention_days: 90
+
+  alerts:
+    # Alert on suspicious activity
+    multiple_failed_auth_attempts: true
+    access_from_new_ip: true
+    bulk_secret_exports: true
+    off_hours_access: false  # Configure per organization policy
+
+# =============================================================================
+# Implementation Notes
+# =============================================================================
+
+# To implement in Infisical:
+#
+# 1. Create projects in Infisical:
+#    - Navigate to Projects → Create Project
+#    - Create gumroad-dev, gumroad-preview, gumroad-prod
+#
+# 2. Create machine identities:
+#    - Navigate to Organization Settings → Machine Identities
+#    - Create each identity defined above
+#    - Note the Client ID and Client Secret for each
+#
+# 3. Assign identities to projects:
+#    - For each project: Settings → Access Control → Machine Identities
+#    - Add identities with appropriate roles
+#
+# 4. Create secret paths:
+#    - Create folders matching the path structure
+#    - Add secrets according to secrets.template.yaml
+#
+# 5. Configure constraints:
+#    - Set IP whitelists for production identities
+#    - Enable MFA for human admin access
+#
+# 6. Store identity credentials securely:
+#    - Client IDs and secrets for each service identity
+#    - These are used by services to authenticate with Infisical

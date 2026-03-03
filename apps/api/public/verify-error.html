@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verification Failed | YUCP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+    <link href="https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f6efee;
+            --text-primary: #7a7a9f;
+            --text-secondary: #5e5e80;
+            --accent-mustard: #f0cc60;
+            --accent-orange: #d45d39;
+            --accent-blue: #224285;
+            --accent-red: #c53030;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            position: relative;
+        }
+        h1 {
+            font-family: "Airbnb Cereal App Black", sans-serif;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+        .brand-gradient-btn {
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-mustard));
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease;
+            box-shadow: 0 4px 20px rgba(212, 93, 57, 0.2);
+        }
+        .brand-gradient-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 10px 25px rgba(212, 93, 57, 0.3);
+        }
+        .fade-up {
+            animation: fadeUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        @keyframes fadeUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <main class="text-center max-w-2xl px-6 relative z-10">
+        <div class="mb-8 fade-up" style="animation-delay: 0.2s">
+            <svg class="w-24 h-24 mx-auto text-[#c53030]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+        </div>
+        <h1 class="text-5xl md:text-6xl text-[#224285] mb-6 fade-up" style="animation-delay: 0.3s">
+            Something went wrong
+        </h1>
+        <p id="error-msg" class="text-xl md:text-2xl text-[#5e5e80] mb-12 leading-relaxed fade-up" style="animation-delay: 0.5s">
+            Verification could not be completed.
+        </p>
+        <div class="fade-up" style="animation-delay: 0.7s">
+            <a id="return-btn" href="#" class="brand-gradient-btn inline-block px-12 py-5 rounded-full text-[#f6efee] text-xl font-bold uppercase tracking-widest no-underline">
+                Return to Discord
+            </a>
+        </div>
+    </main>
+    <script>
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const error = params.get('error');
+            const returnTo = params.get('returnTo');
+            const btn = document.getElementById('return-btn');
+            const errorMsg = document.getElementById('error-msg');
+
+            function escapeHtml(str) {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+
+            if (error) {
+                const sanitized = escapeHtml(error
+                    .replace(/^missing_parameters$/i, 'Missing parameters')
+                    .replace(/^internal_error$/i, 'An internal error occurred')
+                    .replace(/_/g, ' '));
+                errorMsg.textContent = sanitized;
+            }
+
+            if (returnTo) {
+                btn.href = returnTo;
+                btn.textContent = 'Return to Discord';
+            } else {
+                btn.href = 'javascript:history.back()';
+                btn.textContent = 'Try again';
+            }
+        })();
+    </script>
+</body>
+</html>

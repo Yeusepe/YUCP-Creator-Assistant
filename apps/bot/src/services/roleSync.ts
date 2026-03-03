@@ -1,0 +1,835 @@
+/**
+ * Discord Role Sync Engine
+ *
+ * Listens for entitlement events from Convex outbox and syncs Discord roles.
+ * Handles rate limiting, retries, and audit logging.
+ *
+ * Key responsibilities:
+ * - Process role_sync jobs: Add roles based on entitlement grants
+ * - Process role_removal jobs: Remove roles on entitlement revocation
+ * - Handle Discord API rate limits with exponential backoff
+ * - Emit audit events for all role changes
+ */
+
+import {
+  Client,
+  Guild,
+  GuildMember,
+  Role,
+  RESTJSONErrorCodes,
+} from 'discord.js';
+import { ConvexHttpClient } from 'convex/browser';
+import {
+  createStructuredLogger,
+  type StructuredLogger,
+} from '@yucp/shared';
+
+// ============================================================================
+// TYPES (defined locally to avoid Convex import issues)
+// ============================================================================
+
+/** Branded ID type for Convex documents */
+export type Id<TableName extends string> = string & { __tableName: TableName };
+
+/** Role sync job payload from outbox */
+export interface RoleSyncPayload {
+  subjectId: Id<'subjects'>;
+  entitlementId: Id<'entitlements'>;
+  discordUserId?: string;
+  /** When set (e.g. guild member add), only sync roles in this guild */
+  targetGuildId?: string;
+}
+
+/** Role removal job payload from outbox */
+export interface RoleRemovalPayload {
+  subjectId: Id<'subjects'>;
+  entitlementId: Id<'entitlements'>;
+  guildId: string;
+  roleId: string;
+  discordUserId?: string;
+}
+
+/** Creator alert job payload (e.g. duplicate verification notify) */
+export interface CreatorAlertPayload {
+  channelId: string;
+  message: string;
+  alertType?: string;
+}
+
+/** Outbox job document type */
+export interface OutboxJob {
+  _id: Id<'outbox_jobs'>;
+  tenantId: Id<'tenants'>;
+  jobType: 'role_sync' | 'role_removal' | 'creator_alert';
+  payload: RoleSyncPayload | RoleRemovalPayload | CreatorAlertPayload;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'dead_letter';
+  retryCount: number;
+  maxRetries: number;
+  nextRetryAt?: number;
+  lastError?: string;
+  targetGuildId?: string;
+  targetDiscordUserId?: string;
+}
+
+/** Role rule document type */
+export interface RoleRule {
+  _id: Id<'role_rules'>;
+  tenantId: Id<'tenants'>;
+  guildId: string;
+  productId: string;
+  verifiedRoleId: string;
+  removeOnRevoke: boolean;
+  enabled: boolean;
+  priority: number;
+}
+
+/** Subject document type */
+export interface Subject {
+  _id: Id<'subjects'>;
+  primaryDiscordUserId: string;
+  displayName?: string;
+}
+
+/** Entitlement document type */
+export interface Entitlement {
+  _id: Id<'entitlements'>;
+  tenantId: Id<'tenants'>;
+  subjectId: Id<'subjects'>;
+  productId: string;
+  status: 'active' | 'revoked' | 'expired' | 'refunded' | 'disputed';
+}
+
+/** Role sync result */
+export interface RoleSyncResult {
+  success: boolean;
+  guildId: string;
+  discordUserId: string;
+  rolesAdded: string[];
+  rolesRemoved: string[];
+  error?: string;
+}
+
+/** Rate limit info from Discord API */
+interface RateLimitInfo {
+  resetAt: number;
+  remaining: number;
+}
+
+// ============================================================================
+// RATE LIMIT HANDLER
+// ============================================================================
+
+/**
+ * Discord rate limit handler with exponential backoff.
+ * Tracks rate limits per-route and applies appropriate delays.
+ */
+export class DiscordRateLimiter {
+  private routeLimits: Map<string, RateLimitInfo> = new Map();
+  private logger: StructuredLogger;
+
+  constructor(logger: StructuredLogger) {
+    this.logger = logger.child({ component: 'rate_limiter' });
+  }
+
+  /**
+   * Wait for rate limit if necessary before making a request.
+   * @param route - The Discord API route (e.g., 'guilds/123/members/456')
+   * @returns Promise that resolves when it's safe to make the request
+   */
+  async waitForRateLimit(route: string): Promise<void> {
+    const limitInfo = this.routeLimits.get(route);
+    if (!limitInfo || limitInfo.remaining > 0) {
+      return;
+    }
+
+    const now = Date.now();
+    const waitTime = limitInfo.resetAt - now;
+
+    if (waitTime > 0) {
+      this.logger.warn('Rate limit hit, waiting', {
+        route,
+        waitMs: waitTime,
+        resetAt: new Date(limitInfo.resetAt).toISOString(),
+      });
+      await this.sleep(waitTime);
+    }
+  }
+
+  /**
+   * Update rate limit info from Discord response headers.
+   */
+  updateFromHeaders(
+    route: string,
+    headers: {
+      'x-ratelimit-reset'?: string;
+      'x-ratelimit-remaining'?: string;
+    }
+  ): void {
+    const resetHeader = headers['x-ratelimit-reset'];
+    const remainingHeader = headers['x-ratelimit-remaining'];
+
+    if (resetHeader) {
+      const resetAt = parseFloat(resetHeader) * 1000; // Convert to ms
+      const remaining = remainingHeader ? parseInt(remainingHeader, 10) : 1;
+
+      this.routeLimits.set(route, { resetAt, remaining });
+    }
+  }
+
+  /**
+   * Calculate exponential backoff delay.
+   */
+  calculateBackoff(retryCount: number, baseDelay = 1000): number {
+    const maxDelay = 60000; // 60 seconds max
+    const jitter = Math.random() * 0.3 * baseDelay; // Add jitter
+    const delay = Math.min(baseDelay * Math.pow(2, retryCount) + jitter, maxDelay);
+    return Math.floor(delay);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+}
+
+// ============================================================================
+// ROLE SYNC SERVICE
+// ============================================================================
+
+/**
+ * Discord role sync service.
+ * Processes outbox jobs and syncs Discord roles based on entitlements.
+ */
+export class RoleSyncService {
+  private readonly logger: StructuredLogger;
+  private readonly convexClient: ConvexHttpClient;
+  private readonly discordClient: Client;
+  private readonly rateLimiter: DiscordRateLimiter;
+  private readonly apiSecret: string;
+  private isRunning = false;
+  private pollIntervalMs: number;
+
+  constructor(options: {
+    convexUrl: string;
+    apiSecret: string;
+    discordClient: Client;
+    pollIntervalMs?: number;
+    logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  }) {
+    this.logger = createStructuredLogger({
+      serviceName: 'role-sync',
+      level: options.logLevel ?? 'info',
+      jsonOutput: true,
+    });
+
+    this.convexClient = new ConvexHttpClient(options.convexUrl);
+    this.discordClient = options.discordClient;
+    this.apiSecret = options.apiSecret;
+    this.rateLimiter = new DiscordRateLimiter(this.logger);
+    this.pollIntervalMs = options.pollIntervalMs ?? 5000; // 5 seconds default
+  }
+
+  /**
+   * Start the role sync service.
+   * Begins polling for outbox jobs.
+   */
+  async start(): Promise<void> {
+    if (this.isRunning) {
+      this.logger.warn('Role sync service already running');
+      return;
+    }
+
+    this.isRunning = true;
+    this.logger.info('Starting role sync service');
+
+    // Start polling loop
+    this.pollLoop();
+  }
+
+  /**
+   * Stop the role sync service.
+   */
+  stop(): void {
+    this.isRunning = false;
+    this.logger.info('Stopping role sync service');
+  }
+
+  /**
+   * Main polling loop for outbox jobs.
+   */
+  private async pollLoop(): Promise<void> {
+    while (this.isRunning) {
+      try {
+        await this.processPendingJobs();
+      } catch (error) {
+        this.logger.error('Error in poll loop', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      // Wait before next poll
+      await this.sleep(this.pollIntervalMs);
+    }
+  }
+
+  /**
+   * Process all pending outbox jobs.
+   */
+  async processPendingJobs(): Promise<number> {
+    // Fetch pending jobs from Convex
+    const jobs = await this.fetchPendingJobs();
+
+    if (jobs.length === 0) {
+      return 0;
+    }
+
+    this.logger.info('Processing pending jobs', { count: jobs.length });
+
+    let processedCount = 0;
+    for (const job of jobs) {
+      try {
+        await this.processJob(job);
+        processedCount++;
+      } catch (error) {
+        this.logger.error('Failed to process job', {
+          jobId: job._id,
+          jobType: job.jobType,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return processedCount;
+  }
+
+  /**
+   * Process a single outbox job.
+   */
+  private async processJob(job: OutboxJob): Promise<void> {
+    this.logger.info('Processing job', {
+      jobId: job._id,
+      jobType: job.jobType,
+      retryCount: job.retryCount,
+    });
+
+    // Mark job as in progress
+    await this.updateJobStatus(job._id, 'in_progress');
+
+    try {
+      if (job.jobType === 'creator_alert') {
+        await this.processCreatorAlertJob(job);
+        await this.updateJobStatus(job._id, 'completed');
+        this.logger.info('Creator alert job completed', { jobId: job._id });
+        return;
+      }
+
+      let result: RoleSyncResult;
+
+      if (job.jobType === 'role_sync') {
+        result = await this.processRoleSyncJob(job);
+      } else if (job.jobType === 'role_removal') {
+        result = await this.processRoleRemovalJob(job);
+      } else {
+        throw new Error(`Unknown job type: ${(job as OutboxJob).jobType}`);
+      }
+
+      if (result.success) {
+        // Mark job as completed
+        await this.updateJobStatus(job._id, 'completed');
+
+        // Emit audit event
+        await this.emitAuditEvent(job, result);
+
+        this.logger.info('Job completed successfully', {
+          jobId: job._id,
+          rolesAdded: result.rolesAdded,
+          rolesRemoved: result.rolesRemoved,
+        });
+      } else {
+        // Handle failure with retry
+        await this.handleJobFailure(job, result.error ?? 'Unknown error');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await this.handleJobFailure(job, errorMessage);
+    }
+  }
+
+  /**
+   * Process a role sync job (add roles).
+   */
+  private async processRoleSyncJob(job: OutboxJob): Promise<RoleSyncResult> {
+    const payload = job.payload as RoleSyncPayload;
+    const discordUserId = payload.discordUserId;
+
+    if (!discordUserId) {
+      throw new Error('No Discord user ID in payload');
+    }
+
+    // Get entitlement details
+    const entitlement = await this.fetchEntitlement(payload.entitlementId);
+    if (!entitlement) {
+      throw new Error(`Entitlement not found: ${payload.entitlementId}`);
+    }
+
+    // Only sync active entitlements
+    if (entitlement.status !== 'active') {
+      return {
+        success: true,
+        guildId: '',
+        discordUserId,
+        rolesAdded: [],
+        rolesRemoved: [],
+        error: 'Entitlement not active, skipping sync',
+      };
+    }
+
+    // Get all role rules for this product
+    let roleRules = await this.fetchRoleRules(job.tenantId, entitlement.productId);
+
+    // When targetGuildId is set (e.g. from guild member add), only sync in that guild
+    if (payload.targetGuildId) {
+      roleRules = roleRules.filter((r) => r.guildId === payload.targetGuildId);
+    }
+
+    if (roleRules.length === 0) {
+      return {
+        success: true,
+        guildId: '',
+        discordUserId,
+        rolesAdded: [],
+        rolesRemoved: [],
+        error: 'No role rules configured for product',
+      };
+    }
+
+    const rolesAdded: string[] = [];
+    const rolesRemoved: string[] = [];
+    const errors: string[] = [];
+
+    // Process each guild's role rules
+    for (const rule of roleRules) {
+      if (!rule.enabled) {
+        continue;
+      }
+
+      try {
+        const result = await this.addRoleToMember(
+          rule.guildId,
+          discordUserId,
+          rule.verifiedRoleId
+        );
+
+        if (result.added) {
+          rolesAdded.push(rule.verifiedRoleId);
+        }
+
+        if (result.error) {
+          errors.push(`${rule.guildId}: ${result.error}`);
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push(`${rule.guildId}: ${errorMsg}`);
+        this.logger.error('Failed to add role', {
+          guildId: rule.guildId,
+          roleId: rule.verifiedRoleId,
+          error: errorMsg,
+        });
+      }
+    }
+
+    // Determine overall success
+    const success = rolesAdded.length > 0 || (roleRules.filter(r => r.enabled).length === 0);
+
+    return {
+      success,
+      guildId: roleRules[0]?.guildId ?? '',
+      discordUserId,
+      rolesAdded,
+      rolesRemoved,
+      error: errors.length > 0 ? errors.join('; ') : undefined,
+    };
+  }
+
+  /**
+   * Process a role removal job.
+   */
+  private async processRoleRemovalJob(job: OutboxJob): Promise<RoleSyncResult> {
+    const payload = job.payload as RoleRemovalPayload;
+    const discordUserId = payload.discordUserId;
+
+    if (!discordUserId) {
+      throw new Error('No Discord user ID in payload');
+    }
+
+    const rolesRemoved: string[] = [];
+
+    try {
+      const result = await this.removeRoleFromMember(
+        payload.guildId,
+        discordUserId,
+        payload.roleId
+      );
+
+      if (result.removed) {
+        rolesRemoved.push(payload.roleId);
+      }
+
+      return {
+        success: result.removed,
+        guildId: payload.guildId,
+        discordUserId,
+        rolesAdded: [],
+        rolesRemoved,
+        error: result.error,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        guildId: payload.guildId,
+        discordUserId,
+        rolesAdded: [],
+        rolesRemoved,
+        error: errorMsg,
+      };
+    }
+  }
+
+  /**
+   * Process creator alert job (e.g. duplicate verification notification).
+   */
+  private async processCreatorAlertJob(job: OutboxJob): Promise<void> {
+    const payload = job.payload as CreatorAlertPayload;
+    if (!payload.channelId || !payload.message) {
+      throw new Error('Creator alert payload missing channelId or message');
+    }
+
+    const channel = await this.discordClient.channels.fetch(payload.channelId);
+    if (!channel || !('send' in channel)) {
+      throw new Error(`Channel ${payload.channelId} not found or not text channel`);
+    }
+
+    await channel.send({ content: payload.message });
+  }
+
+  /**
+   * Add a role to a guild member.
+   */
+  private async addRoleToMember(
+    guildId: string,
+    discordUserId: string,
+    roleId: string
+  ): Promise<{ added: boolean; error?: string }> {
+    const guild = this.discordClient.guilds.cache.get(guildId);
+
+    if (!guild) {
+      return { added: false, error: 'Guild not found or bot not in guild' };
+    }
+
+    // Wait for rate limit
+    const route = `guilds/${guildId}/members/${discordUserId}`;
+    await this.rateLimiter.waitForRateLimit(route);
+
+    try {
+      // Fetch or get member from cache
+      let member: GuildMember | undefined;
+      try {
+        member = await guild.members.fetch(discordUserId);
+      } catch {
+        return { added: false, error: 'Member not found in guild' };
+      }
+
+      // Check if member already has the role
+      if (member.roles.cache.has(roleId)) {
+        return { added: false, error: 'Member already has role' };
+      }
+
+      // Add the role
+      await member.roles.add(roleId, 'Entitlement sync - role granted');
+
+      this.logger.info('Role added to member', {
+        guildId,
+        discordUserId,
+        roleId,
+      });
+
+      return { added: true };
+    } catch (error) {
+      // Handle Discord API errors
+      if (this.isDiscordError(error)) {
+        const discordError = error as { code: number; message: string };
+
+        // Handle specific error codes
+        if (discordError.code === RESTJSONErrorCodes.UnknownMember) {
+          return { added: false, error: 'Member not found in guild' };
+        }
+        if (discordError.code === RESTJSONErrorCodes.UnknownRole) {
+          return { added: false, error: 'Role not found' };
+        }
+        if (discordError.code === RESTJSONErrorCodes.MissingPermissions) {
+          return { added: false, error: 'Bot lacks permission to manage roles' };
+        }
+
+        return { added: false, error: `Discord error: ${discordError.message}` };
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a role from a guild member.
+   */
+  private async removeRoleFromMember(
+    guildId: string,
+    discordUserId: string,
+    roleId: string
+  ): Promise<{ removed: boolean; error?: string }> {
+    const guild = this.discordClient.guilds.cache.get(guildId);
+
+    if (!guild) {
+      return { removed: false, error: 'Guild not found or bot not in guild' };
+    }
+
+    // Wait for rate limit
+    const route = `guilds/${guildId}/members/${discordUserId}`;
+    await this.rateLimiter.waitForRateLimit(route);
+
+    try {
+      // Fetch or get member from cache
+      let member: GuildMember | undefined;
+      try {
+        member = await guild.members.fetch(discordUserId);
+      } catch {
+        // Member not in guild, role removal not needed
+        return { removed: true, error: 'Member not in guild, role effectively removed' };
+      }
+
+      // Check if member has the role
+      if (!member.roles.cache.has(roleId)) {
+        return { removed: false, error: 'Member does not have role' };
+      }
+
+      // Remove the role
+      await member.roles.remove(roleId, 'Entitlement sync - role revoked');
+
+      this.logger.info('Role removed from member', {
+        guildId,
+        discordUserId,
+        roleId,
+      });
+
+      return { removed: true };
+    } catch (error) {
+      // Handle Discord API errors
+      if (this.isDiscordError(error)) {
+        const discordError = error as { code: number; message: string };
+
+        if (discordError.code === RESTJSONErrorCodes.UnknownRole) {
+          return { removed: true, error: 'Role no longer exists' };
+        }
+        if (discordError.code === RESTJSONErrorCodes.MissingPermissions) {
+          return { removed: false, error: 'Bot lacks permission to manage roles' };
+        }
+
+        return { removed: false, error: `Discord error: ${discordError.message}` };
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Handle job failure with retry logic.
+   */
+  private async handleJobFailure(job: OutboxJob, error: string): Promise<void> {
+    const newRetryCount = job.retryCount + 1;
+
+    this.logger.warn('Job failed', {
+      jobId: job._id,
+      retryCount: newRetryCount,
+      maxRetries: job.maxRetries,
+      error,
+    });
+
+    if (newRetryCount >= job.maxRetries) {
+      // Move to dead letter queue
+      await this.updateJobStatus(job._id, 'dead_letter', error);
+      this.logger.error('Job moved to dead letter queue', {
+        jobId: job._id,
+        totalRetries: newRetryCount,
+      });
+    } else {
+      // Schedule retry with backoff
+      const backoffMs = this.rateLimiter.calculateBackoff(newRetryCount);
+      const nextRetryAt = Date.now() + backoffMs;
+
+      await this.updateJobStatus(job._id, 'pending', error, nextRetryAt);
+    }
+  }
+
+  /**
+   * Emit audit event for role sync operation.
+   */
+  private async emitAuditEvent(
+    job: OutboxJob,
+    result: RoleSyncResult
+  ): Promise<void> {
+    try {
+      const eventType =
+        job.jobType === 'role_sync'
+          ? 'discord.role.sync.completed'
+          : 'discord.role.removal.completed';
+
+      await this.convexClient.mutation('audit_events:createAuditEvent' as any, {
+        apiSecret: this.apiSecret,
+        tenantId: job.tenantId,
+        eventType,
+        actorType: 'system',
+        actorId: 'role-sync-service',
+        subjectId: (job.payload as RoleSyncPayload).subjectId,
+        metadata: {
+          jobId: job._id,
+          jobType: job.jobType,
+          guildId: result.guildId,
+          discordUserId: result.discordUserId,
+          rolesAdded: result.rolesAdded,
+          rolesRemoved: result.rolesRemoved,
+          success: result.success,
+          error: result.error,
+        },
+      });
+    } catch (error) {
+      // Don't fail the job if audit logging fails
+      this.logger.error('Failed to emit audit event', {
+        jobId: job._id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // ============================================================================
+  // CONVEX API HELPERS
+  // ============================================================================
+
+  /**
+   * Fetch pending outbox jobs for role sync.
+   */
+  private async fetchPendingJobs(): Promise<OutboxJob[]> {
+    try {
+      const jobs = await this.convexClient.query('outbox_jobs:getPendingJobs' as any, {
+        apiSecret: this.apiSecret,
+        jobTypes: ['role_sync', 'role_removal', 'creator_alert'],
+        limit: 10,
+      });
+
+      return jobs as OutboxJob[];
+    } catch (error) {
+      this.logger.error('Failed to fetch pending jobs', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Update outbox job status.
+   */
+  private async updateJobStatus(
+    jobId: Id<'outbox_jobs'>,
+    status: OutboxJob['status'],
+    error?: string,
+    nextRetryAt?: number
+  ): Promise<void> {
+    try {
+      await this.convexClient.mutation('outbox_jobs:updateJobStatus' as any, {
+        apiSecret: this.apiSecret,
+        jobId,
+        status,
+        error,
+        nextRetryAt,
+      });
+    } catch (updateError) {
+      this.logger.error('Failed to update job status', {
+        jobId,
+        status,
+        error: updateError instanceof Error ? updateError.message : String(updateError),
+      });
+    }
+  }
+
+  /**
+   * Fetch role rules for a tenant and product.
+   */
+  private async fetchRoleRules(
+    tenantId: Id<'tenants'>,
+    productId: string
+  ): Promise<RoleRule[]> {
+    try {
+      const rules = await this.convexClient.query('role_rules:getByProduct' as any, {
+        tenantId,
+        productId,
+      });
+
+      return rules as RoleRule[];
+    } catch (error) {
+      this.logger.error('Failed to fetch role rules', {
+        tenantId,
+        productId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Fetch entitlement by ID.
+   */
+  private async fetchEntitlement(entitlementId: Id<'entitlements'>): Promise<Entitlement | null> {
+    try {
+      const result = await this.convexClient.query('entitlements:getEntitlement' as any, {
+        entitlementId,
+      });
+
+      if (result.found) {
+        return result.entitlement as Entitlement;
+      }
+      return null;
+    } catch (error) {
+      this.logger.error('Failed to fetch entitlement', {
+        entitlementId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  // ============================================================================
+  // UTILITY METHODS
+  // ============================================================================
+
+  /**
+   * Check if an error is a Discord API error.
+   */
+  private isDiscordError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof (error as { code: unknown }).code === 'number'
+    );
+  }
+
+  /**
+   * Sleep for a specified duration.
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+}
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
+
+export default RoleSyncService;

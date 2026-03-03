@@ -1,0 +1,514 @@
+/**
+ * Gumroad Provider Adapter
+ *
+ * Implements the ProviderAdapter interface for Gumroad OAuth and API integration.
+ * Provides purchase verification through OAuth-based access to user's Gumroad sales.
+ *
+ * Usage:
+ * ```ts
+ * const adapter = new GumroadAdapter(config, encryptionService);
+ * const authUrl = await adapter.beginVerification(tenantId, subjectId);
+ * // Redirect user to authUrl, then handle callback
+ * const result = await adapter.completeVerification(code, state);
+ * ```
+ */
+
+import type { Verification } from '@yucp/shared';
+import type { ProviderAdapter, ProviderConfig, PurchaseRecord } from '../index';
+import { GumroadApiError, GumroadOAuthClient, OAuthError, createOAuthClientFromEnv } from './oauth';
+import type {
+  AuthorizationUrlResult,
+  GumroadAdapterConfig,
+  GumroadLicenseVerifyResponse,
+  GumroadProduct,
+  GumroadProductResponse,
+  GumroadPurchaseEvidence,
+  GumroadSale,
+  GumroadSalesResponse,
+  OAuthCompletionResult,
+} from './types';
+import { getSaleStatus, isSaleValid, normalizeSaleToEvidence } from './types';
+
+/**
+ * Token storage interface (to be implemented by the application)
+ */
+export interface TokenStorage {
+  /** Store encrypted tokens for a user */
+  storeTokens(
+    tenantId: string,
+    gumroadUserId: string,
+    accessToken: unknown,
+    refreshToken: unknown,
+    expiresAt: number
+  ): Promise<void>;
+
+  /** Retrieve tokens for a user */
+  getTokens(
+    tenantId: string,
+    gumroadUserId: string
+  ): Promise<{
+    accessToken: unknown;
+    refreshToken: unknown;
+    expiresAt: number;
+  } | null>;
+
+  /** Delete tokens for a user */
+  deleteTokens(tenantId: string, gumroadUserId: string): Promise<void>;
+}
+
+/**
+ * Encryption service interface (uses envelope encryption from @yucp/shared)
+ */
+export interface EncryptionService {
+  /** Encrypt a token using envelope encryption */
+  encryptToken(token: string, tenantId: string, tokenType: 'access' | 'refresh'): Promise<unknown>;
+
+  /** Decrypt a token using envelope encryption */
+  decryptToken(
+    encryptedToken: unknown,
+    tenantId: string,
+    tokenType: 'access' | 'refresh'
+  ): Promise<string>;
+}
+
+/**
+ * State storage interface for OAuth state management
+ */
+export interface StateStorage {
+  /** Store OAuth state */
+  storeState(
+    state: string,
+    data: { tenantId: string; subjectId?: string; codeVerifier: string }
+  ): Promise<void>;
+
+  /** Retrieve and delete OAuth state */
+  consumeState(
+    state: string
+  ): Promise<{ tenantId: string; subjectId?: string; codeVerifier: string } | null>;
+}
+
+/**
+ * In-memory state storage (for development/testing only)
+ */
+export class InMemoryStateStorage implements StateStorage {
+  private states = new Map<
+    string,
+    { tenantId: string; subjectId?: string; codeVerifier: string; createdAt: number }
+  >();
+  private readonly maxAgeMs = 600000; // 10 minutes
+
+  async storeState(
+    state: string,
+    data: { tenantId: string; subjectId?: string; codeVerifier: string }
+  ): Promise<void> {
+    this.states.set(state, { ...data, createdAt: Date.now() });
+    // Clean up expired states
+    for (const [key, value] of this.states.entries()) {
+      if (Date.now() - value.createdAt > this.maxAgeMs) {
+        this.states.delete(key);
+      }
+    }
+  }
+
+  async consumeState(
+    state: string
+  ): Promise<{ tenantId: string; subjectId?: string; codeVerifier: string } | null> {
+    const data = this.states.get(state);
+    if (!data) return null;
+
+    // Check expiration
+    if (Date.now() - data.createdAt > this.maxAgeMs) {
+      this.states.delete(state);
+      return null;
+    }
+
+    this.states.delete(state);
+    return { tenantId: data.tenantId, subjectId: data.subjectId, codeVerifier: data.codeVerifier };
+  }
+}
+
+/**
+ * Gumroad provider adapter implementing ProviderAdapter interface
+ */
+export class GumroadAdapter implements ProviderAdapter {
+  readonly name = 'gumroad';
+
+  private readonly oauthClient: GumroadOAuthClient;
+  private readonly apiBaseUrl: string;
+
+  constructor(
+    private readonly config: ProviderConfig & GumroadAdapterConfig,
+    private readonly tokenStorage?: TokenStorage,
+    private readonly encryptionService?: EncryptionService,
+    private readonly stateStorage: StateStorage = new InMemoryStateStorage()
+  ) {
+    this.oauthClient = new GumroadOAuthClient({
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+      redirectUri: config.redirectUri,
+      apiBaseUrl: config.apiBaseUrl,
+      oauthBaseUrl: config.oauthBaseUrl,
+    });
+    this.apiBaseUrl = config.apiBaseUrl ?? 'https://api.gumroad.com/v2';
+  }
+
+  /**
+   * Create adapter from environment variables
+   */
+  static fromEnv(
+    tokenStorage?: TokenStorage,
+    encryptionService?: EncryptionService,
+    stateStorage?: StateStorage
+  ): GumroadAdapter {
+    const oauthClient = createOAuthClientFromEnv();
+    return new GumroadAdapter(
+      {
+        clientId: process.env.GUMROAD_CLIENT_ID ?? '',
+        clientSecret: process.env.GUMROAD_CLIENT_SECRET ?? '',
+        redirectUri: process.env.GUMROAD_REDIRECT_URI ?? '',
+      },
+      tokenStorage,
+      encryptionService,
+      stateStorage
+    );
+  }
+
+  /**
+   * Begin the OAuth verification flow.
+   * Returns an authorization URL to redirect the user to.
+   *
+   * @param tenantId - The tenant ID for multi-tenant context
+   * @param subjectId - Optional subject ID (YUCP user)
+   * @param options - Additional options (scope)
+   */
+  async beginVerification(
+    tenantId: string,
+    subjectId?: string,
+    options?: { scope?: string }
+  ): Promise<AuthorizationUrlResult> {
+    const result = await this.oauthClient.getAuthorizationUrl(tenantId, {
+      scope: options?.scope,
+      subjectId,
+    });
+
+    // Store state for later verification
+    await this.stateStorage.storeState(result.state, {
+      tenantId,
+      subjectId,
+      codeVerifier: result.codeVerifier ?? '',
+    });
+
+    return result;
+  }
+
+  /**
+   * Complete the OAuth verification flow.
+   * Exchanges the authorization code for tokens and fetches user info.
+   *
+   * @param code - The authorization code from the callback
+   * @param state - The state parameter from the callback
+   */
+  async completeVerification(
+    code: string,
+    state: string
+  ): Promise<OAuthCompletionResult & { tenantId?: string; subjectId?: string }> {
+    // Retrieve and validate state
+    const stateData = await this.stateStorage.consumeState(state);
+    if (!stateData) {
+      return {
+        success: false,
+        error: 'Invalid or expired OAuth state',
+      };
+    }
+
+    // Complete OAuth flow
+    const result = await this.oauthClient.completeOAuthFlow(code, stateData.codeVerifier);
+
+    if (!result.success) {
+      return { ...result, tenantId: stateData.tenantId, subjectId: stateData.subjectId };
+    }
+
+    // Encrypt and store tokens if encryption service is available
+    if (this.encryptionService && this.tokenStorage && result.gumroadUserId) {
+      const encryptedAccess = await this.encryptionService.encryptToken(
+        result.encryptedAccessToken as string,
+        stateData.tenantId,
+        'access'
+      );
+      const encryptedRefresh = await this.encryptionService.encryptToken(
+        result.encryptedRefreshToken as string,
+        stateData.tenantId,
+        'refresh'
+      );
+
+      await this.tokenStorage.storeTokens(
+        stateData.tenantId,
+        result.gumroadUserId,
+        encryptedAccess,
+        encryptedRefresh,
+        result.expiresAt ?? 0
+      );
+    }
+
+    return {
+      ...result,
+      encryptedAccessToken: undefined, // Don't return raw tokens
+      encryptedRefreshToken: undefined,
+      tenantId: stateData.tenantId,
+      subjectId: stateData.subjectId,
+    };
+  }
+
+  /**
+   * Verify a license key against a Gumroad product.
+   * Uses POST https://api.gumroad.com/v2/licenses/verify (no OAuth required).
+   *
+   * @param licenseKey - The license key to verify (format: 8-8-8-8 alphanumeric)
+   * @param productId - The Gumroad product ID
+   * @param options - Optional: increment_uses_count (default false)
+   */
+  async verifyLicense(
+    licenseKey: string,
+    productId: string,
+    options?: { incrementUsesCount?: boolean }
+  ): Promise<{
+    valid: boolean;
+    uses?: number;
+    isTestPurchase?: boolean;
+    /** Purchase email from API (for provider customer identity) */
+    purchaseEmail?: string;
+    /** Sale ID from API (for source reference) */
+    saleId?: string;
+    error?: string;
+  }> {
+    const body = new URLSearchParams();
+    body.append('product_id', productId);
+    body.append('license_key', licenseKey);
+    if (options?.incrementUsesCount === true) {
+      body.append('increment_uses_count', 'true');
+    }
+
+    const response = await fetch(`${this.apiBaseUrl}/licenses/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: body.toString(),
+    });
+
+    const data = (await response.json()) as GumroadLicenseVerifyResponse;
+
+    if (!response.ok) {
+      return {
+        valid: false,
+        error: data.message ?? `HTTP ${response.status}`,
+      };
+    }
+
+    if (!data.success) {
+      return {
+        valid: false,
+        error: data.message ?? 'Verification failed',
+      };
+    }
+
+    return {
+      valid: true,
+      uses: data.uses,
+      isTestPurchase: data.purchase?.test,
+      purchaseEmail: data.purchase?.email as string | undefined,
+      saleId: data.purchase?.sale_id as string | undefined,
+    };
+  }
+
+  /**
+   * Verify a purchase by email address.
+   * Fetches sales from the authenticated user's Gumroad account.
+   *
+   * @param emailOrId - Email address or Gumroad user ID to verify
+   */
+  async verifyPurchase(emailOrId: string): Promise<Verification | null> {
+    // This method is for backward compatibility with ProviderAdapter
+    // In practice, verification is done via OAuth flow
+    // Here we would need the tokens to be available
+
+    if (!this.tokenStorage || !this.encryptionService) {
+      throw new Error('Token storage and encryption service required for verifyPurchase');
+    }
+
+    // This is a placeholder - actual implementation would:
+    // 1. Get stored tokens for the user
+    // 2. Fetch purchases from Gumroad API
+    // 3. Return verification result
+
+    return null;
+  }
+
+  /**
+   * Get recent purchases for the authenticated user.
+   *
+   * @param accessToken - The decrypted access token
+   * @param limit - Maximum number of purchases to return
+   */
+  // ProviderAdapter defines getRecentPurchases(limit?: number): Promise<PurchaseRecord[]>
+  // For Gumroad, fetching recent purchases requires an access token tied to a
+  // Gumroad account. The generic ProviderAdapter surface does not provide that
+  // token, so this method returns an empty list when called through the
+  // ProviderAdapter interface. Use getPurchases(accessToken) when you have a
+  // decrypted access token for the account.
+  async getRecentPurchases(limit = 50): Promise<PurchaseRecord[]> {
+    console.warn(
+      'GumroadAdapter.getRecentPurchases: no access token available via ProviderAdapter interface; returning empty list'
+    );
+    return [];
+  }
+
+  /**
+   * Get all purchases for an authenticated user.
+   *
+   * @param accessToken - The decrypted access token
+   */
+  async getPurchases(accessToken: string): Promise<GumroadPurchaseEvidence[]> {
+    const userResponse = await this.oauthClient.getCurrentUser(accessToken);
+    if (!userResponse.success || !userResponse.user) {
+      throw new GumroadApiError('Failed to get user information', 401);
+    }
+
+    const gumroadUserId = String(userResponse.user.id);
+    const sales = await this.getSales(accessToken);
+
+    return sales.map((sale) => normalizeSaleToEvidence(sale, gumroadUserId));
+  }
+
+  /**
+   * Fetch sales from Gumroad API.
+   *
+   * @param accessToken - The access token
+   * @param limit - Maximum number of sales to fetch
+   */
+  private async getSales(accessToken: string, limit = 100): Promise<GumroadSale[]> {
+    const allSales: GumroadSale[] = [];
+    let nextPageUrl: string | undefined =
+      `${this.apiBaseUrl}/sales?access_token=${accessToken}&per_page=${Math.min(limit, 100)}`;
+
+    while (nextPageUrl && allSales.length < limit) {
+      const response = await fetch(nextPageUrl, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new GumroadApiError(`Failed to fetch sales: ${text}`, response.status);
+      }
+
+      const data = (await response.json()) as GumroadSalesResponse;
+
+      if (!data.success) {
+        throw new GumroadApiError('Failed to fetch sales', 500);
+      }
+
+      allSales.push(...data.sales);
+      nextPageUrl = data.next_page_url;
+
+      // Stop if we have enough sales
+      if (allSales.length >= limit) {
+        break;
+      }
+    }
+
+    return allSales.slice(0, limit);
+  }
+
+  /**
+   * Get a specific product by ID.
+   *
+   * @param accessToken - The access token
+   * @param productId - The Gumroad product ID
+   */
+  async getProduct(accessToken: string, productId: string): Promise<GumroadProduct | null> {
+    const response = await fetch(
+      `${this.apiBaseUrl}/products/${productId}?access_token=${accessToken}`,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new GumroadApiError(`Failed to fetch product: ${text}`, response.status);
+    }
+
+    const data = (await response.json()) as GumroadProductResponse;
+
+    if (!data.success) {
+      return null;
+    }
+
+    return data.product;
+  }
+
+  /**
+   * Check if a purchase has been refunded, chargebacked, or disputed.
+   *
+   * @param accessToken - The access token
+   * @param saleId - The sale ID to check
+   */
+  async checkPurchaseStatus(
+    accessToken: string,
+    saleId: string
+  ): Promise<{
+    found: boolean;
+    status: 'active' | 'refunded' | 'chargebacked' | 'disputed' | 'unknown';
+    sale?: GumroadSale;
+  }> {
+    // Fetch all sales and find the specific one
+    // Note: Gumroad API doesn't have a direct endpoint for a single sale
+    const sales = await this.getSales(accessToken);
+    const sale = sales.find((s) => s.id === saleId);
+
+    if (!sale) {
+      return { found: false, status: 'unknown' };
+    }
+
+    return {
+      found: true,
+      status: getSaleStatus(sale),
+      sale,
+    };
+  }
+
+  /**
+   * Revoke access for a user by deleting their tokens.
+   *
+   * @param tenantId - The tenant ID
+   * @param gumroadUserId - The Gumroad user ID
+   */
+  async revokeAccess(tenantId: string, gumroadUserId: string): Promise<void> {
+    if (this.tokenStorage) {
+      await this.tokenStorage.deleteTokens(tenantId, gumroadUserId);
+    }
+  }
+}
+
+// Re-export types and utilities
+export type {
+  GumroadAdapterConfig,
+  GumroadPurchaseEvidence,
+  GumroadSale,
+  GumroadProduct,
+  AuthorizationUrlResult,
+  OAuthCompletionResult,
+} from './types';
+export * from './oauth';
+export * from './types';
