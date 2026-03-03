@@ -11,13 +11,21 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
-    <link href="https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <link href="https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black"
+        rel="stylesheet">
+
     <style>
         :root {
             --bg-color: #f6efee;
             --text-primary: #7a7a9f;
+            --text-secondary: #5e5e80;
+            --accent-mustard: #f0cc60;
             --accent-orange: #d45d39;
+            --accent-green-dark: #3f7035;
             --accent-blue: #224285;
+            --accent-purple: #8e8eb2;
+
             --discord-blurple: #5865F2;
             --gumroad-green: #36a9ae;
         }
@@ -26,53 +34,186 @@
             background-color: var(--bg-color);
             color: var(--text-primary);
             font-family: 'DM Sans', sans-serif;
+            overflow: hidden;
+            cursor: none;
+            width: 100%;
+            height: 100vh;
         }
 
         h1,
-        h2 {
-            font-family: "Airbnb Cereal App Black", sans-serif;
+        h2,
+        h3,
+        .display-text {
+            font-family: 'Airbnb Cereal App Black', "Plus Jakarta Sans", sans-serif;
             font-weight: 800;
             letter-spacing: -0.04em;
         }
 
+        .cursor-dot,
+        .cursor-dot-outline {
+            position: fixed;
+            top: 0;
+            left: 0;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            z-index: 9999;
+            pointer-events: none;
+        }
+
+        .cursor-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-orange);
+        }
+
+        .cursor-dot-outline {
+            width: 40px;
+            height: 40px;
+            border: 1px solid var(--accent-blue);
+            transition: width 0.2s, height 0.2s;
+        }
+
+        .reveal {
+            animation: revealUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+
+        @keyframes revealUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         .connect-card {
-            background: #fff;
+            background: #ffffff;
             border: 1px solid #e0d6d4;
             box-shadow: 0 20px 50px rgba(34, 66, 133, 0.05);
+            transition: transform 0.3s ease;
         }
 
         .platform-btn {
-            transition: all 0.25s ease;
+            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border: 2px solid transparent;
         }
 
         .platform-btn:hover {
             transform: scale(1.02) translateY(-2px);
         }
+
+        .platform-btn:disabled {
+            opacity: 0.9;
+            pointer-events: none;
+        }
+
+        .nav-link {
+            position: relative;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: currentColor;
+            transition: width 0.25s ease;
+        }
+
+        .nav-link:hover::after {
+            width: 100%;
+        }
+
+        .line-accent {
+            position: absolute;
+            pointer-events: none;
+            opacity: 0.1;
+            z-index: 0;
+        }
+
+        .sticker {
+            display: inline-block;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .sticker:hover {
+            transform: scale(1.1) rotate(2deg);
+        }
     </style>
 </head>
 
-<body class="min-h-screen flex flex-col">
-    <main class="flex-grow flex flex-col items-center justify-center px-4 py-12">
-        <div class="max-w-xl w-full connect-card rounded-[32px] p-12">
+<body class="min-h-screen flex flex-col selection:bg-yellow-200">
+
+    <div class="cursor-dot"></div>
+    <div class="cursor-dot-outline"></div>
+
+    <nav class="w-full px-12 py-8 flex justify-between items-center z-50 bg-transparent relative">
+        <div class="text-2xl font-black tracking-tighter text-[#224285] sticker cursor-pointer"
+            style="font-family: 'Plus Jakarta Sans', sans-serif;">
+            YUCP.
+        </div>
+        <div class="flex gap-10 text-xs font-bold uppercase tracking-widest items-center">
+            <a href="#" class="nav-link text-[#224285]/60 hover:text-[#224285]">Dashboard</a>
+            <a href="#" class="nav-link text-[#224285]/60 hover:text-[#224285]">Support</a>
+            <div class="h-4 w-[1px] bg-[#e0d6d4]"></div>
+            <button class="text-[#d45d39] font-extrabold hover:underline">Sign Out</button>
+        </div>
+    </nav>
+
+    <main class="flex-grow flex flex-col items-center justify-center px-4 relative h-full">
+
+        <!-- Background SVGs -->
+        <svg class="line-accent top-20 left-20 w-80 h-80" viewBox="0 0 200 200" fill="none" stroke="#224285"
+            stroke-width="0.5">
+            <path d="M0,40 L40,40 L40,0 M0,80 L80,80 L80,0 M0,120 L120,120 L120,0"></path>
+            <circle cx="20" cy="20" r="3" fill="#224285"></circle>
+        </svg>
+
+        <svg class="line-accent bottom-20 right-20 w-96 h-96" viewBox="0 0 200 200" fill="none" stroke="#d45d39"
+            stroke-width="0.5">
+            <rect x="150" y="150" width="40" height="40"></rect>
+            <circle cx="100" cy="100" r="60"></circle>
+        </svg>
+
+        <div class="max-w-xl w-full connect-card rounded-[32px] p-12 relative z-10 reveal">
             <div class="text-center mb-10">
-                <h1 class="text-4xl text-[#224285] mb-4">Connect Your <span class="text-[#d45d39]">Accounts</span></h1>
-                <p class="text-[#7a7a9f] font-medium">Link your platforms to enable verification for your Discord
-                    server.</p>
+                <div
+                    class="inline-block px-4 py-1 bg-[#f0cc60]/20 text-[#224285] rounded-full text-[10px] font-black uppercase tracking-widest mb-4">
+                    Sync Progress
+                </div>
+                <h1 class="text-4xl md:text-5xl text-[#224285] mb-4">
+                    Connect Your <br> <span class="text-[#d45d39]">Accounts</span>
+                </h1>
+                <p class="text-[#7a7a9f] font-medium leading-relaxed" style="font-family: 'DM Sans', sans-serif;">
+                    Link your platforms to unlock custom roles, tiered rewards, and seamless profile synchronization
+                    across the community.
+                </p>
             </div>
 
             <div class="space-y-4">
-                <div
-                    class="platform-btn w-full flex items-center justify-between p-5 rounded-2xl bg-[#5865F2] text-white shadow-lg opacity-90">
+
+                <button type="button"
+                    class="w-full flex items-center justify-between p-5 rounded-2xl bg-[#5865F2] text-white shadow-lg shadow-[#5865F2]/20 opacity-90 cursor-default"
+                    data-platform="discord">
                     <div class="flex items-center gap-4">
                         <div class="bg-white/20 p-2 rounded-lg">
                             <img class="w-6 h-6 object-contain"
                                 src="https://cdn.brandfetch.io/idM8Hlme1a/w/800/h/620/theme/light/symbol.png?c=1bxid64Mup7aczewSAYMX&t=1668075053047"
                                 alt="Discord">
                         </div>
-                        <span class="font-bold text-lg">Discord</span>
+                        <span class="font-bold tracking-tight text-lg"
+                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Discord</span>
                     </div>
-                    <span class="text-xs font-bold uppercase opacity-80">Connected</span>
-                </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold uppercase opacity-80"
+                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Connected</span>
+                    </div>
+                </button>
 
                 <button type="button"
                     class="platform-btn w-full flex items-center justify-between p-5 rounded-2xl bg-[#ff90e8] text-black shadow-lg shadow-[#ff90e8]/20 group"
@@ -83,9 +224,17 @@
                                 src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
                                 alt="Gumroad">
                         </div>
-                        <span class="font-bold text-lg">Gumroad</span>
+                        <span class="font-bold tracking-tight text-lg"
+                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Gumroad</span>
                     </div>
-                    <span class="connect-badge text-xs font-bold uppercase opacity-80">Connect</span>
+                    <div class="flex items-center gap-2 text-black">
+                        <span class="connect-badge text-xs font-bold uppercase opacity-80"
+                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Connect</span>
+                        <svg class="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none"
+                            stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                            <path d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
                 </button>
 
                 <button type="button"
@@ -97,20 +246,31 @@
                                 src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
                                 alt="Jinxxy">
                         </div>
-                        <span class="font-bold text-lg">Jinxxy</span>
+                        <span class="font-bold tracking-tight text-lg"
+                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Jinxxy</span>
                     </div>
-                    <span class="connect-badge text-xs font-bold uppercase opacity-80">Connect</span>
+                    <div class="flex items-center gap-2">
+                        <span class="connect-badge text-xs font-bold uppercase opacity-80"
+                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Connect</span>
+                        <svg class="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none"
+                            stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                            <path d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
                 </button>
             </div>
 
             <div class="mt-10 pt-8 border-t border-[#e0d6d4]/60 flex flex-col gap-4">
                 <button id="done-btn"
-                    class="w-full py-4 rounded-2xl bg-[#d45d39] text-white font-bold text-lg hover:bg-[#c04d29] transition-colors">
-                    Done — Continue Setup in Discord
+                    class="w-full py-4 rounded-2xl bg-[#d45d39] text-white font-bold text-lg shadow-lg shadow-[#d45d39]/20 hover:bg-[#c04d29] transition-all platform-btn flex justify-center items-center gap-2 group">
+                    <span>Done — Continue Setup in Discord</span>
                 </button>
-                <p id="status" class="text-center text-sm text-[#7a7a9f] hidden"></p>
+                <p id="status" class="text-center text-sm text-[#7a7a9f] font-bold hidden"></p>
             </div>
         </div>
+
+        <p class="mt-12 text-[10px] font-black uppercase tracking-[0.5em] text-[#224285]/20 select-none pb-4">YUCP
+            INTEGRATION MODULE v2.4</p>
     </main>
 
     <script>
@@ -118,6 +278,33 @@
         const token = '__TOKEN__';
         const apiBase = '__API_BASE__';
         let tenantId = null;
+
+        const cursorDot = document.querySelector('.cursor-dot');
+        const cursorOutline = document.querySelector('.cursor-dot-outline');
+
+        window.addEventListener('mousemove', (e) => {
+            const posX = e.clientX;
+            const posY = e.clientY;
+            cursorDot.style.left = `${posX}px`;
+            cursorDot.style.top = `${posY}px`;
+            cursorOutline.animate({
+                left: `${posX}px`,
+                top: `${posY}px`
+            }, { duration: 500, fill: "forwards" });
+        });
+
+        document.querySelectorAll('button, a').forEach(el => {
+            el.addEventListener('mouseenter', () => {
+                cursorOutline.style.width = '60px';
+                cursorOutline.style.height = '60px';
+                cursorOutline.style.backgroundColor = 'rgba(240, 204, 96, 0.1)';
+            });
+            el.addEventListener('mouseleave', () => {
+                cursorOutline.style.width = '40px';
+                cursorOutline.style.height = '40px';
+                cursorOutline.style.backgroundColor = 'transparent';
+            });
+        });
 
         async function ensureTenantAndStatus() {
             try {
@@ -131,21 +318,27 @@
                 if (!statusRes.ok) return;
                 const statusData = await statusRes.json();
                 updatePlatformCards(statusData);
-            } catch (_) {}
+            } catch (_) { }
         }
 
         function updatePlatformCards(status) {
             const gumroadBtn = document.querySelector('[data-platform="gumroad"]');
             const jinxxyBtn = document.querySelector('[data-platform="jinxxy"]');
+
             if (gumroadBtn && status?.gumroad) {
-                gumroadBtn.classList.remove('bg-[#ff90e8]', 'shadow-[#ff90e8]/20');
-                gumroadBtn.classList.add('bg-[#36a9ae]', 'opacity-90');
+                gumroadBtn.classList.remove('bg-[#ff90e8]', 'shadow-[#ff90e8]/20', 'text-black');
+                gumroadBtn.classList.add('bg-[#36a9ae]', 'text-white', 'shadow-[#36a9ae]/20', 'opacity-90', 'cursor-default');
+                gumroadBtn.querySelector('path').parentElement.style.display = 'none'; // hide arrow
                 const badge = gumroadBtn.querySelector('.connect-badge');
                 if (badge) badge.textContent = 'Connected';
                 gumroadBtn.disabled = true;
+                gumroadBtn.querySelector('.flex.items-center.gap-2').classList.remove('text-black');
+                gumroadBtn.querySelector('.flex.items-center.gap-2').classList.add('text-white');
             }
             if (jinxxyBtn && status?.jinxxy) {
-                jinxxyBtn.classList.add('opacity-90');
+                jinxxyBtn.classList.remove('opacity-90');
+                jinxxyBtn.classList.add('opacity-90', 'cursor-default');
+                jinxxyBtn.querySelector('path').parentElement.style.display = 'none'; // hide arrow
                 const badge = jinxxyBtn.querySelector('.connect-badge');
                 if (badge) badge.textContent = 'Connected';
                 jinxxyBtn.disabled = true;
@@ -162,10 +355,10 @@
             const btn = document.getElementById('done-btn');
             const status = document.getElementById('status');
             btn.disabled = true;
-            btn.textContent = 'Completing...';
+            btn.innerHTML = 'Completing...';
             status.classList.remove('hidden');
             status.textContent = '';
-            status.className = 'text-center text-sm text-[#7a7a9f]';
+            status.className = 'text-center text-sm font-bold text-[#7a7a9f]';
 
             try {
                 const res = await fetch(`${apiBase}/api/connect/complete`, {
@@ -178,35 +371,75 @@
 
                 if (res.ok && data.success) {
                     status.textContent = 'Setup complete! You can close this window and continue in Discord.';
-                    status.className = 'text-center text-sm text-green-600';
-                    try { window.close(); } catch (_) { }
+                    status.className = 'text-center text-sm font-bold text-green-600';
+
+                    const end = Date.now() + 1500;
+                    (function frame() {
+                        confetti({
+                            particleCount: 4,
+                            angle: 60,
+                            spread: 55,
+                            origin: { x: 0 },
+                            colors: ['#d45d39', '#224285', '#f0cc60']
+                        });
+                        confetti({
+                            particleCount: 4,
+                            angle: 120,
+                            spread: 55,
+                            origin: { x: 1 },
+                            colors: ['#d45d39', '#224285', '#f0cc60']
+                        });
+                        if (Date.now() < end) requestAnimationFrame(frame);
+                    }());
+
                 } else {
                     status.textContent = data.error || 'Something went wrong.';
-                    status.className = 'text-center text-sm text-red-600';
+                    status.className = 'text-center text-sm font-bold text-red-600';
                     btn.disabled = false;
-                    btn.textContent = 'Done — Continue Setup in Discord';
+                    btn.innerHTML = 'Done — Continue Setup in Discord';
                 }
             } catch (err) {
                 status.textContent = 'Network error. Please try again.';
-                status.className = 'text-center text-sm text-red-600';
+                status.className = 'text-center text-sm font-bold text-red-600';
                 btn.disabled = false;
-                btn.textContent = 'Done — Continue Setup in Discord';
+                btn.innerHTML = 'Done — Continue Setup in Discord';
             }
         });
 
-        document.querySelectorAll('[data-platform]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const platform = btn.dataset.platform;
+        document.querySelectorAll('button[data-platform]').forEach(btn => {
+            btn.addEventListener('click', function (e) {
+                const platform = this.dataset.platform;
                 if (!tenantId) {
                     alert('Please wait for the page to load.');
                     return;
                 }
-                if (platform === 'gumroad') {
-                    window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
-                }
-                if (platform === 'jinxxy') {
-                    window.location.href = `${apiBase}/jinxxy-setup?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
-                }
+
+                // Fire confetti
+                const rect = this.getBoundingClientRect();
+                const colors = {
+                    'discord': ['#5865F2', '#ffffff'],
+                    'gumroad': ['#ff90e8', '#36a9ae', '#ffffff'],
+                    'jinxxy': ['#9146FF', '#ffffff']
+                };
+
+                confetti({
+                    particleCount: 40,
+                    spread: 60,
+                    origin: {
+                        x: (rect.left + rect.width / 2) / window.innerWidth,
+                        y: (rect.top + rect.height / 2) / window.innerHeight
+                    },
+                    colors: colors[platform],
+                    ticks: 200
+                });
+
+                setTimeout(() => {
+                    if (platform === 'gumroad') {
+                        window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
+                    } else if (platform === 'jinxxy') {
+                        window.location.href = `${apiBase}/jinxxy-setup?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
+                    }
+                }, 400); // Give confetti a little head start
             });
         });
     </script>
