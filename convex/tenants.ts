@@ -7,7 +7,8 @@
  * Requires CONVEX_API_SECRET for API-to-Convex calls.
  */
 
-import { mutation, query } from './_generated/server';
+import { mutation, query, internalQuery } from './_generated/server';
+import { components } from './_generated/api';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 
@@ -212,5 +213,44 @@ export const getTenantByOwnerAuth = query({
       .query('tenants')
       .withIndex('by_owner_auth', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId))
       .first();
+  },
+});
+
+/**
+ * Get Discord user ID from Better Auth user ID.
+ * Finds the linked Discord OAuth account via the Better Auth component adapter.
+ * Must be internalQuery since it calls an internal component function.
+ */
+export const getDiscordUserIdFromAuthUser = internalQuery({
+  args: {
+    authUserId: v.string(),
+  },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, args) => {
+    // Query the Better Auth component's account model via its adapter
+    const result = await ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: 'account',
+      where: [
+        { field: 'userId', operator: 'eq', value: args.authUserId },
+        { field: 'providerId', operator: 'eq', value: 'discord', connector: 'AND' },
+      ],
+      paginationOpts: { cursor: null, numItems: 1 },
+    });
+
+    if (result?.page?.length > 0) {
+      return result.page[0].accountId as string;
+    }
+
+    // Fallback: try looking in subjects table
+    const subject = await ctx.db
+      .query('subjects')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+
+    if (subject) {
+      return subject.primaryDiscordUserId;
+    }
+
+    return null;
   },
 });

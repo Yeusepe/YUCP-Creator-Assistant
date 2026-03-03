@@ -379,10 +379,10 @@ export const syncUserFromProvider = mutation({
     apiSecret: v.string(),
     provider: v.union(v.literal('gumroad'), v.literal('discord'), v.literal('jinxxy')),
     providerUserId: v.string(),
-    username: v.optional(v.string()),
-    email: v.optional(v.string()),
-    avatarUrl: v.optional(v.string()),
-    profileUrl: v.optional(v.string()),
+    username: v.optional(v.union(v.string(), v.null())),
+    email: v.optional(v.union(v.string(), v.null())),
+    avatarUrl: v.optional(v.union(v.string(), v.null())),
+    profileUrl: v.optional(v.union(v.string(), v.null())),
     /** When provided, use as primaryDiscordUserId (for Gumroad→Discord link from verify button) */
     discordUserId: v.optional(v.string()),
   },
@@ -396,6 +396,11 @@ export const syncUserFromProvider = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const now = Date.now();
+
+    const username = args.username ?? undefined;
+    const email = args.email ?? undefined;
+    const avatarUrl = args.avatarUrl ?? undefined;
+    const profileUrl = args.profileUrl ?? undefined;
 
     // primaryDiscordUserId: when discordUserId provided use it; for Discord use providerUserId; for others use provider:userId
     const primaryId =
@@ -425,8 +430,8 @@ export const syncUserFromProvider = mutation({
       if (existingSubject) {
         await ctx.db.patch(existingSubject._id, {
           primaryDiscordUserId: args.discordUserId,
-          displayName: args.username ?? existingSubject.displayName,
-          avatarUrl: args.avatarUrl ?? existingSubject.avatarUrl,
+          displayName: username ?? existingSubject.displayName,
+          avatarUrl: avatarUrl ?? existingSubject.avatarUrl,
           updatedAt: now,
         });
       }
@@ -435,16 +440,16 @@ export const syncUserFromProvider = mutation({
     if (existingSubject) {
       subjectId = existingSubject._id;
       await ctx.db.patch(subjectId, {
-        displayName: args.username ?? existingSubject.displayName,
-        avatarUrl: args.avatarUrl ?? existingSubject.avatarUrl,
+        displayName: username ?? existingSubject.displayName,
+        avatarUrl: avatarUrl ?? existingSubject.avatarUrl,
         updatedAt: now,
       });
     } else {
       subjectId = await ctx.db.insert('subjects', {
         primaryDiscordUserId: primaryId,
         status: 'active',
-        displayName: args.username,
-        avatarUrl: args.avatarUrl,
+        displayName: username,
+        avatarUrl: avatarUrl,
         createdAt: now,
         updatedAt: now,
       });
@@ -464,11 +469,11 @@ export const syncUserFromProvider = mutation({
     if (existingAccount) {
       externalAccountId = existingAccount._id;
       await ctx.db.patch(externalAccountId, {
-        providerUsername: args.username ?? existingAccount.providerUsername,
+        providerUsername: username ?? existingAccount.providerUsername,
         providerMetadata: {
-          email: args.email,
-          avatarUrl: args.avatarUrl,
-          profileUrl: args.profileUrl,
+          email: email,
+          avatarUrl: avatarUrl,
+          profileUrl: profileUrl,
           rawData: existingAccount.providerMetadata?.rawData,
         },
         lastValidatedAt: now,
@@ -479,11 +484,11 @@ export const syncUserFromProvider = mutation({
       externalAccountId = await ctx.db.insert('external_accounts', {
         provider: args.provider,
         providerUserId: args.providerUserId,
-        providerUsername: args.username,
+        providerUsername: username,
         providerMetadata: {
-          email: args.email,
-          avatarUrl: args.avatarUrl,
-          profileUrl: args.profileUrl,
+          email: email,
+          avatarUrl: avatarUrl,
+          profileUrl: profileUrl,
         },
         lastValidatedAt: now,
         status: 'active',
@@ -718,12 +723,12 @@ export const clearSubjectSuspicious = mutation({
     await ctx.db.patch(args.subjectId, {
       flags: subject.flags
         ? {
-            ...subject.flags,
-            suspicious: false,
-            reason: undefined,
-            flaggedAt: undefined,
-            flaggedBy: undefined,
-          }
+          ...subject.flags,
+          suspicious: false,
+          reason: undefined,
+          flaggedAt: undefined,
+          flaggedBy: undefined,
+        }
         : undefined,
       status: 'active',
       updatedAt: now,
@@ -829,13 +834,13 @@ export const linkExternalAccountToSubject = mutation({
     const externalAccountId = await ctx.db.insert('external_accounts', {
       provider: args.provider,
       providerUserId: args.providerUserId,
-    providerUsername: args.providerUsername,
-    providerMetadata: args.providerMetadata,
-    lastValidatedAt: now,
-    status: 'active',
-    createdAt: now,
-    updatedAt: now,
-  });
+      providerUsername: args.providerUsername,
+      providerMetadata: args.providerMetadata,
+      lastValidatedAt: now,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
 
     return {
       success: true,
