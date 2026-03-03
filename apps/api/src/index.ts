@@ -68,8 +68,8 @@ function initializeAuth() {
     frontendUrl,
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
-    gumroadClientId: env.GUMROAD_API_KEY,
-    gumroadClientSecret: env.GUMROAD_SECRET_KEY,
+    gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
+    gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
     discordClientId: env.DISCORD_CLIENT_ID,
     discordClientSecret: env.DISCORD_CLIENT_SECRET,
     jinxxyClientId: env.JINXXY_API_KEY,
@@ -79,12 +79,13 @@ function initializeAuth() {
 
   connectRoutes = createConnectRoutes(auth, {
     baseUrl,
+    convexSiteUrl,
     discordClientId: env.DISCORD_CLIENT_ID ?? '',
     discordClientSecret: env.DISCORD_CLIENT_SECRET ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
-    gumroadClientId: env.GUMROAD_API_KEY ?? env.GUMROAD_CLIENT_ID,
-    gumroadClientSecret: env.GUMROAD_SECRET_KEY ?? env.GUMROAD_CLIENT_SECRET,
+    gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
+    gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   });
 
@@ -99,6 +100,7 @@ function initializeAuth() {
     baseUrl,
     convexSiteUrl,
     discordEnabled: !!(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET),
+    gumroadConfigured: !!(env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY),
   });
 
   return auth;
@@ -118,17 +120,9 @@ async function handleRequest(request: Request): Promise<Response> {
     });
   }
 
-  // Auth routes - delegate to Better Auth handler
-  if (pathname.startsWith('/api/auth')) {
-    if (!auth) {
-      return new Response(JSON.stringify({ error: 'Auth not initialized' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    return auth.handler(request);
-  }
+  // Auth is handled directly by Convex (.site URL) — no proxy needed.
+  // The browser talks to Convex for sign-in/callback, and the Bun server
+  // verifies sessions by calling Convex directly.
 
   // Install routes for bot installation
   if (installRoutes?.has(pathname)) {
@@ -176,8 +170,25 @@ async function handleRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/gumroad/begin' && connectRoutes) {
     return connectRoutes.gumroadBegin(request);
   }
-  if (pathname === '/api/connect/gumroad/callback' && connectRoutes) {
-    return connectRoutes.gumroadCallback(request);
+  if (pathname === '/api/connect/gumroad/callback') {
+    const url = new URL(request.url);
+    const state = url.searchParams.get('state');
+
+    if (state?.startsWith('verify_gumroad:')) {
+      const handler = verificationRoutes?.get('/api/verification/callback/gumroad');
+      if (handler) {
+        // Rewrite the URL so handleVerificationCallback extracts the correct mode 'gumroad'
+        // instead of 'callback' from the original /api/connect/gumroad/callback
+        const verifyUrl = new URL(request.url);
+        verifyUrl.pathname = '/api/verification/callback/gumroad';
+        const verifyRequest = new Request(verifyUrl.toString(), request);
+        return handler(verifyRequest);
+      }
+    }
+
+    if (connectRoutes) {
+      return connectRoutes.gumroadCallback(request);
+    }
   }
   if (pathname === '/api/connect/status' && connectRoutes) {
     return connectRoutes.getStatus(request);
@@ -262,7 +273,7 @@ async function main() {
 
   logger.info('API server ready', {
     port,
-    authRoutes: '/api/auth/*',
+    authProvider: 'Convex (direct)',
     installRoutes: '/api/install/*',
     healthCheck: '/health',
   });

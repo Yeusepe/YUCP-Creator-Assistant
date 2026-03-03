@@ -2,7 +2,10 @@
   "name": "yucp-creator-assistant",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "lint": "bun run --filter '*' lint",
     "typecheck": "bun run --filter '*' typecheck",
@@ -10,8 +13,8 @@
     "test:infisical": "bun run --env-file=.env.infisical test",
     "test:ci": "bun run --filter '*' test:ci",
     "build": "bun run --filter '*' build",
-    "dev": "concurrently -n convex,api,bot -c blue,magenta,green \"npx convex dev\" \"bun run dev:api\" \"bun run dev:bot\"",
-    "dev:infisical": "bun run sync:convex:env && concurrently -n convex,api,bot -c blue,magenta,green \"npx convex dev\" \"bun run dev:api:infisical\" \"bun run dev:bot:infisical\"",
+    "dev": "concurrently -n convex,api,bot,tunnel -c blue,magenta,green,cyan \"npx convex dev\" \"bun run dev:api\" \"bun run dev:bot\" \"tailscale funnel 3001\"",
+    "dev:infisical": "bun run sync:convex:env && concurrently -n convex,api,bot,tunnel -c blue,magenta,green,cyan \"npx convex dev\" \"bun run dev:api:infisical\" \"bun run dev:bot:infisical\" \"tailscale funnel 3001\"",
     "sync:convex:env": "bun run --env-file=.env.infisical ops/sync-convex-env.ts",
     "dev:api": "bun --cwd apps/api dev",
     "dev:api:infisical": "bun run --env-file=.env.infisical dev:api",

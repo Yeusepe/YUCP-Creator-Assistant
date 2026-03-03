@@ -21,7 +21,11 @@ export interface LocalEnv {
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
   DISCORD_BOT_TOKEN?: string;
-  // Provider API keys
+  // Gumroad
+  GUMROAD_ACCESS_TOKEN?: string;
+  GUMROAD_CLIENT_ID?: string;
+  GUMROAD_CLIENT_SECRET?: string;
+  // Legacy aliases (kept for backward compat)
   GUMROAD_API_KEY?: string;
   GUMROAD_SECRET_KEY?: string;
   JINXXY_API_KEY?: string;
@@ -65,6 +69,9 @@ function loadFromEnv(): LocalEnv {
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET,
     DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN,
+    GUMROAD_ACCESS_TOKEN: process.env.GUMROAD_ACCESS_TOKEN,
+    GUMROAD_CLIENT_ID: process.env.GUMROAD_CLIENT_ID,
+    GUMROAD_CLIENT_SECRET: process.env.GUMROAD_CLIENT_SECRET,
     GUMROAD_API_KEY: process.env.GUMROAD_API_KEY,
     GUMROAD_SECRET_KEY: process.env.GUMROAD_SECRET_KEY,
     JINXXY_API_KEY: process.env.JINXXY_API_KEY,
