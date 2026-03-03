@@ -1,11 +1,16 @@
 /**
  * Better Auth configuration for YUCP Creator Assistant
- * Runs on Convex with Discord OAuth, admin plugin, and Convex adapter.
+ * Runs on Convex with Discord OAuth and cross-domain support.
+ *
+ * The cross-domain plugin is required because the Bun API server (localhost:3001)
+ * is on a different domain than Convex (.convex.site). It handles:
+ * - Custom cookie headers (Set-Better-Auth-Cookie / Better-Auth-Cookie)
+ * - One-time-token (OTT) pattern for OAuth callbacks
+ * - State verification via database instead of cookies
  */
 
 import { createClient } from '@convex-dev/better-auth';
-import { convex } from '@convex-dev/better-auth/plugins';
-// import { admin } from 'better-auth/plugins';
+import { convex, crossDomain } from '@convex-dev/better-auth/plugins';
 import { betterAuth } from 'better-auth';
 import type { BetterAuthOptions } from 'better-auth';
 import type { GenericCtx } from '@convex-dev/better-auth';
@@ -29,7 +34,6 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       : {};
 
   return betterAuth({
-    baseURL: siteUrl,
     secret: process.env.BETTER_AUTH_SECRET!,
     trustedOrigins: [
       siteUrl,
@@ -49,16 +53,15 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     },
     advanced: {
       cookiePrefix: 'yucp',
-      defaultCookieAttributes: {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-      },
-      // Required for OAuth state verification when auth is proxied (Bun -> Convex).
-      // Better Auth uses X-Forwarded-Host and X-Forwarded-Proto to derive the client URL.
-      trustedProxyHeaders: true,
     },
-    plugins: [convex({ authConfig })],
+    plugins: [
+      // Required for client-side frameworks / cross-domain setups.
+      // The browser talks directly to the Convex .site URL, and the
+      // crossDomain plugin bridges cookies and handles OAuth callbacks
+      // via one-time-tokens.
+      crossDomain({ siteUrl }),
+      // Required for Convex compatibility (JWT, adapter, schema).
+      convex({ authConfig }),
+    ],
   } satisfies BetterAuthOptions);
 };
