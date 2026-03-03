@@ -1,180 +1,167 @@
 /**
- * Better Auth configuration for YUCP Creator Assistant
+ * Auth module for the Bun API server.
  *
- * Auth runs on Convex. Bun acts as a transparent proxy for /api/auth/*.
- * - handler: proxies requests to Convex .site URL
- * - getSession / signOut: minimal helpers that hit our proxy (so traffic flows through our API)
+ * Auth runs on Convex. The browser talks directly to the Convex .site URL
+ * for sign-in, callbacks, and session management. This module provides:
  *
- * Convex owns Better Auth. Bun does not implement auth; it only proxies.
+ * - getSession: verifies sessions by calling Convex directly
+ * - exchangeOTT: exchanges a one-time-token for a session (post-OAuth)
+ *
+ * No proxy is needed — the cross-domain plugin on Convex handles the
+ * cookie gap between the Bun API server and Convex via custom headers
+ * and one-time-tokens.
  */
 
 export interface AuthConfig {
-  /** Base URL for our API (clients and server-side helpers hit this; we proxy to Convex) */
+  /** Base URL for the Bun API server (e.g. http://localhost:3001) */
   baseUrl: string;
-  /** Convex site URL (where we proxy auth requests) */
+  /** Convex site URL (e.g. https://rare-squid-409.convex.site) */
   convexSiteUrl: string;
 }
 
 /** Better Auth session shape (from get-session endpoint) */
 export interface SessionData {
   user: { id: string; email?: string | null; name?: string | null; image?: string | null };
-  session: { id: string; expiresAt: number };
+  session: { id: string; expiresAt: number; token: string };
 }
 
 /**
  * Auth instance for the Bun API.
- * - handler: transparent proxy for /api/auth/* -> Convex
- * - getSession, signOut: minimal helpers for server-side checks (hit our proxy, which forwards to Convex)
+ * - getSession: checks session by forwarding cookies to Convex
+ * - exchangeOTT: exchanges a one-time-token for a session token
  */
 export function createAuth(config: AuthConfig) {
-  const base = config.baseUrl.replace(/\/$/, '');
-  const apiBase = `${base}/api/auth`;
+  const convexAuthBase = `${config.convexSiteUrl.replace(/\/$/, '')}/api/auth`;
 
   return {
-    handler: createAuthProxyHandler(config.convexSiteUrl),
-
-    /** Get session by forwarding request cookies through our proxy to Convex. */
+    /** Get session by calling Convex get-session directly with the request cookies. */
     async getSession(request: Request): Promise<SessionData | null> {
-      const res = await fetch(`${apiBase}/get-session`, {
-        method: 'GET',
-        headers: {
-          cookie: request.headers.get('cookie') ?? '',
-          'content-type': 'application/json',
-        },
-      });
-      const json = (await res.json()) as { data?: SessionData | null };
-      return json?.data ?? null;
+      try {
+        const cookie = request.headers.get('cookie') ?? '';
+        // Send cookie as Better-Auth-Cookie header (cross-domain pattern)
+        const res = await fetch(`${convexAuthBase}/get-session`, {
+          method: 'GET',
+          headers: {
+            'Better-Auth-Cookie': cookie,
+            'content-type': 'application/json',
+          },
+        });
+
+        if (!res.ok) return null;
+
+        // Also check Set-Better-Auth-Cookie for any updated cookies
+        const json = (await res.json()) as SessionData | null;
+        return json ?? null;
+      } catch {
+        return null;
+      }
     },
 
-    /** Sign out by forwarding request cookies through our proxy to Convex. */
+    /**
+     * Exchange a one-time-token (OTT) for a session.
+     * Called after the OAuth callback redirects the user back with ?ott=<token>.
+     * Returns response headers containing Set-Cookie for the session.
+     */
+    async exchangeOTT(ott: string): Promise<{
+      session: SessionData | null;
+      setCookieHeaders: string[];
+    }> {
+      const url = `${convexAuthBase}/cross-domain/one-time-token/verify`;
+      console.log(`[AUTH] Exchanging OTT: ${ott.substring(0, 8)}... at ${url}`);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ token: ott }),
+        });
+
+        console.log(`[AUTH] OTT response: ${res.status} ${res.statusText}`);
+        console.log(`[AUTH] OTT response headers:`, Object.fromEntries(res.headers.entries()));
+
+        const body = await res.text();
+        console.log(`[AUTH] OTT response body: ${body.substring(0, 500)}`);
+
+        if (!res.ok) {
+          console.error(`[AUTH] OTT exchange failed: ${res.status} ${res.statusText} - ${body}`);
+          return { session: null, setCookieHeaders: [] };
+        }
+
+        // Extract cookies from the response
+        const setCookieHeaders: string[] = [];
+        const betterAuthCookie = res.headers.get('set-better-auth-cookie');
+        const regularSetCookie = res.headers.get('set-cookie');
+        console.log(`[AUTH] set-better-auth-cookie: ${betterAuthCookie ?? '(none)'}`);
+        console.log(`[AUTH] set-cookie: ${regularSetCookie ?? '(none)'}`);
+
+        if (betterAuthCookie) {
+          const cookies = betterAuthCookie.split(', ');
+          setCookieHeaders.push(...cookies);
+        }
+        if (regularSetCookie) {
+          const cookies = regularSetCookie.split(', ');
+          setCookieHeaders.push(...cookies);
+        }
+
+        let json: SessionData | null = null;
+        try {
+          json = JSON.parse(body) as SessionData;
+        } catch {
+          console.error('[AUTH] Failed to parse OTT response body as JSON');
+        }
+
+        console.log(`[AUTH] OTT exchange result: session=${!!json}, cookies=${setCookieHeaders.length}`);
+        return { session: json, setCookieHeaders };
+      } catch (err) {
+        console.error('[AUTH] OTT exchange error:', err);
+        return { session: null, setCookieHeaders: [] };
+      }
+    },
+
+    /** Sign out by calling Convex directly. */
     async signOut(request: Request): Promise<void> {
-      await fetch(`${apiBase}/sign-out`, {
+      const cookie = request.headers.get('cookie') ?? '';
+      await fetch(`${convexAuthBase}/sign-out`, {
         method: 'POST',
         headers: {
-          cookie: request.headers.get('cookie') ?? '',
+          'Better-Auth-Cookie': cookie,
           'content-type': 'application/json',
         },
       });
     },
 
-    /** Admin: revoke session by token. Forwards through our proxy. */
-    async revokeSession(opts: { body: { token: string }; headers?: Headers }): Promise<void> {
-      await fetch(`${apiBase}/revoke-session`, {
-        method: 'POST',
-        headers: {
-          cookie: opts.headers?.get('cookie') ?? '',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(opts.body),
-      });
+    /**
+     * Get the linked Discord user ID from the current session.
+     * Calls Better Auth's list-accounts endpoint via the cross-domain pattern.
+     */
+    async getDiscordUserId(request: Request): Promise<string | null> {
+      try {
+        const cookie = request.headers.get('cookie') ?? '';
+        const res = await fetch(`${convexAuthBase}/list-accounts`, {
+          method: 'GET',
+          headers: {
+            'Better-Auth-Cookie': cookie,
+            'content-type': 'application/json',
+          },
+        });
+
+        if (!res.ok) return null;
+
+        const accounts = (await res.json()) as Array<{
+          accountId: string;
+          providerId: string;
+          [key: string]: any;
+        }>;
+
+        const discordAccount = accounts?.find?.(
+          (a) => a.providerId === 'discord'
+        );
+        return discordAccount?.accountId ?? null;
+      } catch {
+        return null;
+      }
     },
-
-    /** Admin: revoke all sessions for a user. Forwards through our proxy. */
-    async revokeUserSessions(opts: { body: { userId: string }; headers?: Headers }): Promise<void> {
-      await fetch(`${apiBase}/revoke-sessions`, {
-        method: 'POST',
-        headers: {
-          cookie: opts.headers?.get('cookie') ?? '',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(opts.body),
-      });
-    },
-
-    /** Admin: list sessions for a user. Forwards through our proxy. */
-    async listUserSessions(opts: { body: { userId: string }; headers?: Headers }): Promise<unknown[]> {
-      const res = await fetch(`${apiBase}/list-sessions`, {
-        method: 'POST',
-        headers: {
-          cookie: opts.headers?.get('cookie') ?? '',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(opts.body),
-      });
-      const json = (await res.json()) as { data?: unknown[] };
-      return json?.data ?? [];
-    },
-  };
-}
-
-/**
- * Rewrites Set-Cookie headers to remove domain so cookies work for our API domain.
- */
-function rewriteSetCookie(headers: Headers): void {
-  const setCookie = headers.get('set-cookie');
-  if (setCookie) {
-    headers.delete('set-cookie');
-    const rewritten = setCookie
-      .split(', ')
-      .map((c) => {
-        const parts = c.split('; ');
-        return parts
-          .filter((p) => !p.toLowerCase().startsWith('domain='))
-          .join('; ');
-      })
-      .join(', ');
-    headers.append('set-cookie', rewritten);
-  }
-}
-
-/**
- * Proxies /api/auth/* requests to Convex site URL.
- * Rewrites Set-Cookie domain so cookies work for our API domain.
- * Forwards X-Forwarded-Host and X-Forwarded-Proto so Better Auth sees the original
- * client URL (e.g. localhost:3001) instead of the Convex URL, fixing OAuth state verification.
- */
-function createAuthProxyHandler(convexSiteUrl: string) {
-  const base = convexSiteUrl.replace(/\/$/, '');
-  const apiPath = '/api/auth';
-
-  return async function handler(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    if (!path.startsWith(apiPath)) {
-      return new Response(JSON.stringify({ error: 'Not found' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const targetPath = path.slice(apiPath.length) || '/';
-    const targetUrl = `${base}${apiPath}${targetPath}${url.search}`;
-
-    const headers = new Headers(request.headers);
-    headers.delete('host');
-    headers.set('host', new URL(base).host);
-    // Better Auth uses these to derive the request URL for OAuth state verification.
-    // Without them, Convex sees the Convex URL and state lookup fails (different origin).
-    headers.set('x-forwarded-host', url.host);
-    headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
-
-    const res = await fetch(targetUrl, {
-      method: request.method,
-      headers,
-      body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
-      // Preserve compression: pass through raw body so browser decodes correctly.
-      // Without this, Bun decompresses and we'd forward decompressed body with
-      // Content-Encoding: gzip -> ERR_CONTENT_DECODING_FAILED.
-      decompress: false,
-    });
-
-    const resHeaders = new Headers(res.headers);
-
-    // Better Auth on Convex uses a custom header to bypass Convex HTTP router limitations.
-    // We must convert it back to a standard Set-Cookie header for the browser.
-    const betterAuthCookie = resHeaders.get('set-better-auth-cookie');
-    if (betterAuthCookie) {
-      resHeaders.append('set-cookie', betterAuthCookie);
-      resHeaders.delete('set-better-auth-cookie');
-    }
-
-    rewriteSetCookie(resHeaders);
-
-    return new Response(res.body, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: resHeaders,
-    });
   };
 }
 
