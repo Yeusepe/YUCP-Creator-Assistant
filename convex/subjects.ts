@@ -179,19 +179,28 @@ export const getSubjectWithAccounts = query({
       return { found: false as const, subject: null, externalAccounts: [] };
     }
 
-    // Get Discord external accounts for this subject's Discord ID
-    // Note: by_provider_user is a compound index, so we use filter
-    const discordAccounts = await ctx.db
-      .query('external_accounts')
-      .withIndex('by_provider', (q) => q.eq('provider', 'discord'))
-      .filter((q) => q.eq(q.field('providerUserId'), subject.primaryDiscordUserId))
+    // Look up ALL active external accounts linked to this subject via bindings.
+    // The bindings table is the proper join between subjects and external_accounts.
+    // Previously this only queried Discord accounts by providerUserId match,
+    // which meant Gumroad / Jinxxy accounts were never visible to the bot.
+    const activeBindings = await ctx.db
+      .query('bindings')
+      .withIndex('by_subject', (q) => q.eq('subjectId', args.subjectId))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
+
+    const externalAccounts = [];
+    for (const binding of activeBindings) {
+      const account = await ctx.db.get(binding.externalAccountId);
+      if (account && account.status === 'active') {
+        externalAccounts.push(account);
+      }
+    }
 
     return {
       found: true as const,
       subject,
-      externalAccounts: discordAccounts,
+      externalAccounts,
     };
   },
 });

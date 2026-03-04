@@ -107,7 +107,24 @@ export async function handleCompleteLicense(
         redirectUri: `${config.baseUrl}/api/verification/callback/gumroad`,
       });
 
+      logger.info('[completeLicense] Calling Gumroad verifyLicense', {
+        productId,
+        licenseKeyPrefix: licenseKey.trim().slice(0, 8),
+        licenseKeyLength: licenseKey.trim().length,
+        tenantId,
+      });
+
       const result = await gumroadAdapter.verifyLicense(licenseKey.trim(), productId);
+
+      logger.info('[completeLicense] Gumroad verifyLicense result', {
+        valid: result.valid,
+        error: result.error,
+        purchaseEmail: result.purchaseEmail,
+        saleId: result.saleId,
+        uses: result.uses,
+        isTestPurchase: result.isTestPurchase,
+      });
+
       if (!result.valid) {
         return {
           success: false,

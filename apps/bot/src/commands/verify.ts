@@ -26,9 +26,24 @@ import type {
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { E, Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
 
 const VERIFY_PREFIX = 'creator_verify:';
+
+/** Default embed for spawn-verify: explains verification (scannable, benefit-first, plain language). */
+const DEFAULT_SPAWN_TITLE = `Verify your purchase ${E.Assistant}`;
+const DEFAULT_SPAWN_DESCRIPTION = [
+  `${E.PointDown} Click the button below to open the verification panel.`,
+  '',
+  `${E.Link} **Sign in** — Connect ${E.Gumorad} Gumroad or ${E.Discord} Discord. We recognize your purchases and grant your role automatically.`,
+  '',
+  `${E.KeyCloud} **One license key, then you’re set** — Using ${E.Jinxxy} Jinxxy or a ${E.Gumorad} Gumroad license? Enter one key once. We link your account and sync all past and future purchases so you only verify once.`,
+  '',
+  'Connections are secure and used only for verification.',
+].join('\n');
+const DEFAULT_SPAWN_BUTTON_TEXT = 'Verify';
+const DEFAULT_SPAWN_COLOR = 0x5865f2; // Discord Blurple
 
 // Semantic colors
 const COLOR_GRAY = 0x4f545c;   // Nothing connected
@@ -125,7 +140,7 @@ function buildStatusContainer(
   const discordStatus = hasDiscord ? '✅ Connected' : '— Not connected';
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `**Connected Accounts**\n<:Gumorad:1478606851192000613> Gumroad — ${gumroadStatus}\n<:Discord:1478606849996623903> Discord (other server) — ${discordStatus}`,
+      `**Connected Accounts**\n${E.Gumorad} Gumroad — ${gumroadStatus}\n${E.Discord} Discord (other server) — ${discordStatus}`,
     ),
   );
 
@@ -179,7 +194,7 @@ function buildStatusContainer(
       buttons.push(
         new ButtonBuilder()
           .setLabel('Connect Gumroad')
-          .setEmoji('1478606851192000613')
+          .setEmoji(Emoji.Gumorad)
           .setStyle(ButtonStyle.Link)
           .setURL(gumroadUrl),
       );
@@ -189,7 +204,7 @@ function buildStatusContainer(
       new ButtonBuilder()
         .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
         .setLabel('Use License Key')
-        .setEmoji('1478609887742263496')
+        .setEmoji(Emoji.KeyCloud)
         .setStyle(ButtonStyle.Secondary),
     );
 
@@ -197,7 +212,7 @@ function buildStatusContainer(
       buttons.push(
         new ButtonBuilder()
           .setLabel('Use Another Server')
-          .setEmoji('1478606849996623903')
+          .setEmoji(Emoji.Discord)
           .setStyle(ButtonStyle.Link)
           .setURL(discordRoleUrl),
       );
@@ -221,7 +236,7 @@ function buildStatusContainer(
       buttons.push(
         new ButtonBuilder()
           .setLabel('Connect Gumroad')
-          .setEmoji('1478606851192000613')
+          .setEmoji(Emoji.Gumorad)
           .setStyle(ButtonStyle.Link)
           .setURL(gumroadUrl),
       );
@@ -231,7 +246,7 @@ function buildStatusContainer(
       new ButtonBuilder()
         .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
         .setLabel('Use License Key')
-        .setEmoji('1478609887742263496')
+        .setEmoji(Emoji.Key)
         .setStyle(ButtonStyle.Secondary),
     );
 
@@ -239,7 +254,7 @@ function buildStatusContainer(
       buttons.push(
         new ButtonBuilder()
           .setLabel('Use Another Server')
-          .setEmoji('1478606849996623903')
+          .setEmoji(Emoji.Discord)
           .setStyle(ButtonStyle.Link)
           .setURL(discordRoleUrl),
       );
@@ -273,12 +288,12 @@ function buildStatusContainer(
         new ButtonBuilder()
           .setCustomId(`${VERIFY_PREFIX}add_more:${tenantId}`)
           .setLabel('Add another account')
-          .setEmoji('1478609888656756808')
+          .setEmoji(Emoji.Link)
           .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(`${VERIFY_PREFIX}disconnect:${primaryProvider}`)
           .setLabel('Remove connection')
-          .setEmoji('1478609887012585492')
+          .setEmoji(Emoji.Key)
           .setStyle(ButtonStyle.Danger),
       ),
     );
@@ -379,13 +394,13 @@ export async function handleVerifySpawn(
   _apiBaseUrl: string | undefined,
   _ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
 ): Promise<void> {
-  const title = interaction.options.getString('title') ?? 'Verify Your Purchase <:Assistant:1478606847320784926>';
-  const description = interaction.options.getString('description') ?? '<:PointDown:1478613865112666112> Click the button below to verify your purchase and get your role.\n\nMake sure to connect your accounts securely!';
-  const buttonText = interaction.options.getString('button_text') ?? 'Verify';
+  const title = interaction.options.getString('title') ?? DEFAULT_SPAWN_TITLE;
+  const description = interaction.options.getString('description') ?? DEFAULT_SPAWN_DESCRIPTION;
+  const buttonText = interaction.options.getString('button_text') ?? DEFAULT_SPAWN_BUTTON_TEXT;
   const colorStr = interaction.options.getString('color');
   const imageUrl = interaction.options.getString('image_url');
 
-  let color = 0x5865f2;
+  let color = DEFAULT_SPAWN_COLOR;
   if (colorStr && /^#[0-9A-Fa-f]{6}$/.test(colorStr)) {
     color = parseInt(colorStr.substring(1), 16);
   }
@@ -393,7 +408,8 @@ export async function handleVerifySpawn(
   const embed = new EmbedBuilder()
     .setTitle(title)
     .setDescription(description)
-    .setColor(color);
+    .setColor(color)
+    .setFooter({ text: 'Creator Assistant · Secure verification' });
 
   if (imageUrl) {
     embed.setImage(imageUrl);
@@ -402,13 +418,13 @@ export async function handleVerifySpawn(
   const button = new ButtonBuilder()
     .setCustomId('verify_start')
     .setLabel(buttonText)
-    .setEmoji('1478606849220677632')
+    .setEmoji(Emoji.Bag)
     .setStyle(ButtonStyle.Primary);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 
   await interaction.reply({
-    content: 'Verify button created.',
+    content: `${E.Assistant} Verify message posted. Use the command options (title, description, button_text, color, image_url) to customize it anytime.`,
     flags: MessageFlags.Ephemeral,
   });
 

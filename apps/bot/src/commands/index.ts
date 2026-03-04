@@ -10,10 +10,22 @@
 
 import { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 
-/** User-facing command: single entry point, state-aware status + verify panel. */
+/** User-facing command: status panel (no args) + fast verify subcommand. */
 const CREATOR_USER_COMMAND = new SlashCommandBuilder()
   .setName('creator')
-  .setDescription('Check your verification status and connect your accounts');
+  .setDescription('Check your verification status and connect your accounts')
+  .addSubcommand((s) =>
+    s
+      .setName('verify')
+      .setDescription('Verify a purchase with a license key — pick a product and enter your key')
+      .addStringOption((o) =>
+        o
+          .setName('product')
+          .setDescription('Product to verify (start typing to search)')
+          .setRequired(true)
+          .setAutocomplete(true),
+      ),
+  ) as SlashCommandBuilder;
 
 /** Admin-only command. setDefaultMemberPermissions hides it from non-admins. */
 const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
@@ -43,7 +55,11 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
           .setName('remove')
           .setDescription('Remove a product-role mapping')
           .addStringOption((o) =>
-            o.setName('product_id').setDescription('Product ID to remove').setRequired(true),
+            o
+              .setName('product_id')
+              .setDescription('Product to remove (start typing to select)')
+              .setRequired(true)
+              .setAutocomplete(true),
           ),
       ),
   )
@@ -53,12 +69,28 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName('spawn-verify')
-      .setDescription('Spawn a customizable verify button in the channel')
-      .addStringOption((o) => o.setName('title').setDescription('Custom embed title'))
-      .addStringOption((o) => o.setName('description').setDescription('Custom embed description'))
-      .addStringOption((o) => o.setName('button_text').setDescription('Custom verify button text'))
-      .addStringOption((o) => o.setName('color').setDescription('Custom hex color code (e.g., #ff90e8)'))
-      .addStringOption((o) => o.setName('image_url').setDescription('Custom embed image banner URL')),
+      .setDescription('Post a verify button in this channel (customize with options or use the beautiful default)')
+      .addStringOption((o) =>
+        o
+          .setName('title')
+          .setDescription('Embed title — leave empty for default: "Verify Your Purchase"'),
+      )
+      .addStringOption((o) =>
+        o
+          .setName('description')
+          .setDescription('Embed body text — leave empty for default that explains how verification works'),
+      )
+      .addStringOption((o) =>
+        o.setName('button_text').setDescription('Text on the verify button — default: "Verify"'),
+      )
+      .addStringOption((o) =>
+        o
+          .setName('color')
+          .setDescription('Embed accent color as hex (e.g. #5865F2) — default: Discord blurple'),
+      )
+      .addStringOption((o) =>
+        o.setName('image_url').setDescription('Optional banner image URL for the embed'),
+      ),
   )
   .addSubcommandGroup((settings) =>
     settings

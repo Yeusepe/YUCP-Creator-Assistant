@@ -622,6 +622,14 @@ export function createVerificationSessionManager(
 
       // Sync user to Convex (pass discordUserId when from Discord verify button for Gumroad→Discord link)
       const discordUserId = session.discordUserId;
+      logger.info('[verification] Syncing provider user to Convex', {
+        provider,
+        providerUserId,
+        tenantId,
+        discordUserId: discordUserId ?? '(none - Gumroad account will be orphaned!)',
+        sessionId: String(session._id),
+      });
+
       const syncResult = await convex.mutation(
         'identitySync:syncUserFromProvider' as any,
         {
@@ -635,6 +643,45 @@ export function createVerificationSessionManager(
           discordUserId: discordUserId ?? undefined,
         }
       );
+
+      logger.info('[verification] syncUserFromProvider result', {
+        subjectId: syncResult.subjectId,
+        externalAccountId: syncResult.externalAccountId,
+        isNewSubject: syncResult.isNewSubject,
+        isNewExternalAccount: syncResult.isNewExternalAccount,
+      });
+
+      // Create (or reactivate) a tenant-scoped binding linking subject → external_account.
+      // This is the critical step: getSubjectWithAccounts queries the bindings table
+      // to find all connected provider accounts. Without a binding record, the
+      // Gumroad account is invisible to the Discord bot.
+      try {
+        const bindingResult = await convex.mutation(
+          'bindings:activateBinding' as any,
+          {
+            apiSecret,
+            tenantId,
+            subjectId: syncResult.subjectId,
+            externalAccountId: syncResult.externalAccountId,
+            bindingType: 'verification',
+          }
+        );
+        logger.info('[verification] Binding created/reactivated', {
+          bindingId: String(bindingResult.bindingId),
+          isNew: bindingResult.isNew,
+          tenantId,
+          subjectId: syncResult.subjectId,
+          externalAccountId: syncResult.externalAccountId,
+        });
+      } catch (bindErr) {
+        // Log but do not fail the whole flow
+        logger.error('[verification] Failed to create binding (non-fatal)', {
+          error: bindErr instanceof Error ? bindErr.message : String(bindErr),
+          tenantId,
+          subjectId: syncResult.subjectId,
+          externalAccountId: syncResult.externalAccountId,
+        });
+      }
 
       // For discord_role: guild member lookup, role check, entitlement grant
       if (mode === 'discord_role') {
@@ -724,6 +771,12 @@ export function createVerificationSessionManager(
           subjectId: syncResult.subjectId,
         }
       );
+
+      logger.info('[verification] Session completed, redirecting user', {
+        sessionId: String(session._id),
+        subjectId: syncResult.subjectId,
+        redirectUri: completeResult.redirectUri,
+      });
 
       return {
         success: true,

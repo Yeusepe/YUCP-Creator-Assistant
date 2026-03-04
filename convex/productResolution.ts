@@ -80,3 +80,45 @@ export const resolveProductByUrl = query({
     };
   },
 });
+
+/**
+ * Get all active products registered for a tenant.
+ * Used by the Discord bot product picker for license key verification.
+ * Returns Gumroad and Jinxxy products with their provider refs.
+ */
+export const getProductsForTenant = query({
+  args: {
+    tenantId: v.id('tenants'),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id('product_catalog'),
+      productId: v.string(),
+      provider: v.union(
+        v.literal('discord'),
+        v.literal('gumroad'),
+        v.literal('jinxxy'),
+        v.literal('manual'),
+      ),
+      providerProductRef: v.string(),
+      canonicalSlug: v.optional(v.string()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const products = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    return products
+      .filter((p) => p.provider === 'gumroad' || p.provider === 'jinxxy')
+      .map((p) => ({
+        _id: p._id,
+        productId: p.productId,
+        provider: p.provider,
+        providerProductRef: p.providerProductRef,
+        canonicalSlug: p.canonicalSlug,
+      }));
+  },
+});
