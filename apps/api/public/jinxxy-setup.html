@@ -685,7 +685,8 @@
         let testWebhookPollInterval = null;
 
         function goBackToConnect() {
-            const url = API_BASE + '/connect?guild_id=' + encodeURIComponent(GUILD_ID);
+            let url = API_BASE + '/connect?tenant_id=' + encodeURIComponent(TENANT_ID);
+            if (GUILD_ID) url += '&guild_id=' + encodeURIComponent(GUILD_ID);
             window.location.href = url;
         }
 
@@ -731,13 +732,15 @@
                     if (data.received) {
                         clearInterval(testWebhookPollInterval);
                         testWebhookPollInterval = null;
+                        nextBtn.disabled = false;
                         document.getElementById('test-webhook-status').classList.add('hidden');
                         document.getElementById('test-webhook-success').classList.remove('hidden');
                         document.getElementById('test-webhook-mock-text').textContent = 'Received!';
                         document.getElementById('test-webhook-mock-text').classList.add('text-green-400');
-                        document.querySelector('#test-webhook-mock-text').previousElementSibling.querySelector('i').classList.remove('text-[#d45d39]');
-                        document.querySelector('#test-webhook-mock-text').previousElementSibling.querySelector('i').classList.add('text-green-400');
-                        nextBtn.disabled = false;
+                        try {
+                            document.querySelector('#test-webhook-mock-text').previousElementSibling.querySelector('i').classList.remove('text-[#d45d39]');
+                            document.querySelector('#test-webhook-mock-text').previousElementSibling.querySelector('i').classList.add('text-green-400');
+                        } catch (_e) { }
                         lucide.createIcons();
                     }
                 } catch (_) { }

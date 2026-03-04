@@ -146,14 +146,15 @@ export const getOrCreateJinxxyWebhookConfig = mutation({
 
     const callbackUrl = `${args.baseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${args.tenantId}`;
 
-    if (existing?.webhookSecretRef) {
+    if (existing?.webhookSecretRef && existing.webhookSecretRef.length <= 40) {
       return {
         callbackUrl,
         signingSecret: existing.webhookSecretRef,
       };
     }
 
-    const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+    // 14 random bytes = 28 hex chars + "whsec_yucp_" (11 chars) = 39 chars total (under 40 limit)
+    const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(14)))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
     const signingSecret = `whsec_yucp_${randomPart}`;

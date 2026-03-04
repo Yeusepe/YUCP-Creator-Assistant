@@ -6,6 +6,7 @@
 import { createLogger } from '@yucp/shared';
 import { type Auth, createAuth } from './auth';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
+import { detectTunnelUrl } from './lib/tunnel';
 import {
   mountInstallRoutes,
   mountVerificationRoutes,
@@ -28,12 +29,15 @@ let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 
 /**
  * Initialize the auth service and routes
+ * @param webhookBaseUrl - If a tunnel is detected, use this as the public URL for webhooks
  */
-function initializeAuth() {
+function initializeAuth(webhookBaseUrl?: string) {
   const env = loadEnv();
 
   getRequired('BETTER_AUTH_SECRET');
   const baseUrl = env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+  // Use detected tunnel URL for webhook callbacks; fall back to baseUrl
+  const publicBaseUrl = webhookBaseUrl ?? baseUrl;
   const frontendUrl = env.FRONTEND_URL ?? baseUrl;
 
   const convexUrl = env.CONVEX_URL ?? '';
@@ -55,7 +59,7 @@ function initializeAuth() {
     discordClientId: env.DISCORD_CLIENT_ID ?? '',
     discordClientSecret: env.DISCORD_CLIENT_SECRET ?? '',
     discordBotToken: env.DISCORD_BOT_TOKEN ?? '',
-    baseUrl,
+    baseUrl: publicBaseUrl,
     frontendUrl,
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
@@ -64,7 +68,7 @@ function initializeAuth() {
 
   // Initialize verification routes
   const verificationConfig: VerificationConfig = {
-    baseUrl,
+    baseUrl: publicBaseUrl,
     frontendUrl,
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
@@ -78,7 +82,7 @@ function initializeAuth() {
   verificationRoutes = mountVerificationRoutes(verificationConfig);
 
   connectRoutes = createConnectRoutes(auth, {
-    baseUrl,
+    baseUrl: publicBaseUrl,
     convexSiteUrl,
     discordClientId: env.DISCORD_CLIENT_ID ?? '',
     discordClientSecret: env.DISCORD_CLIENT_SECRET ?? '',
@@ -207,8 +211,8 @@ async function handleRequest(request: Request): Promise<Response> {
     const file = Bun.file(filePath);
     let html = await file.text();
     const url = new URL(request.url);
-    const tenantId = url.searchParams.get('tenantId') ?? '';
-    const guildId = url.searchParams.get('guildId') ?? '';
+    const tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    const guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
     const apiBase = process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
     html = html.replace(/__TENANT_ID__/g, tenantId);
     html = html.replace(/__GUILD_ID__/g, guildId);
@@ -260,12 +264,17 @@ async function main() {
     infisicalUrl: env.INFISICAL_URL,
   });
 
-  // Initialize Better Auth
-  auth = initializeAuth();
+  // Detect tunnel URL for webhook callbacks (Tailscale Funnel or ngrok)
+  const port = Number.parseInt(process.env.PORT ?? '3001', 10);
+  const tunnel = await detectTunnelUrl(port);
+  if (tunnel.provider !== 'none') {
+    logger.info(`🚇 Tunnel detected (${tunnel.provider})`, { publicUrl: tunnel.url });
+  }
+
+  // Initialize Better Auth (pass tunnel URL for webhook base if detected)
+  auth = initializeAuth(tunnel.provider !== 'none' ? tunnel.url : undefined);
 
   // Start HTTP server
-  const port = Number.parseInt(process.env.PORT ?? '3001', 10);
-
   Bun.serve({
     port,
     fetch: handleRequest,
@@ -273,6 +282,8 @@ async function main() {
 
   logger.info('API server ready', {
     port,
+    publicUrl: tunnel.provider !== 'none' ? tunnel.url : `http://localhost:${port}`,
+    tunnelProvider: tunnel.provider,
     authProvider: 'Convex (direct)',
     installRoutes: '/api/install/*',
     healthCheck: '/health',

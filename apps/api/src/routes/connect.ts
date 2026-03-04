@@ -58,11 +58,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   async function serveConnectPage(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const guildId = url.searchParams.get('guild_id');
+    const tenantId = url.searchParams.get('tenant_id');
     const token = url.searchParams.get('token');
     const ott = url.searchParams.get('ott');
 
-    if (!guildId) {
-      return new Response('Missing guild_id', { status: 400 });
+    if (!guildId && !tenantId) {
+      return new Response('Missing guild_id or tenant_id', { status: 400 });
     }
 
     // Step 1: If we have a one-time-token (from OAuth callback), exchange it for a session.
@@ -87,7 +88,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     if (!session) {
       // Serve sign-in redirect page. The page talks directly to Convex for OAuth.
-      const callbackUrl = `${config.baseUrl}/connect?guild_id=${encodeURIComponent(guildId)}`;
+      const callbackUrl = `${config.baseUrl}/connect?guild_id=${encodeURIComponent(guildId ?? '')}${tenantId ? '&tenant_id=' + encodeURIComponent(tenantId) : ''}`;
       const filePath = `${import.meta.dir}/../../public/sign-in-redirect.html`;
       let html = await Bun.file(filePath).text();
       html = html.replace('__CONVEX_SITE_URL__', JSON.stringify(config.convexSiteUrl));
@@ -101,7 +102,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const filePath = `${import.meta.dir}/../../public/connect.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    html = html.replace('__GUILD_ID__', guildId);
+    html = html.replace('__GUILD_ID__', guildId ?? '');
     html = html.replace('__TOKEN__', token ?? '');
     html = html.replace('__API_BASE__', config.baseUrl);
 
@@ -474,10 +475,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Returns { callbackUrl, signingSecret }.
    */
   async function jinxxyWebhookConfig(request: Request): Promise<Response> {
-    const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
-    }
 
     const url = new URL(request.url);
     const tenantId = url.searchParams.get('tenantId');
@@ -512,10 +509,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Returns { received: boolean }.
    */
   async function jinxxyTestWebhook(request: Request): Promise<Response> {
-    const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
-    }
 
     const url = new URL(request.url);
     const tenantId = url.searchParams.get('tenantId');
