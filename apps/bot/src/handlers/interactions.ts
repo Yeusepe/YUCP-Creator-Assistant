@@ -39,17 +39,6 @@ function getNotConfiguredMessage(guildId: string): string {
   return 'This server is not configured. Please sign in to configure (API_BASE_URL not set).';
 }
 
-/** Admin-only subcommand groups and subcommands (require Administrator) */
-const ADMIN_SUBCOMMANDS = new Set([
-  'setup',
-  'product',
-  'stats',
-  'verify-spawn',
-  'analytics',
-  'suspicious',
-  'discord-role-verification',
-]);
-
 export interface InteractionHandlerContext {
   convex: ConvexHttpClient;
   apiSecret: string;
@@ -59,14 +48,6 @@ function requireAdmin(interaction: ChatInputCommandInteraction): boolean {
   const member = interaction.member;
   if (!member || typeof member.permissions === 'string') return false;
   return member.permissions.has(PermissionFlagsBits.Administrator);
-}
-
-function isAdminSubcommand(interaction: ChatInputCommandInteraction): boolean {
-  const subcommandGroup = interaction.options.getSubcommandGroup(false);
-  const subcommand = interaction.options.getSubcommand(false);
-  if (subcommand === 'verify-spawn') return true;
-  if (ADMIN_SUBCOMMANDS.has(subcommandGroup ?? '')) return true;
-  return false;
 }
 
 export async function handleInteraction(
@@ -104,19 +85,20 @@ async function handleSlashCommand(
   interaction: ChatInputCommandInteraction,
   ctx: InteractionHandlerContext,
 ): Promise<void> {
-  if (interaction.commandName !== 'creator') return;
+  const commandName = interaction.commandName;
+  if (commandName !== 'creator' && commandName !== 'creator-admin') return;
 
   const subcommand = interaction.options.getSubcommand(false);
   const subcommandGroup = interaction.options.getSubcommandGroup(false);
 
-  // User commands: link, status, help - no admin check
-  if (USER_COMMANDS.includes(subcommand ?? '')) {
+  // /creator: only link, status, help (user-facing; no admin subcommands registered here)
+  if (commandName === 'creator') {
     await handleUserCommand(interaction, ctx);
     return;
   }
 
-  // Admin subcommands require Administrator
-  if (isAdminSubcommand(interaction) && !requireAdmin(interaction)) {
+  // /creator-admin: all admin subcommands; Discord hides this from non-admins via defaultMemberPermissions; check again as defense in depth
+  if (!requireAdmin(interaction)) {
     await interaction.reply({
       content: 'This command requires Administrator permission.',
       flags: MessageFlags.Ephemeral,
@@ -348,7 +330,7 @@ async function handleHelp(interaction: ChatInputCommandInteraction): Promise<voi
 \`/creator status\` - Check your verification status
 \`/creator help\` - This message
 
-*Admin commands:* setup, product, stats, verify-spawn, analytics, suspicious`,
+*Server admins:* Use \`/creator-admin\` for setup, product, stats, verify-spawn, analytics, suspicious, and discord-role-verification.`,
     flags: MessageFlags.Ephemeral,
   });
 }

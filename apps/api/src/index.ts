@@ -218,6 +218,9 @@ async function handleRequest(request: Request): Promise<Response> {
     }
     return connectRoutes.listConnectionsHandler(request);
   }
+  if (pathname === '/api/connect/settings' && connectRoutes) {
+    return connectRoutes.updateSettingHandler(request);
+  }
   if (pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html') {
     const filePath = `${import.meta.dir}/../public/jinxxy-setup.html`;
     const file = Bun.file(filePath);
