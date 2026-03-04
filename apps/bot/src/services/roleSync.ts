@@ -578,15 +578,49 @@ export class RoleSyncService {
     await this.rateLimiter.waitForRateLimit(route);
 
     try {
-      const member = await guild.members.fetch(discordUserId);
+      let member;
+      try {
+        member = await guild.members.fetch(discordUserId);
+      } catch (fetchErr) {
+        const code = (fetchErr as { code?: number })?.code;
+        this.logger.warn('guild.members.fetch failed', {
+          guildId,
+          discordUserId,
+          roleId,
+          errorCode: code,
+          errorMessage: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+        });
+        throw fetchErr;
+      }
 
       // Already has role = success (idempotent)
       if (member.roles.cache.has(roleId)) {
         return { added: true };
       }
 
-      // Add the role (RoleResolvable: roleId string or Role object)
-      await member.roles.add(roleId, 'Entitlement sync - role granted');
+      // Check if role is managed (integration/booster roles can't be assigned by bot)
+      const role = guild.roles.cache.get(roleId);
+      if (role?.managed) {
+        return {
+          added: false,
+          error: `Role "${role.name}" is managed by an integration and cannot be assigned by the bot. Create a new role for verification.`,
+        };
+      }
+
+      // Add the role
+      try {
+        await member.roles.add(roleId, 'Entitlement sync - role granted');
+      } catch (addErr) {
+        const code = (addErr as { code?: number })?.code;
+        this.logger.warn('member.roles.add failed', {
+          guildId,
+          discordUserId,
+          roleId,
+          errorCode: code,
+          errorMessage: addErr instanceof Error ? addErr.message : String(addErr),
+        });
+        throw addErr;
+      }
 
       this.logger.info('Role added to member', {
         guildId,
@@ -608,7 +642,19 @@ export class RoleSyncService {
           return { added: false, error: 'Role not found' };
         }
         if (discordError.code === RESTJSONErrorCodes.MissingPermissions) {
-          return { added: false, error: 'Bot lacks permission to manage roles' };
+          return {
+            added: false,
+            error:
+              'Bot lacks permission: Grant "Manage Roles" to the bot and ensure the bot\'s role is above the verified role in Server Settings → Roles.',
+          };
+        }
+        // 50001 Missing Access: Server Members Intent, managed role, or bot not in guild
+        if (discordError.code === 50001) {
+          return {
+            added: false,
+            error:
+              'Missing Access (50001): Enable Server Members Intent in Developer Portal, ensure the role is not managed by an integration, and that the bot is in the guild.',
+          };
         }
 
         return { added: false, error: `Discord error: ${discordError.message}` };

@@ -32,9 +32,9 @@ import { track } from '../lib/posthog';
 const VERIFY_PREFIX = 'creator_verify:';
 
 /** Default embed for spawn-verify: explains verification (scannable, benefit-first, plain language). */
-const DEFAULT_SPAWN_TITLE = `Verify your purchase ${E.Assistant}`;
+const DEFAULT_SPAWN_TITLE = ` ${E.Library} Verify your purchase`;
 const DEFAULT_SPAWN_DESCRIPTION = [
-  `${E.PointDown} Click the button below to open the verification panel.`,
+  `${E.Touch} Click the button below to open the verification panel.`,
   '',
   `${E.Link} **Sign in** — Connect ${E.Gumorad} Gumroad or ${E.Discord} Discord. We recognize your purchases and grant your role automatically.`,
   '',
@@ -109,6 +109,29 @@ function providerLabel(p: string): string {
   return p === 'gumroad' ? 'Gumroad' : p === 'discord' ? 'Discord' : p === 'jinxxy' ? 'Jinxxy' : p;
 }
 
+/** Get user-friendly banner message from failed role_sync jobs (role hierarchy, permissions, etc.). */
+async function getRoleSyncBanner(
+  tenantId: Id<'tenants'>,
+  guildId: string,
+  discordUserId: string,
+  convex: ConvexHttpClient,
+): Promise<string | undefined> {
+  const jobs = await convex.query(api.outbox_jobs.getFailedRoleSyncForUser as any, {
+    tenantId,
+    discordUserId,
+    guildId,
+  });
+  const err = jobs[0]?.lastError;
+  if (!err) return undefined;
+  if (err.includes('Role hierarchy') || err.toLowerCase().includes('role hierarchy')) {
+    return `${E.Wrench} **Role setup needed** — The verified role is above the bot's role. Ask a server admin to move the bot's role above the verified role in Server Settings → Roles.`;
+  }
+  if (err.includes('50013') || err.includes('Missing Permissions') || err.includes('Manage Roles')) {
+    return `${E.Wrench} **Permissions needed** — The bot needs Manage Roles. Re-invite with the updated link in the Creator Portal.`;
+  }
+  return `${E.Wrench} Could not assign role: ${err.slice(0, 120)}${err.length > 120 ? '…' : ''}`;
+}
+
 function buildStatusContainer(
   data: VerifyData,
   tenantId: Id<'tenants'>,
@@ -152,8 +175,8 @@ function buildStatusContainer(
   );
 
   // Connected accounts
-  const gumroadStatus = hasGumroad ? '✅ Connected' : '— Not connected';
-  const discordStatus = hasDiscord ? '✅ Connected' : '— Not connected';
+  const gumroadStatus = hasGumroad ? `${E.Checkmark} Connected` : '— Not connected';
+  const discordStatus = hasDiscord ? `${E.Checkmark} Connected` : '— Not connected';
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
       `**Connected Accounts**\n${E.Gumorad} Gumroad — ${gumroadStatus}\n${E.Discord} Discord (other server) — ${discordStatus}`,
@@ -298,7 +321,7 @@ function buildStatusContainer(
     // Verified state
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        'You have access to this server. Use the buttons below to manage your connection.',
+        `${E.Home} You have access to this server. Use the buttons below to manage your connection.`,
       ),
     );
 
@@ -344,7 +367,18 @@ export async function handleCreatorCommand(
 
   try {
     const data = await fetchVerifyData(interaction.user.id, ctx.tenantId, convex);
-    const container = buildStatusContainer(data, ctx.tenantId, ctx.guildId, apiBaseUrl, interaction.user.id);
+    const bannerMessage =
+      data.state === 'verified'
+        ? await getRoleSyncBanner(ctx.tenantId, ctx.guildId, interaction.user.id, convex)
+        : undefined;
+    const container = buildStatusContainer(
+      data,
+      ctx.tenantId,
+      ctx.guildId,
+      apiBaseUrl,
+      interaction.user.id,
+      bannerMessage,
+    );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
       components: [container],
@@ -371,7 +405,18 @@ export async function handleVerifyStartButton(
 
   try {
     const data = await fetchVerifyData(interaction.user.id, ctx.tenantId, convex);
-    const container = buildStatusContainer(data, ctx.tenantId, ctx.guildId, apiBaseUrl, interaction.user.id);
+    const bannerMessage =
+      data.state === 'verified'
+        ? await getRoleSyncBanner(ctx.tenantId, ctx.guildId, interaction.user.id, convex)
+        : undefined;
+    const container = buildStatusContainer(
+      data,
+      ctx.tenantId,
+      ctx.guildId,
+      apiBaseUrl,
+      interaction.user.id,
+      bannerMessage,
+    );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
       components: [container],
@@ -547,10 +592,29 @@ export async function handleLicenseModalSubmit(
 
     track(interaction.user.id, 'verification_completed', { tenantId, provider: result.provider });
 
-    await interaction.editReply({
-      content:
-        `${E.ClapStars} **Verified!** Your roles will be updated shortly.\n\nWelcome to the community!`,
-    });
+    const guildId = interaction.guildId;
+    if (guildId && apiBaseUrl) {
+      const data = await fetchVerifyData(interaction.user.id, tenantId, convex);
+      const providerLabel = result.provider === 'gumroad' ? 'Gumroad' : result.provider === 'jinxxy' ? 'Jinxxy' : result.provider ?? 'account';
+      const bannerMessage = `${E.ClapStars} **Connected!** Your ${providerLabel} account is linked. Your roles will be updated shortly. ${E.Dance}`;
+      const container = buildStatusContainer(
+        data,
+        tenantId,
+        guildId,
+        apiBaseUrl,
+        interaction.user.id,
+        bannerMessage,
+      );
+      await interaction.editReply({
+        flags: MessageFlags.IsComponentsV2,
+        components: [container],
+      });
+    } else {
+      await interaction.editReply({
+        content:
+          `${E.ClapStars} **Verified!** Your roles will be updated shortly.\n\n${E.Dance} Welcome to the community!`,
+      });
+    }
   } catch (err) {
     await interaction.editReply({
       content: `${E.X_} An error occurred during verification. Please try again.\n\`${err instanceof Error ? err.message : 'Unknown error'}\``,
@@ -633,7 +697,7 @@ export async function handleVerifyDisconnectButton(
       guildId,
       apiBaseUrl,
       interaction.user.id,
-      `✅ Disconnected your ${providerLabel(provider)} account. Existing roles may take a moment to be removed.`,
+      `${E.Checkmark} Disconnected your ${providerLabel(provider)} account. Existing roles may take a moment to be removed.`,
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,

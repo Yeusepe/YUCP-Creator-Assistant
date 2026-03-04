@@ -32,6 +32,10 @@ export const E = {
   Timer: '<:Timer:1478760450740195449>',
   Touch: '<:Touch:1478760451612344412>',
   X_: '<:X_:1478760454108090539>',
+  Carrot: '<:Carrot:1478761064920387615>',
+  Dance: '<:Dance:1478761065863970998>',
+  Home: '<:Home:1478761067155951749>',
+  Checkmark: '<:Checkmark:1478775474443518084>',
 } as const;
 
 /** Shape accepted by discord.js setEmoji() for custom emojis. */
@@ -64,4 +68,8 @@ export const Emoji = {
   Timer: customEmoji('1478760450740195449', 'Timer'),
   Touch: customEmoji('1478760451612344412', 'Touch'),
   X_: customEmoji('1478760454108090539', 'X_'),
+  Carrot: customEmoji('1478761064920387615', 'Carrot'),
+  Dance: customEmoji('1478761065863970998', 'Dance'),
+  Home: customEmoji('1478761067155951749', 'Home'),
+  Checkmark: customEmoji('1478775474443518084', 'Checkmark'),
 } as const;

@@ -51,7 +51,7 @@ Use this repo as a reference for architecture, integration patterns, and impleme
 - Node (bot and packages), Bun (API)
 - Convex deployment and API secret
 - Infisical or equivalent for environment variables
-- Discord application (bot token, OAuth client credentials)
+- Discord application (bot token, OAuth client credentials). **Enable "Server Members Intent"** in [Discord Developer Portal](https://discord.com/developers/applications) → Your App → Bot → Privileged Gateway Intents. **Role sync requires**: bot has "Manage Roles" permission and its role is above the verified role in Server Settings → Roles.
 - Gumroad / Jinxxy credentials if using those providers
 
 ## Quick start (reference)

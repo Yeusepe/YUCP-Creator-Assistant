@@ -38,7 +38,8 @@ async function main() {
   await registerCommands(env.DISCORD_BOT_TOKEN!, clientId, guildId);
   logger.info('Slash commands registered', { guildId: guildId ?? 'global' });
 
-  const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=274877975552&scope=bot%20applications.commands`;
+  // Include MANAGE_ROLES (268435456) for role sync; 274877975552 = View Channels, Send Messages, etc.
+  const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=275146411008&scope=bot%20applications.commands`;
   logger.info('Add bot to your server', { inviteUrl });
 
   const convex = new ConvexHttpClient(env.CONVEX_URL!);

@@ -145,6 +145,53 @@ export const getByGuildAndUser = query({
 });
 
 /**
+ * Get recent failed role_sync jobs for a Discord user.
+ * Used to show role hierarchy / permission errors in the verify panel.
+ */
+export const getFailedRoleSyncForUser = query({
+  args: {
+    tenantId: v.id('tenants'),
+    discordUserId: v.string(),
+    guildId: v.string(),
+  },
+  returns: v.array(
+    v.object({
+      lastError: v.union(v.string(), v.null()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const jobs = await ctx.db
+      .query('outbox_jobs')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('jobType'), 'role_sync'))
+      .filter((q) =>
+        q.or(
+          q.eq(q.field('status'), 'pending'),
+          q.eq(q.field('status'), 'dead_letter')
+        )
+      )
+      .collect();
+
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    return jobs
+      .filter((j) => {
+        const payload = j.payload as { discordUserId?: string; guildId?: string };
+        const matchGuild =
+          j.targetGuildId === args.guildId ||
+          payload?.guildId === args.guildId;
+        const matchUser =
+          j.targetDiscordUserId === args.discordUserId ||
+          payload?.discordUserId === args.discordUserId;
+        const hasError = j.lastError && j.lastError.length > 0;
+        const recent = (j.updatedAt ?? j.createdAt) >= oneDayAgo;
+        return matchGuild && matchUser && hasError && recent;
+      })
+      .slice(0, 5)
+      .map((j) => ({ lastError: j.lastError ?? null }));
+  },
+});
+
+/**
  * Get dead letter jobs for a tenant.
  * Used for manual review and reprocessing.
  */
