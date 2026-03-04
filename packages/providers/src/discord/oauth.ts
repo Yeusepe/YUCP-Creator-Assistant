@@ -18,8 +18,8 @@
 
 import { type EncryptedPayload, createAAD, decrypt, encrypt } from '@yucp/shared';
 import {
-  type BeginVerificationResult,
-  type CompleteVerificationResult,
+  type DiscordBeginVerificationResult,
+  type DiscordCompleteVerificationResult,
   DEFAULT_SCOPES,
   type DiscordAPIError,
   type DiscordGuildMember,
@@ -172,7 +172,7 @@ export class DiscordOAuthProvider {
    * Begin OAuth verification flow.
    * Generates PKCE challenge and state, stores state, returns authorization URL.
    */
-  async beginVerification(): Promise<BeginVerificationResult> {
+  async beginVerification(): Promise<DiscordBeginVerificationResult> {
     // Generate verification session ID
     const verificationSessionId = generateVerificationSessionId();
 
@@ -225,7 +225,7 @@ export class DiscordOAuthProvider {
     code: string,
     state: string,
     verificationSessionId: string
-  ): Promise<CompleteVerificationResult> {
+  ): Promise<DiscordCompleteVerificationResult> {
     // Retrieve and validate state
     const oauthState = await this.storage.getState(state);
     if (!oauthState) {

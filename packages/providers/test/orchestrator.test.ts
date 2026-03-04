@@ -95,7 +95,7 @@ class MockOrchestratorAdapter implements HealthCheckableAdapter {
 }
 
 // Mock registry
-class MockRegistry implements ProviderRegistry {
+class MockRegistry {
   private providers = new Map<ProviderMode, HealthCheckableAdapter>();
   private healthStatus = new Map<ProviderMode, { healthy: boolean }>();
 
@@ -170,9 +170,9 @@ class MockRegistry implements ProviderRegistry {
     return new Map();
   }
 
-  startPeriodicHealthChecks(): void {}
-  stopPeriodicHealthChecks(): void {}
-  clear(): void {}
+  startPeriodicHealthChecks(): void { }
+  stopPeriodicHealthChecks(): void { }
+  clear(): void { }
 }
 
 // Mock binding storage
@@ -202,7 +202,7 @@ class MockBindingStorage implements VerificationBindingStorage {
     return this.bindings.get(bindingId) ?? null;
   }
 
-  async update(_bindingId: string, _verification: Verification): Promise<void> {}
+  async update(_bindingId: string, _verification: Verification): Promise<void> { }
 
   async delete(bindingId: string): Promise<void> {
     this.bindings.delete(bindingId);
@@ -220,7 +220,7 @@ describe('VerificationOrchestrator', () => {
     tenantConfigs = new Map();
     bindingStorage = new MockBindingStorage();
 
-    orchestrator = new VerificationOrchestrator(registry, {
+    orchestrator = new VerificationOrchestrator(registry as unknown as ProviderRegistry, {
       getTenantConfig: async (tenantId) => tenantConfigs.get(tenantId) ?? null,
       bindingStorage,
       checkProviderHealth: false, // Disable for most tests
@@ -411,7 +411,7 @@ describe('VerificationOrchestrator', () => {
 
   describe('refreshVerification', () => {
     it('should fail without binding storage', async () => {
-      const orchestratorNoStorage = new VerificationOrchestrator(registry, {
+      const orchestratorNoStorage = new VerificationOrchestrator(registry as unknown as ProviderRegistry, {
         getTenantConfig: async () => ({ enabledModes: ['gumroad'] }),
       });
 
@@ -454,7 +454,7 @@ describe('VerificationOrchestrator', () => {
 
   describe('revokeVerification', () => {
     it('should fail without binding storage', async () => {
-      const orchestratorNoStorage = new VerificationOrchestrator(registry, {
+      const orchestratorNoStorage = new VerificationOrchestrator(registry as unknown as ProviderRegistry, {
         getTenantConfig: async () => ({ enabledModes: ['gumroad'] }),
       });
 
@@ -490,6 +490,7 @@ describe('VerificationOrchestrator', () => {
       });
 
       const result = await orchestrator.revokeVerification('binding-123', {
+        bindingId: 'binding-123',
         reason: 'User requested',
         notifyProvider: true,
       });
@@ -619,7 +620,7 @@ describe('Health Check Integration', () => {
     registry = new MockRegistry();
     tenantConfigs = new Map();
 
-    orchestrator = new VerificationOrchestrator(registry, {
+    orchestrator = new VerificationOrchestrator(registry as unknown as ProviderRegistry, {
       getTenantConfig: async (tenantId) => tenantConfigs.get(tenantId) ?? null,
       checkProviderHealth: true, // Enable health checks
     });

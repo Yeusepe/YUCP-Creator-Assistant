@@ -17,6 +17,9 @@ export interface ProviderConfig {
   apiKey?: string;
   secretKey?: string;
   webhookSecret?: string;
+  clientId?: string;
+  clientSecret?: string;
+  redirectUri?: string;
 }
 
 export interface ProviderAdapter {
@@ -58,7 +61,7 @@ export type {
 } from './gumroad';
 
 // Re-export Jinxxy adapter (full implementation in ./jinxxy)
-import { JinxxyAdapter } from './jinxxy';
+import { JinxxyAdapter, type JinxxyAdapterConfig } from './jinxxy';
 export { JinxxyAdapter, JinxxyApiClient } from './jinxxy';
 export type {
   JinxxyAdapterConfig,
@@ -78,7 +81,7 @@ export type {
 export class DiscordAdapter implements ProviderAdapter {
   readonly name = 'discord';
 
-  constructor(private config: ProviderConfig) {}
+  constructor(private config: ProviderConfig) { }
 
   async verifyPurchase(_discordId: string): Promise<Verification | null> {
     // Placeholder - Discord verification via OAuth/bot
@@ -244,7 +247,7 @@ export function createProviderAdapter(
       if (!config.apiKey) {
         throw new Error('Use JinxxyAdapter directly with apiKey config');
       }
-      return new JinxxyAdapter(config);
+      return new JinxxyAdapter(config as unknown as JinxxyAdapterConfig);
     case 'discord':
       return new DiscordAdapter(config);
     case 'manual':

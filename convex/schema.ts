@@ -249,6 +249,7 @@ const tenants = defineTable({
       suspiciousNotifyChannelId: v.optional(v.string()),
       enableDiscordRoleFromOtherServers: v.optional(v.boolean()),
       allowedSourceGuildIds: v.optional(v.array(v.string())),
+      allowMismatchedEmails: v.optional(v.boolean()),
     }),
   ),
   // Metadata

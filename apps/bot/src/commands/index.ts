@@ -2,15 +2,45 @@
  * Discord slash command definitions and registration
  *
  * Uses discord.js REST API to register commands.
- * Commands are under /creator with subcommands.
+ * - /creator: user-facing (link, status, help) — visible to everyone
+ * - /creator-admin: moderator-only — hidden from users without Administrator (see setDefaultMemberPermissions)
+ *
+ * @see https://discordjs.guide/slash-commands/permissions.html
+ * @see https://discord.com/developers/docs/interactions/application-commands#application-command-object-application-command-structure
  */
 
-import { REST, Routes, SlashCommandBuilder } from 'discord.js';
+import { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 
-const CREATOR_COMMAND = new SlashCommandBuilder()
+/** User-facing command: link, status, help. No defaultMemberPermissions so everyone can see and use it. */
+const CREATOR_USER_COMMAND = new SlashCommandBuilder()
   .setName('creator')
   .setDescription('Creator Assistant - verification and management')
-  // No defaultMemberPermissions - link, status, help are user-facing; admin subcommands check in handler
+  .addSubcommand((s) =>
+    s
+      .setName('link')
+      .setDescription('Link your account (Gumroad, Jinxxy, Discord)')
+      .addStringOption((o) =>
+        o
+          .setName('provider')
+          .setDescription('Provider to link')
+          .setRequired(true)
+          .addChoices(
+            { name: 'Gumroad', value: 'gumroad' },
+            { name: 'License key (Gumroad/Jinxxy)', value: 'license' },
+            { name: 'Discord (other server)', value: 'discord' },
+          ),
+      ),
+  )
+  .addSubcommand((s) =>
+    s.setName('status').setDescription('Show your verification status'),
+  )
+  .addSubcommand((s) => s.setName('help').setDescription('Help and usage'));
+
+/** Admin-only command. setDefaultMemberPermissions hides it from users who don't have Administrator. */
+const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
+  .setName('creator-admin')
+  .setDescription('Creator Assistant — configuration and moderation (admin only)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addSubcommandGroup((setup) =>
     setup
       .setName('setup')
@@ -128,29 +158,9 @@ const CREATOR_COMMAND = new SlashCommandBuilder()
             o.setName('user').setDescription('User to clear').setRequired(true),
           ),
       ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName('link')
-      .setDescription('Link your account (Gumroad, Jinxxy, Discord)')
-      .addStringOption((o) =>
-        o
-          .setName('provider')
-          .setDescription('Provider to link')
-          .setRequired(true)
-          .addChoices(
-            { name: 'Gumroad', value: 'gumroad' },
-            { name: 'License key (Gumroad/Jinxxy)', value: 'license' },
-            { name: 'Discord (other server)', value: 'discord' },
-          ),
-      ),
-  )
-  .addSubcommand((s) =>
-    s.setName('status').setDescription('Show your verification status'),
-  )
-  .addSubcommand((s) => s.setName('help').setDescription('Help and usage'));
+  );
 
-/** User-facing commands (no admin permission) */
+/** User-facing subcommand names (under /creator) */
 const USER_COMMANDS = ['link', 'status', 'help'];
 
 export async function registerCommands(
@@ -159,7 +169,10 @@ export async function registerCommands(
   guildId?: string,
 ): Promise<void> {
   const rest = new REST().setToken(token);
-  const body = [CREATOR_COMMAND.toJSON()];
+  const body = [
+    CREATOR_USER_COMMAND.toJSON(),
+    CREATOR_ADMIN_COMMAND.toJSON(),
+  ];
 
   if (guildId) {
     await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body });
@@ -168,4 +181,4 @@ export async function registerCommands(
   }
 }
 
-export { CREATOR_COMMAND, USER_COMMANDS };
+export { CREATOR_USER_COMMAND, CREATOR_ADMIN_COMMAND, USER_COMMANDS };

@@ -69,6 +69,26 @@ export async function handleVerifyStartButton(
   });
 
   const returnTo = `https://discord.com/channels/${ctx.guildId}`;
+
+  // First, get the subject and their linked accounts
+  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+    discordUserId: interaction.user.id,
+  });
+
+  let linkedAccounts: any[] = [];
+  if (subjectResult.found) {
+    const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts as any, {
+      subjectId: subjectResult.subject._id,
+    });
+    if (accountsResult.found) {
+      linkedAccounts = accountsResult.externalAccounts;
+    }
+  }
+
+  const hasGumroad = linkedAccounts.some(acc => acc.provider === 'gumroad' && acc.status === 'active');
+  const hasDiscord = linkedAccounts.some(acc => acc.provider === 'discord' && acc.status === 'active');
+  const hasJinxxy = linkedAccounts.some(acc => acc.provider === 'jinxxy' && acc.status === 'active');
+
   const redirectUri = apiBaseUrl
     ? `${apiBaseUrl}/verify-success?returnTo=${encodeURIComponent(returnTo)}`
     : '';
@@ -78,6 +98,7 @@ export async function handleVerifyStartButton(
     redirectUri,
     discordUserId: interaction.user.id,
   });
+
   const gumroadUrl = apiBaseUrl
     ? `${apiBaseUrl}/api/verification/begin?${gumroadParams.toString()}`
     : null;
@@ -86,16 +107,26 @@ export async function handleVerifyStartButton(
     : null;
 
   const gumroadButton = new ButtonBuilder()
-    .setLabel('Sign in with Gumroad')
-    .setStyle(ButtonStyle.Link)
-    .setURL(gumroadUrl ?? 'https://gumroad.com');
-  if (!gumroadUrl) gumroadButton.setDisabled(true);
+    .setStyle(hasGumroad ? ButtonStyle.Danger : ButtonStyle.Link)
+    .setLabel(hasGumroad ? 'Disconnect Gumroad' : 'Sign in with Gumroad');
+
+  if (hasGumroad) {
+    gumroadButton.setCustomId(`${VERIFY_PREFIX}disconnect:gumroad`);
+  } else {
+    gumroadButton.setURL(gumroadUrl ?? 'https://gumroad.com');
+    if (!gumroadUrl) gumroadButton.setDisabled(true);
+  }
 
   const discordRoleButton = new ButtonBuilder()
-    .setLabel('Sign in with Discord (other server)')
-    .setStyle(ButtonStyle.Link)
-    .setURL(discordRoleUrl ?? 'https://discord.com');
-  if (!discordRoleUrl) discordRoleButton.setDisabled(true);
+    .setStyle(hasDiscord ? ButtonStyle.Danger : ButtonStyle.Link)
+    .setLabel(hasDiscord ? 'Disconnect Discord' : 'Sign in with Discord (other server)');
+
+  if (hasDiscord) {
+    discordRoleButton.setCustomId(`${VERIFY_PREFIX}disconnect:discord`);
+  } else {
+    discordRoleButton.setURL(discordRoleUrl ?? 'https://discord.com');
+    if (!discordRoleUrl) discordRoleButton.setDisabled(true);
+  }
 
   const licenseButton = new ButtonBuilder()
     .setCustomId(`${VERIFY_PREFIX}license:${ctx.tenantId}`)
@@ -103,13 +134,13 @@ export async function handleVerifyStartButton(
     .setStyle(ButtonStyle.Secondary);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    ...(gumroadUrl ? [gumroadButton] : []),
-    ...(discordRoleUrl ? [discordRoleButton] : []),
+    ...(hasGumroad || gumroadUrl ? [gumroadButton] : []),
+    ...(hasDiscord || discordRoleUrl ? [discordRoleButton] : []),
     licenseButton,
   );
 
   await interaction.reply({
-    content: 'Choose how to verify:',
+    content: 'Choose how to verify. If you are already connected, you can disconnect your account here.',
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
@@ -210,6 +241,85 @@ export async function handleLicenseModalSubmit(
   } catch (err) {
     await interaction.editReply({
       content: `Error: ${err instanceof Error ? err.message : 'Verification failed'}`,
+    });
+  }
+}
+
+export async function handleVerifyDisconnectButton(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  apiBaseUrl: string | undefined,
+  provider: string
+): Promise<void> {
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.reply({ content: 'Use this in a server.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  if (!apiBaseUrl) {
+    await interaction.reply({
+      content: 'Verification API not configured.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+      discordUserId: interaction.user.id,
+    });
+
+    if (!subjectResult.found) {
+      await interaction.editReply({ content: 'No linked accounts found.' });
+      return;
+    }
+
+    const guildLink = await convex.query(api.guildLinks.getByDiscordGuildForBot as any, {
+      apiSecret,
+      discordGuildId: guildId,
+    });
+
+    if (!guildLink) {
+      await interaction.editReply({ content: 'Server not configured.' });
+      return;
+    }
+
+    const tenantId = guildLink.tenantId;
+
+    // Call API to remove external account link
+    const res = await fetch(`${apiBaseUrl}/api/verification/disconnect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subjectId: subjectResult.subject._id,
+        tenantId,
+        provider,
+      }),
+    });
+
+    const result = await res.json() as { success?: boolean; error?: string };
+
+    if (!result.success) {
+      await interaction.editReply({ content: result.error ?? 'Failed to disconnect account.' });
+      return;
+    }
+
+    await interaction.editReply({
+      content: `Successfully disconnected your ${provider} account from verification. Note: existing roles may take some time to be removed.`,
+    });
+
+    track(interaction.user.id, 'verification_disconnected', {
+      tenantId,
+      provider,
+    });
+
+  } catch (err) {
+    await interaction.editReply({
+      content: `Error disconnecting: ${err instanceof Error ? err.message : 'Unknown error'}`,
     });
   }
 }

@@ -17,6 +17,7 @@ export interface LocalEnv {
   // Auth
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL?: string;
+  FRONTEND_URL?: string;
   // Discord
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
