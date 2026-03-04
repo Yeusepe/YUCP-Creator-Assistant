@@ -221,6 +221,41 @@ export const findExternalAccount = query({
 // ============================================================================
 
 /**
+ * Get or create a subject for a Discord user (retroactive sync).
+ * Used when granting entitlements to users who have the source role but haven't verified yet.
+ * Creates a minimal subject with primaryDiscordUserId only; authUserId remains unset until they sign in.
+ */
+export const getOrCreateSubjectForDiscordUser = mutation({
+  args: {
+    apiSecret: v.string(),
+    discordUserId: v.string(),
+    displayName: v.optional(v.string()),
+  },
+  returns: v.id('subjects'),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const now = Date.now();
+
+    const existing = await ctx.db
+      .query('subjects')
+      .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
+      .first();
+
+    if (existing) {
+      return existing._id;
+    }
+
+    return await ctx.db.insert('subjects', {
+      primaryDiscordUserId: args.discordUserId,
+      status: 'active',
+      displayName: args.displayName,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/**
  * Sync a user from Better Auth to Convex.
  *
  * This mutation:
@@ -538,6 +573,76 @@ export const syncUserFromProvider = mutation({
       isNewSubject,
       isNewExternalAccount,
     };
+  },
+});
+
+/**
+ * Store encrypted Discord OAuth tokens on an external account.
+ * Called after a successful discord_role OAuth callback so we can
+ * proactively check guild membership when new discord_role products
+ * are added (retroactive sync without requiring re-authorization).
+ */
+export const storeDiscordToken = mutation({
+  args: {
+    apiSecret: v.string(),
+    externalAccountId: v.id('external_accounts'),
+    discordAccessTokenEncrypted: v.string(),
+    discordTokenExpiresAt: v.optional(v.number()),
+    discordRefreshTokenEncrypted: v.optional(v.string()),
+  },
+  returns: v.object({ success: v.boolean() }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const account = await ctx.db.get(args.externalAccountId);
+    if (!account) {
+      throw new Error(`External account not found: ${args.externalAccountId}`);
+    }
+    await ctx.db.patch(args.externalAccountId, {
+      discordAccessTokenEncrypted: args.discordAccessTokenEncrypted,
+      discordTokenExpiresAt: args.discordTokenExpiresAt,
+      discordRefreshTokenEncrypted: args.discordRefreshTokenEncrypted,
+      updatedAt: Date.now(),
+    });
+    return { success: true };
+  },
+});
+
+/**
+ * Get Discord external accounts that have stored OAuth tokens.
+ * Used by retroactive rule sync to proactively check guild membership.
+ */
+export const getDiscordAccountsWithTokens = query({
+  args: {
+    apiSecret: v.string(),
+  },
+  returns: v.array(
+    v.object({
+      externalAccountId: v.id('external_accounts'),
+      providerUserId: v.string(),
+      discordAccessTokenEncrypted: v.string(),
+      discordTokenExpiresAt: v.optional(v.number()),
+      discordRefreshTokenEncrypted: v.optional(v.string()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    // Get all active Discord external accounts
+    const accounts = await ctx.db
+      .query('external_accounts')
+      .withIndex('by_provider', (q) => q.eq('provider', 'discord'))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    // Filter to those with tokens
+    return accounts
+      .filter((a) => a.discordAccessTokenEncrypted)
+      .map((a) => ({
+        externalAccountId: a._id,
+        providerUserId: a.providerUserId,
+        discordAccessTokenEncrypted: a.discordAccessTokenEncrypted!,
+        discordTokenExpiresAt: a.discordTokenExpiresAt,
+        discordRefreshTokenEncrypted: a.discordRefreshTokenEncrypted,
+      }));
   },
 });
 

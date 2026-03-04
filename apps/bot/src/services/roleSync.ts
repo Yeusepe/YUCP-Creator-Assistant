@@ -68,10 +68,10 @@ export interface OutboxJob {
   tenantId: Id<'tenants'>;
   jobType: 'role_sync' | 'role_removal' | 'creator_alert' | 'retroactive_rule_sync';
   payload:
-    | RoleSyncPayload
-    | RoleRemovalPayload
-    | CreatorAlertPayload
-    | RetroactiveRuleSyncPayload;
+  | RoleSyncPayload
+  | RoleRemovalPayload
+  | CreatorAlertPayload
+  | RetroactiveRuleSyncPayload;
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'dead_letter';
   retryCount: number;
   maxRetries: number;
@@ -215,6 +215,7 @@ export class RoleSyncService {
   private readonly discordClient: Client;
   private readonly rateLimiter: DiscordRateLimiter;
   private readonly apiSecret: string;
+  private readonly encryptionSecret?: string;
   private isRunning = false;
   private pollIntervalMs: number;
 
@@ -224,6 +225,7 @@ export class RoleSyncService {
     discordClient: Client;
     pollIntervalMs?: number;
     logLevel?: 'debug' | 'info' | 'warn' | 'error';
+    encryptionSecret?: string;
   }) {
     this.logger = createStructuredLogger({
       serviceName: 'role-sync',
@@ -234,6 +236,7 @@ export class RoleSyncService {
     this.convexClient = new ConvexHttpClient(options.convexUrl);
     this.discordClient = options.discordClient;
     this.apiSecret = options.apiSecret;
+    this.encryptionSecret = options.encryptionSecret;
     this.rateLimiter = new DiscordRateLimiter(this.logger);
     this.pollIntervalMs = options.pollIntervalMs ?? 5000; // 5 seconds default
   }
@@ -531,7 +534,11 @@ export class RoleSyncService {
 
   /**
    * Process retroactive rule sync job.
-   * Calls Convex to create role_sync jobs for all entitlements of the product.
+   * For all products (including discord_role): creates role_sync jobs for users who already have
+   * entitlements. Discord role products grant entitlements when users verify via OAuth ("Use
+   * Another Server")—we check their roles via the Discord API with their token. Retroactive sync
+   * ensures those verified users get the role in the target guild. We cannot proactively find
+   * users who have the role but haven't verified—that requires each user's OAuth token.
    */
   private async processRetroactiveRuleSyncJob(job: OutboxJob): Promise<void> {
     const payload = job.payload as RetroactiveRuleSyncPayload;
@@ -539,12 +546,191 @@ export class RoleSyncService {
       throw new Error('Retroactive rule sync payload missing tenantId or productId');
     }
 
-    await this.convexClient.mutation('backgroundSync:processRetroactiveRuleSyncJob' as any, {
+    const result = (await this.convexClient.mutation('backgroundSync:processRetroactiveRuleSyncJob' as any, {
       apiSecret: this.apiSecret,
       jobId: job._id,
       tenantId: payload.tenantId,
       productId: payload.productId,
+    })) as {
+      success: boolean;
+      roleSyncJobsCreated: number;
+      entitlementsFound: number;
+      skippedNoDiscordId: number;
+      skippedDuplicate: number;
+      discordTokenAccounts?: Array<{
+        externalAccountId: string;
+        providerUserId: string;
+        discordAccessTokenEncrypted: string;
+        discordTokenExpiresAt?: number;
+        discordRefreshTokenEncrypted?: string;
+      }>;
+    };
+
+    this.logger.info('Retroactive entitlement sync completed', {
+      productId: payload.productId,
+      roleSyncJobsCreated: result.roleSyncJobsCreated,
+      entitlementsFound: result.entitlementsFound,
     });
+
+    // For discord_role products: proactively check guild membership using stored tokens
+    if (
+      result.discordTokenAccounts &&
+      result.discordTokenAccounts.length > 0 &&
+      payload.productId.startsWith('discord_role:')
+    ) {
+      await this.proactiveDiscordRoleCheck(
+        payload.tenantId,
+        payload.productId,
+        result.discordTokenAccounts,
+      );
+    }
+  }
+
+  /**
+   * Proactively check guild membership for users with stored Discord OAuth tokens.
+   * Used during retroactive sync when a new discord_role product is added.
+   */
+  private async proactiveDiscordRoleCheck(
+    tenantId: string,
+    productId: string,
+    accounts: Array<{
+      externalAccountId: string;
+      providerUserId: string;
+      discordAccessTokenEncrypted: string;
+      discordTokenExpiresAt?: number;
+    }>,
+  ): Promise<void> {
+    if (!this.encryptionSecret) {
+      this.logger.warn('Cannot do proactive discord role check: no encryptionSecret configured');
+      return;
+    }
+
+    // Parse sourceGuildId and requiredRoleId from productId: "discord_role:<sourceGuildId>:<requiredRoleId>"
+    const parts = productId.split(':');
+    if (parts.length < 3) {
+      this.logger.warn('Invalid discord_role productId format', { productId });
+      return;
+    }
+    const sourceGuildId = parts[1];
+    const requiredRoleId = parts[2];
+
+    this.logger.info('Starting proactive discord role check', {
+      tenantId,
+      productId,
+      sourceGuildId,
+      requiredRoleId,
+      accountCount: accounts.length,
+    });
+
+    let granted = 0;
+    let skipped = 0;
+    let expired = 0;
+    let failed = 0;
+
+    for (const account of accounts) {
+      try {
+        // Check if token is expired
+        if (account.discordTokenExpiresAt && Date.now() > account.discordTokenExpiresAt) {
+          expired++;
+          continue;
+        }
+
+        // Decrypt the access token
+        const accessToken = await this.decryptToken(
+          account.discordAccessTokenEncrypted,
+          this.encryptionSecret,
+        );
+
+        // Check guild membership using the user's OAuth token
+        const memberRes = await fetch(
+          `https://discord.com/api/v10/users/@me/guilds/${sourceGuildId}/member`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+
+        if (memberRes.status === 429) {
+          const retryAfter = memberRes.headers.get('Retry-After');
+          const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue; // Skip this user for now, will be retried
+        }
+
+        if (!memberRes.ok) {
+          skipped++;
+          continue;
+        }
+
+        const member = (await memberRes.json()) as { roles?: string[] };
+        const roles = member.roles ?? [];
+        const hasRole =
+          roles.includes(requiredRoleId) ||
+          (requiredRoleId === sourceGuildId && memberRes.ok);
+
+        if (hasRole) {
+          // Find or create subject for this Discord user
+          const subjectId = await this.convexClient.mutation(
+            'identitySync:getOrCreateSubjectForDiscordUser' as any,
+            {
+              apiSecret: this.apiSecret,
+              discordUserId: account.providerUserId,
+            },
+          );
+
+          // Grant entitlement
+          const sourceReference = `discord_role:${sourceGuildId}:${requiredRoleId}`;
+          await this.convexClient.mutation(
+            'entitlements:grantEntitlement' as any,
+            {
+              apiSecret: this.apiSecret,
+              tenantId,
+              subjectId,
+              productId,
+              evidence: {
+                provider: 'discord',
+                sourceReference,
+              },
+            },
+          );
+          granted++;
+        } else {
+          skipped++;
+        }
+      } catch (err) {
+        failed++;
+        this.logger.warn('Proactive discord role check failed for account', {
+          providerUserId: account.providerUserId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    this.logger.info('Proactive discord role check completed', {
+      tenantId,
+      productId,
+      granted,
+      skipped,
+      expired,
+      failed,
+      total: accounts.length,
+    });
+  }
+
+  /**
+   * Decrypt an encrypted token using AES-256-GCM.
+   * Same algorithm as apps/api/src/lib/encrypt.ts.
+   */
+  private async decryptToken(ciphertextB64: string, secret: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const hash = await crypto.subtle.digest('SHA-256', encoder.encode(secret));
+    const key = await crypto.subtle.importKey(
+      'raw', hash, { name: 'AES-GCM' }, false, ['decrypt'],
+    );
+    const combined = Uint8Array.from(atob(ciphertextB64), (c) => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const data = combined.slice(12);
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv }, key, data,
+    );
+    return new TextDecoder().decode(decrypted);
   }
 
   /**

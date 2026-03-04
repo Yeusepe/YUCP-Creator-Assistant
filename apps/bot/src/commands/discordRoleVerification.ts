@@ -16,6 +16,7 @@ import type { ButtonInteraction, ChatInputCommandInteraction } from 'discord.js'
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { E } from '../lib/emojis';
 
 /** /creator-admin settings cross-server — shows status + enable/disable buttons */
 export async function handleDiscordRoleVerification(
@@ -48,7 +49,7 @@ export async function handleDiscordRoleVerification(
         : 'Cross-server role verification is currently disabled.',
     )
     .addFields(
-      { name: 'Status', value: enabled ? '✅ Enabled' : '❌ Disabled', inline: true },
+      { name: 'Status', value: enabled ? `${E.Checkmark} Enabled` : `${E.X_} Disabled`, inline: true },
       {
         name: 'Allowed Source Servers',
         value:
@@ -88,7 +89,7 @@ export async function handleSettingsEnable(
     .setTitle('Cross-Server Role Verification')
     .setColor(0x57f287)
     .setDescription(
-      '✅ Cross-server role verification has been **enabled**.\n\nMake sure `allowedSourceGuildIds` is configured in your setup (the server IDs where users must have the required role).',
+      `${E.Checkmark} Cross-server role verification has been **enabled**.\n\nMake sure \`allowedSourceGuildIds\` is configured in your setup (the server IDs where users must have the required role).`,
     );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -119,7 +120,7 @@ export async function handleSettingsDisable(
   const embed = new EmbedBuilder()
     .setTitle('Cross-Server Role Verification')
     .setColor(0xed4245)
-    .setDescription('❌ Cross-server role verification has been **disabled**.');
+    .setDescription(`${E.X_} Cross-server role verification has been **disabled**.`);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()

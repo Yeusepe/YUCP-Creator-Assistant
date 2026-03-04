@@ -65,6 +65,7 @@ async function main() {
     convexUrl: env.CONVEX_URL!,
     apiSecret: env.CONVEX_API_SECRET!,
     logLevel: (env.LOG_LEVEL as 'debug' | 'info' | 'warn' | 'error') ?? 'info',
+    encryptionSecret: env.BETTER_AUTH_SECRET,
   });
 
   await roleSyncService.start();

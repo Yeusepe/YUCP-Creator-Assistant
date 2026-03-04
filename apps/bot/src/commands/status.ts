@@ -7,6 +7,7 @@ import type { ChatInputCommandInteraction } from 'discord.js';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { E } from '../lib/emojis';
 
 export async function handleStatus(
   interaction: ChatInputCommandInteraction,
@@ -48,9 +49,9 @@ export async function handleStatus(
       {
         name: 'Linked accounts',
         value: [
-          `Gumroad: ${linkedGumroad ? '✓' : '✗'}`,
-          `Jinxxy: ${linkedJinxxy ? '✓' : '✗'}`,
-          `Discord: ${linkedDiscord ? '✓' : '✗'}`,
+          `Gumroad: ${linkedGumroad ? E.Checkmark : E.X_}`,
+          `Jinxxy: ${linkedJinxxy ? E.Checkmark : E.X_}`,
+          `Discord: ${linkedDiscord ? E.Checkmark : E.X_}`,
         ].join('\n'),
         inline: true,
       },

@@ -174,7 +174,7 @@ export async function showProductPicker(
     if (products.length === 0) {
         await interaction.editReply({
             content:
-                '❌ No products are configured for this server yet. Ask the creator to run `/creator-admin product add`.',
+                `${E.X_} No products are configured for this server yet. Ask the creator to run \`/creator-admin product add\`.`,
         });
         return;
     }
@@ -295,7 +295,7 @@ export async function handleLicenseKeyModal(
     const firstColon = rest.indexOf(':');
     const lastColon = rest.lastIndexOf(':');
     if (firstColon === -1 || lastColon === firstColon) {
-        await interaction.reply({ content: '❌ Invalid modal state.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: `${E.X_} Invalid modal state.`, flags: MessageFlags.Ephemeral });
         return;
     }
 
@@ -315,7 +315,7 @@ export async function handleLicenseKeyModal(
     });
 
     if (!licenseKey) {
-        await interaction.reply({ content: '❌ Please enter a license key.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: `${E.X_} Please enter a license key.`, flags: MessageFlags.Ephemeral });
         return;
     }
 
@@ -335,14 +335,14 @@ export async function handleLicenseKeyModal(
         subjectId = ensureResult.subjectId;
     } catch (err) {
         logger.error('Failed to ensure subject', { err, discordUserId });
-        await interaction.editReply({ content: '❌ Failed to look up your account. Please try again.' });
+        await interaction.editReply({ content: `${E.X_} Failed to look up your account. Please try again.` });
         return;
     }
 
     // Call the API to verify the license key
     const apiUrl = apiBaseUrl ?? process.env.API_BASE_URL;
     if (!apiUrl) {
-        await interaction.editReply({ content: '❌ API not available right now.' });
+        await interaction.editReply({ content: `${E.X_} API not available right now.` });
         return;
     }
 
@@ -364,7 +364,7 @@ export async function handleLicenseKeyModal(
         if (!data.success) {
             const msg = data.error ?? 'Verification failed';
             logger.warn('License verification failed', { msg, tenantId, provider });
-            await interaction.editReply({ content: `❌ ${msg}` });
+            await interaction.editReply({ content: `${E.X_} ${msg}` });
             return;
         }
 

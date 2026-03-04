@@ -583,6 +583,21 @@ export const addProductFromDiscordRole = mutation({
       updatedAt: now,
     });
 
+    // Schedule retroactive sync so existing members with the source role get the target role.
+    // Use ruleId in idempotency key so re-adds (after remove) create a fresh job.
+    const idempotencyKey = `retroactive_rule_sync:${args.tenantId}:${productId}:${ruleId}`;
+    await ctx.db.insert('outbox_jobs', {
+      tenantId: args.tenantId,
+      jobType: 'retroactive_rule_sync',
+      payload: { tenantId: args.tenantId, productId },
+      status: 'pending',
+      idempotencyKey,
+      retryCount: 0,
+      maxRetries: 5,
+      createdAt: now,
+      updatedAt: now,
+    });
+
     return { productId, ruleId };
   },
 });

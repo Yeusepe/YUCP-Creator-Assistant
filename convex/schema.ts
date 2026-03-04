@@ -748,6 +748,12 @@ const external_accounts = defineTable({
       rawData: v.optional(v.any()),
     }),
   ),
+  // Encrypted Discord OAuth2 access token (for proactive guild member checks)
+  discordAccessTokenEncrypted: v.optional(v.string()),
+  // Token expiry timestamp (Discord tokens expire after ~7 days)
+  discordTokenExpiresAt: v.optional(v.number()),
+  // Encrypted refresh token for silent renewal
+  discordRefreshTokenEncrypted: v.optional(v.string()),
   // When this account was last validated
   lastValidatedAt: v.optional(v.number()),
   // Current status

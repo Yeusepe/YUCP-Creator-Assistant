@@ -25,6 +25,8 @@ export interface LocalEnv {
   POSTHOG_HOST?: string;
   // API base URL for verification (e.g. https://api.yucp.example.com)
   API_BASE_URL?: string;
+  // Encryption secret (shared with API for token decryption)
+  BETTER_AUTH_SECRET?: string;
 }
 
 // Load from process.env
@@ -43,6 +45,7 @@ function loadFromEnv(): LocalEnv {
     POSTHOG_API_KEY: process.env.POSTHOG_API_KEY,
     POSTHOG_HOST: process.env.POSTHOG_HOST,
     API_BASE_URL: process.env.API_BASE_URL,
+    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
   };
 }
 

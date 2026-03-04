@@ -22,6 +22,7 @@ import type {
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { E } from '../lib/emojis';
 
 /** /creator-admin stats — shows overview with navigation buttons */
 export async function handleStats(
@@ -40,7 +41,7 @@ export async function handleStats(
   });
 
   const embed = new EmbedBuilder()
-    .setTitle('📊 Verification Stats')
+    .setTitle(`${E.Library} Verification Stats`)
     .setColor(0x5865f2)
     .addFields(
       { name: 'Verified Users', value: String(stats.totalVerified), inline: true },
@@ -182,7 +183,7 @@ export async function handleStatsCheckUserModal(
   });
 
   const productIds = [...new Set(entitlements.map((e: { productId: string }) => e.productId))];
-  const status = productIds.length ? 'Verified ✅' : 'No active products';
+  const status = productIds.length ? `Verified ${E.Checkmark}` : 'No active products';
 
   const embed = new EmbedBuilder()
     .setTitle(`Verification: <@${discordUserId}>`)
@@ -276,7 +277,7 @@ export async function handleStatsUser(
     includeInactive: false,
   });
   const productIds = [...new Set(entitlements.map((e: { productId: string }) => e.productId))];
-  const status = productIds.length ? 'Verified ✅' : 'No active products';
+  const status = productIds.length ? `Verified ${E.Checkmark}` : 'No active products';
   const embed = new EmbedBuilder()
     .setTitle(`Verification: ${targetUser.username}`)
     .setColor(0x5865f2)

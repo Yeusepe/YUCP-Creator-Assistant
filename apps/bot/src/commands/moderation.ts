@@ -60,7 +60,7 @@ export async function handleModerationMark(
         .setLabel('Other')
         .setDescription('Other reason (add details in audit log)')
         .setValue('Other')
-        .setEmoji('⚠️'),
+        .setEmoji(Emoji.Wrench),
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
