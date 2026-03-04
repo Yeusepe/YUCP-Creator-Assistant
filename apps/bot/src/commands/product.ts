@@ -30,6 +30,7 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
 import { Emoji } from '../lib/emojis';
+import { canBotManageRole } from '../lib/roleHierarchy';
 import { track } from '../lib/posthog';
 import { resolveGumroadProductId } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
@@ -428,6 +429,9 @@ export async function handleProductRoleSelect(
 
   session.roleId = roleId;
 
+  const guild = interaction.guild;
+  const hierarchyCheck = guild ? canBotManageRole(guild, roleId) : null;
+
   const typeLabels: Record<string, string> = {
     gumroad: 'Gumroad',
     jinxxy: 'Jinxxy',
@@ -448,9 +452,16 @@ export async function handleProductRoleSelect(
 
   detailLines.push(`**Assigns Role:** <@&${roleId}>`);
 
+  if (hierarchyCheck && !hierarchyCheck.canManage) {
+    detailLines.push('');
+    detailLines.push(
+      `⚠️ **Role hierarchy warning:** ${hierarchyCheck.reason} The bot will not be able to assign this role until you fix it.`,
+    );
+  }
+
   const embed = new EmbedBuilder()
-    .setTitle('✅ Ready to add')
-    .setColor(0x57f287)
+    .setTitle(hierarchyCheck && !hierarchyCheck.canManage ? '⚠️ Ready to add (with warning)' : '✅ Ready to add')
+    .setColor(hierarchyCheck && !hierarchyCheck.canManage ? 0xfee75c : 0x57f287)
     .setDescription(detailLines.join('\n'));
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
