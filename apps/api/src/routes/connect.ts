@@ -136,10 +136,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       logger.warn('OTT exchange failed, showing sign-in page', { guildId: resolvedGuildId });
     }
 
-    // Step 2: Check for existing session.
-    const session = await auth.getSession(request);
+    // Step 2: Check for existing session (skip if setup token already authenticated us).
+    const hasValidSetupToken = !!(setupToken && resolvedTenantId);
+    const session = hasValidSetupToken ? null : await auth.getSession(request);
 
-    if (!session) {
+    if (!session && !hasValidSetupToken) {
       // Build callback URL preserving the setup token
       const callbackParams = setupToken
         ? `s=${encodeURIComponent(setupToken)}`
@@ -155,7 +156,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
     }
 
-    const filePath = `${import.meta.dir}/../../public/connect.html`;
+    const filePath = `${import.meta.dir}/../../public/dashboard.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
     html = html.replace('__GUILD_ID__', resolvedGuildId);
@@ -352,14 +353,27 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Redirects to Gumroad OAuth.
    */
   async function gumroadBegin(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    let tenantId = url.searchParams.get('tenantId');
+    let guildId = url.searchParams.get('guildId');
+    const setupToken = url.searchParams.get('s');
+
+    // Accept either a browser session OR a valid setup token as authentication
     const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    let authenticatedViaSetupToken = false;
+
+    if (setupToken) {
+      const resolved = await resolveSetupSession(setupToken, config.encryptionSecret);
+      if (resolved) {
+        tenantId = tenantId || resolved.tenantId;
+        guildId = guildId || resolved.guildId;
+        authenticatedViaSetupToken = true;
+      }
     }
 
-    const url = new URL(request.url);
-    const tenantId = url.searchParams.get('tenantId');
-    const guildId = url.searchParams.get('guildId');
+    if (!session && !authenticatedViaSetupToken) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
 
     if (!tenantId || !guildId || !config.gumroadClientId || !config.gumroadClientSecret) {
       return Response.json(
@@ -372,7 +386,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const store = getStateStore();
     await store.set(
       `${GUMROAD_STATE_PREFIX}${state}`,
-      JSON.stringify({ tenantId, guildId }),
+      JSON.stringify({ tenantId, guildId, setupToken: setupToken ?? '' }),
       GUMROAD_STATE_EXPIRY_MS
     );
 
@@ -421,7 +435,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
     await store.delete(`${GUMROAD_STATE_PREFIX}${state}`);
 
-    const { tenantId, guildId } = JSON.parse(raw) as { tenantId: string; guildId: string };
+    const { tenantId, guildId, setupToken: storedSetupToken } = JSON.parse(raw) as { tenantId: string; guildId: string; setupToken?: string };
 
     try {
       const tokenRes = await fetch('https://api.gumroad.com/oauth/token', {
@@ -482,10 +496,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         gumroadUserId,
       });
 
-      return Response.redirect(
-        `${config.baseUrl}/connect?guild_id=${guildId}&gumroad=connected`,
-        302
-      );
+      const redirectUrl = storedSetupToken
+        ? `${config.baseUrl}/connect?s=${encodeURIComponent(storedSetupToken)}&gumroad=connected`
+        : `${config.baseUrl}/connect?guild_id=${guildId}&gumroad=connected`;
+      return Response.redirect(redirectUrl, 302);
     } catch (err) {
       logger.error('Gumroad callback failed', {
         error: err instanceof Error ? err.message : String(err),
@@ -653,11 +667,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const connections = await convex.query('providerConnections:listConnections' as any, {
+      const result = await convex.query('providerConnections:listConnections' as any, {
         apiSecret: config.convexApiSecret,
         tenantId: session.tenantId,
-      });
-      return Response.json({ connections });
+      }) as { allowMismatchedEmails: boolean, connections: any[] };
+      return Response.json(result);
     } catch (err) {
       logger.error('List connections failed', { error: err instanceof Error ? err.message : String(err) });
       return Response.json({ error: 'Failed to list connections' }, { status: 500 });
@@ -695,6 +709,66 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
   }
 
+  /**
+   * GET /api/connect/settings?s=TOKEN
+   * Returns the current tenant policy settings.
+   */
+  async function getSettingsHandler(request: Request): Promise<Response> {
+    const session = await resolveToken(request);
+    if (!session) {
+      return Response.json({ error: 'Valid setup token required' }, { status: 401 });
+    }
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const tenant = await convex.query('tenants:getTenant' as any, {
+        tenantId: session.tenantId,
+      }) as { policy?: any };
+      return Response.json({ policy: tenant?.policy ?? {} });
+    } catch (err) {
+      logger.error('Get settings failed', { error: err instanceof Error ? err.message : String(err) });
+      return Response.json({ error: 'Failed to get settings' }, { status: 500 });
+    }
+  }
+
+  /**
+   * POST /api/connect/settings?s=TOKEN
+   * Body: { key: string, value: any }
+   */
+  async function updateSettingHandler(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    const session = await resolveToken(request);
+    if (!session) {
+      return Response.json({ error: 'Valid setup token required' }, { status: 401 });
+    }
+
+    let body: { key: string; value: any };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    if (!body.key) {
+      return Response.json({ error: 'Setting key is required' }, { status: 400 });
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      await convex.mutation('providerConnections:updateTenantSetting' as any, {
+        apiSecret: config.convexApiSecret,
+        tenantId: session.tenantId,
+        key: body.key,
+        value: body.value,
+      });
+      return Response.json({ success: true });
+    } catch (err) {
+      logger.error('Update setting failed', { error: err instanceof Error ? err.message : String(err) });
+      return Response.json({ error: 'Failed to update setting' }, { status: 500 });
+    }
+  }
+
   return {
     serveConnectPage,
     createSessionEndpoint,
@@ -708,6 +782,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     jinxxyStore,
     listConnectionsHandler,
     disconnectConnectionHandler,
+    getSettingsHandler,
+    updateSettingHandler,
   };
 }
 

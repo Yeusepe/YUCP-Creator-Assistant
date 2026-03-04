@@ -219,7 +219,10 @@ async function handleRequest(request: Request): Promise<Response> {
     return connectRoutes.listConnectionsHandler(request);
   }
   if (pathname === '/api/connect/settings' && connectRoutes) {
-    return connectRoutes.updateSettingHandler(request);
+    if (request.method === 'POST') {
+      return connectRoutes.updateSettingHandler(request);
+    }
+    return connectRoutes.getSettingsHandler(request);
   }
   if (pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html') {
     const filePath = `${import.meta.dir}/../public/jinxxy-setup.html`;

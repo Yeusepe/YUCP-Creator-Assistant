@@ -249,7 +249,7 @@ async function handleSlashCommand(
         : 'An error occurred. Please try again.';
     try {
       if (interaction.deferred) {
-        await interaction.editReply({ content: content ?? 'An error occurred.' }).catch(() => {});
+        await interaction.editReply({ content: content ?? 'An error occurred.' }).catch(() => { });
       } else if (!interaction.replied) {
         await interaction.reply({ content: content ?? 'An error occurred.', flags: MessageFlags.Ephemeral });
       }
@@ -314,7 +314,7 @@ async function handleUserCommand(
   } catch (err) {
     logger.error('User command error', { err, command: subcommand });
     if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ content: 'An error occurred.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      await interaction.reply({ content: 'An error occurred.', flags: MessageFlags.Ephemeral }).catch(() => { });
     }
   }
 }
@@ -367,6 +367,14 @@ async function handleButton(
     return;
   }
 
+  if (customId.startsWith('creator_verify:disconnect:')) {
+    const provider = customId.split(':')[2];
+    const { handleVerifyDisconnectButton } = await import('../commands/verify');
+    const apiBaseUrl = process.env.API_BASE_URL;
+    await handleVerifyDisconnectButton(interaction, ctx.convex, ctx.apiSecret, apiBaseUrl, provider);
+    return;
+  }
+
   if (customId.startsWith('creator_verify:license:')) {
     const tenantId = customId.slice('creator_verify:license:'.length) as Id<'tenants'>;
     const { buildLicenseModal } = await import('../commands/verify');
@@ -387,8 +395,12 @@ async function handleButton(
         description: 'Log channel and Jinxxy API key.',
         color: 0x5865f2,
       };
-      const row1 = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(logChannelSelect);
-      const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(jinxxyButton);
+      const row1 = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
+        logChannelSelect ?? new ChannelSelectMenuBuilder().setCustomId('dummy_select')
+      );
+      const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        jinxxyButton ?? new ButtonBuilder().setCustomId('dummy_btn').setLabel('Dummy').setStyle(1)
+      );
       await interaction.update({
         embeds: [embed],
         components: [row1, row2],
@@ -396,12 +408,12 @@ async function handleButton(
       return;
     }
     if (action === 'jinxxy_btn' && tenantId) {
-      await interaction.showModal(buildJinxxyModal(tenantId as Id<'tenants'>));
+      await interaction.showModal(buildJinxxyModal(tenantId as Id<'tenants'>) as any);
       return;
     }
   }
 
-  await interaction.reply({ content: 'Unknown button.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  await interaction.reply({ content: 'Unknown button.', flags: MessageFlags.Ephemeral }).catch(() => { });
 }
 
 async function handleModalSubmit(
@@ -422,7 +434,7 @@ async function handleModalSubmit(
     );
     return;
   }
-  await interaction.reply({ content: 'Unknown modal.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  await interaction.reply({ content: 'Unknown modal.', flags: MessageFlags.Ephemeral }).catch(() => { });
 }
 
 async function handleSelectMenu(
@@ -433,5 +445,5 @@ async function handleSelectMenu(
     await handleSetupSelect(interaction as any, ctx.convex, ctx.apiSecret);
     return;
   }
-  await interaction.reply({ content: 'Unknown select.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  await interaction.reply({ content: 'Unknown select.', flags: MessageFlags.Ephemeral }).catch(() => { });
 }

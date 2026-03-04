@@ -84,22 +84,29 @@ export const listConnections = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    const tenant = await ctx.db.get(args.tenantId);
+    const allowMismatchedEmails = tenant?.policy?.allowMismatchedEmails ?? false;
+
     const connections = await ctx.db
       .query('provider_connections')
       .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
       .collect();
-    return connections.map((c) => ({
-      id: c._id,
-      provider: c.provider,
-      label: c.label ?? (c.provider === 'gumroad' ? 'Gumroad Store' : 'Jinxxy Store'),
-      connectionType: c.connectionType ?? 'setup',
-      status: c.status ?? (c.gumroadAccessTokenEncrypted || c.jinxxyApiKeyEncrypted ? 'active' : 'disconnected'),
-      webhookConfigured: c.webhookConfigured,
-      hasApiKey: !!(c.jinxxyApiKeyEncrypted),
-      hasAccessToken: !!(c.gumroadAccessTokenEncrypted),
-      createdAt: c.createdAt,
-      updatedAt: c.updatedAt,
-    }));
+
+    return {
+      allowMismatchedEmails,
+      connections: connections.map((c) => ({
+        id: c._id,
+        provider: c.provider,
+        label: c.label ?? (c.provider === 'gumroad' ? 'Gumroad Store' : 'Jinxxy Store'),
+        connectionType: c.connectionType ?? 'setup',
+        status: c.status ?? (c.gumroadAccessTokenEncrypted || c.jinxxyApiKeyEncrypted ? 'active' : 'disconnected'),
+        webhookConfigured: c.webhookConfigured,
+        hasApiKey: !!(c.jinxxyApiKeyEncrypted),
+        hasAccessToken: !!(c.gumroadAccessTokenEncrypted),
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+      }))
+    };
   },
 });
 
@@ -124,6 +131,32 @@ export const disconnectConnection = mutation({
     });
     return { success: true };
   },
+});
+
+/**
+ * Update a specific tenant setting from the onboarding flow.
+ */
+export const updateTenantSetting = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    key: v.string(),
+    value: v.any(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const tenant = await ctx.db.get(args.tenantId);
+    if (!tenant) throw new Error('Tenant not found');
+
+    const policy = tenant.policy ?? {};
+    const updatedPolicy = { ...policy, [args.key]: args.value };
+
+    await ctx.db.patch(args.tenantId, {
+      policy: updatedPolicy,
+      updatedAt: Date.now(),
+    });
+    return { success: true };
+  }
 });
 
 /**
@@ -290,5 +323,45 @@ export const upsertJinxxyConnection = mutation({
       createdAt: now,
       updatedAt: now,
     });
+  },
+});
+
+export const removeAccountForSubject = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    provider: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    // Find the binding for this subject and tenant
+    const bindings = await ctx.db
+      .query('bindings')
+      .withIndex('by_tenant_subject', (q) =>
+        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      )
+      .collect();
+
+    let accountToDelete = null;
+    let bindingToDelete = null;
+
+    // Find the specific provider account
+    for (const binding of bindings) {
+      const account = await ctx.db.get(binding.externalAccountId);
+      if (account && account.provider === args.provider) {
+        accountToDelete = account;
+        bindingToDelete = binding;
+        break;
+      }
+    }
+
+    if (!accountToDelete || !bindingToDelete) return false;
+
+    // Delete both the binding and the external account
+    await ctx.db.delete(bindingToDelete._id);
+    await ctx.db.delete(accountToDelete._id);
+    return true;
   },
 });

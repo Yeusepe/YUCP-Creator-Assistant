@@ -136,7 +136,7 @@ export interface OAuthState {
 /**
  * Result of beginning OAuth verification.
  */
-export interface BeginVerificationResult {
+export interface DiscordBeginVerificationResult {
   /** OAuth authorization URL to redirect user to */
   authorizationUrl: string;
   /** State string for CSRF protection */
@@ -148,7 +148,7 @@ export interface BeginVerificationResult {
 /**
  * Result of completing OAuth verification.
  */
-export interface CompleteVerificationResult {
+export interface DiscordCompleteVerificationResult {
   /** Discord user information */
   user: DiscordUser;
   /** Encrypted tokens for storage */

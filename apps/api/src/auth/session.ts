@@ -99,15 +99,15 @@ export interface SessionInfo {
 export function createSessionManager(auth: Auth): SessionManager {
   return {
     async revokeSession(token: string) {
-      await auth.revokeSession({ body: { token } });
+      await (auth as any).api.revokeSession({ body: { token } });
     },
 
     async revokeAllUserSessions(userId: string) {
-      await auth.revokeUserSessions({ body: { userId } });
+      await (auth as any).api.revokeUserSessions({ body: { userId } });
     },
 
     async listUserSessions(userId: string) {
-      const result = await auth.listUserSessions({ body: { userId } });
+      const result = await (auth as any).api.listUserSessions({ body: { userId } });
       return (result as SessionInfo[]) ?? [];
     },
   };

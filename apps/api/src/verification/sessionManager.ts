@@ -983,11 +983,60 @@ export function createVerificationRoutes(config: VerificationConfig) {
     }
   }
 
+  /**
+   * POST /api/verification/disconnect
+   * Removes a connected external account
+   */
+  async function disconnectVerification(request: Request): Promise<Response> {
+    try {
+      const body = await request.json() as {
+        tenantId?: string;
+        subjectId?: string;
+        provider?: string;
+      };
+
+      if (!body.tenantId || !body.subjectId || !body.provider) {
+        return Response.json(
+          { success: false, error: 'Missing required fields' },
+          { status: 400 }
+        );
+      }
+
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const { api } = await import('../../../../convex/_generated/api');
+
+      const disconnected = await convex.mutation(api.providerConnections.removeAccountForSubject as any, {
+        apiSecret: config.convexApiSecret,
+        tenantId: body.tenantId,
+        subjectId: body.subjectId,
+        provider: body.provider,
+      });
+
+      if (!disconnected) {
+        return Response.json(
+          { success: false, error: 'Failed to disconnect account' },
+          { status: 400 }
+        );
+      }
+
+      return Response.json({ success: true }, { status: 200 });
+    } catch (err) {
+      logger.error('Disconnect verification failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { success: false, error: 'Internal server error' },
+        { status: 500 }
+      );
+    }
+  }
+
   return {
     beginVerification,
     handleVerificationCallback,
     completeVerification,
     completeLicenseVerification,
+    disconnectVerification,
   };
 }
 
@@ -1006,6 +1055,7 @@ export function mountVerificationRoutes(
   routeMap.set('/api/verification/callback/jinxxy', routes.handleVerificationCallback);
   routeMap.set('/api/verification/complete', routes.completeVerification);
   routeMap.set('/api/verification/complete-license', routes.completeLicenseVerification);
+  routeMap.set('/api/verification/disconnect', routes.disconnectVerification);
 
   return routeMap;
 }

@@ -1,0 +1,25 @@
+:root {
+    /* Base Colors */
+    --bg-color: #f6efee;
+    --text-primary: #7a7a9f;
+    --text-secondary: #5e5e80;
+    --border-color: #e0d6d4;
+
+    /* Accents */
+    --accent-mustard: #f0cc60;
+    --accent-orange: #d45d39;
+    --accent-blue: #224285;
+    --accent-green-dark: #3f7035;
+    --accent-red: #c53030;
+    --accent-purple: #8e8eb2;
+
+    /* Brand Colors */
+    --discord-blurple: #5865F2;
+    --gumroad-green: #36a9ae;
+    --jinxxy-purple: #9146FF;
+
+    /* Jinxxy Setup */
+    --jinxxy-bg: #0f0f0f;
+    --jinxxy-sidebar: #1a1a1a;
+    --jinxxy-border: #333;
+}
