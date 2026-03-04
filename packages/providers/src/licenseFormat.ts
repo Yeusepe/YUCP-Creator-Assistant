@@ -12,8 +12,8 @@ const GUMROAD_REGEX = /^[A-Za-z0-9]{8}-[A-Za-z0-9]{8}-[A-Za-z0-9]{8}-[A-Za-z0-9]
 const JINXXY_UUID_REGEX =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
-/** Jinxxy short_key format: 4 alphanumeric - 12 hex */
-const JINXXY_SHORT_KEY_REGEX = /^[A-Za-z0-9]{4}-[a-f0-9]{12}$/;
+/** Jinxxy short_key format: 4 alphanumeric - 12 hex (case-insensitive hex to match jinx-master) */
+const JINXXY_SHORT_KEY_REGEX = /^[A-Za-z0-9]{4}-[a-fA-F0-9]{12}$/;
 
 export type LicenseFormat = 'gumroad' | 'jinxxy' | 'unknown';
 

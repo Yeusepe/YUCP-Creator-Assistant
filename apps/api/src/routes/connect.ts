@@ -66,12 +66,16 @@ export interface ConnectConfig {
 }
 
 export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
+  const ALLOWED_SETTING_KEYS = new Set(['allowMismatchedEmails']);
+
   /**
-   * Helper: resolve a setup token from request URL.
- */
+   * Helper: resolve a setup token from Authorization header (preferred) or URL ?s= (fallback).
+   */
   async function resolveToken(request: Request): Promise<{ tenantId: string; guildId: string; discordUserId: string } | null> {
-    const url = new URL(request.url);
-    const token = url.searchParams.get('s');
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : new URL(request.url).searchParams.get('s');
     if (!token) return null;
     return resolveSetupSession(token, config.encryptionSecret);
   }
@@ -170,12 +174,18 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
     }
 
+    const proto = request.headers.get('x-forwarded-proto') ?? (url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? 'http' : 'https');
+    const apiBase =
+      url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+        ? (process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? '3001'}`)
+        : `${proto}://${url.hostname}`;
+
     const filePath = `${import.meta.dir}/../../public/dashboard.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
     html = html.replace('__GUILD_ID__', resolvedGuildId);
     html = html.replace('__TOKEN__', token ?? '');
-    html = html.replace('__API_BASE__', config.baseUrl);
+    html = html.replace('__API_BASE__', apiBase);
     html = html.replace('__SETUP_TOKEN__', resolvedSetupToken);
     html = html.replace('__TENANT_ID__', resolvedTenantId);
 
@@ -675,6 +685,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Returns all connections for the tenant with status info.
    */
   async function listConnectionsHandler(request: Request): Promise<Response> {
+    if (request.method !== 'GET' && request.method !== 'DELETE') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
     const session = await resolveToken(request);
     if (!session) {
       return Response.json({ error: 'Valid setup token required' }, { status: 401 });
@@ -766,6 +779,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     if (!body.key) {
       return Response.json({ error: 'Setting key is required' }, { status: 400 });
+    }
+
+    if (!ALLOWED_SETTING_KEYS.has(body.key)) {
+      return Response.json({ error: 'Invalid setting key' }, { status: 400 });
     }
 
     try {
@@ -921,7 +938,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    */
   async function getDiscordRoleGuilds(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const token = url.searchParams.get('s');
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : url.searchParams.get('s');
     if (!token) return Response.json({ error: 'Missing token' }, { status: 400 });
 
     const store = getStateStore();
@@ -946,13 +966,17 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    let body: { s: string; sourceGuildId: string; sourceRoleId: string };
+    let body: { s?: string; sourceGuildId: string; sourceRoleId: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
-    const { s: token, sourceGuildId, sourceRoleId } = body;
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : (body.s ?? null);
+    const { sourceGuildId, sourceRoleId } = body;
     if (!token || !sourceGuildId || !sourceRoleId) {
       return Response.json({ error: 'token, sourceGuildId, and sourceRoleId are required' }, { status: 400 });
     }

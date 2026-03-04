@@ -79,6 +79,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     discordClientSecret: env.DISCORD_CLIENT_SECRET,
     jinxxyClientId: env.JINXXY_API_KEY,
     jinxxyClientSecret: env.JINXXY_SECRET_KEY,
+    encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   };
   verificationRoutes = mountVerificationRoutes(verificationConfig);
 
@@ -161,6 +162,12 @@ async function handleRequest(request: Request): Promise<Response> {
   if (pathname === '/api/internal/backfill-product' && request.method === 'POST') {
     const { handleBackfillProduct } = await import('./routes/backfill');
     return handleBackfillProduct(request);
+  }
+
+  // Jinxxy products (for product add flow - fetches from Jinxxy API using tenant key)
+  if (pathname === '/api/jinxxy/products' && request.method === 'POST') {
+    const { handleJinxxyProducts } = await import('./routes/jinxxyProducts');
+    return handleJinxxyProducts(request);
   }
 
   // Webhook routes (Gumroad, Jinxxy)
@@ -248,6 +255,14 @@ async function handleRequest(request: Request): Promise<Response> {
     }
     return connectRoutes.getSettingsHandler(request);
   }
+  const HTML_SECURITY_HEADERS: Record<string, string> = {
+    'Content-Security-Policy':
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com https://db.onlinewebfonts.com; frame-ancestors 'none'; object-src 'none'",
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+  };
+
   if (pathname === '/discord-role-setup' || pathname === '/discord-role-setup.html') {
     const filePath = `${import.meta.dir}/../public/discord-role-setup.html`;
     const file = Bun.file(filePath);
@@ -263,7 +278,7 @@ async function handleRequest(request: Request): Promise<Response> {
         : `${proto}://${url.hostname}`;
     html = html.replace(/__API_BASE__/g, apiBase);
     html = html.replace(/__SETUP_TOKEN__/g, setupToken);
-    return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+    return new Response(html, { headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS } });
   }
 
   if (pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html') {
@@ -285,13 +300,17 @@ async function handleRequest(request: Request): Promise<Response> {
       }
     }
 
-    const apiBase = process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+    const proto = request.headers.get('x-forwarded-proto') ?? (url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? 'http' : 'https');
+    const apiBase =
+      url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+        ? (process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? '3001'}`)
+        : `${proto}://${url.hostname}`;
     html = html.replace(/__TENANT_ID__/g, tenantId);
     html = html.replace(/__GUILD_ID__/g, guildId);
     html = html.replace(/__API_BASE__/g, apiBase);
     html = html.replace(/__SETUP_TOKEN__/g, setupToken);
     return new Response(html, {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
   }
 
@@ -308,14 +327,14 @@ async function handleRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/verify-success.html`;
     const file = Bun.file(filePath);
     return new Response(file, {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
   }
   if (pathname === '/verify-error' || pathname === '/verify-error.html') {
     const filePath = `${import.meta.dir}/../public/verify-error.html`;
     const file = Bun.file(filePath);
     return new Response(file, {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
   }
 

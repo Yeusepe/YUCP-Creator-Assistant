@@ -284,6 +284,13 @@
         const apiBase = '__API_BASE__';
         const setupToken = '__SETUP_TOKEN__';
         const tenantIdFromServer = '__TENANT_ID__';
+
+        // Clear setup token from URL to prevent it staying in browser history
+        if (setupToken && window.history.replaceState) {
+            const clean = new URL(window.location.href);
+            clean.searchParams.delete('s');
+            window.history.replaceState({}, document.title, clean.toString());
+        }
         let tenantId = tenantIdFromServer || null;
 
         const cursorDot = document.querySelector('.cursor-dot');
@@ -321,7 +328,9 @@
 
                 if (setupToken) {
                     // Start by checking statuses using the setup token
-                    statusRes = await fetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}`);
+                    statusRes = await fetch(`${apiBase}/api/connections`, {
+                        headers: { 'Authorization': `Bearer ${setupToken}` }
+                    });
                 } else if (tenantIdFromServer) {
                     tenantId = tenantIdFromServer;
                     // Fallback to legacy GET if we don't have setupToken
@@ -334,7 +343,9 @@
                         if (data.setupToken && !setupToken) {
                             // Automatically switch to using the newly generated setup token
                             window.history.replaceState({}, '', `/connect?s=${encodeURIComponent(data.setupToken)}`);
-                            statusRes = await fetch(`${apiBase}/api/connections?s=${encodeURIComponent(data.setupToken)}`);
+                            statusRes = await fetch(`${apiBase}/api/connections`, {
+                                headers: { 'Authorization': `Bearer ${data.setupToken}` }
+                            });
                         } else {
                             statusRes = await fetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`);
                         }
@@ -374,9 +385,9 @@
                                 }
 
                                 try {
-                                    const res = await fetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`, {
+                                    const res = await fetch(`${apiBase}/api/connect/settings`, {
                                         method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
+                                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${setupToken}` },
                                         body: JSON.stringify({
                                             key: 'allowMismatchedEmails',
                                             value: this.checked
@@ -582,8 +593,9 @@
                     if (!conn) return;
 
                     try {
-                        const res = await fetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}&id=${conn.id}`, {
-                            method: 'DELETE'
+                        const res = await fetch(`${apiBase}/api/connections?id=${conn.id}`, {
+                            method: 'DELETE',
+                            headers: { 'Authorization': `Bearer ${setupToken}` }
                         });
 
                         if (res.ok) {

@@ -47,6 +47,60 @@ export const getByTenant = query({
 });
 
 /**
+ * Get enabled verification providers based on products added to a guild.
+ * Used by the Discord bot to show only relevant verify buttons and smart messaging.
+ * Returns which verification methods are available based on role rules (products) for this guild.
+ */
+export const getEnabledVerificationProvidersFromProducts = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    guildId: v.string(),
+  },
+  returns: v.object({
+    gumroad: v.boolean(),
+    jinxxy: v.boolean(),
+    discord: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const tenant = await ctx.db.get(args.tenantId);
+    const rules = await ctx.db
+      .query('role_rules')
+      .withIndex('by_tenant_guild', (q) =>
+        q.eq('tenantId', args.tenantId).eq('guildId', args.guildId)
+      )
+      .filter((q) => q.eq(q.field('enabled'), true))
+      .collect();
+
+    let gumroad = false;
+    let jinxxy = false;
+    let discord = false;
+
+    for (const rule of rules) {
+      if (rule.productId.startsWith('discord_role:')) {
+        discord = true;
+        continue;
+      }
+      if (rule.catalogProductId) {
+        const catalog = await ctx.db.get(rule.catalogProductId);
+        if (catalog) {
+          if (catalog.provider === 'gumroad') gumroad = true;
+          else if (catalog.provider === 'jinxxy') jinxxy = true;
+        }
+      }
+    }
+
+    // Discord "Use Another Server" also requires tenant policy
+    if (discord && tenant?.policy?.enableDiscordRoleFromOtherServers !== true) {
+      discord = false;
+    }
+
+    return { gumroad, jinxxy, discord };
+  },
+});
+
+/**
  * Get role rules for a specific guild.
  */
 export const getByGuild = query({
@@ -468,6 +522,7 @@ export const addProductFromJinxxy = mutation({
     tenantId: v.id('tenants'),
     productId: v.string(),
     providerProductRef: v.string(),
+    displayName: v.optional(v.string()),
   },
   returns: v.object({
     productId: v.string(),
@@ -484,6 +539,9 @@ export const addProductFromJinxxy = mutation({
       .first();
 
     if (existing) {
+      if (args.displayName && existing.displayName !== args.displayName) {
+        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+      }
       await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
         tenantId: args.tenantId,
         productId: args.productId,
@@ -498,6 +556,7 @@ export const addProductFromJinxxy = mutation({
       productId: args.productId,
       provider: 'jinxxy',
       providerProductRef: args.providerProductRef,
+      displayName: args.displayName,
       status: 'active',
       supportsAutoDiscovery: false,
       createdAt: now,

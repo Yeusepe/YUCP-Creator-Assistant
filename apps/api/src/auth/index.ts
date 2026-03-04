@@ -67,7 +67,6 @@ export function createAuth(config: AuthConfig) {
       setCookieHeaders: string[];
     }> {
       const url = `${convexAuthBase}/cross-domain/one-time-token/verify`;
-      console.log(`[AUTH] Exchanging OTT: ${ott.substring(0, 8)}... at ${url}`);
       try {
         const res = await fetch(url, {
           method: 'POST',
@@ -77,14 +76,9 @@ export function createAuth(config: AuthConfig) {
           body: JSON.stringify({ token: ott }),
         });
 
-        console.log(`[AUTH] OTT response: ${res.status} ${res.statusText}`);
-        console.log(`[AUTH] OTT response headers:`, Object.fromEntries(res.headers.entries()));
-
         const body = await res.text();
-        console.log(`[AUTH] OTT response body: ${body.substring(0, 500)}`);
 
         if (!res.ok) {
-          console.error(`[AUTH] OTT exchange failed: ${res.status} ${res.statusText} - ${body}`);
           return { session: null, setCookieHeaders: [] };
         }
 
@@ -92,8 +86,6 @@ export function createAuth(config: AuthConfig) {
         const setCookieHeaders: string[] = [];
         const betterAuthCookie = res.headers.get('set-better-auth-cookie');
         const regularSetCookie = res.headers.get('set-cookie');
-        console.log(`[AUTH] set-better-auth-cookie: ${betterAuthCookie ?? '(none)'}`);
-        console.log(`[AUTH] set-cookie: ${regularSetCookie ?? '(none)'}`);
 
         if (betterAuthCookie) {
           const cookies = betterAuthCookie.split(', ');
@@ -108,13 +100,11 @@ export function createAuth(config: AuthConfig) {
         try {
           json = JSON.parse(body) as SessionData;
         } catch {
-          console.error('[AUTH] Failed to parse OTT response body as JSON');
+          // Non-fatal: body was not valid JSON
         }
 
-        console.log(`[AUTH] OTT exchange result: session=${!!json}, cookies=${setCookieHeaders.length}`);
         return { session: json, setCookieHeaders };
       } catch (err) {
-        console.error('[AUTH] OTT exchange error:', err);
         return { session: null, setCookieHeaders: [] };
       }
     },

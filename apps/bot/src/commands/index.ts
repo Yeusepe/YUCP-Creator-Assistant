@@ -10,10 +10,15 @@
 
 import { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 
-/** User-facing command: status panel (no args) + fast verify subcommand. */
+/** User-facing command: status panel + verify subcommand. Discord requires a subcommand when any exist. */
 const CREATOR_USER_COMMAND = new SlashCommandBuilder()
   .setName('creator')
   .setDescription('Check your verification status and connect your accounts')
+  .addSubcommand((s) =>
+    s
+      .setName('status')
+      .setDescription('View your verification status and connect accounts (default)'),
+  )
   .addSubcommand((s) =>
     s
       .setName('verify')

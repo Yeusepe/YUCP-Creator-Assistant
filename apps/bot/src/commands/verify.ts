@@ -32,11 +32,11 @@ import { track } from '../lib/posthog';
 const VERIFY_PREFIX = 'creator_verify:';
 
 /** Default embed for spawn-verify: explains verification (scannable, benefit-first, plain language). */
-const DEFAULT_SPAWN_TITLE = `Verify your purchase ${E.Assistant}`;
+const DEFAULT_SPAWN_TITLE = `${E.Assistant} Verify your purchase`;
 const DEFAULT_SPAWN_DESCRIPTION = [
   `${E.Touch} Click the button below to open the verification panel.`,
   '',
-  `${E.Carrot} **Sign in** — Connect ${E.Gumorad} Gumroad or ${E.Discord} Discord. We recognize your purchases and grant your role automatically.`,
+  `${E.Link} **Sign in** — Connect ${E.Gumorad} Gumroad or ${E.Discord} Discord. We recognize your purchases and grant your role automatically.`,
   '',
   `${E.KeyCloud} **One license key, then you’re set** — Using ${E.Jinxxy} Jinxxy or a ${E.Gumorad} Gumroad license? Enter one key once. We link your account and sync all past and future purchases so you only verify once.`,
   '',
@@ -57,6 +57,7 @@ interface VerifyData {
   linkedAccounts: Array<{ provider: string; status: string }>;
   productIds: string[];
   hasGumroad: boolean;
+  hasJinxxy: boolean;
   hasDiscord: boolean;
 }
 
@@ -90,6 +91,7 @@ async function fetchVerifyData(
   }
 
   const hasGumroad = linkedAccounts.some((a) => a.provider === 'gumroad' && a.status === 'active');
+  const hasJinxxy = linkedAccounts.some((a) => a.provider === 'jinxxy' && a.status === 'active');
   const hasDiscord = linkedAccounts.some((a) => a.provider === 'discord' && a.status === 'active');
   const activeAccounts = linkedAccounts.filter((a) => a.status === 'active');
 
@@ -102,7 +104,7 @@ async function fetchVerifyData(
     state = 'verified';
   }
 
-  return { state, linkedAccounts, productIds, hasGumroad, hasDiscord };
+  return { state, linkedAccounts, productIds, hasGumroad, hasJinxxy, hasDiscord };
 }
 
 function providerLabel(p: string): string {
@@ -132,15 +134,52 @@ async function getRoleSyncBanner(
   return `${E.Wrench} Could not assign role: ${err.slice(0, 120)}${err.length > 120 ? '…' : ''}`;
 }
 
+interface EnabledProviders {
+  gumroad: boolean;
+  jinxxy: boolean;
+  discord: boolean;
+}
+
+/** Build context-aware prompt based on which verification methods are available. */
+function getVerifyPrompt(enabled: EnabledProviders): string {
+  const methods: string[] = [];
+  if (enabled.gumroad) methods.push(`${E.Gumorad} Gumroad`);
+  if (enabled.jinxxy) methods.push(`${E.Jinxxy} Jinxxy`);
+  if (enabled.discord) methods.push(`${E.Discord} another server`);
+  if (methods.length === 0) return '';
+  if (methods.length === 1) {
+    if (enabled.discord) {
+      return `${E.Touch} Verify your role from another server:`;
+    }
+    const name = enabled.gumroad ? 'Gumroad' : 'Jinxxy';
+    return `${E.Touch} Choose how to verify your ${name} purchase:`;
+  }
+  return `${E.Touch} Choose how to verify your purchase:`;
+}
+
+/** Build context-aware message for connected_no_products state. */
+function getConnectedNoProductsPrompt(enabled: EnabledProviders): string {
+  const methods: string[] = [];
+  if (enabled.gumroad) methods.push('Gumroad');
+  if (enabled.jinxxy) methods.push('Jinxxy');
+  if (enabled.discord) methods.push('another server');
+  if (methods.length === 0) return '';
+  const hint = methods.length === 1
+    ? `try connecting via ${methods[0]}`
+    : 'try another verification method';
+  return `Your account is connected but we didn't find any matching purchases.\nMake sure you're using the account you bought with, or ${hint}:`;
+}
+
 function buildStatusContainer(
   data: VerifyData,
   tenantId: Id<'tenants'>,
   guildId: string,
   apiBaseUrl: string | undefined,
+  enabledProviders: EnabledProviders,
   userId?: string,
   bannerMessage?: string,
 ): ContainerBuilder {
-  const { state, linkedAccounts, productIds, hasGumroad, hasDiscord } = data;
+  const { state, linkedAccounts, productIds, hasGumroad, hasJinxxy, hasDiscord } = data;
 
   const accentColor =
     state === 'nothing' ? COLOR_GRAY :
@@ -174,12 +213,13 @@ function buildStatusContainer(
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
   );
 
-  // Connected accounts
+  // Connected accounts — show all known providers (Gumroad, Jinxxy, Discord)
   const gumroadStatus = hasGumroad ? `${E.Checkmark} Connected` : '— Not connected';
+  const jinxxyStatus = hasJinxxy ? `${E.Checkmark} Connected` : '— Not connected';
   const discordStatus = hasDiscord ? `${E.Checkmark} Connected` : '— Not connected';
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `**Connected Accounts**\n${E.Gumorad} Gumroad — ${gumroadStatus}\n${E.Discord} Discord (other server) — ${discordStatus}`,
+      `**Connected Accounts**\n${E.Gumorad} Gumroad — ${gumroadStatus}\n${E.Jinxxy} Jinxxy — ${jinxxyStatus}\n${E.Discord} Discord (other server) — ${discordStatus}`,
     ),
   );
 
@@ -223,13 +263,9 @@ function buildStatusContainer(
     : null;
 
   if (state === 'nothing') {
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`${E.Touch} Choose how to verify your purchase:`),
-    );
-
     const buttons: ButtonBuilder[] = [];
 
-    if (gumroadUrl) {
+    if (gumroadUrl && enabledProviders.gumroad) {
       buttons.push(
         new ButtonBuilder()
           .setLabel('Connect Gumroad')
@@ -239,15 +275,74 @@ function buildStatusContainer(
       );
     }
 
-    buttons.push(
-      new ButtonBuilder()
-        .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
-        .setLabel('Use License Key')
-        .setEmoji(Emoji.KeyCloud)
-        .setStyle(ButtonStyle.Secondary),
+    if (enabledProviders.gumroad || enabledProviders.jinxxy) {
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
+          .setLabel('Use License Key')
+          .setEmoji(Emoji.KeyCloud)
+          .setStyle(ButtonStyle.Secondary),
+      );
+    }
+
+    if (discordRoleUrl && enabledProviders.discord) {
+      buttons.push(
+        new ButtonBuilder()
+          .setLabel('Use Another Server')
+          .setEmoji(Emoji.Discord)
+          .setStyle(ButtonStyle.Link)
+          .setURL(discordRoleUrl),
+      );
+    }
+
+    if (buttons.length > 0) {
+      const prompt = getVerifyPrompt(enabledProviders);
+      if (prompt) {
+        container.addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(prompt),
+        );
+      }
+      container.addActionRowComponents(
+        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons),
+      );
+    } else {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `${E.Wrench} No products have been added to this server for verification. Contact the server admin to set up Gumroad, Jinxxy, or Discord role products.`,
+        ),
+      );
+    }
+  } else if (state === 'connected_no_products') {
+    const connectedPrompt = getConnectedNoProductsPrompt(enabledProviders);
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        connectedPrompt || 'Your account is connected but we didn\'t find any matching purchases.\nMake sure you\'re using the account you bought with, or try another method:',
+      ),
     );
 
-    if (discordRoleUrl) {
+    const buttons: ButtonBuilder[] = [];
+
+    if (gumroadUrl && enabledProviders.gumroad && !hasGumroad) {
+      buttons.push(
+        new ButtonBuilder()
+          .setLabel('Connect Gumroad')
+          .setEmoji(Emoji.Gumorad)
+          .setStyle(ButtonStyle.Link)
+          .setURL(gumroadUrl),
+      );
+    }
+
+    if (enabledProviders.gumroad || enabledProviders.jinxxy) {
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
+          .setLabel('Use License Key')
+          .setEmoji(Emoji.Key)
+          .setStyle(ButtonStyle.Secondary),
+      );
+    }
+
+    if (discordRoleUrl && enabledProviders.discord && !hasDiscord) {
       buttons.push(
         new ButtonBuilder()
           .setLabel('Use Another Server')
@@ -259,49 +354,9 @@ function buildStatusContainer(
 
     if (buttons.length > 0) {
       container.addActionRowComponents(
-        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons),
+        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(0, 3)),
       );
     }
-  } else if (state === 'connected_no_products') {
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        'Your account is connected but we didn\'t find any matching purchases.\nMake sure you\'re using the account you bought with, or try another method:',
-      ),
-    );
-
-    const buttons: ButtonBuilder[] = [];
-
-    if (gumroadUrl && !hasGumroad) {
-      buttons.push(
-        new ButtonBuilder()
-          .setLabel('Connect Gumroad')
-          .setEmoji(Emoji.Gumorad)
-          .setStyle(ButtonStyle.Link)
-          .setURL(gumroadUrl),
-      );
-    }
-
-    buttons.push(
-      new ButtonBuilder()
-        .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
-        .setLabel('Use License Key')
-        .setEmoji(Emoji.Key)
-        .setStyle(ButtonStyle.Secondary),
-    );
-
-    if (discordRoleUrl && !hasDiscord) {
-      buttons.push(
-        new ButtonBuilder()
-          .setLabel('Use Another Server')
-          .setEmoji(Emoji.Discord)
-          .setStyle(ButtonStyle.Link)
-          .setURL(discordRoleUrl),
-      );
-    }
-
-    container.addActionRowComponents(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(0, 3)),
-    );
 
     // Disconnect row: show a button for each connected provider
     const activeProviders = linkedAccounts.filter((a) => a.status === 'active');
@@ -352,7 +407,7 @@ function buildStatusContainer(
 export async function handleCreatorCommand(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
-  _apiSecret: string,
+  apiSecret: string,
   apiBaseUrl: string | undefined,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
@@ -366,7 +421,14 @@ export async function handleCreatorCommand(
   });
 
   try {
-    const data = await fetchVerifyData(interaction.user.id, ctx.tenantId, convex);
+    const [data, enabledProviders] = await Promise.all([
+      fetchVerifyData(interaction.user.id, ctx.tenantId, convex),
+      convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
+        apiSecret,
+        tenantId: ctx.tenantId,
+        guildId: ctx.guildId,
+      }),
+    ]);
     const bannerMessage =
       data.state === 'verified'
         ? await getRoleSyncBanner(ctx.tenantId, ctx.guildId, interaction.user.id, convex)
@@ -376,6 +438,7 @@ export async function handleCreatorCommand(
       ctx.tenantId,
       ctx.guildId,
       apiBaseUrl,
+      enabledProviders,
       interaction.user.id,
       bannerMessage,
     );
@@ -392,7 +455,7 @@ export async function handleCreatorCommand(
 export async function handleVerifyStartButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
-  _apiSecret: string,
+  apiSecret: string,
   apiBaseUrl: string | undefined,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
@@ -404,7 +467,14 @@ export async function handleVerifyStartButton(
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
-    const data = await fetchVerifyData(interaction.user.id, ctx.tenantId, convex);
+    const [data, enabledProviders] = await Promise.all([
+      fetchVerifyData(interaction.user.id, ctx.tenantId, convex),
+      convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
+        apiSecret,
+        tenantId: ctx.tenantId,
+        guildId: ctx.guildId,
+      }),
+    ]);
     const bannerMessage =
       data.state === 'verified'
         ? await getRoleSyncBanner(ctx.tenantId, ctx.guildId, interaction.user.id, convex)
@@ -414,6 +484,7 @@ export async function handleVerifyStartButton(
       ctx.tenantId,
       ctx.guildId,
       apiBaseUrl,
+      enabledProviders,
       interaction.user.id,
       bannerMessage,
     );
@@ -430,20 +501,28 @@ export async function handleVerifyStartButton(
 export async function handleVerifyAddMore(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
-  _apiSecret: string,
+  apiSecret: string,
   apiBaseUrl: string | undefined,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   await interaction.deferUpdate();
 
   try {
-    const data = await fetchVerifyData(interaction.user.id, ctx.tenantId, convex);
+    const [data, enabledProviders] = await Promise.all([
+      fetchVerifyData(interaction.user.id, ctx.tenantId, convex),
+      convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
+        apiSecret,
+        tenantId: ctx.tenantId,
+        guildId: ctx.guildId,
+      }),
+    ]);
     // Force 'nothing' state to show all connect options regardless of current state
     const container = buildStatusContainer(
       { ...data, state: 'nothing' },
       ctx.tenantId,
       ctx.guildId,
       apiBaseUrl,
+      enabledProviders,
       interaction.user.id,
     );
     await interaction.editReply({
@@ -594,7 +673,14 @@ export async function handleLicenseModalSubmit(
 
     const guildId = interaction.guildId;
     if (guildId && apiBaseUrl) {
-      const data = await fetchVerifyData(interaction.user.id, tenantId, convex);
+      const [data, enabledProviders] = await Promise.all([
+        fetchVerifyData(interaction.user.id, tenantId, convex),
+        convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
+          apiSecret,
+          tenantId,
+          guildId,
+        }),
+      ]);
       const providerLabel = result.provider === 'gumroad' ? 'Gumroad' : result.provider === 'jinxxy' ? 'Jinxxy' : result.provider ?? 'account';
       const bannerMessage = `${E.ClapStars} **Connected!** Your ${providerLabel} account is linked. Your roles will be updated shortly. ${E.Dance}`;
       const container = buildStatusContainer(
@@ -602,6 +688,7 @@ export async function handleLicenseModalSubmit(
         tenantId,
         guildId,
         apiBaseUrl,
+        enabledProviders,
         interaction.user.id,
         bannerMessage,
       );
@@ -690,12 +777,20 @@ export async function handleVerifyDisconnectButton(
     });
 
     // Refresh and show the updated panel so user sees products/accounts cleared
-    const data = await fetchVerifyData(interaction.user.id, guildLink.tenantId, convex);
+    const [data, enabledProviders] = await Promise.all([
+      fetchVerifyData(interaction.user.id, guildLink.tenantId, convex),
+      convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
+        apiSecret,
+        tenantId: guildLink.tenantId,
+        guildId,
+      }),
+    ]);
     const container = buildStatusContainer(
       data,
       guildLink.tenantId,
       guildId,
       apiBaseUrl,
+      enabledProviders,
       interaction.user.id,
       `${E.Checkmark} Disconnected your ${providerLabel(provider)} account. Existing roles may take a moment to be removed.`,
     );

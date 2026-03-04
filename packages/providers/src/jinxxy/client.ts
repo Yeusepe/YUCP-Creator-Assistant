@@ -23,6 +23,8 @@ import type {
   JinxxyCustomerResponse,
   JinxxyLicense,
   JinxxyLicensesResponse,
+  JinxxyLicenseListResponse,
+  JinxxyLicenseRaw,
   JinxxyLicenseResponse,
   JinxxyActivationsResponse,
   JinxxyOrder,
@@ -220,7 +222,8 @@ export class JinxxyApiClient {
   // ============================================================================
 
   /**
-   * List all products
+   * List all products.
+   * Jinxxy API uses `limit` and `page`, and returns products in `results` (not `products`).
    */
   async getProducts(params?: PaginationParams): Promise<{
     products: JinxxyProduct[];
@@ -228,12 +231,20 @@ export class JinxxyApiClient {
   }> {
     const response = await this.request<JinxxyProductsResponse>('GET', '/products', {
       page: params?.page ?? 1,
-      per_page: params?.per_page ?? DEFAULT_PAGE_SIZE,
+      limit: params?.per_page ?? DEFAULT_PAGE_SIZE,
     });
 
+    const products = response.results ?? response.products ?? [];
+    const hasNext = response.page_count != null
+      ? (response.page ?? 1) < response.page_count
+      : (response.pagination?.has_next ?? false);
+
     return {
-      products: response.products ?? [],
-      pagination: response.pagination ?? this.getDefaultPagination(),
+      products,
+      pagination: response.pagination ?? {
+        ...this.getDefaultPagination(),
+        has_next: hasNext,
+      },
     };
   }
 
@@ -316,7 +327,7 @@ export class JinxxyApiClient {
   }> {
     const response = await this.request<JinxxyLicensesResponse>('GET', '/licenses', {
       page: params?.page ?? 1,
-      per_page: params?.per_page ?? DEFAULT_PAGE_SIZE,
+      limit: params?.per_page ?? DEFAULT_PAGE_SIZE,
       product_id: params?.product_id,
       customer_id: params?.customer_id,
       status: params?.status,
@@ -324,23 +335,49 @@ export class JinxxyApiClient {
       short_key: params?.short_key,
     });
 
+    const licenses = response.results ?? response.licenses ?? [];
     return {
-      licenses: response.licenses ?? [],
+      licenses,
       pagination: response.pagination ?? this.getDefaultPagination(),
     };
   }
 
   /**
-   * Get a specific license by ID
+   * Map raw Jinxxy API license (GET /licenses/{id}) to JinxxyLicense.
+   * API returns inventory_item, user, activations - not flat product_id/status.
+   */
+  private mapRawLicenseToLicense(raw: JinxxyLicenseRaw): JinxxyLicense {
+    const inv = raw.inventory_item;
+    return {
+      id: raw.id,
+      key: raw.key,
+      product_id: inv?.target_id ?? '',
+      customer_id: raw.user?.id,
+      status: 'active', // Jinxxy API has no status; existence implies valid (matches jinx-master)
+      created_at: '',
+      activation_count: raw.activations?.total_count ?? 0,
+      max_activations: 0,
+      order_id: inv?.order?.id,
+    };
+  }
+
+  /**
+   * Get a specific license by ID.
+   * API returns the license object directly (not wrapped in { license: ... }).
    */
   async getLicense(licenseId: string): Promise<JinxxyLicense | null> {
     try {
-      const response = await this.request<JinxxyLicenseResponse>(
+      const data = await this.request<JinxxyLicenseResponse | JinxxyLicenseRaw>(
         'GET',
         `/licenses/${licenseId}`
       );
 
-      return response.license ?? null;
+      const raw =
+        (data as JinxxyLicenseResponse).license ??
+        (data as JinxxyLicenseRaw);
+      if (!raw?.id) return null;
+
+      return this.mapRawLicenseToLicense(raw as JinxxyLicenseRaw);
     } catch (error) {
       if (error instanceof JinxxyApiError && error.statusCode === 404) {
         return null;
@@ -353,23 +390,62 @@ export class JinxxyApiClient {
   private static readonly UUID_REGEX =
     /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+  /** Short key format: 4 alphanumeric - 12 hex (matches jinx-master) */
+  private static readonly SHORT_KEY_REGEX = /^[A-Za-z0-9]{4}-[a-fA-F0-9]{12}$/;
+
+  /**
+   * Normalize license key for Jinxxy API lookup (matches jinx-master behavior).
+   * - UUID/long key: full lowercase
+   * - Short key: hex suffix lowercase (API may be case-sensitive)
+   */
+  private static normalizeLicenseKeyForApi(key: string): string {
+    const trimmed = key.trim();
+    if (JinxxyApiClient.UUID_REGEX.test(trimmed)) {
+      return trimmed.toLowerCase();
+    }
+    if (JinxxyApiClient.SHORT_KEY_REGEX.test(trimmed)) {
+      const [prefix, suffix] = trimmed.split('-');
+      return `${prefix}-${(suffix ?? '').toLowerCase()}`;
+    }
+    return trimmed;
+  }
+
   /**
    * Verify a license by key (full UUID) or short_key.
-   * Tries key (UUID) first; if input does not match UUID format, tries short_key.
+   * Two-step flow (matches jinx-master): list returns minimal { id }; fetch full license by id.
+   * Keys are normalized before API call (lowercase) to match jinx-master behavior.
    */
   async verifyLicenseByKey(licenseKey: string): Promise<{
     valid: boolean;
     license: JinxxyLicense | null;
     error?: string;
   }> {
-    const isUuid = JinxxyApiClient.UUID_REGEX.test(licenseKey.trim());
+    const trimmed = licenseKey.trim();
+    const isUuid = JinxxyApiClient.UUID_REGEX.test(trimmed);
+    const normalizedKey = JinxxyApiClient.normalizeLicenseKeyForApi(trimmed);
 
-    // Try key (UUID) first, then short_key if input doesn't match UUID
-    const params = isUuid ? { key: licenseKey } : { short_key: licenseKey };
-    const response = await this.request<JinxxyLicensesResponse>('GET', '/licenses', params);
+    // Step 1: GET /licenses?key=... or short_key=... returns minimal results { id, user, short_key }
+    const params = isUuid ? { key: normalizedKey } : { short_key: normalizedKey };
+    const listResponse = await this.request<JinxxyLicenseListResponse>(
+      'GET',
+      '/licenses',
+      params
+    );
 
-    const license = response.licenses?.[0];
+    const results = listResponse.results ?? [];
+    const first = results[0];
+    const licenseId = first?.id;
 
+    if (!licenseId) {
+      return {
+        valid: false,
+        license: null,
+        error: 'License not found',
+      };
+    }
+
+    // Step 2: GET /licenses/{id} returns full license (inventory_item, activations, etc.)
+    const license = await this.getLicense(licenseId);
     if (!license) {
       return {
         valid: false,
@@ -378,7 +454,7 @@ export class JinxxyApiClient {
       };
     }
 
-    // Check if license is valid
+    // Jinxxy API has no status field; existence implies valid (matches jinx-master)
     const isValid =
       license.status === 'active' &&
       (!license.expires_at || new Date(license.expires_at) > new Date());
@@ -386,7 +462,7 @@ export class JinxxyApiClient {
     return {
       valid: isValid,
       license,
-      error: isValid ? undefined : `License is ${license.status}`,
+      error: isValid ? undefined : `License is ${license.status ?? 'invalid'}`,
     };
   }
 

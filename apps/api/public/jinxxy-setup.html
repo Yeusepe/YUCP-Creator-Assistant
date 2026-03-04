@@ -10,7 +10,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@0.344.0"></script>
     <link rel="stylesheet" href="/tokens.css">
     <style>
         :root {
@@ -22,7 +22,6 @@
             background-color: var(--bg-color);
             font-family: 'DM Sans', sans-serif;
             color: var(--text-primary);
-            cursor: none;
             overflow-x: hidden;
             width: 100%;
             height: 100vh;
@@ -33,30 +32,6 @@
         h3,
         .font-heading {
             font-family: 'Plus Jakarta Sans', sans-serif;
-        }
-
-        .cursor-dot,
-        .cursor-dot-outline {
-            position: fixed;
-            top: 0;
-            left: 0;
-            transform: translate(-50%, -50%);
-            border-radius: 50%;
-            z-index: 9999;
-            pointer-events: none;
-        }
-
-        .cursor-dot {
-            width: 8px;
-            height: 8px;
-            background-color: var(--accent-orange);
-        }
-
-        .cursor-dot-outline {
-            width: 40px;
-            height: 40px;
-            border: 1px solid var(--text-primary);
-            transition: width 0.2s, height 0.2s, background-color 0.2s;
         }
 
         .step-content {
@@ -128,9 +103,6 @@
         const API_BASE = '__API_BASE__';
         const SETUP_TOKEN = '__SETUP_TOKEN__';
     </script>
-
-    <div class="cursor-dot"></div>
-    <div class="cursor-dot-outline"></div>
 
     <nav class="flex justify-between items-center px-8 py-6 max-w-7xl mx-auto w-full z-50">
         <a href="#" onclick="goBackToConnect(); return false;"
@@ -611,7 +583,7 @@
                         <div id="jinxxy-store-error" class="hidden text-red-600 text-sm font-bold"></div>
 
                         <button id="finish-btn"
-                            class="hidden w-full py-4 bg-[#224285] text-white rounded-xl font-bold shadow-lg shadow-[#224285]/20 hover:scale-[1.02] transition-transform flex items-center justify-center gap-2 group cursor-none">
+                            class="hidden w-full py-4 bg-[#224285] text-white rounded-xl font-bold shadow-lg shadow-[#224285]/20 hover:scale-[1.02] transition-transform flex items-center justify-center gap-2 group">
                             <span class="group-hover:tracking-wider transition-all">Complete Setup</span>
                             <i data-lucide="party-popper" class="w-5 h-5 animate-bounce"></i>
                         </button>
@@ -623,11 +595,11 @@
             <div
                 class="mt-auto pt-8 border-t border-gray-100 flex justify-between items-center flex-shrink-0 relative z-20">
                 <button id="prev-btn"
-                    class="px-6 py-3 rounded-xl font-bold text-[#7a7a9f] hover:text-[#224285] hover:bg-gray-50 disabled:opacity-30 disabled:hover:text-[#7a7a9f] disabled:hover:bg-transparent transition-colors flex items-center gap-2 cursor-none">
+                    class="px-6 py-3 rounded-xl font-bold text-[#7a7a9f] hover:text-[#224285] hover:bg-gray-50 disabled:opacity-30 disabled:hover:text-[#7a7a9f] disabled:hover:bg-transparent transition-colors flex items-center gap-2">
                     <i data-lucide="arrow-left" class="w-4 h-4"></i> Back
                 </button>
                 <button id="next-btn"
-                    class="px-8 py-3 rounded-xl bg-[#d45d39] text-white font-bold shadow-lg shadow-[#d45d39]/20 hover:bg-[#d45d39]/90 hover:scale-[1.02] transition-all flex items-center gap-2 group cursor-none">
+                    class="px-8 py-3 rounded-xl bg-[#d45d39] text-white font-bold shadow-lg shadow-[#d45d39]/20 hover:bg-[#d45d39]/90 hover:scale-[1.02] transition-all flex items-center gap-2 group">
                     Next Step <i data-lucide="arrow-right"
                         class="w-4 h-4 group-hover:translate-x-1 transition-transform"></i>
                 </button>
@@ -638,37 +610,6 @@
 
     <script>
         lucide.createIcons();
-
-        const cursorDot = document.querySelector('.cursor-dot');
-        const cursorOutline = document.querySelector('.cursor-dot-outline');
-
-        window.addEventListener('mousemove', (e) => {
-            const posX = e.clientX;
-            const posY = e.clientY;
-
-            cursorDot.style.left = `${posX}px`;
-            cursorDot.style.top = `${posY}px`;
-
-            cursorOutline.animate({
-                left: `${posX}px`,
-                top: `${posY}px`
-            }, { duration: 400, fill: "forwards" });
-        });
-
-        document.querySelectorAll('button, a, .copy-btn, input').forEach(el => {
-            el.addEventListener('mouseenter', () => {
-                cursorOutline.style.width = '60px';
-                cursorOutline.style.height = '60px';
-                cursorOutline.style.backgroundColor = 'rgba(212, 93, 57, 0.05)';
-                cursorOutline.style.borderColor = '#d45d39';
-            });
-            el.addEventListener('mouseleave', () => {
-                cursorOutline.style.width = '40px';
-                cursorOutline.style.height = '40px';
-                cursorOutline.style.backgroundColor = 'transparent';
-                cursorOutline.style.borderColor = '#224285';
-            });
-        });
 
         let currentStep = 1;
         const totalSteps = 7;
@@ -914,32 +855,6 @@
 
         updateStep();
         window.addEventListener('beforeunload', stopTestWebhookPolling);
-
-        // Make sure dynamically created copy buttons also get the hover events for the cursor
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (mutation.addedNodes && mutation.addedNodes.length > 0) {
-                    document.querySelectorAll('button, a, .copy-btn, input').forEach(el => {
-                        if (!el.dataset.cursorBound) {
-                            el.dataset.cursorBound = "true";
-                            el.addEventListener('mouseenter', () => {
-                                cursorOutline.style.width = '60px';
-                                cursorOutline.style.height = '60px';
-                                cursorOutline.style.backgroundColor = 'rgba(212, 93, 57, 0.05)';
-                                cursorOutline.style.borderColor = '#d45d39';
-                            });
-                            el.addEventListener('mouseleave', () => {
-                                cursorOutline.style.width = '40px';
-                                cursorOutline.style.height = '40px';
-                                cursorOutline.style.backgroundColor = 'transparent';
-                                cursorOutline.style.borderColor = '#224285';
-                            });
-                        }
-                    });
-                }
-            });
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
     </script>
 </body>
 

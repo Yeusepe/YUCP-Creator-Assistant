@@ -40,6 +40,29 @@ export const getJinxxyWebhookSecret = query({
 });
 
 /**
+ * Get Gumroad webhook secret for a tenant.
+ * Used by webhook handler for signature verification.
+ */
+export const getGumroadWebhookSecret = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+  },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant_provider', (q) =>
+        q.eq('tenantId', args.tenantId).eq('provider', 'gumroad')
+      )
+      .first();
+    if (!conn?.gumroadWebhookSecretRef) return null;
+    return conn.gumroadWebhookSecretRef;
+  },
+});
+
+/**
  * Get connection status for a tenant (gumroad, jinxxy).
  */
 export const getConnectionStatus = query({

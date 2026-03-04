@@ -321,6 +321,16 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
    * Checks if the bot is still present in the guild
    */
   async function checkGuildHealth(request: Request): Promise<Response> {
+    let session;
+    try {
+      session = await auth.getSession(request);
+    } catch {
+      session = null;
+    }
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
     const url = new URL(request.url);
     const pathParts = url.pathname.split('/').filter(Boolean);
 

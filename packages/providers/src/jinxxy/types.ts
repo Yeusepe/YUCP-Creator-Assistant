@@ -93,12 +93,18 @@ export interface JinxxyProduct {
 }
 
 /**
- * Jinxxy API response wrapper for product list
+ * Jinxxy API response wrapper for product list.
+ * API returns `results` (not `products`); we support both for compatibility.
  */
 export interface JinxxyProductsResponse {
-  success: boolean;
+  success?: boolean;
   products?: JinxxyProduct[];
+  /** API returns products in `results` */
+  results?: JinxxyProduct[];
   pagination?: JinxxyPagination;
+  page?: number;
+  page_count?: number;
+  cursor_count?: number;
   error?: string;
   message?: string;
 }
@@ -188,14 +194,60 @@ export interface JinxxyLicenseActivation {
 }
 
 /**
- * Jinxxy API response wrapper for license list
+ * Raw license list item from GET /licenses?key=... or short_key=...
+ * API returns minimal objects: { id, object, user, short_key } - no status, product_id, etc.
+ * Must fetch full license via GET /licenses/{id} to get details (see jinx-master).
+ */
+export interface JinxxyLicenseListResult {
+  id: string;
+  object?: string;
+  user?: { id: string };
+  short_key?: string;
+}
+
+/**
+ * Response from GET /licenses?key=... or short_key=...
+ * Results are minimal (id, user, short_key) - must fetch full license by id.
+ */
+export interface JinxxyLicenseListResponse {
+  results?: JinxxyLicenseListResult[];
+  page?: number;
+  page_count?: number;
+  cursor_count?: number;
+}
+
+/**
+ * Jinxxy API response wrapper for license list (when listing with product_id etc).
+ * API returns `results`; list items may be minimal or full depending on endpoint.
  */
 export interface JinxxyLicensesResponse {
-  success: boolean;
+  success?: boolean;
   licenses?: JinxxyLicense[];
+  results?: JinxxyLicense[] | JinxxyLicenseListResult[];
   pagination?: JinxxyPagination;
+  page?: number;
+  page_count?: number;
+  cursor_count?: number;
   error?: string;
   message?: string;
+}
+
+/**
+ * Raw license from GET /licenses/{id} - actual API shape.
+ * API returns this object directly (not wrapped in { license: ... }).
+ */
+export interface JinxxyLicenseRaw {
+  id: string;
+  key: string;
+  short_key: string;
+  user?: { id: string };
+  inventory_item?: {
+    target_id: string;
+    target_version_id?: string;
+    item?: { name: string };
+    order?: { id: string; payment_status?: string };
+  };
+  activations?: { total_count: number };
 }
 
 /**

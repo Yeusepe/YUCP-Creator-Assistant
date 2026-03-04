@@ -482,6 +482,8 @@
                 window.location.href = `${apiBase}/api/connect/gumroad/begin?s=${encodeURIComponent(setupToken)}`;
             } else if (tenantId && guildId) {
                 window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
+            } else {
+                alert('Please wait for the page to finish loading your account details.');
             }
         }
 
@@ -490,6 +492,8 @@
                 window.location.href = `/jinxxy-setup?s=${encodeURIComponent(setupToken)}`;
             } else if (tenantId && guildId) {
                 window.location.href = `/jinxxy-setup?tenant_id=${encodeURIComponent(tenantId)}&guild_id=${encodeURIComponent(guildId)}`;
+            } else {
+                alert('Please wait for the page to finish loading your account details.');
             }
         }
 
@@ -497,14 +501,15 @@
 
         async function init() {
             try {
-                if (token && guildId && !setupToken) {
-                    document.getElementById('onboarding-done').classList.remove('hidden');
-                    const res = await fetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}&token=${encodeURIComponent(token)}`);
+                if (!setupToken && !tenantId && guildId) {
+                    const res = await fetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}${token ? '&token=' + encodeURIComponent(token) : ''}`);
                     const data = await res.json();
                     if (data.tenantId) {
                         tenantId = data.tenantId;
                     }
-                } else if (setupToken) {
+                }
+
+                if ((token || setupToken) && document.getElementById('onboarding-done')) {
                     document.getElementById('onboarding-done').classList.remove('hidden');
                 }
 
@@ -516,39 +521,46 @@
         }
 
         async function fetchAllData() {
-            if (!setupToken) return;
-
             try {
-                const statusRes = await fetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}`);
-                if (statusRes.ok) {
-                    const statusData = await statusRes.json();
-                    connectionsMap.clear();
-                    if (statusData.connections) {
-                        statusData.connections.forEach(c => {
-                            if (c.status === 'active') {
-                                connectionsMap.set(c.provider, c);
-                            }
-                        });
+                if (setupToken) {
+                    const statusRes = await fetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}`);
+                    if (statusRes.ok) {
+                        const statusData = await statusRes.json();
+                        connectionsMap.clear();
+                        if (statusData.connections) {
+                            statusData.connections.forEach(c => {
+                                if (c.status === 'active') {
+                                    connectionsMap.set(c.provider, c);
+                                }
+                            });
+                        }
+                        updatePlatformCards();
                     }
-                    updatePlatformCards();
-                }
 
-                const settingsRes = await fetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`);
-                if (settingsRes.ok) {
-                    const settingsData = await settingsRes.json();
-                    if (settingsData.policy) {
-                        // Load all settings into our map
-                        const policy = settingsData.policy;
-                        const keys = [
-                            'allowMismatchedEmails', 'autoVerifyOnJoin',
-                            'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers',
-                            'verificationScope', 'duplicateVerificationBehavior',
-                            'suspiciousAccountBehavior'
-                        ];
-                        keys.forEach(k => {
-                            if (policy[k] !== undefined) settingsMap.set(k, policy[k]);
-                        });
-                        updateSettingsUI();
+                    const settingsRes = await fetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`);
+                    if (settingsRes.ok) {
+                        const settingsData = await settingsRes.json();
+                        if (settingsData.policy) {
+                            // Load all settings into our map
+                            const policy = settingsData.policy;
+                            const keys = [
+                                'allowMismatchedEmails', 'autoVerifyOnJoin',
+                                'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers',
+                                'verificationScope', 'duplicateVerificationBehavior',
+                                'suspiciousAccountBehavior'
+                            ];
+                            keys.forEach(k => {
+                                if (policy[k] !== undefined) settingsMap.set(k, policy[k]);
+                            });
+                            updateSettingsUI();
+                        }
+                    }
+                } else if (tenantId) {
+                    const statusRes = await fetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`);
+                    if (statusRes.ok) {
+                        const statusData = await statusRes.json();
+                        updateCard('gumroad', statusData.gumroad);
+                        updateCard('jinxxy', statusData.jinxxy);
                     }
                 }
             } catch (err) {

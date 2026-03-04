@@ -23,6 +23,18 @@ export interface WebhookConfig {
 }
 
 /**
+ * Constant-time string comparison to prevent timing attacks.
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  const aBytes = new TextEncoder().encode(a.toLowerCase());
+  const bBytes = new TextEncoder().encode(b.toLowerCase());
+  if (aBytes.length !== bBytes.length) return false;
+  let diff = 0;
+  for (let i = 0; i < aBytes.length; i++) diff |= aBytes[i] ^ bBytes[i];
+  return diff === 0;
+}
+
+/**
  * Compute HMAC-SHA256 of body with secret.
  */
 async function hmacSha256(secret: string, body: string): Promise<string> {
@@ -64,6 +76,17 @@ export function createWebhookRoutes(config: WebhookConfig) {
     }
   }
 
+  async function getGumroadWebhookSecret(tenantId: string): Promise<string | null> {
+    try {
+      return await convex.query(
+        'providerConnections:getGumroadWebhookSecret' as any,
+        { apiSecret, tenantId }
+      );
+    } catch {
+      return null;
+    }
+  }
+
   async function handleGumroadWebhook(
     request: Request,
     tenantId: string
@@ -87,6 +110,18 @@ export function createWebhookRoutes(config: WebhookConfig) {
       }
 
       const rawBody = await request.text();
+      const incomingSig = request.headers.get('x-gumroad-signature');
+      const webhookSecret = await getGumroadWebhookSecret(tenantId);
+      let signatureValid = false;
+
+      if (webhookSecret && incomingSig) {
+        const expectedSig = await hmacSha256(webhookSecret, rawBody);
+        signatureValid = timingSafeEqual(expectedSig, incomingSig);
+      } else if (!webhookSecret) {
+        logger.warn('Gumroad webhook: no secret configured', { tenantId });
+        signatureValid = false;
+      }
+
       const params = new URLSearchParams(rawBody);
       const saleId = params.get('sale_id') ?? params.get('order_number') ?? '';
       const refunded = params.get('refunded') === 'true';
@@ -111,7 +146,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
           providerEventId,
           eventType,
           rawPayload: payload,
-          signatureValid: true,
+          signatureValid,
         }
       );
 
@@ -146,8 +181,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
 
       if (webhookSecret && signature) {
         const expectedSig = await hmacSha256(webhookSecret, rawBody);
-        signatureValid =
-          expectedSig.toLowerCase() === signature.toLowerCase();
+        signatureValid = timingSafeEqual(expectedSig, signature);
       } else if (!webhookSecret) {
         logger.warn('Jinxxy webhook: no secret configured', { tenantId });
         signatureValid = false;

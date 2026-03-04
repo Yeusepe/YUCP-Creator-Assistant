@@ -48,6 +48,8 @@ interface ProductSession {
   sourceRoleId?: string;
   roleId?: string;
   discordRoleSetupToken?: string;
+  /** Jinxxy product id -> name map (for display when adding) */
+  jinxxyProductNames?: Record<string, string>;
   expiresAt: number;
 }
 
@@ -70,14 +72,6 @@ function parseGumroadProductId(urlOrId: string): string | null {
   if (gumroadMatch) return gumroadMatch[1];
   const productMatch = trimmed.match(/gumroad\.com\/products\/([a-zA-Z0-9_-]+)/);
   if (productMatch) return productMatch[1];
-  if (/^[a-zA-Z0-9_-]{3,}$/.test(trimmed)) return trimmed;
-  return null;
-}
-
-function parseJinxxyProductId(urlOrId: string): string | null {
-  const trimmed = urlOrId.trim();
-  const match = trimmed.match(/jinxxy\.(?:com|app)\/.*\/([a-zA-Z0-9_-]+)/);
-  if (match) return match[1];
   if (/^[a-zA-Z0-9_-]{3,}$/.test(trimmed)) return trimmed;
   return null;
 }
@@ -226,15 +220,87 @@ export async function handleProductTypeSelect(
     return;
   }
 
-  // gumroad, jinxxy, license
+  // Jinxxy: fetch products from API and show select (jinx-master style)
+  if (selectedType === 'jinxxy') {
+    const apiBase = process.env.API_BASE_URL;
+    const apiSecret = process.env.CONVEX_API_SECRET;
+
+    if (!apiBase || !apiSecret) {
+      await interaction.update({
+        content: `${E.X_} API not configured. Set API_BASE_URL and CONVEX_API_SECRET for Jinxxy product selection.`,
+        components: [],
+      });
+      return;
+    }
+
+    await interaction.deferUpdate();
+    try {
+      const res = await fetch(`${apiBase}/api/jinxxy/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiSecret, tenantId }),
+      });
+      const data = (await res.json()) as { products?: { id: string; name: string }[]; error?: string };
+
+      if (data.error && (!data.products || data.products.length === 0)) {
+        await interaction.editReply({
+          content: `${E.X_} ${data.error}\n\nPlease run \`/creator-admin product add\` to try again.`,
+          components: [],
+        });
+        return;
+      }
+
+      const products = data.products ?? [];
+      if (products.length === 0) {
+        await interaction.editReply({
+          content: `${E.X_} No Jinxxy products found. Add products in your Jinxxy store first, then try again.`,
+          components: [],
+        });
+        return;
+      }
+
+      session.jinxxyProductNames = Object.fromEntries(products.map((p) => [p.id, p.name]));
+
+      // Discord select menu limit: 25 options
+      const MAX_OPTIONS = 25;
+      const toShow = products.slice(0, MAX_OPTIONS);
+      const select = new StringSelectMenuBuilder()
+        .setCustomId(`creator_product:jinxxy_product_select:${interaction.user.id}:${tenantId}`)
+        .setPlaceholder('Select a Jinxxy product...')
+        .addOptions(
+          toShow.map((p) =>
+            new StringSelectMenuOptionBuilder()
+              .setLabel(p.name.length > 100 ? p.name.slice(0, 97) + '...' : p.name)
+              .setValue(p.id)
+              .setDescription(p.id),
+          ),
+        );
+
+      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+      const moreNote =
+        products.length > MAX_OPTIONS
+          ? `\n\n*(Showing first ${MAX_OPTIONS} of ${products.length} products.)*`
+          : '';
+      await interaction.editReply({
+        content: `**Step 2 of 3:** Select a Jinxxy product from your store.${moreNote}`,
+        components: [row],
+      });
+    } catch (err) {
+      await interaction.editReply({
+        content: `${E.X_} Failed to fetch products: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+        components: [],
+      });
+    }
+    return;
+  }
+
+  // gumroad, license — URL modal
   const labels: Record<string, string> = {
     gumroad: 'Gumroad Product URL or ID',
-    jinxxy: 'Jinxxy Product URL or ID',
     license: 'Product ID (or leave generic)',
   };
   const placeholders: Record<string, string> = {
     gumroad: 'URL (gumroad.com/l/abc123) or product ID from Gumroad License Key settings',
-    jinxxy: 'e.g., jinxxy.com/store/product-name or product-id',
     license: 'Product ID to associate with license keys',
   };
 
@@ -253,6 +319,39 @@ export async function handleProductTypeSelect(
     );
 
   await interaction.showModal(modal);
+}
+
+/** Step 2b (Jinxxy): Product selected from API — show role select */
+export async function handleProductJinxxySelect(
+  interaction: StringSelectMenuInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const productId = interaction.values[0];
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.reply({
+      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  session.urlOrId = productId;
+
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+    .setPlaceholder('Select the role to assign when verified...');
+
+  const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+
+  await interaction.reply({
+    content: '**Step 3 of 3:** Which role should users receive when they verify this product?',
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 /** Step 2b: URL modal submitted — show role select */
@@ -579,13 +678,16 @@ export async function handleProductConfirmAdd(
       productId = result.productId;
       catalogProductId = result.catalogProductId;
     } else if (type === 'jinxxy') {
-      const parsed = parseJinxxyProductId(urlOrId ?? '');
-      if (!parsed) throw new Error('Could not parse Jinxxy product ID from the provided URL');
+      // Product ID comes from Jinxxy API (product select), not URL parsing
+      const productIdFromApi = urlOrId?.trim();
+      if (!productIdFromApi) throw new Error('No Jinxxy product selected');
+      const displayName = session.jinxxyProductNames?.[productIdFromApi];
       const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
         apiSecret,
         tenantId,
-        productId: parsed,
-        providerProductRef: parsed,
+        productId: productIdFromApi,
+        providerProductRef: productIdFromApi,
+        displayName: displayName ?? undefined,
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;

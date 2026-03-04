@@ -33,12 +33,16 @@ import { track } from '../lib/posthog';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
-function getNotConfiguredMessage(guildId: string): string {
-  const apiBase = process.env.API_BASE_URL;
-  if (apiBase) {
-    return `This server is not configured. [Sign in to configure](${apiBase}/connect?guild_id=${guildId})`;
+/** Message when server has no guild link. forAdmin: show sign-in link; otherwise tell user to ask admin. */
+function getNotConfiguredMessage(guildId: string, forAdmin = false): string {
+  if (forAdmin) {
+    const apiBase = process.env.API_BASE_URL;
+    if (apiBase) {
+      return `This server is not configured. [Sign in to configure](${apiBase}/connect?guild_id=${guildId})`;
+    }
+    return 'This server is not configured. Please sign in to configure (API_BASE_URL not set).';
   }
-  return 'This server is not configured. Please sign in to configure (API_BASE_URL not set).';
+  return 'This server isn\'t set up for verification yet. Ask a server admin to configure it in the Creator Portal.';
 }
 
 export interface InteractionHandlerContext {
@@ -246,7 +250,7 @@ async function handleSlashCommand(
 
   if (!guildLink) {
     await interaction.reply({
-      content: getNotConfiguredMessage(guildId),
+      content: getNotConfiguredMessage(guildId, true),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -371,7 +375,17 @@ async function handleUserCommand(
   try {
     const subcommand = interaction.options.getSubcommand(false);
 
+    // /creator status — show status panel (default entry point)
     // /creator verify [product] — fast path: skip the picker, go straight to modal
+    if (subcommand === 'status' || subcommand === null) {
+      const { handleCreatorCommand } = await import('../commands/verify');
+      await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, process.env.API_BASE_URL, {
+        tenantId,
+        guildId,
+      });
+      return;
+    }
+
     if (subcommand === 'verify') {
       const productValue = interaction.options.getString('product', true);
       // productValue format: "{provider}::{providerProductRef}"
@@ -412,7 +426,7 @@ async function handleUserCommand(
       return;
     }
 
-    // Default: /creator with no subcommand — show status panel
+    // Unknown subcommand — show status panel as fallback
     const { handleCreatorCommand } = await import('../commands/verify');
     await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, process.env.API_BASE_URL, {
       tenantId,
@@ -711,6 +725,17 @@ async function handleSelectMenu(
     const tenantId = customId.slice('creator_product:type_select:'.length) as Id<'tenants'>;
     const { handleProductTypeSelect } = await import('../commands/product');
     await handleProductTypeSelect(interaction, tenantId);
+    return;
+  }
+
+  // Product Jinxxy product select: creator_product:jinxxy_product_select:{userId}:{tenantId}
+  if (customId.startsWith('creator_product:jinxxy_product_select:')) {
+    const rest = customId.slice('creator_product:jinxxy_product_select:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleProductJinxxySelect } = await import('../commands/product');
+    await handleProductJinxxySelect(interaction, userId, tenantId);
     return;
   }
 

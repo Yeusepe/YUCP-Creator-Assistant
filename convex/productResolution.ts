@@ -102,6 +102,7 @@ export const getProductsForTenant = query({
       ),
       providerProductRef: v.string(),
       canonicalSlug: v.optional(v.string()),
+      displayName: v.optional(v.string()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -119,6 +120,7 @@ export const getProductsForTenant = query({
         provider: p.provider,
         providerProductRef: p.providerProductRef,
         canonicalSlug: p.canonicalSlug,
+        displayName: p.displayName,
       }));
   },
 });

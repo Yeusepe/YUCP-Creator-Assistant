@@ -611,6 +611,8 @@ const product_catalog = defineTable({
   providerProductRef: v.string(),
   // URL-friendly identifier
   canonicalSlug: v.optional(v.string()),
+  // Human-readable name for display (e.g. Jinxxy product name)
+  displayName: v.optional(v.string()),
   // Alternative names/identifiers
   aliases: v.optional(v.array(v.string())),
   // Current status
@@ -677,6 +679,7 @@ const provider_connections = defineTable({
   resourceSubscriptionIds: v.optional(v.array(v.string())),
   jinxxyApiKeyEncrypted: v.optional(v.string()),
   webhookSecretRef: v.optional(v.string()),
+  gumroadWebhookSecretRef: v.optional(v.string()),
   webhookEndpoint: v.optional(v.string()),
   lastSuccessfulBackfillAt: v.optional(v.number()),
   lastSeenOrderId: v.optional(v.string()),

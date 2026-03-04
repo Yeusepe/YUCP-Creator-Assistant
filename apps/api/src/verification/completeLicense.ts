@@ -9,6 +9,7 @@
 import { createLogger } from '@yucp/shared';
 import { detectLicenseFormat, GumroadAdapter, JinxxyApiClient } from '@yucp/providers';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { decrypt } from '../lib/encrypt';
 import type { VerificationConfig } from './sessionManager';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -29,42 +30,6 @@ export interface CompleteLicenseResult {
   provider?: 'gumroad' | 'jinxxy';
   entitlementIds?: string[];
   error?: string;
-}
-
-/**
- * Fetch all licenses for a Jinxxy customer (handles pagination)
- */
-async function getAllLicensesForCustomer(
-  client: JinxxyApiClient,
-  customerId: string
-): Promise<Array<{ product_id: string; id: string; key: string }>> {
-  const allLicenses: Array<{ product_id: string; id: string; key: string }> = [];
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore) {
-    const { licenses, pagination } = await client.getLicenses({
-      customer_id: customerId,
-      status: 'active',
-      page,
-      per_page: 50,
-    });
-
-    for (const lic of licenses) {
-      if (lic.status === 'active') {
-        allLicenses.push({
-          product_id: lic.product_id,
-          id: lic.id,
-          key: lic.key,
-        });
-      }
-    }
-
-    hasMore = pagination.has_next ?? false;
-    page += 1;
-  }
-
-  return allLicenses;
 }
 
 /**
@@ -170,16 +135,45 @@ export async function handleCompleteLicense(
 
     if (format === 'jinxxy') {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const tenantJinxxyKey = await convex.query(
-        'tenantConfig:getJinxxyApiKeyForVerification' as any,
-        { apiSecret: config.convexApiSecret, tenantId }
-      );
-      const jinxxyApiKey = tenantJinxxyKey ?? process.env.JINXXY_API_KEY;
+      // Try provider_connections first (connect flow), then tenant_provider_config (legacy)
+      let tenantJinxxyKeyEncrypted: string | null = null;
+      const conn = await convex.query('providerConnections:getConnectionForBackfill' as any, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        provider: 'jinxxy',
+      });
+      if (conn?.jinxxyApiKeyEncrypted) {
+        tenantJinxxyKeyEncrypted = conn.jinxxyApiKeyEncrypted;
+      }
+      if (!tenantJinxxyKeyEncrypted) {
+        tenantJinxxyKeyEncrypted = await convex.query(
+          'tenantConfig:getJinxxyApiKeyForVerification' as any,
+          { apiSecret: config.convexApiSecret, tenantId }
+        );
+      }
+      let jinxxyApiKey: string | undefined;
+      if (tenantJinxxyKeyEncrypted) {
+        if (!config.encryptionSecret) {
+          return {
+            success: false,
+            error: 'Jinxxy API key decryption not configured (BETTER_AUTH_SECRET required).',
+          };
+        }
+        try {
+          jinxxyApiKey = await decrypt(tenantJinxxyKeyEncrypted, config.encryptionSecret);
+        } catch (err) {
+          logger.error('Failed to decrypt tenant Jinxxy API key', { tenantId, err });
+          return {
+            success: false,
+            error: 'Failed to decrypt stored Jinxxy API key. Re-add your key in `/creator setup`.',
+          };
+        }
+      }
       if (!jinxxyApiKey) {
         return {
           success: false,
           error:
-            'Jinxxy API key not configured. Add your Jinxxy API key in `/creator setup` or set JINXXY_API_KEY.',
+            'Jinxxy API key not configured. Add your Jinxxy API key in `/creator setup`.',
         };
       }
 
@@ -197,28 +191,23 @@ export async function handleCompleteLicense(
       }
 
       const license = verifyResult.license;
-      const customerId = license.customer_id;
+      const customerId = license.customer_id ?? license.id; // fallback for providerUserId
 
-      if (!customerId) {
+      // Jinxxy API does not support listing licenses by customer_id (only key/short_key).
+      // Use the verified license directly (matches jinx-master: one key = one license = one product).
+      if (!license.product_id) {
         return {
           success: false,
-          error: 'License has no customer ID - cannot fetch other products',
+          error: 'License has no product - cannot grant entitlement',
         };
       }
 
-      const allLicenses = await getAllLicensesForCustomer(jinxxyClient, customerId);
-
-      const productsToGrant = allLicenses.map((lic) => ({
-        productId: lic.product_id,
-        sourceReference: `jinxxy:license:${lic.id}`,
-      }));
-
-      if (productsToGrant.length === 0) {
-        return {
-          success: false,
-          error: 'No active licenses found for customer',
-        };
-      }
+      const productsToGrant = [
+        {
+          productId: license.product_id,
+          sourceReference: `jinxxy:license:${license.id}`,
+        },
+      ];
 
       const mutationResult = await convex.mutation(
         'licenseVerification:completeLicenseVerification' as any,

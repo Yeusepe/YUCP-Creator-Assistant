@@ -166,6 +166,13 @@
         const API_BASE = '__API_BASE__';
         const SETUP_TOKEN = '__SETUP_TOKEN__';
 
+        // Clear setup token from URL to prevent it staying in browser history
+        if (SETUP_TOKEN && window.history.replaceState) {
+            const clean = new URL(window.location.href);
+            clean.searchParams.delete('s');
+            window.history.replaceState({}, document.title, clean.toString());
+        }
+
         function showStep(id) {
             document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
             document.getElementById(id).classList.add('active');
@@ -197,7 +204,9 @@
             // Check if guilds are loaded (user just returned from OAuth)
             let session;
             try {
-                const res = await fetch(`${API_BASE}/api/setup/discord-role-guilds?s=${encodeURIComponent(SETUP_TOKEN)}`);
+                const res = await fetch(`${API_BASE}/api/setup/discord-role-guilds`, {
+                    headers: { 'Authorization': `Bearer ${SETUP_TOKEN}` }
+                });
                 if (!res.ok) {
                     showStep('step-error');
                     return;
@@ -273,8 +282,8 @@
             try {
                 const res = await fetch(`${API_BASE}/api/setup/discord-role-save`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ s: SETUP_TOKEN, sourceGuildId: guildId, sourceRoleId: roleId }),
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SETUP_TOKEN}` },
+                    body: JSON.stringify({ sourceGuildId: guildId, sourceRoleId: roleId }),
                 });
                 const data = await res.json();
                 if (!res.ok || !data.success) {

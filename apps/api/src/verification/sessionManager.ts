@@ -305,6 +305,8 @@ export interface VerificationConfig {
   jinxxyClientId?: string;
   /** Jinxxy client secret */
   jinxxyClientSecret?: string;
+  /** Secret for decrypting tenant-stored keys (e.g. Jinxxy API key) */
+  encryptionSecret?: string;
 }
 
 /**
@@ -318,6 +320,22 @@ export function createVerificationSessionManager(
    */
   async function beginSession(input: CreateSessionInput): Promise<CreateSessionResult> {
     try {
+      // Validate redirectUri against allowed origins (baseUrl and frontendUrl)
+      if (input.redirectUri) {
+        try {
+          const allowedOrigins = new Set([
+            new URL(config.baseUrl).origin,
+            new URL(config.frontendUrl).origin,
+          ]);
+          const parsed = new URL(input.redirectUri);
+          if (!allowedOrigins.has(parsed.origin)) {
+            return { success: false, error: 'Invalid redirectUri: must match application origin' };
+          }
+        } catch {
+          return { success: false, error: 'Invalid redirectUri' };
+        }
+      }
+
       const modeConfig = getVerificationConfig(input.mode);
       if (!modeConfig) {
         return {
@@ -953,7 +971,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       if (!result.success) {
         if (request.method === 'GET' && result.error) {
           return Response.redirect(
-            `${config.frontendUrl}/verification/error?error=${encodeURIComponent(result.error)}`,
+            `${config.baseUrl}/verify-error?error=${encodeURIComponent(result.error)}`,
             302
           );
         }

@@ -53,6 +53,7 @@ interface Product {
     provider: string;
     providerProductRef: string;
     canonicalSlug?: string;
+    displayName?: string;
 }
 
 // ── Helper: build the product picker message ──────────────────────────────────
@@ -118,7 +119,7 @@ function buildProductPickerComponents(
         .addOptions(
             slice.map((p) => {
                 const isGumroad = p.provider === 'gumroad';
-                const label = p.canonicalSlug ?? p.productId;
+                const label = p.displayName ?? p.canonicalSlug ?? p.productId;
                 const opt = new StringSelectMenuOptionBuilder()
                     .setLabel(label.slice(0, 100))
                     .setValue(`${p.provider}::${p.providerProductRef}`)
@@ -152,6 +153,40 @@ function buildProductPickerComponents(
 
 // ── Public: show the product picker (called from button handler) ───────────────
 
+async function enrichJinxxyDisplayNames(
+    products: Product[],
+    tenantId: string,
+    apiSecret: string,
+): Promise<Product[]> {
+    const needsEnrichment = products.filter((p) => p.provider === 'jinxxy' && !p.displayName);
+    if (needsEnrichment.length === 0) return products;
+
+    const apiBase = process.env.API_BASE_URL;
+    if (!apiBase) return products;
+
+    try {
+        const res = await fetch(`${apiBase}/api/jinxxy/products`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiSecret, tenantId }),
+        });
+        const data = (await res.json()) as { products?: { id: string; name: string }[] };
+        const apiProducts = data.products ?? [];
+        const nameById = Object.fromEntries(apiProducts.map((p) => [String(p.id), p.name]));
+
+        return products.map((p) => {
+            if (p.provider === 'jinxxy' && !p.displayName) {
+                const name = nameById[String(p.providerProductRef)];
+                if (name) return { ...p, displayName: name };
+            }
+            return p;
+        });
+    } catch (err) {
+        logger.warn('Failed to enrich Jinxxy display names', { err });
+        return products;
+    }
+}
+
 export async function showProductPicker(
     interaction: ButtonInteraction,
     convex: ConvexHttpClient,
@@ -167,6 +202,7 @@ export async function showProductPicker(
         products = (await convex.query('productResolution:getProductsForTenant' as any, {
             tenantId,
         })) as Product[];
+        products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
     } catch (err) {
         logger.error('Failed to load products for picker', { err });
     }
@@ -216,6 +252,7 @@ export async function handlePickerNavigation(
         products = (await convex.query('productResolution:getProductsForTenant' as any, {
             tenantId,
         })) as Product[];
+        products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
     } catch (err) {
         logger.error('Failed to reload products for picker nav', { err });
     }
