@@ -549,6 +549,8 @@ export class RoleSyncService {
 
   /**
    * Add a role to a guild member.
+   * Uses member.roles.add() per discord.js docs.
+   * Bot needs MANAGE_ROLES and its role must be above the target role in hierarchy.
    */
   private async addRoleToMember(
     guildId: string,
@@ -561,25 +563,29 @@ export class RoleSyncService {
       return { added: false, error: 'Guild not found or bot not in guild' };
     }
 
+    // Role hierarchy: bot can only assign roles below its highest role
+    const role = guild.roles.cache.get(roleId);
+    const botMember = guild.members.me;
+    if (role && botMember && role.position >= botMember.roles.highest.position) {
+      return {
+        added: false,
+        error: `Role hierarchy: verified role is at or above bot's role. Move the bot's role higher in Server Settings > Roles.`,
+      };
+    }
+
     // Wait for rate limit
     const route = `guilds/${guildId}/members/${discordUserId}`;
     await this.rateLimiter.waitForRateLimit(route);
 
     try {
-      // Fetch or get member from cache
-      let member: GuildMember | undefined;
-      try {
-        member = await guild.members.fetch(discordUserId);
-      } catch {
-        return { added: false, error: 'Member not found in guild' };
-      }
+      const member = await guild.members.fetch(discordUserId);
 
-      // Check if member already has the role
+      // Already has role = success (idempotent)
       if (member.roles.cache.has(roleId)) {
-        return { added: false, error: 'Member already has role' };
+        return { added: true };
       }
 
-      // Add the role
+      // Add the role (RoleResolvable: roleId string or Role object)
       await member.roles.add(roleId, 'Entitlement sync - role granted');
 
       this.logger.info('Role added to member', {
@@ -614,6 +620,7 @@ export class RoleSyncService {
 
   /**
    * Remove a role from a guild member.
+   * Bot needs MANAGE_ROLES and its role must be above the target role in hierarchy.
    */
   private async removeRoleFromMember(
     guildId: string,
@@ -624,6 +631,16 @@ export class RoleSyncService {
 
     if (!guild) {
       return { removed: false, error: 'Guild not found or bot not in guild' };
+    }
+
+    // Role hierarchy: bot can only manage roles below its highest role
+    const role = guild.roles.cache.get(roleId);
+    const botMember = guild.members.me;
+    if (role && botMember && role.position >= botMember.roles.highest.position) {
+      return {
+        removed: false,
+        error: `Role hierarchy: verified role is at or above bot's role. Move the bot's role higher in Server Settings > Roles.`,
+      };
     }
 
     // Wait for rate limit
@@ -640,9 +657,9 @@ export class RoleSyncService {
         return { removed: true, error: 'Member not in guild, role effectively removed' };
       }
 
-      // Check if member has the role
+      // Already doesn't have role = success (idempotent)
       if (!member.roles.cache.has(roleId)) {
-        return { removed: false, error: 'Member does not have role' };
+        return { removed: true };
       }
 
       // Remove the role
