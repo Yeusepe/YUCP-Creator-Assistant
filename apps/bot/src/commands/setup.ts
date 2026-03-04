@@ -32,8 +32,34 @@ export async function runSetupStart(
   ctx: SetupContext,
 ): Promise<void> {
   const apiBase = process.env.API_BASE_URL ?? 'http://localhost:3001';
-  const connectUrl = `${apiBase}/connect?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}`;
-  const jinxxyUrl = `${apiBase}/jinxxy-setup?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}`;
+
+  // Create a secure setup session via the API
+  let setupToken = '';
+  try {
+    const res = await fetch(`${apiBase}/api/setup/create-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenantId: ctx.tenantId,
+        guildId: ctx.guildId,
+        discordUserId: interaction.user.id,
+        apiSecret,
+      }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { token: string };
+      setupToken = data.token;
+    }
+  } catch (_) {
+    // Fall back to legacy URL params if session creation fails
+  }
+
+  const connectUrl = setupToken
+    ? `${apiBase}/connect?s=${encodeURIComponent(setupToken)}`
+    : `${apiBase}/connect?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}`;
+  const jinxxyUrl = setupToken
+    ? `${apiBase}/jinxxy-setup?s=${encodeURIComponent(setupToken)}`
+    : `${apiBase}/jinxxy-setup?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}`;
 
   const embed = new EmbedBuilder()
     .setTitle('🔧 Creator Setup')

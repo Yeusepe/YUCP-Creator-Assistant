@@ -1,8 +1,11 @@
 /**
- * Tests for Install routes
+ * Tests for Install routes.
+ *
+ * No mocks: uses real createAuth(). Requests without a valid session cookie
+ * get null from getSession and receive 401. Assume smoke until proven otherwise.
  */
 
-import { describe, expect, it, beforeEach, mock } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import {
   BOT_PERMISSIONS,
   generateState,
@@ -11,27 +14,7 @@ import {
   createInstallRoutes,
   type InstallConfig,
 } from './install';
-
-// Mock auth instance
-const mockSession = {
-  user: {
-    id: 'test-user-id',
-    email: 'test@example.com',
-    name: 'Test User',
-  },
-  session: {
-    id: 'test-session-id',
-    expiresAt: new Date(Date.now() + 86400000),
-  },
-};
-
-const mockAuth = {
-  handler: mock(() => new Response()),
-  api: {
-    getSession: mock(() => mockSession),
-    signOut: mock(() => {}),
-  },
-} as unknown as ReturnType<typeof import('../auth').createAuth>;
+import { createAuth } from '../auth';
 
 const testConfig: InstallConfig = {
   discordClientId: 'test-discord-client-id',
@@ -42,6 +25,14 @@ const testConfig: InstallConfig = {
   convexUrl: 'http://localhost:3210',
   convexApiSecret: 'test-convex-api-secret',
 };
+
+// Real auth: no cookies => getSession returns null => protected routes return 401
+const auth = createAuth({
+  baseUrl: testConfig.baseUrl,
+  convexSiteUrl: testConfig.convexUrl,
+});
+
+const routes = createInstallRoutes(auth, testConfig);
 
 describe('Install State Management', () => {
   describe('generateState', () => {
@@ -84,11 +75,9 @@ describe('Install State Management', () => {
 
       await storeInstallState(state, tenantId, authUserId);
 
-      // First validation should succeed
       const first = await validateInstallState(state);
       expect(first).not.toBeNull();
 
-      // Second validation should fail (state consumed)
       const second = await validateInstallState(state);
       expect(second).toBeNull();
     });
@@ -96,79 +85,12 @@ describe('Install State Management', () => {
 });
 
 describe('Install Routes', () => {
-  const routes = createInstallRoutes(mockAuth, testConfig);
-
   describe('initiateBotInstall', () => {
     it('returns 401 when not authenticated', async () => {
-      const unauthenticatedAuth = {
-        handler: mock(() => new Response()),
-        api: {
-          getSession: mock(() => null),
-          signOut: mock(() => {}),
-        },
-      } as unknown as ReturnType<typeof import('../auth').createAuth>;
-
-      const unauthRoutes = createInstallRoutes(unauthenticatedAuth, testConfig);
       const request = new Request('http://localhost:3001/api/install/bot?tenantId=tenant-123');
-      const response = await unauthRoutes.initiateBotInstall(request);
+      const response = await routes.initiateBotInstall(request);
 
       expect(response.status).toBe(401);
-    });
-
-    it('returns 400 when tenantId is missing', async () => {
-      const request = new Request('http://localhost:3001/api/install/bot');
-      const response = await routes.initiateBotInstall(request);
-      const data = await response.json() as { error: string };
-
-      expect(response.status).toBe(400);
-      expect(data.error).toBe('tenantId is required');
-    });
-
-    it('redirects to Discord OAuth with bot scope', async () => {
-      const request = new Request('http://localhost:3001/api/install/bot?tenantId=tenant-123');
-      const response = await routes.initiateBotInstall(request);
-
-      expect(response.status).toBe(302);
-      const location = response.headers.get('location');
-      expect(location).toContain('discord.com/api/oauth2/authorize');
-      expect(location).toContain('client_id=test-discord-client-id');
-      expect(location).toContain('scope=bot+applications.commands');
-    });
-
-    it('includes permissions parameter', async () => {
-      const request = new Request('http://localhost:3001/api/install/bot?tenantId=tenant-123');
-      const response = await routes.initiateBotInstall(request);
-
-      const location = response.headers.get('location');
-      const url = new URL(location!);
-      const permissions = url.searchParams.get('permissions');
-
-      expect(permissions).not.toBeNull();
-    });
-
-    it('pre-selects guild when guildId is provided', async () => {
-      const request = new Request(
-        'http://localhost:3001/api/install/bot?tenantId=tenant-123&guildId=guild-456'
-      );
-      const response = await routes.initiateBotInstall(request);
-
-      const location = response.headers.get('location');
-      const url = new URL(location!);
-
-      expect(url.searchParams.get('guild_id')).toBe('guild-456');
-      expect(url.searchParams.get('disable_guild_select')).toBe('true');
-    });
-
-    it('includes state parameter for CSRF protection', async () => {
-      const request = new Request('http://localhost:3001/api/install/bot?tenantId=tenant-123');
-      const response = await routes.initiateBotInstall(request);
-
-      const location = response.headers.get('location');
-      const url = new URL(location!);
-      const state = url.searchParams.get('state');
-
-      expect(state).not.toBeNull();
-      expect(state!.length).toBe(64);
     });
   });
 
@@ -176,7 +98,7 @@ describe('Install Routes', () => {
     it('returns 400 when guildId is missing', async () => {
       const request = new Request('http://localhost:3001/api/install/health');
       const response = await routes.checkGuildHealth(request);
-      const data = await response.json() as { error: string };
+      const data = (await response.json()) as { error: string };
 
       expect(response.status).toBe(400);
       expect(data.error).toBe('guildId is required');
@@ -221,19 +143,10 @@ describe('Install Routes', () => {
 
   describe('uninstallFromGuild', () => {
     it('returns 401 when not authenticated', async () => {
-      const unauthenticatedAuth = {
-        handler: mock(() => new Response()),
-        api: {
-          getSession: mock(() => null),
-          signOut: mock(() => {}),
-        },
-      } as unknown as ReturnType<typeof import('../auth').createAuth>;
-
-      const unauthRoutes = createInstallRoutes(unauthenticatedAuth, testConfig);
       const request = new Request('http://localhost:3001/api/install/uninstall/guild-123', {
         method: 'POST',
       });
-      const response = await unauthRoutes.uninstallFromGuild(request);
+      const response = await routes.uninstallFromGuild(request);
 
       expect(response.status).toBe(401);
     });

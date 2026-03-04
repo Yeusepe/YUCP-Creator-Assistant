@@ -7,6 +7,7 @@ import { createLogger } from '@yucp/shared';
 import { type Auth, createAuth } from './auth';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import { detectTunnelUrl } from './lib/tunnel';
+import { resolveSetupSession } from './lib/setupSession';
 import {
   mountInstallRoutes,
   mountVerificationRoutes,
@@ -206,17 +207,41 @@ async function handleRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/jinxxy-store' && connectRoutes) {
     return connectRoutes.jinxxyStore(request);
   }
+  // Setup session management
+  if (pathname === '/api/setup/create-session' && connectRoutes) {
+    return connectRoutes.createSessionEndpoint(request);
+  }
+  // Connections API
+  if (pathname === '/api/connections' && connectRoutes) {
+    if (request.method === 'DELETE') {
+      return connectRoutes.disconnectConnectionHandler(request);
+    }
+    return connectRoutes.listConnectionsHandler(request);
+  }
   if (pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html') {
     const filePath = `${import.meta.dir}/../public/jinxxy-setup.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
     const url = new URL(request.url);
-    const tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
-    const guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
+    const setupToken = url.searchParams.get('s') ?? '';
+    let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
+
+    // Resolve setup token if present
+    if (setupToken) {
+      const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
+      const session = await resolveSetupSession(setupToken, encryptionSecret);
+      if (session) {
+        tenantId = session.tenantId;
+        guildId = session.guildId;
+      }
+    }
+
     const apiBase = process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
     html = html.replace(/__TENANT_ID__/g, tenantId);
     html = html.replace(/__GUILD_ID__/g, guildId);
     html = html.replace(/__API_BASE__/g, apiBase);
+    html = html.replace(/__SETUP_TOKEN__/g, setupToken);
     return new Response(html, {
       headers: { 'Content-Type': 'text/html' },
     });

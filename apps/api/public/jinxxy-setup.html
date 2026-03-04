@@ -131,6 +131,7 @@
         const TENANT_ID = '__TENANT_ID__';
         const GUILD_ID = '__GUILD_ID__';
         const API_BASE = '__API_BASE__';
+        const SETUP_TOKEN = '__SETUP_TOKEN__';
     </script>
 
     <div class="cursor-dot"></div>
@@ -685,9 +686,13 @@
         let testWebhookPollInterval = null;
 
         function goBackToConnect() {
-            let url = API_BASE + '/connect?tenant_id=' + encodeURIComponent(TENANT_ID);
-            if (GUILD_ID) url += '&guild_id=' + encodeURIComponent(GUILD_ID);
-            window.location.href = url;
+            if (SETUP_TOKEN) {
+                window.location.href = API_BASE + '/connect?s=' + encodeURIComponent(SETUP_TOKEN);
+            } else {
+                let url = API_BASE + '/connect?tenant_id=' + encodeURIComponent(TENANT_ID);
+                if (GUILD_ID) url += '&guild_id=' + encodeURIComponent(GUILD_ID);
+                window.location.href = url;
+            }
         }
 
         async function fetchWebhookConfig() {

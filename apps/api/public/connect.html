@@ -277,7 +277,9 @@
         const guildId = '__GUILD_ID__';
         const token = '__TOKEN__';
         const apiBase = '__API_BASE__';
-        let tenantId = null;
+        const setupToken = '__SETUP_TOKEN__';
+        const tenantIdFromServer = '__TENANT_ID__';
+        let tenantId = tenantIdFromServer || null;
 
         const cursorDot = document.querySelector('.cursor-dot');
         const cursorOutline = document.querySelector('.cursor-dot-outline');
@@ -308,10 +310,13 @@
 
         async function ensureTenantAndStatus() {
             try {
-                const ensureRes = await fetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}&token=${encodeURIComponent(token || '')}`, { credentials: 'include' });
-                if (!ensureRes.ok) return;
-                const ensureData = await ensureRes.json();
-                tenantId = ensureData.tenantId;
+                // If we already have tenantId from setup token, skip ensure-tenant
+                if (!tenantId) {
+                    const ensureRes = await fetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}&token=${encodeURIComponent(token || '')}`, { credentials: 'include' });
+                    if (!ensureRes.ok) return;
+                    const ensureData = await ensureRes.json();
+                    tenantId = ensureData.tenantId;
+                }
                 if (!tenantId) return;
 
                 const statusRes = await fetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`, { credentials: 'include' });
@@ -347,7 +352,10 @@
 
         ensureTenantAndStatus();
         if (new URLSearchParams(window.location.search).get('gumroad') === 'connected') {
-            window.history.replaceState({}, '', window.location.pathname + '?guild_id=' + guildId + (token ? '&token=' + token : ''));
+            const cleanUrl = setupToken
+                ? window.location.pathname + '?s=' + encodeURIComponent(setupToken)
+                : window.location.pathname + '?guild_id=' + guildId + (token ? '&token=' + token : '');
+            window.history.replaceState({}, '', cleanUrl);
             setTimeout(ensureTenantAndStatus, 500);
         }
 
@@ -437,7 +445,10 @@
                     if (platform === 'gumroad') {
                         window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
                     } else if (platform === 'jinxxy') {
-                        window.location.href = `${apiBase}/jinxxy-setup?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
+                        const jinxxyUrl = setupToken
+                            ? `${apiBase}/jinxxy-setup?s=${encodeURIComponent(setupToken)}`
+                            : `${apiBase}/jinxxy-setup?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
+                        window.location.href = jinxxyUrl;
                     }
                 }, 400); // Give confetti a little head start
             });

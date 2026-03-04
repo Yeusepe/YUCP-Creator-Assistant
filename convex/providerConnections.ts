@@ -68,9 +68,61 @@ export const getConnectionStatus = query({
         .first(),
     ]);
     return {
-      gumroad: !!(gumroad?.gumroadAccessTokenEncrypted),
-      jinxxy: !!(jinxxy?.jinxxyApiKeyEncrypted),
+      gumroad: !!(gumroad?.gumroadAccessTokenEncrypted && gumroad?.status !== 'disconnected'),
+      jinxxy: !!(jinxxy?.jinxxyApiKeyEncrypted && jinxxy?.status !== 'disconnected'),
     };
+  },
+});
+
+/**
+ * List all connections for a tenant with full status info.
+ */
+export const listConnections = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const connections = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .collect();
+    return connections.map((c) => ({
+      id: c._id,
+      provider: c.provider,
+      label: c.label ?? (c.provider === 'gumroad' ? 'Gumroad Store' : 'Jinxxy Store'),
+      connectionType: c.connectionType ?? 'setup',
+      status: c.status ?? (c.gumroadAccessTokenEncrypted || c.jinxxyApiKeyEncrypted ? 'active' : 'disconnected'),
+      webhookConfigured: c.webhookConfigured,
+      hasApiKey: !!(c.jinxxyApiKeyEncrypted),
+      hasAccessToken: !!(c.gumroadAccessTokenEncrypted),
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    }));
+  },
+});
+
+/**
+ * Disconnect a provider connection (soft delete — sets status to 'disconnected').
+ */
+export const disconnectConnection = mutation({
+  args: {
+    apiSecret: v.string(),
+    connectionId: v.id('provider_connections'),
+    tenantId: v.id('tenants'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const conn = await ctx.db.get(args.connectionId);
+    if (!conn || conn.tenantId !== args.tenantId) {
+      throw new Error('Connection not found or access denied');
+    }
+    await ctx.db.patch(args.connectionId, {
+      status: 'disconnected',
+      updatedAt: Date.now(),
+    });
+    return { success: true };
   },
 });
 
@@ -110,6 +162,9 @@ export const upsertGumroadConnection = mutation({
     return await ctx.db.insert('provider_connections', {
       tenantId: args.tenantId,
       provider: 'gumroad',
+      label: 'Gumroad Store',
+      connectionType: 'setup',
+      status: 'active',
       gumroadAccessTokenEncrypted: args.gumroadAccessTokenEncrypted,
       gumroadRefreshTokenEncrypted: args.gumroadRefreshTokenEncrypted,
       gumroadUserId: args.gumroadUserId,
@@ -170,6 +225,9 @@ export const getOrCreateJinxxyWebhookConfig = mutation({
       await ctx.db.insert('provider_connections', {
         tenantId: args.tenantId,
         provider: 'jinxxy',
+        label: 'Jinxxy Store',
+        connectionType: 'setup',
+        status: 'active',
         webhookSecretRef: signingSecret,
         webhookEndpoint: callbackUrl,
         webhookConfigured: false,
@@ -222,6 +280,9 @@ export const upsertJinxxyConnection = mutation({
     return await ctx.db.insert('provider_connections', {
       tenantId: args.tenantId,
       provider: 'jinxxy',
+      label: 'Jinxxy Store',
+      connectionType: 'setup',
+      status: 'active',
       jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
       webhookSecretRef: args.webhookSecretRef,
       webhookEndpoint: args.webhookEndpoint,

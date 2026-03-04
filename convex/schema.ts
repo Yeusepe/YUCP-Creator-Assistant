@@ -662,6 +662,12 @@ const purchase_facts = defineTable({
 const provider_connections = defineTable({
   tenantId: v.id('tenants'),
   provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+  // Human-readable label for multi-store support (e.g. "Main Store", "VRChat Assets")
+  label: v.optional(v.string()),
+  // Whether this is a creator setup connection or verification connection
+  connectionType: v.optional(v.union(v.literal('setup'), v.literal('verification'))),
+  // Connection status
+  status: v.optional(v.union(v.literal('active'), v.literal('disconnected'), v.literal('error'))),
   gumroadAccessTokenEncrypted: v.optional(v.string()),
   gumroadRefreshTokenEncrypted: v.optional(v.string()),
   gumroadUserId: v.optional(v.string()),
@@ -677,7 +683,8 @@ const provider_connections = defineTable({
   updatedAt: v.number(),
 })
   .index('by_tenant', ['tenantId'])
-  .index('by_tenant_provider', ['tenantId', 'provider']);
+  .index('by_tenant_provider', ['tenantId', 'provider'])
+  .index('by_tenant_provider_label', ['tenantId', 'provider', 'label']);
 
 // ============================================================================
 // PLATFORM-LEVEL TABLES (no tenantId)
