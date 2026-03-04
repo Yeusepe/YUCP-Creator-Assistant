@@ -15,7 +15,7 @@ services:
         - package.json
         - bun.lock
         - bun.lockb
-    startCommand: bun run start:api:infisical
+    startCommand: bun run --filter @yucp/api start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -71,7 +71,7 @@ services:
         - package.json
         - bun.lock
         - bun.lockb
-    startCommand: bun run start:bot:infisical
+    startCommand: bun run --filter @yucp/bot start
     envVars:
       - key: NODE_ENV
         value: production
