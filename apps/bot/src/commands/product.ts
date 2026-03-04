@@ -207,7 +207,8 @@ export async function handleProductTypeSelect(
         new ButtonBuilder().setLabel('Open Setup Page').setStyle(ButtonStyle.Link).setURL(setupUrl),
         new ButtonBuilder()
           .setCustomId(doneButtonId)
-          .setLabel("Done, I've selected it ✓")
+          .setLabel("Done, I've selected it")
+          .setEmoji(Emoji.Checkmark)
           .setStyle(ButtonStyle.Success),
       );
 
@@ -218,7 +219,7 @@ export async function handleProductTypeSelect(
       });
     } catch (err) {
       await interaction.editReply({
-        content: `❌ Failed to start setup: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+        content: `${E.X_} Failed to start setup: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
         components: [],
       });
     }
@@ -342,7 +343,7 @@ export async function handleProductDiscordRoleDone(
 
   if (!session.discordRoleSetupToken) {
     await interaction.update({
-      content: '❌ Setup token missing. Please run `/creator-admin product add` again.',
+      content: `${E.X_} Setup token missing. Please run \`/creator-admin product add\` again.`,
       components: [],
     });
     return;
@@ -353,7 +354,7 @@ export async function handleProductDiscordRoleDone(
   const apiBase = process.env.API_BASE_URL;
   if (!apiBase) {
     await interaction.editReply({
-      content: '❌ API_BASE_URL not configured.',
+      content: `${E.X_} API_BASE_URL not configured.`,
       components: [],
     });
     return;
@@ -375,12 +376,13 @@ export async function handleProductDiscordRoleDone(
         new ButtonBuilder().setLabel('Open Setup Page').setStyle(ButtonStyle.Link).setURL(setupUrl),
         new ButtonBuilder()
           .setCustomId(`creator_product:discord_role_done:${userId}:${tenantId}`)
-          .setLabel("Done, I've selected it ✓")
+          .setLabel("Done, I've selected it")
+          .setEmoji(Emoji.Checkmark)
           .setStyle(ButtonStyle.Success),
       );
       await interaction.editReply({
         content:
-          "⚠️ You haven't saved your selection yet. Open the setup page, pick a server and role, then come back and click **Done**.",
+          `${E.Wrench} You haven't saved your selection yet. Open the setup page, pick a server and role, then come back and click **Done**.`,
         components: [row],
       });
       return;
@@ -403,7 +405,7 @@ export async function handleProductDiscordRoleDone(
     });
   } catch (err) {
     await interaction.editReply({
-      content: `❌ Failed to retrieve setup result: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+      content: `${E.X_} Failed to retrieve setup result: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
       components: [],
     });
   }
@@ -455,12 +457,12 @@ export async function handleProductRoleSelect(
   if (hierarchyCheck && !hierarchyCheck.canManage) {
     detailLines.push('');
     detailLines.push(
-      `⚠️ **Role hierarchy warning:** ${hierarchyCheck.reason} The bot will not be able to assign this role until you fix it.`,
+      `${E.Wrench} **Role hierarchy warning:** ${hierarchyCheck.reason} The bot will not be able to assign this role until you fix it.`,
     );
   }
 
   const embed = new EmbedBuilder()
-    .setTitle(hierarchyCheck && !hierarchyCheck.canManage ? '⚠️ Ready to add (with warning)' : '✅ Ready to add')
+    .setTitle(hierarchyCheck && !hierarchyCheck.canManage ? `${E.Wrench} Ready to add (with warning)` : `${E.Checkmark} Ready to add`)
     .setColor(hierarchyCheck && !hierarchyCheck.canManage ? 0xfee75c : 0x57f287)
     .setDescription(detailLines.join('\n'));
 
@@ -521,7 +523,7 @@ export async function handleProductConfirmAdd(
       });
       productId = result.productId;
 
-      // Enable cross-server Discord role verification and add source guild to allowed list
+      // Enable cross-server Discord role verification via OAuth (user authorizes guilds.members.read)
       // so buyers can verify via "Use Another Server" without manual /creator-admin settings
       const tenant = await convex.query(api.tenants.getTenant as any, { tenantId });
       const policy = tenant?.policy ?? {};
@@ -540,7 +542,7 @@ export async function handleProductConfirmAdd(
 
       track(interaction.user.id, 'product_added', { tenantId, guildId, productId });
       await interaction.editReply({
-        content: `✅ Discord role rule added! Users with the source role will receive <@&${roleId}>.`,
+        content: `${E.Checkmark} Discord role rule added! Users with the source role will receive <@&${roleId}>.`,
         components: [],
         embeds: [],
       });
@@ -614,7 +616,7 @@ export async function handleProductConfirmAdd(
     track(interaction.user.id, 'product_added', { tenantId, guildId, productId, ruleId });
 
     await interaction.editReply({
-      content: `✅ Product **${productId}** mapped to <@&${roleId}>. Users who verify this product will automatically receive the role.`,
+      content: `${E.Checkmark} Product **${productId}** mapped to <@&${roleId}>. Users who verify this product will automatically receive the role.`,
       components: [],
       embeds: [],
     });
@@ -622,7 +624,7 @@ export async function handleProductConfirmAdd(
 
     productSessions.delete(sessionKey);
     await interaction.editReply({
-      content: `❌ Failed to create mapping: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+      content: `${E.X_} Failed to create mapping: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
       components: [],
       embeds: [],
     });
@@ -674,7 +676,7 @@ export async function handleProductList(
       rules
         .map(
           (r: { productId: string; verifiedRoleId: string; enabled: boolean }) =>
-            `• \`${r.productId}\` → <@&${r.verifiedRoleId}> ${r.enabled ? '✅' : '(disabled)'}`,
+            `• \`${r.productId}\` → <@&${r.verifiedRoleId}> ${r.enabled ? E.Checkmark : '(disabled)'}`,
         )
         .join('\n'),
     );

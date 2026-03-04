@@ -7,7 +7,7 @@
  * 3. Retroactive product rule: When a new role rule is added, create role_sync jobs for all users with entitlements
  */
 
-import { internalAction, internalMutation, internalQuery, mutation } from './_generated/server';
+import { internalAction, internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { api, internal } from './_generated/api';
@@ -376,6 +376,21 @@ export const processRetroactiveRuleSyncJob = mutation({
   returns: v.object({
     success: v.boolean(),
     roleSyncJobsCreated: v.number(),
+    entitlementsFound: v.number(),
+    skippedNoDiscordId: v.number(),
+    skippedDuplicate: v.number(),
+    // For discord_role products: accounts with stored tokens for proactive checking
+    discordTokenAccounts: v.optional(
+      v.array(
+        v.object({
+          externalAccountId: v.id('external_accounts'),
+          providerUserId: v.string(),
+          discordAccessTokenEncrypted: v.string(),
+          discordTokenExpiresAt: v.optional(v.number()),
+          discordRefreshTokenEncrypted: v.optional(v.string()),
+        }),
+      ),
+    ),
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -390,6 +405,8 @@ export const processRetroactiveRuleSyncJob = mutation({
       .collect();
 
     let roleSyncJobsCreated = 0;
+    let skippedNoDiscordId = 0;
+    let skippedDuplicate = 0;
 
     for (const ent of entitlements) {
       const subject = await ctx.db.get(ent.subjectId);
@@ -399,6 +416,7 @@ export const processRetroactiveRuleSyncJob = mutation({
         discordUserId.startsWith('gumroad:') ||
         discordUserId.startsWith('jinxxy:')
       ) {
+        skippedNoDiscordId++;
         continue;
       }
 
@@ -408,7 +426,10 @@ export const processRetroactiveRuleSyncJob = mutation({
         .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', idempotencyKey))
         .first();
 
-      if (existing) continue;
+      if (existing) {
+        skippedDuplicate++;
+        continue;
+      }
 
       await ctx.db.insert('outbox_jobs', {
         tenantId: args.tenantId,
@@ -428,11 +449,48 @@ export const processRetroactiveRuleSyncJob = mutation({
       roleSyncJobsCreated++;
     }
 
+    // For discord_role products: find Discord accounts with stored OAuth tokens
+    // so the bot can proactively check guild membership without re-authorization.
+    let discordTokenAccounts:
+      | Array<{
+        externalAccountId: Id<'external_accounts'>;
+        providerUserId: string;
+        discordAccessTokenEncrypted: string;
+        discordTokenExpiresAt?: number;
+        discordRefreshTokenEncrypted?: string;
+      }>
+      | undefined;
+
+    if (args.productId.startsWith('discord_role:')) {
+      const allDiscordAccounts = await ctx.db
+        .query('external_accounts')
+        .withIndex('by_provider', (q) => q.eq('provider', 'discord'))
+        .filter((q) => q.eq(q.field('status'), 'active'))
+        .collect();
+
+      discordTokenAccounts = allDiscordAccounts
+        .filter((a) => a.discordAccessTokenEncrypted)
+        .map((a) => ({
+          externalAccountId: a._id,
+          providerUserId: a.providerUserId,
+          discordAccessTokenEncrypted: a.discordAccessTokenEncrypted!,
+          discordTokenExpiresAt: a.discordTokenExpiresAt,
+          discordRefreshTokenEncrypted: a.discordRefreshTokenEncrypted,
+        }));
+    }
+
     await ctx.db.patch(args.jobId, {
       status: 'completed',
       updatedAt: now,
     });
 
-    return { success: true, roleSyncJobsCreated };
+    return {
+      success: true,
+      roleSyncJobsCreated,
+      entitlementsFound: entitlements.length,
+      skippedNoDiscordId,
+      skippedDuplicate,
+      discordTokenAccounts,
+    };
   },
 });

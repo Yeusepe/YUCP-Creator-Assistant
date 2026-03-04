@@ -32,11 +32,11 @@ import { track } from '../lib/posthog';
 const VERIFY_PREFIX = 'creator_verify:';
 
 /** Default embed for spawn-verify: explains verification (scannable, benefit-first, plain language). */
-const DEFAULT_SPAWN_TITLE = ` ${E.Library} Verify your purchase`;
+const DEFAULT_SPAWN_TITLE = `Verify your purchase ${E.Assistant}`;
 const DEFAULT_SPAWN_DESCRIPTION = [
   `${E.Touch} Click the button below to open the verification panel.`,
   '',
-  `${E.Link} **Sign in** — Connect ${E.Gumorad} Gumroad or ${E.Discord} Discord. We recognize your purchases and grant your role automatically.`,
+  `${E.Carrot} **Sign in** — Connect ${E.Gumorad} Gumroad or ${E.Discord} Discord. We recognize your purchases and grant your role automatically.`,
   '',
   `${E.KeyCloud} **One license key, then you’re set** — Using ${E.Jinxxy} Jinxxy or a ${E.Gumorad} Gumroad license? Enter one key once. We link your account and sync all past and future purchases so you only verify once.`,
   '',

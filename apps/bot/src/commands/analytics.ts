@@ -9,6 +9,7 @@ import type { ChatInputCommandInteraction } from 'discord.js';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { E } from '../lib/emojis';
 
 const POSTHOG_DASHBOARD_URL = 'https://us.posthog.com';
 
@@ -25,7 +26,7 @@ export async function handleAnalytics(
   });
 
   const embed = new EmbedBuilder()
-    .setTitle('📊 Analytics')
+    .setTitle(`${E.Library} Analytics`)
     .setColor(0x5865f2)
     .setDescription(
       `[View full analytics in PostHog ↗](${POSTHOG_DASHBOARD_URL})\n\nEvents tracked: \`command_used\`, \`verification_started\`, \`verification_completed\`, \`verification_failed\`, \`spawn_button_clicked\`, \`product_added\`, \`suspicious_marked\``,

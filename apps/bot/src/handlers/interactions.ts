@@ -20,6 +20,7 @@ import {
 import { createLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { E } from '../lib/emojis';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import {
   runSetupStart,
@@ -131,7 +132,7 @@ async function handleAutocomplete(
         })
         .slice(0, 25);
 
-      // Resolve Discord role names for discord_role products (bot must be in source guild)
+      // Resolve Discord role names for display (optional; OAuth checks roles, not the bot)
       const currentGuild = interaction.guild;
       const choices = await Promise.all(
         filtered.map(async (p: { productId: string; displayName: string | null; sourceGuildId?: string; requiredRoleId?: string; verifiedRoleId?: string }) => {
@@ -377,7 +378,7 @@ async function handleUserCommand(
       const sepIdx = productValue.indexOf('::');
       if (sepIdx === -1) {
         await interaction.reply({
-          content: '❌ Invalid product selection. Please choose from the autocomplete list.',
+          content: `${E.X_} Invalid product selection. Please choose from the autocomplete list.`,
           flags: MessageFlags.Ephemeral,
         });
         return;

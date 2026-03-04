@@ -13,6 +13,7 @@
 
 import { createLogger } from '@yucp/shared';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { encrypt } from '../lib/encrypt';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -501,6 +502,9 @@ export function createVerificationSessionManager(
       }
 
       const session = sessionResult.session;
+      // Use session.mode for feature branching (e.g. 'discord_role')
+      // because the URL-path mode is just 'discord' for all Discord OAuth callbacks.
+      const sessionMode = session.mode;
       const codeVerifier = session.pkceVerifier;
       if (!codeVerifier) {
         return { success: false, error: 'Session missing PKCE verifier' };
@@ -560,7 +564,7 @@ export function createVerificationSessionManager(
       }
 
       // For discord_role: verify guilds.members.read scope before guild member fetch
-      if (mode === 'discord_role') {
+      if (sessionMode === 'discord_role') {
         const scopes = (tokens.scope ?? '').split(/\s+/).filter(Boolean);
         if (!scopes.includes('guilds.members.read')) {
           return {
@@ -660,10 +664,115 @@ export function createVerificationSessionManager(
         isNewExternalAccount: syncResult.isNewExternalAccount,
       });
 
+      // For discord_role: guild member lookup, role check, entitlement grant.
+      // Token is stored FIRST (regardless of role match) so it can be reused
+      // for proactive scanning when new discord_role products are added.
+      if (sessionMode === 'discord_role') {
+        // Always store the Discord OAuth token for future proactive checks.
+        // This happens before role checking — even if the user doesn't have
+        // the required role right now, we want the token for later.
+        try {
+          const encryptionSecret = process.env.BETTER_AUTH_SECRET;
+          if (encryptionSecret && syncResult.externalAccountId) {
+            const tokenEncrypted = await encrypt(accessToken, encryptionSecret);
+            // Discord access tokens expire after ~7 days
+            const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+            await convex.mutation(
+              'identitySync:storeDiscordToken' as any,
+              {
+                apiSecret,
+                externalAccountId: syncResult.externalAccountId,
+                discordAccessTokenEncrypted: tokenEncrypted,
+                discordTokenExpiresAt: expiresAt,
+              }
+            );
+            logger.info('[verification] Stored Discord token for proactive scanning', {
+              externalAccountId: syncResult.externalAccountId,
+            });
+          }
+        } catch (tokenErr) {
+          // Non-fatal: don't fail the verification if token storage fails
+          logger.warn('[verification] Failed to store Discord token', {
+            error: tokenErr instanceof Error ? tokenErr.message : String(tokenErr),
+          });
+        }
+
+        // Now check if the user has any matching roles for current rules
+        const tenant = await convex.query('tenants:getTenant' as any, {
+          tenantId,
+        });
+        if (!tenant) {
+          return { success: false, error: 'Tenant not found' };
+        }
+        const policy = tenant.policy ?? {};
+        const enabled = policy.enableDiscordRoleFromOtherServers === true;
+        const allowedGuildIds = policy.allowedSourceGuildIds ?? [];
+        if (!enabled || allowedGuildIds.length === 0) {
+          // Policy not enabled — token is still stored for when it is enabled later
+          logger.info('[verification] Discord role from other servers not enabled, but token stored');
+        } else {
+          const rules = await convex.query(
+            'role_rules:getDiscordRoleRulesByTenant' as any,
+            {
+              apiSecret,
+              tenantId,
+              sourceGuildIds: allowedGuildIds,
+            }
+          );
+
+          for (const rule of rules) {
+            const { sourceGuildId, requiredRoleId, productId } = rule;
+            if (!sourceGuildId || !requiredRoleId) continue;
+
+            let memberRes = await fetch(
+              `https://discord.com/api/v10/users/@me/guilds/${sourceGuildId}/member`,
+              { headers: { Authorization: `Bearer ${accessToken}` } }
+            );
+
+            if (memberRes.status === 429) {
+              const retryAfter = memberRes.headers.get('Retry-After');
+              const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+              await new Promise((r) => setTimeout(r, waitMs));
+              memberRes = await fetch(
+                `https://discord.com/api/v10/users/@me/guilds/${sourceGuildId}/member`,
+                { headers: { Authorization: `Bearer ${accessToken}` } }
+              );
+            }
+            if (memberRes.status === 403 || memberRes.status === 404) continue;
+            if (!memberRes.ok) continue;
+
+            const member = (await memberRes.json()) as { roles?: string[] };
+            const roles = member.roles ?? [];
+            const hasRole =
+              roles.includes(requiredRoleId) ||
+              (requiredRoleId === sourceGuildId && memberRes.ok);
+
+            if (hasRole) {
+              const sourceReference = `discord_role:${sourceGuildId}:${requiredRoleId}`;
+              await convex.mutation('entitlements:grantEntitlement' as any, {
+                apiSecret,
+                tenantId,
+                subjectId: syncResult.subjectId,
+                productId: productId ?? sourceReference,
+                evidence: {
+                  provider: 'discord',
+                  sourceReference,
+                },
+              });
+            }
+          }
+        }
+        // Note: we no longer fail here if no roles matched.
+        // The token is stored, and entitlements are granted for matching roles.
+        // Non-matching users can be retroactively granted when products change.
+      }
+
       // Create (or reactivate) a tenant-scoped binding linking subject → external_account.
       // This is the critical step: getSubjectWithAccounts queries the bindings table
       // to find all connected provider accounts. Without a binding record, the
-      // Gumroad account is invisible to the Discord bot.
+      // provider account is invisible to the Discord bot.
+      // For discord_role: the binding is always created (Discord account linked),
+      // and entitlements are granted for matching roles.
       try {
         const bindingResult = await convex.mutation(
           'bindings:activateBinding' as any,
@@ -710,85 +819,6 @@ export function createVerificationSessionManager(
           logger.warn('[verification] Failed to schedule backfill+sync (non-fatal)', {
             error: backfillErr instanceof Error ? backfillErr.message : String(backfillErr),
           });
-        }
-      }
-
-      // For discord_role: guild member lookup, role check, entitlement grant
-      if (mode === 'discord_role') {
-        const tenant = await convex.query('tenants:getTenant' as any, {
-          tenantId,
-        });
-        if (!tenant) {
-          return { success: false, error: 'Tenant not found' };
-        }
-        const policy = tenant.policy ?? {};
-        const enabled = policy.enableDiscordRoleFromOtherServers === true;
-        const allowedGuildIds = policy.allowedSourceGuildIds ?? [];
-        if (!enabled || allowedGuildIds.length === 0) {
-          return {
-            success: false,
-            error: 'Discord role verification from other servers is not enabled',
-          };
-        }
-
-        const rules = await convex.query(
-          'role_rules:getDiscordRoleRulesByTenant' as any,
-          {
-            apiSecret,
-            tenantId,
-            sourceGuildIds: allowedGuildIds,
-          }
-        );
-
-        let grantedAny = false;
-        for (const rule of rules) {
-          const { sourceGuildId, requiredRoleId, productId } = rule;
-          if (!sourceGuildId || !requiredRoleId) continue;
-
-          let memberRes = await fetch(
-            `https://discord.com/api/v10/users/@me/guilds/${sourceGuildId}/member`,
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-
-          if (memberRes.status === 429) {
-            const retryAfter = memberRes.headers.get('Retry-After');
-            const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
-            await new Promise((r) => setTimeout(r, waitMs));
-            memberRes = await fetch(
-              `https://discord.com/api/v10/users/@me/guilds/${sourceGuildId}/member`,
-              { headers: { Authorization: `Bearer ${accessToken}` } }
-            );
-          }
-          if (memberRes.status === 403 || memberRes.status === 404) continue;
-          if (!memberRes.ok) continue;
-
-          const member = (await memberRes.json()) as { roles?: string[] };
-          const roles = member.roles ?? [];
-          const hasRole =
-            roles.includes(requiredRoleId) ||
-            (requiredRoleId === sourceGuildId && memberRes.ok);
-
-          if (hasRole) {
-            const sourceReference = `discord_role:${sourceGuildId}:${requiredRoleId}`;
-            await convex.mutation('entitlements:grantEntitlement' as any, {
-              apiSecret,
-              tenantId,
-              subjectId: syncResult.subjectId,
-              productId: productId ?? sourceReference,
-              evidence: {
-                provider: 'discord',
-                sourceReference,
-              },
-            });
-            grantedAny = true;
-          }
-        }
-
-        if (!grantedAny) {
-          return {
-            success: false,
-            error: "You don't have the required role in the source server",
-          };
         }
       }
 
