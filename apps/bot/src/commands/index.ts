@@ -30,6 +30,11 @@ const CREATOR_USER_COMMAND = new SlashCommandBuilder()
           .setRequired(true)
           .setAutocomplete(true),
       ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName('refresh')
+      .setDescription('Refresh your Discord roles based on your connected accounts and purchases'),
   ) as SlashCommandBuilder;
 
 /** Admin-only command. setDefaultMemberPermissions hides it from non-admins. */
@@ -43,6 +48,9 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
       .setDescription('Onboarding and configuration')
       .addSubcommand((s) =>
         s.setName('start').setDescription('Start onboarding wizard'),
+      )
+      .addSubcommand((s) =>
+        s.setName('restart').setDescription('Restart onboarding wizard (generates a new secure link)'),
       ),
   )
   .addSubcommandGroup((product) =>

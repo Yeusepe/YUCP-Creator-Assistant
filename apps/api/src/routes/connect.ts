@@ -108,6 +108,32 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
+   * POST /api/connect/create-token
+   * Creates a short-lived token for initial connect flows (sign-in redirect).
+   * Called by the bot. Body: { discordUserId, apiSecret }
+   */
+  async function createTokenEndpoint(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    let body: { discordUserId: string; apiSecret: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    if (body.apiSecret !== config.convexApiSecret) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!body.discordUserId) {
+      return Response.json({ error: 'discordUserId is required' }, { status: 400 });
+    }
+    const token = generateToken();
+    await storeConnectToken(token, body.discordUserId);
+    return Response.json({ token });
+  }
+
+  /**
    * GET /connect
    * Serves the connect page. Accepts ?s=TOKEN or legacy ?guild_id=XXX.
    */
@@ -519,6 +545,37 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         gumroadRefreshTokenEncrypted: refreshEncrypted,
         gumroadUserId,
       });
+
+      // Register Gumroad resource_subscriptions so we receive sale/refund webhooks
+      const postUrl = `${config.baseUrl.replace(/\/$/, '')}/webhooks/gumroad/${tenantId}`;
+      for (const resourceName of ['sale', 'refund']) {
+        try {
+          const subRes = await fetch('https://api.gumroad.com/v2/resource_subscriptions', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              access_token: accessToken,
+              resource_name: resourceName,
+              post_url: postUrl,
+            }).toString(),
+          });
+          if (!subRes.ok) {
+            const errText = await subRes.text();
+            logger.warn('Gumroad resource_subscription failed', {
+              resourceName,
+              status: subRes.status,
+              body: errText,
+              tenantId,
+            });
+          }
+        } catch (subErr) {
+          logger.warn('Gumroad resource_subscription error', {
+            resourceName,
+            error: subErr instanceof Error ? subErr.message : String(subErr),
+            tenantId,
+          });
+        }
+      }
 
       const redirectUrl = storedSetupToken
         ? `${config.baseUrl}/connect?s=${encodeURIComponent(storedSetupToken)}&gumroad=connected`
@@ -1020,6 +1077,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   return {
     serveConnectPage,
     createSessionEndpoint,
+    createTokenEndpoint,
     completeSetup,
     ensureTenant,
     gumroadBegin,

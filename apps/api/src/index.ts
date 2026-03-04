@@ -221,6 +221,9 @@ async function handleRequest(request: Request): Promise<Response> {
     return connectRoutes.jinxxyStore(request);
   }
   // Setup session management
+  if (pathname === '/api/connect/create-token' && connectRoutes) {
+    return connectRoutes.createTokenEndpoint(request);
+  }
   if (pathname === '/api/setup/create-session' && connectRoutes) {
     return connectRoutes.createSessionEndpoint(request);
   }

@@ -243,9 +243,15 @@ async function processJinxxyEvent(
     ? await sha256Hex(buyerEmailNormalized)
     : undefined;
 
-  const subjectId = buyerEmailHash
-    ? await findSubjectByEmailHash(ctx, tenantId, buyerEmailHash)
-    : undefined;
+  const jinxxyUserId = (data.user as { id?: string })?.id;
+
+  const subjectId =
+    (buyerEmailHash
+      ? await findSubjectByEmailHash(ctx, tenantId, buyerEmailHash)
+      : undefined) ??
+    (jinxxyUserId
+      ? await findSubjectByJinxxyUserId(ctx, tenantId, jinxxyUserId)
+      : undefined);
 
   const now = Date.now();
 
@@ -268,15 +274,26 @@ async function processJinxxyEvent(
 
     if (existing) {
       const lifecycleStatus = isPaid ? 'active' : 'refunded';
+      const resolvedSubjectId = subjectId ?? existing.subjectId;
       await ctx.db.patch(existing._id, {
         paymentStatus: paymentStatus.toLowerCase(),
         lifecycleStatus,
         updatedAt: now,
         rawSourceEventId: event._id,
-        subjectId: subjectId ?? existing.subjectId,
+        subjectId: resolvedSubjectId,
       });
       if (!isPaid && existing.subjectId) {
         await revokeEntitlementForPurchaseFact(ctx, tenantId, existing, sourceRef);
+      } else if (isPaid && resolvedSubjectId && !existing.subjectId) {
+        // Previously had no subjectId (e.g. email not linked); now we have it via Jinxxy user ID
+        await projectEntitlementFromPurchaseFact(
+          ctx,
+          tenantId,
+          resolvedSubjectId,
+          providerProductId,
+          sourceRef,
+          purchasedAt
+        );
       }
     } else if (isPaid) {
       await ctx.db.insert('purchase_facts', {
@@ -341,6 +358,35 @@ async function findSubjectByEmailHash(
 }
 
 /**
+ * Find subjectId by Jinxxy user ID via external_accounts + bindings.
+ * Jinxxy external accounts often lack emailHash, so this fallback matches
+ * by providerUserId when the order's user.id matches a linked Jinxxy account.
+ */
+async function findSubjectByJinxxyUserId(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  jinxxyUserId: string
+): Promise<Id<'subjects'> | undefined> {
+  const ext = await ctx.db
+    .query('external_accounts')
+    .withIndex('by_provider_user', (q: any) =>
+      q.eq('provider', 'jinxxy').eq('providerUserId', jinxxyUserId)
+    )
+    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .first();
+  if (!ext) return undefined;
+
+  const binding = await ctx.db
+    .query('bindings')
+    .withIndex('by_tenant_external', (q: any) =>
+      q.eq('tenantId', tenantId).eq('externalAccountId', ext._id)
+    )
+    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .first();
+  return binding?.subjectId;
+}
+
+/**
  * Project entitlement from purchase fact.
  * Respects verificationScope: in license mode, do not project.
  */
@@ -385,14 +431,16 @@ async function projectEntitlementFromPurchaseFact(
   const now = Date.now();
   const policySnapshotVersion = 1;
 
+  let entitlementId: Id<'entitlements'>;
   if (existing) {
     await ctx.db.patch(existing._id, {
       status: 'active',
       revokedAt: undefined,
       updatedAt: now,
     });
+    entitlementId = existing._id;
   } else {
-    await ctx.db.insert('entitlements', {
+    entitlementId = await ctx.db.insert('entitlements', {
       tenantId,
       subjectId,
       productId,
@@ -409,7 +457,7 @@ async function projectEntitlementFromPurchaseFact(
   const subject = await ctx.db.get(subjectId);
   const discordUserId = subject?.primaryDiscordUserId;
   if (discordUserId && !discordUserId.startsWith('gumroad:') && !discordUserId.startsWith('jinxxy:')) {
-    await emitRoleSyncJob(ctx, tenantId, subjectId, discordUserId);
+    await emitRoleSyncJob(ctx, tenantId, subjectId, discordUserId, entitlementId);
   }
 }
 
@@ -451,10 +499,11 @@ async function emitRoleSyncJob(
   ctx: any,
   tenantId: Id<'tenants'>,
   subjectId: Id<'subjects'>,
-  discordUserId: string
+  discordUserId: string,
+  entitlementId: Id<'entitlements'>
 ): Promise<void> {
   const now = Date.now();
-  const idempotencyKey = `role_sync:${tenantId}:${subjectId}:${now}`;
+  const idempotencyKey = `role_sync:${tenantId}:${subjectId}:${entitlementId}:${now}`;
 
   const existing = await ctx.db
     .query('outbox_jobs')
@@ -465,7 +514,7 @@ async function emitRoleSyncJob(
   await ctx.db.insert('outbox_jobs', {
     tenantId,
     jobType: 'role_sync',
-    payload: { subjectId, discordUserId },
+    payload: { subjectId, discordUserId, entitlementId },
     status: 'pending',
     idempotencyKey,
     targetDiscordUserId: discordUserId,

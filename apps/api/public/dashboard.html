@@ -771,6 +771,8 @@
                     if (Date.now() < end) requestAnimationFrame(frame);
                 }());
 
+                setTimeout(() => window.close(), 2500);
+
             } catch (err) {
                 status.textContent = err.message || 'Error completing setup.';
                 status.className = 'text-center text-xs mt-2 font-bold text-red-600';
