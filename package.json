@@ -22,11 +22,14 @@
     "dev:bot": "bun run --watch apps/bot/src/index.ts",
     "dev:bot:infisical": "bun run --env-file=.env.infisical dev:bot",
     "convex:dev": "npx convex dev",
-    "convex:deploy": "npx convex deploy"
+    "convex:deploy": "npx convex deploy",
+    "start:api:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/api start",
+    "start:bot:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/bot start"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
     "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
     "@infisical/sdk": "^4.0.6",
     "bun-types": "^1.1.0",
     "typescript": "^5.3.0"

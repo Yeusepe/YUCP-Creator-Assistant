@@ -1,0 +1,97 @@
+# Render Blueprint for YUCP Creator Assistant
+# Deploys the API (web service) and Discord bot (background worker)
+# See docs/RENDER_DEPLOYMENT.md for setup instructions
+
+services:
+  # API: Better Auth, webhooks, connect flow, verification
+  - type: web
+    runtime: node
+    name: yucp-api
+    buildCommand: bun install --frozen-lockfile
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/**
+        - package.json
+        - bun.lock
+        - bun.lockb
+    startCommand: bun run start:api:infisical
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: INFISICAL_ENV
+        value: prod
+      - key: INFISICAL_PROJECT_ID
+        sync: false
+      - key: INFISICAL_CLIENT_ID
+        sync: false
+      - key: INFISICAL_CLIENT_SECRET
+        sync: false
+      # Or use INFISICAL_MACHINE_IDENTITY_ID / INFISICAL_MACHINE_IDENTITY_SECRET
+      - key: INFISICAL_URL
+        sync: false
+      # Render sets RENDER_EXTERNAL_URL; app uses it as BETTER_AUTH_URL fallback
+      - key: BETTER_AUTH_SECRET
+        sync: false
+      - key: CONVEX_URL
+        sync: false
+      - key: CONVEX_API_SECRET
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: GUMROAD_CLIENT_ID
+        sync: false
+      - key: GUMROAD_CLIENT_SECRET
+        sync: false
+      - key: JINXXY_API_KEY
+        sync: false
+      - key: JINXXY_SECRET_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: DRAGONFLY_URI
+        sync: false
+
+  # Discord bot: slash commands, role sync, verification
+  - type: worker
+    runtime: node
+    name: yucp-bot
+    buildCommand: bun install --frozen-lockfile
+    buildFilter:
+      paths:
+        - apps/bot/**
+        - packages/**
+        - package.json
+        - bun.lock
+        - bun.lockb
+    startCommand: bun run start:bot:infisical
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: INFISICAL_ENV
+        value: prod
+      - key: INFISICAL_PROJECT_ID
+        sync: false
+      - key: INFISICAL_CLIENT_ID
+        sync: false
+      - key: INFISICAL_CLIENT_SECRET
+        sync: false
+      - key: INFISICAL_URL
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        sync: false
+      - key: CONVEX_URL
+        sync: false
+      - key: CONVEX_API_SECRET
+        sync: false
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: DISCORD_GUILD_ID
+        sync: false
