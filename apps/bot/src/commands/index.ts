@@ -138,6 +138,21 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
           .addUserOption((o) =>
             o.setName('user').setDescription('User to clear').setRequired(true),
           ),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('unverify')
+          .setDescription('Remove a verified product from a user')
+          .addUserOption((o) =>
+            o.setName('user').setDescription('User to de-verify').setRequired(true),
+          )
+          .addStringOption((o) =>
+            o
+              .setName('product_id')
+              .setDescription('Product to remove (start typing to select)')
+              .setRequired(true)
+              .setAutocomplete(true),
+          ),
       ),
   );
 

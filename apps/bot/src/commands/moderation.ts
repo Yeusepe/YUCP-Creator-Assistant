@@ -237,6 +237,67 @@ export async function handleModerationConfirmClear(
   await interaction.editReply({ embeds: [embed], components: [] });
 }
 
+// ─── Unverify command ────────────────────────────────────────────────────────
+
+/** /creator-admin moderation unverify @user product_id — removes a verified product */
+export async function handleModerationUnverify(
+  interaction: ChatInputCommandInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  ctx: { tenantId: Id<'tenants'>; guildId: string },
+): Promise<void> {
+  const targetUser = interaction.options.getUser('user', true);
+  const productId = interaction.options.getString('product_id', true);
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const result = await convex.mutation(api.entitlements.revokeEntitlementsByProduct as any, {
+      apiSecret,
+      tenantId: ctx.tenantId,
+      discordUserId: targetUser.id,
+      productId,
+    });
+
+    if (!result.success) {
+      const reasonMap: Record<string, string> = {
+        not_found: `User <@${targetUser.id}> does not seem to have any verified accounts.`,
+        no_active_entitlements: `User <@${targetUser.id}> does not have an active verification for **${productId}**.`,
+      };
+      const text = reasonMap[result.reason ?? ''] ?? 'Could not remove verification.';
+
+      const embed = new EmbedBuilder()
+        .setTitle('No Action Taken')
+        .setColor(0xfaa61a)
+        .setDescription(text);
+
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('Verification Removed')
+      .setColor(0xed4245)
+      .setDescription(
+        `Successfully removed **${productId}** verification from <@${targetUser.id}>.\nAny associated Discord roles are being automatically removed in the background.`,
+      );
+
+    await interaction.editReply({ embeds: [embed] });
+
+    track(interaction.user.id, 'moderation_unverify_used', {
+      tenantId: ctx.tenantId,
+      targetUserId: targetUser.id,
+      productId,
+      revokedCount: result.revokedCount,
+    });
+  } catch (err) {
+    await interaction.editReply({
+      content: `Failed to remove verification.\n\`${err instanceof Error ? err.message : 'Unknown error'}\``,
+    });
+  }
+}
+
+
 // ─── Backward-compat exports (used by old suspicious group routing in interactions.ts) ───
 
 export async function handleSuspiciousMark(

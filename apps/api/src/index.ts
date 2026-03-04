@@ -98,6 +98,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   webhookHandler = createWebhookHandler({
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   });
 
   logger.info('Better Auth initialized', {

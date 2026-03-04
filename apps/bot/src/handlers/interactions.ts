@@ -135,6 +135,7 @@ async function handleAutocomplete(
       });
       if (!guildLink) { await interaction.respond([]); return; }
 
+      // We use getByGuildWithProductNames because it lists all products currently configured for the server
       const products = await ctx.convex.query(api.role_rules.getByGuildWithProductNames as any, {
         tenantId: guildLink.tenantId,
         guildId,
@@ -323,7 +324,7 @@ async function handleSlashCommand(
       await handleAnalytics(interaction, ctx.convex, { tenantId, guildId });
     } else if (subcommandGroup === 'moderation') {
       const sub = interaction.options.getSubcommand();
-      const { handleModerationMark, handleModerationList, handleModerationClear } =
+      const { handleModerationMark, handleModerationList, handleModerationClear, handleModerationUnverify } =
         await import('../commands/moderation');
       if (sub === 'mark') {
         await handleModerationMark(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
@@ -331,6 +332,8 @@ async function handleSlashCommand(
         await handleModerationList(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
       } else if (sub === 'clear') {
         await handleModerationClear(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
+      } else if (sub === 'unverify') {
+        await handleModerationUnverify(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
       }
     } else {
       await interaction.reply({

@@ -834,6 +834,86 @@ export const revokeEntitlementsForProviderDisconnect = mutation({
 });
 
 /**
+ * Revoke all entitlements for a specific product for a subject.
+ * Used by /creator-admin moderation unverify to strip verified roles.
+ */
+export const revokeEntitlementsByProduct = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    discordUserId: v.string(),
+    productId: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    reason: v.optional(v.string()),
+    revokedCount: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const subject = await ctx.db
+      .query('subjects')
+      .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
+      .first();
+
+    if (!subject) {
+      return { success: false, reason: 'not_found', revokedCount: 0 };
+    }
+
+    const entitlements = await ctx.db
+      .query('entitlements')
+      .withIndex('by_tenant_subject', (q) =>
+        q.eq('tenantId', args.tenantId).eq('subjectId', subject._id),
+      )
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .filter((q) => q.eq(q.field('productId'), args.productId))
+      .collect();
+
+    if (entitlements.length === 0) {
+      return { success: false, reason: 'no_active_entitlements', revokedCount: 0 };
+    }
+
+    const now = Date.now();
+    let revokedCount = 0;
+
+    for (const ent of entitlements) {
+      await ctx.db.patch(ent._id, {
+        status: 'revoked',
+        revokedAt: now,
+        updatedAt: now,
+      });
+
+      await emitRoleRemovalJobs(
+        ctx,
+        args.tenantId,
+        subject._id,
+        args.productId,
+        ent._id,
+        `unverify:${Date.now()}`,
+      );
+
+      await createAuditEvent(ctx, {
+        tenantId: args.tenantId,
+        eventType: 'entitlement.revoked',
+        subjectId: subject._id,
+        entitlementId: ent._id,
+        metadata: {
+          productId: args.productId,
+          reason: 'manual',
+          details: 'Revoked via /creator-admin moderation unverify',
+        },
+      });
+
+      revokedCount++;
+    }
+
+    return { success: true, revokedCount };
+  },
+});
+
+
+/**
  * Refresh an entitlement from fresh evidence.
  *
  * Updates the entitlement with new evidence data while preserving the grant.
