@@ -75,6 +75,7 @@ async function fetchVerifyData(
   if (subjectResult.found) {
     const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts as any, {
       subjectId: subjectResult.subject._id,
+      tenantId,
     });
     if (accountsResult.found) {
       linkedAccounts = accountsResult.externalAccounts;
@@ -102,6 +103,10 @@ async function fetchVerifyData(
   }
 
   return { state, linkedAccounts, productIds, hasGumroad, hasDiscord };
+}
+
+function providerLabel(p: string): string {
+  return p === 'gumroad' ? 'Gumroad' : p === 'discord' ? 'Discord' : p === 'jinxxy' ? 'Jinxxy' : p;
 }
 
 function buildStatusContainer(
@@ -264,16 +269,19 @@ function buildStatusContainer(
       new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(0, 3)),
     );
 
-    // Disconnect row (separate row to keep layout clean)
-    const primaryProvider = linkedAccounts.find((a) => a.status === 'active')?.provider ?? 'gumroad';
-    container.addActionRowComponents(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`${VERIFY_PREFIX}disconnect:${primaryProvider}`)
-          .setLabel('Disconnect account')
-          .setStyle(ButtonStyle.Danger),
-      ),
+    // Disconnect row: show a button for each connected provider
+    const activeProviders = linkedAccounts.filter((a) => a.status === 'active');
+    const disconnectButtons = activeProviders.map((a) =>
+      new ButtonBuilder()
+        .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
+        .setLabel(`Disconnect ${providerLabel(a.provider)}`)
+        .setStyle(ButtonStyle.Danger),
     );
+    if (disconnectButtons.length > 0) {
+      container.addActionRowComponents(
+        new ActionRowBuilder<ButtonBuilder>().addComponents(...disconnectButtons.slice(0, 5)),
+      );
+    }
   } else {
     // Verified state
     container.addTextDisplayComponents(
@@ -282,20 +290,25 @@ function buildStatusContainer(
       ),
     );
 
-    const primaryProvider = linkedAccounts.find((a) => a.status === 'active')?.provider ?? 'gumroad';
-    container.addActionRowComponents(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const providerEmoji = (p: string) =>
+      p === 'gumroad' ? Emoji.Gumorad : p === 'discord' ? Emoji.Discord : p === 'jinxxy' ? Emoji.Jinxxy : Emoji.Key;
+    const activeProviders = linkedAccounts.filter((a) => a.status === 'active');
+    const primaryButtons = [
+      new ButtonBuilder()
+        .setCustomId(`${VERIFY_PREFIX}add_more:${tenantId}`)
+        .setLabel('Add another account')
+        .setEmoji(Emoji.Link)
+        .setStyle(ButtonStyle.Secondary),
+      ...activeProviders.map((a) =>
         new ButtonBuilder()
-          .setCustomId(`${VERIFY_PREFIX}add_more:${tenantId}`)
-          .setLabel('Add another account')
-          .setEmoji(Emoji.Link)
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId(`${VERIFY_PREFIX}disconnect:${primaryProvider}`)
-          .setLabel('Remove connection')
-          .setEmoji(Emoji.Key)
+          .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
+          .setLabel(`Disconnect ${providerLabel(a.provider)}`)
+          .setEmoji(providerEmoji(a.provider))
           .setStyle(ButtonStyle.Danger),
       ),
+    ];
+    container.addActionRowComponents(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(...primaryButtons.slice(0, 5)),
     );
   }
 
@@ -597,13 +610,24 @@ export async function handleVerifyDisconnectButton(
       return;
     }
 
-    await interaction.editReply({
-      content: `✅ Disconnected your ${provider} account. Existing roles may take a moment to be removed.`,
-    });
-
     track(interaction.user.id, 'verification_disconnected', {
       tenantId: guildLink.tenantId,
       provider,
+    });
+
+    // Refresh and show the updated panel so user sees products/accounts cleared
+    const data = await fetchVerifyData(interaction.user.id, guildLink.tenantId, convex);
+    const container = buildStatusContainer(
+      data,
+      guildLink.tenantId,
+      guildId,
+      apiBaseUrl,
+      interaction.user.id,
+    );
+    await interaction.editReply({
+      content: `✅ Disconnected your ${providerLabel(provider)} account. Existing roles may take a moment to be removed.`,
+      flags: MessageFlags.IsComponentsV2,
+      components: [container],
     });
   } catch (err) {
     await interaction.editReply({

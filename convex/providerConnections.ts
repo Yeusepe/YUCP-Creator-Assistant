@@ -111,6 +111,41 @@ export const listConnections = query({
 });
 
 /**
+ * Get connection with encrypted tokens for backfill (internal use by API).
+ * Returns encrypted token for decryption by API which has BETTER_AUTH_SECRET.
+ */
+export const getConnectionForBackfill = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+  },
+  returns: v.union(
+    v.object({
+      gumroadAccessTokenEncrypted: v.optional(v.string()),
+      jinxxyApiKeyEncrypted: v.optional(v.string()),
+    }),
+    v.null()
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant_provider', (q) =>
+        q.eq('tenantId', args.tenantId).eq('provider', args.provider)
+      )
+      .first();
+
+    if (!conn) return null;
+
+    return {
+      gumroadAccessTokenEncrypted: conn.gumroadAccessTokenEncrypted,
+      jinxxyApiKeyEncrypted: conn.jinxxyApiKeyEncrypted,
+    };
+  },
+});
+
+/**
  * Disconnect a provider connection (soft delete — sets status to 'disconnected').
  */
 export const disconnectConnection = mutation({

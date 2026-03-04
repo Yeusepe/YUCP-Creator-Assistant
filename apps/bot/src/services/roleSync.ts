@@ -56,12 +56,22 @@ export interface CreatorAlertPayload {
   alertType?: string;
 }
 
+/** Retroactive rule sync job payload */
+export interface RetroactiveRuleSyncPayload {
+  tenantId: Id<'tenants'>;
+  productId: string;
+}
+
 /** Outbox job document type */
 export interface OutboxJob {
   _id: Id<'outbox_jobs'>;
   tenantId: Id<'tenants'>;
-  jobType: 'role_sync' | 'role_removal' | 'creator_alert';
-  payload: RoleSyncPayload | RoleRemovalPayload | CreatorAlertPayload;
+  jobType: 'role_sync' | 'role_removal' | 'creator_alert' | 'retroactive_rule_sync';
+  payload:
+    | RoleSyncPayload
+    | RoleRemovalPayload
+    | CreatorAlertPayload
+    | RetroactiveRuleSyncPayload;
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'dead_letter';
   retryCount: number;
   maxRetries: number;
@@ -322,6 +332,13 @@ export class RoleSyncService {
         return;
       }
 
+      if (job.jobType === 'retroactive_rule_sync') {
+        await this.processRetroactiveRuleSyncJob(job);
+        await this.updateJobStatus(job._id, 'completed');
+        this.logger.info('Retroactive rule sync job completed', { jobId: job._id });
+        return;
+      }
+
       let result: RoleSyncResult;
 
       if (job.jobType === 'role_sync') {
@@ -510,6 +527,24 @@ export class RoleSyncService {
     }
 
     await channel.send({ content: payload.message });
+  }
+
+  /**
+   * Process retroactive rule sync job.
+   * Calls Convex to create role_sync jobs for all entitlements of the product.
+   */
+  private async processRetroactiveRuleSyncJob(job: OutboxJob): Promise<void> {
+    const payload = job.payload as RetroactiveRuleSyncPayload;
+    if (!payload.tenantId || !payload.productId) {
+      throw new Error('Retroactive rule sync payload missing tenantId or productId');
+    }
+
+    await this.convexClient.mutation('backgroundSync:processRetroactiveRuleSyncJob' as any, {
+      apiSecret: this.apiSecret,
+      jobId: job._id,
+      tenantId: payload.tenantId,
+      productId: payload.productId,
+    });
   }
 
   /**
@@ -719,7 +754,7 @@ export class RoleSyncService {
     try {
       const jobs = await this.convexClient.query('outbox_jobs:getPendingJobs' as any, {
         apiSecret: this.apiSecret,
-        jobTypes: ['role_sync', 'role_removal', 'creator_alert'],
+        jobTypes: ['role_sync', 'role_removal', 'creator_alert', 'retroactive_rule_sync'],
         limit: 10,
       });
 

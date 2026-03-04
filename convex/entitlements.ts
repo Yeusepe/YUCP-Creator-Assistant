@@ -701,6 +701,74 @@ export const revokeEntitlement = mutation({
 });
 
 /**
+ * Revoke all entitlements for a subject in a tenant that came from a specific provider.
+ * Used when a user disconnects Gumroad/Discord via the verify panel.
+ * Emits role_removal jobs so Discord roles are actually removed.
+ */
+export const revokeEntitlementsForProviderDisconnect = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    provider: v.string(),
+  },
+  returns: v.object({
+    revokedCount: v.number(),
+    outboxJobIds: v.array(v.id('outbox_jobs')),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const now = Date.now();
+    const outboxJobIds: Id<'outbox_jobs'>[] = [];
+
+    const entitlements = await ctx.db
+      .query('entitlements')
+      .withIndex('by_tenant_subject', (q) =>
+        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId),
+      )
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .filter((q) => q.eq(q.field('sourceProvider'), args.provider))
+      .collect();
+
+    for (const entitlement of entitlements) {
+      await ctx.db.patch(entitlement._id, {
+        status: 'revoked',
+        revokedAt: now,
+        updatedAt: now,
+      });
+
+      const jobIds = await emitRoleRemovalJobs(
+        ctx,
+        args.tenantId,
+        args.subjectId,
+        entitlement.productId,
+        entitlement._id,
+        `disconnect:${args.provider}`,
+      );
+      outboxJobIds.push(...jobIds);
+
+      await createAuditEvent(ctx, {
+        tenantId: args.tenantId,
+        eventType: 'entitlement.revoked',
+        subjectId: args.subjectId,
+        entitlementId: entitlement._id,
+        metadata: {
+          productId: entitlement.productId,
+          reason: 'manual',
+          details: `Provider disconnect: ${args.provider}`,
+          cascadeFromDisconnect: true,
+        },
+      });
+    }
+
+    return {
+      revokedCount: entitlements.length,
+      outboxJobIds,
+    };
+  },
+});
+
+/**
  * Refresh an entitlement from fresh evidence.
  *
  * Updates the entitlement with new evidence data while preserving the grant.

@@ -1058,6 +1058,15 @@ export function createVerificationRoutes(config: VerificationConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const { api } = await import('../../../../convex/_generated/api');
 
+      // Revoke entitlements from this provider and emit role_removal jobs first.
+      // Without this, roles would never be removed when disconnecting.
+      await convex.mutation(api.entitlements.revokeEntitlementsForProviderDisconnect as any, {
+        apiSecret: config.convexApiSecret,
+        tenantId: body.tenantId,
+        subjectId: body.subjectId,
+        provider: body.provider,
+      });
+
       const disconnected = await convex.mutation(api.providerConnections.removeAccountForSubject as any, {
         apiSecret: config.convexApiSecret,
         tenantId: body.tenantId,

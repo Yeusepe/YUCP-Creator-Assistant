@@ -14,6 +14,7 @@
 import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { internal } from './_generated/api';
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;
@@ -203,6 +204,25 @@ export const createRoleRule = mutation({
       updatedAt: now,
     });
 
+    const idempotencyKey = `retroactive_rule_sync:${args.tenantId}:${args.productId}`;
+    const existingJob = await ctx.db
+      .query('outbox_jobs')
+      .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', idempotencyKey))
+      .first();
+    if (!existingJob) {
+      await ctx.db.insert('outbox_jobs', {
+        tenantId: args.tenantId,
+        jobType: 'retroactive_rule_sync',
+        payload: { tenantId: args.tenantId, productId: args.productId },
+        status: 'pending',
+        idempotencyKey,
+        retryCount: 0,
+        maxRetries: 5,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
     return { ruleId };
   },
 });
@@ -328,6 +348,12 @@ export const addProductFromGumroad = mutation({
       .first();
 
     if (existing) {
+      await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
+        tenantId: args.tenantId,
+        productId: args.productId,
+        provider: 'gumroad',
+        providerProductRef: args.providerProductRef,
+      });
       return { productId: existing.productId, catalogProductId: existing._id };
     }
 
@@ -360,6 +386,13 @@ export const addProductFromGumroad = mutation({
       updatedAt: now,
     });
 
+    await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
+      tenantId: args.tenantId,
+      productId: args.productId,
+      provider: 'gumroad',
+      providerProductRef: args.providerProductRef,
+    });
+
     return { productId: args.productId, catalogProductId: catalogId };
   },
 });
@@ -389,6 +422,12 @@ export const addProductFromJinxxy = mutation({
       .first();
 
     if (existing) {
+      await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
+        tenantId: args.tenantId,
+        productId: args.productId,
+        provider: 'jinxxy',
+        providerProductRef: args.providerProductRef,
+      });
       return { productId: existing.productId, catalogProductId: existing._id };
     }
 
@@ -418,6 +457,13 @@ export const addProductFromJinxxy = mutation({
       submittedByTenantId: args.tenantId,
       createdAt: now,
       updatedAt: now,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
+      tenantId: args.tenantId,
+      productId: args.productId,
+      provider: 'jinxxy',
+      providerProductRef: args.providerProductRef,
     });
 
     return { productId: args.productId, catalogProductId: catalogId };
@@ -563,6 +609,7 @@ export const bulkCreateRoleRules = mutation({
     const now = Date.now();
     const ruleIds: Id<'role_rules'>[] = [];
 
+    const uniqueProductIds = new Set<string>();
     for (const rule of args.rules) {
       const ruleId = await ctx.db.insert('role_rules', {
         tenantId: args.tenantId,
@@ -579,6 +626,28 @@ export const bulkCreateRoleRules = mutation({
       });
 
       ruleIds.push(ruleId);
+      uniqueProductIds.add(rule.productId);
+    }
+
+    for (const productId of uniqueProductIds) {
+      const idempotencyKey = `retroactive_rule_sync:${args.tenantId}:${productId}`;
+      const existingJob = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', idempotencyKey))
+        .first();
+      if (!existingJob) {
+        await ctx.db.insert('outbox_jobs', {
+          tenantId: args.tenantId,
+          jobType: 'retroactive_rule_sync',
+          payload: { tenantId: args.tenantId, productId },
+          status: 'pending',
+          idempotencyKey,
+          retryCount: 0,
+          maxRetries: 5,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
     }
 
     return {

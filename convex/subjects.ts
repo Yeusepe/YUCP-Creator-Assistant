@@ -115,6 +115,8 @@ export const getSubjectByDiscordId = query({
 export const getSubjectWithAccounts = query({
   args: {
     subjectId: v.id('subjects'),
+    /** When provided, only return accounts linked in this tenant (for verify panel). */
+    tenantId: v.optional(v.id('tenants')),
   },
   returns: v.union(
     v.object({
@@ -179,15 +181,16 @@ export const getSubjectWithAccounts = query({
       return { found: false as const, subject: null, externalAccounts: [] };
     }
 
-    // Look up ALL active external accounts linked to this subject via bindings.
-    // The bindings table is the proper join between subjects and external_accounts.
-    // Previously this only queried Discord accounts by providerUserId match,
-    // which meant Gumroad / Jinxxy accounts were never visible to the bot.
-    const activeBindings = await ctx.db
+    // Look up active external accounts linked to this subject via bindings.
+    // When tenantId is provided (e.g. from verify panel), only return accounts in that tenant.
+    let bindingsQuery = ctx.db
       .query('bindings')
       .withIndex('by_subject', (q) => q.eq('subjectId', args.subjectId))
-      .filter((q) => q.eq(q.field('status'), 'active'))
-      .collect();
+      .filter((q) => q.eq(q.field('status'), 'active'));
+
+    const activeBindings = args.tenantId
+      ? (await bindingsQuery.collect()).filter((b) => b.tenantId === args.tenantId)
+      : await bindingsQuery.collect();
 
     const externalAccounts = [];
     for (const binding of activeBindings) {

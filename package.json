@@ -16,6 +16,7 @@
     "dev": "concurrently -n convex,api,bot,tunnel -c blue,magenta,green,cyan \"npx convex dev\" \"bun run dev:api\" \"bun run dev:bot\" \"tailscale funnel 3001\"",
     "dev:infisical": "bun run sync:convex:env && concurrently -n convex,api,bot,tunnel -c blue,magenta,green,cyan \"npx convex dev\" \"bun run dev:api:infisical\" \"bun run dev:bot:infisical\" \"tailscale funnel 3001\"",
     "sync:convex:env": "bun run --env-file=.env.infisical ops/sync-convex-env.ts",
+    "sync:convex:env:prod": "bun run --env-file=.env.infisical ops/sync-convex-env.ts --prod",
     "dev:api": "bun --cwd apps/api dev",
     "dev:api:infisical": "bun run --env-file=.env.infisical dev:api",
     "dev:bot": "bun --cwd apps/bot dev",

@@ -17,6 +17,20 @@
 import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { internal } from './_generated/api';
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 // ============================================================================
 // TYPES
@@ -466,10 +480,15 @@ export const syncUserFromProvider = mutation({
       )
       .first();
 
+    const normalizedEmail = email ? normalizeEmail(email) : undefined;
+    const emailHash = normalizedEmail ? await sha256Hex(normalizedEmail) : undefined;
+
     if (existingAccount) {
       externalAccountId = existingAccount._id;
       await ctx.db.patch(externalAccountId, {
         providerUsername: username ?? existingAccount.providerUsername,
+        normalizedEmail,
+        emailHash,
         providerMetadata: {
           email: email,
           avatarUrl: avatarUrl,
@@ -485,6 +504,8 @@ export const syncUserFromProvider = mutation({
         provider: args.provider,
         providerUserId: args.providerUserId,
         providerUsername: username,
+        normalizedEmail,
+        emailHash,
         providerMetadata: {
           email: email,
           avatarUrl: avatarUrl,
@@ -496,6 +517,18 @@ export const syncUserFromProvider = mutation({
         updatedAt: now,
       });
       isNewExternalAccount = true;
+    }
+
+    if (
+      (args.provider === 'gumroad' || args.provider === 'jinxxy') &&
+      emailHash
+    ) {
+      await ctx.scheduler.runAfter(0, internal.backgroundSync.syncPastPurchasesForSubject, {
+        subjectId,
+        provider: args.provider,
+        providerUserId: args.providerUserId,
+        emailHash,
+      });
     }
 
     return {

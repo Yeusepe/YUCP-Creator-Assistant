@@ -154,6 +154,7 @@ const OutboxJobType = v.union(
   v.literal('revocation'),
   v.literal('notification'),
   v.literal('creator_alert'),
+  v.literal('retroactive_rule_sync'),
 );
 
 /** Webhook event status */

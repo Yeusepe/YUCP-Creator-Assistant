@@ -157,6 +157,12 @@ async function handleRequest(request: Request): Promise<Response> {
     return handler(request);
   }
 
+  // Internal backfill route (called by Convex action when BACKFILL_API_URL is set)
+  if (pathname === '/api/internal/backfill-product' && request.method === 'POST') {
+    const { handleBackfillProduct } = await import('./routes/backfill');
+    return handleBackfillProduct(request);
+  }
+
   // Webhook routes (Gumroad, Jinxxy)
   if (pathname.startsWith('/webhooks/') && webhookHandler) {
     return webhookHandler(request);
