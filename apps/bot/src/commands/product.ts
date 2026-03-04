@@ -520,6 +520,22 @@ export async function handleProductConfirmAdd(
         verifiedRoleId: roleId,
       });
       productId = result.productId;
+
+      // Enable cross-server Discord role verification and add source guild to allowed list
+      // so buyers can verify via "Use Another Server" without manual /creator-admin settings
+      const tenant = await convex.query(api.tenants.getTenant as any, { tenantId });
+      const policy = tenant?.policy ?? {};
+      const allowed = new Set((policy.allowedSourceGuildIds as string[]) ?? []);
+      allowed.add(sourceGuildId);
+      await convex.mutation(api.tenants.updateTenantPolicy as any, {
+        apiSecret,
+        tenantId,
+        policy: {
+          enableDiscordRoleFromOtherServers: true,
+          allowedSourceGuildIds: [...allowed],
+        },
+      });
+
       productSessions.delete(sessionKey);
 
       track(interaction.user.id, 'product_added', { tenantId, guildId, productId });
