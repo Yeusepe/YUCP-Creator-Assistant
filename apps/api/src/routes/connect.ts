@@ -26,6 +26,20 @@ const TOKEN_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const GUMROAD_STATE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const JINXXY_TEST_TTL_MS = 60 * 1000; // 60 seconds
 
+const DISCORD_ROLE_SETUP_PREFIX = 'discord_role_setup:';
+const DISCORD_ROLE_OAUTH_STATE_PREFIX = 'discord_role_oauth:';
+const DISCORD_ROLE_SETUP_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+interface DiscordRoleSetupSession {
+  tenantId: string;
+  guildId: string;
+  adminDiscordUserId: string;
+  guilds?: Array<{ id: string; name: string; icon: string | null; owner: boolean; permissions: string }>;
+  sourceGuildId?: string;
+  sourceRoleId?: string;
+  completed: boolean;
+}
+
 function generateToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -769,6 +783,216 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
   }
 
+  /**
+   * POST /api/setup/discord-role-session
+   * Called by the bot. Creates a short-lived setup session for Discord Role admin flow.
+   * Body: { tenantId, guildId, adminDiscordUserId, apiSecret }
+   */
+  async function createDiscordRoleSession(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    let body: { tenantId: string; guildId: string; adminDiscordUserId: string; apiSecret: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    if (body.apiSecret !== config.convexApiSecret) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!body.tenantId || !body.guildId || !body.adminDiscordUserId) {
+      return Response.json({ error: 'tenantId, guildId, and adminDiscordUserId are required' }, { status: 400 });
+    }
+
+    const token = generateToken();
+    const session: DiscordRoleSetupSession = {
+      tenantId: body.tenantId,
+      guildId: body.guildId,
+      adminDiscordUserId: body.adminDiscordUserId,
+      completed: false,
+    };
+    const store = getStateStore();
+    await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${token}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
+    return Response.json({ token });
+  }
+
+  /**
+   * GET /api/setup/discord-role-oauth/begin?s={token}
+   * Redirects admin to Discord OAuth with guilds scope.
+   */
+  async function discordRoleOAuthBegin(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const token = url.searchParams.get('s');
+    if (!token) return Response.json({ error: 'Missing token' }, { status: 400 });
+
+    const store = getStateStore();
+    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
+    if (!raw) return Response.json({ error: 'Invalid or expired session' }, { status: 401 });
+
+    const state = `${token}:${generateSecureRandom(16)}`;
+    await store.set(`${DISCORD_ROLE_OAUTH_STATE_PREFIX}${state}`, token, DISCORD_ROLE_SETUP_TTL_MS);
+
+    const authUrl = new URL('https://discord.com/api/oauth2/authorize');
+    authUrl.searchParams.set('client_id', config.discordClientId);
+    authUrl.searchParams.set('redirect_uri', `${config.baseUrl}/api/setup/discord-role-oauth/callback`);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('scope', 'identify guilds');
+    authUrl.searchParams.set('state', state);
+    return Response.redirect(authUrl.toString(), 302);
+  }
+
+  /**
+   * GET /api/setup/discord-role-oauth/callback?code=...&state=...
+   * Exchanges the OAuth code, fetches admin's guild list, stores it, redirects back.
+   */
+  async function discordRoleOAuthCallback(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+    const error = url.searchParams.get('error');
+
+    if (error) {
+      return Response.redirect(`${config.baseUrl}/discord-role-setup?error=${encodeURIComponent(error)}`, 302);
+    }
+    if (!code || !state) {
+      return Response.redirect(`${config.baseUrl}/discord-role-setup?error=missing_parameters`, 302);
+    }
+
+    const store = getStateStore();
+    const setupToken = await store.get(`${DISCORD_ROLE_OAUTH_STATE_PREFIX}${state}`);
+    if (!setupToken) {
+      return Response.redirect(`${config.baseUrl}/discord-role-setup?error=invalid_state`, 302);
+    }
+    await store.delete(`${DISCORD_ROLE_OAUTH_STATE_PREFIX}${state}`);
+
+    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${setupToken}`);
+    if (!raw) {
+      return Response.redirect(`${config.baseUrl}/discord-role-setup?error=session_expired`, 302);
+    }
+
+    try {
+      const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: config.discordClientId,
+          client_secret: config.discordClientSecret,
+          code,
+          redirect_uri: `${config.baseUrl}/api/setup/discord-role-oauth/callback`,
+          grant_type: 'authorization_code',
+        }).toString(),
+      });
+
+      if (!tokenRes.ok) {
+        logger.error('Discord role OAuth token exchange failed', { status: tokenRes.status });
+        return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=token_exchange_failed`, 302);
+      }
+
+      const tokens = (await tokenRes.json()) as { access_token?: string };
+      if (!tokens.access_token) {
+        return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=no_token`, 302);
+      }
+
+      const guildsRes = await fetch('https://discord.com/api/users/@me/guilds', {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      });
+
+      if (!guildsRes.ok) {
+        return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=guilds_fetch_failed`, 302);
+      }
+
+      const guilds = (await guildsRes.json()) as Array<{ id: string; name: string; icon: string | null; owner: boolean; permissions: string }>;
+
+      const session = JSON.parse(raw) as DiscordRoleSetupSession;
+      session.guilds = guilds.sort((a, b) => a.name.localeCompare(b.name));
+      await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${setupToken}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
+
+      return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}`, 302);
+    } catch (err) {
+      logger.error('Discord role OAuth callback failed', { error: err instanceof Error ? err.message : String(err) });
+      return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=internal_error`, 302);
+    }
+  }
+
+  /**
+   * GET /api/setup/discord-role-guilds?s={token}
+   * Returns the stored guild list for this session.
+   */
+  async function getDiscordRoleGuilds(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const token = url.searchParams.get('s');
+    if (!token) return Response.json({ error: 'Missing token' }, { status: 400 });
+
+    const store = getStateStore();
+    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
+    if (!raw) return Response.json({ error: 'Invalid or expired session' }, { status: 401 });
+
+    const session = JSON.parse(raw) as DiscordRoleSetupSession;
+    return Response.json({
+      guilds: session.guilds ?? null,
+      completed: session.completed,
+      sourceGuildId: session.sourceGuildId,
+      sourceRoleId: session.sourceRoleId,
+    });
+  }
+
+  /**
+   * POST /api/setup/discord-role-save
+   * Saves the admin's chosen sourceGuildId and sourceRoleId.
+   * Body: { s: token, sourceGuildId, sourceRoleId }
+   */
+  async function saveDiscordRoleSelection(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    let body: { s: string; sourceGuildId: string; sourceRoleId: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    const { s: token, sourceGuildId, sourceRoleId } = body;
+    if (!token || !sourceGuildId || !sourceRoleId) {
+      return Response.json({ error: 'token, sourceGuildId, and sourceRoleId are required' }, { status: 400 });
+    }
+
+    const store = getStateStore();
+    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
+    if (!raw) return Response.json({ error: 'Invalid or expired session' }, { status: 401 });
+
+    const session = JSON.parse(raw) as DiscordRoleSetupSession;
+    session.sourceGuildId = sourceGuildId;
+    session.sourceRoleId = sourceRoleId;
+    session.completed = true;
+    await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${token}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
+
+    return Response.json({ success: true });
+  }
+
+  /**
+   * GET /api/setup/discord-role-result?s={token}
+   * Called by the bot's "Done" button handler. Returns the saved selection if complete.
+   */
+  async function getDiscordRoleResult(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const token = url.searchParams.get('s');
+    if (!token) return Response.json({ error: 'Missing token' }, { status: 400 });
+
+    const store = getStateStore();
+    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
+    if (!raw) return Response.json({ error: 'Invalid or expired session' }, { status: 401 });
+
+    const session = JSON.parse(raw) as DiscordRoleSetupSession;
+    if (!session.completed || !session.sourceGuildId || !session.sourceRoleId) {
+      return Response.json({ completed: false });
+    }
+
+    // Clean up after bot reads the result
+    await store.delete(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
+    return Response.json({ completed: true, sourceGuildId: session.sourceGuildId, sourceRoleId: session.sourceRoleId });
+  }
+
   return {
     serveConnectPage,
     createSessionEndpoint,
@@ -784,6 +1008,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     disconnectConnectionHandler,
     getSettingsHandler,
     updateSettingHandler,
+    createDiscordRoleSession,
+    discordRoleOAuthBegin,
+    discordRoleOAuthCallback,
+    getDiscordRoleGuilds,
+    saveDiscordRoleSelection,
+    getDiscordRoleResult,
   };
 }
 

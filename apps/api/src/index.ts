@@ -211,6 +211,24 @@ async function handleRequest(request: Request): Promise<Response> {
   if (pathname === '/api/setup/create-session' && connectRoutes) {
     return connectRoutes.createSessionEndpoint(request);
   }
+  if (pathname === '/api/setup/discord-role-session' && connectRoutes) {
+    return connectRoutes.createDiscordRoleSession(request);
+  }
+  if (pathname === '/api/setup/discord-role-oauth/begin' && connectRoutes) {
+    return connectRoutes.discordRoleOAuthBegin(request);
+  }
+  if (pathname === '/api/setup/discord-role-oauth/callback' && connectRoutes) {
+    return connectRoutes.discordRoleOAuthCallback(request);
+  }
+  if (pathname === '/api/setup/discord-role-guilds' && connectRoutes) {
+    return connectRoutes.getDiscordRoleGuilds(request);
+  }
+  if (pathname === '/api/setup/discord-role-save' && connectRoutes) {
+    return connectRoutes.saveDiscordRoleSelection(request);
+  }
+  if (pathname === '/api/setup/discord-role-result' && connectRoutes) {
+    return connectRoutes.getDiscordRoleResult(request);
+  }
   // Connections API
   if (pathname === '/api/connections' && connectRoutes) {
     if (request.method === 'DELETE') {
@@ -224,6 +242,17 @@ async function handleRequest(request: Request): Promise<Response> {
     }
     return connectRoutes.getSettingsHandler(request);
   }
+  if (pathname === '/discord-role-setup' || pathname === '/discord-role-setup.html') {
+    const filePath = `${import.meta.dir}/../public/discord-role-setup.html`;
+    const file = Bun.file(filePath);
+    let html = await file.text();
+    const setupToken = url.searchParams.get('s') ?? '';
+    const apiBase = process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+    html = html.replace(/__API_BASE__/g, apiBase);
+    html = html.replace(/__SETUP_TOKEN__/g, setupToken);
+    return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+  }
+
   if (pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html') {
     const filePath = `${import.meta.dir}/../public/jinxxy-setup.html`;
     const file = Bun.file(filePath);

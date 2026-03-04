@@ -51,7 +51,14 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
     s.setName('stats').setDescription('View verification statistics'),
   )
   .addSubcommand((s) =>
-    s.setName('spawn-verify').setDescription('Spawn verify button in channel'),
+    s
+      .setName('spawn-verify')
+      .setDescription('Spawn a customizable verify button in the channel')
+      .addStringOption((o) => o.setName('title').setDescription('Custom embed title'))
+      .addStringOption((o) => o.setName('description').setDescription('Custom embed description'))
+      .addStringOption((o) => o.setName('button_text').setDescription('Custom verify button text'))
+      .addStringOption((o) => o.setName('color').setDescription('Custom hex color code (e.g., #ff90e8)'))
+      .addStringOption((o) => o.setName('image_url').setDescription('Custom embed image banner URL')),
   )
   .addSubcommandGroup((settings) =>
     settings
