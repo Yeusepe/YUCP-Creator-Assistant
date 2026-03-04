@@ -2,41 +2,20 @@
  * Discord slash command definitions and registration
  *
  * Uses discord.js REST API to register commands.
- * - /creator: user-facing (link, status, help) — visible to everyone
- * - /creator-admin: moderator-only — hidden from users without Administrator (see setDefaultMemberPermissions)
+ * - /creator: user-facing — visible to everyone, no subcommands (state-aware status panel)
+ * - /creator-admin: moderator-only — hidden from users without Administrator
  *
  * @see https://discordjs.guide/slash-commands/permissions.html
- * @see https://discord.com/developers/docs/interactions/application-commands#application-command-object-application-command-structure
  */
 
 import { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 
-/** User-facing command: link, status, help. No defaultMemberPermissions so everyone can see and use it. */
+/** User-facing command: single entry point, state-aware status + verify panel. */
 const CREATOR_USER_COMMAND = new SlashCommandBuilder()
   .setName('creator')
-  .setDescription('Creator Assistant - verification and management')
-  .addSubcommand((s) =>
-    s
-      .setName('link')
-      .setDescription('Link your account (Gumroad, Jinxxy, Discord)')
-      .addStringOption((o) =>
-        o
-          .setName('provider')
-          .setDescription('Provider to link')
-          .setRequired(true)
-          .addChoices(
-            { name: 'Gumroad', value: 'gumroad' },
-            { name: 'License key (Gumroad/Jinxxy)', value: 'license' },
-            { name: 'Discord (other server)', value: 'discord' },
-          ),
-      ),
-  )
-  .addSubcommand((s) =>
-    s.setName('status').setDescription('Show your verification status'),
-  )
-  .addSubcommand((s) => s.setName('help').setDescription('Help and usage'));
+  .setDescription('Check your verification status and connect your accounts');
 
-/** Admin-only command. setDefaultMemberPermissions hides it from users who don't have Administrator. */
+/** Admin-only command. setDefaultMemberPermissions hides it from non-admins. */
 const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
   .setName('creator-admin')
   .setDescription('Creator Assistant — configuration and moderation (admin only)')
@@ -54,39 +33,7 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
       .setName('product')
       .setDescription('Product-role mapping')
       .addSubcommand((s) =>
-        s
-          .setName('add')
-          .setDescription('Add product-role mapping')
-          .addStringOption((o) =>
-            o
-              .setName('source')
-              .setDescription('Verification source type')
-              .setRequired(true)
-              .addChoices(
-                { name: 'Cross-server', value: 'cross_server' },
-                { name: 'Discord role (other server)', value: 'discord_role' },
-                { name: 'Gumroad', value: 'gumroad' },
-                { name: 'Jinxxy', value: 'jinxxy' },
-              ),
-          )
-          .addRoleOption((o) =>
-            o.setName('role').setDescription('Role to assign when verified').setRequired(true),
-          )
-          .addStringOption((o) =>
-            o
-              .setName('url_or_id')
-              .setDescription('Product URL or ID (for cross-server, Gumroad, Jinxxy)'),
-          )
-          .addStringOption((o) =>
-            o
-              .setName('source_guild_id')
-              .setDescription('Source guild ID (for Discord role: guild where user must have role)'),
-          )
-          .addStringOption((o) =>
-            o
-              .setName('source_role_id')
-              .setDescription('Source role ID (for Discord role: role user must have in source guild)'),
-          ),
+        s.setName('add').setDescription('Add a product-role mapping (guided setup)'),
       )
       .addSubcommand((s) =>
         s.setName('list').setDescription('List product-role mappings'),
@@ -94,62 +41,44 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
       .addSubcommand((s) =>
         s
           .setName('remove')
-          .setDescription('Remove product-role mapping')
+          .setDescription('Remove a product-role mapping')
           .addStringOption((o) =>
             o.setName('product_id').setDescription('Product ID to remove').setRequired(true),
           ),
       ),
   )
-  .addSubcommandGroup((stats) =>
-    stats
-      .setName('stats')
-      .setDescription('Verification statistics')
-      .addSubcommand((s) => s.setName('overview').setDescription('Stats overview'))
-      .addSubcommand((s) => s.setName('verified').setDescription('List verified users'))
-      .addSubcommand((s) => s.setName('products').setDescription('Product verification counts'))
+  .addSubcommand((s) =>
+    s.setName('stats').setDescription('View verification statistics'),
+  )
+  .addSubcommand((s) =>
+    s.setName('spawn-verify').setDescription('Spawn verify button in channel'),
+  )
+  .addSubcommandGroup((settings) =>
+    settings
+      .setName('settings')
+      .setDescription('Server settings')
       .addSubcommand((s) =>
-        s
-          .setName('user')
-          .setDescription('User verification status')
-          .addUserOption((o) =>
-            o.setName('user').setDescription('User to check').setRequired(true),
-          ),
+        s.setName('cross-server').setDescription('Manage cross-server role verification'),
       ),
   )
   .addSubcommand((s) =>
-    s.setName('verify-spawn').setDescription('Spawn verify button (admin only)'),
+    s.setName('analytics').setDescription('View analytics and key metrics'),
   )
-  .addSubcommandGroup((drv) =>
-    drv
-      .setName('discord-role-verification')
-      .setDescription('Enable/disable Discord role verification from other servers')
-      .addSubcommand((s) => s.setName('disable').setDescription('Disable cross-server role verification'))
-      .addSubcommand((s) => s.setName('enable').setDescription('Enable cross-server role verification'))
-      .addSubcommand((s) => s.setName('status').setDescription('Show current status')),
-  )
-  .addSubcommandGroup((analytics) =>
-    analytics
-      .setName('analytics')
-      .setDescription('Analytics')
-      .addSubcommand((s) => s.setName('link').setDescription('View analytics dashboard link'))
-      .addSubcommand((s) => s.setName('summary').setDescription('Key metrics summary')),
-  )
-  .addSubcommandGroup((suspicious) =>
-    suspicious
-      .setName('suspicious')
+  .addSubcommandGroup((mod) =>
+    mod
+      .setName('moderation')
       .setDescription('Suspicious account management')
       .addSubcommand((s) =>
         s
           .setName('mark')
-          .setDescription('Mark user as suspicious')
+          .setDescription('Flag a user as suspicious')
           .addUserOption((o) =>
-            o.setName('user').setDescription('User to mark').setRequired(true),
-          )
-          .addStringOption((o) =>
-            o.setName('reason').setDescription('Reason (piracy, double license, etc.)'),
+            o.setName('user').setDescription('User to flag').setRequired(true),
           ),
       )
-      .addSubcommand((s) => s.setName('list').setDescription('List suspicious accounts'))
+      .addSubcommand((s) =>
+        s.setName('list').setDescription('List flagged accounts'),
+      )
       .addSubcommand((s) =>
         s
           .setName('clear')
@@ -160,8 +89,8 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
       ),
   );
 
-/** User-facing subcommand names (under /creator) */
-const USER_COMMANDS = ['link', 'status', 'help'];
+/** No user-facing subcommands — /creator has no subcommands */
+const USER_COMMANDS: string[] = [];
 
 export async function registerCommands(
   token: string,

@@ -1,17 +1,61 @@
 /**
- * /creator product - Product-role mapping commands
+ * /creator-admin product — Product-role mapping commands
  *
- * add: Link product to role (cross-server, Gumroad, Jinxxy, Discord role)
+ * add: Interactive guided flow (type select → URL modal → role select → confirm)
  * list: List product-role mappings
  * remove: Remove a product mapping
  */
 
-import { EmbedBuilder, MessageFlags } from 'discord.js';
-import type { ChatInputCommandInteraction } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  MessageFlags,
+  ModalBuilder,
+  RoleSelectMenuBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+} from 'discord.js';
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  ModalSubmitInteraction,
+  RoleSelectMenuInteraction,
+  StringSelectMenuInteraction,
+} from 'discord.js';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
 import { track } from '../lib/posthog';
+
+// In-memory session store for multi-step product add flow
+interface ProductSession {
+  tenantId: Id<'tenants'>;
+  guildLinkId: Id<'guild_links'>;
+  guildId: string;
+  type?: 'gumroad' | 'jinxxy' | 'license' | 'discord_role';
+  urlOrId?: string;
+  sourceGuildId?: string;
+  sourceRoleId?: string;
+  roleId?: string;
+  expiresAt: number;
+}
+
+const productSessions = new Map<string, ProductSession>();
+
+function getSessionKey(userId: string, tenantId: string): string {
+  return `${userId}:${tenantId}`;
+}
+
+function cleanExpiredSessions(): void {
+  const now = Date.now();
+  for (const [key, session] of productSessions.entries()) {
+    if (now > session.expiresAt) productSessions.delete(key);
+  }
+}
 
 function parseGumroadProductId(urlOrId: string): string | null {
   const trimmed = urlOrId.trim();
@@ -31,142 +75,396 @@ function parseJinxxyProductId(urlOrId: string): string | null {
   return null;
 }
 
-export async function handleProductAdd(
+/** Step 1: /creator-admin product add — show type select menu */
+export async function handleProductAddInteractive(
   interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
 ): Promise<void> {
-  const source = interaction.options.getString('source', true);
-  const urlOrId = interaction.options.getString('url_or_id');
-  const sourceGuildId = interaction.options.getString('source_guild_id');
-  const sourceRoleId = interaction.options.getString('source_role_id');
-  const role = interaction.options.getRole('role', true);
+  cleanExpiredSessions();
 
-  if (!urlOrId && (source === 'cross_server' || source === 'gumroad' || source === 'jinxxy')) {
+  const sessionKey = getSessionKey(interaction.user.id, ctx.tenantId);
+  productSessions.set(sessionKey, {
+    tenantId: ctx.tenantId,
+    guildLinkId: ctx.guildLinkId,
+    guildId: ctx.guildId,
+    expiresAt: Date.now() + 10 * 60 * 1000,
+  });
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`creator_product:type_select:${ctx.tenantId}`)
+    .setPlaceholder('Select product type...')
+    .addOptions(
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Gumroad Product')
+        .setDescription('Sold on gumroad.com')
+        .setValue('gumroad')
+        .setEmoji('🛒'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Jinxxy Product')
+        .setDescription('Sold on jinxxy.com or jinxxy.app')
+        .setValue('jinxxy')
+        .setEmoji('🏪'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('License Key Only')
+        .setDescription('Manual license codes (Gumroad or Jinxxy)')
+        .setValue('license')
+        .setEmoji('🔑'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Discord Role (Other Server)')
+        .setDescription('User has a specific role in another server')
+        .setValue('discord_role')
+        .setEmoji('🔗'),
+    );
+
+  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+
+  await interaction.reply({
+    content: '**Step 1 of 3:** What type of product are you mapping?',
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/** Step 2: Type selected — show relevant modal */
+export async function handleProductTypeSelect(
+  interaction: StringSelectMenuInteraction,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const selectedType = interaction.values[0] as ProductSession['type'];
+  const sessionKey = getSessionKey(interaction.user.id, tenantId);
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: 'Session expired. Please run `/creator-admin product add` again.',
+      components: [],
+    });
+    return;
+  }
+
+  session.type = selectedType;
+
+  if (selectedType === 'discord_role') {
+    const modal = new ModalBuilder()
+      .setCustomId(`creator_product:discord_modal:${interaction.user.id}:${tenantId}`)
+      .setTitle('Step 2 of 3: Discord Role Details')
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('source_guild_id')
+            .setLabel('Source Server ID')
+            .setPlaceholder('Right-click the server → Copy Server ID (requires Developer Mode)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('source_role_id')
+            .setLabel('Source Role ID')
+            .setPlaceholder('Right-click the role → Copy Role ID (requires Developer Mode)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true),
+        ),
+      );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  // gumroad, jinxxy, license
+  const labels: Record<string, string> = {
+    gumroad: 'Gumroad Product URL or ID',
+    jinxxy: 'Jinxxy Product URL or ID',
+    license: 'Product ID (or leave generic)',
+  };
+  const placeholders: Record<string, string> = {
+    gumroad: 'e.g., gumroad.com/l/abc123 or abc123',
+    jinxxy: 'e.g., jinxxy.com/store/product-name or product-id',
+    license: 'Product ID to associate with license keys',
+  };
+
+  const modal = new ModalBuilder()
+    .setCustomId(`creator_product:url_modal:${interaction.user.id}:${tenantId}`)
+    .setTitle('Step 2 of 3: Product Details')
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId('url_or_id')
+          .setLabel(labels[selectedType ?? 'gumroad'] ?? 'Product URL or ID')
+          .setPlaceholder(placeholders[selectedType ?? 'gumroad'] ?? '')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true),
+      ),
+    );
+
+  await interaction.showModal(modal);
+}
+
+/** Step 2b: URL modal submitted — show role select */
+export async function handleProductUrlModal(
+  interaction: ModalSubmitInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const urlOrId = interaction.fields.getTextInputValue('url_or_id')?.trim();
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
     await interaction.reply({
-      content: 'Product URL or ID is required for this source type.',
+      content: 'Session expired. Please run `/creator-admin product add` again.',
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  session.urlOrId = urlOrId;
+
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+    .setPlaceholder('Select the role to assign when verified...');
+
+  const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+
+  await interaction.reply({
+    content: '**Step 3 of 3:** Which role should users receive when they verify this product?',
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/** Step 2c: Discord role modal submitted — show role select for local role */
+export async function handleProductDiscordModal(
+  interaction: ModalSubmitInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const sourceGuildId = interaction.fields.getTextInputValue('source_guild_id')?.trim();
+  const sourceRoleId = interaction.fields.getTextInputValue('source_role_id')?.trim();
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.reply({
+      content: 'Session expired. Please run `/creator-admin product add` again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  session.sourceGuildId = sourceGuildId;
+  session.sourceRoleId = sourceRoleId;
+
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+    .setPlaceholder('Select the role to assign in THIS server...');
+
+  const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+
+  await interaction.reply({
+    content:
+      '**Step 3 of 3:** Which role should users receive **in this server** when they verify?\n*(Select a role from this server — not the source server.)*',
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/** Step 3: Role selected — show confirmation */
+export async function handleProductRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const roleId = interaction.values[0];
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: 'Session expired. Please run `/creator-admin product add` again.',
+      components: [],
+    });
+    return;
+  }
+
+  session.roleId = roleId;
+
+  const typeLabels: Record<string, string> = {
+    gumroad: 'Gumroad',
+    jinxxy: 'Jinxxy',
+    license: 'License Key',
+    discord_role: 'Discord Role (other server)',
+  };
+
+  const detailLines: string[] = [
+    `**Type:** ${typeLabels[session.type ?? 'gumroad'] ?? session.type}`,
+  ];
+
+  if (session.type === 'discord_role') {
+    detailLines.push(`**Source Server ID:** \`${session.sourceGuildId}\``);
+    detailLines.push(`**Source Role:** <@&${session.sourceRoleId}>`);
+  } else if (session.urlOrId) {
+    detailLines.push(`**Product:** \`${session.urlOrId}\``);
+  }
+
+  detailLines.push(`**Assigns Role:** <@&${roleId}>`);
+
+  const embed = new EmbedBuilder()
+    .setTitle('✅ Ready to add')
+    .setColor(0x57f287)
+    .setDescription(detailLines.join('\n'));
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_product:confirm_add:${userId}:${tenantId}`)
+      .setLabel('Add Product')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`creator_product:cancel_add:${tenantId}`)
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  await interaction.update({ embeds: [embed], components: [row] });
+}
+
+/** Step 4: Confirmed — create the rule */
+export async function handleProductConfirmAdd(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: 'Session expired. Please run `/creator-admin product add` again.',
+      components: [],
+      embeds: [],
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
 
   try {
+    const { type, urlOrId, sourceGuildId, sourceRoleId, roleId, guildId, guildLinkId } = session;
+
+    if (!roleId) throw new Error('No role selected');
+
     let productId: string;
     let catalogProductId: Id<'product_catalog'> | undefined;
 
-    if (source === 'cross_server') {
-      const resolved = await convex.query(api.role_rules.resolveProductByUrl as any, {
-        url: urlOrId!,
-      });
-      if (!resolved) {
-        await interaction.editReply({
-          content:
-            'Product not found for cross-server verification. Add the product link in the catalog first.',
-        });
-        return;
-      }
-      productId = resolved.productId;
-      catalogProductId = resolved.catalogProductId;
-    } else if (source === 'gumroad') {
-      const parsed = parseGumroadProductId(urlOrId!);
-      if (!parsed) {
-        await interaction.editReply({
-          content: 'Could not parse Gumroad product ID from URL. Use format: gumroad.com/l/xxx or gumroad.com/products/xxx',
-        });
-        return;
-      }
-      const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
-        apiSecret,
-        tenantId: ctx.tenantId,
-        productId: parsed,
-        providerProductRef: parsed,
-      });
-      productId = result.productId;
-      catalogProductId = result.catalogProductId;
-    } else if (source === 'jinxxy') {
-      const parsed = parseJinxxyProductId(urlOrId!);
-      if (!parsed) {
-        await interaction.editReply({
-          content: 'Could not parse Jinxxy product ID from URL.',
-        });
-        return;
-      }
-      const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
-        apiSecret,
-        tenantId: ctx.tenantId,
-        productId: parsed,
-        providerProductRef: parsed,
-      });
-      productId = result.productId;
-      catalogProductId = result.catalogProductId;
-    } else if (source === 'discord_role') {
-      if (!sourceGuildId || !sourceRoleId) {
-        await interaction.editReply({
-          content:
-            'For Discord role (other server), provide `source_guild_id` and `source_role_id`. The bot must be in the source guild. Get IDs from Server Settings → right-click role/copy ID (Developer Mode on).',
-        });
-        return;
-      }
+    if (type === 'discord_role') {
+      if (!sourceGuildId || !sourceRoleId) throw new Error('Source guild/role ID missing');
       const result = await convex.mutation(api.role_rules.addProductFromDiscordRole as any, {
         apiSecret,
-        tenantId: ctx.tenantId,
-        sourceGuildId: sourceGuildId.trim(),
-        requiredRoleId: sourceRoleId.trim(),
-        guildId: ctx.guildId,
-        guildLinkId: ctx.guildLinkId,
-        verifiedRoleId: role.id,
+        tenantId,
+        sourceGuildId,
+        requiredRoleId: sourceRoleId,
+        guildId,
+        guildLinkId,
+        verifiedRoleId: roleId,
       });
       productId = result.productId;
-      const ruleId = result.ruleId;
-      track(interaction.user.id, 'product_added', {
-        tenantId: ctx.tenantId,
-        guildId: ctx.guildId,
-        productId,
-        ruleId,
-      });
+      productSessions.delete(sessionKey);
+
+      track(interaction.user.id, 'product_added', { tenantId, guildId, productId });
       await interaction.editReply({
-        content: `Discord role rule added: users with <@&${sourceRoleId}> in the source server get ${role.name}. Product ID: \`${productId}\``,
+        content: `✅ Discord role rule added! Users with the source role will receive <@&${roleId}>.`,
+        components: [],
+        embeds: [],
       });
       return;
+    }
+
+    if (type === 'gumroad') {
+      const parsed = parseGumroadProductId(urlOrId ?? '');
+      if (!parsed) throw new Error('Could not parse Gumroad product ID from the provided URL');
+      const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
+        apiSecret,
+        tenantId,
+        productId: parsed,
+        providerProductRef: parsed,
+      });
+      productId = result.productId;
+      catalogProductId = result.catalogProductId;
+    } else if (type === 'jinxxy') {
+      const parsed = parseJinxxyProductId(urlOrId ?? '');
+      if (!parsed) throw new Error('Could not parse Jinxxy product ID from the provided URL');
+      const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
+        apiSecret,
+        tenantId,
+        productId: parsed,
+        providerProductRef: parsed,
+      });
+      productId = result.productId;
+      catalogProductId = result.catalogProductId;
+    } else if (type === 'license') {
+      const parsed = urlOrId?.trim() ?? 'license';
+      const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
+        apiSecret,
+        tenantId,
+        productId: parsed,
+        providerProductRef: parsed,
+      });
+      productId = result.productId;
+      catalogProductId = result.catalogProductId;
     } else {
-      await interaction.editReply({ content: 'Unknown source type.' });
-      return;
+      throw new Error('Unknown product type');
     }
 
     const { ruleId } = await convex.mutation(api.role_rules.createRoleRule as any, {
       apiSecret,
-      tenantId: ctx.tenantId,
-      guildId: ctx.guildId,
-      guildLinkId: ctx.guildLinkId,
+      tenantId,
+      guildId,
+      guildLinkId,
       productId,
       catalogProductId,
-      verifiedRoleId: role.id,
+      verifiedRoleId: roleId,
     });
 
-    track(interaction.user.id, 'product_added', {
-      tenantId: ctx.tenantId,
-      guildId: ctx.guildId,
-      productId,
-      ruleId,
-    });
+    productSessions.delete(sessionKey);
+    track(interaction.user.id, 'product_added', { tenantId, guildId, productId, ruleId });
 
     await interaction.editReply({
-      content: `Product **${productId}** linked to role ${role.name}. Rule ID: \`${ruleId}\``,
+      content: `✅ Product **${productId}** mapped to <@&${roleId}>. Users who verify this product will automatically receive the role.`,
+      components: [],
+      embeds: [],
     });
   } catch (err) {
+    productSessions.delete(sessionKey);
     await interaction.editReply({
-      content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+      content: `❌ Failed to create mapping: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+      components: [],
+      embeds: [],
     });
   }
 }
 
+/** Cancel button — clears session */
+export async function handleProductCancelAdd(
+  interaction: ButtonInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  productSessions.delete(sessionKey);
+
+  await interaction.update({
+    content: 'Cancelled. No changes were made.',
+    components: [],
+    embeds: [],
+  });
+}
+
+/** /creator-admin product list */
 export async function handleProductList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
-  apiSecret: string,
+  _apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -178,7 +476,8 @@ export async function handleProductList(
 
   if (!rules.length) {
     await interaction.editReply({
-      content: 'No product-role mappings for this server.',
+      content:
+        'No product-role mappings for this server. Use `/creator-admin product add` to create one.',
     });
     return;
   }
@@ -190,7 +489,7 @@ export async function handleProductList(
       rules
         .map(
           (r: { productId: string; verifiedRoleId: string; enabled: boolean }) =>
-            `• \`${r.productId}\` → <@&${r.verifiedRoleId}> ${r.enabled ? '✓' : '(disabled)'}`,
+            `• \`${r.productId}\` → <@&${r.verifiedRoleId}> ${r.enabled ? '✅' : '(disabled)'}`,
         )
         .join('\n'),
     );
@@ -198,23 +497,24 @@ export async function handleProductList(
   await interaction.editReply({ embeds: [embed] });
 }
 
+/** /creator-admin product remove */
 export async function handleProductRemove(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  _ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   const productId = interaction.options.getString('product_id', true);
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const rules = await convex.query(api.role_rules.getByTenant as any, {
-    tenantId: _ctx.tenantId,
+    tenantId: ctx.tenantId,
   });
   const matching = rules.filter((r: { productId: string }) => r.productId === productId);
 
   if (!matching.length) {
     await interaction.editReply({
-      content: `No rule found for product \`${productId}\`.`,
+      content: `No rule found for product \`${productId}\`. Use \`/creator-admin product list\` to see all mappings.`,
     });
     return;
   }
@@ -229,4 +529,14 @@ export async function handleProductRemove(
   await interaction.editReply({
     content: `Removed ${matching.length} rule(s) for product \`${productId}\`.`,
   });
+}
+
+// Legacy handleProductAdd kept for backwards compat (maps to interactive flow)
+export async function handleProductAdd(
+  interaction: ChatInputCommandInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
+): Promise<void> {
+  return handleProductAddInteractive(interaction, ctx);
 }

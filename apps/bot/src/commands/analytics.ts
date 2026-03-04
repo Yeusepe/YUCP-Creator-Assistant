@@ -1,5 +1,7 @@
 /**
- * /creator analytics - Analytics link and summary (admin)
+ * /creator-admin analytics — Analytics link and key metrics (admin)
+ *
+ * Single command combining link and summary.
  */
 
 import { EmbedBuilder, MessageFlags } from 'discord.js';
@@ -9,6 +11,33 @@ import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
 
 const POSTHOG_DASHBOARD_URL = 'https://us.posthog.com';
+
+/** /creator-admin analytics — combined dashboard link + key metrics */
+export async function handleAnalytics(
+  interaction: ChatInputCommandInteraction,
+  convex: ConvexHttpClient,
+  ctx: { tenantId: Id<'tenants'>; guildId: string },
+): Promise<void> {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const stats = await convex.query(api.entitlements.getStatsOverview as any, {
+    tenantId: ctx.tenantId,
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('📊 Analytics')
+    .setColor(0x5865f2)
+    .setDescription(
+      `[View full analytics in PostHog ↗](${POSTHOG_DASHBOARD_URL})\n\nEvents tracked: \`command_used\`, \`verification_started\`, \`verification_completed\`, \`verification_failed\`, \`spawn_button_clicked\`, \`product_added\`, \`suspicious_marked\``,
+    )
+    .addFields(
+      { name: 'Verified Users', value: String(stats.totalVerified), inline: true },
+      { name: 'Products', value: String(stats.totalProducts ?? '—'), inline: true },
+      { name: 'Verified (24h)', value: String(stats.recentGrantsCount), inline: true },
+    );
+
+  await interaction.editReply({ embeds: [embed] });
+}
 
 export async function handleAnalyticsLink(
   interaction: ChatInputCommandInteraction,
