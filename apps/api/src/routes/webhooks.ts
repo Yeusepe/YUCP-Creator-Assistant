@@ -6,10 +6,15 @@
  *
  * Returns 200 quickly after inserting into webhook_events.
  * Normalization runs asynchronously.
+ *
+ * Gumroad verification: resource_subscriptions webhooks have no secret.
+ * We verify by calling Gumroad API GET /sales?id={saleId} with the creator's OAuth token.
  */
 
 import { createLogger } from '@yucp/shared';
+import { GumroadAdapter } from '@yucp/providers';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { decrypt } from '../lib/encrypt';
 import { getStateStore } from '../lib/stateStore';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -20,6 +25,8 @@ const JINXXY_TEST_TTL_MS = 60 * 1000; // 60 seconds
 export interface WebhookConfig {
   convexUrl: string;
   convexApiSecret: string;
+  /** Required for Gumroad API verification (decrypt stored OAuth token) */
+  encryptionSecret: string;
 }
 
 /**
@@ -64,6 +71,12 @@ async function hmacSha256(secret: string, body: string): Promise<string> {
 export function createWebhookRoutes(config: WebhookConfig) {
   const convex = getConvexClientFromUrl(config.convexUrl);
   const apiSecret = config.convexApiSecret;
+  const encryptionSecret = config.encryptionSecret;
+  const gumroadAdapter = new GumroadAdapter({
+    clientId: '',
+    clientSecret: '',
+    redirectUri: '',
+  });
 
   async function getJinxxyWebhookSecret(tenantId: string): Promise<string | null> {
     try {
@@ -138,6 +151,50 @@ export function createWebhookRoutes(config: WebhookConfig) {
           tenantId,
         });
         return new Response('OK', { status: 200 });
+      }
+
+      // API verification: resource_subscriptions webhooks have no secret.
+      // Verify sale exists via Gumroad API when signature is not valid.
+      if (!signatureValid && encryptionSecret) {
+        try {
+          const conn = await convex.query(
+            'providerConnections:getConnectionForBackfill' as any,
+            { apiSecret, tenantId, provider: 'gumroad' }
+          );
+          if (conn?.gumroadAccessTokenEncrypted) {
+            const accessToken = await decrypt(
+              conn.gumroadAccessTokenEncrypted,
+              encryptionSecret
+            );
+            const sale = await gumroadAdapter.getSale(accessToken, saleId);
+            if (sale) {
+              // Sanity check: refunded status should match
+              const apiRefunded = sale.refunded === true;
+              if (apiRefunded === refunded) {
+                signatureValid = true;
+              } else {
+                logger.warn('Gumroad webhook: refunded mismatch', {
+                  tenantId,
+                  saleId,
+                  webhookRefunded: refunded,
+                  apiRefunded,
+                });
+              }
+            }
+          }
+        } catch (err) {
+          logger.warn('Gumroad webhook: API verification failed', {
+            tenantId,
+            saleId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      // Reject unverified webhooks (no signature and API verification failed)
+      if (!signatureValid) {
+        logger.warn('Gumroad webhook: rejected (unverified)', { tenantId, saleId });
+        return new Response('Forbidden', { status: 403 });
       }
 
       const payload = Object.fromEntries(params.entries());

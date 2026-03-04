@@ -418,6 +418,42 @@ export class GumroadAdapter implements ProviderAdapter {
   }
 
   /**
+   * Get a single sale by ID.
+   * Uses GET /v2/sales?id={saleId} - returns the sale if it exists in the creator's account.
+   *
+   * @param accessToken - The OAuth access token
+   * @param saleId - The Gumroad sale ID (from webhook sale_id or order_number)
+   */
+  async getSale(accessToken: string, saleId: string): Promise<GumroadSale | null> {
+    const response = await fetch(
+      `${this.apiBaseUrl}/sales?id=${encodeURIComponent(saleId)}&access_token=${encodeURIComponent(accessToken)}`,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new GumroadApiError(`Failed to fetch sale: ${text}`, response.status);
+    }
+
+    const data = (await response.json()) as GumroadSalesResponse;
+
+    if (!data.success || !data.sales?.length) {
+      return null;
+    }
+
+    return data.sales[0];
+  }
+
+  /**
    * Get a specific product by ID.
    *
    * @param accessToken - The access token
