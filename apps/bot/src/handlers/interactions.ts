@@ -123,17 +123,37 @@ async function handleAutocomplete(
       });
 
       const query = focused.value.toLowerCase();
-      const uniqueProductIds = Array.from<string>(new Set(rules.map((r: any) => r.productId as string)));
+      const rulesWithProductId = rules.map((r: any) => ({
+        productId: r.productId as string,
+        sourceGuildId: r.sourceGuildId as string | undefined,
+        requiredRoleId: r.requiredRoleId as string | undefined,
+      }));
+      const seen = new Set<string>();
+      const unique = rulesWithProductId.filter((r) => {
+        if (seen.has(r.productId)) return false;
+        seen.add(r.productId);
+        return true;
+      });
 
-      const filtered = uniqueProductIds
-        .filter((id: string) => !query || id.toLowerCase().includes(query))
+      const filtered = unique
+        .filter((r) => {
+          const searchLabel = r.productId.startsWith('discord_role:')
+            ? 'discord role other server'
+            : r.productId.toLowerCase();
+          return !query || searchLabel.includes(query);
+        })
         .slice(0, 25);
 
       await interaction.respond(
-        filtered.map((id: string) => ({
-          name: id.slice(0, 100),
-          value: id.slice(0, 100),
-        })),
+        filtered.map((r) => {
+          const label = r.productId.startsWith('discord_role:')
+            ? 'Discord Role (other server)'
+            : r.productId;
+          return {
+            name: label.slice(0, 100),
+            value: r.productId.slice(0, 100),
+          };
+        }),
       );
     } catch {
       await interaction.respond([]);

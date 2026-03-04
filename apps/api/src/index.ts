@@ -253,7 +253,14 @@ async function handleRequest(request: Request): Promise<Response> {
     const file = Bun.file(filePath);
     let html = await file.text();
     const setupToken = url.searchParams.get('s') ?? '';
-    const apiBase = process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+    // Use request origin so API calls work when accessed via tunnel (e.g. Tailscale Funnel).
+    // When behind a proxy, url.origin may be http:// (proxy→backend) but clients use https://.
+    // Use https for non-localhost to avoid mixed-content blocks (HTTPS page fetching HTTP).
+    const proto = request.headers.get('x-forwarded-proto') ?? (url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? 'http' : 'https');
+    const apiBase =
+      url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+        ? (process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? '3001'}`)
+        : `${proto}://${url.hostname}`;
     html = html.replace(/__API_BASE__/g, apiBase);
     html = html.replace(/__SETUP_TOKEN__/g, setupToken);
     return new Response(html, { headers: { 'Content-Type': 'text/html' } });
