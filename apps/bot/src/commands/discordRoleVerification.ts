@@ -1,30 +1,37 @@
 /**
- * /creator discord-role-verification - Enable/disable cross-server role verification
+ * /creator-admin settings cross-server — Cross-server role verification settings
+ *
+ * Shows current status with enable/disable buttons.
+ * Button handlers for enable/disable are routed in interactions.ts.
  */
 
-import { EmbedBuilder, MessageFlags } from 'discord.js';
-import type { ChatInputCommandInteraction } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  MessageFlags,
+} from 'discord.js';
+import type { ButtonInteraction, ChatInputCommandInteraction } from 'discord.js';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
 
+/** /creator-admin settings cross-server — shows status + enable/disable buttons */
 export async function handleDiscordRoleVerification(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
-  apiSecret: string,
+  _apiSecret: string,
   ctx: { tenantId: Id<'tenants'> },
 ): Promise<void> {
-  const subcommand = interaction.options.getSubcommand();
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const tenant = await convex.query(api.tenants.getTenant as any, {
     tenantId: ctx.tenantId,
   });
 
   if (!tenant) {
-    await interaction.reply({
-      content: 'Tenant not found.',
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.editReply({ content: 'Tenant not found.' });
     return;
   }
 
@@ -32,67 +39,94 @@ export async function handleDiscordRoleVerification(
   const enabled = policy.enableDiscordRoleFromOtherServers === true;
   const allowedGuilds = (policy.allowedSourceGuildIds as string[]) ?? [];
 
-  if (subcommand === 'status') {
-    const embed = new EmbedBuilder()
-      .setTitle('Discord Role Verification (Other Servers)')
-      .setColor(enabled ? 0x57f287 : 0xed4245)
-      .addFields(
-        {
-          name: 'Status',
-          value: enabled ? 'Enabled' : 'Disabled',
-          inline: true,
-        },
-        {
-          name: 'Allowed source guilds',
-          value:
-            allowedGuilds.length > 0
-              ? allowedGuilds.map((id) => `\`${id}\``).join(', ')
-              : 'None configured',
-          inline: false,
-        },
-      )
-      .setDescription(
-        enabled
-          ? 'Users can verify by signing in with Discord and proving they have a role in an allowed source server.'
-          : 'Cross-server role verification is disabled. Use `enable` to turn it on.',
-      );
+  const embed = new EmbedBuilder()
+    .setTitle('Cross-Server Role Verification')
+    .setColor(enabled ? 0x57f287 : 0xed4245)
+    .setDescription(
+      enabled
+        ? 'Users can verify by signing in with Discord and proving they have a role in an allowed source server.'
+        : 'Cross-server role verification is currently disabled.',
+    )
+    .addFields(
+      { name: 'Status', value: enabled ? '✅ Enabled' : '❌ Disabled', inline: true },
+      {
+        name: 'Allowed Source Servers',
+        value:
+          allowedGuilds.length > 0
+            ? allowedGuilds.map((id) => `\`${id}\``).join(', ')
+            : 'None configured',
+        inline: false,
+      },
+    );
 
-    await interaction.reply({
-      embeds: [embed],
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_settings:${enabled ? 'disable' : 'enable'}:${ctx.tenantId}`)
+      .setLabel(enabled ? 'Disable' : 'Enable')
+      .setStyle(enabled ? ButtonStyle.Danger : ButtonStyle.Success),
+  );
 
-  if (subcommand === 'disable') {
-    await convex.mutation(api.tenants.updateTenantPolicy as any, {
-      apiSecret,
-      tenantId: ctx.tenantId,
-      policy: { enableDiscordRoleFromOtherServers: false },
-    });
-    await interaction.reply({
-      content: 'Discord role verification from other servers has been **disabled**.',
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
+  await interaction.editReply({ embeds: [embed], components: [row] });
+}
 
-  if (subcommand === 'enable') {
-    await convex.mutation(api.tenants.updateTenantPolicy as any, {
-      apiSecret,
-      tenantId: ctx.tenantId,
-      policy: { enableDiscordRoleFromOtherServers: true },
-    });
-    await interaction.reply({
-      content:
-        'Discord role verification from other servers has been **enabled**. Ensure `allowedSourceGuildIds` is configured in setup (source guild IDs where users must have the required role).',
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
+/** Button: enable cross-server role verification */
+export async function handleSettingsEnable(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  await interaction.deferUpdate();
 
-  await interaction.reply({
-    content: 'Unknown subcommand.',
-    flags: MessageFlags.Ephemeral,
+  await convex.mutation(api.tenants.updateTenantPolicy as any, {
+    apiSecret,
+    tenantId,
+    policy: { enableDiscordRoleFromOtherServers: true },
   });
+
+  const embed = new EmbedBuilder()
+    .setTitle('Cross-Server Role Verification')
+    .setColor(0x57f287)
+    .setDescription(
+      '✅ Cross-server role verification has been **enabled**.\n\nMake sure `allowedSourceGuildIds` is configured in your setup (the server IDs where users must have the required role).',
+    );
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_settings:disable:${tenantId}`)
+      .setLabel('Disable')
+      .setStyle(ButtonStyle.Danger),
+  );
+
+  await interaction.editReply({ embeds: [embed], components: [row] });
+}
+
+/** Button: disable cross-server role verification */
+export async function handleSettingsDisable(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  await interaction.deferUpdate();
+
+  await convex.mutation(api.tenants.updateTenantPolicy as any, {
+    apiSecret,
+    tenantId,
+    policy: { enableDiscordRoleFromOtherServers: false },
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('Cross-Server Role Verification')
+    .setColor(0xed4245)
+    .setDescription('❌ Cross-server role verification has been **disabled**.');
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_settings:enable:${tenantId}`)
+      .setLabel('Enable')
+      .setStyle(ButtonStyle.Success),
+  );
+
+  await interaction.editReply({ embeds: [embed], components: [row] });
 }
