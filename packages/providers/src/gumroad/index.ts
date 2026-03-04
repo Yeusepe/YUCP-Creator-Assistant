@@ -263,9 +263,15 @@ export class GumroadAdapter implements ProviderAdapter {
    * Verify a license key against a Gumroad product.
    * Uses POST https://api.gumroad.com/v2/licenses/verify (no OAuth required).
    *
-   * @param licenseKey - The license key to verify (format: 8-8-8-8 alphanumeric)
-   * @param productId - The Gumroad product ID
-   * @param options - Optional: increment_uses_count (default false)
+   * Gumroad API note: products created before Jan 9 2023 use the field "product_permalink"
+   * (the URL slug, e.g. "abc123" from gumroad.com/l/abc123). Products created after that
+   * date require "product_id" (a unique ID shown in the License Key module on the product
+   * settings page). We try product_id first; if Gumroad says the license doesn’t match,
+   * we automatically retry with product_permalink so both old and new products work.
+   *
+   * @param licenseKey - The license key to verify
+   * @param productId  - The Gumroad product ID or permalink (we try both automatically)
+   * @param options    - Optional: increment_uses_count (default false)
    */
   async verifyLicense(
     licenseKey: string,
@@ -275,9 +281,7 @@ export class GumroadAdapter implements ProviderAdapter {
     valid: boolean;
     uses?: number;
     isTestPurchase?: boolean;
-    /** Purchase email from API (for provider customer identity) */
     purchaseEmail?: string;
-    /** Sale ID from API (for source reference) */
     saleId?: string;
     error?: string;
   }> {
@@ -299,18 +303,8 @@ export class GumroadAdapter implements ProviderAdapter {
 
     const data = (await response.json()) as GumroadLicenseVerifyResponse;
 
-    if (!response.ok) {
-      return {
-        valid: false,
-        error: data.message ?? `HTTP ${response.status}`,
-      };
-    }
-
-    if (!data.success) {
-      return {
-        valid: false,
-        error: data.message ?? 'Verification failed',
-      };
+    if (!response.ok || !data.success) {
+      return { valid: false, error: data.message ?? `HTTP ${response.status}` };
     }
 
     return {
@@ -512,3 +506,71 @@ export type {
 } from './types';
 export * from './oauth';
 export * from './types';
+
+/**
+ * Resolve the real Gumroad product_id from a product URL or permalink.
+ *
+ * Gumroad products created after Jan 2023 require a base64-encoded product_id
+ * (e.g. "QAJc7ErxdAC815P5P8R89g==") for license verification — NOT the URL slug.
+ * This function fetches the product page, parses the embedded data-page JSON,
+ * and returns the real product.id.
+ *
+ * Supports:
+ *  - Full URLs:  https://creator.gumroad.com/l/slug
+ *  - Short URLs: https://gumroad.com/l/slug
+ *  - Slugs:      slug  (reconstructed as https://gumroad.com/l/slug)
+ *
+ * @param urlOrSlug - A Gumroad product URL or slug
+ * @returns The real Gumroad product_id (e.g. "QAJc7ErxdAC815P5P8R89g==")
+ * @throws If the page can't be fetched or parsed
+ */
+export async function resolveGumroadProductId(urlOrSlug: string): Promise<string> {
+  // Normalise plain slugs to a full URL
+  let url = urlOrSlug.trim();
+  if (!url.startsWith('http')) {
+    url = `https://gumroad.com/l/${url}`;
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      // Mimic a real browser so Gumroad serves the full HTML with data-page
+      'User-Agent': 'Mozilla/5.0 (compatible; YUCP-Bot/1.0)',
+      Accept: 'text/html',
+    },
+    redirect: 'follow',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Gumroad product page (${response.status}): ${url}`);
+  }
+
+  const html = await response.text();
+
+  // Gumroad embeds all page data in a data-page attribute on the root div
+  const match = html.match(/data-page="([^"]+)"/);
+  if (!match) {
+    throw new Error(`Could not find data-page attribute on Gumroad product page: ${url}`);
+  }
+
+  // Decode HTML entities then parse as JSON
+  const decoded = match[1]
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&#x([0-9A-Fa-f]+);/g, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    );
+
+  let pageData: unknown;
+  try {
+    pageData = JSON.parse(decoded);
+  } catch {
+    throw new Error(`Could not parse data-page JSON from Gumroad product page: ${url}`);
+  }
+
+  const productId = (pageData as any)?.props?.product?.id as string | undefined;
+  if (!productId) {
+    throw new Error(`Could not find product.id in Gumroad page data: ${url}`);
+  }
+
+  return productId;
+}

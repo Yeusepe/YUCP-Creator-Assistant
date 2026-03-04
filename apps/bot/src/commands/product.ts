@@ -29,7 +29,12 @@ import type {
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
+import { resolveGumroadProductId } from '@yucp/providers';
+import { createLogger } from '@yucp/shared';
+
+const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 // In-memory session store for multi-step product add flow
 interface ProductSession {
@@ -99,22 +104,22 @@ export async function handleProductAddInteractive(
         .setLabel('Gumroad Product')
         .setDescription('Sold on gumroad.com')
         .setValue('gumroad')
-        .setEmoji('🛒'),
+        .setEmoji(Emoji.Gumorad),
       new StringSelectMenuOptionBuilder()
         .setLabel('Jinxxy Product')
         .setDescription('Sold on jinxxy.com or jinxxy.app')
         .setValue('jinxxy')
-        .setEmoji('🏪'),
+        .setEmoji(Emoji.Jinxxy),
       new StringSelectMenuOptionBuilder()
         .setLabel('License Key Only')
         .setDescription('Manual license codes (Gumroad or Jinxxy)')
         .setValue('license')
-        .setEmoji('🔑'),
+        .setEmoji(Emoji.Key),
       new StringSelectMenuOptionBuilder()
         .setLabel('Discord Role (Other Server)')
         .setDescription('User has a specific role in another server')
         .setValue('discord_role')
-        .setEmoji('🔗'),
+        .setEmoji(Emoji.Link),
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
@@ -226,7 +231,7 @@ export async function handleProductTypeSelect(
     license: 'Product ID (or leave generic)',
   };
   const placeholders: Record<string, string> = {
-    gumroad: 'e.g., gumroad.com/l/abc123 or abc123',
+    gumroad: 'URL (gumroad.com/l/abc123) or product ID from Gumroad License Key settings',
     jinxxy: 'e.g., jinxxy.com/store/product-name or product-id',
     license: 'Product ID to associate with license keys',
   };
@@ -516,13 +521,31 @@ export async function handleProductConfirmAdd(
     }
 
     if (type === 'gumroad') {
-      const parsed = parseGumroadProductId(urlOrId ?? '');
-      if (!parsed) throw new Error('Could not parse Gumroad product ID from the provided URL');
+      const slug = parseGumroadProductId(urlOrId ?? '');
+      if (!slug) throw new Error('Could not parse Gumroad product URL or ID');
+
+      // Reconstruct the product URL so we can resolve the real product_id.
+      // Gumroad products created after Jan 2023 require the internal product_id
+      // (e.g. "QAJc7ErxdAC815P5P8R89g=="), not the URL slug.
+      const productUrl = (urlOrId ?? '').startsWith('http')
+        ? urlOrId!
+        : `https://gumroad.com/l/${slug}`;
+
+      let resolvedProductId: string;
+      try {
+        resolvedProductId = await resolveGumroadProductId(productUrl);
+      } catch (resolveErr) {
+        throw new Error(
+          `Could not resolve Gumroad product ID from "${productUrl}": ${resolveErr instanceof Error ? resolveErr.message : String(resolveErr)}`,
+        );
+      }
+
       const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
         apiSecret,
         tenantId,
-        productId: parsed,
-        providerProductRef: parsed,
+        productId: resolvedProductId,
+        providerProductRef: resolvedProductId,
+        canonicalSlug: slug,
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
@@ -560,7 +583,6 @@ export async function handleProductConfirmAdd(
       catalogProductId,
       verifiedRoleId: roleId,
     });
-
     productSessions.delete(sessionKey);
     track(interaction.user.id, 'product_added', { tenantId, guildId, productId, ruleId });
 
@@ -570,6 +592,7 @@ export async function handleProductConfirmAdd(
       embeds: [],
     });
   } catch (err) {
+
     productSessions.delete(sessionKey);
     await interaction.editReply({
       content: `❌ Failed to create mapping: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,

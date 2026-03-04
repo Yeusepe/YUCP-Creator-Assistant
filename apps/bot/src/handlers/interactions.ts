@@ -10,6 +10,7 @@ import {
   ChannelSelectMenuBuilder,
   MessageFlags,
   PermissionFlagsBits,
+  type AutocompleteInteraction,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   type ModalSubmitInteraction,
@@ -57,9 +58,14 @@ export async function handleInteraction(
     | ModalSubmitInteraction
     | StringSelectMenuInteraction
     | RoleSelectMenuInteraction
+    | AutocompleteInteraction
     | import('discord.js').ChannelSelectMenuInteraction,
   ctx: InteractionHandlerContext,
 ): Promise<void> {
+  if (interaction.isAutocomplete()) {
+    await handleAutocomplete(interaction, ctx);
+    return;
+  }
   if (interaction.isChatInputCommand()) {
     await handleSlashCommand(interaction, ctx);
     return;
@@ -85,6 +91,100 @@ export async function handleInteraction(
     return;
   }
 }
+
+// ── Autocomplete handler ──────────────────────────────────────────────────────
+
+async function handleAutocomplete(
+  interaction: AutocompleteInteraction,
+  ctx: InteractionHandlerContext,
+): Promise<void> {
+  const { commandName, options } = interaction;
+
+  if (commandName === 'creator-admin') {
+    const focused = options.getFocused(true);
+    if (focused.name !== 'product_id') {
+      await interaction.respond([]);
+      return;
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) { await interaction.respond([]); return; }
+
+    try {
+      const guildLink = await ctx.convex.query(api.guildLinks.getByDiscordGuildForBot as any, {
+        apiSecret: ctx.apiSecret,
+        discordGuildId: guildId,
+      });
+      if (!guildLink) { await interaction.respond([]); return; }
+
+      const rules = await ctx.convex.query(api.role_rules.getByGuild as any, {
+        tenantId: guildLink.tenantId,
+        guildId,
+      });
+
+      const query = focused.value.toLowerCase();
+      const uniqueProductIds = Array.from<string>(new Set(rules.map((r: any) => r.productId as string)));
+
+      const filtered = uniqueProductIds
+        .filter((id: string) => !query || id.toLowerCase().includes(query))
+        .slice(0, 25);
+
+      await interaction.respond(
+        filtered.map((id: string) => ({
+          name: id.slice(0, 100),
+          value: id.slice(0, 100),
+        })),
+      );
+    } catch {
+      await interaction.respond([]);
+    }
+    return;
+  }
+
+  if (commandName !== 'creator') {
+    await interaction.respond([]);
+    return;
+  }
+
+  const focused = options.getFocused(true);
+  if (focused.name !== 'product') {
+    await interaction.respond([]);
+    return;
+  }
+
+  const guildId = interaction.guildId;
+  if (!guildId) { await interaction.respond([]); return; }
+
+  try {
+    const guildLink = await ctx.convex.query(api.guildLinks.getByDiscordGuildForBot as any, {
+      apiSecret: ctx.apiSecret,
+      discordGuildId: guildId,
+    });
+    if (!guildLink) { await interaction.respond([]); return; }
+
+    const products = (await ctx.convex.query('productResolution:getProductsForTenant' as any, {
+      tenantId: guildLink.tenantId,
+    })) as Array<{ productId: string; provider: string; providerProductRef: string; canonicalSlug?: string }>;
+
+    const query = focused.value.toLowerCase();
+    const filtered = products
+      .filter((p) => {
+        const label = (p.canonicalSlug ?? p.productId).toLowerCase();
+        return !query || label.includes(query) || p.provider.includes(query);
+      })
+      .slice(0, 25);
+
+    await interaction.respond(
+      filtered.map((p) => ({
+        name: `${p.provider === 'gumroad' ? '🟣' : '🔷'} ${p.canonicalSlug ?? p.productId}`,
+        value: `${p.provider}::${p.providerProductRef}`,
+      })),
+    );
+  } catch {
+    await interaction.respond([]);
+  }
+}
+
 
 async function handleSlashCommand(
   interaction: ChatInputCommandInteraction,
@@ -250,6 +350,50 @@ async function handleUserCommand(
   const tenantId = guildLink.tenantId as Id<'tenants'>;
 
   try {
+    const subcommand = interaction.options.getSubcommand(false);
+
+    // /creator verify [product] — fast path: skip the picker, go straight to modal
+    if (subcommand === 'verify') {
+      const productValue = interaction.options.getString('product', true);
+      // productValue format: "{provider}::{providerProductRef}"
+      const sepIdx = productValue.indexOf('::');
+      if (sepIdx === -1) {
+        await interaction.reply({
+          content: '❌ Invalid product selection. Please choose from the autocomplete list.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      const provider = productValue.slice(0, sepIdx);
+      const providerProductRef = productValue.slice(sepIdx + 2);
+      const isGumroad = provider === 'gumroad';
+      const {
+        ActionRowBuilder,
+        ModalBuilder,
+        TextInputBuilder,
+        TextInputStyle,
+      } = await import('discord.js');
+      const modal = new ModalBuilder()
+        .setCustomId(`creator_verify:lp_modal:${tenantId}:${providerProductRef}:${provider}`)
+        .setTitle(isGumroad ? 'Enter Gumroad License Key' : 'Enter Jinxxy License Key');
+      const keyInput = new TextInputBuilder()
+        .setCustomId('license_key')
+        .setLabel(isGumroad ? 'License Key (XXXX-XXXX-XXXX-XXXX)' : 'License Key')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder(
+          isGumroad ? 'XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX' : 'Enter your license key',
+        )
+        .setRequired(true)
+        .setMinLength(8)
+        .setMaxLength(200);
+      modal.addComponents(
+        new ActionRowBuilder<any>().addComponents(keyInput),
+      );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // Default: /creator with no subcommand — show status panel
     const { handleCreatorCommand } = await import('../commands/verify');
     await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, process.env.API_BASE_URL, {
       tenantId,
@@ -312,8 +456,8 @@ async function handleButton(
 
   if (customId.startsWith('creator_verify:license:')) {
     const tenantId = customId.slice('creator_verify:license:'.length) as Id<'tenants'>;
-    const { buildLicenseModal } = await import('../commands/verify');
-    await interaction.showModal(buildLicenseModal(tenantId));
+    const { showProductPicker } = await import('../commands/licenseVerify');
+    await showProductPicker(interaction, ctx.convex, ctx.apiSecret, tenantId);
     return;
   }
 
@@ -325,6 +469,24 @@ async function handleButton(
       tenantId,
       guildId,
     });
+    return;
+  }
+
+  // ─── License picker — filter/page navigation ───────────────────────────────
+  if (customId.startsWith('creator_verify:lp_filter:') || customId.startsWith('creator_verify:lp_page:')) {
+    // Format: creator_verify:lp_filter:{tenantId}:{filter}:{page}
+    //      OR creator_verify:lp_page:{tenantId}:{filter}:{page}
+    const prefix = customId.startsWith('creator_verify:lp_filter:')
+      ? 'creator_verify:lp_filter:'
+      : 'creator_verify:lp_page:';
+    const rest = customId.slice(prefix.length);
+    const parts = rest.split(':');
+    // parts[0] = tenantId, parts[1] = filter, parts[2] = page
+    const tenantId = parts[0] as Id<'tenants'>;
+    const filter = (parts[1] ?? 'all') as 'all' | 'gumroad' | 'jinxxy';
+    const page = parseInt(parts[2] ?? '0', 10);
+    const { handlePickerNavigation } = await import('../commands/licenseVerify');
+    await handlePickerNavigation(interaction, ctx.convex, ctx.apiSecret, tenantId, filter, page);
     return;
   }
 
@@ -439,7 +601,7 @@ async function handleButton(
       );
       const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
         jinxxyButton ??
-          new ButtonBuilder().setCustomId('dummy_btn').setLabel('Dummy').setStyle(1),
+        new ButtonBuilder().setCustomId('dummy_btn').setLabel('Dummy').setStyle(1),
       );
       await interaction.update({ embeds: [embed], components: [row1, row2] });
       return;
@@ -464,14 +626,9 @@ async function handleModalSubmit(
     return;
   }
 
-  if (customId.startsWith('creator_verify:license_modal:')) {
-    const { handleLicenseModalSubmit } = await import('../commands/verify');
-    await handleLicenseModalSubmit(
-      interaction,
-      ctx.convex,
-      ctx.apiSecret,
-      process.env.API_BASE_URL,
-    );
+  if (customId.startsWith('creator_verify:lp_modal:')) {
+    const { handleLicenseKeyModal } = await import('../commands/licenseVerify');
+    await handleLicenseKeyModal(interaction, ctx.convex, ctx.apiSecret, process.env.API_BASE_URL);
     return;
   }
 
@@ -516,6 +673,17 @@ async function handleSelectMenu(
 
   if (customId.startsWith('creator_setup:')) {
     await handleSetupSelect(interaction as any, ctx.convex, ctx.apiSecret);
+    return;
+  }
+
+  // Product picker — product selected
+  if (customId.startsWith('creator_verify:lp_select:')) {
+    // Format: creator_verify:lp_select:{tenantId}:{filter}:{page}
+    const rest = customId.slice('creator_verify:lp_select:'.length);
+    const parts = rest.split(':');
+    const tenantId = parts[0] as Id<'tenants'>;
+    const { handleProductSelected } = await import('../commands/licenseVerify');
+    await handleProductSelected(interaction, tenantId);
     return;
   }
 

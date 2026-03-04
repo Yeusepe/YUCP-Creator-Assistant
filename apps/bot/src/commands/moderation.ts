@@ -23,6 +23,7 @@ import type {
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
 
 /** /creator-admin moderation mark @user — shows reason select menu */
@@ -44,12 +45,12 @@ export async function handleModerationMark(
         .setLabel('Duplicate license')
         .setDescription('Using the same license key on multiple accounts')
         .setValue('Duplicate license')
-        .setEmoji('🔄'),
+        .setEmoji(Emoji.Refresh),
       new StringSelectMenuOptionBuilder()
         .setLabel('Chargebacks')
         .setDescription('Reversed payment after receiving access')
         .setValue('Chargebacks')
-        .setEmoji('💳'),
+        .setEmoji(Emoji.CreditCard),
       new StringSelectMenuOptionBuilder()
         .setLabel('Piracy')
         .setDescription('Using pirated or stolen license key')

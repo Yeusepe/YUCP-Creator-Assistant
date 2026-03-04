@@ -254,7 +254,7 @@ export const updateRoleRule = mutation({
 });
 
 /**
- * Delete a role rule.
+ * Delete a role rule and clean up orphaned catalog entries.
  */
 export const deleteRoleRule = mutation({
   args: {
@@ -274,6 +274,30 @@ export const deleteRoleRule = mutation({
 
     await ctx.db.delete(args.ruleId);
 
+    // If this rule had a catalogProductId, check if any other rules still reference it
+    if (rule.catalogProductId) {
+      const remainingRefs = await ctx.db
+        .query('role_rules')
+        .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', rule.catalogProductId!))
+        .first();
+
+      // If no other rules reference this catalog product, purge it to keep the picker clean
+      if (!remainingRefs) {
+        // Find and delete associated links first
+        const links = await ctx.db
+          .query('catalog_product_links')
+          .filter((q) => q.eq(q.field('catalogProductId'), rule.catalogProductId!))
+          .collect();
+
+        for (const link of links) {
+          await ctx.db.delete(link._id);
+        }
+
+        // Then delete the catalog entry itself
+        await ctx.db.delete(rule.catalogProductId);
+      }
+    }
+
     return { success: true };
   },
 });
@@ -287,6 +311,7 @@ export const addProductFromGumroad = mutation({
     tenantId: v.id('tenants'),
     productId: v.string(),
     providerProductRef: v.string(),
+    canonicalSlug: v.optional(v.string()),
   },
   returns: v.object({
     productId: v.string(),
@@ -311,6 +336,7 @@ export const addProductFromGumroad = mutation({
       productId: args.productId,
       provider: 'gumroad',
       providerProductRef: args.providerProductRef,
+      canonicalSlug: args.canonicalSlug,
       status: 'active',
       supportsAutoDiscovery: true,
       createdAt: now,
