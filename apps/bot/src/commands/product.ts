@@ -41,6 +41,7 @@ interface ProductSession {
   sourceGuildId?: string;
   sourceRoleId?: string;
   roleId?: string;
+  discordRoleSetupToken?: string;
   expiresAt: number;
 }
 
@@ -145,28 +146,76 @@ export async function handleProductTypeSelect(
   session.type = selectedType;
 
   if (selectedType === 'discord_role') {
-    const modal = new ModalBuilder()
-      .setCustomId(`creator_product:discord_modal:${interaction.user.id}:${tenantId}`)
-      .setTitle('Step 2 of 3: Discord Role Details')
-      .addComponents(
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId('source_guild_id')
-            .setLabel('Source Server ID')
-            .setPlaceholder('Right-click the server → Copy Server ID (requires Developer Mode)')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true),
-        ),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId('source_role_id')
-            .setLabel('Source Role ID')
-            .setPlaceholder('Right-click the role → Copy Role ID (requires Developer Mode)')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true),
-        ),
+    const apiBase = process.env.API_BASE_URL;
+    const apiSecret = process.env.CONVEX_API_SECRET;
+
+    if (!apiBase || !apiSecret) {
+      // Fallback: show modal if API_BASE_URL not configured
+      const modal = new ModalBuilder()
+        .setCustomId(`creator_product:discord_modal:${interaction.user.id}:${tenantId}`)
+        .setTitle('Step 2 of 3: Discord Role Details')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('source_guild_id')
+              .setLabel('Source Server ID')
+              .setPlaceholder('Right-click the server → Copy Server ID (requires Developer Mode)')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true),
+          ),
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('source_role_id')
+              .setLabel('Source Role ID')
+              .setPlaceholder('Right-click the role → Copy Role ID (requires Developer Mode)')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // Create a setup session on the API for the web flow
+    await interaction.deferUpdate();
+    try {
+      const res = await fetch(`${apiBase}/api/setup/discord-role-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          guildId: session.guildId,
+          adminDiscordUserId: interaction.user.id,
+          apiSecret,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      const { token } = (await res.json()) as { token: string };
+      session.discordRoleSetupToken = token;
+
+      const setupUrl = `${apiBase}/discord-role-setup?s=${encodeURIComponent(token)}`;
+      const doneButtonId = `creator_product:discord_role_done:${interaction.user.id}:${tenantId}`;
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setLabel('Open Setup Page').setStyle(ButtonStyle.Link).setURL(setupUrl),
+        new ButtonBuilder()
+          .setCustomId(doneButtonId)
+          .setLabel("Done, I've selected it ✓")
+          .setStyle(ButtonStyle.Success),
       );
-    await interaction.showModal(modal);
+
+      await interaction.editReply({
+        content:
+          '**Step 2 of 3:** Open the setup page to pick a server and role.\n\nSign in with Discord, choose the source server, and enter the role ID. Then come back and click **Done**.',
+        components: [row],
+      });
+    } catch (err) {
+      await interaction.editReply({
+        content: `❌ Failed to start setup: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+        components: [],
+      });
+    }
     return;
   }
 
@@ -266,6 +315,92 @@ export async function handleProductDiscordModal(
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
+}
+
+/** "Done" button after web Discord Role setup — fetches result and proceeds to role select */
+export async function handleProductDiscordRoleDone(
+  interaction: ButtonInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: 'Session expired. Please run `/creator-admin product add` again.',
+      components: [],
+    });
+    return;
+  }
+
+  if (!session.discordRoleSetupToken) {
+    await interaction.update({
+      content: '❌ Setup token missing. Please run `/creator-admin product add` again.',
+      components: [],
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+
+  const apiBase = process.env.API_BASE_URL;
+  if (!apiBase) {
+    await interaction.editReply({
+      content: '❌ API_BASE_URL not configured.',
+      components: [],
+    });
+    return;
+  }
+
+  try {
+    const res = await fetch(
+      `${apiBase}/api/setup/discord-role-result?s=${encodeURIComponent(session.discordRoleSetupToken)}`,
+    );
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const result = (await res.json()) as
+      | { completed: false }
+      | { completed: true; sourceGuildId: string; sourceRoleId: string };
+
+    if (!result.completed) {
+      // Re-show the link button so they can go back
+      const setupUrl = `${apiBase}/discord-role-setup?s=${encodeURIComponent(session.discordRoleSetupToken)}`;
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setLabel('Open Setup Page').setStyle(ButtonStyle.Link).setURL(setupUrl),
+        new ButtonBuilder()
+          .setCustomId(`creator_product:discord_role_done:${userId}:${tenantId}`)
+          .setLabel("Done, I've selected it ✓")
+          .setStyle(ButtonStyle.Success),
+      );
+      await interaction.editReply({
+        content:
+          "⚠️ You haven't saved your selection yet. Open the setup page, pick a server and role, then come back and click **Done**.",
+        components: [row],
+      });
+      return;
+    }
+
+    session.sourceGuildId = result.sourceGuildId;
+    session.sourceRoleId = result.sourceRoleId;
+    session.discordRoleSetupToken = undefined;
+
+    const roleSelect = new RoleSelectMenuBuilder()
+      .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+      .setPlaceholder('Select the role to assign in THIS server...');
+
+    const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+
+    await interaction.editReply({
+      content:
+        '**Step 3 of 3:** Which role should users receive **in this server** when they verify?\n*(Select a role from this server — not the source server.)*',
+      components: [row],
+    });
+  } catch (err) {
+    await interaction.editReply({
+      content: `❌ Failed to retrieve setup result: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+      components: [],
+    });
+  }
 }
 
 /** Step 3: Role selected — show confirmation */

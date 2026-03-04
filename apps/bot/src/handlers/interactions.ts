@@ -384,6 +384,17 @@ async function handleButton(
     return;
   }
 
+  if (customId.startsWith('creator_product:discord_role_done:')) {
+    // Format: creator_product:discord_role_done:{userId}:{tenantId}
+    const rest = customId.slice('creator_product:discord_role_done:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleProductDiscordRoleDone } = await import('../commands/product');
+    await handleProductDiscordRoleDone(interaction, userId, tenantId);
+    return;
+  }
+
   // ─── Moderation ────────────────────────────────────────────────────────────
   if (customId.startsWith('creator_moderation:confirm_clear:')) {
     // Format: creator_moderation:confirm_clear:{targetUserId}:{tenantId}:{actorUserId}

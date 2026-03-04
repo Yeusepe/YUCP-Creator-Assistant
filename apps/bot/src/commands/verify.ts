@@ -94,13 +94,14 @@ function buildStatusContainer(
   tenantId: Id<'tenants'>,
   guildId: string,
   apiBaseUrl: string | undefined,
+  userId?: string,
 ): ContainerBuilder {
   const { state, linkedAccounts, productIds, hasGumroad, hasDiscord } = data;
 
   const accentColor =
     state === 'nothing' ? COLOR_GRAY :
-    state === 'connected_no_products' ? COLOR_ORANGE :
-    COLOR_GREEN;
+      state === 'connected_no_products' ? COLOR_ORANGE :
+        COLOR_GREEN;
 
   const container = new ContainerBuilder().setAccentColor(accentColor);
 
@@ -111,7 +112,7 @@ function buildStatusContainer(
     );
   } else {
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent('## 🔐 Your Verification Status'),
+      new TextDisplayBuilder().setContent('## <:Key:1478609887012585492> Your Verification Status'),
     );
   }
 
@@ -124,7 +125,7 @@ function buildStatusContainer(
   const discordStatus = hasDiscord ? '✅ Connected' : '— Not connected';
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `**Connected Accounts**\nGumroad — ${gumroadStatus}\nDiscord (other server) — ${discordStatus}`,
+      `**Connected Accounts**\n<:Gumorad:1478606851192000613> Gumroad — ${gumroadStatus}\n<:Discord:1478606849996623903> Discord (other server) — ${discordStatus}`,
     ),
   );
 
@@ -153,11 +154,18 @@ function buildStatusContainer(
   const redirectUri = apiBaseUrl
     ? `${apiBaseUrl}/verify-success?returnTo=${encodeURIComponent(returnTo)}`
     : '';
+  // discordUserId MUST be passed so the verification session can link the
+  // Gumroad account to this Discord user. Without it, syncUserFromProvider
+  // stores it under a synthetic 'gumroad:xxx' subject, not the Discord one.
+  const gumroadParams = new URLSearchParams({ tenantId, mode: 'gumroad', redirectUri });
+  if (userId) gumroadParams.set('discordUserId', userId);
   const gumroadUrl = apiBaseUrl
-    ? `${apiBaseUrl}/api/verification/begin?${new URLSearchParams({ tenantId, mode: 'gumroad', redirectUri }).toString()}`
+    ? `${apiBaseUrl}/api/verification/begin?${gumroadParams.toString()}`
     : null;
+  const discordRoleParams = new URLSearchParams({ tenantId, mode: 'discord_role', redirectUri });
+  if (userId) discordRoleParams.set('discordUserId', userId);
   const discordRoleUrl = apiBaseUrl
-    ? `${apiBaseUrl}/api/verification/begin?tenantId=${tenantId}&mode=discord_role&redirectUri=${encodeURIComponent(redirectUri)}`
+    ? `${apiBaseUrl}/api/verification/begin?${discordRoleParams.toString()}`
     : null;
 
   if (state === 'nothing') {
@@ -170,7 +178,8 @@ function buildStatusContainer(
     if (gumroadUrl) {
       buttons.push(
         new ButtonBuilder()
-          .setLabel('🛒 Connect Gumroad')
+          .setLabel('Connect Gumroad')
+          .setEmoji('1478606851192000613')
           .setStyle(ButtonStyle.Link)
           .setURL(gumroadUrl),
       );
@@ -179,14 +188,16 @@ function buildStatusContainer(
     buttons.push(
       new ButtonBuilder()
         .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
-        .setLabel('🔑 Use License Key')
+        .setLabel('Use License Key')
+        .setEmoji('1478609887742263496')
         .setStyle(ButtonStyle.Secondary),
     );
 
     if (discordRoleUrl) {
       buttons.push(
         new ButtonBuilder()
-          .setLabel('🔗 Use Another Server')
+          .setLabel('Use Another Server')
+          .setEmoji('1478606849996623903')
           .setStyle(ButtonStyle.Link)
           .setURL(discordRoleUrl),
       );
@@ -209,7 +220,8 @@ function buildStatusContainer(
     if (gumroadUrl && !hasGumroad) {
       buttons.push(
         new ButtonBuilder()
-          .setLabel('🛒 Connect Gumroad')
+          .setLabel('Connect Gumroad')
+          .setEmoji('1478606851192000613')
           .setStyle(ButtonStyle.Link)
           .setURL(gumroadUrl),
       );
@@ -218,14 +230,16 @@ function buildStatusContainer(
     buttons.push(
       new ButtonBuilder()
         .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
-        .setLabel('🔑 Use License Key')
+        .setLabel('Use License Key')
+        .setEmoji('1478609887742263496')
         .setStyle(ButtonStyle.Secondary),
     );
 
     if (discordRoleUrl && !hasDiscord) {
       buttons.push(
         new ButtonBuilder()
-          .setLabel('🔗 Use Another Server')
+          .setLabel('Use Another Server')
+          .setEmoji('1478606849996623903')
           .setStyle(ButtonStyle.Link)
           .setURL(discordRoleUrl),
       );
@@ -258,11 +272,13 @@ function buildStatusContainer(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(`${VERIFY_PREFIX}add_more:${tenantId}`)
-          .setLabel('➕ Add another account')
+          .setLabel('Add another account')
+          .setEmoji('1478609888656756808')
           .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(`${VERIFY_PREFIX}disconnect:${primaryProvider}`)
-          .setLabel('🔌 Remove connection')
+          .setLabel('Remove connection')
+          .setEmoji('1478609887012585492')
           .setStyle(ButtonStyle.Danger),
       ),
     );
@@ -290,7 +306,7 @@ export async function handleCreatorCommand(
 
   try {
     const data = await fetchVerifyData(interaction.user.id, ctx.tenantId, convex);
-    const container = buildStatusContainer(data, ctx.tenantId, ctx.guildId, apiBaseUrl);
+    const container = buildStatusContainer(data, ctx.tenantId, ctx.guildId, apiBaseUrl, interaction.user.id);
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
       components: [container],
@@ -317,7 +333,7 @@ export async function handleVerifyStartButton(
 
   try {
     const data = await fetchVerifyData(interaction.user.id, ctx.tenantId, convex);
-    const container = buildStatusContainer(data, ctx.tenantId, ctx.guildId, apiBaseUrl);
+    const container = buildStatusContainer(data, ctx.tenantId, ctx.guildId, apiBaseUrl, interaction.user.id);
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
       components: [container],
@@ -345,6 +361,7 @@ export async function handleVerifyAddMore(
       ctx.tenantId,
       ctx.guildId,
       apiBaseUrl,
+      interaction.user.id,
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
@@ -362,14 +379,30 @@ export async function handleVerifySpawn(
   _apiBaseUrl: string | undefined,
   _ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
 ): Promise<void> {
+  const title = interaction.options.getString('title') ?? 'Verify Your Purchase <:Assistant:1478606847320784926>';
+  const description = interaction.options.getString('description') ?? '<:PointDown:1478613865112666112> Click the button below to verify your purchase and get your role.\n\nMake sure to connect your accounts securely!';
+  const buttonText = interaction.options.getString('button_text') ?? 'Verify';
+  const colorStr = interaction.options.getString('color');
+  const imageUrl = interaction.options.getString('image_url');
+
+  let color = 0x5865f2;
+  if (colorStr && /^#[0-9A-Fa-f]{6}$/.test(colorStr)) {
+    color = parseInt(colorStr.substring(1), 16);
+  }
+
   const embed = new EmbedBuilder()
-    .setTitle('Verify Your Purchase')
-    .setDescription('Click the button below to verify your purchase and get your role.')
-    .setColor(0x5865f2);
+    .setTitle(title)
+    .setDescription(description)
+    .setColor(color);
+
+  if (imageUrl) {
+    embed.setImage(imageUrl);
+  }
 
   const button = new ButtonBuilder()
     .setCustomId('verify_start')
-    .setLabel('Verify')
+    .setLabel(buttonText)
+    .setEmoji('1478606849220677632')
     .setStyle(ButtonStyle.Primary);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
