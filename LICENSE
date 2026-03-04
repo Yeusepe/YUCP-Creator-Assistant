@@ -1,0 +1,109 @@
+REFERENCE AND NON-COMMERCIAL USE LICENSE 1.0
+
+Copyright (c) 2025 YUCP Studio. All rights reserved.
+
+This repository and all associated source code, object code, assets,
+examples, documentation, and related materials in this repository
+collectively form the “Software”.
+
+By using, copying, downloading, cloning, compiling, or otherwise accessing
+the Software, you agree to this License.
+
+1. Limited License Grant
+
+Subject to this License, the copyright holder grants you a limited,
+revocable, non-exclusive, non-transferable, non-sublicensable license to:
+
+  (a) view, read, download, clone, compile, and run the Software; and
+  (b) make private modifications to the Software,
+
+solely for personal study, internal evaluation, research, education,
+security review, and technical reference, and solely for a
+non-commercial purpose.
+
+2. No Commercial Use
+
+You may not use the Software, in whole or in part, for any commercial
+purpose.
+
+“Commercial purpose” includes any use intended for or directed toward
+commercial advantage, private monetary compensation, revenue generation,
+client work, paid services, consulting deliverables, production business
+use, resale, licensing, sublicensing, or operation as part of a product
+or service offered to third parties.
+
+3. No Redistribution or Public Use
+
+Except for viewing and forking that may occur through GitHub’s normal
+service functionality for a public repository, you may not:
+
+  (a) distribute, publish, sublicense, sell, resell, rent, lease, or
+      otherwise make the Software available to any third party;
+  (b) distribute modified versions of the Software;
+  (c) use the Software in production; or
+  (d) incorporate the Software, in whole or in part, into any product,
+      service, library, SDK, plugin, template, model, dataset, or other
+      deliverable.
+
+4. No Competitive Use
+
+You may not use the Software, or any derivative work based on it, to
+develop, train, improve, market, offer, or support any product or service
+that competes with the Software.
+
+A “competing product or service” means any product, service, library, SDK,
+plugin, API, SaaS offering, template, or other offering that substantially
+replicates the functionality, purpose, or market of the Software.
+
+5. Private Derivatives Only for Reference Purposes
+
+You may create private derivative works solely for your own
+non-commercial reference, study, testing, or evaluation.
+
+You may not distribute, publish, sublicense, sell, deploy, or otherwise
+use any derivative work except as expressly permitted by this License.
+
+6. Ownership and Reserved Rights
+
+The Software is licensed, not sold. The copyright holder retains all
+right, title, and interest in and to the Software.
+
+No patent rights, trademark rights, trade secret rights, or other
+intellectual property rights are granted under this License except for the
+limited express license stated above.
+
+All rights not expressly granted are reserved.
+
+7. Notices
+
+You may not remove, alter, or obscure any copyright, attribution,
+proprietary, or license notices contained in the Software.
+
+8. Termination
+
+This License terminates automatically if you violate any of its terms.
+
+Upon termination, you must immediately stop using the Software and delete
+all copies in your possession or control, except to the extent retention is
+required by law or unavoidable through GitHub’s platform operations.
+
+9. Disclaimer of Warranty
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+10. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER
+SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OF OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+11. Permission Requests
+
+Any use outside the scope of this License requires prior written permission
+from the copyright holder.
+
+Contact: contact@yucp.club
