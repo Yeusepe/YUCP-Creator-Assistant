@@ -110,6 +110,11 @@ export function createWebhookRoutes(config: WebhookConfig) {
       }
 
       const rawBody = await request.text();
+      logger.info('Webhook received', {
+        provider: 'gumroad',
+        tenantId,
+        rawPayload: rawBody,
+      });
       const incomingSig = request.headers.get('x-gumroad-signature');
       const webhookSecret = await getGumroadWebhookSecret(tenantId);
       let signatureValid = false;
@@ -174,6 +179,11 @@ export function createWebhookRoutes(config: WebhookConfig) {
 
     try {
       const rawBody = await request.text();
+      logger.info('Webhook received', {
+        provider: 'jinxxy',
+        tenantId,
+        rawPayload: rawBody,
+      });
       const signature = request.headers.get('x-signature');
 
       const webhookSecret = await getJinxxyWebhookSecret(tenantId);
@@ -265,6 +275,13 @@ export function createWebhookHandler(config: WebhookConfig): (request: Request) 
     const provider = pathParts[1];
     const tenantId = pathParts[2];
 
+    logger.info('Webhook request', {
+      method: request.method,
+      path: url.pathname,
+      provider,
+      tenantId: tenantId || undefined,
+    });
+
     if (!tenantId) {
       return new Response('Not Found', { status: 404 });
     }
@@ -276,6 +293,7 @@ export function createWebhookHandler(config: WebhookConfig): (request: Request) 
       return routes.handleJinxxyWebhook(request, tenantId);
     }
 
+    logger.warn('Webhook unknown provider', { provider, tenantId });
     return new Response('Not Found', { status: 404 });
   };
 }

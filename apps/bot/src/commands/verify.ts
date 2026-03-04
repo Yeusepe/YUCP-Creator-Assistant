@@ -52,10 +52,16 @@ const COLOR_GREEN = 0x57f287;  // Verified
 
 type VerifyState = 'nothing' | 'connected_no_products' | 'verified';
 
+const VERIFIED_PRODUCTS_DISPLAY_LIMIT = 10;
+
 interface VerifyData {
   state: VerifyState;
   linkedAccounts: Array<{ provider: string; status: string }>;
   productIds: string[];
+  /** Products verified in this server only, with display names, limited for UI */
+  guildProductDisplayList: Array<{ displayName: string }>;
+  /** Total count of verified products in this server (for "and X more") */
+  guildProductCount: number;
   hasGumroad: boolean;
   hasJinxxy: boolean;
   hasDiscord: boolean;
@@ -64,6 +70,7 @@ interface VerifyData {
 async function fetchVerifyData(
   userId: string,
   tenantId: Id<'tenants'>,
+  guildId: string,
   convex: ConvexHttpClient,
 ): Promise<VerifyData> {
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
@@ -72,22 +79,44 @@ async function fetchVerifyData(
 
   let linkedAccounts: Array<{ provider: string; status: string }> = [];
   let productIds: string[] = [];
+  let guildProductDisplayList: Array<{ displayName: string }> = [];
+  let inGuildCount = 0;
 
   if (subjectResult.found) {
-    const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts as any, {
-      subjectId: subjectResult.subject._id,
-      tenantId,
-    });
+    const [accountsResult, entitlements, guildProducts] = await Promise.all([
+      convex.query(api.subjects.getSubjectWithAccounts as any, {
+        subjectId: subjectResult.subject._id,
+        tenantId,
+      }),
+      convex.query(api.entitlements.getEntitlementsBySubject as any, {
+        tenantId,
+        subjectId: subjectResult.subject._id,
+        includeInactive: false,
+      }),
+      convex.query(api.role_rules.getByGuildWithProductNames as any, {
+        tenantId,
+        guildId,
+      }),
+    ]);
+
     if (accountsResult.found) {
       linkedAccounts = accountsResult.externalAccounts;
     }
 
-    const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject as any, {
-      tenantId,
-      subjectId: subjectResult.subject._id,
-      includeInactive: false,
-    });
-    productIds = [...new Set((entitlements as Array<{ productId: string }>).map((e) => e.productId))];
+    const entitlementProductIds = [...new Set((entitlements as Array<{ productId: string }>).map((e) => e.productId))];
+    productIds = entitlementProductIds;
+
+    const guildProductMap = new Map(
+      (guildProducts as Array<{ productId: string; displayName: string | null }>).map((p) => [
+        p.productId,
+        p.displayName ?? p.productId,
+      ]),
+    );
+    const inGuild = entitlementProductIds.filter((id) => guildProductMap.has(id));
+    inGuildCount = inGuild.length;
+    guildProductDisplayList = inGuild
+      .slice(0, VERIFIED_PRODUCTS_DISPLAY_LIMIT)
+      .map((id) => ({ displayName: (guildProductMap.get(id) ?? id) as string }));
   }
 
   const hasGumroad = linkedAccounts.some((a) => a.provider === 'gumroad' && a.status === 'active');
@@ -98,13 +127,22 @@ async function fetchVerifyData(
   let state: VerifyState;
   if (activeAccounts.length === 0) {
     state = 'nothing';
-  } else if (productIds.length === 0) {
+  } else if (inGuildCount === 0) {
     state = 'connected_no_products';
   } else {
     state = 'verified';
   }
 
-  return { state, linkedAccounts, productIds, hasGumroad, hasJinxxy, hasDiscord };
+  return {
+    state,
+    linkedAccounts,
+    productIds,
+    guildProductDisplayList,
+    guildProductCount: inGuildCount,
+    hasGumroad,
+    hasJinxxy,
+    hasDiscord,
+  };
 }
 
 function providerLabel(p: string): string {
@@ -179,7 +217,7 @@ function buildStatusContainer(
   userId?: string,
   bannerMessage?: string,
 ): ContainerBuilder {
-  const { state, linkedAccounts, productIds, hasGumroad, hasJinxxy, hasDiscord } = data;
+  const { state, linkedAccounts, guildProductDisplayList, guildProductCount, hasGumroad, hasJinxxy, hasDiscord } = data;
 
   const accentColor =
     state === 'nothing' ? COLOR_GRAY :
@@ -227,11 +265,15 @@ function buildStatusContainer(
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
   );
 
-  // Verified products
-  if (productIds.length > 0) {
-    const productList = productIds.map((p) => `• ${p}`).join('\n');
+  // Verified products (this server only, display names, limited)
+  if (guildProductDisplayList.length > 0) {
+    const productList = guildProductDisplayList.map((p) => `• ${p.displayName}`).join('\n');
+    const moreLine =
+      guildProductCount > VERIFIED_PRODUCTS_DISPLAY_LIMIT
+        ? `\n_…and ${guildProductCount - VERIFIED_PRODUCTS_DISPLAY_LIMIT} more_`
+        : '';
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`**Verified Products**\n${productList}`),
+      new TextDisplayBuilder().setContent(`**Verified Products**\n${productList}${moreLine}`),
     );
   } else {
     container.addTextDisplayComponents(
@@ -422,7 +464,7 @@ export async function handleCreatorCommand(
 
   try {
     const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, ctx.tenantId, convex),
+      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex),
       convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
         apiSecret,
         tenantId: ctx.tenantId,
@@ -468,7 +510,7 @@ export async function handleVerifyStartButton(
 
   try {
     const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, ctx.tenantId, convex),
+      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex),
       convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
         apiSecret,
         tenantId: ctx.tenantId,
@@ -509,7 +551,7 @@ export async function handleVerifyAddMore(
 
   try {
     const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, ctx.tenantId, convex),
+      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex),
       convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
         apiSecret,
         tenantId: ctx.tenantId,
@@ -674,7 +716,7 @@ export async function handleLicenseModalSubmit(
     const guildId = interaction.guildId;
     if (guildId && apiBaseUrl) {
       const [data, enabledProviders] = await Promise.all([
-        fetchVerifyData(interaction.user.id, tenantId, convex),
+        fetchVerifyData(interaction.user.id, tenantId, guildId, convex),
         convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
           apiSecret,
           tenantId,
@@ -778,7 +820,7 @@ export async function handleVerifyDisconnectButton(
 
     // Refresh and show the updated panel so user sees products/accounts cleared
     const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, guildLink.tenantId, convex),
+      fetchVerifyData(interaction.user.id, guildLink.tenantId, guildId, convex),
       convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
         apiSecret,
         tenantId: guildLink.tenantId,
@@ -802,6 +844,78 @@ export async function handleVerifyDisconnectButton(
     // Error path: use plain content (no IsComponentsV2) — legacy content is allowed
     await interaction.editReply({
       content: `Error disconnecting: ${err instanceof Error ? err.message : 'Unknown error'}`,
+    });
+  }
+}
+
+export async function handleRefreshCommand(
+  interaction: ChatInputCommandInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  ctx: { tenantId: Id<'tenants'> },
+): Promise<void> {
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.reply({
+      content: 'This command must be used in a server.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const result = await convex.mutation(api.entitlements.enqueueRoleSyncsForUser as any, {
+      apiSecret,
+      tenantId: ctx.tenantId,
+      discordUserId: interaction.user.id,
+    });
+
+    if (!result.success) {
+      await interaction.editReply({
+        content: `${E.X_} Could not find your verification profile. Please make sure you have connected an account.`,
+      });
+      return;
+    }
+
+    // Refresh data and build updated panel
+    const apiBaseUrl = process.env.API_BASE_URL;
+    let container;
+
+    if (apiBaseUrl) {
+      const [data, enabledProviders] = await Promise.all([
+        fetchVerifyData(interaction.user.id, ctx.tenantId, guildId, convex),
+        convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
+          apiSecret,
+          tenantId: ctx.tenantId,
+          guildId,
+        }),
+      ]);
+
+      const bannerMessage = `${E.Checkmark} Queued ${result.jobsCreated} role sync jobs! Your roles in this server will be updated momentarily.`;
+      container = buildStatusContainer(
+        data,
+        ctx.tenantId,
+        guildId,
+        apiBaseUrl,
+        enabledProviders,
+        interaction.user.id,
+        bannerMessage,
+      );
+
+      await interaction.editReply({
+        flags: MessageFlags.IsComponentsV2,
+        components: [container],
+      });
+    } else {
+      await interaction.editReply({
+        content: `${E.Checkmark} Queued ${result.jobsCreated} role sync jobs! Your roles in this server will be updated momentarily.`,
+      });
+    }
+  } catch (err) {
+    await interaction.editReply({
+      content: `An error occurred while refreshing your verification status.\n\`${err instanceof Error ? err.message : 'Unknown error'}\``,
     });
   }
 }

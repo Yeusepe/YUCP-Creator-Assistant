@@ -242,6 +242,7 @@ export const upsertGumroadConnection = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
+        status: 'active',
         gumroadAccessTokenEncrypted: args.gumroadAccessTokenEncrypted,
         gumroadRefreshTokenEncrypted: args.gumroadRefreshTokenEncrypted ?? existing.gumroadRefreshTokenEncrypted,
         gumroadUserId: args.gumroadUserId ?? existing.gumroadUserId,

@@ -1000,6 +1000,60 @@ export const grantEntitlementsForPurchaser = mutation({
   },
 });
 
+/**
+ * Enqueue role sync jobs for all active entitlements for a specific user.
+ * Used by the /creator refresh command to force role re-evaluation.
+ */
+export const enqueueRoleSyncsForUser = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    discordUserId: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    jobsCreated: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    // Find subject
+    const subject = await ctx.db
+      .query('subjects')
+      .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
+      .first();
+
+    if (!subject) {
+      return { success: false, jobsCreated: 0 };
+    }
+
+    // Find active entitlements
+    const entitlements = await ctx.db
+      .query('entitlements')
+      .withIndex('by_tenant_subject', (q) =>
+        q.eq('tenantId', args.tenantId).eq('subjectId', subject._id),
+      )
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    let jobsCreated = 0;
+    const correlationId = `refresh:${Date.now()}`;
+
+    for (const ent of entitlements) {
+      await emitRoleSyncJob(
+        ctx,
+        args.tenantId,
+        subject._id,
+        ent._id,
+        correlationId,
+      );
+      jobsCreated++;
+    }
+
+    return { success: true, jobsCreated };
+  },
+});
+
 // ============================================================================
 // INTERNAL MUTATIONS
 // ============================================================================

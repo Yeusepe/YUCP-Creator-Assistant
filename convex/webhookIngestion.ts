@@ -76,6 +76,31 @@ export const insertWebhookEvent = mutation({
 });
 
 /**
+ * Reset a processed webhook event to pending for reprocessing.
+ * Use when processing logic was fixed and you need to re-run (e.g. Jinxxy subject lookup).
+ * Call via: npx convex run webhookIngestion:resetWebhookForReprocessing '{"apiSecret":"...","eventId":"m577vcj9b8vpqa56n6fq8zywn5829sf4"}'
+ */
+export const resetWebhookForReprocessing = mutation({
+  args: {
+    apiSecret: v.string(),
+    eventId: v.id('webhook_events'),
+  },
+  returns: v.object({ success: v.boolean(), message: v.string() }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const event = await ctx.db.get(args.eventId);
+    if (!event) {
+      return { success: false, message: 'Event not found' };
+    }
+    if (event.status !== 'processed') {
+      return { success: false, message: `Event status is ${event.status}, expected processed` };
+    }
+    await ctx.db.patch(args.eventId, { status: 'pending' });
+    return { success: true, message: 'Reset to pending; cron will reprocess within ~1 min' };
+  },
+});
+
+/**
  * Get pending webhook events for processing (used by normalization pipeline).
  */
 export const getPendingWebhookEvents = query({

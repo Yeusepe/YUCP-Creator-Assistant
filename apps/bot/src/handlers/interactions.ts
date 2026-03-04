@@ -33,11 +33,24 @@ import { track } from '../lib/posthog';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
-/** Message when server has no guild link. forAdmin: show sign-in link; otherwise tell user to ask admin. */
-function getNotConfiguredMessage(guildId: string, forAdmin = false): string {
+/** Message when server has no guild link. forAdmin: securely fetch token to sign-in; otherwise tell user to ask admin. */
+async function getNotConfiguredMessage(guildId: string, discordUserId: string, apiSecret: string, forAdmin = false): Promise<string> {
   if (forAdmin) {
     const apiBase = process.env.API_BASE_URL;
     if (apiBase) {
+      try {
+        const res = await fetch(`${apiBase}/api/connect/create-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ discordUserId, apiSecret })
+        });
+        if (res.ok) {
+          const { token } = await res.json() as { token: string };
+          return `This server is not configured. [Sign in to configure](${apiBase}/connect?guild_id=${guildId}&token=${token})`;
+        }
+      } catch (e) {
+        logger.error('Failed to generate secure connect token', { error: e });
+      }
       return `This server is not configured. [Sign in to configure](${apiBase}/connect?guild_id=${guildId})`;
     }
     return 'This server is not configured. Please sign in to configure (API_BASE_URL not set).';
@@ -250,7 +263,7 @@ async function handleSlashCommand(
 
   if (!guildLink) {
     await interaction.reply({
-      content: getNotConfiguredMessage(guildId, true),
+      content: await getNotConfiguredMessage(guildId, interaction.user.id, ctx.apiSecret, true),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -269,11 +282,13 @@ async function handleSlashCommand(
 
   try {
     if (subcommandGroup === 'setup') {
-      await runSetupStart(interaction, ctx.convex, ctx.apiSecret, {
-        tenantId,
-        guildLinkId,
-        guildId,
-      });
+      if (subcommand === 'start' || subcommand === 'restart') {
+        await runSetupStart(interaction, ctx.convex, ctx.apiSecret, {
+          tenantId,
+          guildLinkId,
+          guildId,
+        });
+      }
     } else if (subcommandGroup === 'product') {
       const sub = interaction.options.getSubcommand();
       const { handleProductAddInteractive, handleProductList, handleProductRemove } =
@@ -364,7 +379,7 @@ async function handleUserCommand(
 
   if (!guildLink) {
     await interaction.reply({
-      content: getNotConfiguredMessage(guildId),
+      content: await getNotConfiguredMessage(guildId, interaction.user.id, ctx.apiSecret),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -426,6 +441,14 @@ async function handleUserCommand(
       return;
     }
 
+    if (subcommand === 'refresh') {
+      const { handleRefreshCommand } = await import('../commands/verify');
+      await handleRefreshCommand(interaction, ctx.convex, ctx.apiSecret, {
+        tenantId,
+      });
+      return;
+    }
+
     // Unknown subcommand — show status panel as fallback
     const { handleCreatorCommand } = await import('../commands/verify');
     await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, process.env.API_BASE_URL, {
@@ -461,7 +484,7 @@ async function handleButton(
     });
     if (!guildLink) {
       await interaction.reply({
-        content: getNotConfiguredMessage(guildId),
+        content: await getNotConfiguredMessage(guildId, interaction.user.id, ctx.apiSecret),
         flags: MessageFlags.Ephemeral,
       });
       return;
