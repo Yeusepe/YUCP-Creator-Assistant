@@ -196,7 +196,19 @@ export const getSubjectWithAccounts = query({
     for (const binding of activeBindings) {
       const account = await ctx.db.get(binding.externalAccountId);
       if (account && account.status === 'active') {
-        externalAccounts.push(account);
+        // Map to validator shape (exclude emailHash, normalizedEmail, etc.)
+        externalAccounts.push({
+          _id: account._id,
+          _creationTime: account._creationTime,
+          provider: account.provider,
+          providerUserId: account.providerUserId,
+          providerUsername: account.providerUsername,
+          providerMetadata: account.providerMetadata,
+          lastValidatedAt: account.lastValidatedAt,
+          status: account.status,
+          createdAt: account.createdAt,
+          updatedAt: account.updatedAt,
+        });
       }
     }
 

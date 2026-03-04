@@ -701,6 +701,71 @@ export const revokeEntitlement = mutation({
 });
 
 /**
+ * Revoke all entitlements for a subject in a tenant.
+ * Used when user disconnects their last account - no remaining proof of ownership.
+ */
+export const revokeAllEntitlementsForSubject = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+  },
+  returns: v.object({
+    revokedCount: v.number(),
+    outboxJobIds: v.array(v.id('outbox_jobs')),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const now = Date.now();
+    const outboxJobIds: Id<'outbox_jobs'>[] = [];
+
+    const entitlements = await ctx.db
+      .query('entitlements')
+      .withIndex('by_tenant_subject', (q) =>
+        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId),
+      )
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    for (const entitlement of entitlements) {
+      await ctx.db.patch(entitlement._id, {
+        status: 'revoked',
+        revokedAt: now,
+        updatedAt: now,
+      });
+
+      const jobIds = await emitRoleRemovalJobs(
+        ctx,
+        args.tenantId,
+        args.subjectId,
+        entitlement.productId,
+        entitlement._id,
+        'disconnect:all',
+      );
+      outboxJobIds.push(...jobIds);
+
+      await createAuditEvent(ctx, {
+        tenantId: args.tenantId,
+        eventType: 'entitlement.revoked',
+        subjectId: args.subjectId,
+        entitlementId: entitlement._id,
+        metadata: {
+          productId: entitlement.productId,
+          reason: 'manual',
+          details: 'Last account disconnected - revoking all entitlements',
+          cascadeFromDisconnect: true,
+        },
+      });
+    }
+
+    return {
+      revokedCount: entitlements.length,
+      outboxJobIds,
+    };
+  },
+});
+
+/**
  * Revoke all entitlements for a subject in a tenant that came from a specific provider.
  * Used when a user disconnects Gumroad/Discord via the verify panel.
  * Emits role_removal jobs so Discord roles are actually removed.

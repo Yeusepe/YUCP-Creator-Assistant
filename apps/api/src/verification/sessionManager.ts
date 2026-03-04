@@ -1081,6 +1081,22 @@ export function createVerificationRoutes(config: VerificationConfig) {
         );
       }
 
+      // If this was the last account, revoke any remaining entitlements
+      // (e.g. from manual grants or sourceProvider mismatch)
+      const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts as any, {
+        subjectId: body.subjectId,
+        tenantId: body.tenantId,
+      });
+      const hasRemainingAccounts =
+        accountsResult.found && accountsResult.externalAccounts?.length > 0;
+      if (!hasRemainingAccounts) {
+        await convex.mutation(api.entitlements.revokeAllEntitlementsForSubject as any, {
+          apiSecret: config.convexApiSecret,
+          tenantId: body.tenantId,
+          subjectId: body.subjectId,
+        });
+      }
+
       return Response.json({ success: true }, { status: 200 });
     } catch (err) {
       logger.error('Disconnect verification failed', {
