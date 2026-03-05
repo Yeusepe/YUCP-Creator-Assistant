@@ -172,18 +172,24 @@
 
         <div
             class="max-w-xl w-full connect-card glass-card rounded-[32px] p-8 md:p-10 relative z-10 reveal text-white shadow-2xl">
-            <div class="text-center mb-6 relative">
+            <div class="flex flex-col items-center text-center mb-8 relative">
                 <div
-                    class="inline-block px-4 py-1 bg-[#ffffff]/20 text-[#ffffff] rounded-full text-[10px] font-black uppercase tracking-widest mb-3 backdrop-blur-md border border-white/30">
+                    class="inline-flex items-center gap-2 px-4 py-1.5 bg-[#ffffff]/10 text-[#ffffff] rounded-full text-[10px] font-black uppercase tracking-widest mb-4 backdrop-blur-md border border-white/20 shadow-sm">
+                    <span class="w-2 h-2 rounded-full bg-[#0ea5e9] animate-pulse"></span>
                     Sync Progress
                 </div>
-                <h1 class="text-3xl md:text-5xl text-[#ffffff] mb-3 relative inline-block">
-                    Connect<br> Your <span
-                        class="bg-gradient-to-r from-[#0ea5e9] to-[#00f3ff] bg-clip-text text-transparent">Accounts</span>
-                    <img src="./Icons/Checkmark.png"
-                        class="absolute -top-6 -right-12 w-16 sticker pointer-events-none hidden md:block" alt="Check">
+                <h1 class="text-4xl md:text-5xl font-black text-[#ffffff] mb-3 relative tracking-tight leading-tight"
+                    style="font-family: 'Plus Jakarta Sans', sans-serif;">
+                    Connect Your<br>
+                    <span
+                        class="bg-gradient-to-r from-[#0ea5e9] to-[#0ea5e9] bg-clip-text text-transparent filter drop-shadow-[0_0_15px_rgba(14,165,233,0.3)]">Accounts</span>
+                    <div
+                        class="absolute -top-4 -right-14 hidden md:block w-14 h-14 transform rotate-12 drop-shadow-xl z-20">
+                        <img src="./Icons/Checkmark.png"
+                            class="w-full h-full object-contain sticker pointer-events-none" alt="Check">
+                    </div>
                 </h1>
-                <p class="text-[rgba(255,255,255,0.9)] font-medium leading-relaxed max-w-sm mx-auto text-lg"
+                <p class="text-[rgba(255,255,255,0.85)] font-medium leading-relaxed max-w-sm mx-auto text-base mt-2"
                     style="font-family: 'DM Sans', sans-serif;">
                     Link your platforms to unlock custom roles, tiered rewards, and seamless profile sync.
                 </p>
@@ -248,8 +254,9 @@
                         </div>
                     </div>
                     <div
-                        class="flex items-center gap-2 bg-white/20 text-white px-4 py-2 rounded-full backdrop-blur-md group-hover:bg-white/30 transition-colors">
-                        <span class="connect-badge text-xs font-black uppercase tracking-widest text-white"
+                        class="flex items-center gap-2 bg-white/20 text-white px-4 py-2 rounded-full backdrop-blur-md group-hover:bg-white/30 transition-colors flex-shrink-0">
+                        <span
+                            class="connect-badge text-xs font-black uppercase tracking-widest text-white translate-y-[1px]"
                             style="font-family: 'Plus Jakarta Sans', sans-serif;">Connect</span>
                         <svg class="w-4 h-4 transition-transform group-hover:translate-x-1 text-white" fill="none"
                             stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
@@ -293,8 +300,6 @@
             </div>
         </div>
 
-        <p class="mt-6 text-[10px] font-black uppercase tracking-[0.5em] text-white/40 shadow-sm select-none pb-4">YUCP
-            INTEGRATION MODULE v2.4</p>
     </main>
 
     <script>
