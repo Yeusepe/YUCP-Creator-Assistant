@@ -452,6 +452,11 @@ async function main() {
   if (tunnel.provider !== 'none') {
     logger.info(`🚇 Tunnel detected (${tunnel.provider})`, { publicUrl: tunnel.url });
   }
+  
+  const publicBaseUrl =
+    tunnel.provider !== 'none'
+      ? tunnel.url
+      : env.BETTER_AUTH_URL ?? process.env.RENDER_EXTERNAL_URL ?? `http://localhost:${port}`;
 
   // Initialize Better Auth (pass tunnel URL for webhook base if detected)
   auth = initializeAuth(tunnel.provider !== 'none' ? tunnel.url : undefined);
@@ -466,7 +471,7 @@ async function main() {
   logger.info('API server ready', {
     port,
     hostname,
-    publicUrl: tunnel.provider !== 'none' ? tunnel.url : `http://localhost:${port}`,
+    publicUrl: publicBaseUrl,
     tunnelProvider: tunnel.provider,
     authProvider: 'Convex (direct)',
     installRoutes: '/api/install/*',
