@@ -11,6 +11,22 @@ import { RoleSyncService } from './services/roleSync';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs / 1000}s`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 async function main() {
   const env = await loadEnvAsync();
   validateBotEnv(env);
@@ -21,7 +37,12 @@ async function main() {
     infisicalEnv: process.env.INFISICAL_ENV ?? 'dev (default)',
   });
 
-  const client = await startBot(env.DISCORD_BOT_TOKEN!);
+  const LOGIN_TIMEOUT_MS = Number.parseInt(process.env.BOT_LOGIN_TIMEOUT_MS ?? '30000', 10);
+  const client = await withTimeout(
+    startBot(env.DISCORD_BOT_TOKEN!),
+    LOGIN_TIMEOUT_MS,
+    'Discord login',
+  );
 
   const READY_TIMEOUT_MS = 30_000;
 
