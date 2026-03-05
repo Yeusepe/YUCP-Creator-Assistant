@@ -270,6 +270,12 @@ export function createWebhookRoutes(config: WebhookConfig) {
         return new Response('OK', { status: 200 });
       }
 
+      // Reject unverified webhooks before ingestion.
+      if (!signatureValid) {
+        logger.warn('Jinxxy webhook: rejected (unverified)', { tenantId, eventId });
+        return new Response('Forbidden', { status: 403 });
+      }
+
       const result = await convex.mutation(
         'webhookIngestion:insertWebhookEvent' as any,
         {

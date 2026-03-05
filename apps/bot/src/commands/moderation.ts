@@ -259,10 +259,18 @@ export async function handleModerationUnverify(
       productId,
     });
 
+    const productsWithNames = await convex.query(api.role_rules.getByGuildWithProductNames as any, {
+      tenantId: ctx.tenantId,
+      guildId: ctx.guildId,
+    });
+    const productDisplayName =
+      productsWithNames.find((p: { productId: string; displayName: string | null }) => p.productId === productId)
+        ?.displayName ?? productId;
+
     if (!result.success) {
       const reasonMap: Record<string, string> = {
         not_found: `User <@${targetUser.id}> does not seem to have any verified accounts.`,
-        no_active_entitlements: `User <@${targetUser.id}> does not have an active verification for **${productId}**.`,
+        no_active_entitlements: `User <@${targetUser.id}> does not have an active verification for **${productDisplayName}**.`,
       };
       const text = reasonMap[result.reason ?? ''] ?? 'Could not remove verification.';
 
@@ -279,7 +287,7 @@ export async function handleModerationUnverify(
       .setTitle('Verification Removed')
       .setColor(0xed4245)
       .setDescription(
-        `Successfully removed **${productId}** verification from <@${targetUser.id}>.\nAny associated Discord roles are being automatically removed in the background.`,
+        `Successfully removed **${productDisplayName}** verification from <@${targetUser.id}>.\nAny associated Discord roles are being automatically removed in the background.`,
       );
 
     await interaction.editReply({ embeds: [embed] });

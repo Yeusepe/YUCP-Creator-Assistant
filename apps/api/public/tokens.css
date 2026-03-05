@@ -1,17 +1,17 @@
 :root {
     /* Base Colors */
-    --bg-color: #f6efee;
-    --text-primary: #7a7a9f;
-    --text-secondary: #5e5e80;
-    --border-color: #e0d6d4;
+    --bg-color: #0a3d9e;
+    --text-primary: rgba(255, 255, 255, 0.95);
+    --text-secondary: rgba(255, 255, 255, 0.85);
+    --border-color: rgba(255, 255, 255, 0.15);
 
     /* Accents */
-    --accent-mustard: #f0cc60;
-    --accent-orange: #d45d39;
-    --accent-blue: #224285;
-    --accent-green-dark: #3f7035;
+    --accent-mustard: #ffeb3b;
+    --accent-sky: #0ea5e9;
+    --accent-blue: #ffffff;
+    --accent-green-dark: #00e676;
     --accent-red: #c53030;
-    --accent-purple: #8e8eb2;
+    --accent-purple: #9146FF;
 
     /* Brand Colors */
     --discord-blurple: #5865F2;
@@ -19,7 +19,59 @@
     --jinxxy-purple: #9146FF;
 
     /* Jinxxy Setup */
-    --jinxxy-bg: #0f0f0f;
-    --jinxxy-sidebar: #1a1a1a;
-    --jinxxy-border: #333;
+    --jinxxy-bg: transparent;
+    --jinxxy-sidebar: rgba(255, 255, 255, 0.05);
+    --jinxxy-border: rgba(255, 255, 255, 0.1);
+}
+
+/* Holographic Sticker Transparency Fix */
+.sticker-card {
+    aspect-ratio: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+}
+
+.sticker-content> :not(.sticker-debug) {
+    clip-path: none !important;
+    border-radius: 0 !important;
+}
+
+.sticker-pattern::before,
+.sticker-watermark::before {
+    background: transparent !important;
+}
+
+.sticker-emboss::after,
+.sticker-emboss::before {
+    display: none !important;
+}
+
+.sticker {
+    display: inline-block;
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.sticker:hover {
+    animation: sticker-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes sticker-pop {
+    0% {
+        transform: scale(1) rotate(0deg);
+    }
+
+    50% {
+        transform: scale(1.25) rotate(4deg);
+    }
+
+    100% {
+        transform: scale(1.15) rotate(2deg);
+    }
+}
+
+.glass-card {
+    background: rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
 }

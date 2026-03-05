@@ -272,7 +272,7 @@ export async function handleProductTypeSelect(
             new StringSelectMenuOptionBuilder()
               .setLabel(p.name.length > 100 ? p.name.slice(0, 97) + '...' : p.name)
               .setValue(p.id)
-              .setDescription(p.id),
+              .setDescription(p.name.length > 50 ? p.name.slice(0, 47) + '...' : p.name),
           ),
         );
 
@@ -548,7 +548,11 @@ export async function handleProductRoleSelect(
     detailLines.push(`**Source Server ID:** \`${session.sourceGuildId}\``);
     detailLines.push(`**Source Role:** <@&${session.sourceRoleId}>`);
   } else if (session.urlOrId) {
-    detailLines.push(`**Product:** \`${session.urlOrId}\``);
+    const productLabel =
+      session.type === 'jinxxy' && session.jinxxyProductNames?.[session.urlOrId]
+        ? session.jinxxyProductNames[session.urlOrId]
+        : session.urlOrId;
+    detailLines.push(`**Product:** ${productLabel}`);
   }
 
   detailLines.push(`**Assigns Role:** <@&${roleId}>`);
@@ -718,7 +722,7 @@ export async function handleProductConfirmAdd(
     track(interaction.user.id, 'product_added', { tenantId, guildId, productId, ruleId });
 
     await interaction.editReply({
-      content: `${E.Checkmark} Product **${productId}** mapped to <@&${roleId}>. Users who verify this product will automatically receive the role.`,
+      content: `${E.Checkmark} Product **${session.type === 'jinxxy' && session.jinxxyProductNames?.[productId] ? session.jinxxyProductNames[productId] : productId}** mapped to <@&${roleId}>. Users who verify this product will automatically receive the role.`,
       components: [],
       embeds: [],
     });
@@ -758,7 +762,7 @@ export async function handleProductList(
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const rules = await convex.query(api.role_rules.getByGuild as any, {
+  const rules = await convex.query(api.role_rules.getByGuildWithProductNames as any, {
     tenantId: ctx.tenantId,
     guildId: ctx.guildId,
   });
@@ -777,8 +781,8 @@ export async function handleProductList(
     .setDescription(
       rules
         .map(
-          (r: { productId: string; verifiedRoleId: string; enabled: boolean }) =>
-            `• \`${r.productId}\` → <@&${r.verifiedRoleId}> ${r.enabled ? E.Checkmark : '(disabled)'}`,
+          (r: { productId: string; displayName: string | null; verifiedRoleId?: string; enabled?: boolean }) =>
+            `• **${r.displayName ?? r.productId}** → <@&${r.verifiedRoleId}> ${r.enabled !== false ? E.Checkmark : '(disabled)'}`,
         )
         .join('\n'),
     );

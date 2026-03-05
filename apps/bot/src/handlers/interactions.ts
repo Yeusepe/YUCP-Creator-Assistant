@@ -201,19 +201,19 @@ async function handleAutocomplete(
 
     const products = (await ctx.convex.query('productResolution:getProductsForTenant' as any, {
       tenantId: guildLink.tenantId,
-    })) as Array<{ productId: string; provider: string; providerProductRef: string; canonicalSlug?: string }>;
+    })) as Array<{ productId: string; provider: string; providerProductRef: string; canonicalSlug?: string; displayName?: string }>;
 
     const query = focused.value.toLowerCase();
     const filtered = products
       .filter((p) => {
-        const label = (p.canonicalSlug ?? p.productId).toLowerCase();
+        const label = (p.displayName ?? p.canonicalSlug ?? p.productId).toLowerCase();
         return !query || label.includes(query) || p.provider.includes(query);
       })
       .slice(0, 25);
 
     await interaction.respond(
       filtered.map((p) => ({
-        name: `${p.provider === 'gumroad' ? '🟣' : '🔷'} ${p.canonicalSlug ?? p.productId}`,
+        name: `${p.provider === 'gumroad' ? '🟣' : '🔷'} ${p.displayName ?? p.canonicalSlug ?? p.productId}`,
         value: `${p.provider}::${p.providerProductRef}`,
       })),
     );

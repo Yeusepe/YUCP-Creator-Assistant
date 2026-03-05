@@ -12,9 +12,8 @@
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    <link href="https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black"
-        rel="stylesheet">
-    <link rel="stylesheet" href="/tokens.css">
+
+    <link rel="stylesheet" href="./tokens.css">
 
     <style>
         body {
@@ -30,18 +29,19 @@
         h2,
         h3,
         .display-text {
-            font-family: 'Airbnb Cereal App Black', "Plus Jakarta Sans", sans-serif;
+            font-family: 'Plus Jakarta Sans', "Plus Jakarta Sans", sans-serif;
             font-weight: 800;
             letter-spacing: -0.04em;
         }
 
         .section-card {
-            background: #ffffff;
-            border: 1px solid var(--border-color);
-            border-radius: 24px;
-            box-shadow: 0 4px 20px rgba(34, 66, 133, 0.03);
-            overflow: hidden;
-            margin-bottom: 24px;
+            background: rgba(0, 0, 0, 0.25);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 32px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+            overflow: visible;
+            margin-bottom: 32px;
         }
 
         .status-pill {
@@ -65,7 +65,7 @@
         }
 
         .toggle-switch.active {
-            background: var(--accent-orange);
+            background: var(--accent-sky);
         }
 
         .toggle-switch::after {
@@ -75,7 +75,7 @@
             left: 2px;
             width: 20px;
             height: 20px;
-            background: white;
+            background: rgba(255, 255, 255, 0.05);
             border-radius: 50%;
             transition: transform 0.3s;
         }
@@ -97,7 +97,7 @@
 
         .setting-select {
             appearance: none;
-            background: white;
+            background: rgba(255, 255, 255, 0.05);
             border: 2px solid var(--border-color);
             border-radius: 12px;
             padding: 10px 36px 10px 14px;
@@ -176,7 +176,7 @@
             gap: 4px;
             font-size: 11px;
             font-weight: 700;
-            color: #3f7035;
+            color: #00e676;
             opacity: 0;
             transition: opacity 0.3s;
         }
@@ -216,25 +216,61 @@
             opacity: 0;
         }
     </style>
+
+    <!-- ES Module Shims for better browser compatibility -->
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "three": "https://esm.sh/three@0.160.0",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12",
+            "holographic-sticker": "https://esm.sh/holographic-sticker@1.0.4?deps=react@18.2.0,react-dom@18.2.0"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 
 <body class="pb-20">
-
+    <div id="bg-canvas-root"
+        style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
+    </div>
     <main class="max-w-5xl mx-auto px-6 mt-12">
-        <header class="mb-12 animate-in">
-            <div class="flex items-center justify-between">
-                <div>
+        <!-- Playful Background Stickers -->
+        <div id="holo-world-0" class="absolute top-10 right-20 w-28 opacity-70 sticker pointer-events-auto z-0 h-28"
+            style="animation-delay: -1s;"></div>
+        <div id="holo-gumorad-1" class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24"
+            style="animation-delay: -4s;"></div>
+        <div id="holo-checkmark-2"
+            class="absolute top-1/2 right-10 w-20 opacity-50 sticker pointer-events-auto z-0 h-20"
+            style="animation-delay: -2s;"></div>
+
+        <header class="mb-12 animate-in relative z-10">
+            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                <div class="relative">
+                    <img src="./Icons/Assistant.png"
+                        class="absolute -top-10 -left-12 w-16 sticker pointer-events-none hidden md:block"
+                        alt="Assistant">
                     <div
-                        class="inline-block px-4 py-1 bg-[#f0cc60]/20 text-[#224285] rounded-full text-[10px] font-black uppercase tracking-widest mb-4">
+                        class="inline-block px-4 py-1 bg-[#ffffff]/20 text-[#ffffff] rounded-full text-[10px] font-black uppercase tracking-widest mb-4 backdrop-blur-md border border-white/30">
                         Server Dashboard
                     </div>
-                    <h1 class="text-4xl tracking-tight mb-2">Settings Dashboard</h1>
-                    <p class="text-[#7a7a9f] font-medium" style="font-family: 'DM Sans', sans-serif;">Manage your
-                        integrations and server preferences.</p>
+                    <h1
+                        class="text-5xl md:text-6xl tracking-tight mb-2 font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-blue-200">
+                        Settings
+                    </h1>
+                    <p class="text-[rgba(255,255,255,0.9)] font-medium text-lg max-w-md"
+                        style="font-family: 'DM Sans', sans-serif;">
+                        Manage your integrations and server preferences.
+                    </p>
                 </div>
                 <div id="onboarding-done" class="hidden">
                     <button id="done-btn"
-                        class="bg-[#d45d39] text-white px-8 py-3 rounded-xl font-extrabold hover:bg-[#b84d2e] transition-colors shadow-lg shadow-[#d45d39]/20">Done
+                        class="bg-[#0ea5e9] text-white px-8 py-3 rounded-xl font-extrabold hover:bg-[#b84d2e] transition-colors shadow-lg shadow-[#0ea5e9]/20">Done
                         Setup</button>
                     <p id="status-text" class="text-center text-xs mt-2 font-bold"></p>
                 </div>
@@ -245,7 +281,7 @@
             <!-- Connected Platforms -->
             <section class="section-card p-8 animate-in animate-in-delay-1">
                 <div class="flex items-center gap-3 mb-8">
-                    <div class="w-8 h-8 bg-[#f0cc60]/20 flex items-center justify-center rounded-lg text-[#224285]">
+                    <div class="w-8 h-8 bg-[#ffeb3b]/20 flex items-center justify-center rounded-lg text-[#ffffff]">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                             <path
                                 d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1">
@@ -270,7 +306,7 @@
                         </div>
                         <div>
                             <h3 class="font-bold text-lg">Discord</h3>
-                            <p class="text-xs text-[#7a7a9f] font-semibold">Synced for bot access</p>
+                            <p class="text-xs text-[rgba(255,255,255,0.8)] font-semibold">Synced for bot access</p>
                         </div>
                     </div>
 
@@ -282,13 +318,15 @@
                                     src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
                                     alt="Gumroad">
                             </div>
-                            <span id="gumroad-status" class="status-pill bg-[#e0d6d4] text-[#7a7a9f]">Not Linked</span>
+                            <span id="gumroad-status"
+                                class="status-pill bg-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.8)]">Not
+                                Linked</span>
                         </div>
                         <div>
                             <h3 class="font-bold text-lg">Gumroad</h3>
-                            <p class="text-xs text-[#7a7a9f] font-semibold">Import sales &amp; buyers</p>
+                            <p class="text-xs text-[rgba(255,255,255,0.8)] font-semibold">Import sales &amp; buyers</p>
                         </div>
-                        <button id="gumroad-btn" class="link-btn text-[#224285]" onclick="navigateGumroad()">Link
+                        <button id="gumroad-btn" class="link-btn text-[#ffffff]" onclick="navigateGumroad()">Link
                             Account</button>
                     </div>
 
@@ -300,13 +338,15 @@
                                     src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
                                     alt="Jinxxy">
                             </div>
-                            <span id="jinxxy-status" class="status-pill bg-[#e0d6d4] text-[#7a7a9f]">Not Linked</span>
+                            <span id="jinxxy-status"
+                                class="status-pill bg-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.8)]">Not
+                                Linked</span>
                         </div>
                         <div>
                             <h3 class="font-bold text-lg">Jinxxy</h3>
-                            <p class="text-xs text-[#7a7a9f] font-semibold">Import sales &amp; buyers</p>
+                            <p class="text-xs text-[rgba(255,255,255,0.8)] font-semibold">Import sales &amp; buyers</p>
                         </div>
-                        <button id="jinxxy-btn" class="link-btn text-[#224285]" onclick="navigateJinxxy()">Link
+                        <button id="jinxxy-btn" class="link-btn text-[#ffffff]" onclick="navigateJinxxy()">Link
                             Account</button>
                     </div>
                 </div>
@@ -331,19 +371,20 @@
                         Saved
                     </span>
                 </div>
-                <p class="text-xs text-[#7a7a9f] font-semibold mb-8" style="font-family: 'DM Sans', sans-serif;">
+                <p class="text-xs text-[rgba(255,255,255,0.8)] font-semibold mb-8"
+                    style="font-family: 'DM Sans', sans-serif;">
                     Configure how verification and security work for your server.</p>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-0">
                     <!-- Left Column — Toggles -->
                     <div>
                         <label
-                            class="block text-[10px] font-extrabold uppercase tracking-widest text-[#7a7a9f] mb-4">Verification</label>
+                            class="block text-[10px] font-extrabold uppercase tracking-widest text-[rgba(255,255,255,0.8)] mb-4">Verification</label>
 
                         <div class="setting-row">
                             <div>
-                                <span class="font-bold text-sm text-[#224285] block">Allow Mismatched Emails</span>
-                                <span class="text-xs font-medium text-[#7a7a9f]"
+                                <span class="font-bold text-sm text-[#ffffff] block">Allow Mismatched Emails</span>
+                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
                                     style="font-family: 'DM Sans', sans-serif;">Let buyers verify with an email
                                     different from their Discord.</span>
                             </div>
@@ -353,8 +394,8 @@
 
                         <div class="setting-row">
                             <div>
-                                <span class="font-bold text-sm text-[#224285] block">Auto-Verify on Join</span>
-                                <span class="text-xs font-medium text-[#7a7a9f]"
+                                <span class="font-bold text-sm text-[#ffffff] block">Auto-Verify on Join</span>
+                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
                                     style="font-family: 'DM Sans', sans-serif;">Automatically verify members when they
                                     join the server.</span>
                             </div>
@@ -364,9 +405,9 @@
 
                         <div class="setting-row">
                             <div>
-                                <span class="font-bold text-sm text-[#224285] block">Share Verification Across
+                                <span class="font-bold text-sm text-[#ffffff] block">Share Verification Across
                                     Servers</span>
-                                <span class="text-xs font-medium text-[#7a7a9f]"
+                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
                                     style="font-family: 'DM Sans', sans-serif;">Allow verification to carry over between
                                     your Discord servers.</span>
                             </div>
@@ -376,8 +417,8 @@
 
                         <div class="setting-row">
                             <div>
-                                <span class="font-bold text-sm text-[#224285] block">Cross-Server Role Checks</span>
-                                <span class="text-xs font-medium text-[#7a7a9f]"
+                                <span class="font-bold text-sm text-[#ffffff] block">Cross-Server Role Checks</span>
+                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
                                     style="font-family: 'DM Sans', sans-serif;">Check roles from other Discord servers
                                     for verification.</span>
                             </div>
@@ -389,13 +430,13 @@
                     <!-- Right Column — Selects -->
                     <div>
                         <label
-                            class="block text-[10px] font-extrabold uppercase tracking-widest text-[#7a7a9f] mb-4">Security
+                            class="block text-[10px] font-extrabold uppercase tracking-widest text-[rgba(255,255,255,0.8)] mb-4">Security
                             &amp; Behavior</label>
 
                         <div class="setting-row">
                             <div>
-                                <span class="font-bold text-sm text-[#224285] block">Verification Scope</span>
-                                <span class="text-xs font-medium text-[#7a7a9f]"
+                                <span class="font-bold text-sm text-[#ffffff] block">Verification Scope</span>
+                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
                                     style="font-family: 'DM Sans', sans-serif;">How verifications are scoped for
                                     buyers.</span>
                             </div>
@@ -408,8 +449,8 @@
 
                         <div class="setting-row">
                             <div>
-                                <span class="font-bold text-sm text-[#224285] block">Duplicate Verifications</span>
-                                <span class="text-xs font-medium text-[#7a7a9f]"
+                                <span class="font-bold text-sm text-[#ffffff] block">Duplicate Verifications</span>
+                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
                                     style="font-family: 'DM Sans', sans-serif;">What happens when a user tries to verify
                                     twice.</span>
                             </div>
@@ -423,8 +464,8 @@
 
                         <div class="setting-row">
                             <div>
-                                <span class="font-bold text-sm text-[#224285] block">Suspicious Accounts</span>
-                                <span class="text-xs font-medium text-[#7a7a9f]"
+                                <span class="font-bold text-sm text-[#ffffff] block">Suspicious Accounts</span>
+                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
                                     style="font-family: 'DM Sans', sans-serif;">How to handle potentially fraudulent
                                     accounts.</span>
                             </div>
@@ -441,24 +482,26 @@
         </div>
 
         <p
-            class="mt-8 text-center text-[10px] font-black uppercase tracking-[0.5em] text-[#224285]/15 select-none pb-4 animate-in animate-in-delay-3">
+            class="mt-8 text-center text-[10px] font-black uppercase tracking-[0.5em] text-[#ffffff]/15 select-none pb-4 animate-in animate-in-delay-3">
             YUCP INTEGRATION MODULE v2.4
         </p>
     </main>
 
 
     <div id="disconnectModal" class="modal-overlay">
-        <div class="bg-white rounded-[32px] p-10 max-w-md w-full mx-4 shadow-2xl">
+        <div
+            class="bg-black/25 backdrop-blur-md rounded-[32px] p-10 max-w-md w-full mx-4 shadow-2xl border border-white/10">
             <h3 class="text-2xl font-extrabold mb-4">Confirm Disconnect</h3>
-            <p class="text-[#7a7a9f] font-medium mb-8 leading-relaxed" style="font-family: 'DM Sans', sans-serif;">Are
+            <p class="text-[rgba(255,255,255,0.8)] font-medium mb-8 leading-relaxed"
+                style="font-family: 'DM Sans', sans-serif;">Are
                 you sure you want to disconnect your <span id="platformName"
-                    class="font-bold text-[#224285]">Platform</span> account? This will remove all
+                    class="font-bold text-[#ffffff]">Platform</span> account? This will remove all
                 associated syncing.</p>
             <div class="grid grid-cols-2 gap-4">
                 <button onclick="closeModal()"
-                    class="py-4 rounded-2xl border border-[#e0d6d4] font-bold text-[#224285] hover:bg-[#f6efee]">Cancel</button>
+                    class="py-4 rounded-2xl border border-[rgba(255,255,255,0.1)] font-bold text-[#ffffff] hover:bg-[#1a6bff]">Cancel</button>
                 <button id="confirmDisconnectBtn"
-                    class="py-4 rounded-2xl bg-[#d45d39] font-bold text-white hover:opacity-90">Confirm</button>
+                    class="py-4 rounded-2xl bg-[#0ea5e9] font-bold text-white hover:opacity-90">Confirm</button>
             </div>
         </div>
     </div>
@@ -583,24 +626,24 @@
             if (isLinked) {
                 card.classList.remove('disconnected');
                 card.classList.add('connected');
-                status.classList.remove('bg-[#e0d6d4]', 'text-[#7a7a9f]');
+                status.classList.remove('bg-[rgba(255,255,255,0.1)]', 'text-[rgba(255,255,255,0.8)]');
                 status.classList.add('bg-green-100', 'text-green-700');
                 status.innerText = 'Connected';
 
                 btn.innerText = 'Disconnect Account';
-                btn.classList.remove('text-[#224285]');
-                btn.classList.add('text-[#d45d39]');
+                btn.classList.remove('text-[#ffffff]');
+                btn.classList.add('text-[#0ea5e9]');
                 btn.onclick = () => openModal(platform);
             } else {
                 card.classList.add('disconnected');
                 card.classList.remove('connected');
-                status.classList.add('bg-[#e0d6d4]', 'text-[#7a7a9f]');
+                status.classList.add('bg-[rgba(255,255,255,0.1)]', 'text-[rgba(255,255,255,0.8)]');
                 status.classList.remove('bg-green-100', 'text-green-700');
                 status.innerText = 'Not Linked';
 
                 btn.innerText = 'Link Account';
-                btn.classList.add('text-[#224285]');
-                btn.classList.remove('text-[#d45d39]');
+                btn.classList.add('text-[#ffffff]');
+                btn.classList.remove('text-[#0ea5e9]');
                 btn.onclick = () => {
                     if (platform === 'gumroad') navigateGumroad();
                     else if (platform === 'jinxxy') navigateJinxxy();
@@ -766,8 +809,8 @@
 
                 const end = Date.now() + 1500;
                 (function frame() {
-                    confetti({ particleCount: 4, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#d45d39', '#224285', '#f0cc60'] });
-                    confetti({ particleCount: 4, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#d45d39', '#224285', '#f0cc60'] });
+                    confetti({ particleCount: 4, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#0ea5e9', '#ffffff', '#ffeb3b'] });
+                    confetti({ particleCount: 4, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#0ea5e9', '#ffffff', '#ffeb3b'] });
                     if (Date.now() < end) requestAnimationFrame(frame);
                 }());
 
@@ -793,6 +836,129 @@
             init();
         }
 
+    </script>
+
+    <script type="text/babel" data-type="module">
+        import React, { useRef, Component } from "react";
+        import { createRoot } from "react-dom/client";
+        import * as THREE from "three";
+        import { Canvas, useFrame } from "@react-three/fiber";
+        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
+        import HolographicSticker from "holographic-sticker";
+
+        class ErrorBoundary extends Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            componentDidCatch(error, errorInfo) { console.error("React Error Boundary caught an error", error, errorInfo); }
+            render() { return this.state.hasError ? null : this.props.children; }
+        }
+
+        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
+            const ref = useRef();
+            useFrame((state) => {
+                if (ref.current) {
+                    const elapsed = state.clock.getElapsedTime();
+                    const range = 240;
+                    let currentX = startX - elapsed * speed;
+                    currentX = ((currentX + 120) % range + range) % range - 120;
+                    ref.current.position.x = currentX;
+                }
+            });
+            return (
+                <group ref={ref} position={[startX, y, z]}>
+                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
+                </group>
+            );
+        }
+
+        function BackgroundSky() {
+            return (
+                <React.Fragment>
+                    <SkyImpl sunPosition={[100, 20, 100]} turbidity={0.8} rayleigh={0.5} />
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#ffffff" volume={15} opacity={0.6} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
+                        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#eaebff" volume={6} opacity={0.4} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
+                        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#d3e2ff" volume={40} opacity={0.9} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
+                        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#fdfdfd" volume={35} opacity={0.7} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
+                    </Clouds>
+                </React.Fragment>
+            )
+        }
+
+        function ForegroundSky() {
+            return (
+                <React.Fragment>
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={45} speed={2.8} bounds={[10, 10, 5]} color="#f0f0f0" volume={12} opacity={0.8} seed={4} y={2} z={10} growth={15} fade={5} segments={15} concentrate="inside" />
+                        <MovingCloud startX={15} speed={3.5} bounds={[20, 5, 8]} color="#ffffff" volume={8} opacity={0.6} seed={6} y={-2} z={5} growth={5} fade={25} segments={12} />
+                    </Clouds>
+                </React.Fragment>
+            )
+        }
+
+        function BackgroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
+                        <BackgroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        function ForegroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: true }} style={{ pointerEvents: 'none' }}>
+                        <ForegroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        const bgRoot = createRoot(document.getElementById('bg-canvas-root'));
+        bgRoot.render(<BackgroundApp />);
+
+        // Holographic Stickers
+        const HoloWrapper = ({ src, alt }) => (
+            <HolographicSticker.Root>
+                <HolographicSticker.Scene>
+                    <HolographicSticker.Card className="w-full h-full rounded-2xl bg-transparent border-none overflow-visible">
+                        <HolographicSticker.ImageLayer src={src} alt={alt} objectFit="contain" />
+                        <HolographicSticker.Pattern
+                            maskUrl={src}
+                            maskSize="contain"
+                            textureUrl="https://assets.codepen.io/605876/figma-texture.png"
+                            textureSize="300px"
+                            mixBlendMode="hard-light"
+                            opacity={0.6}>
+                            <HolographicSticker.Refraction intensity={2.5} />
+                        </HolographicSticker.Pattern>
+                    </HolographicSticker.Card>
+                </HolographicSticker.Scene>
+            </HolographicSticker.Root>
+        );
+
+        const root_holo_world_0 = document.getElementById("holo-world-0");
+        if (root_holo_world_0) {
+            createRoot(root_holo_world_0).render(<HoloWrapper src="./Icons/World.png" alt="World" />);
+        }
+        const root_holo_gumorad_1 = document.getElementById("holo-gumorad-1");
+        if (root_holo_gumorad_1) {
+            createRoot(root_holo_gumorad_1).render(<HoloWrapper src="./Icons/Gumorad.png" alt="Bag" />);
+        }
+        const root_holo_checkmark_2 = document.getElementById("holo-checkmark-2");
+        if (root_holo_checkmark_2) {
+            createRoot(root_holo_checkmark_2).render(<HoloWrapper src="./Icons/Checkmark.png" alt="Check" />);
+        }
     </script>
 </body>
 

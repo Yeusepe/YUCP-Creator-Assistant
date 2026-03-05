@@ -30,6 +30,14 @@ const DISCORD_ROLE_SETUP_PREFIX = 'discord_role_setup:';
 const DISCORD_ROLE_OAUTH_STATE_PREFIX = 'discord_role_oauth:';
 const DISCORD_ROLE_SETUP_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+const HTML_SECURITY_HEADERS: Record<string, string> = {
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://ga.jspm.io https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://db.onlinewebfonts.com; font-src https://fonts.gstatic.com https://db.onlinewebfonts.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+};
+
 interface DiscordRoleSetupSession {
   tenantId: string;
   guildId: string;
@@ -50,6 +58,17 @@ function generateSecureRandom(length: number): string {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function escapeForSingleQuotedJsString(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+    .replace(/<\/script/gi, '<\\/script');
 }
 
 export interface ConnectConfig {
@@ -78,6 +97,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       : new URL(request.url).searchParams.get('s');
     if (!token) return null;
     return resolveSetupSession(token, config.encryptionSecret);
+  }
+
+  async function isTenantOwnedBySessionUser(authUserId: string, tenantId: string): Promise<boolean> {
+    const convex = getConvexClientFromUrl(config.convexUrl);
+    const ownedTenant = await convex.query('tenants:getTenantByOwnerAuth' as any, {
+      ownerAuthUserId: authUserId,
+    }) as { _id?: string } | null;
+    return ownedTenant?._id === tenantId;
   }
 
   /**
@@ -209,14 +236,19 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const filePath = `${import.meta.dir}/../../public/dashboard.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    html = html.replace('__GUILD_ID__', resolvedGuildId);
-    html = html.replace('__TOKEN__', token ?? '');
-    html = html.replace('__API_BASE__', apiBase);
-    html = html.replace('__SETUP_TOKEN__', resolvedSetupToken);
-    html = html.replace('__TENANT_ID__', resolvedTenantId);
+    const templateValues: Record<string, string> = {
+      '__GUILD_ID__': resolvedGuildId,
+      '__TOKEN__': token ?? '',
+      '__API_BASE__': apiBase,
+      '__SETUP_TOKEN__': resolvedSetupToken,
+      '__TENANT_ID__': resolvedTenantId,
+    };
+    for (const [placeholder, rawValue] of Object.entries(templateValues)) {
+      html = html.replaceAll(placeholder, escapeForSingleQuotedJsString(rawValue));
+    }
 
     return new Response(html, {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
   }
 
@@ -628,19 +660,30 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Returns { callbackUrl, signingSecret }.
    */
   async function jinxxyWebhookConfig(request: Request): Promise<Response> {
-    // Validate via setup token or tenantId
     const url = new URL(request.url);
-    let tenantId = url.searchParams.get('tenantId');
+    let tenantId: string | null = null;
     const setupToken = url.searchParams.get('s');
 
     if (setupToken) {
-      const session = await resolveSetupSession(setupToken, config.encryptionSecret);
-      if (session) tenantId = session.tenantId;
-      else return Response.json({ error: 'Invalid or expired setup token' }, { status: 401 });
-    }
-
-    if (!tenantId) {
-      return Response.json({ error: 'tenantId or setup token is required' }, { status: 400 });
+      const setupSession = await resolveSetupSession(setupToken, config.encryptionSecret);
+      if (!setupSession) {
+        return Response.json({ error: 'Invalid or expired setup token' }, { status: 401 });
+      }
+      tenantId = setupSession.tenantId;
+    } else {
+      const session = await auth.getSession(request);
+      if (!session) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      const requestedTenantId = url.searchParams.get('tenantId');
+      if (!requestedTenantId) {
+        return Response.json({ error: 'tenantId is required' }, { status: 400 });
+      }
+      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, requestedTenantId);
+      if (!tenantOwned) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      tenantId = requestedTenantId;
     }
 
     try {

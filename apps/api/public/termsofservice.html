@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,17 +8,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;700&display=swap"
+        rel="stylesheet">
 
     <style>
         :root {
-            --bg-color: #f6efee;
-            --text-primary: #7a7a9f;
-            --text-secondary: #5e5e80;
-            --accent-mustard: #f0cc60;
-            --accent-orange: #d45d39;
-            --accent-green-dark: #3f7035;
-            --accent-blue: #224285;
+            --tos-accent: #0ea5e9;
         }
 
         body {
@@ -27,7 +24,11 @@
             scroll-behavior: smooth;
         }
 
-        h1, h2, h3, h4, .display-text {
+        h1,
+        h2,
+        h3,
+        h4,
+        .display-text {
             font-family: 'Plus Jakarta Sans', sans-serif;
             font-weight: 800;
             letter-spacing: -0.04em;
@@ -35,9 +36,9 @@
         }
 
         .tos-card {
-            background: rgba(255, 255, 255, 0.4);
+            background: rgba(0, 0, 0, 0.25);
             backdrop-filter: blur(10px);
-            border: 1px solid #e0d6d4;
+            border: 1px solid rgba(255, 255, 255, 0.15);
             transition: all 0.3s ease;
         }
 
@@ -53,108 +54,181 @@
         .btn-agree {
             background: var(--accent-blue);
             color: white;
-            box-shadow: 0 10px 30px rgba(34,66,133,0.3);
+            box-shadow: 0 10px 30px rgba(34, 66, 133, 0.3);
             transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
 
         .btn-agree:hover {
             transform: translateY(-5px);
-            box-shadow: 0 15px 40px rgba(34,66,133,0.4);
-            background: var(--accent-orange);
+            box-shadow: 0 15px 40px rgba(34, 66, 133, 0.4);
+            background: var(--accent-sky);
         }
 
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: var(--bg-color); }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e0d6d4; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
 
-        .tos-card ul { margin: 0.75rem 0; padding-left: 1.5rem; }
-        .tos-card li { margin-bottom: 0.4rem; }
-        .tos-card p { margin-bottom: 0.75rem; line-height: 1.7; }
-        .tos-card p:last-child { margin-bottom: 0; }
-        .tos-card h4 { margin-top: 1.25rem; margin-bottom: 0.5rem; font-size: 1rem; }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: var(--bg-color);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        .tos-card ul {
+            margin: 0.75rem 0;
+            padding-left: 1.5rem;
+        }
+
+        .tos-card li {
+            margin-bottom: 0.4rem;
+        }
+
+        .tos-card p {
+            margin-bottom: 0.75rem;
+            line-height: 1.7;
+        }
+
+        .tos-card p:last-child {
+            margin-bottom: 0;
+        }
+
+        .tos-card h4 {
+            margin-top: 1.25rem;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+        }
     </style>
+
+    <!-- ES Module Shims for better browser compatibility -->
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "three": "https://esm.sh/three@0.160.0",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
+
 <body class="min-h-screen selection:bg-yellow-200">
-
-    <nav class="w-full px-8 py-6 flex justify-between items-center z-50 sticky top-0 bg-[#f6efee]/80 backdrop-blur-md border-b border-[#e0d6d4]/60">
-        <div class="text-2xl font-black tracking-tighter text-[#224285]">YUCP.</div>
-        <a href="/" class="text-sm font-bold uppercase tracking-widest hover:text-[#d45d39] transition-colors">Back to Home</a>
-    </nav>
-
+    <div id="bg-canvas-root"
+        style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
+    </div>
     <main class="max-w-3xl mx-auto px-6 py-20 pb-40">
         <header class="mb-16">
-            <p class="text-[#d45d39] font-bold uppercase tracking-[0.3em] text-xs mb-4">Legal &amp; Compliance</p>
+            <p class="text-[#0ea5e9] font-bold uppercase tracking-[0.3em] text-xs mb-4">Legal &amp; Compliance</p>
             <h1 class="text-5xl md:text-6xl mb-6">YUCP Creator Assistant Terms of Service</h1>
             <p class="text-xl opacity-70 leading-relaxed font-medium">
-                <strong>Effective date:</strong> March 4, 2026 &nbsp;|&nbsp; <strong>Last updated:</strong> March 4, 2026
+                <strong>Effective date:</strong> March 4, 2026 &nbsp;|&nbsp; <strong>Last updated:</strong> March 4,
+                2026
             </p>
         </header>
 
         <div class="space-y-6 custom-scrollbar">
-            <p class="text-[#5e5e80] leading-relaxed">
-                These Terms of Service (the "Terms") govern access to and use of the YUCP Creator Assistant services, including our websites, setup pages, dashboards, APIs, internal tools, webhook endpoints, and Discord bot functionality, together with any related software, features, and content that link to these Terms (collectively, the "Service"). The Service is operated by <strong>YUCP Studio</strong> ("YUCP", "we", "us", or "our").
+            <p class="text-[rgba(255,255,255,0.85)] leading-relaxed">
+                These Terms of Service (the "Terms") govern access to and use of the YUCP Creator Assistant services,
+                including our websites, setup pages, dashboards, APIs, internal tools, webhook endpoints, and Discord
+                bot functionality, together with any related software, features, and content that link to these Terms
+                (collectively, the "Service"). The Service is operated by <strong>YUCP Studio</strong> ("YUCP", "we",
+                "us", or "our").
             </p>
-            <p class="text-[#5e5e80] leading-relaxed">
-                By accessing, installing, connecting, configuring, or using the Service, you agree to these Terms. If you do not agree, you must not use the Service.
+            <p class="text-[rgba(255,255,255,0.85)] leading-relaxed">
+                By accessing, installing, connecting, configuring, or using the Service, you agree to these Terms. If
+                you do not agree, you must not use the Service.
             </p>
 
             <!-- Section 1 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#224285]/10 text-[#224285]">Section 01</span>
+                    <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 01</span>
                     <h2 class="text-2xl">Scope and Structure</h2>
                 </div>
                 <p>These Terms apply to all users of the Service, including:</p>
                 <ul>
-                    <li>creators, sellers, studios, moderators, and community operators who install or configure the Service</li>
-                    <li>Discord server owners, administrators, and staff members who manage settings, roles, and verification flows</li>
-                    <li>end users who connect accounts, submit verification information, or receive entitlements, badges, or Discord roles through the Service</li>
+                    <li>creators, sellers, studios, moderators, and community operators who install or configure the
+                        Service</li>
+                    <li>Discord server owners, administrators, and staff members who manage settings, roles, and
+                        verification flows</li>
+                    <li>end users who connect accounts, submit verification information, or receive entitlements,
+                        badges, or Discord roles through the Service</li>
                     <li>developers or operators who access our APIs, setup pages, webhook endpoints, or dashboards</li>
                 </ul>
-                <p>Additional terms, policies, feature specific rules, or order terms may apply to certain features. If there is a conflict, the more specific terms control for that feature.</p>
+                <p>Additional terms, policies, feature specific rules, or order terms may apply to certain features. If
+                    there is a conflict, the more specific terms control for that feature.</p>
             </div>
 
             <!-- Section 2 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#d45d39]/10 text-[#d45d39]">Section 02</span>
+                    <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 02</span>
                     <h2 class="text-2xl">Definitions</h2>
                 </div>
                 <p>For these Terms:</p>
                 <ul>
-                    <li><strong>"Admin"</strong> means a person authorized to configure the Service for a Creator or a Discord server.</li>
-                    <li><strong>"Connected Provider"</strong> means a third party platform or service connected to the Service, including Discord, Gumroad, Jinxxy, and any future supported provider.</li>
-                    <li><strong>"Connected Provider Data"</strong> means data received from or sent to a Connected Provider, including account identifiers, product references, order or sale references, webhook events, profile metadata, license information, role information, or entitlement related data.</li>
-                    <li><strong>"Content"</strong> means text, images, metadata, settings, product mappings, links, messages, files, and other materials submitted to or made available through the Service.</li>
-                    <li><strong>"Creator"</strong> means a person or entity using the Service to manage product verification, role assignment, entitlements, or community access.</li>
-                    <li><strong>"Discord Data"</strong> means Discord user IDs, guild or server IDs, role IDs, channel IDs, profile information, and related metadata used by the Service.</li>
-                    <li><strong>"Entitlement"</strong> means a verification outcome, product recognition, license recognition, purchase recognition, access right, or role grant produced by or through the Service.</li>
-                    <li><strong>"Event Logs"</strong> means operational, audit, security, sync, and troubleshooting records generated in connection with the Service.</li>
-                    <li><strong>"Provider Credentials"</strong> means access tokens, refresh tokens, API keys, webhook secrets, or similar credentials used to connect a Connected Provider.</li>
-                    <li><strong>"Purchase Data"</strong> means order data, sale records, line items, product IDs, provider order IDs, provider customer identifiers, payment state, refund state, dispute state, purchase timestamps, and related fields.</li>
+                    <li><strong>"Admin"</strong> means a person authorized to configure the Service for a Creator or a
+                        Discord server.</li>
+                    <li><strong>"Connected Provider"</strong> means a third party platform or service connected to the
+                        Service, including Discord, Gumroad, Jinxxy, and any future supported provider.</li>
+                    <li><strong>"Connected Provider Data"</strong> means data received from or sent to a Connected
+                        Provider, including account identifiers, product references, order or sale references, webhook
+                        events, profile metadata, license information, role information, or entitlement related data.
+                    </li>
+                    <li><strong>"Content"</strong> means text, images, metadata, settings, product mappings, links,
+                        messages, files, and other materials submitted to or made available through the Service.</li>
+                    <li><strong>"Creator"</strong> means a person or entity using the Service to manage product
+                        verification, role assignment, entitlements, or community access.</li>
+                    <li><strong>"Discord Data"</strong> means Discord user IDs, guild or server IDs, role IDs, channel
+                        IDs, profile information, and related metadata used by the Service.</li>
+                    <li><strong>"Entitlement"</strong> means a verification outcome, product recognition, license
+                        recognition, purchase recognition, access right, or role grant produced by or through the
+                        Service.</li>
+                    <li><strong>"Event Logs"</strong> means operational, audit, security, sync, and troubleshooting
+                        records generated in connection with the Service.</li>
+                    <li><strong>"Provider Credentials"</strong> means access tokens, refresh tokens, API keys, webhook
+                        secrets, or similar credentials used to connect a Connected Provider.</li>
+                    <li><strong>"Purchase Data"</strong> means order data, sale records, line items, product IDs,
+                        provider order IDs, provider customer identifiers, payment state, refund state, dispute state,
+                        purchase timestamps, and related fields.</li>
                     <li><strong>"Server"</strong> means a Discord server or guild.</li>
                     <li><strong>"User"</strong> means any person or entity who accesses or uses the Service.</li>
-                    <li><strong>"Verification Data"</strong> means data used to complete a verification flow, including linked accounts, provider identifiers, license keys or hashes, product references, OAuth state data, verification session records, and related metadata.</li>
+                    <li><strong>"Verification Data"</strong> means data used to complete a verification flow, including
+                        linked accounts, provider identifiers, license keys or hashes, product references, OAuth state
+                        data, verification session records, and related metadata.</li>
                 </ul>
             </div>
 
             <!-- Section 3 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#3f7035]/10 text-[#3f7035]">Section 03</span>
+                    <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 03</span>
                     <h2 class="text-2xl">Eligibility</h2>
                 </div>
-                <p>You must be at least 13 years old to use the Service and old enough to legally consent in your jurisdiction. If you are under the age of majority where you live, you may use the Service only with permission from a parent or legal guardian.</p>
-                <p>You must also satisfy the eligibility rules of each Connected Provider you use. If Discord, Gumroad, Jinxxy, or another provider suspends or restricts your account, your ability to use related parts of the Service may be limited or terminated.</p>
+                <p>You must be at least 13 years old to use the Service and old enough to legally consent in your
+                    jurisdiction. If you are under the age of majority where you live, you may use the Service only with
+                    permission from a parent or legal guardian.</p>
+                <p>You must also satisfy the eligibility rules of each Connected Provider you use. If Discord, Gumroad,
+                    Jinxxy, or another provider suspends or restricts your account, your ability to use related parts of
+                    the Service may be limited or terminated.</p>
             </div>
 
             <!-- Section 4 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#f0cc60]/10 text-[#f0cc60]">Section 04</span>
+                    <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 04</span>
                     <h2 class="text-2xl">The Service</h2>
                 </div>
-                <p>The Service is designed to help Creators and communities manage verification, linked accounts, entitlements, and Discord role access. Depending on the feature set enabled by a Creator, the Service may:</p>
+                <p>The Service is designed to help Creators and communities manage verification, linked accounts,
+                    entitlements, and Discord role access. Depending on the feature set enabled by a Creator, the
+                    Service may:</p>
                 <ul>
                     <li>install and operate a Discord bot in one or more Servers</li>
                     <li>create setup and onboarding sessions for Creators and Admins</li>
@@ -162,26 +236,33 @@
                     <li>let Users connect supported providers such as Gumroad or Jinxxy</li>
                     <li>store Provider Credentials in encrypted form where needed to maintain provider connections</li>
                     <li>receive and process provider webhooks, including sale, refund, payment, and product events</li>
-                    <li>perform historical or ongoing sync, import, backfill, or reconciliation of provider sales or product records</li>
+                    <li>perform historical or ongoing sync, import, backfill, or reconciliation of provider sales or
+                        product records</li>
                     <li>create or update linked account records and subject or profile records</li>
-                    <li>match purchases to users through account identifiers, email matching, license based verification, account linking, or other configured methods</li>
+                    <li>match purchases to users through account identifiers, email matching, license based
+                        verification, account linking, or other configured methods</li>
                     <li>project, grant, update, suspend, revoke, or remove Entitlements</li>
-                    <li>assign, sync, or remove Discord roles based on verification results or Creator configuration</li>
-                    <li>support cross server verification if a Creator enables verification based on roles or status in another allowed Server</li>
-                    <li>generate analytics, operational metrics, and audit trails for Service performance, fraud review, and troubleshooting</li>
+                    <li>assign, sync, or remove Discord roles based on verification results or Creator configuration
+                    </li>
+                    <li>support cross server verification if a Creator enables verification based on roles or status in
+                        another allowed Server</li>
+                    <li>generate analytics, operational metrics, and audit trails for Service performance, fraud review,
+                        and troubleshooting</li>
                     <li>support manual review, manual licenses, suspicious account review, or anti abuse actions</li>
                 </ul>
-                <p>The exact features available may vary by Creator, Server, provider, product, jurisdiction, or subscription tier.</p>
+                <p>The exact features available may vary by Creator, Server, provider, product, jurisdiction, or
+                    subscription tier.</p>
             </div>
 
             <!-- Section 5 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#224285]/10 text-[#224285]">Section 05</span>
+                    <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 05</span>
                     <h2 class="text-2xl">Accounts, Installation, and Authority</h2>
                 </div>
                 <h4>5.1 Discord account and installation authority</h4>
-                <p>To use Discord bot features, you must have a valid Discord account and sufficient authority to install, configure, or manage the bot in the relevant Server.</p>
+                <p>To use Discord bot features, you must have a valid Discord account and sufficient authority to
+                    install, configure, or manage the bot in the relevant Server.</p>
                 <p>By installing or configuring the bot, you represent and warrant that:</p>
                 <ul>
                     <li>you have the authority to act for the applicable Server, Creator, or organization</li>
@@ -191,22 +272,28 @@
                 <h4>5.2 Connected Provider authority</h4>
                 <p>If you connect Gumroad, Jinxxy, or another provider, you represent and warrant that:</p>
                 <ul>
-                    <li>you are the lawful owner of that provider account or are authorized to connect it on behalf of its owner</li>
-                    <li>you have permission to grant the Service access to the provider data needed for the selected features</li>
+                    <li>you are the lawful owner of that provider account or are authorized to connect it on behalf of
+                        its owner</li>
+                    <li>you have permission to grant the Service access to the provider data needed for the selected
+                        features</li>
                     <li>the Provider Credentials and configuration you supply are accurate and current</li>
                 </ul>
                 <h4>5.3 Creator responsibility for community notices</h4>
-                <p>Creators and Admins are responsible for giving their community any notices required by law or platform policy regarding verification flows, linked accounts, role assignment, data handling, moderation decisions, and external services used in their Server.</p>
+                <p>Creators and Admins are responsible for giving their community any notices required by law or
+                    platform policy regarding verification flows, linked accounts, role assignment, data handling,
+                    moderation decisions, and external services used in their Server.</p>
             </div>
 
             <!-- Section 6 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#d45d39]/10 text-[#d45d39]">Section 06</span>
+                    <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 06</span>
                     <h2 class="text-2xl">Connected Providers and Data Sync</h2>
                 </div>
                 <h4>6.1 Provider connections</h4>
-                <p>The Service may integrate with Connected Providers including Discord, Gumroad, Jinxxy, and future providers. By connecting a provider, you instruct us to communicate with that provider as needed to:</p>
+                <p>The Service may integrate with Connected Providers including Discord, Gumroad, Jinxxy, and future
+                    providers. By connecting a provider, you instruct us to communicate with that provider as needed to:
+                </p>
                 <ul>
                     <li>authenticate the connection</li>
                     <li>store and maintain connection status</li>
@@ -217,7 +304,8 @@
                     <li>maintain, refresh, or disconnect the provider connection</li>
                 </ul>
                 <h4>6.2 Gumroad and similar commerce sync</h4>
-                <p>If a Creator connects Gumroad or a similar commerce platform, the Service may ingest or process information such as:</p>
+                <p>If a Creator connects Gumroad or a similar commerce platform, the Service may ingest or process
+                    information such as:</p>
                 <ul>
                     <li>provider user IDs and connected account metadata</li>
                     <li>product IDs and product mappings</li>
@@ -229,39 +317,59 @@
                     <li>customer email addresses or normalized or hashed forms of email addresses</li>
                     <li>webhook payloads and historical purchase records</li>
                 </ul>
-                <p>The Service may also perform a historical sync or backfill of sales or orders for connected products where that feature is enabled.</p>
+                <p>The Service may also perform a historical sync or backfill of sales or orders for connected products
+                    where that feature is enabled.</p>
                 <h4>6.3 Webhooks and provider events</h4>
-                <p>The Service may receive, store, validate, deduplicate, and process provider webhooks or event notifications. Provider events may be stored with metadata such as provider, event type, raw payload, signature validation state, tenant or creator association, processing status, error state, and timestamps.</p>
+                <p>The Service may receive, store, validate, deduplicate, and process provider webhooks or event
+                    notifications. Provider events may be stored with metadata such as provider, event type, raw
+                    payload, signature validation state, tenant or creator association, processing status, error state,
+                    and timestamps.</p>
                 <h4>6.4 No control over third party providers</h4>
-                <p>Connected Providers are independent third parties. We do not control their APIs, uptime, product identifiers, event quality, webhook delivery, rate limits, account restrictions, or data accuracy. Providers may change or discontinue features at any time. We are not responsible for losses caused by third party provider actions, omissions, delays, outages, policy changes, or API changes.</p>
+                <p>Connected Providers are independent third parties. We do not control their APIs, uptime, product
+                    identifiers, event quality, webhook delivery, rate limits, account restrictions, or data accuracy.
+                    Providers may change or discontinue features at any time. We are not responsible for losses caused
+                    by third party provider actions, omissions, delays, outages, policy changes, or API changes.</p>
             </div>
 
             <!-- Section 7 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#3f7035]/10 text-[#3f7035]">Section 07</span>
+                    <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 07</span>
                     <h2 class="text-2xl">Verification, Linking, and Entitlements</h2>
                 </div>
                 <h4>7.1 Verification methods</h4>
-                <p>The Service may support multiple verification methods, including account based verification, OAuth based verification, provider account linking, Discord role based verification, manual verification, manual license verification, and future verification methods.</p>
+                <p>The Service may support multiple verification methods, including account based verification, OAuth
+                    based verification, provider account linking, Discord role based verification, manual verification,
+                    manual license verification, and future verification methods.</p>
                 <h4>7.2 Linked identities and subject records</h4>
-                <p>To operate the Service, we may create records that associate one or more external accounts with a single internal subject, profile, or verification record. This may include Discord accounts, provider accounts, email based matching, or Creator configured license records.</p>
+                <p>To operate the Service, we may create records that associate one or more external accounts with a
+                    single internal subject, profile, or verification record. This may include Discord accounts,
+                    provider accounts, email based matching, or Creator configured license records.</p>
                 <h4>7.3 Entitlement projection</h4>
-                <p>The Service may transform verification or purchase information into Entitlements. An Entitlement may represent a verified product, a verified purchase, a verified license, a Discord role grant, a permission to access a channel or Server area, or another configured access state.</p>
+                <p>The Service may transform verification or purchase information into Entitlements. An Entitlement may
+                    represent a verified product, a verified purchase, a verified license, a Discord role grant, a
+                    permission to access a channel or Server area, or another configured access state.</p>
                 <h4>7.4 Role assignment and removal</h4>
-                <p>If enabled by a Creator, the Service may assign, sync, maintain, or remove Discord roles based on active Entitlements, provider events, configuration changes, revocations, refunds, disputes, or security flags.</p>
+                <p>If enabled by a Creator, the Service may assign, sync, maintain, or remove Discord roles based on
+                    active Entitlements, provider events, configuration changes, revocations, refunds, disputes, or
+                    security flags.</p>
                 <h4>7.5 Cross server verification</h4>
-                <p>If enabled by a Creator, the Service may consider a User's role or status in another approved Server as part of a verification or role decision.</p>
+                <p>If enabled by a Creator, the Service may consider a User's role or status in another approved Server
+                    as part of a verification or role decision.</p>
                 <h4>7.6 Errors and reversals</h4>
-                <p>Verification and Entitlement decisions may change over time. A prior success does not guarantee permanent access. We or the Creator may correct errors, remove access after refunds or disputes, revoke mistaken grants, quarantine suspicious accounts, or update a decision following new provider data.</p>
+                <p>Verification and Entitlement decisions may change over time. A prior success does not guarantee
+                    permanent access. We or the Creator may correct errors, remove access after refunds or disputes,
+                    revoke mistaken grants, quarantine suspicious accounts, or update a decision following new provider
+                    data.</p>
                 <h4>7.7 No guarantee of access or timing</h4>
-                <p>We do not guarantee that any verification, sync, backfill, role assignment, or Entitlement update will be instantaneous, continuous, successful, or error free.</p>
+                <p>We do not guarantee that any verification, sync, backfill, role assignment, or Entitlement update
+                    will be instantaneous, continuous, successful, or error free.</p>
             </div>
 
             <!-- Section 8 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#f0cc60]/10 text-[#f0cc60]">Section 08</span>
+                    <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 08</span>
                     <h2 class="text-2xl">Data We Process and Store for Service Operation</h2>
                 </div>
                 <p>To operate the Service, we may process and store information such as:</p>
@@ -269,143 +377,187 @@
                     <li>Discord account, guild, channel, role, and interaction metadata</li>
                     <li>Creator and Admin setup data</li>
                     <li>Connected Provider account identifiers and profile metadata</li>
-                    <li>Provider Credentials, stored in encrypted or otherwise protected form where supported by our systems</li>
-                    <li>verification sessions, OAuth state values, PKCE related values, setup session data, one time tokens, and temporary state data</li>
+                    <li>Provider Credentials, stored in encrypted or otherwise protected form where supported by our
+                        systems</li>
+                    <li>verification sessions, OAuth state values, PKCE related values, setup session data, one time
+                        tokens, and temporary state data</li>
                     <li>purchase, order, sale, refund, dispute, product, and license related records</li>
-                    <li>normalized email addresses, hashed email values, or similar matching artifacts used for verification or reconciliation</li>
-                    <li>internal subject, external account, role rule, guild link, product catalog, purchase fact, provider customer, entitlement, and provider connection records</li>
+                    <li>normalized email addresses, hashed email values, or similar matching artifacts used for
+                        verification or reconciliation</li>
+                    <li>internal subject, external account, role rule, guild link, product catalog, purchase fact,
+                        provider customer, entitlement, and provider connection records</li>
                     <li>webhook payloads, webhook processing records, and sync job records</li>
-                    <li>audit logs, event logs, error logs, security review logs, and fraud or suspicious activity flags</li>
-                    <li>IP addresses, user agent strings, timestamps, correlation IDs, and related operational metadata</li>
+                    <li>audit logs, event logs, error logs, security review logs, and fraud or suspicious activity flags
+                    </li>
+                    <li>IP addresses, user agent strings, timestamps, correlation IDs, and related operational metadata
+                    </li>
                     <li>session cookies, authentication records, and account connection status</li>
-                    <li>analytics and telemetry events relating to command usage, verification flows, product activity, suspicious activity review, and Service performance</li>
+                    <li>analytics and telemetry events relating to command usage, verification flows, product activity,
+                        suspicious activity review, and Service performance</li>
                 </ul>
-                <p>Some data may be stored temporarily in in memory systems, key value stores, caches, or job queues for setup flows, OAuth flows, webhook processing, retry handling, or rate limiting.</p>
+                <p>Some data may be stored temporarily in in memory systems, key value stores, caches, or job queues for
+                    setup flows, OAuth flows, webhook processing, retry handling, or rate limiting.</p>
             </div>
 
             <!-- Section 9 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#224285]/10 text-[#224285]">Section 09</span>
+                    <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 09</span>
                     <h2 class="text-2xl">Security, Credentials, and Sensitive Inputs</h2>
                 </div>
                 <h4>9.1 Security measures</h4>
-                <p>We use reasonable technical and organizational measures designed to protect the Service and the data we process. These measures may include encryption for stored provider credentials, session protections, state validation, expiration controls, and access restrictions.</p>
+                <p>We use reasonable technical and organizational measures designed to protect the Service and the data
+                    we process. These measures may include encryption for stored provider credentials, session
+                    protections, state validation, expiration controls, and access restrictions.</p>
                 <h4>9.2 No absolute security guarantee</h4>
-                <p>No system is perfectly secure. You acknowledge that the Service may still be subject to unauthorized access, outages, provider compromise, configuration errors, credential misuse, malicious actors, or unforeseen failures.</p>
+                <p>No system is perfectly secure. You acknowledge that the Service may still be subject to unauthorized
+                    access, outages, provider compromise, configuration errors, credential misuse, malicious actors, or
+                    unforeseen failures.</p>
                 <h4>9.3 Your obligations</h4>
-                <p>You are responsible for keeping your own accounts, servers, devices, and provider credentials secure. You must promptly rotate or revoke credentials if you suspect compromise.</p>
+                <p>You are responsible for keeping your own accounts, servers, devices, and provider credentials secure.
+                    You must promptly rotate or revoke credentials if you suspect compromise.</p>
                 <h4>9.4 Secrets and license data</h4>
-                <p>Do not submit secrets, keys, or sensitive data in public channels. If the Service accepts license keys or similar values, you are responsible for entering them in the intended private flow.</p>
+                <p>Do not submit secrets, keys, or sensitive data in public channels. If the Service accepts license
+                    keys or similar values, you are responsible for entering them in the intended private flow.</p>
             </div>
 
             <!-- Section 10 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#d45d39]/10 text-[#d45d39]">Section 10</span>
+                    <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 10</span>
                     <h2 class="text-2xl">Creator and Admin Responsibilities</h2>
                 </div>
                 <p>If you are a Creator or Admin, you are solely responsible for:</p>
                 <ul>
                     <li>deciding whether to use the Service in a Server or product community</li>
                     <li>choosing what products, licenses, providers, or roles to connect</li>
-                    <li>configuring role rules, product mappings, source servers, and verification policies correctly</li>
-                    <li>ensuring that your product listings, license terms, refund practices, support practices, and access policies are lawful and clearly communicated</li>
-                    <li>ensuring that you have a lawful basis and any required notices or consents for personal data you ask the Service to process on your behalf</li>
+                    <li>configuring role rules, product mappings, source servers, and verification policies correctly
+                    </li>
+                    <li>ensuring that your product listings, license terms, refund practices, support practices, and
+                        access policies are lawful and clearly communicated</li>
+                    <li>ensuring that you have a lawful basis and any required notices or consents for personal data you
+                        ask the Service to process on your behalf</li>
                     <li>ensuring that bot permissions, role hierarchy, and Server settings are configured correctly</li>
-                    <li>reviewing suspicious activity, duplicates, disputes, false positives, false negatives, and other edge cases as needed</li>
+                    <li>reviewing suspicious activity, duplicates, disputes, false positives, false negatives, and other
+                        edge cases as needed</li>
                 </ul>
-                <p>You understand that a misconfiguration by a Creator or Admin can lead to mistaken role grants, missed role grants, revoked access, duplicate verification outcomes, or inconsistent verification results.</p>
+                <p>You understand that a misconfiguration by a Creator or Admin can lead to mistaken role grants, missed
+                    role grants, revoked access, duplicate verification outcomes, or inconsistent verification results.
+                </p>
             </div>
 
             <!-- Section 11 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#3f7035]/10 text-[#3f7035]">Section 11</span>
+                    <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 11</span>
                     <h2 class="text-2xl">End User Responsibilities</h2>
                 </div>
                 <p>If you are an end user verifying a purchase or account, you are responsible for:</p>
                 <ul>
                     <li>using your own accounts and truthful information</li>
-                    <li>not impersonating another person or attempting to verify purchases you are not entitled to use</li>
+                    <li>not impersonating another person or attempting to verify purchases you are not entitled to use
+                    </li>
                     <li>keeping your provider accounts and license information secure</li>
-                    <li>understanding that a Creator's own product, refund, moderation, and community rules may separately apply to you</li>
+                    <li>understanding that a Creator's own product, refund, moderation, and community rules may
+                        separately apply to you</li>
                 </ul>
-                <p>Your transaction for a product may be with the Creator, Gumroad, Jinxxy, or another provider, not with us. Except where expressly stated, we are not the merchant of record, seller, reseller, licensor, or payment processor for Creator products.</p>
+                <p>Your transaction for a product may be with the Creator, Gumroad, Jinxxy, or another provider, not
+                    with us. Except where expressly stated, we are not the merchant of record, seller, reseller,
+                    licensor, or payment processor for Creator products.</p>
             </div>
 
             <!-- Section 12 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#f0cc60]/10 text-[#f0cc60]">Section 12</span>
+                    <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 12</span>
                     <h2 class="text-2xl">Acceptable Use</h2>
                 </div>
                 <p>You may not, and may not assist or permit others to:</p>
                 <ul>
                     <li>use the Service in violation of law, platform rules, or third party rights</li>
                     <li>use the Service to commit fraud, deception, chargeback abuse, or unauthorized access</li>
-                    <li>attempt to bypass verification requirements, role rules, account linking controls, or security checks</li>
-                    <li>upload, transmit, or distribute malware, malicious code, phishing content, or harmful automation</li>
-                    <li>interfere with or abuse webhooks, APIs, rate limits, retries, job queues, or provider connections</li>
-                    <li>scrape or harvest personal data through the Service without a lawful basis and authorization</li>
+                    <li>attempt to bypass verification requirements, role rules, account linking controls, or security
+                        checks</li>
+                    <li>upload, transmit, or distribute malware, malicious code, phishing content, or harmful automation
+                    </li>
+                    <li>interfere with or abuse webhooks, APIs, rate limits, retries, job queues, or provider
+                        connections</li>
+                    <li>scrape or harvest personal data through the Service without a lawful basis and authorization
+                    </li>
                     <li>use the Service to stalk, harass, dox, intimidate, or discriminate against others</li>
                     <li>use the Service to make access decisions in a way that violates law or protected rights</li>
-                    <li>probe, scan, reverse engineer, or test the Service for vulnerabilities without our written authorization, except where non waivable law permits a narrower right</li>
-                    <li>use the Service in a way that burdens or disrupts our infrastructure or a Connected Provider</li>
+                    <li>probe, scan, reverse engineer, or test the Service for vulnerabilities without our written
+                        authorization, except where non waivable law permits a narrower right</li>
+                    <li>use the Service in a way that burdens or disrupts our infrastructure or a Connected Provider
+                    </li>
                 </ul>
-                <p>We may investigate violations and take appropriate action, including suspension, revocation, or reporting.</p>
+                <p>We may investigate violations and take appropriate action, including suspension, revocation, or
+                    reporting.</p>
             </div>
 
             <!-- Section 13 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#224285]/10 text-[#224285]">Section 13</span>
+                    <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 13</span>
                     <h2 class="text-2xl">Content and Intellectual Property</h2>
                 </div>
                 <h4>13.1 Your Content</h4>
                 <p>You retain ownership of your Content, subject to the rights you grant in these Terms.</p>
                 <h4>13.2 License to us</h4>
-                <p>You grant us a worldwide, non exclusive, royalty free license to host, store, reproduce, adapt, process, transmit, display, and use your Content only as necessary to operate, secure, maintain, improve, troubleshoot, and provide the Service and to comply with law.</p>
+                <p>You grant us a worldwide, non exclusive, royalty free license to host, store, reproduce, adapt,
+                    process, transmit, display, and use your Content only as necessary to operate, secure, maintain,
+                    improve, troubleshoot, and provide the Service and to comply with law.</p>
                 <h4>13.3 Feedback</h4>
-                <p>If you provide suggestions, feedback, ideas, or recommendations, you grant us the right to use them without restriction or compensation.</p>
+                <p>If you provide suggestions, feedback, ideas, or recommendations, you grant us the right to use them
+                    without restriction or compensation.</p>
                 <h4>13.4 Our rights</h4>
-                <p>The Service, including our software, code, design, names, branding, interfaces, documentation, and related materials, is owned by us or our licensors and is protected by intellectual property laws.</p>
+                <p>The Service, including our software, code, design, names, branding, interfaces, documentation, and
+                    related materials, is owned by us or our licensors and is protected by intellectual property laws.
+                </p>
             </div>
 
             <!-- Section 14 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#d45d39]/10 text-[#d45d39]">Section 14</span>
+                    <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 14</span>
                     <h2 class="text-2xl">Privacy and Data Handling</h2>
                 </div>
-                <p>Our Privacy Policy explains how we collect, use, disclose, retain, and otherwise process personal information. The Privacy Policy is incorporated into these Terms by reference.</p>
+                <p>Our Privacy Policy explains how we collect, use, disclose, retain, and otherwise process personal
+                    information. The Privacy Policy is incorporated into these Terms by reference.</p>
                 <p><strong>Privacy Policy:</strong> [INSERT LINK]</p>
-                <p>If you are a Creator or Admin, you acknowledge that your own privacy notices may also be required for your end users depending on your jurisdiction, your product, and how you configure the Service.</p>
+                <p>If you are a Creator or Admin, you acknowledge that your own privacy notices may also be required for
+                    your end users depending on your jurisdiction, your product, and how you configure the Service.</p>
             </div>
 
             <!-- Section 15 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#3f7035]/10 text-[#3f7035]">Section 15</span>
+                    <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 15</span>
                     <h2 class="text-2xl">Analytics, Logging, and Monitoring</h2>
                 </div>
-                <p>We may collect or generate analytics, telemetry, and Event Logs to operate and improve the Service, monitor feature usage, measure verification performance, detect abuse, diagnose failures, support users, and enforce these Terms.</p>
-                <p>This may include administrative actions, command usage, setup events, verification started or completed events, verification failures, product activity, suspicious activity signals, and role sync outcomes.</p>
+                <p>We may collect or generate analytics, telemetry, and Event Logs to operate and improve the Service,
+                    monitor feature usage, measure verification performance, detect abuse, diagnose failures, support
+                    users, and enforce these Terms.</p>
+                <p>This may include administrative actions, command usage, setup events, verification started or
+                    completed events, verification failures, product activity, suspicious activity signals, and role
+                    sync outcomes.</p>
             </div>
 
             <!-- Section 16 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#f0cc60]/10 text-[#f0cc60]">Section 16</span>
+                    <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 16</span>
                     <h2 class="text-2xl">Suspension, Security Review, and Enforcement</h2>
                 </div>
-                <p>We may limit, suspend, quarantine, revoke, or terminate access to the Service or any portion of it if we reasonably believe that:</p>
+                <p>We may limit, suspend, quarantine, revoke, or terminate access to the Service or any portion of it if
+                    we reasonably believe that:</p>
                 <ul>
                     <li>you violated these Terms or applicable law</li>
                     <li>your use presents a security, fraud, abuse, or operational risk</li>
                     <li>a Connected Provider requires us to do so</li>
                     <li>a refund, dispute, revocation, or provider event justifies an Entitlement or role change</li>
-                    <li>your configuration or conduct exposes us, other users, or a Connected Provider to harm or liability</li>
+                    <li>your configuration or conduct exposes us, other users, or a Connected Provider to harm or
+                        liability</li>
                 </ul>
                 <p>We may take these actions with or without prior notice where reasonably necessary.</p>
             </div>
@@ -413,20 +565,25 @@
             <!-- Section 17 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#224285]/10 text-[#224285]">Section 17</span>
+                    <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 17</span>
                     <h2 class="text-2xl">Service Availability, Beta Features, and Changes</h2>
                 </div>
-                <p>The Service is offered on an evolving basis. We may modify, add, suspend, or remove features at any time. Some features may be identified as alpha, beta, preview, experimental, or early access. Such features may be incomplete, unstable, or changed without notice.</p>
-                <p>We do not guarantee that the Service or any feature will remain available or compatible with any specific platform, provider API, browser, server setup, or Discord permission model.</p>
+                <p>The Service is offered on an evolving basis. We may modify, add, suspend, or remove features at any
+                    time. Some features may be identified as alpha, beta, preview, experimental, or early access. Such
+                    features may be incomplete, unstable, or changed without notice.</p>
+                <p>We do not guarantee that the Service or any feature will remain available or compatible with any
+                    specific platform, provider API, browser, server setup, or Discord permission model.</p>
             </div>
 
             <!-- Section 18 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#d45d39]/10 text-[#d45d39]">Section 18</span>
+                    <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 18</span>
                     <h2 class="text-2xl">Fees, Billing, and Paid Features</h2>
                 </div>
-                <p>Some parts of the Service may be free, while others may require payment now or in the future. If paid features apply, we will disclose the relevant pricing, billing terms, and feature scope at the point of purchase or in a separate written agreement.</p>
+                <p>Some parts of the Service may be free, while others may require payment now or in the future. If paid
+                    features apply, we will disclose the relevant pricing, billing terms, and feature scope at the point
+                    of purchase or in a separate written agreement.</p>
                 <p>Unless expressly stated otherwise:</p>
                 <ul>
                     <li>fees are non refundable except as required by law or expressly stated by us</li>
@@ -438,10 +595,12 @@
             <!-- Section 19 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#3f7035]/10 text-[#3f7035]">Section 19</span>
+                    <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 19</span>
                     <h2 class="text-2xl">Third Party Services</h2>
                 </div>
-                <p>Your use of Connected Providers and other third party services is governed by their own terms and policies. This includes Discord, Gumroad, Jinxxy, analytics providers, cloud providers, hosting providers, and any marketplace or identity service connected to the Service.</p>
+                <p>Your use of Connected Providers and other third party services is governed by their own terms and
+                    policies. This includes Discord, Gumroad, Jinxxy, analytics providers, cloud providers, hosting
+                    providers, and any marketplace or identity service connected to the Service.</p>
                 <p>We are not responsible for third party services or third party content, including their:</p>
                 <ul>
                     <li>policies and legal terms</li>
@@ -453,16 +612,20 @@
                     <li>account suspensions</li>
                     <li>privacy or security practices</li>
                 </ul>
-                <p>References to third party names, brands, or logos are for identification only and do not imply endorsement, partnership, or affiliation unless we expressly state otherwise.</p>
+                <p>References to third party names, brands, or logos are for identification only and do not imply
+                    endorsement, partnership, or affiliation unless we expressly state otherwise.</p>
             </div>
 
             <!-- Section 20 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#f0cc60]/10 text-[#f0cc60]">Section 20</span>
+                    <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 20</span>
                     <h2 class="text-2xl">Disclaimers</h2>
                 </div>
-                <p class="uppercase font-semibold text-sm">To the maximum extent permitted by law, the Service is provided "as is" and "as available". We disclaim all warranties, whether express, implied, statutory, or otherwise, including implied warranties of merchantability, fitness for a particular purpose, title, quiet enjoyment, and non infringement.</p>
+                <p class="uppercase font-semibold text-sm">To the maximum extent permitted by law, the Service is
+                    provided "as is" and "as available". We disclaim all warranties, whether express, implied,
+                    statutory, or otherwise, including implied warranties of merchantability, fitness for a particular
+                    purpose, title, quiet enjoyment, and non infringement.</p>
                 <p>We do not warrant that:</p>
                 <ul>
                     <li>the Service will be uninterrupted, timely, secure, or error free</li>
@@ -476,25 +639,35 @@
             <!-- Section 21 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#224285]/10 text-[#224285]">Section 21</span>
+                    <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 21</span>
                     <h2 class="text-2xl">Limitation of Liability</h2>
                 </div>
-                <p class="uppercase font-semibold text-sm">To the maximum extent permitted by law, we will not be liable for any indirect, incidental, special, consequential, exemplary, or punitive damages, or for any loss of profits, revenue, data, goodwill, business opportunity, or business interruption, arising out of or relating to the Service, even if we were advised of the possibility of such damages.</p>
-                <p class="uppercase font-semibold text-sm mt-4">To the maximum extent permitted by law, our total liability for all claims arising out of or relating to the Service will not exceed the greater of:</p>
+                <p class="uppercase font-semibold text-sm">To the maximum extent permitted by law, we will not be liable
+                    for any indirect, incidental, special, consequential, exemplary, or punitive damages, or for any
+                    loss of profits, revenue, data, goodwill, business opportunity, or business interruption, arising
+                    out of or relating to the Service, even if we were advised of the possibility of such damages.</p>
+                <p class="uppercase font-semibold text-sm mt-4">To the maximum extent permitted by law, our total
+                    liability for all claims arising out of or relating to the Service will not exceed the greater of:
+                </p>
                 <ul>
-                    <li>the amount you paid us for the Service in the three months before the event giving rise to the claim, or</li>
+                    <li>the amount you paid us for the Service in the three months before the event giving rise to the
+                        claim, or</li>
                     <li>USD $100</li>
                 </ul>
-                <p>Some jurisdictions do not allow certain limitations. In those jurisdictions, some parts of this section may not apply.</p>
+                <p>Some jurisdictions do not allow certain limitations. In those jurisdictions, some parts of this
+                    section may not apply.</p>
             </div>
 
             <!-- Section 22 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#d45d39]/10 text-[#d45d39]">Section 22</span>
+                    <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 22</span>
                     <h2 class="text-2xl">Indemnification</h2>
                 </div>
-                <p>You agree to defend, indemnify, and hold harmless us and our affiliates, licensors, service providers, officers, directors, employees, contractors, and agents from and against any claims, losses, liabilities, damages, judgments, settlements, costs, and expenses, including reasonable legal fees, arising out of or related to:</p>
+                <p>You agree to defend, indemnify, and hold harmless us and our affiliates, licensors, service
+                    providers, officers, directors, employees, contractors, and agents from and against any claims,
+                    losses, liabilities, damages, judgments, settlements, costs, and expenses, including reasonable
+                    legal fees, arising out of or related to:</p>
                 <ul>
                     <li>your use of the Service</li>
                     <li>your Content</li>
@@ -507,123 +680,250 @@
             <!-- Section 23 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#3f7035]/10 text-[#3f7035]">Section 23</span>
+                    <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 23</span>
                     <h2 class="text-2xl">Termination</h2>
                 </div>
                 <p>You may stop using the Service at any time.</p>
-                <p>We may suspend or terminate your access or any part of the Service at any time as described in these Terms. Upon termination, your right to use the Service ends immediately.</p>
-                <p>Termination does not affect any rights or obligations that by their nature should survive, including sections relating to intellectual property, disclaimers, limitations of liability, indemnification, dispute resolution, and accrued payment obligations.</p>
+                <p>We may suspend or terminate your access or any part of the Service at any time as described in these
+                    Terms. Upon termination, your right to use the Service ends immediately.</p>
+                <p>Termination does not affect any rights or obligations that by their nature should survive, including
+                    sections relating to intellectual property, disclaimers, limitations of liability, indemnification,
+                    dispute resolution, and accrued payment obligations.</p>
             </div>
 
             <!-- Section 24 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#f0cc60]/10 text-[#f0cc60]">Section 24</span>
+                    <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 24</span>
                     <h2 class="text-2xl">Data Retention After Termination</h2>
                 </div>
-                <p>Following disconnection, suspension, or termination, we may retain certain data for legitimate business and legal purposes, including security, fraud prevention, audit, dispute handling, legal compliance, enforcement, backup integrity, and recordkeeping.</p>
-                <p>We may also delete or de identify data in accordance with our retention practices and applicable law.</p>
+                <p>Following disconnection, suspension, or termination, we may retain certain data for legitimate
+                    business and legal purposes, including security, fraud prevention, audit, dispute handling, legal
+                    compliance, enforcement, backup integrity, and recordkeeping.</p>
+                <p>We may also delete or de identify data in accordance with our retention practices and applicable law.
+                </p>
             </div>
 
             <!-- Section 25 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#224285]/10 text-[#224285]">Section 25</span>
+                    <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 25</span>
                     <h2 class="text-2xl">Export, Sanctions, and Restricted Use</h2>
                 </div>
-                <p>You may not use the Service if prohibited by applicable export control, sanctions, or trade laws. You represent and warrant that you are not located in, organized in, or ordinarily resident in a jurisdiction subject to applicable restrictions that would make your use unlawful.</p>
+                <p>You may not use the Service if prohibited by applicable export control, sanctions, or trade laws. You
+                    represent and warrant that you are not located in, organized in, or ordinarily resident in a
+                    jurisdiction subject to applicable restrictions that would make your use unlawful.</p>
             </div>
 
             <!-- Section 26 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#d45d39]/10 text-[#d45d39]">Section 26</span>
+                    <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 26</span>
                     <h2 class="text-2xl">Copyright Complaints</h2>
                 </div>
-                <p>If you believe that content made available through the Service infringes your copyright, please send a notice to:</p>
+                <p>If you believe that content made available through the Service infringes your copyright, please send
+                    a notice to:</p>
                 <p><strong>Copyright Agent:</strong> Yeusepe<br>
-                <strong>Email:</strong> yeusepe@yucp.club</p>
-                <p>Please include enough information for us to identify the claimed work, the allegedly infringing material, your contact details, and the basis for your claim.</p>
+                    <strong>Email:</strong> yeusepe@yucp.club
+                </p>
+                <p>Please include enough information for us to identify the claimed work, the allegedly infringing
+                    material, your contact details, and the basis for your claim.</p>
             </div>
 
             <!-- Section 27 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#3f7035]/10 text-[#3f7035]">Section 27</span>
+                    <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 27</span>
                     <h2 class="text-2xl">Governing Law and Dispute Resolution</h2>
                 </div>
                 <h4>27.1 Governing law</h4>
-                <p>These Terms are governed by the laws of <strong>Bogotá, Colombia</strong>, excluding conflict of law rules.</p>
+                <p>These Terms are governed by the laws of <strong>Bogotá, Colombia</strong>, excluding conflict of law
+                    rules.</p>
                 <h4>27.2 Venue</h4>
-                <p>Except where applicable law requires otherwise, disputes arising out of or relating to these Terms or the Service will be resolved exclusively in the courts located in <strong>Bogotá, Colombia</strong>.</p>
+                <p>Except where applicable law requires otherwise, disputes arising out of or relating to these Terms or
+                    the Service will be resolved exclusively in the courts located in <strong>Bogotá, Colombia</strong>.
+                </p>
                 <h4>27.3 Optional arbitration clause</h4>
-                <p>If you want an arbitration agreement, class action waiver, consumer opt out process, or pre dispute informal resolution process, add a dedicated section here after jurisdiction specific legal review.</p>
+                <p>If you want an arbitration agreement, class action waiver, consumer opt out process, or pre dispute
+                    informal resolution process, add a dedicated section here after jurisdiction specific legal review.
+                </p>
             </div>
 
             <!-- Section 28 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#f0cc60]/10 text-[#f0cc60]">Section 28</span>
+                    <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 28</span>
                     <h2 class="text-2xl">Changes to These Terms</h2>
                 </div>
-                <p>We may update these Terms from time to time. If we make a material change, we may provide notice through the Service, by email, through a setup page, in a dashboard, or by other reasonable means. The updated Terms will become effective on the stated effective date.</p>
-                <p>Your continued use of the Service after the effective date of updated Terms means you accept the revised Terms.</p>
+                <p>We may update these Terms from time to time. If we make a material change, we may provide notice
+                    through the Service, by email, through a setup page, in a dashboard, or by other reasonable means.
+                    The updated Terms will become effective on the stated effective date.</p>
+                <p>Your continued use of the Service after the effective date of updated Terms means you accept the
+                    revised Terms.</p>
             </div>
 
             <!-- Section 29 -->
             <div class="tos-card rounded-2xl p-8">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#224285]/10 text-[#224285]">Section 29</span>
+                    <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 29</span>
                     <h2 class="text-2xl">Miscellaneous</h2>
                 </div>
                 <ul>
-                    <li><strong>Entire agreement.</strong> These Terms and any incorporated policies or feature specific terms are the entire agreement between you and us regarding the Service.</li>
-                    <li><strong>Severability.</strong> If any provision is held unenforceable, the remaining provisions remain in effect.</li>
+                    <li><strong>Entire agreement.</strong> These Terms and any incorporated policies or feature specific
+                        terms are the entire agreement between you and us regarding the Service.</li>
+                    <li><strong>Severability.</strong> If any provision is held unenforceable, the remaining provisions
+                        remain in effect.</li>
                     <li><strong>Waiver.</strong> A failure to enforce any provision is not a waiver.</li>
-                    <li><strong>Assignment.</strong> You may not assign these Terms without our prior written consent. We may assign these Terms in connection with a merger, acquisition, financing, reorganization, or sale of assets.</li>
-                    <li><strong>No third party beneficiaries.</strong> These Terms do not create third party beneficiary rights except where expressly stated.</li>
+                    <li><strong>Assignment.</strong> You may not assign these Terms without our prior written consent.
+                        We may assign these Terms in connection with a merger, acquisition, financing, reorganization,
+                        or sale of assets.</li>
+                    <li><strong>No third party beneficiaries.</strong> These Terms do not create third party beneficiary
+                        rights except where expressly stated.</li>
                     <li><strong>Contact.</strong> Questions may be sent to <strong>contact@yucp.club</strong>.</li>
                 </ul>
             </div>
 
             <!-- Appendix A -->
-            <div class="tos-card rounded-2xl p-8 border-l-4 border-[#d45d39]">
+            <div class="tos-card rounded-2xl p-8 border-l-4 border-[#0ea5e9]">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#d45d39]/10 text-[#d45d39]">Appendix A</span>
+                    <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Appendix A</span>
                     <h2 class="text-2xl">Creator Specific Terms</h2>
                 </div>
                 <p>If you use the Service as a Creator or Admin, the following additional terms apply:</p>
                 <ol class="list-decimal pl-6 space-y-2 mt-4">
-                    <li>You are solely responsible for your products, support promises, pricing, refunds, delivery terms, and customer communications.</li>
-                    <li>You must not represent the Service as providing legal compliance, tax advice, payment processing, or guaranteed fraud prevention.</li>
-                    <li>You must review your own local law obligations, including privacy notices, consumer law, and moderation or community management obligations.</li>
-                    <li>If you ask the Service to process provider data, linked accounts, purchase matching, or role gating for your community, you instruct us to do so on your behalf for Service operation.</li>
-                    <li>You must promptly disconnect provider accounts and rotate credentials you no longer authorize.</li>
-                    <li>You remain responsible for reviewing role mappings, access grants, and provider sync results in your own Server.</li>
+                    <li>You are solely responsible for your products, support promises, pricing, refunds, delivery
+                        terms, and customer communications.</li>
+                    <li>You must not represent the Service as providing legal compliance, tax advice, payment
+                        processing, or guaranteed fraud prevention.</li>
+                    <li>You must review your own local law obligations, including privacy notices, consumer law, and
+                        moderation or community management obligations.</li>
+                    <li>If you ask the Service to process provider data, linked accounts, purchase matching, or role
+                        gating for your community, you instruct us to do so on your behalf for Service operation.</li>
+                    <li>You must promptly disconnect provider accounts and rotate credentials you no longer authorize.
+                    </li>
+                    <li>You remain responsible for reviewing role mappings, access grants, and provider sync results in
+                        your own Server.</li>
                 </ol>
             </div>
 
             <!-- Appendix B -->
-            <div class="tos-card rounded-2xl p-8 border-l-4 border-[#3f7035]">
+            <div class="tos-card rounded-2xl p-8 border-l-4 border-[#00e676]">
                 <div class="flex items-center gap-4 mb-6">
-                    <span class="section-tag bg-[#3f7035]/10 text-[#3f7035]">Appendix B</span>
+                    <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Appendix B</span>
                     <h2 class="text-2xl">End User Verification Terms</h2>
                 </div>
                 <p>If you use the Service only to verify a purchase or link an account:</p>
                 <ol class="list-decimal pl-6 space-y-2 mt-4">
-                    <li>You authorize the Service to receive the minimum provider data needed to complete the selected verification flow.</li>
-                    <li>You understand that a Creator may configure the Service to grant or remove roles based on provider events, refunds, disputes, account changes, or cross server status.</li>
-                    <li>You understand that successful verification does not transfer ownership of any product or license beyond the rights granted by the Creator or the underlying seller.</li>
-                    <li>If you believe a verification result is wrong, your remedy may involve the Creator, the underlying commerce platform, or both, depending on the issue.</li>
+                    <li>You authorize the Service to receive the minimum provider data needed to complete the selected
+                        verification flow.</li>
+                    <li>You understand that a Creator may configure the Service to grant or remove roles based on
+                        provider events, refunds, disputes, account changes, or cross server status.</li>
+                    <li>You understand that successful verification does not transfer ownership of any product or
+                        license beyond the rights granted by the Creator or the underlying seller.</li>
+                    <li>If you believe a verification result is wrong, your remedy may involve the Creator, the
+                        underlying commerce platform, or both, depending on the issue.</li>
                 </ol>
             </div>
         </div>
     </main>
 
     <div class="fixed bottom-0 left-0 w-full p-8 flex justify-center z-[100] pointer-events-none">
-        <button class="btn-agree px-12 py-5 rounded-full text-lg font-bold uppercase tracking-widest pointer-events-auto" onclick="window.location.href='/'">
+        <button
+            class="btn-agree px-12 py-5 rounded-full text-lg font-bold uppercase tracking-widest pointer-events-auto"
+            onclick="window.location.href='/'">
             I Agree &amp; Continue
         </button>
     </div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useRef, Component } from "react";
+        import { createRoot } from "react-dom/client";
+        import * as THREE from "three";
+        import { Canvas, useFrame } from "@react-three/fiber";
+        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
+
+        class ErrorBoundary extends Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            componentDidCatch(error, errorInfo) { console.error("React Error Boundary caught an error", error, errorInfo); }
+            render() { return this.state.hasError ? null : this.props.children; }
+        }
+
+        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
+            const ref = useRef();
+            useFrame((state) => {
+                if (ref.current) {
+                    const elapsed = state.clock.getElapsedTime();
+                    const range = 240;
+                    let currentX = startX - elapsed * speed;
+                    currentX = ((currentX + 120) % range + range) % range - 120;
+                    ref.current.position.x = currentX;
+                }
+            });
+            return (
+                <group ref={ref} position={[startX, y, z]}>
+                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
+                </group>
+            );
+        }
+
+        function BackgroundSky() {
+            return (
+                <React.Fragment>
+                    <SkyImpl sunPosition={[100, 20, 100]} turbidity={0.8} rayleigh={0.5} />
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#ffffff" volume={15} opacity={0.6} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
+                        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#eaebff" volume={6} opacity={0.4} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
+                        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#d3e2ff" volume={40} opacity={0.9} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
+                        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#fdfdfd" volume={35} opacity={0.7} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
+                    </Clouds>
+                </React.Fragment>
+            )
+        }
+
+        function ForegroundSky() {
+            return (
+                <React.Fragment>
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={45} speed={2.8} bounds={[10, 10, 5]} color="#f0f0f0" volume={12} opacity={0.8} seed={4} y={2} z={10} growth={15} fade={5} segments={15} concentrate="inside" />
+                        <MovingCloud startX={15} speed={3.5} bounds={[20, 5, 8]} color="#ffffff" volume={8} opacity={0.6} seed={6} y={-2} z={5} growth={5} fade={25} segments={12} />
+                    </Clouds>
+                </React.Fragment>
+            )
+        }
+
+        function BackgroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
+                        <BackgroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        function ForegroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: true }} style={{ pointerEvents: 'none' }}>
+                        <ForegroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        const bgRoot = createRoot(document.getElementById('bg-canvas-root'));
+        bgRoot.render(<BackgroundApp />);
+
+    </script>
 </body>
+
 </html>

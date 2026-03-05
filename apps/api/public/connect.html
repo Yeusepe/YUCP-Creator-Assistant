@@ -14,7 +14,7 @@
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <link href="https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black"
         rel="stylesheet">
-    <link rel="stylesheet" href="/tokens.css">
+    <link rel="stylesheet" href="./tokens.css">
 
     <style>
         body {
@@ -77,9 +77,10 @@
         }
 
         .connect-card {
-            background: #ffffff;
-            border: 1px solid #e0d6d4;
-            box-shadow: 0 20px 50px rgba(34, 66, 133, 0.05);
+            background: rgba(0, 0, 0, 0.25);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
             transition: transform 0.3s ease;
         }
 
@@ -132,149 +133,167 @@
             transform: scale(1.1) rotate(2deg);
         }
     </style>
+    <!-- ES Module Shims for better browser compatibility -->
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "three": "https://esm.sh/three@0.160.0",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12",
+            "holographic-sticker": "https://esm.sh/holographic-sticker@1.0.4?deps=react@18.2.0,react-dom@18.2.0"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 
-<body class="min-h-screen flex flex-col selection:bg-yellow-200">
+<body
+    class="min-h-screen flex flex-col selection:bg-yellow-200 bg-gradient-to-b from-[#0a3d9e] to-[#0ea5e9] text-white">
+    <div id="bg-canvas-root"
+        style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
+    </div>
 
     <div class="cursor-dot"></div>
     <div class="cursor-dot-outline"></div>
 
-    <nav class="w-full px-12 py-8 flex justify-between items-center z-50 bg-transparent relative">
-        <div class="text-2xl font-black tracking-tighter text-[#224285] sticker cursor-pointer"
-            style="font-family: 'Plus Jakarta Sans', sans-serif;">
-            YUCP.
-        </div>
-        <div class="flex gap-10 text-xs font-bold uppercase tracking-widest items-center">
-            <a href="#" class="nav-link text-[#224285]/60 hover:text-[#224285]">Dashboard</a>
-            <a href="#" class="nav-link text-[#224285]/60 hover:text-[#224285]">Support</a>
-            <div class="h-4 w-[1px] bg-[#e0d6d4]"></div>
-            <button class="text-[#d45d39] font-extrabold hover:underline">Sign Out</button>
-        </div>
-    </nav>
-
     <main class="flex-grow flex flex-col items-center justify-center px-4 relative h-full">
 
-        <!-- Background SVGs -->
-        <svg class="line-accent top-20 left-20 w-80 h-80" viewBox="0 0 200 200" fill="none" stroke="#224285"
-            stroke-width="0.5">
-            <path d="M0,40 L40,40 L40,0 M0,80 L80,80 L80,0 M0,120 L120,120 L120,0"></path>
-            <circle cx="20" cy="20" r="3" fill="#224285"></circle>
-        </svg>
+        <!-- Playful Background Stickers -->
+        <div id="holo-world-0" class="absolute top-20 left-10 w-24 opacity-60 sticker pointer-events-auto h-24"
+            style="animation-delay: -2s;"></div>
+        <div id="holo-link-1" class="absolute bottom-10 right-20 w-32 opacity-80 sticker pointer-events-auto h-32"
+            style="animation-delay: -5s;"></div>
+        <div id="holo-assistant-2" class="absolute top-40 right-10 w-20 opacity-40 sticker pointer-events-auto z-0 h-20"
+            style="animation-delay: -1s;"></div>
 
-        <svg class="line-accent bottom-20 right-20 w-96 h-96" viewBox="0 0 200 200" fill="none" stroke="#d45d39"
-            stroke-width="0.5">
-            <rect x="150" y="150" width="40" height="40"></rect>
-            <circle cx="100" cy="100" r="60"></circle>
-        </svg>
-
-        <div class="max-w-xl w-full connect-card rounded-[32px] p-12 relative z-10 reveal">
-            <div class="text-center mb-10">
+        <div
+            class="max-w-xl w-full connect-card glass-card rounded-[32px] p-8 md:p-10 relative z-10 reveal text-white shadow-2xl">
+            <div class="text-center mb-6 relative">
                 <div
-                    class="inline-block px-4 py-1 bg-[#f0cc60]/20 text-[#224285] rounded-full text-[10px] font-black uppercase tracking-widest mb-4">
+                    class="inline-block px-4 py-1 bg-[#ffffff]/20 text-[#ffffff] rounded-full text-[10px] font-black uppercase tracking-widest mb-3 backdrop-blur-md border border-white/30">
                     Sync Progress
                 </div>
-                <h1 class="text-4xl md:text-5xl text-[#224285] mb-4">
-                    Connect Your <br> <span class="text-[#d45d39]">Accounts</span>
+                <h1 class="text-3xl md:text-5xl text-[#ffffff] mb-3 relative inline-block">
+                    Connect<br> Your <span
+                        class="bg-gradient-to-r from-[#0ea5e9] to-[#00f3ff] bg-clip-text text-transparent">Accounts</span>
+                    <img src="./Icons/Checkmark.png"
+                        class="absolute -top-6 -right-12 w-16 sticker pointer-events-none hidden md:block" alt="Check">
                 </h1>
-                <p class="text-[#7a7a9f] font-medium leading-relaxed" style="font-family: 'DM Sans', sans-serif;">
-                    Link your platforms to unlock custom roles, tiered rewards, and seamless profile synchronization
-                    across the community.
+                <p class="text-[rgba(255,255,255,0.9)] font-medium leading-relaxed max-w-sm mx-auto text-lg"
+                    style="font-family: 'DM Sans', sans-serif;">
+                    Link your platforms to unlock custom roles, tiered rewards, and seamless profile sync.
                 </p>
             </div>
 
-            <div class="space-y-4">
+
+            <div class="space-y-3 relative z-10">
 
                 <button type="button"
-                    class="w-full flex items-center justify-between p-5 rounded-2xl bg-[#5865F2] text-white shadow-lg shadow-[#5865F2]/20 opacity-90 cursor-default"
+                    class="w-full flex items-center justify-between p-4 rounded-3xl bg-[rgba(88,101,242,0.9)] backdrop-blur-md text-white shadow-xl shadow-[#5865F2]/30 opacity-95 cursor-default border border-white/20 transition-transform hover:scale-[1.02]"
                     data-platform="discord">
-                    <div class="flex items-center gap-4">
-                        <div class="bg-white/20 p-2 rounded-lg">
-                            <img class="w-6 h-6 object-contain"
-                                src="https://cdn.brandfetch.io/idM8Hlme1a/w/800/h/620/theme/light/symbol.png?c=1bxid64Mup7aczewSAYMX&t=1668075053047"
-                                alt="Discord">
+                    <div class="flex items-center gap-5">
+                        <img class="w-12 h-12 sticker drop-shadow-lg" src="./Icons/Discord.png" alt="Discord">
+                        <div class="text-left flex flex-col justify-center">
+                            <span class="font-bold tracking-tight text-xl block text-white"
+                                style="font-family: 'Plus Jakarta Sans', sans-serif;">Discord</span>
+                            <span class="text-sm opacity-80 text-white leading-none"
+                                style="font-family: 'DM Sans', sans-serif;">Identity Provider</span>
                         </div>
-                        <span class="font-bold tracking-tight text-lg"
-                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Discord</span>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs font-bold uppercase opacity-80"
+                    <div class="flex items-center gap-2 bg-white/20 px-4 py-1.5 rounded-full flex-shrink-0">
+                        <div class="w-2 h-2 rounded-full bg-[#00e676] shadow-[0_0_8px_#00e676]"></div>
+                        <span class="text-xs font-black uppercase tracking-widest text-white translate-y-[1px]"
                             style="font-family: 'Plus Jakarta Sans', sans-serif;">Connected</span>
                     </div>
                 </button>
 
                 <button type="button"
-                    class="platform-btn w-full flex items-center justify-between p-5 rounded-2xl bg-[#ff90e8] text-black shadow-lg shadow-[#ff90e8]/20 group"
+                    class="platform-btn w-full flex items-center justify-between p-4 rounded-3xl bg-[rgba(255,144,232,0.9)] backdrop-blur-md text-white shadow-xl shadow-[#ff90e8]/30 group border border-white/20"
                     data-platform="gumroad">
-                    <div class="flex items-center gap-4">
-                        <div class="bg-black/10 p-2 rounded-lg">
-                            <img class="w-6 h-6 rounded-md object-cover"
-                                src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
-                                alt="Gumroad">
+                    <div class="flex items-center gap-5">
+                        <img class="w-12 h-12 sticker drop-shadow-lg" src="./Icons/Gumorad.png" alt="Gumroad">
+                        <div class="text-left text-white flex flex-col justify-center">
+                            <span class="font-bold tracking-tight text-xl block text-white"
+                                style="font-family: 'Plus Jakarta Sans', sans-serif;">Gumroad</span>
+                            <span class="text-sm opacity-80 font-medium text-white leading-none"
+                                style="font-family: 'DM Sans', sans-serif;">Creator Store</span>
                         </div>
-                        <span class="font-bold tracking-tight text-lg"
-                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Gumroad</span>
                     </div>
-                    <div class="flex items-center gap-2 text-black">
-                        <span class="connect-badge text-xs font-bold uppercase opacity-80"
+                    <div
+                        class="flex items-center gap-2 text-white bg-black/10 px-4 py-2 rounded-full backdrop-blur-md group-hover:bg-black/20 transition-colors flex-shrink-0">
+                        <span
+                            class="connect-badge text-xs font-black uppercase tracking-widest text-white translate-y-[1px]"
                             style="font-family: 'Plus Jakarta Sans', sans-serif;">Connect</span>
-                        <svg class="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none"
+                        <svg class="w-4 h-4 transition-transform group-hover:translate-x-1 text-white" fill="none"
                             stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-                            <path d="M9 5l7 7-7 7"></path>
+                            <path d="M5 12h14M12 5l7 7-7 7"></path>
                         </svg>
                     </div>
                 </button>
 
                 <button type="button"
-                    class="platform-btn w-full flex items-center justify-between p-5 rounded-2xl bg-[#9146FF] text-white shadow-lg shadow-[#9146FF]/20 group"
+                    class="platform-btn w-full flex items-center justify-between p-4 rounded-3xl bg-[rgba(145,70,255,0.9)] backdrop-blur-md text-white shadow-xl shadow-[#9146FF]/30 group border border-white/20"
                     data-platform="jinxxy">
-                    <div class="flex items-center gap-4">
-                        <div class="bg-white/20 p-2 rounded-lg">
-                            <img class="w-6 h-6 rounded-md object-cover"
-                                src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
-                                alt="Jinxxy">
+                    <div class="flex items-center gap-5">
+                        <img class="w-12 h-12 sticker drop-shadow-lg" src="./Icons/Jinxxy.png" alt="Jinxxy">
+                        <div class="text-left flex flex-col justify-center">
+                            <span class="font-bold tracking-tight text-xl block text-white"
+                                style="font-family: 'Plus Jakarta Sans', sans-serif;">Jinxxy</span>
+                            <span class="text-sm opacity-80 font-medium text-white leading-none"
+                                style="font-family: 'DM Sans', sans-serif;">Marketplace</span>
                         </div>
-                        <span class="font-bold tracking-tight text-lg"
-                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Jinxxy</span>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <span class="connect-badge text-xs font-bold uppercase opacity-80"
+                    <div
+                        class="flex items-center gap-2 bg-white/20 text-white px-4 py-2 rounded-full backdrop-blur-md group-hover:bg-white/30 transition-colors">
+                        <span class="connect-badge text-xs font-black uppercase tracking-widest text-white"
                             style="font-family: 'Plus Jakarta Sans', sans-serif;">Connect</span>
-                        <svg class="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none"
+                        <svg class="w-4 h-4 transition-transform group-hover:translate-x-1 text-white" fill="none"
                             stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-                            <path d="M9 5l7 7-7 7"></path>
+                            <path d="M5 12h14M12 5l7 7-7 7"></path>
                         </svg>
                     </div>
                 </button>
             </div>
 
             <!-- Settings Section -->
-            <div class="mt-8 pt-6 border-t border-[#e0d6d4]/60">
-                <div class="flex items-center justify-between">
+            <div class="mt-6 pt-5 border-t border-[rgba(255,255,255,0.1)]/60 relative z-10">
+                <div
+                    class="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10 hover:bg-white/10 transition-colors">
                     <div>
-                        <h3 class="text-sm font-bold text-[#224285]"
-                            style="font-family: 'Plus Jakarta Sans', sans-serif;">Allow Mismatched Emails</h3>
-                        <p class="text-xs text-[#7a7a9f] mt-1" style="font-family: 'DM Sans', sans-serif;">Let buyers
-                            verify purchases made with an email different from their Discord linked email.</p>
+                        <h3 class="text-sm font-bold text-[#ffffff]"
+                            style="font-family: 'Plus Jakarta Sans', sans-serif;">
+                            Allow Mismatched Emails</h3>
+                        <p class="text-xs text-[rgba(255,255,255,0.7)] mt-1"
+                            style="font-family: 'DM Sans', sans-serif;">
+                            Buyers can verify with different emails.</p>
                     </div>
-                    <label class="relative inline-flex items-center cursor-pointer">
+                    <label class="relative inline-flex items-center cursor-pointer ml-4">
                         <input type="checkbox" id="mismatched-emails-toggle" class="sr-only peer">
                         <div
-                            class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#d45d39]">
+                            class="w-11 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0ea5e9]">
                         </div>
                     </label>
                 </div>
             </div>
 
-            <div class="mt-10 pt-8 border-t border-[#e0d6d4]/60 flex flex-col gap-4">
+            <div class="mt-6 pt-5 border-t border-[rgba(255,255,255,0.1)]/60 flex flex-col gap-3 relative z-10">
                 <button id="done-btn"
-                    class="w-full py-4 rounded-2xl bg-[#d45d39] text-white font-bold text-lg shadow-lg shadow-[#d45d39]/20 hover:bg-[#c04d29] transition-all platform-btn flex justify-center items-center gap-2 group">
-                    <span>Done — Continue Setup in Discord</span>
+                    class="w-full py-4 rounded-full bg-white/20 text-white font-black text-lg uppercase tracking-widest shadow-xl shadow-white/10 hover:bg-white/30 backdrop-blur-md transition-all platform-btn flex justify-center items-center gap-3 group border border-white/20">
+                    <span>Continue in Discord</span>
+                    <svg class="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none"
+                        stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+                    </svg>
                 </button>
                 <p id="status" class="text-center text-sm text-[#7a7a9f] font-bold hidden"></p>
             </div>
         </div>
 
-        <p class="mt-12 text-[10px] font-black uppercase tracking-[0.5em] text-[#224285]/20 select-none pb-4">YUCP
+        <p class="mt-6 text-[10px] font-black uppercase tracking-[0.5em] text-white/40 shadow-sm select-none pb-4">YUCP
             INTEGRATION MODULE v2.4</p>
     </main>
 
@@ -487,7 +506,7 @@
             if (badge) badge.textContent = 'Disconnect';
 
             btn.dataset.originalClasses = btn.className;
-            btn.className = 'platform-btn w-full flex items-center justify-between p-5 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/20 group connected-state hover-disconnect';
+            btn.className = 'platform-btn w-full flex items-center justify-between p-4 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/20 group connected-state hover-disconnect';
         }
 
         function handleMouseLeave(e) {
@@ -647,6 +666,105 @@
                 }, 400); // Give confetti a little head start
             });
         });
+    </script>
+    <script type="text/babel" data-type="module">
+        import React, { useRef, Component } from "react";
+        import { createRoot } from "react-dom/client";
+        import * as THREE from "three";
+        import { Canvas, useFrame } from "@react-three/fiber";
+        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
+        import HolographicSticker from "holographic-sticker";
+
+        class ErrorBoundary extends Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            componentDidCatch(error, errorInfo) { console.error("React Error Boundary caught an error", error, errorInfo); }
+            render() { return this.state.hasError ? null : this.props.children; }
+        }
+
+        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
+            const ref = useRef();
+            useFrame((state) => {
+                if (ref.current) {
+                    const elapsed = state.clock.getElapsedTime();
+                    const range = 240;
+                    let currentX = startX - elapsed * speed;
+                    currentX = ((currentX + 120) % range + range) % range - 120;
+                    ref.current.position.x = currentX;
+                }
+            });
+            return (
+                <group ref={ref} position={[startX, y, z]}>
+                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
+                </group>
+            );
+        }
+
+        function BackgroundSky() {
+            return (
+                <React.Fragment>
+                    <SkyImpl sunPosition={[100, 20, 100]} turbidity={0.8} rayleigh={0.5} />
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#ffffff" volume={15} opacity={0.6} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
+                        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#eaebff" volume={6} opacity={0.4} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
+                        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#d3e2ff" volume={40} opacity={0.9} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
+                        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#fdfdfd" volume={35} opacity={0.7} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
+                    </Clouds>
+                </React.Fragment>
+            )
+        }
+
+        function BackgroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
+                        <BackgroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        const bgRoot = createRoot(document.getElementById('bg-canvas-root'));
+        bgRoot.render(<BackgroundApp />);
+
+        // Holographic Stickers
+        const HoloWrapper = ({ src, alt }) => (
+            <HolographicSticker.Root>
+                <HolographicSticker.Scene>
+                    <HolographicSticker.Card className="w-full h-full rounded-2xl bg-transparent border-none overflow-visible">
+                        <HolographicSticker.ImageLayer src={src} alt={alt} objectFit="contain" />
+                        <HolographicSticker.Pattern
+                            maskUrl={src}
+                            maskSize="contain"
+                            textureUrl="https://assets.codepen.io/605876/figma-texture.png"
+                            textureSize="300px"
+                            mixBlendMode="hard-light"
+                            opacity={0.6}>
+                            <HolographicSticker.Refraction intensity={2.5} />
+                        </HolographicSticker.Pattern>
+                    </HolographicSticker.Card>
+                </HolographicSticker.Scene>
+            </HolographicSticker.Root>
+        );
+
+        const root_holo_world_0 = document.getElementById("holo-world-0");
+        if (root_holo_world_0) {
+            createRoot(root_holo_world_0).render(<HoloWrapper src="./Icons/World.png" alt="World" />);
+        }
+        const root_holo_link_1 = document.getElementById("holo-link-1");
+        if (root_holo_link_1) {
+            createRoot(root_holo_link_1).render(<HoloWrapper src="./Icons/Link.png" alt="Link" />);
+        }
+        const root_holo_assistant_2 = document.getElementById("holo-assistant-2");
+        if (root_holo_assistant_2) {
+            createRoot(root_holo_assistant_2).render(<HoloWrapper src="./Icons/Assistant.png" alt="Assistant" />);
+        }
     </script>
 </body>
 

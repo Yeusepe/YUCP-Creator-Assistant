@@ -9,18 +9,21 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/tokens.css">
+    <link rel="stylesheet" href="./tokens.css">
     <style>
-        :root {
-            --text-primary: #224285;
-            --text-secondary: #7a7a9f;
-        }
         body {
             background-color: var(--bg-color, #f8f9fc);
             font-family: 'DM Sans', sans-serif;
             color: var(--text-primary);
         }
-        h1, h2, h3, .font-heading { font-family: 'Plus Jakarta Sans', sans-serif; }
+
+        h1,
+        h2,
+        h3,
+        .font-heading {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
         .discord-btn {
             background: #5865F2;
             color: white;
@@ -32,26 +35,42 @@
             gap: 10px;
             transition: background 0.2s, transform 0.1s;
         }
-        .discord-btn:hover { background: #4752C4; }
-        .discord-btn:active { transform: scale(0.97); }
+
+        .discord-btn:hover {
+            background: #4752C4;
+        }
+
+        .discord-btn:active {
+            transform: scale(0.97);
+        }
+
         .card {
-            background: white;
+            background: rgba(0, 0, 0, 0.25);
+            backdrop-filter: blur(12px);
             border-radius: 16px;
-            box-shadow: 0 2px 16px rgba(34,66,133,0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
             padding: 32px;
         }
-        select, input[type="text"] {
-            border: 1.5px solid #dde3f0;
+
+        select,
+        input[type="text"] {
+            border: 1.5px solid rgba(255, 255, 255, 0.15);
             border-radius: 8px;
             padding: 10px 14px;
             width: 100%;
             font-size: 15px;
-            color: #224285;
-            background: white;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.2);
             outline: none;
             transition: border-color 0.2s;
         }
-        select:focus, input[type="text"]:focus { border-color: #5865F2; }
+
+        select:focus,
+        input[type="text"]:focus {
+            border-color: #5865F2;
+        }
+
         .save-btn {
             background: #5865F2;
             color: white;
@@ -61,52 +80,98 @@
             font-size: 15px;
             transition: background 0.2s, transform 0.1s;
         }
-        .save-btn:hover { background: #4752C4; }
-        .save-btn:active { transform: scale(0.97); }
-        .save-btn:disabled { background: #a0a8d4; cursor: not-allowed; }
-        .success-icon { font-size: 48px; }
+
+        .save-btn:hover {
+            background: #4752C4;
+        }
+
+        .save-btn:active {
+            transform: scale(0.97);
+        }
+
+        .save-btn:disabled {
+            background: #a0a8d4;
+            cursor: not-allowed;
+        }
+
+        .success-icon {
+            font-size: 48px;
+        }
+
         .guild-icon {
             width: 20px;
             height: 20px;
             border-radius: 50%;
             object-fit: cover;
         }
-        .step { display: none; }
-        .step.active { display: block; }
+
+        .step {
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+        }
+
         .error-box {
-            background: #fff0f0;
-            border: 1px solid #fca5a5;
+            background: rgba(220, 38, 38, 0.1);
+            border: 1px solid rgba(220, 38, 38, 0.3);
             border-radius: 8px;
             padding: 12px 16px;
             color: #b91c1c;
             font-size: 14px;
         }
     </style>
+
+    <!-- ES Module Shims for better browser compatibility -->
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "three": "https://esm.sh/three@0.160.0",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12",
+            "holographic-sticker": "https://esm.sh/holographic-sticker@1.0.4?deps=react@18.2.0,react-dom@18.2.0"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 
 <body class="min-h-screen flex items-center justify-center p-4">
+    <div id="bg-canvas-root"
+        style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
+    </div>
     <div class="w-full max-w-lg">
         <!-- Header -->
         <div class="text-center mb-6">
             <div class="inline-flex items-center gap-2 mb-2">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="#5865F2" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.032.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
+                    <path
+                        d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.032.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z" />
                 </svg>
-                <span class="font-heading font-bold text-xl" style="color:#224285">Discord Role Setup</span>
+                <span class="font-heading font-bold text-xl" style="color: #ffffff">Discord Role Setup</span>
             </div>
-            <p class="text-sm" style="color:#7a7a9f">Configure which Discord server and role to require for verification</p>
+            <p class="text-sm" style="color:rgba(255,255,255,0.8)">Configure which Discord server and role to require
+                for verification</p>
         </div>
 
         <!-- Step 1: Sign in with Discord -->
         <div id="step-signin" class="step card">
             <h2 class="font-heading text-lg font-semibold mb-2">Sign in with Discord</h2>
-            <p class="text-sm mb-6" style="color:#7a7a9f">
+            <p class="text-sm mb-6" style="color:rgba(255,255,255,0.8)">
                 We need to see which Discord servers you're in so you can pick one without typing IDs.
                 We'll only read your server list — nothing else.
             </p>
             <div id="signin-error" class="error-box mb-4" style="display:none"></div>
             <a id="discord-oauth-link" href="#" class="discord-btn w-full justify-center text-center">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.032.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                    <path
+                        d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.032.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z" />
+                </svg>
                 Continue with Discord
             </a>
         </div>
@@ -114,22 +179,23 @@
         <!-- Step 2: Pick server + role -->
         <div id="step-pick" class="step card">
             <h2 class="font-heading text-lg font-semibold mb-1">Pick a server and role</h2>
-            <p class="text-sm mb-6" style="color:#7a7a9f">
+            <p class="text-sm mb-6" style="color:rgba(255,255,255,0.8)">
                 Select the server where the user must have a role, then enter that role's ID.
             </p>
 
             <div class="mb-4">
-                <label class="block text-sm font-semibold mb-1" style="color:#224285">Source Server</label>
+                <label class="block text-sm font-semibold mb-1" style="color: #ffffff">Source Server</label>
                 <select id="guild-select">
                     <option value="">Loading servers…</option>
                 </select>
             </div>
 
             <div class="mb-2">
-                <label class="block text-sm font-semibold mb-1" style="color:#224285">Role ID</label>
+                <label class="block text-sm font-semibold mb-1" style="color: #ffffff">Role ID</label>
                 <input type="text" id="role-id-input" placeholder="e.g. 123456789012345678" maxlength="20" />
-                <p class="text-xs mt-1" style="color:#7a7a9f">
-                    In Discord: open the server → <strong>Server Settings → Roles</strong> → right-click the role → <strong>Copy Role ID</strong>.
+                <p class="text-xs mt-1" style="color:rgba(255,255,255,0.8)">
+                    In Discord: open the server → <strong>Server Settings → Roles</strong> → right-click the role →
+                    <strong>Copy Role ID</strong>.
                     (Requires Developer Mode: User Settings → Advanced → Developer Mode ✓)
                 </p>
             </div>
@@ -143,11 +209,11 @@
         <div id="step-success" class="step card text-center">
             <div class="success-icon mb-3">✅</div>
             <h2 class="font-heading text-lg font-semibold mb-2">Selection saved!</h2>
-            <p class="text-sm mb-2" style="color:#7a7a9f">
+            <p class="text-sm mb-2" style="color:rgba(255,255,255,0.8)">
                 Server: <strong id="success-guild-name"></strong><br>
-                Role ID: <code id="success-role-id" class="bg-gray-100 px-2 py-0.5 rounded text-sm"></code>
+                Role ID: <code id="success-role-id" class="bg-white/5 px-2 py-0.5 rounded text-sm"></code>
             </p>
-            <p class="text-sm mt-4" style="color:#7a7a9f">
+            <p class="text-sm mt-4" style="color:rgba(255,255,255,0.8)">
                 Go back to Discord and click <strong>"Done, I've selected it ✓"</strong> to continue.
             </p>
         </div>
@@ -155,9 +221,9 @@
         <!-- Error: no token -->
         <div id="step-error" class="step card text-center">
             <p class="text-red-600 font-semibold mb-2">⚠️ Invalid or expired link</p>
-            <p class="text-sm" style="color:#7a7a9f">
+            <p class="text-sm" style="color:rgba(255,255,255,0.8)">
                 This setup link has expired or is invalid. Please go back to Discord and run
-                <code class="bg-gray-100 px-1 rounded">/creator-admin product add</code> again.
+                <code class="bg-white/5 px-1 rounded">/creator-admin product add</code> again.
             </p>
         </div>
     </div>
@@ -308,6 +374,97 @@
         }
 
         init();
+    </script>
+
+    <script type="text/babel" data-type="module">
+        import React, { useRef, Component } from "react";
+        import { createRoot } from "react-dom/client";
+        import * as THREE from "three";
+        import { Canvas, useFrame } from "@react-three/fiber";
+        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
+        import HolographicSticker from "holographic-sticker";
+
+        class ErrorBoundary extends Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            componentDidCatch(error, errorInfo) { console.error("React Error Boundary caught an error", error, errorInfo); }
+            render() { return this.state.hasError ? null : this.props.children; }
+        }
+
+        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
+            const ref = useRef();
+            useFrame((state) => {
+                if (ref.current) {
+                    const elapsed = state.clock.getElapsedTime();
+                    const range = 240;
+                    let currentX = startX - elapsed * speed;
+                    currentX = ((currentX + 120) % range + range) % range - 120;
+                    ref.current.position.x = currentX;
+                }
+            });
+            return (
+                <group ref={ref} position={[startX, y, z]}>
+                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
+                </group>
+            );
+        }
+
+        function BackgroundSky() {
+            return (
+                <React.Fragment>
+                    <SkyImpl sunPosition={[100, 20, 100]} turbidity={0.8} rayleigh={0.5} />
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#ffffff" volume={15} opacity={0.6} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
+                        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#eaebff" volume={6} opacity={0.4} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
+                        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#d3e2ff" volume={40} opacity={0.9} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
+                        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#fdfdfd" volume={35} opacity={0.7} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
+                    </Clouds>
+                </React.Fragment>
+            )
+        }
+
+        function ForegroundSky() {
+            return (
+                <React.Fragment>
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={45} speed={2.8} bounds={[10, 10, 5]} color="#f0f0f0" volume={12} opacity={0.8} seed={4} y={2} z={10} growth={15} fade={5} segments={15} concentrate="inside" />
+                        <MovingCloud startX={15} speed={3.5} bounds={[20, 5, 8]} color="#ffffff" volume={8} opacity={0.6} seed={6} y={-2} z={5} growth={5} fade={25} segments={12} />
+                    </Clouds>
+                </React.Fragment>
+            )
+        }
+
+        function BackgroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
+                        <BackgroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        function ForegroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: true }} style={{ pointerEvents: 'none' }}>
+                        <ForegroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        const bgRoot = createRoot(document.getElementById('bg-canvas-root'));
+        bgRoot.render(<BackgroundApp />);
+
     </script>
 </body>
 

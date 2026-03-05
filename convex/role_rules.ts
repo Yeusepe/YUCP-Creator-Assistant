@@ -139,6 +139,7 @@ export const getByGuildWithProductNames = query({
       sourceGuildId: v.optional(v.string()),
       requiredRoleId: v.optional(v.string()),
       verifiedRoleId: v.optional(v.string()),
+      enabled: v.optional(v.boolean()),
     })
   ),
   handler: async (ctx, args) => {
@@ -157,6 +158,7 @@ export const getByGuildWithProductNames = query({
       sourceGuildId?: string;
       requiredRoleId?: string;
       verifiedRoleId?: string;
+      enabled?: boolean;
     }> = [];
 
     for (const r of rules) {
@@ -167,7 +169,7 @@ export const getByGuildWithProductNames = query({
       if (r.catalogProductId) {
         const catalog = await ctx.db.get(r.catalogProductId);
         if (catalog) {
-          displayName = catalog.canonicalSlug ?? catalog.providerProductRef ?? r.productId;
+          displayName = catalog.displayName ?? catalog.canonicalSlug ?? catalog.providerProductRef ?? r.productId;
         }
       }
 
@@ -177,6 +179,7 @@ export const getByGuildWithProductNames = query({
         sourceGuildId: r.sourceGuildId,
         requiredRoleId: r.requiredRoleId,
         verifiedRoleId: r.verifiedRoleId,
+        enabled: r.enabled,
       });
     }
 

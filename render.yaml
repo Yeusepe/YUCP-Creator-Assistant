@@ -6,7 +6,15 @@ services:
   - type: web
     runtime: node
     name: yucp
-    buildCommand: bun install --frozen-lockfile
+    buildCommand: bun install --frozen-lockfile && npx convex codegen
+    buildFilter:
+      paths:
+        - apps/**
+        - packages/**
+        - convex/**
+        - package.json
+        - bun.lock
+        - bun.lockb
     startCommand: bun run start:all
     healthCheckPath: /health
     envVars:
@@ -14,6 +22,7 @@ services:
         value: production
       - key: INFISICAL_ENV
         value: prod
+      # Infisical connection (all other secrets come from Infisical prod)
       - key: INFISICAL_PROJECT_ID
         sync: false
       - key: INFISICAL_CLIENT_ID
@@ -22,31 +31,8 @@ services:
         sync: false
       - key: INFISICAL_URL
         sync: false
-      - key: BETTER_AUTH_SECRET
-        sync: false
+      # Build-time only: convex codegen runs before app starts (no Infisical access)
       - key: CONVEX_URL
         sync: false
-      - key: CONVEX_API_SECRET
-        sync: false
-      - key: DISCORD_CLIENT_ID
-        sync: false
-      - key: DISCORD_CLIENT_SECRET
-        sync: false
-      - key: DISCORD_BOT_TOKEN
-        sync: false
-      - key: DISCORD_GUILD_ID
-        sync: false
-      - key: GUMROAD_CLIENT_ID
-        sync: false
-      - key: GUMROAD_CLIENT_SECRET
-        sync: false
-      - key: JINXXY_API_KEY
-        sync: false
-      - key: JINXXY_SECRET_KEY
-        sync: false
-      - key: FRONTEND_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: DRAGONFLY_URI
+      - key: CONVEX_DEPLOY_KEY
         sync: false

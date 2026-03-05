@@ -66,7 +66,9 @@ function loadFromEnv(): LocalEnv {
     CONVEX_URL: process.env.CONVEX_URL,
     CONVEX_API_SECRET: process.env.CONVEX_API_SECRET,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
-    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
+    BETTER_AUTH_URL:
+      process.env.BETTER_AUTH_URL ??
+      process.env.RENDER_EXTERNAL_URL /* Render sets this for web services */,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET,
     DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN,

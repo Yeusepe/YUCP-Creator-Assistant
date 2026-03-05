@@ -28,6 +28,17 @@ let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | n
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 
+function escapeForSingleQuotedJsString(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+    .replace(/<\/script/gi, '<\\/script');
+}
+
 /**
  * Initialize the auth service and routes
  * @param webhookBaseUrl - If a tunnel is detected, use this as the public URL for webhooks
@@ -261,7 +272,7 @@ async function handleRequest(request: Request): Promise<Response> {
   }
   const HTML_SECURITY_HEADERS: Record<string, string> = {
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com https://db.onlinewebfonts.com; frame-ancestors 'none'; object-src 'none'",
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://ga.jspm.io https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com https://db.onlinewebfonts.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
@@ -280,8 +291,8 @@ async function handleRequest(request: Request): Promise<Response> {
       url.hostname === 'localhost' || url.hostname === '127.0.0.1'
         ? (process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? '3001'}`)
         : `${proto}://${url.hostname}`;
-    html = html.replace(/__API_BASE__/g, apiBase);
-    html = html.replace(/__SETUP_TOKEN__/g, setupToken);
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(apiBase));
+    html = html.replaceAll('__SETUP_TOKEN__', escapeForSingleQuotedJsString(setupToken));
     return new Response(html, { headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS } });
   }
 
@@ -309,10 +320,10 @@ async function handleRequest(request: Request): Promise<Response> {
       url.hostname === 'localhost' || url.hostname === '127.0.0.1'
         ? (process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? '3001'}`)
         : `${proto}://${url.hostname}`;
-    html = html.replace(/__TENANT_ID__/g, tenantId);
-    html = html.replace(/__GUILD_ID__/g, guildId);
-    html = html.replace(/__API_BASE__/g, apiBase);
-    html = html.replace(/__SETUP_TOKEN__/g, setupToken);
+    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
+    html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(apiBase));
+    html = html.replaceAll('__SETUP_TOKEN__', escapeForSingleQuotedJsString(setupToken));
     return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
