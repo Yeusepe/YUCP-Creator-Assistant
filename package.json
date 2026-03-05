@@ -25,7 +25,7 @@
     "convex:deploy": "npx convex deploy",
     "start:api:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/api start",
     "start:bot:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/bot start",
-    "start:all": "concurrently -k \"bun run --filter @yucp/api start\" \"bun run --filter @yucp/bot start\""
+    "start:all": "concurrently -k \"bun run start:api:infisical\" \"bun run start:bot:infisical\""
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

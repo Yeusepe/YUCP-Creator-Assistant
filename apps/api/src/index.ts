@@ -440,6 +440,7 @@ async function main() {
   logger.info('Starting YUCP API server', {
     nodeEnv: env.NODE_ENV,
     infisicalUrl: env.INFISICAL_URL,
+    infisicalEnv: process.env.INFISICAL_ENV ?? 'dev (default)',
   });
 
   // Detect tunnel URL for webhook callbacks (Tailscale Funnel or ngrok)

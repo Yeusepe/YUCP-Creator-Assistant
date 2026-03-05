@@ -18,6 +18,7 @@ async function main() {
   logger.info('Starting Creator Discord Bot', {
     nodeEnv: env.NODE_ENV,
     infisicalUrl: env.INFISICAL_URL,
+    infisicalEnv: process.env.INFISICAL_ENV ?? 'dev (default)',
   });
 
   const client = await startBot(env.DISCORD_BOT_TOKEN!);

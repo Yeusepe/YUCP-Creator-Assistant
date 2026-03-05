@@ -104,7 +104,10 @@ export async function loadEnvAsync(): Promise<LocalEnv> {
     if (process.env.CONVEX_DEPLOYMENT_URL && !process.env.CONVEX_URL) {
       process.env.CONVEX_URL = process.env.CONVEX_DEPLOYMENT_URL;
     }
-    logger.info('Loaded secrets from Infisical', { count: Object.keys(infisicalSecrets).length });
+    logger.info('Loaded secrets from Infisical', {
+      count: Object.keys(infisicalSecrets).length,
+      infisicalEnv: process.env.INFISICAL_ENV ?? 'dev (default)',
+    });
   }
   return loadFromEnv();
 }
