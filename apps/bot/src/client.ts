@@ -22,6 +22,35 @@ export function createBotClient() {
     logger.warn('Discord client warn', { info: String(info) });
   });
 
+  client.on('shardError', (error, shardId) => {
+    logger.error('Discord shard error', {
+      shardId,
+      message: error?.message,
+      stack: error?.stack,
+    });
+  });
+
+  client.on('shardDisconnect', (event, shardId) => {
+    logger.warn('Discord shard disconnected', {
+      shardId,
+      code: event.code,
+      reason: event.reason,
+      wasClean: event.wasClean,
+    });
+  });
+
+  client.on('shardReconnecting', (shardId) => {
+    logger.warn('Discord shard reconnecting', { shardId });
+  });
+
+  client.on('shardResume', (shardId, replayedEvents) => {
+    logger.info('Discord shard resumed', { shardId, replayedEvents });
+  });
+
+  client.on('invalidated', () => {
+    logger.error('Discord session invalidated');
+  });
+
   if (process.env.LOG_LEVEL === 'debug') {
     client.on('debug', (info) => {
       logger.debug('Discord', { info: String(info) });
