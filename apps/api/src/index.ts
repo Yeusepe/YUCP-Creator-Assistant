@@ -450,7 +450,7 @@ async function main() {
     (env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
   const tunnel = await detectTunnelUrl(port);
   if (tunnel.provider !== 'none') {
-    logger.info(`🚇 Tunnel detected (${tunnel.provider})`, { publicUrl: tunnel.url });
+    logger.info(`Tunnel detected (${tunnel.provider})`, { publicUrl: tunnel.url });
   }
   
   const publicBaseUrl =

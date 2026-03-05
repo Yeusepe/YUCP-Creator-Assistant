@@ -23,12 +23,45 @@ async function main() {
 
   const client = await startBot(env.DISCORD_BOT_TOKEN!);
 
-  await new Promise<void>((resolve) => {
+  const READY_TIMEOUT_MS = 30_000;
+
+  await new Promise<void>((resolve, reject) => {
     if (client.isReady()) {
       resolve();
-    } else {
-      client.once('clientReady', () => resolve());
+      return;
     }
+
+    const timeout = setTimeout(() => {
+      client.removeListener('clientReady', onReady);
+      client.removeListener('error', onError);
+      reject(
+        new Error(
+          `Discord client did not become ready within ${READY_TIMEOUT_MS / 1000}s. ` +
+            'Possible causes: rate limiting (429), invalid token, or network issues. ' +
+            'Check logs for Discord client error/warn events.',
+        ),
+      );
+    }, READY_TIMEOUT_MS);
+
+    const onReady = () => {
+      clearTimeout(timeout);
+      client.removeListener('error', onError);
+      resolve();
+    };
+
+    const onError = (err: Error) => {
+      clearTimeout(timeout);
+      client.removeListener('clientReady', onReady);
+      reject(
+        new Error(
+          `Discord client error before ready: ${err.message}`,
+          { cause: err },
+        ),
+      );
+    };
+
+    client.once('clientReady', onReady);
+    client.once('error', onError);
   });
 
   logger.info('Discord bot ready');
