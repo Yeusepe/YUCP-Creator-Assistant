@@ -304,7 +304,7 @@ async function handleSlashCommand(
     } else if (subcommand === 'stats') {
       // Single subcommand (not a group) — overview with navigation buttons
       const { handleStats } = await import('../commands/stats');
-      await handleStats(interaction, ctx.convex, { tenantId, guildId });
+      await handleStats(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
     } else if (subcommand === 'spawn-verify') {
       const { handleVerifySpawn } = await import('../commands/verify');
       await handleVerifySpawn(interaction, ctx.convex, process.env.API_BASE_URL, {
@@ -321,7 +321,7 @@ async function handleSlashCommand(
     } else if (subcommand === 'analytics') {
       // Single subcommand (not a group) — combined link + summary
       const { handleAnalytics } = await import('../commands/analytics');
-      await handleAnalytics(interaction, ctx.convex, { tenantId, guildId });
+      await handleAnalytics(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
     } else if (subcommandGroup === 'moderation') {
       const sub = interaction.options.getSubcommand();
       const { handleModerationMark, handleModerationList, handleModerationClear, handleModerationUnverify } =
@@ -553,14 +553,14 @@ async function handleButton(
   if (customId.startsWith('creator_stats:view_users:')) {
     const tenantId = customId.slice('creator_stats:view_users:'.length) as Id<'tenants'>;
     const { handleStatsViewUsersButton } = await import('../commands/stats');
-    await handleStatsViewUsersButton(interaction, ctx.convex, tenantId);
+    await handleStatsViewUsersButton(interaction, ctx.convex, ctx.apiSecret, tenantId);
     return;
   }
 
   if (customId.startsWith('creator_stats:view_products:')) {
     const tenantId = customId.slice('creator_stats:view_products:'.length) as Id<'tenants'>;
     const { handleStatsViewProductsButton } = await import('../commands/stats');
-    await handleStatsViewProductsButton(interaction, ctx.convex, tenantId);
+    await handleStatsViewProductsButton(interaction, ctx.convex, ctx.apiSecret, tenantId);
     return;
   }
 
@@ -717,7 +717,7 @@ async function handleModalSubmit(
   if (customId.startsWith('creator_stats:check_user_modal:')) {
     const tenantId = customId.slice('creator_stats:check_user_modal:'.length) as Id<'tenants'>;
     const { handleStatsCheckUserModal } = await import('../commands/stats');
-    await handleStatsCheckUserModal(interaction, ctx.convex, tenantId);
+    await handleStatsCheckUserModal(interaction, ctx.convex, ctx.apiSecret, tenantId);
     return;
   }
 

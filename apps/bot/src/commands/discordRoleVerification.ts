@@ -22,12 +22,13 @@ import { E } from '../lib/emojis';
 export async function handleDiscordRoleVerification(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
-  _apiSecret: string,
+  apiSecret: string,
   ctx: { tenantId: Id<'tenants'> },
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const tenant = await convex.query(api.tenants.getTenant as any, {
+    apiSecret,
     tenantId: ctx.tenantId,
   });
 

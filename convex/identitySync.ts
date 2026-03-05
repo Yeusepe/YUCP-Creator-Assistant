@@ -652,6 +652,7 @@ export const getDiscordAccountsWithTokens = query({
  */
 export const updateSubjectStatus = mutation({
   args: {
+    apiSecret: v.string(),
     subjectId: v.id('subjects'),
     status: v.union(
       v.literal('active'),
@@ -671,6 +672,7 @@ export const updateSubjectStatus = mutation({
     ),
   }),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const subject = await ctx.db.get(args.subjectId);
     if (!subject) {
       throw new Error(`Subject not found: ${args.subjectId}`);
@@ -892,12 +894,14 @@ export const clearSubjectSuspicious = mutation({
  */
 export const disconnectExternalAccount = mutation({
   args: {
+    apiSecret: v.string(),
     externalAccountId: v.id('external_accounts'),
   },
   returns: v.object({
     success: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const account = await ctx.db.get(args.externalAccountId);
     if (!account) {
       throw new Error(`External account not found: ${args.externalAccountId}`);
@@ -922,6 +926,7 @@ export const disconnectExternalAccount = mutation({
  */
 export const linkExternalAccountToSubject = mutation({
   args: {
+    apiSecret: v.string(),
     subjectId: v.id('subjects'),
     provider: v.union(v.literal('discord'), v.literal('gumroad'), v.literal('jinxxy'), v.literal('manual')),
     providerUserId: v.string(),
@@ -941,6 +946,7 @@ export const linkExternalAccountToSubject = mutation({
     isNew: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const now = Date.now();
 
     // Check for existing external account

@@ -717,6 +717,7 @@ export function createVerificationSessionManager(
 
         // Now check if the user has any matching roles for current rules
         const tenant = await convex.query('tenants:getTenant' as any, {
+          apiSecret,
           tenantId,
         });
         if (!tenant) {
@@ -1084,11 +1085,16 @@ export function createVerificationRoutes(config: VerificationConfig) {
   async function completeLicenseVerification(request: Request): Promise<Response> {
     try {
       const body = (await request.json()) as {
+        apiSecret?: string;
         licenseKey?: string;
         productId?: string;
         tenantId?: string;
         subjectId?: string;
       };
+
+      if (!body.apiSecret || body.apiSecret !== config.convexApiSecret) {
+        return Response.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      }
 
       const { handleCompleteLicense } = await import('./completeLicense');
       const result = await handleCompleteLicense(config, {
@@ -1121,10 +1127,18 @@ export function createVerificationRoutes(config: VerificationConfig) {
   async function disconnectVerification(request: Request): Promise<Response> {
     try {
       const body = await request.json() as {
+        apiSecret?: string;
         tenantId?: string;
         subjectId?: string;
         provider?: string;
       };
+
+      if (!body.apiSecret || body.apiSecret !== config.convexApiSecret) {
+        return Response.json(
+          { success: false, error: 'Unauthorized' },
+          { status: 401 }
+        );
+      }
 
       if (!body.tenantId || !body.subjectId || !body.provider) {
         return Response.json(
@@ -1162,6 +1176,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       // If this was the last account, revoke any remaining entitlements
       // (e.g. from manual grants or sourceProvider mismatch)
       const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts as any, {
+        apiSecret: config.convexApiSecret,
         subjectId: body.subjectId,
         tenantId: body.tenantId,
       });

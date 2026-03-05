@@ -17,11 +17,13 @@ const POSTHOG_DASHBOARD_URL = 'https://us.posthog.com';
 export async function handleAnalytics(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const stats = await convex.query(api.entitlements.getStatsOverview as any, {
+    apiSecret,
     tenantId: ctx.tenantId,
   });
 
@@ -58,11 +60,13 @@ export async function handleAnalyticsLink(
 export async function handleAnalyticsSummary(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const stats = await convex.query(api.entitlements.getStatsOverview as any, {
+    apiSecret,
     tenantId: ctx.tenantId,
   });
 

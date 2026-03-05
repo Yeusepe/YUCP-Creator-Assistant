@@ -93,6 +93,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
  */
 export const getEntitlementsBySubject = query({
   args: {
+    apiSecret: v.string(),
     tenantId: v.id('tenants'),
     subjectId: v.id('subjects'),
     includeInactive: v.optional(v.boolean()),
@@ -116,6 +117,7 @@ export const getEntitlementsBySubject = query({
     }),
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     let query = ctx.db
       .query('entitlements')
       .withIndex('by_tenant_subject', (q) =>
@@ -137,6 +139,7 @@ export const getEntitlementsBySubject = query({
  */
 export const getEntitlementsByProduct = query({
   args: {
+    apiSecret: v.string(),
     tenantId: v.id('tenants'),
     productId: v.string(),
     includeInactive: v.optional(v.boolean()),
@@ -160,6 +163,7 @@ export const getEntitlementsByProduct = query({
     }),
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     let query = ctx.db
       .query('entitlements')
       .withIndex('by_tenant_product', (q) =>
@@ -181,6 +185,7 @@ export const getEntitlementsByProduct = query({
  */
 export const getActiveEntitlement = query({
   args: {
+    apiSecret: v.string(),
     tenantId: v.id('tenants'),
     subjectId: v.id('subjects'),
     productId: v.string(),
@@ -211,6 +216,7 @@ export const getActiveEntitlement = query({
     }),
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const entitlement = await ctx.db
       .query('entitlements')
       .withIndex('by_tenant_subject', (q) =>
@@ -232,13 +238,14 @@ export const getActiveEntitlement = query({
  * Stats overview for bot /yucp stats.
  */
 export const getStatsOverview = query({
-  args: { tenantId: v.id('tenants') },
+  args: { apiSecret: v.string(), tenantId: v.id('tenants') },
   returns: v.object({
     totalVerified: v.number(),
     totalProducts: v.number(),
     recentGrantsCount: v.number(),
   }),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const activeEntitlements = await ctx.db
       .query('entitlements')
       .withIndex('by_tenant_status', (q) =>
@@ -262,6 +269,7 @@ export const getStatsOverview = query({
  */
 export const getVerifiedUsersPaginated = query({
   args: {
+    apiSecret: v.string(),
     tenantId: v.id('tenants'),
     limit: v.optional(v.number()),
     cursor: v.optional(v.string()),
@@ -278,6 +286,7 @@ export const getVerifiedUsersPaginated = query({
     nextCursor: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const limit = Math.min(args.limit ?? 25, 50);
     const activeEntitlements = await ctx.db
       .query('entitlements')
@@ -328,7 +337,7 @@ export const getVerifiedUsersPaginated = query({
  * Product verification counts for /yucp stats products.
  */
 export const getProductStats = query({
-  args: { tenantId: v.id('tenants') },
+  args: { apiSecret: v.string(), tenantId: v.id('tenants') },
   returns: v.array(
     v.object({
       productId: v.string(),
@@ -336,6 +345,7 @@ export const getProductStats = query({
     }),
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const activeEntitlements = await ctx.db
       .query('entitlements')
       .withIndex('by_tenant_status', (q) =>
@@ -359,12 +369,14 @@ export const getProductStats = query({
  */
 export const hasActiveEntitlement = query({
   args: {
+    apiSecret: v.string(),
     tenantId: v.id('tenants'),
     subjectId: v.id('subjects'),
     productId: v.string(),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const entitlement = await ctx.db
       .query('entitlements')
       .withIndex('by_tenant_subject', (q) =>
@@ -383,6 +395,7 @@ export const hasActiveEntitlement = query({
  */
 export const getEntitlement = query({
   args: {
+    apiSecret: v.string(),
     entitlementId: v.id('entitlements'),
   },
   returns: v.union(
@@ -411,6 +424,7 @@ export const getEntitlement = query({
     }),
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const entitlement = await ctx.db.get(args.entitlementId);
 
     if (!entitlement) {
@@ -427,6 +441,7 @@ export const getEntitlement = query({
  */
 export const getEntitlementsByProviderCustomer = query({
   args: {
+    apiSecret: v.string(),
     providerCustomerId: v.id('provider_customers'),
   },
   returns: v.array(
@@ -448,6 +463,7 @@ export const getEntitlementsByProviderCustomer = query({
     }),
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const entitlements = await ctx.db
       .query('entitlements')
       .withIndex('by_provider_customer', (q) =>

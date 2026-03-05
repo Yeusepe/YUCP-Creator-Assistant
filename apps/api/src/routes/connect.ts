@@ -102,6 +102,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   async function isTenantOwnedBySessionUser(authUserId: string, tenantId: string): Promise<boolean> {
     const convex = getConvexClientFromUrl(config.convexUrl);
     const ownedTenant = await convex.query('tenants:getTenantByOwnerAuth' as any, {
+      apiSecret: config.convexApiSecret,
       ownerAuthUserId: authUserId,
     }) as { _id?: string } | null;
     return ownedTenant?._id === tenantId;
@@ -227,11 +228,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
     }
 
-    const proto = request.headers.get('x-forwarded-proto') ?? (url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? 'http' : 'https');
-    const apiBase =
-      url.hostname === 'localhost' || url.hostname === '127.0.0.1'
-        ? (process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? '3001'}`)
-        : `${proto}://${url.hostname}`;
+    // Always use the configured API base URL so pages served from a frontend
+    // subdomain (e.g. verify.*) still call the correct API subdomain (e.g. api.*).
+    const apiBase = config.baseUrl;
 
     const filePath = `${import.meta.dir}/../../public/dashboard.html`;
     const file = Bun.file(filePath);
@@ -297,6 +296,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const convex = getConvexClient();
     const apiSecret = getConvexApiSecret();
     const existing = await convex.query('tenants:getTenantByOwnerAuth' as any, {
+      apiSecret,
       ownerAuthUserId: session.user.id,
     });
 
@@ -384,6 +384,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const apiSecret = getConvexApiSecret();
     const existing = await convex.query('tenants:getTenantByOwnerAuth' as any, {
+      apiSecret,
       ownerAuthUserId: session.user.id,
     });
 
@@ -462,6 +463,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         { error: 'tenantId, guildId, and Gumroad config required' },
         { status: 400 }
       );
+    }
+
+    if (!authenticatedViaSetupToken && session) {
+      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
+      if (!tenantOwned) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      }
     }
 
     const state = `connect_gumroad:${tenantId}:${generateSecureRandom(48)}`;
@@ -640,6 +648,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'tenantId is required' }, { status: 400 });
     }
 
+    const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
+    if (!tenantOwned) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const status = await convex.query('providerConnections:getConnectionStatus' as any, {
@@ -721,6 +734,18 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const session = await resolveSetupSession(setupToken, config.encryptionSecret);
       if (session) tenantId = session.tenantId;
       else return Response.json({ error: 'Invalid or expired setup token' }, { status: 401 });
+    } else {
+      const session = await auth.getSession(request);
+      if (!session) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      if (!tenantId) {
+        return Response.json({ error: 'tenantId is required' }, { status: 400 });
+      }
+      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
+      if (!tenantOwned) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      }
     }
 
     if (!tenantId) {
@@ -756,6 +781,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const { tenantId, apiKey, webhookSecret, callbackUrl } = body;
     if (!tenantId || !apiKey) {
       return Response.json({ error: 'tenantId and apiKey are required' }, { status: 400 });
+    }
+
+    const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
+    if (!tenantOwned) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     try {
@@ -848,6 +878,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const tenant = await convex.query('tenants:getTenant' as any, {
+        apiSecret: config.convexApiSecret,
         tenantId: session.tenantId,
       }) as { policy?: any };
       return Response.json({ policy: tenant?.policy ?? {} });

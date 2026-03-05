@@ -72,6 +72,7 @@ async function fetchVerifyData(
   tenantId: Id<'tenants'>,
   guildId: string,
   convex: ConvexHttpClient,
+  apiSecret: string,
 ): Promise<VerifyData> {
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
     discordUserId: userId,
@@ -85,10 +86,12 @@ async function fetchVerifyData(
   if (subjectResult.found) {
     const [accountsResult, entitlements, guildProducts] = await Promise.all([
       convex.query(api.subjects.getSubjectWithAccounts as any, {
+        apiSecret,
         subjectId: subjectResult.subject._id,
         tenantId,
       }),
       convex.query(api.entitlements.getEntitlementsBySubject as any, {
+        apiSecret,
         tenantId,
         subjectId: subjectResult.subject._id,
         includeInactive: false,
@@ -464,7 +467,7 @@ export async function handleCreatorCommand(
 
   try {
     const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex),
+      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex, apiSecret),
       convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
         apiSecret,
         tenantId: ctx.tenantId,
@@ -510,7 +513,7 @@ export async function handleVerifyStartButton(
 
   try {
     const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex),
+      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex, apiSecret),
       convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
         apiSecret,
         tenantId: ctx.tenantId,
@@ -551,7 +554,7 @@ export async function handleVerifyAddMore(
 
   try {
     const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex),
+      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex, apiSecret),
       convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
         apiSecret,
         tenantId: ctx.tenantId,
@@ -694,7 +697,7 @@ export async function handleLicenseModalSubmit(
     const res = await fetch(`${apiBaseUrl}/api/verification/complete-license`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ licenseKey, tenantId, subjectId }),
+      body: JSON.stringify({ apiSecret, licenseKey, tenantId, subjectId }),
     });
     const result = (await res.json()) as {
       success?: boolean;
@@ -716,7 +719,7 @@ export async function handleLicenseModalSubmit(
     const guildId = interaction.guildId;
     if (guildId && apiBaseUrl) {
       const [data, enabledProviders] = await Promise.all([
-        fetchVerifyData(interaction.user.id, tenantId, guildId, convex),
+        fetchVerifyData(interaction.user.id, tenantId, guildId, convex, apiSecret),
         convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
           apiSecret,
           tenantId,
@@ -798,6 +801,7 @@ export async function handleVerifyDisconnectButton(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        apiSecret,
         subjectId: subjectResult.subject._id,
         tenantId: guildLink.tenantId,
         provider,
@@ -820,7 +824,7 @@ export async function handleVerifyDisconnectButton(
 
     // Refresh and show the updated panel so user sees products/accounts cleared
     const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, guildLink.tenantId, guildId, convex),
+      fetchVerifyData(interaction.user.id, guildLink.tenantId, guildId, convex, apiSecret),
       convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
         apiSecret,
         tenantId: guildLink.tenantId,
@@ -885,7 +889,7 @@ export async function handleRefreshCommand(
 
     if (apiBaseUrl) {
       const [data, enabledProviders] = await Promise.all([
-        fetchVerifyData(interaction.user.id, ctx.tenantId, guildId, convex),
+        fetchVerifyData(interaction.user.id, ctx.tenantId, guildId, convex, apiSecret),
         convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
           apiSecret,
           tenantId: ctx.tenantId,

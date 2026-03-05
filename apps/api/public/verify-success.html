@@ -59,15 +59,20 @@
             animation: dash 1.2s ease-in-out forwards;
         }
 
-        .brand-gradient-btn {
-            background: linear-gradient(90deg, var(--accent-sky), var(--accent-mustard));
-            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease;
-            box-shadow: 0 4px 20px rgba(212, 93, 57, 0.2);
+        .action-btn {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            color: #ffffff;
         }
 
-        .brand-gradient-btn:hover {
-            transform: translateY(-3px) scale(1.02);
-            box-shadow: 0 10px 25px rgba(212, 93, 57, 0.3);
+        .action-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+            border-color: rgba(255, 255, 255, 0.3);
         }
 
         .fade-up {
@@ -130,7 +135,7 @@
         </p>
         <div class="fade-up" style="animation-delay: 0.7s">
             <a id="return-btn" href="#"
-                class="brand-gradient-btn inline-block px-12 py-5 rounded-full text-[#1a6bff] text-xl font-bold uppercase tracking-widest no-underline">
+                class="action-btn inline-block px-12 py-5 rounded-full text-xl font-black uppercase tracking-widest no-underline">
                 Return to Discord
             </a>
         </div>

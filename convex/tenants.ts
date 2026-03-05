@@ -107,6 +107,7 @@ export const createTenant = mutation({
  */
 export const getTenant = query({
   args: {
+    apiSecret: v.string(),
     tenantId: v.id('tenants'),
   },
   returns: v.union(
@@ -125,6 +126,7 @@ export const getTenant = query({
     })
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     return await ctx.db.get(args.tenantId);
   },
 });
@@ -192,6 +194,7 @@ export const upsertJinxxyApiKey = mutation({
  */
 export const getTenantByOwnerAuth = query({
   args: {
+    apiSecret: v.string(),
     ownerAuthUserId: v.string(),
   },
   returns: v.union(
@@ -210,6 +213,7 @@ export const getTenantByOwnerAuth = query({
     })
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     return await ctx.db
       .query('tenants')
       .withIndex('by_owner_auth', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId))

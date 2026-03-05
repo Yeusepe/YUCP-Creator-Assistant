@@ -388,6 +388,7 @@ export async function handleLicenseKeyModal(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                apiSecret,
                 licenseKey,
                 productId: providerProductRef,
                 tenantId,

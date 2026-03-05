@@ -28,6 +28,11 @@ let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | n
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 
+// Resolved after initializeAuth — used for apiBase injection and CORS
+let resolvedApiBaseUrl = 'http://localhost:3001';
+let resolvedFrontendOrigin: string | null = null;
+const RATE_LIMIT_BUCKETS = new Map<string, { count: number; resetAt: number }>();
+
 function escapeForSingleQuotedJsString(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
@@ -37,6 +42,26 @@ function escapeForSingleQuotedJsString(value: string): string {
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029')
     .replace(/<\/script/gi, '<\\/script');
+}
+
+function getClientAddress(request: Request): string {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) {
+    return forwardedFor.split(',')[0]?.trim() || 'unknown';
+  }
+  return request.headers.get('x-real-ip') ?? 'unknown';
+}
+
+function isRateLimited(bucketKey: string, maxRequests: number, windowMs: number): boolean {
+  const now = Date.now();
+  const existing = RATE_LIMIT_BUCKETS.get(bucketKey);
+  if (!existing || now >= existing.resetAt) {
+    RATE_LIMIT_BUCKETS.set(bucketKey, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
+  existing.count += 1;
+  RATE_LIMIT_BUCKETS.set(bucketKey, existing);
+  return existing.count > maxRequests;
 }
 
 /**
@@ -51,6 +76,9 @@ function initializeAuth(webhookBaseUrl?: string) {
   // Use detected tunnel URL for webhook callbacks; fall back to baseUrl
   const publicBaseUrl = webhookBaseUrl ?? baseUrl;
   const frontendUrl = env.FRONTEND_URL ?? baseUrl;
+
+  resolvedApiBaseUrl = publicBaseUrl;
+  resolvedFrontendOrigin = frontendUrl !== publicBaseUrl ? new URL(frontendUrl).origin : null;
 
   const convexUrl = env.CONVEX_URL ?? '';
   const convexSiteUrl = convexUrl
@@ -125,11 +153,30 @@ function initializeAuth(webhookBaseUrl?: string) {
 }
 
 /**
- * Request handler for the Bun HTTP server
+ * Core routing logic — called by handleRequest after CORS is handled.
  */
-async function handleRequest(request: Request): Promise<Response> {
+async function routeRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname;
+  const clientAddress = getClientAddress(request);
+
+  // Basic in-memory guardrails for abuse-prone routes.
+  if (pathname.startsWith('/api/verification/')) {
+    if (isRateLimited(`verification:${clientAddress}`, 60, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  if (pathname.startsWith('/api/connect/')) {
+    if (isRateLimited(`connect:${clientAddress}`, 120, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
 
   // Health check endpoint
   if (pathname === '/health') {
@@ -283,15 +330,9 @@ async function handleRequest(request: Request): Promise<Response> {
     const file = Bun.file(filePath);
     let html = await file.text();
     const setupToken = url.searchParams.get('s') ?? '';
-    // Use request origin so API calls work when accessed via tunnel (e.g. Tailscale Funnel).
-    // When behind a proxy, url.origin may be http:// (proxy→backend) but clients use https://.
-    // Use https for non-localhost to avoid mixed-content blocks (HTTPS page fetching HTTP).
-    const proto = request.headers.get('x-forwarded-proto') ?? (url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? 'http' : 'https');
-    const apiBase =
-      url.hostname === 'localhost' || url.hostname === '127.0.0.1'
-        ? (process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? '3001'}`)
-        : `${proto}://${url.hostname}`;
-    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(apiBase));
+    // Always inject the configured API base URL so fetch() calls target api.* even
+    // when the page is served from a different subdomain (e.g. verify.*).
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(resolvedApiBaseUrl));
     html = html.replaceAll('__SETUP_TOKEN__', escapeForSingleQuotedJsString(setupToken));
     return new Response(html, { headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS } });
   }
@@ -300,7 +341,6 @@ async function handleRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/jinxxy-setup.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    const url = new URL(request.url);
     const setupToken = url.searchParams.get('s') ?? '';
     let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
     let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
@@ -315,14 +355,9 @@ async function handleRequest(request: Request): Promise<Response> {
       }
     }
 
-    const proto = request.headers.get('x-forwarded-proto') ?? (url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? 'http' : 'https');
-    const apiBase =
-      url.hostname === 'localhost' || url.hostname === '127.0.0.1'
-        ? (process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? '3001'}`)
-        : `${proto}://${url.hostname}`;
     html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
-    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(apiBase));
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(resolvedApiBaseUrl));
     html = html.replaceAll('__SETUP_TOKEN__', escapeForSingleQuotedJsString(setupToken));
     return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
@@ -361,6 +396,42 @@ async function handleRequest(request: Request): Promise<Response> {
 }
 
 /**
+ * Request handler for the Bun HTTP server.
+ * Handles CORS for the frontend subdomain, then delegates to routeRequest.
+ */
+async function handleRequest(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+
+  // Build CORS headers when the request comes from the configured frontend origin.
+  const corsHeaders: Record<string, string> = {};
+  if (resolvedFrontendOrigin) {
+    const origin = request.headers.get('origin');
+    if (origin === resolvedFrontendOrigin) {
+      corsHeaders['Access-Control-Allow-Origin'] = resolvedFrontendOrigin;
+      corsHeaders['Access-Control-Allow-Credentials'] = 'true';
+      corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS';
+      corsHeaders['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
+      corsHeaders['Vary'] = 'Origin';
+    }
+  }
+
+  // CORS preflight — respond immediately.
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  const response = await routeRequest(request);
+
+  // Append CORS headers to every response when the request came from the frontend origin.
+  if (Object.keys(corsHeaders).length > 0) {
+    const next = new Response(response.body, response);
+    for (const [k, v] of Object.entries(corsHeaders)) next.headers.set(k, v);
+    return next;
+  }
+  return response;
+}
+
+/**
  * Main entry point
  */
 async function main() {
@@ -373,6 +444,9 @@ async function main() {
 
   // Detect tunnel URL for webhook callbacks (Tailscale Funnel or ngrok)
   const port = Number.parseInt(process.env.PORT ?? '3001', 10);
+  const hostname =
+    process.env.HOST ??
+    (env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
   const tunnel = await detectTunnelUrl(port);
   if (tunnel.provider !== 'none') {
     logger.info(`🚇 Tunnel detected (${tunnel.provider})`, { publicUrl: tunnel.url });
@@ -383,12 +457,14 @@ async function main() {
 
   // Start HTTP server
   Bun.serve({
+    hostname,
     port,
     fetch: handleRequest,
   });
 
   logger.info('API server ready', {
     port,
+    hostname,
     publicUrl: tunnel.provider !== 'none' ? tunnel.url : `http://localhost:${port}`,
     tunnelProvider: tunnel.provider,
     authProvider: 'Convex (direct)',

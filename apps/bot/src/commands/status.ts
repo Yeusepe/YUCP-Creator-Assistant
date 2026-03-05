@@ -12,6 +12,7 @@ import { E } from '../lib/emojis';
 export async function handleStatus(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -28,6 +29,7 @@ export async function handleStatus(
   }
 
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject as any, {
+    apiSecret,
     tenantId: ctx.tenantId,
     subjectId: subjectResult.subject._id,
     includeInactive: false,

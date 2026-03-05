@@ -56,6 +56,13 @@ interface DiscordGuildResponse {
   approximate_member_count?: number;
 }
 
+interface DiscordTokenExchangeResponse {
+  guild?: {
+    id?: string;
+  };
+  guild_id?: string;
+}
+
 // State expiration: 10 minutes
 const STATE_EXPIRY_MS = 10 * 60 * 1000;
 
@@ -283,9 +290,35 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
         }).toString(),
       });
 
-      // For bot installs, we don't actually need to exchange the code
-      // The bot is added when the user authorizes
-      // We just need to verify the installation
+      if (!tokenResponse.ok) {
+        const errorText = await tokenResponse.text();
+        logger.error('Bot install token exchange failed', {
+          status: tokenResponse.status,
+          body: errorText,
+        });
+        const errorUrl = new URL('/install/error', config.frontendUrl);
+        errorUrl.searchParams.set('error', 'token_exchange_failed');
+        return Response.redirect(errorUrl.toString(), 302);
+      }
+
+      // Validate guild consistency between callback and token response when available.
+      let tokenPayload: DiscordTokenExchangeResponse | null = null;
+      try {
+        tokenPayload = (await tokenResponse.json()) as DiscordTokenExchangeResponse;
+      } catch {
+        tokenPayload = null;
+      }
+      const tokenGuildId = tokenPayload?.guild?.id ?? tokenPayload?.guild_id;
+      if (tokenGuildId && tokenGuildId !== guildId) {
+        logger.error('Bot install guild mismatch', {
+          callbackGuildId: guildId,
+          tokenGuildId,
+          tenantId: installState.tenantId,
+        });
+        const errorUrl = new URL('/install/error', config.frontendUrl);
+        errorUrl.searchParams.set('error', 'guild_mismatch');
+        return Response.redirect(errorUrl.toString(), 302);
+      }
 
       logger.info('Bot installed to guild', {
         guildId,

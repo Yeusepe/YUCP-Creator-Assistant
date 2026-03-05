@@ -1072,6 +1072,7 @@ export class RoleSyncService {
   private async fetchEntitlement(entitlementId: Id<'entitlements'>): Promise<Entitlement | null> {
     try {
       const result = await this.convexClient.query('entitlements:getEntitlement' as any, {
+        apiSecret: this.apiSecret,
         entitlementId,
       });
 

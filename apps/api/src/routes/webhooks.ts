@@ -126,7 +126,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       logger.info('Webhook received', {
         provider: 'gumroad',
         tenantId,
-        rawPayload: rawBody,
+        payloadBytes: rawBody.length,
       });
       const incomingSig = request.headers.get('x-gumroad-signature');
       const webhookSecret = await getGumroadWebhookSecret(tenantId);
@@ -239,7 +239,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       logger.info('Webhook received', {
         provider: 'jinxxy',
         tenantId,
-        rawPayload: rawBody,
+        payloadBytes: rawBody.length,
       });
       const signature = request.headers.get('x-signature');
 

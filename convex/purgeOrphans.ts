@@ -1,10 +1,20 @@
 import { mutation } from './_generated/server';
 import { v } from 'convex/values';
 
+function requireApiSecret(apiSecret: string | undefined): void {
+    const expected = process.env.CONVEX_API_SECRET;
+    if (!expected || apiSecret !== expected) {
+        throw new Error('Unauthorized: invalid or missing API secret');
+    }
+}
+
 export const purge = mutation({
-    args: {},
+    args: {
+        apiSecret: v.string(),
+    },
     returns: v.any(),
-    handler: async (ctx) => {
+    handler: async (ctx, args) => {
+        requireApiSecret(args.apiSecret);
         // Get everything in the product catalog
         const catalog = await ctx.db.query('product_catalog').collect();
         let purged = 0;

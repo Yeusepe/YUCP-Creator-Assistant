@@ -628,7 +628,10 @@ export async function handleProductConfirmAdd(
 
       // Enable cross-server Discord role verification via OAuth (user authorizes guilds.members.read)
       // so buyers can verify via "Use Another Server" without manual /creator-admin settings
-      const tenant = await convex.query(api.tenants.getTenant as any, { tenantId });
+      const tenant = await convex.query(api.tenants.getTenant as any, {
+        apiSecret,
+        tenantId,
+      });
       const policy = tenant?.policy ?? {};
       const allowed = new Set((policy.allowedSourceGuildIds as string[]) ?? []);
       allowed.add(sourceGuildId);

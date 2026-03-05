@@ -10,6 +10,13 @@ import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { Doc } from './_generated/dataModel';
 
+function requireApiSecret(apiSecret: string | undefined): void {
+  const expected = process.env.CONVEX_API_SECRET;
+  if (!expected || apiSecret !== expected) {
+    throw new Error('Unauthorized: invalid or missing API secret');
+  }
+}
+
 // ============================================================================
 // QUERIES
 // ============================================================================
@@ -114,6 +121,7 @@ export const getSubjectByDiscordId = query({
  */
 export const getSubjectWithAccounts = query({
   args: {
+    apiSecret: v.string(),
     subjectId: v.id('subjects'),
     /** When provided, only return accounts linked in this tenant (for verify panel). */
     tenantId: v.optional(v.id('tenants')),
@@ -175,6 +183,7 @@ export const getSubjectWithAccounts = query({
     }),
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const subject = await ctx.db.get(args.subjectId);
 
     if (!subject) {

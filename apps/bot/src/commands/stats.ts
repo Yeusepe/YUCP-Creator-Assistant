@@ -28,6 +28,7 @@ import { E } from '../lib/emojis';
 export async function handleStats(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -37,6 +38,7 @@ export async function handleStats(
     guildId: ctx.guildId,
   });
   const stats = await convex.query(api.entitlements.getStatsOverview as any, {
+    apiSecret,
     tenantId: ctx.tenantId,
   });
 
@@ -71,11 +73,13 @@ export async function handleStats(
 export async function handleStatsViewUsersButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   tenantId: Id<'tenants'>,
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const { users } = await convex.query(api.entitlements.getVerifiedUsersPaginated as any, {
+    apiSecret,
     tenantId,
     limit: 25,
   });
@@ -103,11 +107,13 @@ export async function handleStatsViewUsersButton(
 export async function handleStatsViewProductsButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   tenantId: Id<'tenants'>,
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const productStats = await convex.query(api.entitlements.getProductStats as any, {
+    apiSecret,
     tenantId,
   });
 
@@ -159,6 +165,7 @@ export async function handleStatsCheckUserButton(
 export async function handleStatsCheckUserModal(
   interaction: ModalSubmitInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   tenantId: Id<'tenants'>,
 ): Promise<void> {
   const discordUserId = interaction.fields.getTextInputValue('discord_user_id')?.trim();
@@ -177,6 +184,7 @@ export async function handleStatsCheckUserModal(
   }
 
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject as any, {
+    apiSecret,
     tenantId,
     subjectId: subjectResult.subject._id,
     includeInactive: false,
@@ -204,18 +212,21 @@ export async function handleStatsCheckUserModal(
 export async function handleStatsOverview(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
-  return handleStats(interaction, convex, ctx);
+  return handleStats(interaction, convex, apiSecret, ctx);
 }
 
 export async function handleStatsVerified(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const { users } = await convex.query(api.entitlements.getVerifiedUsersPaginated as any, {
+    apiSecret,
     tenantId: ctx.tenantId,
     limit: 25,
   });
@@ -237,10 +248,12 @@ export async function handleStatsVerified(
 export async function handleStatsProducts(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const productStats = await convex.query(api.entitlements.getProductStats as any, {
+    apiSecret,
     tenantId: ctx.tenantId,
   });
   if (!productStats.length) {
@@ -260,6 +273,7 @@ export async function handleStatsProducts(
 export async function handleStatsUser(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
+  apiSecret: string,
   ctx: { tenantId: Id<'tenants'>; guildId: string },
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
@@ -272,6 +286,7 @@ export async function handleStatsUser(
     return;
   }
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject as any, {
+    apiSecret,
     tenantId: ctx.tenantId,
     subjectId: subjectResult.subject._id,
     includeInactive: false,
