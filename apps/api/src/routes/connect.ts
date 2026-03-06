@@ -176,13 +176,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    */
   async function serveConnectPage(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const requestOrigin = url.origin;
-    const frontendOrigin = new URL(config.frontendBaseUrl).origin;
-    const apiOrigin = new URL(config.apiBaseUrl).origin;
-    if (frontendOrigin !== apiOrigin && requestOrigin === apiOrigin) {
+    const requestHost = url.host;
+    const frontendUrl = new URL(config.frontendBaseUrl);
+    const apiUrl = new URL(config.apiBaseUrl);
+    if (frontendUrl.host !== apiUrl.host && requestHost === apiUrl.host) {
       const redirectUrl = new URL(url);
-      redirectUrl.protocol = new URL(config.frontendBaseUrl).protocol;
-      redirectUrl.host = new URL(config.frontendBaseUrl).host;
+      redirectUrl.protocol = frontendUrl.protocol;
+      redirectUrl.host = frontendUrl.host;
       return Response.redirect(redirectUrl.toString(), 302);
     }
     const setupToken = url.searchParams.get('s');

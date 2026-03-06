@@ -458,7 +458,7 @@ async function routeRequest(request: Request): Promise<Response> {
   };
 
   if (pathname === '/discord-role-setup' || pathname === '/discord-role-setup.html') {
-    if (resolvedFrontendOrigin && url.origin !== resolvedFrontendOrigin) {
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
       const redirectUrl = new URL(request.url);
       redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
       redirectUrl.host = new URL(resolvedFrontendOrigin).host;
@@ -475,7 +475,7 @@ async function routeRequest(request: Request): Promise<Response> {
   }
 
   if (pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html') {
-    if (resolvedFrontendOrigin && url.origin !== resolvedFrontendOrigin) {
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
       const redirectUrl = new URL(request.url);
       redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
       redirectUrl.host = new URL(resolvedFrontendOrigin).host;
