@@ -257,9 +257,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
     }
 
-    // Always use the configured API base URL so pages served from a frontend
-    // subdomain (e.g. verify.*) still call the correct API subdomain (e.g. api.*).
-    const apiBase = config.apiBaseUrl;
+    // Use the frontend origin for browser-initiated API calls so auth cookies
+    // set during OTT exchange remain same-origin and are actually sent.
+    const apiBase = config.frontendBaseUrl;
 
     const filePath = `${import.meta.dir}/../../public/dashboard.html`;
     const file = Bun.file(filePath);
