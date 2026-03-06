@@ -376,15 +376,17 @@ export async function handleLicenseKeyModal(
         return;
     }
 
-    // Call the API to verify the license key
-    const apiUrl = apiBaseUrl ?? process.env.API_BASE_URL;
-    if (!apiUrl) {
+    // Call the API to verify the license key (use internal URL when on Zeabur)
+    const { getApiUrls } = await import('../lib/apiUrls');
+    const { apiInternal, apiPublic } = getApiUrls();
+    const apiForFetch = apiInternal ?? apiPublic ?? apiBaseUrl;
+    if (!apiForFetch) {
         await interaction.editReply({ content: `${E.X_} API not available right now.` });
         return;
     }
 
     try {
-        const res = await fetch(`${apiUrl}/api/verification/complete-license`, {
+        const res = await fetch(`${apiForFetch}/api/verification/complete-license`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -21,6 +21,7 @@ import { createLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
 import { E } from '../lib/emojis';
+import { getApiUrls } from '../lib/apiUrls';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import {
   runSetupStart,
@@ -36,10 +37,12 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 /** Message when server has no guild link. forAdmin: securely fetch token to sign-in; otherwise tell user to ask admin. */
 async function getNotConfiguredMessage(guildId: string, discordUserId: string, apiSecret: string, forAdmin = false): Promise<string> {
   if (forAdmin) {
-    const apiBase = process.env.API_BASE_URL;
+    const { apiInternal, apiPublic } = getApiUrls();
+    const apiBase = apiPublic;
     if (apiBase) {
       try {
-        const res = await fetch(`${apiBase}/api/connect/create-token`, {
+        const apiForFetch = apiInternal ?? apiBase;
+        const res = await fetch(`${apiForFetch}/api/connect/create-token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ discordUserId, apiSecret })
@@ -307,7 +310,7 @@ async function handleSlashCommand(
       await handleStats(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
     } else if (subcommand === 'spawn-verify') {
       const { handleVerifySpawn } = await import('../commands/verify');
-      await handleVerifySpawn(interaction, ctx.convex, process.env.API_BASE_URL, {
+      await handleVerifySpawn(interaction, ctx.convex, getApiUrls().apiPublic, {
         tenantId,
         guildLinkId,
         guildId,
@@ -397,7 +400,7 @@ async function handleUserCommand(
     // /creator verify [product] — fast path: skip the picker, go straight to modal
     if (subcommand === 'status' || subcommand === null) {
       const { handleCreatorCommand } = await import('../commands/verify');
-      await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, process.env.API_BASE_URL, {
+      await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, getApiUrls().apiPublic, {
         tenantId,
         guildId,
       });
@@ -454,7 +457,7 @@ async function handleUserCommand(
 
     // Unknown subcommand — show status panel as fallback
     const { handleCreatorCommand } = await import('../commands/verify');
-    await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, process.env.API_BASE_URL, {
+    await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, getApiUrls().apiPublic, {
       tenantId,
       guildId,
     });

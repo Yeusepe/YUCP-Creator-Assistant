@@ -16,6 +16,7 @@ import {
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { track } from '../lib/posthog';
+import { getApiUrls } from '../lib/apiUrls';
 
 const SETUP_PREFIX = 'creator_setup:';
 
@@ -31,12 +32,14 @@ export async function runSetupStart(
   apiSecret: string,
   ctx: SetupContext,
 ): Promise<void> {
-  const apiBase = process.env.API_BASE_URL ?? 'http://localhost:3001';
+  const { apiInternal, apiPublic } = getApiUrls();
+  const apiBase = apiPublic ?? apiInternal ?? 'http://localhost:3001';
+  const apiForFetch = apiInternal ?? apiBase;
 
-  // Create a secure setup session via the API
+  // Create a secure setup session via the API (use internal URL when on Zeabur)
   let setupToken = '';
   try {
-    const res = await fetch(`${apiBase}/api/setup/create-session`, {
+    const res = await fetch(`${apiForFetch}/api/setup/create-session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

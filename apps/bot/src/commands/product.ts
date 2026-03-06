@@ -146,7 +146,9 @@ export async function handleProductTypeSelect(
   session.type = selectedType;
 
   if (selectedType === 'discord_role') {
-    const apiBase = process.env.API_BASE_URL;
+    const { apiInternal, apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
+    const apiBase = apiPublic ?? apiInternal;
+    const apiForFetch = apiInternal ?? apiBase;
     const apiSecret = process.env.CONVEX_API_SECRET;
 
     if (!apiBase || !apiSecret) {
@@ -176,10 +178,10 @@ export async function handleProductTypeSelect(
       return;
     }
 
-    // Create a setup session on the API for the web flow
+    // Create a setup session on the API for the web flow (use internal URL when on Zeabur)
     await interaction.deferUpdate();
     try {
-      const res = await fetch(`${apiBase}/api/setup/discord-role-session`, {
+      const res = await fetch(`${apiForFetch}/api/setup/discord-role-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -222,7 +224,9 @@ export async function handleProductTypeSelect(
 
   // Jinxxy: fetch products from API and show select (jinx-master style)
   if (selectedType === 'jinxxy') {
-    const apiBase = process.env.API_BASE_URL;
+    const { apiInternal, apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
+    const apiBase = apiPublic ?? apiInternal;
+    const apiForFetch = apiInternal ?? apiBase;
     const apiSecret = process.env.CONVEX_API_SECRET;
 
     if (!apiBase || !apiSecret) {
@@ -235,7 +239,7 @@ export async function handleProductTypeSelect(
 
     await interaction.deferUpdate();
     try {
-      const res = await fetch(`${apiBase}/api/jinxxy/products`, {
+      const res = await fetch(`${apiForFetch}/api/jinxxy/products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiSecret, tenantId }),
@@ -450,7 +454,9 @@ export async function handleProductDiscordRoleDone(
 
   await interaction.deferUpdate();
 
-  const apiBase = process.env.API_BASE_URL;
+  const { apiInternal, apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
+  const apiBase = apiPublic ?? apiInternal;
+  const apiForFetch = apiInternal ?? apiBase;
   if (!apiBase) {
     await interaction.editReply({
       content: `${E.X_} API_BASE_URL not configured.`,
@@ -461,7 +467,7 @@ export async function handleProductDiscordRoleDone(
 
   try {
     const res = await fetch(
-      `${apiBase}/api/setup/discord-role-result?s=${encodeURIComponent(session.discordRoleSetupToken)}`,
+      `${apiForFetch}/api/setup/discord-role-result?s=${encodeURIComponent(session.discordRoleSetupToken)}`,
     );
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     const result = (await res.json()) as

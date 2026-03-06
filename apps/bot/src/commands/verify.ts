@@ -27,6 +27,7 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
 import { E, Emoji } from '../lib/emojis';
+import { getApiUrls } from '../lib/apiUrls';
 import { track } from '../lib/posthog';
 
 const VERIFY_PREFIX = 'creator_verify:';
@@ -693,8 +694,9 @@ export async function handleLicenseModalSubmit(
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+  const apiForFetch = getApiUrls().apiInternal ?? apiBaseUrl;
   try {
-    const res = await fetch(`${apiBaseUrl}/api/verification/complete-license`, {
+    const res = await fetch(`${apiForFetch}/api/verification/complete-license`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ apiSecret, licenseKey, tenantId, subjectId }),
