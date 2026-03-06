@@ -123,7 +123,8 @@ function initializeAuth(webhookBaseUrl?: string) {
   verificationRoutes = mountVerificationRoutes(verificationConfig);
 
   connectRoutes = createConnectRoutes(auth, {
-    baseUrl: publicBaseUrl,
+    apiBaseUrl: publicBaseUrl,
+    frontendBaseUrl: frontendUrl,
     convexSiteUrl,
     discordClientId: env.DISCORD_CLIENT_ID ?? '',
     discordClientSecret: env.DISCORD_CLIENT_SECRET ?? '',

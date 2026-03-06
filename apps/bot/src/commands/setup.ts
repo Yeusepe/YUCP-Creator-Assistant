@@ -34,13 +34,16 @@ export async function runSetupStart(
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const { apiInternal, apiPublic } = getApiUrls();
+  const { apiInternal, apiPublic, webPublic } = getApiUrls();
   if (!apiPublic) {
     throw new Error('API_BASE_URL is not configured for the bot service');
   }
+  if (!webPublic) {
+    throw new Error('FRONTEND_URL, VERIFY_BASE_URL, or API_BASE_URL must be configured for the bot service');
+  }
 
-  const apiBase = apiPublic;
-  const apiForFetch = apiInternal ?? apiBase;
+  const apiBase = webPublic;
+  const apiForFetch = apiInternal ?? apiPublic;
 
   // Create a secure setup session via the API (use internal URL when on Zeabur)
   let setupToken = '';

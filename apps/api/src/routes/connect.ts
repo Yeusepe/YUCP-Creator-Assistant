@@ -72,7 +72,8 @@ function escapeForSingleQuotedJsString(value: string): string {
 }
 
 export interface ConnectConfig {
-  baseUrl: string;
+  apiBaseUrl: string;
+  frontendBaseUrl: string;
   /** Convex .site URL for direct auth (e.g. https://rare-squid-409.convex.site) */
   convexSiteUrl: string;
   discordClientId: string;
@@ -167,6 +168,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    */
   async function serveConnectPage(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    const requestOrigin = url.origin;
+    const frontendOrigin = new URL(config.frontendBaseUrl).origin;
+    const apiOrigin = new URL(config.apiBaseUrl).origin;
+    if (frontendOrigin !== apiOrigin && requestOrigin === apiOrigin) {
+      const redirectUrl = new URL(url);
+      redirectUrl.protocol = new URL(config.frontendBaseUrl).protocol;
+      redirectUrl.host = new URL(config.frontendBaseUrl).host;
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
     const setupToken = url.searchParams.get('s');
     const legacyGuildId = url.searchParams.get('guild_id');
     const legacyTenantId = url.searchParams.get('tenant_id');
@@ -217,10 +227,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const callbackParams = setupToken
         ? `s=${encodeURIComponent(setupToken)}`
         : `guild_id=${encodeURIComponent(resolvedGuildId)}${resolvedTenantId ? '&tenant_id=' + encodeURIComponent(resolvedTenantId) : ''}`;
-      const callbackUrl = `${config.baseUrl}/connect?${callbackParams}`;
+      const callbackUrl = `${config.frontendBaseUrl}/connect?${callbackParams}`;
       const filePath = `${import.meta.dir}/../../public/sign-in-redirect.html`;
       let html = await Bun.file(filePath).text();
-      const signInUrl = `${config.baseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+      const signInUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
       html = html.replace('__SIGN_IN_URL__', JSON.stringify(signInUrl));
       html = html.replace('__CALLBACK_URL__', JSON.stringify(callbackUrl));
       return new Response(html, {
@@ -231,7 +241,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     // Always use the configured API base URL so pages served from a frontend
     // subdomain (e.g. verify.*) still call the correct API subdomain (e.g. api.*).
-    const apiBase = config.baseUrl;
+    const apiBase = config.apiBaseUrl;
 
     const filePath = `${import.meta.dir}/../../public/dashboard.html`;
     const file = Bun.file(filePath);
@@ -483,7 +493,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const authUrl = new URL('https://gumroad.com/oauth/authorize');
     authUrl.searchParams.set('client_id', config.gumroadClientId);
-    authUrl.searchParams.set('redirect_uri', `${config.baseUrl}/api/connect/gumroad/callback`);
+    authUrl.searchParams.set('redirect_uri', `${config.apiBaseUrl}/api/connect/gumroad/callback`);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('scope', 'view_profile view_sales');
     authUrl.searchParams.set('state', state);
@@ -504,14 +514,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (error) {
       logger.error('Gumroad OAuth error', { error });
       return Response.redirect(
-        `${config.baseUrl}/connect?error=${encodeURIComponent(error)}`,
+        `${config.frontendBaseUrl}/connect?error=${encodeURIComponent(error)}`,
         302
       );
     }
 
     if (!code || !state) {
       return Response.redirect(
-        `${config.baseUrl}/connect?error=missing_parameters`,
+        `${config.frontendBaseUrl}/connect?error=missing_parameters`,
         302
       );
     }
@@ -520,7 +530,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const raw = await store.get(`${GUMROAD_STATE_PREFIX}${state}`);
     if (!raw) {
       return Response.redirect(
-        `${config.baseUrl}/connect?error=invalid_state`,
+        `${config.frontendBaseUrl}/connect?error=invalid_state`,
         302
       );
     }
@@ -536,7 +546,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           client_id: config.gumroadClientId!,
           client_secret: config.gumroadClientSecret!,
           code,
-          redirect_uri: `${config.baseUrl}/api/connect/gumroad/callback`,
+          redirect_uri: `${config.apiBaseUrl}/api/connect/gumroad/callback`,
           grant_type: 'authorization_code',
         }).toString(),
       });
@@ -545,7 +555,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         const errText = await tokenRes.text();
         logger.error('Gumroad token exchange failed', { status: tokenRes.status, body: errText });
         return Response.redirect(
-          `${config.baseUrl}/connect?guild_id=${guildId}&error=token_exchange_failed`,
+          `${config.frontendBaseUrl}/connect?guild_id=${guildId}&error=token_exchange_failed`,
           302
         );
       }
@@ -558,7 +568,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const refreshToken = tokens.refresh_token;
       if (!accessToken) {
         return Response.redirect(
-          `${config.baseUrl}/connect?guild_id=${guildId}&error=no_access_token`,
+          `${config.frontendBaseUrl}/connect?guild_id=${guildId}&error=no_access_token`,
           302
         );
       }
@@ -566,7 +576,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const meRes = await fetch(`https://api.gumroad.com/v2/user?access_token=${encodeURIComponent(accessToken)}`);
       if (!meRes.ok) {
         return Response.redirect(
-          `${config.baseUrl}/connect?guild_id=${guildId}&error=failed_to_fetch_user`,
+          `${config.frontendBaseUrl}/connect?guild_id=${guildId}&error=failed_to_fetch_user`,
           302
         );
       }
@@ -588,7 +598,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
 
       // Register Gumroad resource_subscriptions so we receive sale/refund webhooks
-      const postUrl = `${config.baseUrl.replace(/\/$/, '')}/webhooks/gumroad/${tenantId}`;
+      const postUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/gumroad/${tenantId}`;
       for (const resourceName of ['sale', 'refund']) {
         try {
           const subRes = await fetch('https://api.gumroad.com/v2/resource_subscriptions', {
@@ -619,15 +629,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       }
 
       const redirectUrl = storedSetupToken
-        ? `${config.baseUrl}/connect?s=${encodeURIComponent(storedSetupToken)}&gumroad=connected`
-        : `${config.baseUrl}/connect?guild_id=${guildId}&gumroad=connected`;
+        ? `${config.frontendBaseUrl}/connect?s=${encodeURIComponent(storedSetupToken)}&gumroad=connected`
+        : `${config.frontendBaseUrl}/connect?guild_id=${guildId}&gumroad=connected`;
       return Response.redirect(redirectUrl, 302);
     } catch (err) {
       logger.error('Gumroad callback failed', {
         error: err instanceof Error ? err.message : String(err),
       });
       return Response.redirect(
-        `${config.baseUrl}/connect?guild_id=${guildId}&error=internal_error`,
+        `${config.frontendBaseUrl}/connect?guild_id=${guildId}&error=internal_error`,
         302
       );
     }
@@ -707,7 +717,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         {
           apiSecret: config.convexApiSecret,
           tenantId,
-          baseUrl: config.baseUrl,
+          baseUrl: config.apiBaseUrl,
         }
       );
       return Response.json(configResult);
@@ -984,7 +994,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const authUrl = new URL('https://discord.com/api/oauth2/authorize');
     authUrl.searchParams.set('client_id', config.discordClientId);
-    authUrl.searchParams.set('redirect_uri', `${config.baseUrl}/api/setup/discord-role-oauth/callback`);
+    authUrl.searchParams.set('redirect_uri', `${config.apiBaseUrl}/api/setup/discord-role-oauth/callback`);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('scope', 'identify guilds');
     authUrl.searchParams.set('state', state);
@@ -1002,22 +1012,22 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const error = url.searchParams.get('error');
 
     if (error) {
-      return Response.redirect(`${config.baseUrl}/discord-role-setup?error=${encodeURIComponent(error)}`, 302);
+      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=${encodeURIComponent(error)}`, 302);
     }
     if (!code || !state) {
-      return Response.redirect(`${config.baseUrl}/discord-role-setup?error=missing_parameters`, 302);
+      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=missing_parameters`, 302);
     }
 
     const store = getStateStore();
     const setupToken = await store.get(`${DISCORD_ROLE_OAUTH_STATE_PREFIX}${state}`);
     if (!setupToken) {
-      return Response.redirect(`${config.baseUrl}/discord-role-setup?error=invalid_state`, 302);
+      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=invalid_state`, 302);
     }
     await store.delete(`${DISCORD_ROLE_OAUTH_STATE_PREFIX}${state}`);
 
     const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${setupToken}`);
     if (!raw) {
-      return Response.redirect(`${config.baseUrl}/discord-role-setup?error=session_expired`, 302);
+      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=session_expired`, 302);
     }
 
     try {
@@ -1028,19 +1038,19 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           client_id: config.discordClientId,
           client_secret: config.discordClientSecret,
           code,
-          redirect_uri: `${config.baseUrl}/api/setup/discord-role-oauth/callback`,
+          redirect_uri: `${config.apiBaseUrl}/api/setup/discord-role-oauth/callback`,
           grant_type: 'authorization_code',
         }).toString(),
       });
 
       if (!tokenRes.ok) {
         logger.error('Discord role OAuth token exchange failed', { status: tokenRes.status });
-        return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=token_exchange_failed`, 302);
+        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=token_exchange_failed`, 302);
       }
 
       const tokens = (await tokenRes.json()) as { access_token?: string };
       if (!tokens.access_token) {
-        return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=no_token`, 302);
+        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=no_token`, 302);
       }
 
       const guildsRes = await fetch('https://discord.com/api/users/@me/guilds', {
@@ -1048,7 +1058,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
 
       if (!guildsRes.ok) {
-        return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=guilds_fetch_failed`, 302);
+        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=guilds_fetch_failed`, 302);
       }
 
       const guilds = (await guildsRes.json()) as Array<{ id: string; name: string; icon: string | null; owner: boolean; permissions: string }>;
@@ -1057,10 +1067,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       session.guilds = guilds.sort((a, b) => a.name.localeCompare(b.name));
       await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${setupToken}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
 
-      return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}`, 302);
+      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}`, 302);
     } catch (err) {
       logger.error('Discord role OAuth callback failed', { error: err instanceof Error ? err.message : String(err) });
-      return Response.redirect(`${config.baseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=internal_error`, 302);
+      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=internal_error`, 302);
     }
   }
 
