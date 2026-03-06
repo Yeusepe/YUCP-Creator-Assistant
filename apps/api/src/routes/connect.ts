@@ -231,6 +231,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const filePath = `${import.meta.dir}/../../public/sign-in-redirect.html`;
       let html = await Bun.file(filePath).text();
       const signInUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+      logger.info('Serving connect sign-in redirect', {
+        requestUrl: request.url,
+        guildId: resolvedGuildId || undefined,
+        tenantId: resolvedTenantId || undefined,
+        hasSetupToken: Boolean(setupToken),
+        frontendBaseUrl: config.frontendBaseUrl,
+        apiBaseUrl: config.apiBaseUrl,
+        callbackUrl,
+        callbackProtocol: new URL(callbackUrl).protocol,
+      });
       html = html.replace('__SIGN_IN_URL__', JSON.stringify(signInUrl));
       html = html.replace('__CALLBACK_URL__', JSON.stringify(callbackUrl));
       return new Response(html, {

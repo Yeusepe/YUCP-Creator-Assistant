@@ -212,6 +212,10 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/auth/sign-in/discord') {
     const callbackURL = url.searchParams.get('callbackURL');
     if (!callbackURL) {
+      logger.warn('Discord sign-in bridge missing callbackURL', {
+        pathname,
+        requestUrl: request.url,
+      });
       return new Response(JSON.stringify({ error: 'callbackURL is required' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -224,11 +228,23 @@ async function routeRequest(request: Request): Promise<Response> {
       ? convexUrl.replace('.convex.cloud', '.convex.site')
       : '';
     if (!convexSiteUrl) {
+      logger.error('Discord sign-in bridge missing CONVEX_URL', {
+        callbackURL,
+        requestUrl: request.url,
+      });
       return new Response(JSON.stringify({ error: 'CONVEX_URL must be set' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    logger.info('Starting Discord sign-in bridge', {
+      callbackURL,
+      callbackProtocol: new URL(callbackURL).protocol,
+      callbackOrigin: new URL(callbackURL).origin,
+      requestOrigin: url.origin,
+      convexSiteUrl,
+    });
 
     const authResponse = await fetch(`${convexSiteUrl.replace(/\/$/, '')}/api/auth/sign-in/social`, {
       method: 'POST',
@@ -241,9 +257,26 @@ async function routeRequest(request: Request): Promise<Response> {
       }),
     });
 
-    const payload = await authResponse.json().catch(() => null) as { url?: string; error?: { message?: string } } | null;
+    const payloadText = await authResponse.text();
+    let payload: { url?: string; error?: { message?: string } } | null = null;
+    try {
+      payload = payloadText ? JSON.parse(payloadText) as { url?: string; error?: { message?: string } } : null;
+    } catch {
+      logger.warn('Discord sign-in bridge received non-JSON response', {
+        status: authResponse.status,
+        statusText: authResponse.statusText,
+        bodyPreview: payloadText.slice(0, 300),
+      });
+    }
     const redirectUrl = payload?.url;
     if (!authResponse.ok || !redirectUrl) {
+      logger.error('Discord sign-in bridge failed', {
+        callbackURL,
+        status: authResponse.status,
+        statusText: authResponse.statusText,
+        responseError: payload?.error?.message,
+        responseBodyPreview: payloadText.slice(0, 300),
+      });
       return new Response(JSON.stringify({
         error: payload?.error?.message ?? 'Failed to start Discord sign-in',
       }), {
@@ -251,6 +284,11 @@ async function routeRequest(request: Request): Promise<Response> {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    logger.info('Discord sign-in bridge redirecting', {
+      callbackURL,
+      redirectOrigin: new URL(redirectUrl).origin,
+    });
 
     return Response.redirect(redirectUrl, 302);
   }
