@@ -20,6 +20,15 @@ import authConfig from './auth.config';
 
 const siteUrl = process.env.SITE_URL ?? 'http://localhost:3001';
 
+function normalizeOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
 export const authComponent = createClient<DataModel>(components.betterAuth);
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
@@ -33,14 +42,24 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       }
       : {};
 
+  const trustedOrigins = Array.from(
+    new Set(
+      [
+        siteUrl,
+        process.env.FRONTEND_URL,
+        process.env.BETTER_AUTH_URL,
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:5173',
+      ]
+        .map(normalizeOrigin)
+        .filter((origin): origin is string => Boolean(origin))
+    )
+  );
+
   return betterAuth({
     secret: process.env.BETTER_AUTH_SECRET!,
-    trustedOrigins: [
-      siteUrl,
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:5173',
-    ],
+    trustedOrigins,
     database: authComponent.adapter(ctx),
     socialProviders: discordConfig,
     session: {
