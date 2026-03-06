@@ -12,6 +12,10 @@
  * and one-time-tokens.
  */
 
+import { createLogger } from '@yucp/shared';
+
+const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+
 export interface AuthConfig {
   /** Base URL for the Bun API server (e.g. http://localhost:3001) */
   baseUrl: string;
@@ -47,12 +51,35 @@ export function createAuth(config: AuthConfig) {
           },
         });
 
-        if (!res.ok) return null;
+        if (!res.ok) {
+          logger.warn('Better Auth get-session returned non-OK', {
+            status: res.status,
+            statusText: res.statusText,
+            requestOrigin: request.headers.get('origin'),
+            requestHost: request.headers.get('host'),
+            hasCookieHeader: Boolean(cookie),
+            cookieLength: cookie.length,
+          });
+          return null;
+        }
 
         // Also check Set-Better-Auth-Cookie for any updated cookies
         const json = (await res.json()) as SessionData | null;
+        if (!json) {
+          logger.warn('Better Auth get-session returned empty session', {
+            requestOrigin: request.headers.get('origin'),
+            requestHost: request.headers.get('host'),
+            hasCookieHeader: Boolean(cookie),
+            cookieLength: cookie.length,
+          });
+        }
         return json ?? null;
-      } catch {
+      } catch (err) {
+        logger.error('Better Auth get-session failed', {
+          message: err instanceof Error ? err.message : String(err),
+          requestOrigin: request.headers.get('origin'),
+          requestHost: request.headers.get('host'),
+        });
         return null;
       }
     },

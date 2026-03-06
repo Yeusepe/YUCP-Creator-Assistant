@@ -384,6 +384,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   async function ensureTenant(request: Request): Promise<Response> {
     const session = await auth.getSession(request);
     if (!session) {
+      const url = new URL(request.url);
+      logger.warn('Ensure tenant rejected due to missing session', {
+        requestUrl: request.url,
+        requestOrigin: request.headers.get('origin'),
+        requestHost: request.headers.get('host'),
+        hasCookieHeader: Boolean(request.headers.get('cookie')),
+        hasAuthorizationHeader: Boolean(request.headers.get('authorization')),
+        guildId: url.searchParams.get('guildId'),
+        hasTokenParam: Boolean(url.searchParams.get('token')),
+      });
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
