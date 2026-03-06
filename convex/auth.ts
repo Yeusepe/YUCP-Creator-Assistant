@@ -14,6 +14,7 @@ import { convex, crossDomain } from '@convex-dev/better-auth/plugins';
 import { betterAuth } from 'better-auth';
 import type { BetterAuthOptions } from 'better-auth';
 import type { GenericCtx } from '@convex-dev/better-auth';
+import { log } from 'convex-helpers/server/logging';
 import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
@@ -57,7 +58,15 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     )
   );
 
+  log('Better Auth config', {
+    siteUrl,
+    betterAuthUrl: process.env.BETTER_AUTH_URL ?? null,
+    frontendUrl: process.env.FRONTEND_URL ?? null,
+    trustedOrigins,
+  });
+
   return betterAuth({
+    baseURL: siteUrl,
     secret: process.env.BETTER_AUTH_SECRET!,
     trustedOrigins,
     database: authComponent.adapter(ctx),
