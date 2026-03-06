@@ -462,9 +462,8 @@ async function routeRequest(request: Request): Promise<Response> {
     const file = Bun.file(filePath);
     let html = await file.text();
     const setupToken = url.searchParams.get('s') ?? '';
-    // Always inject the configured API base URL so fetch() calls target api.* even
-    // when the page is served from a different subdomain (e.g. verify.*).
-    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(resolvedApiBaseUrl));
+    const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', escapeForSingleQuotedJsString(setupToken));
     return new Response(html, { headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS } });
   }
@@ -487,9 +486,10 @@ async function routeRequest(request: Request): Promise<Response> {
       }
     }
 
+    const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
     html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
-    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(resolvedApiBaseUrl));
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', escapeForSingleQuotedJsString(setupToken));
     return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
