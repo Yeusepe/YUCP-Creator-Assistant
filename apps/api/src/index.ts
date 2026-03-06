@@ -443,7 +443,15 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   const HTML_SECURITY_HEADERS: Record<string, string> = {
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://ga.jspm.io https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com https://db.onlinewebfonts.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
+      "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://ga.jspm.io https://esm.sh; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "img-src 'self' data: blob: https:; " +
+      "font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; " +
+      "connect-src 'self' https: wss:; " +
+      "worker-src 'self' blob:; " +
+      "child-src 'self' blob:; " +
+      "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
