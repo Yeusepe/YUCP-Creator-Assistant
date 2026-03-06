@@ -185,6 +185,75 @@ async function routeRequest(request: Request): Promise<Response> {
     });
   }
 
+  if (pathname === '/tokens.css') {
+    const file = Bun.file(`${import.meta.dir}/../public/tokens.css`);
+    return new Response(file, {
+      headers: { 'Content-Type': 'text/css; charset=utf-8' },
+    });
+  }
+
+  if (pathname.startsWith('/Icons/')) {
+    const assetPath = `${import.meta.dir}/../public${pathname}`;
+    const file = Bun.file(assetPath);
+    if (await file.exists()) {
+      const ext = pathname.split('.').pop()?.toLowerCase();
+      const contentType =
+        ext === 'png' ? 'image/png' :
+          ext === 'svg' ? 'image/svg+xml' :
+            ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
+              'application/octet-stream';
+      return new Response(file, {
+        headers: { 'Content-Type': contentType },
+      });
+    }
+  }
+
+  if (pathname === '/api/auth/sign-in/discord') {
+    const callbackURL = url.searchParams.get('callbackURL');
+    if (!callbackURL) {
+      return new Response(JSON.stringify({ error: 'callbackURL is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const env = loadEnv();
+    const convexUrl = env.CONVEX_URL ?? '';
+    const convexSiteUrl = convexUrl
+      ? convexUrl.replace('.convex.cloud', '.convex.site')
+      : '';
+    if (!convexSiteUrl) {
+      return new Response(JSON.stringify({ error: 'CONVEX_URL must be set' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const authResponse = await fetch(`${convexSiteUrl.replace(/\/$/, '')}/api/auth/sign-in/social`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        provider: 'discord',
+        callbackURL,
+      }),
+    });
+
+    const payload = await authResponse.json().catch(() => null) as { url?: string; error?: { message?: string } } | null;
+    const redirectUrl = payload?.url;
+    if (!authResponse.ok || !redirectUrl) {
+      return new Response(JSON.stringify({
+        error: payload?.error?.message ?? 'Failed to start Discord sign-in',
+      }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    return Response.redirect(redirectUrl, 302);
+  }
+
   // Auth is handled directly by Convex (.site URL) — no proxy needed.
   // The browser talks to Convex for sign-in/callback, and the Bun server
   // verifies sessions by calling Convex directly.

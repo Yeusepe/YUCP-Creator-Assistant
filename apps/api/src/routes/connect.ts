@@ -220,7 +220,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const callbackUrl = `${config.baseUrl}/connect?${callbackParams}`;
       const filePath = `${import.meta.dir}/../../public/sign-in-redirect.html`;
       let html = await Bun.file(filePath).text();
-      html = html.replace('__CONVEX_SITE_URL__', JSON.stringify(config.convexSiteUrl));
+      const signInUrl = `${config.baseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+      html = html.replace('__SIGN_IN_URL__', JSON.stringify(signInUrl));
       html = html.replace('__CALLBACK_URL__', JSON.stringify(callbackUrl));
       return new Response(html, {
         status: 200,

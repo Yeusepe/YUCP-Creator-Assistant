@@ -134,7 +134,7 @@
     </main>
     <script type="module">
         // Server-injected values
-        const convexSiteUrl = __CONVEX_SITE_URL__;
+        const signInUrl = __SIGN_IN_URL__;
         const callbackUrl = __CALLBACK_URL__;
 
         const loadingEl = document.getElementById('loading-state');
@@ -148,22 +148,9 @@
         }
 
         try {
-            // Talk directly to Convex .site URL (not through a proxy).
-            // The crossDomain plugin on Convex handles the cookie gap.
-            const { createAuthClient } = await import('https://esm.sh/better-auth@1.4.9/client');
-            const authClient = createAuthClient({ baseURL: convexSiteUrl });
-            const { data, error } = await authClient.signIn.social({
-                provider: 'discord',
-                callbackURL: callbackUrl,
-            });
-            if (error) {
-                console.error('[sign-in] Error:', error);
-                showError();
-            } else if (data?.url) {
-                window.location.href = data.url;
-            } else {
-                showError();
-            }
+            // Use the Bun API as a same-origin bridge so the browser never has to
+            // call Convex auth directly and trip CORS preflight checks.
+            window.location.href = signInUrl;
         } catch (err) {
             console.error('[sign-in] Exception:', err);
             showError();
