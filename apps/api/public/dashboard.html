@@ -514,6 +514,13 @@
         let settingsMap = new Map();
         let pendingDisconnectPlatform = null;
 
+        async function apiFetch(url, options = {}) {
+            return fetch(url, {
+                credentials: 'include',
+                ...options,
+            });
+        }
+
         // ── Default navigation handlers (work immediately, before API loads) ───
 
         function navigateGumroad() {
@@ -541,7 +548,7 @@
         async function init() {
             try {
                 if (!setupToken && !tenantId && guildId) {
-                    const res = await fetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}${token ? '&token=' + encodeURIComponent(token) : ''}`);
+                    const res = await apiFetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}${token ? '&token=' + encodeURIComponent(token) : ''}`);
                     const data = await res.json();
                     if (data.tenantId) {
                         tenantId = data.tenantId;
@@ -562,7 +569,7 @@
         async function fetchAllData() {
             try {
                 if (setupToken) {
-                    const statusRes = await fetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}`);
+                    const statusRes = await apiFetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}`);
                     if (statusRes.ok) {
                         const statusData = await statusRes.json();
                         connectionsMap.clear();
@@ -576,7 +583,7 @@
                         updatePlatformCards();
                     }
 
-                    const settingsRes = await fetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`);
+                    const settingsRes = await apiFetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`);
                     if (settingsRes.ok) {
                         const settingsData = await settingsRes.json();
                         if (settingsData.policy) {
@@ -595,7 +602,7 @@
                         }
                     }
                 } else if (tenantId) {
-                    const statusRes = await fetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`);
+                    const statusRes = await apiFetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`);
                     if (statusRes.ok) {
                         const statusData = await statusRes.json();
                         updateCard('gumroad', statusData.gumroad);
@@ -691,7 +698,7 @@
             settingsMap.set(key, newValue);
 
             try {
-                const res = await fetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`, {
+                const res = await apiFetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key, value: newValue })
@@ -716,7 +723,7 @@
             settingsMap.set(key, value);
 
             try {
-                const res = await fetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`, {
+                const res = await apiFetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key, value })
@@ -758,7 +765,7 @@
             document.getElementById('confirmDisconnectBtn').innerText = 'Disconnecting...';
 
             try {
-                const res = await fetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}&id=${conn.id}`, {
+                const res = await apiFetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}&id=${conn.id}`, {
                     method: 'DELETE'
                 });
                 if (res.ok) {
@@ -787,10 +794,9 @@
 
             try {
                 if (token && guildId) {
-                    const res = await fetch(`${apiBase}/api/connect/complete`, {
+                    const res = await apiFetch(`${apiBase}/api/connect/complete`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        credentials: 'include',
                         body: JSON.stringify({ guildId, token: token || undefined }),
                     });
                     const data = await res.json();
