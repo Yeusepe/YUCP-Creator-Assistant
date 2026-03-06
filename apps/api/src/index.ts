@@ -458,6 +458,12 @@ async function routeRequest(request: Request): Promise<Response> {
   };
 
   if (pathname === '/discord-role-setup' || pathname === '/discord-role-setup.html') {
+    if (resolvedFrontendOrigin && url.origin !== resolvedFrontendOrigin) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
     const filePath = `${import.meta.dir}/../public/discord-role-setup.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
@@ -469,6 +475,12 @@ async function routeRequest(request: Request): Promise<Response> {
   }
 
   if (pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html') {
+    if (resolvedFrontendOrigin && url.origin !== resolvedFrontendOrigin) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
     const filePath = `${import.meta.dir}/../public/jinxxy-setup.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
