@@ -868,7 +868,7 @@
                     throw new Error(data.error || 'Failed to save');
                 }
                 finishBtn.innerHTML = '<span>Connected Successfully!</span> <i data-lucide="check-circle" class="w-5 h-5"></i>';
-                finishBtn.classList.remove('bg-white/10/5 backdrop-blur-md', 'opacity-90');
+                finishBtn.classList.remove('bg-white/10/5', 'backdrop-blur-md', 'opacity-90');
                 finishBtn.classList.add('bg-green-600');
                 lucide.createIcons();
                 confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
