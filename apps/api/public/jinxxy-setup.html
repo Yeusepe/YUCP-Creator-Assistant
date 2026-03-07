@@ -410,8 +410,8 @@
                                 </label>
                                 <div
                                     class="webhook-field-ring flex items-center gap-2 bg-white/5 p-1 pl-3 rounded-xl border-smooth-transition shadow-sm">
-                                    <input id="signing-secret-input" type="password" autocomplete="off"
-                                        placeholder="Create a long secret, then paste the same value into Jinxxy"
+                                    <input id="signing-secret-input" type="password" autocomplete="off" maxlength="40"
+                                        placeholder="16–40 characters, paste the same value into Jinxxy"
                                         class="flex-1 min-w-0 px-2 py-2.5 rounded-lg border-0 bg-transparent focus:ring-0 outline-none transition-colors text-[#ffffff] placeholder:text-white/40" />
                                     <button type="button" id="generate-secret-btn"
                                         class="flex-shrink-0 p-2.5 bg-white/10 shadow-sm border border-white/10 hover:border-[#0ea5e9] rounded-lg text-[rgba(255,255,255,0.8)] hover:text-[#0ea5e9] border-smooth-transition"
@@ -426,7 +426,7 @@
                                     </button>
                                 </div>
                                 <p class="mt-2 text-xs text-[rgba(255,255,255,0.65)]">
-                                    Use at least 16 characters. the Assistant stores it encrypted after you continue.
+                                    Between 16 and 40 characters. Jinxxy limits the signing secret length. The Assistant stores it encrypted after you continue.
                                 </p>
                             </div>
                         </div>
@@ -733,10 +733,14 @@
             }
         }
 
+        const SIGNING_SECRET_MIN = 16;
+        const SIGNING_SECRET_MAX = 40;
+
         function updateStep3NextButton() {
             if (currentStep !== 3) return;
             const secretInput = document.getElementById('signing-secret-input');
-            const hasValidSecret = secretInput && (secretInput.value?.trim() ?? '').length >= 16;
+            const len = (secretInput?.value?.trim() ?? '').length;
+            const hasValidSecret = secretInput && len >= SIGNING_SECRET_MIN && len <= SIGNING_SECRET_MAX;
             nextBtn.disabled = !hasValidSecret;
         }
 
@@ -767,13 +771,14 @@
                         };
                     });
                     function generateSecret() {
-                        const bytes = new Uint8Array(32);
+                        const bytes = new Uint8Array(24);
                         crypto.getRandomValues(bytes);
                         return btoa(String.fromCharCode(...bytes))
-                            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+                            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+                            .slice(0, SIGNING_SECRET_MAX);
                     }
                     const secretInput = document.getElementById('signing-secret-input');
-                    if (!secretInput.value?.trim() || secretInput.value.trim().length < 16) {
+                    if (!secretInput.value?.trim() || secretInput.value.trim().length < SIGNING_SECRET_MIN) {
                         secretInput.value = generateSecret();
                     }
                     const generateSecretBtn = document.getElementById('generate-secret-btn');
@@ -825,8 +830,11 @@
         async function saveWebhookSecret() {
             const secretInput = document.getElementById('signing-secret-input');
             const webhookSecret = secretInput?.value?.trim() ?? '';
-            if (!webhookSecret || webhookSecret.length < 16) {
+            if (!webhookSecret || webhookSecret.length < SIGNING_SECRET_MIN) {
                 throw new Error('Create a signing secret with at least 16 characters.');
+            }
+            if (webhookSecret.length > SIGNING_SECRET_MAX) {
+                throw new Error('Jinxxy limits the signing secret to 40 characters. Please shorten it.');
             }
             const configUrl = HAS_SETUP_SESSION
                 ? API_BASE + '/api/connect/jinxxy/webhook-config'

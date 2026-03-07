@@ -78,11 +78,12 @@ export function createAuth(config: AuthConfig) {
 
         // Also check Set-Better-Auth-Cookie for any updated cookies
         const json = (await res.json()) as SessionData | null;
-        if (!json) {
-          logger.warn('Better Auth get-session returned empty session', {
+        // Only warn when we had cookies but got empty session (unexpected).
+        // No cookies + empty session is normal (unauthenticated, API calls, etc.).
+        if (!json && cookie.length > 0) {
+          logger.warn('Better Auth get-session returned empty session despite cookies', {
             requestOrigin: request.headers.get('origin'),
             requestHost: request.headers.get('host'),
-            hasCookieHeader: Boolean(cookie),
             cookieLength: cookie.length,
             cookieNames: summarizeCookieNames(cookie),
             setCookieHeader: res.headers.get('set-cookie'),
