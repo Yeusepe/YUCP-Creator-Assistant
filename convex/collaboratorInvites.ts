@@ -167,7 +167,7 @@ export const acceptCollaboratorInvite = mutation({
     webhookSecretRef: v.optional(v.string()),
     webhookEndpoint: v.optional(v.string()),
     linkType: v.union(v.literal('account'), v.literal('api')),
-    /** Discord user ID from server-side OAuth — never from client body */
+    /** Discord user ID from server-side OAuth - never from client body */
     collaboratorDiscordUserId: v.string(),
     /** Discord username from server-side OAuth */
     collaboratorDisplayName: v.string(),
@@ -256,7 +256,7 @@ export const listCollaboratorConnections = query({
 });
 
 /**
- * Remove a collaborator connection (owner action — soft delete).
+ * Remove a collaborator connection (owner action - soft delete).
  */
 export const removeCollaboratorConnection = mutation({
   args: {

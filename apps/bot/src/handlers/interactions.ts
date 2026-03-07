@@ -273,13 +273,13 @@ async function handleSlashCommand(
   const subcommand = interaction.options.getSubcommand(false);
   const subcommandGroup = interaction.options.getSubcommandGroup(false);
 
-  // /creator — no subcommands, smart state-aware entry point
+  // /creator - no subcommands, smart state-aware entry point
   if (commandName === 'creator') {
     await handleUserCommand(interaction, ctx);
     return;
   }
 
-  // /creator-admin — all admin subcommands; Discord hides this from non-admins; double-check
+  // /creator-admin - all admin subcommands; Discord hides this from non-admins; double-check
   if (!requireAdmin(interaction)) {
     await interaction.reply({
       content: 'This command requires Administrator permission.',
@@ -353,7 +353,7 @@ async function handleSlashCommand(
         await handleDownloadsManage(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
       }
     } else if (subcommand === 'stats') {
-      // Single subcommand (not a group) — overview with navigation buttons
+      // Single subcommand (not a group) - overview with navigation buttons
       const { handleStats } = await import('../commands/stats');
       await handleStats(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
     } else if (subcommand === 'spawn-verify') {
@@ -377,7 +377,7 @@ async function handleSlashCommand(
       );
       await handleDiscordRoleVerification(interaction, ctx.convex, ctx.apiSecret, { tenantId });
     } else if (subcommand === 'analytics') {
-      // Single subcommand (not a group) — combined link + summary
+      // Single subcommand (not a group) - combined link + summary
       const { handleAnalytics } = await import('../commands/analytics');
       await handleAnalytics(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
     } else if (subcommandGroup === 'moderation') {
@@ -463,8 +463,8 @@ async function handleUserCommand(
   try {
     const subcommand = interaction.options.getSubcommand(false);
 
-    // /creator status — show status panel (default entry point)
-    // /creator verify [product] — fast path: skip the picker, go straight to modal
+    // /creator status - show status panel (default entry point)
+    // /creator verify [product] - fast path: skip the picker, go straight to modal
     if (subcommand === 'status' || subcommand === null) {
       const { handleCreatorCommand } = await import('../commands/verify');
       await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, getApiUrls().apiPublic, {
@@ -522,7 +522,7 @@ async function handleUserCommand(
       return;
     }
 
-    // Unknown subcommand — show status panel as fallback
+    // Unknown subcommand - show status panel as fallback
     const { handleCreatorCommand } = await import('../commands/verify');
     await handleCreatorCommand(interaction, ctx.convex, ctx.apiSecret, getApiUrls().apiPublic, {
       tenantId,
@@ -601,7 +601,7 @@ async function handleButton(
     return;
   }
 
-  // ─── License picker — filter/page navigation ───────────────────────────────
+  // ─── License picker - filter/page navigation ───────────────────────────────
   if (customId.startsWith('creator_verify:lp_filter:') || customId.startsWith('creator_verify:lp_page:')) {
     // Format: creator_verify:lp_filter:{tenantId}:{filter}:{page}
     //      OR creator_verify:lp_page:{tenantId}:{filter}:{page}
@@ -717,6 +717,42 @@ async function handleButton(
     await handleAutosetupSpawnHere(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
     return;
   }
+  if (customId.startsWith('creator_autosetup:role_custom_modal:')) {
+    const rest = customId.slice('creator_autosetup:role_custom_modal:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupRoleCustomModal } = await import('../commands/autosetup');
+    await handleAutosetupRoleCustomModal(interaction, userId, tenantId);
+    return;
+  }
+  if (customId.startsWith('creator_autosetup:role_custom_done:')) {
+    const rest = customId.slice('creator_autosetup:role_custom_done:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupRoleCustomDone } = await import('../commands/autosetup');
+    await handleAutosetupRoleCustomDone(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
+  if (customId.startsWith('creator_autosetup:combine_yes:')) {
+    const rest = customId.slice('creator_autosetup:combine_yes:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupCombineChoice } = await import('../commands/autosetup');
+    await handleAutosetupCombineChoice(interaction, ctx.convex, ctx.apiSecret, userId, tenantId, true);
+    return;
+  }
+  if (customId.startsWith('creator_autosetup:combine_no:')) {
+    const rest = customId.slice('creator_autosetup:combine_no:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupCombineChoice } = await import('../commands/autosetup');
+    await handleAutosetupCombineChoice(interaction, ctx.convex, ctx.apiSecret, userId, tenantId, false);
+    return;
+  }
   if (customId.startsWith('creator_autosetup:channels_skip:')) {
     const rest = customId.slice('creator_autosetup:channels_skip:'.length);
     const colonIdx = rest.indexOf(':');
@@ -733,6 +769,33 @@ async function handleButton(
     const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
     const { handleAutosetupChannelsNext } = await import('../commands/autosetup');
     await handleAutosetupChannelsNext(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
+  if (customId.startsWith('creator_autosetup:mp_done:')) {
+    const rest = customId.slice('creator_autosetup:mp_done:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupMigrateDone } = await import('../commands/autosetup');
+    await handleAutosetupMigrateDone(interaction, userId, tenantId);
+    return;
+  }
+  if (customId.startsWith('creator_autosetup:mp_another:')) {
+    const rest = customId.slice('creator_autosetup:mp_another:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupMigrateMapAnother } = await import('../commands/autosetup');
+    await handleAutosetupMigrateMapAnother(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
+  if (customId.startsWith('creator_autosetup:mp_all:')) {
+    const rest = customId.slice('creator_autosetup:mp_all:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupMigrateMapAll } = await import('../commands/autosetup');
+    await handleAutosetupMigrateMapAll(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
     return;
   }
 
@@ -975,7 +1038,7 @@ async function handleButton(
         tenantId as Id<'tenants'>,
       );
       const embed = {
-        title: 'Creator Setup — Step 2 of 3',
+        title: 'Creator Setup - Step 2 of 3',
         description: 'Log channel and Jinxxy API key.',
         color: 0x5865f2,
       };
@@ -1009,13 +1072,23 @@ async function handleModalSubmit(
     return;
   }
 
+  if (customId.startsWith('creator_autosetup:role_modal:')) {
+    const rest = customId.slice('creator_autosetup:role_modal:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupRoleModalSubmit } = await import('../commands/autosetup');
+    await handleAutosetupRoleModalSubmit(interaction, userId, tenantId);
+    return;
+  }
+
   if (customId.startsWith('creator_verify:lp_modal:')) {
     const { handleLicenseKeyModal } = await import('../commands/licenseVerify');
     await handleLicenseKeyModal(interaction, ctx.convex, ctx.apiSecret, process.env.API_BASE_URL);
     return;
   }
 
-  // Product add — URL modal: creator_product:url_modal:{userId}:{tenantId}
+  // Product add - URL modal: creator_product:url_modal:{userId}:{tenantId}
   if (customId.startsWith('creator_product:url_modal:')) {
     const rest = customId.slice('creator_product:url_modal:'.length);
     const colonIdx = rest.indexOf(':');
@@ -1026,7 +1099,7 @@ async function handleModalSubmit(
     return;
   }
 
-  // Product add — Discord role modal: creator_product:discord_modal:{userId}:{tenantId}
+  // Product add - Discord role modal: creator_product:discord_modal:{userId}:{tenantId}
   if (customId.startsWith('creator_product:discord_modal:')) {
     const rest = customId.slice('creator_product:discord_modal:'.length);
     const colonIdx = rest.indexOf(':');
@@ -1068,14 +1141,24 @@ async function handleSelectMenu(
     return;
   }
 
-  // Autosetup — mode select
+  // Autosetup - mode select
   if (customId.startsWith('creator_autosetup:mode:')) {
     const tenantId = customId.slice('creator_autosetup:mode:'.length) as Id<'tenants'>;
     const { handleAutosetupModeSelect } = await import('../commands/autosetup');
     await handleAutosetupModeSelect(interaction, ctx.convex, ctx.apiSecret, tenantId);
     return;
   }
-  // Autosetup — products select (roles flow)
+  // Autosetup - role format select
+  if (customId.startsWith('creator_autosetup:role_format:')) {
+    const rest = customId.slice('creator_autosetup:role_format:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupRoleFormatSelect } = await import('../commands/autosetup');
+    await handleAutosetupRoleFormatSelect(interaction, userId, tenantId);
+    return;
+  }
+  // Autosetup - products select (roles flow)
   if (customId.startsWith('creator_autosetup:products:')) {
     const rest = customId.slice('creator_autosetup:products:'.length);
     const colonIdx = rest.indexOf(':');
@@ -1085,7 +1168,7 @@ async function handleSelectMenu(
     await handleAutosetupProductsSelect(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
     return;
   }
-  // Autosetup — migrate product select (roleId stored in session to keep customId under 100 chars)
+  // Autosetup - migrate product select (roleId stored in session to keep customId under 100 chars)
   if (customId.startsWith('creator_autosetup:mp:')) {
     const rest = customId.slice('creator_autosetup:mp:'.length);
     const parts = rest.split(':');
@@ -1102,7 +1185,7 @@ async function handleSelectMenu(
     return;
   }
 
-  // Product picker — product selected
+  // Product picker - product selected
   if (customId.startsWith('creator_verify:lp_select:')) {
     // Format: creator_verify:lp_select:{tenantId}:{filter}:{page}
     const rest = customId.slice('creator_verify:lp_select:'.length);
@@ -1185,9 +1268,11 @@ async function handleRoleSelectMenu(
   interaction: RoleSelectMenuInteraction,
   ctx: InteractionHandlerContext,
 ): Promise<void> {
+  await interaction.deferUpdate();
+
   const customId = interaction.customId;
 
-  // Autosetup — migrate role select
+  // Autosetup - migrate role select
   if (customId.startsWith('creator_autosetup:migrate_role:')) {
     const rest = customId.slice('creator_autosetup:migrate_role:'.length);
     const colonIdx = rest.indexOf(':');
@@ -1195,6 +1280,16 @@ async function handleRoleSelectMenu(
     const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
     const { handleAutosetupMigrateRoleSelect } = await import('../commands/autosetup');
     await handleAutosetupMigrateRoleSelect(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
+  // Autosetup - map-all role select
+  if (customId.startsWith('creator_autosetup:mp_all_role:')) {
+    const rest = customId.slice('creator_autosetup:mp_all_role:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupMigrateMapAllRoleSelect } = await import('../commands/autosetup');
+    await handleAutosetupMigrateMapAllRoleSelect(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
     return;
   }
 
@@ -1219,7 +1314,7 @@ async function handleRoleSelectMenu(
     return;
   }
 
-  await interaction.reply({ content: 'Unknown role select.', flags: MessageFlags.Ephemeral }).catch(() => { });
+  await interaction.editReply({ content: 'Unknown role select.' }).catch(() => { });
 }
 
 async function handleChannelSelectMenu(
@@ -1257,7 +1352,7 @@ async function handleUserSelectMenu(
 ): Promise<void> {
   const customId = interaction.customId;
 
-  // Stats — check user select: creator_stats:check_user_select:{tenantId}:{guildId}
+  // Stats - check user select: creator_stats:check_user_select:{tenantId}:{guildId}
   if (customId.startsWith('creator_stats:check_user_select:')) {
     const rest = customId.slice('creator_stats:check_user_select:'.length);
     const parts = rest.split(':');

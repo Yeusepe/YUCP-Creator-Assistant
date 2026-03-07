@@ -116,10 +116,10 @@ Do not commit real values; use env files or a secret store (all env files are gi
 | product | add, list, remove | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy |
 | downloads | setup, manage | **Liened Downloads**: protected file routes; setup creates routes, manage toggles/edits/removes |
 | collab | invite, list | **Collaborators**: invite creators to share Jinxxy store; list active connections |
-| stats | — | Verification statistics |
+| stats | - | Verification statistics |
 | (root) | spawn-verify | Spawn verify button (admin) |
 | settings | cross-server | Cross-server role verification |
-| analytics | — | Dashboard and metrics |
+| analytics | - | Dashboard and metrics |
 | moderation | mark, list, clear, unverify | Suspicious account handling; unverify removes product from user |
 | (root) | link, status, verify, refresh | User linking, status panel, license verification, role refresh |
 

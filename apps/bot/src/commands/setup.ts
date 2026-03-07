@@ -115,7 +115,7 @@ export async function runSetupStart(
   });
 }
 
-/* Legacy handlers kept as no-ops for safety — old button/select/modal interactions won't crash */
+/* Legacy handlers kept as no-ops for safety - old button/select/modal interactions won't crash */
 export async function handleSetupSelect(
   interaction: StringSelectMenuInteraction | ChannelSelectMenuInteraction,
   _convex: ConvexHttpClient,

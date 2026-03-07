@@ -1,5 +1,5 @@
 /**
- * /creator-admin product — Product-role mapping commands
+ * /creator-admin product - Product-role mapping commands
  *
  * add: Interactive guided flow (type select → URL modal → role select → confirm)
  * list: List product-role mappings
@@ -82,7 +82,7 @@ function parseGumroadProductId(urlOrId: string): string | null {
   return null;
 }
 
-/** Step 1: /creator-admin product add — show type select menu */
+/** Step 1: /creator-admin product add - show type select menu */
 export async function handleProductAddInteractive(
   interaction: ChatInputCommandInteraction,
   ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
@@ -132,7 +132,7 @@ export async function handleProductAddInteractive(
   });
 }
 
-/** Step 2: Type selected — show relevant modal */
+/** Step 2: Type selected - show relevant modal */
 export async function handleProductTypeSelect(
   interaction: StringSelectMenuInteraction,
   tenantId: Id<'tenants'>,
@@ -334,7 +334,7 @@ export async function handleProductTypeSelect(
     return;
   }
 
-  // gumroad, license — URL modal
+  // gumroad, license - URL modal
   const labels: Record<string, string> = {
     gumroad: 'Gumroad Product URL or ID',
     license: 'Product ID (or leave generic)',
@@ -361,7 +361,7 @@ export async function handleProductTypeSelect(
   await interaction.showModal(modal);
 }
 
-/** Step 2b (Jinxxy): Product selected from API — show role select */
+/** Step 2b (Jinxxy): Product selected from API - show role select */
 export async function handleProductJinxxySelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
@@ -396,7 +396,7 @@ export async function handleProductJinxxySelect(
   });
 }
 
-/** Step 2b: URL modal submitted — show role select */
+/** Step 2b: URL modal submitted - show role select */
 export async function handleProductUrlModal(
   interaction: ModalSubmitInteraction,
   userId: string,
@@ -438,7 +438,7 @@ function parseRoleIdsFromInput(input: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-/** Step 2c: Discord role modal submitted — show role select for local role */
+/** Step 2c: Discord role modal submitted - show role select for local role */
 export async function handleProductDiscordModal(
   interaction: ModalSubmitInteraction,
   userId: string,
@@ -493,13 +493,13 @@ export async function handleProductDiscordModal(
 
   await interaction.reply({
     content:
-      '**Step 3 of 3:** Which role(s) should users receive **in this server** when they verify? You can select multiple.\n*(Select roles from this server — not the source server.)*',
+      '**Step 3 of 3:** Which role(s) should users receive **in this server** when they verify? You can select multiple.\n*(Select roles from this server - not the source server.)*',
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
 }
 
-/** "Done" button after web Discord Role setup — fetches result and proceeds to role select */
+/** "Done" button after web Discord Role setup - fetches result and proceeds to role select */
 export async function handleProductDiscordRoleDone(
   interaction: ButtonInteraction,
   userId: string,
@@ -589,7 +589,7 @@ export async function handleProductDiscordRoleDone(
 
     await interaction.editReply({
       content:
-        '**Step 3 of 3:** Which role(s) should users receive **in this server** when they verify? You can select multiple.\n*(Select roles from this server — not the source server.)*',
+        '**Step 3 of 3:** Which role(s) should users receive **in this server** when they verify? You can select multiple.\n*(Select roles from this server - not the source server.)*',
       components: [row],
     });
   } catch (err) {
@@ -605,7 +605,7 @@ export async function handleProductDiscordRoleDone(
   }
 }
 
-/** Step 3: Role selected — show confirmation */
+/** Step 3: Role selected - show confirmation */
 export async function handleProductRoleSelect(
   interaction: RoleSelectMenuInteraction,
   userId: string,
@@ -616,7 +616,7 @@ export async function handleProductRoleSelect(
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
-    await interaction.update({
+    await interaction.editReply({
       content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
       components: [],
     });
@@ -682,10 +682,10 @@ export async function handleProductRoleSelect(
       .setStyle(ButtonStyle.Secondary),
   );
 
-  await interaction.update({ embeds: [embed], components: [row] });
+  await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
-/** Step 4: Confirmed — create the rule */
+/** Step 4: Confirmed - create the rule */
 export async function handleProductConfirmAdd(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
@@ -863,7 +863,7 @@ export async function handleProductConfirmAdd(
   }
 }
 
-/** Cancel button — clears session */
+/** Cancel button - clears session */
 export async function handleProductCancelAdd(
   interaction: ButtonInteraction,
   userId: string,

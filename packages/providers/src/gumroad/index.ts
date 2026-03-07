@@ -547,7 +547,7 @@ export * from './types';
  * Resolve the real Gumroad product_id from a product URL or permalink.
  *
  * Gumroad products created after Jan 2023 require a base64-encoded product_id
- * (e.g. "QAJc7ErxdAC815P5P8R89g==") for license verification — NOT the URL slug.
+ * (e.g. "QAJc7ErxdAC815P5P8R89g==") for license verification - NOT the URL slug.
  * This function fetches the product page, parses the embedded data-page JSON,
  * and returns the real product.id.
  *

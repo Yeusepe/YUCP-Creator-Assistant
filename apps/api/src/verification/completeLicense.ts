@@ -236,7 +236,7 @@ export async function handleCompleteLicense(
         };
       }
 
-      // Primary key failed — try collaborator connections
+      // Primary key failed - try collaborator connections
       const collabConnections = await convex.query(
         'collaboratorInvites:getCollabConnectionsForVerification' as any,
         { apiSecret: config.convexApiSecret, ownerTenantId: tenantId }

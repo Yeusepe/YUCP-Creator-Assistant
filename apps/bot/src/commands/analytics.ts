@@ -1,5 +1,5 @@
 /**
- * /creator-admin analytics — Analytics link and key metrics (admin)
+ * /creator-admin analytics - Analytics link and key metrics (admin)
  *
  * Single command combining link and summary.
  */
@@ -13,7 +13,7 @@ import { E } from '../lib/emojis';
 
 const POSTHOG_DASHBOARD_URL = 'https://us.posthog.com';
 
-/** /creator-admin analytics — combined dashboard link + key metrics */
+/** /creator-admin analytics - combined dashboard link + key metrics */
 export async function handleAnalytics(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
@@ -35,7 +35,7 @@ export async function handleAnalytics(
     )
     .addFields(
       { name: 'Verified Users', value: String(stats.totalVerified), inline: true },
-      { name: 'Products', value: String(stats.totalProducts ?? '—'), inline: true },
+      { name: 'Products', value: String(stats.totalProducts ?? '-'), inline: true },
       { name: 'Verified (24h)', value: String(stats.recentGrantsCount), inline: true },
     );
 

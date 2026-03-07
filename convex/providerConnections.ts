@@ -169,7 +169,7 @@ export const getConnectionForBackfill = query({
 });
 
 /**
- * Disconnect a provider connection (soft delete — sets status to 'disconnected').
+ * Disconnect a provider connection (soft delete - sets status to 'disconnected').
  */
 export const disconnectConnection = mutation({
   args: {

@@ -662,15 +662,14 @@ export async function handleDownloadsRoleSelect(
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
-    await interaction.reply({
+    await interaction.editReply({
       content: `${E.Timer} Setup expired. Start again with \`/creator-admin downloads add\`.`,
-      flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
   session.requiredRoleIds = [...new Set(interaction.values)];
-  await interaction.update({
+  await interaction.editReply({
     embeds: [buildStepTwoEmbed(session)],
     components: buildAccessComponents(userId, tenantId, session),
   });

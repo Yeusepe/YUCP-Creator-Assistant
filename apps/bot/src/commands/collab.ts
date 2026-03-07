@@ -135,7 +135,7 @@ export async function handleCollabList(
     const webhookStatus = conn.linkType === 'account'
       ? (conn.webhookConfigured ? ' • webhook ✓' : ' • webhook not configured')
       : '';
-    content += `**<@${conn.collaboratorDiscordUserId}>** — ${typeBadge}${webhookStatus}\n`;
+    content += `**<@${conn.collaboratorDiscordUserId}>** - ${typeBadge}${webhookStatus}\n`;
 
     const removeBtn = new ButtonBuilder()
       .setCustomId(`creator_collab:remove:${tenantId}:${conn.id}`)
@@ -153,7 +153,7 @@ export async function handleCollabList(
 }
 
 /**
- * Handles the remove button click — removes a collaborator connection.
+ * Handles the remove button click - removes a collaborator connection.
  */
 export async function handleCollabRemove(
   interaction: ButtonInteraction,

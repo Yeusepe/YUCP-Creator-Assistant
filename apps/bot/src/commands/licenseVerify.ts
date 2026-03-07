@@ -1,5 +1,5 @@
 /**
- * License Key Verification — Product Picker Flow
+ * License Key Verification - Product Picker Flow
  *
  * Flow:
  *   1. User clicks "Use License Key" button
@@ -80,7 +80,7 @@ function buildProductPickerComponents(
     const safePage = Math.min(Math.max(0, page), totalPages - 1);
     const slice = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
-    // Row 1 — Filter buttons
+    // Row 1 - Filter buttons
     const filterRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
             .setCustomId(`creator_verify:lp_filter:${tenantId}:all:0`)
@@ -101,7 +101,7 @@ function buildProductPickerComponents(
     const rows: ActionRowBuilder<any>[] = [filterRow];
 
     if (slice.length === 0) {
-        // No products for this filter — still render but disabled
+        // No products for this filter - still render but disabled
         const emptyMenu = new StringSelectMenuBuilder()
             .setCustomId(`creator_verify:lp_select:${tenantId}:${filter}:${safePage}`)
             .setPlaceholder('No products found for this filter')
@@ -113,7 +113,7 @@ function buildProductPickerComponents(
         return { components: rows, total: 0, totalPages };
     }
 
-    // Row 2 — Product select menu
+    // Row 2 - Product select menu
     const selectMenu = new StringSelectMenuBuilder()
         .setCustomId(`creator_verify:lp_select:${tenantId}:${filter}:${safePage}`)
         .setPlaceholder('Select a product to verify…')
@@ -132,7 +132,7 @@ function buildProductPickerComponents(
 
     rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu));
 
-    // Row 3 — Pagination (only if > 1 page)
+    // Row 3 - Pagination (only if > 1 page)
     if (totalPages > 1) {
         const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()

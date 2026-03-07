@@ -1,5 +1,5 @@
 /**
- * /creator-admin settings cross-server — Cross-server role verification settings
+ * /creator-admin settings cross-server - Cross-server role verification settings
  *
  * Shows current status with enable/disable buttons.
  * Button handlers for enable/disable are routed in interactions.ts.
@@ -18,7 +18,7 @@ import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
 import { E } from '../lib/emojis';
 
-/** /creator-admin settings cross-server — shows status + enable/disable buttons */
+/** /creator-admin settings cross-server - shows status + enable/disable buttons */
 export async function handleDiscordRoleVerification(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,

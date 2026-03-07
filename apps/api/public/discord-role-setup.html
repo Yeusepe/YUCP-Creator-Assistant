@@ -338,7 +338,7 @@
                 </div>
 
                 <p class="text-sm text-white/65 mb-6 leading-relaxed" style="font-family:'DM Sans',sans-serif;">
-                    We need to see which Discord servers you're in so you can pick one — no typing server IDs required.
+                    We need to see which Discord servers you're in so you can pick one - no typing server IDs required.
                     We only read your server list, nothing else.
                 </p>
 
@@ -606,7 +606,7 @@
 
         function populateGuilds(guilds) {
             const sel = document.getElementById('guild-select');
-            sel.innerHTML = '<option value="">— Select a server —</option>';
+            sel.innerHTML = '<option value="">- Select a server -</option>';
             for (const g of guilds) {
                 const opt = document.createElement('option');
                 opt.value = g.id;

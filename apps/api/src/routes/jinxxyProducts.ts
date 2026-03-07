@@ -202,7 +202,7 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
       });
     }
 
-    // Deduplicate by product ID — owner's own products take precedence
+    // Deduplicate by product ID - owner's own products take precedence
     const seen = new Set<string>();
     const deduped: JinxxyProductItem[] = [];
     for (const p of products) {

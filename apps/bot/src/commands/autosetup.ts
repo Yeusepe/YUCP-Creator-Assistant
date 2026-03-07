@@ -1,5 +1,5 @@
 /**
- * /creator-admin autosetup — Guided setup: create roles, channels, verify button, or migrate
+ * /creator-admin autosetup - Guided setup: create roles, channels, verify button, or migrate
  *
  * Modular flow: user picks mode (full, roles_only, channels_only, migrate),
  * then the bot walks them through each step using Discord.js v14 UI components.
@@ -12,6 +12,7 @@ import {
   ChannelType,
   ContainerBuilder,
   MessageFlags,
+  ModalBuilder,
   PermissionFlagsBits,
   RoleSelectMenuBuilder,
   SeparatorBuilder,
@@ -19,11 +20,14 @@ import {
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   TextDisplayBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js';
 import type {
   ButtonInteraction,
   ChatInputCommandInteraction,
   ChannelSelectMenuInteraction,
+  ModalSubmitInteraction,
   RoleSelectMenuInteraction,
   StringSelectMenuInteraction,
 } from 'discord.js';
@@ -57,8 +61,22 @@ interface AutosetupSession {
   createdRoleIds?: Record<string, string>;
   verifyChannelId?: string;
   migrateRoleIndex?: number;
-  /** Role selected for migration — stored in session to keep customId under 100 chars */
+  /** Role selected for migration - stored in session to keep customId under 100 chars */
   migrateRoleId?: string;
+  /** Product keys (provider:id) mapped during this migrate session */
+  migrateMappedProductKeys?: string[];
+  /** Product being mapped in "map all" flow - stored in session */
+  migrateMapAllProduct?: { provider: string; id: string };
+  /** Role name format: full, first_word, first_two_words, first_three_words, last_word */
+  roleFormat?: 'full' | 'first_word' | 'first_two_words' | 'first_three_words' | 'last_word';
+  /** Optional emoji prefix (e.g. "⭐") */
+  roleEmoji?: string;
+  /** Optional text prefix (e.g. "VIP ") */
+  rolePrefix?: string;
+  /** Optional text suffix (e.g. " ✓") */
+  roleSuffix?: string;
+  /** Whether to combine products with same name into one role */
+  combineDuplicates?: boolean;
   expiresAt: number;
 }
 
@@ -66,6 +84,82 @@ const autosetupSessions = new Map<string, AutosetupSession>();
 
 function getSessionKey(userId: string, tenantId: string): string {
   return `autosetup:${userId}:${tenantId}`;
+}
+
+function productKey(p: AutosetupProduct): string {
+  return `${p.provider}:${p.id}`;
+}
+
+/** Build error container for ComponentsV2 - use instead of content in editReply */
+function errorContainer(message: string): ContainerBuilder {
+  const container = new ContainerBuilder().setAccentColor(0xed4245);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`## ${E.X_} ${message}`),
+  );
+  return container;
+}
+
+/** Build loading container - refresh ephemeral message with status while async work runs */
+function loadingContainer(message: string): ContainerBuilder {
+  const container = new ContainerBuilder().setAccentColor(0x5865f2);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`## ${E.Timer} ${message}`),
+  );
+  return container;
+}
+
+function buildMigrateConfirmationUI(
+  session: AutosetupSession,
+  userId: string,
+  tenantId: string,
+  justMapped?: { roleName: string; productName: string },
+): { container: ContainerBuilder; hasUnmapped: boolean } {
+  const mappedCount = session.migrateMappedProductKeys?.length ?? 0;
+  const total = session.products?.length ?? 0;
+  const hasUnmapped = mappedCount < total;
+
+  const header = justMapped
+    ? `## ${E.Checkmark} Mapped!\n\n**${justMapped.roleName}** → **${justMapped.productName}**`
+    : `## ${E.Checkmark} Migration progress`;
+  const progress = total > 0 ? `\n\n${E.Checkmark} **${mappedCount}** of **${total}** products mapped` : '';
+  const footer = hasUnmapped ? '\n\nWhat would you like to do next?' : '\n\nAll products are mapped!';
+
+  const container = new ContainerBuilder().setAccentColor(0x57f287);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(header + progress + footer),
+  );
+
+  const doneBtn = new ButtonBuilder()
+    .setCustomId(`${AUTOSETUP_PREFIX}mp_done:${userId}:${tenantId}`)
+    .setLabel('Done')
+    .setStyle(ButtonStyle.Success)
+    .setEmoji(Emoji.ThumbsUp);
+
+  const mapAnotherBtn = new ButtonBuilder()
+    .setCustomId(`${AUTOSETUP_PREFIX}mp_another:${userId}:${tenantId}`)
+    .setLabel('Map another')
+    .setStyle(ButtonStyle.Primary)
+    .setEmoji(Emoji.Refresh);
+
+  const mapAllBtn = new ButtonBuilder()
+    .setCustomId(`${AUTOSETUP_PREFIX}mp_all:${userId}:${tenantId}`)
+    .setLabel('Map all')
+    .setStyle(ButtonStyle.Primary)
+    .setEmoji(Emoji.ClapStars);
+
+  if (!hasUnmapped) {
+    mapAllBtn.setDisabled(true);
+  }
+
+  container.addActionRowComponents(
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      doneBtn,
+      mapAnotherBtn,
+      mapAllBtn,
+    ),
+  );
+
+  return { container, hasUnmapped };
 }
 
 function cleanExpiredSessions(): void {
@@ -81,6 +175,28 @@ function sanitizeRoleName(name: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 100) || 'Verified';
+}
+
+function formatRoleName(
+  name: string,
+  session: Pick<AutosetupSession, 'roleFormat' | 'roleEmoji' | 'rolePrefix' | 'roleSuffix'>,
+): string {
+  let base = sanitizeRoleName(name);
+  const format = session.roleFormat ?? 'full';
+  const words = base.split(/\s+/).filter(Boolean);
+  if (format === 'first_word' && words.length > 0) {
+    base = words[0];
+  } else if (format === 'first_two_words' && words.length >= 2) {
+    base = words.slice(0, 2).join(' ');
+  } else if (format === 'first_three_words' && words.length >= 3) {
+    base = words.slice(0, 3).join(' ');
+  } else if (format === 'last_word' && words.length > 0) {
+    base = words[words.length - 1];
+  }
+  const prefix = (session.roleEmoji ?? '') + (session.rolePrefix ?? '');
+  const suffix = session.roleSuffix ?? '';
+  const result = (prefix + base + suffix).slice(0, 100);
+  return result || 'Verified';
 }
 
 async function fetchAllProducts(
@@ -137,7 +253,10 @@ export async function handleAutosetupStart(
 
   const guild = interaction.guild;
   if (!guild) {
-    await interaction.editReply({ content: 'This command must be used in a server.' });
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [errorContainer('This command must be used in a server.')],
+    });
     return;
   }
 
@@ -210,7 +329,7 @@ export async function handleAutosetupStart(
   track(interaction.user.id, 'autosetup_started', { tenantId: ctx.tenantId, guildId: ctx.guildId });
 }
 
-/** Mode selected — route to appropriate flow */
+/** Mode selected - route to appropriate flow */
 export async function handleAutosetupModeSelect(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
@@ -240,6 +359,263 @@ export async function handleAutosetupModeSelect(
   }
 }
 
+function getDuplicateNameGroups(products: AutosetupProduct[]): Map<string, AutosetupProduct[]> {
+  const byName = new Map<string, AutosetupProduct[]>();
+  for (const p of products) {
+    const key = p.name.toLowerCase().trim();
+    const list = byName.get(key) ?? [];
+    list.push(p);
+    byName.set(key, list);
+  }
+  const duplicates = new Map<string, AutosetupProduct[]>();
+  for (const [name, list] of byName) {
+    if (list.length > 1 && new Set(list.map((x) => x.provider)).size > 1) {
+      duplicates.set(name, list);
+    }
+  }
+  return duplicates;
+}
+
+function buildRoleCustomizationPreview(session: AutosetupSession): string {
+  const example = session.products?.[0]?.name ?? 'My Awesome Product';
+  const formatted = formatRoleName(example, session);
+  const parts: string[] = [];
+  parts.push(`**Preview:** \`${formatted}\``);
+  const hasDecoration = session.roleEmoji || session.rolePrefix || session.roleSuffix;
+  if (hasDecoration) {
+    const dec: string[] = [];
+    if (session.roleEmoji) dec.push(`emoji: ${session.roleEmoji.trim()}`);
+    if (session.rolePrefix) dec.push(`prefix: "${session.rolePrefix}"`);
+    if (session.roleSuffix) dec.push(`suffix: "${session.roleSuffix}"`);
+    parts.push(`**Current decoration:** ${dec.join(', ')}`);
+  }
+  return parts.length > 0 ? '\n\n' + parts.join('\n') : '';
+}
+
+async function showRoleCustomizationStep(
+  interaction: StringSelectMenuInteraction | ButtonInteraction | ModalSubmitInteraction,
+  session: AutosetupSession,
+  userId: string,
+  tenantId: string,
+): Promise<void> {
+  const currentFormat = session.roleFormat ?? 'full';
+  const formatOptions = [
+    { value: 'full', label: 'Full product name', desc: 'e.g. My Awesome Product' },
+    { value: 'first_word', label: 'First word only', desc: 'e.g. My' },
+    { value: 'first_two_words', label: 'First two words', desc: 'e.g. My Awesome' },
+    { value: 'first_three_words', label: 'First three words', desc: 'e.g. My Awesome Product' },
+    { value: 'last_word', label: 'Last word only', desc: 'e.g. Product' },
+  ];
+  const formatSelect = new StringSelectMenuBuilder()
+    .setCustomId(`${AUTOSETUP_PREFIX}role_format:${userId}:${tenantId}`)
+    .setPlaceholder('Role name style...')
+    .addOptions(
+      formatOptions.map((o) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(o.label)
+          .setValue(o.value)
+          .setDescription(o.desc)
+          .setDefault(o.value === currentFormat),
+      ),
+    );
+
+  const preview = buildRoleCustomizationPreview(session);
+
+  const container = new ContainerBuilder().setAccentColor(0x5865f2);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `## ${E.PersonKey} Customize role names\n\n` +
+        '**Format:** How much of the product name to use.\n' +
+        '**Decoration:** Add prefix, suffix, or emoji via the button below.' +
+        preview,
+    ),
+  );
+  const hasDecoration = !!(session.roleEmoji || session.rolePrefix || session.roleSuffix);
+  container.addActionRowComponents(
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(formatSelect) as any,
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`${AUTOSETUP_PREFIX}role_custom_modal:${userId}:${tenantId}`)
+        .setLabel(hasDecoration ? 'Edit prefix / suffix / emoji' : 'Add prefix / suffix / emoji')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`${AUTOSETUP_PREFIX}role_custom_done:${userId}:${tenantId}`)
+        .setLabel('Continue')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji(Emoji.Checkmark),
+    ),
+  );
+
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: [container],
+  });
+}
+
+const ROLE_CUSTOM_MODAL_PREFIX = 'creator_autosetup:role_modal:';
+
+function buildRoleCustomModal(userId: string, tenantId: Id<'tenants'>): ModalBuilder {
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = autosetupSessions.get(sessionKey);
+  const prefix = session?.rolePrefix ?? '';
+  const suffix = session?.roleSuffix ?? '';
+  const emoji = (session?.roleEmoji ?? '').trim();
+
+  const modal = new ModalBuilder()
+    .setCustomId(`${ROLE_CUSTOM_MODAL_PREFIX}${userId}:${tenantId}`)
+    .setTitle('Custom role decoration');
+
+  const prefixInput = new TextInputBuilder()
+    .setCustomId('prefix')
+    .setLabel('Prefix (before name)')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('e.g. VIP , ⭐ , [Backer] ')
+    .setRequired(false)
+    .setMaxLength(30)
+    .setValue(prefix);
+
+  const suffixInput = new TextInputBuilder()
+    .setCustomId('suffix')
+    .setLabel('Suffix (after name)')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('e.g.  ✓,  🎉, [Verified]')
+    .setRequired(false)
+    .setMaxLength(30)
+    .setValue(suffix);
+
+  const emojiInput = new TextInputBuilder()
+    .setCustomId('emoji')
+    .setLabel('Emoji (at start, before prefix)')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('e.g. ⭐ or leave empty')
+    .setRequired(false)
+    .setMaxLength(10)
+    .setValue(emoji);
+
+  modal.addComponents(
+    new ActionRowBuilder<typeof prefixInput>().addComponents(prefixInput),
+    new ActionRowBuilder<typeof suffixInput>().addComponents(suffixInput),
+    new ActionRowBuilder<typeof emojiInput>().addComponents(emojiInput),
+  );
+
+  return modal;
+}
+
+/** Show custom role decoration modal */
+export async function handleAutosetupRoleCustomModal(
+  interaction: ButtonInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const modal = buildRoleCustomModal(userId, tenantId);
+  await interaction.showModal(modal);
+}
+
+/** Handle custom role decoration modal submit */
+export async function handleAutosetupRoleModalSubmit(
+  interaction: ModalSubmitInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const prefix = interaction.fields.getTextInputValue('prefix')?.trim() ?? '';
+  const suffix = interaction.fields.getTextInputValue('suffix')?.trim() ?? '';
+  const emoji = interaction.fields.getTextInputValue('emoji')?.trim() ?? '';
+
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = autosetupSessions.get(sessionKey);
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.reply({
+      content: `${E.Timer} Session expired. Run \`/creator-admin autosetup\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  session.rolePrefix = prefix || undefined;
+  session.roleSuffix = suffix || undefined;
+  session.roleEmoji = emoji ? `${emoji} ` : undefined;
+
+  await interaction.deferUpdate();
+  await showRoleCustomizationStep(interaction, session, userId, tenantId);
+}
+
+async function showProductSelectStep(
+  interaction: StringSelectMenuInteraction | ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  session: AutosetupSession,
+  userId: string,
+): Promise<void> {
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: [loadingContainer('Loading...')],
+  });
+
+  const products = session.products ?? [];
+  const existingRules = (await convex.query(api.role_rules.getByGuildWithProductNames as any, {
+    tenantId: session.tenantId,
+    guildId: session.guildId,
+  })) as Array<{ productId: string }>;
+  const hasExisting = existingRules.length > 0;
+
+  const combineDuplicates = session.combineDuplicates ?? false;
+  let toShow: { value: string; label: string; desc: string }[];
+  if (combineDuplicates) {
+    const byName = new Map<string, AutosetupProduct[]>();
+    for (const p of products) {
+      const key = p.name.toLowerCase().trim();
+      const list = byName.get(key) ?? [];
+      list.push(p);
+      byName.set(key, list);
+    }
+    toShow = Array.from(byName.entries()).slice(0, 25).map(([name, list]) => {
+      const value = list.map((p) => productKey(p)).join(',');
+      const label = list[0].name.length > 100 ? list[0].name.slice(0, 97) + '...' : list[0].name;
+      const providers = [...new Set(list.map((p) => p.provider))].join(' + ');
+      return { value, label, desc: `${list.length} product(s) from ${providers}` };
+    });
+  } else {
+    toShow = products.slice(0, 25).map((p) => {
+      const value = productKey(p);
+      const label = p.name.length > 100 ? p.name.slice(0, 97) + '...' : p.name;
+      const desc = `${p.provider === 'gumroad' ? E.Gumorad : E.Jinxxy} ${p.name}`.slice(0, 100);
+      return { value, label, desc };
+    });
+  }
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`${AUTOSETUP_PREFIX}products:${userId}:${session.tenantId}`)
+    .setPlaceholder('Select products to create roles for...')
+    .setMinValues(1)
+    .setMaxValues(Math.min(toShow.length, 25))
+    .addOptions(
+      toShow.map((o) =>
+        new StringSelectMenuOptionBuilder().setLabel(o.label).setValue(o.value).setDescription(o.desc),
+      ),
+    );
+
+  const container = new ContainerBuilder().setAccentColor(0x5865f2);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `## ${E.PersonKey} Select products\n\n` +
+        (hasExisting
+          ? `${E.Wrench} **Warning:** Some products already have roles. Creating new roles will add additional mappings.\n\n`
+          : '') +
+        (combineDuplicates ? '*(Products with the same name are combined into one role.)*\n\n' : '') +
+        'Choose which products should get new roles:\n\n' +
+        (products.length > 25 ? `*(Showing first 25 of ${products.length})*` : ''),
+    ),
+  );
+  container.addActionRowComponents(
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
+  );
+
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: [container],
+  });
+}
+
 async function handleRolesFlowStart(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
@@ -247,6 +623,11 @@ async function handleRolesFlowStart(
   session: AutosetupSession,
 ): Promise<void> {
   await interaction.deferUpdate();
+
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: [loadingContainer('Loading products...')],
+  });
 
   const products = await fetchAllProducts(session.tenantId, apiSecret);
 
@@ -271,75 +652,90 @@ async function handleRolesFlowStart(
   }
 
   session.products = products;
+  await showRoleCustomizationStep(interaction, session, interaction.user.id, session.tenantId);
+}
 
-  const existingRules = await convex.query(api.role_rules.getByGuildWithProductNames as any, {
-    tenantId: session.tenantId,
-    guildId: session.guildId,
-  });
-  const existingProductIds = new Set(
-    (existingRules as Array<{ productId: string }>).map((r) => r.productId),
-  );
+/** Role format selected */
+export async function handleAutosetupRoleFormatSelect(
+  interaction: StringSelectMenuInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = autosetupSessions.get(sessionKey);
+  if (!session || Date.now() > session.expiresAt) return;
+  session.roleFormat = interaction.values[0] as AutosetupSession['roleFormat'];
+  await interaction.deferUpdate();
+  await showRoleCustomizationStep(interaction, session, userId, tenantId);
+}
 
-  const availableProducts = products.filter((p) => {
-    const key = p.provider === 'gumroad' ? p.id : `jinxxy:${p.id}`;
-    return !existingProductIds.has(p.id) && !existingProductIds.has(key);
-  });
+/** Role customization done - show combine prompt or product select */
+export async function handleAutosetupRoleCustomDone(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = autosetupSessions.get(sessionKey);
+  if (!session || Date.now() > session.expiresAt) return;
+  await interaction.deferUpdate();
 
-  if (availableProducts.length === 0) {
-    const container = new ContainerBuilder().setAccentColor(0x57f287);
+  const products = session.products ?? [];
+  const duplicates = getDuplicateNameGroups(products);
+
+  if (duplicates.size > 0) {
+    const dupNames = Array.from(duplicates.keys()).slice(0, 5).join(', ');
+    const container = new ContainerBuilder().setAccentColor(0xfaa61a);
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `## ${E.Checkmark} All products already mapped\n\n` +
-          'Every product from Gumroad and Jinxxy already has a role in this server.',
+        `## ${E.Refresh} Same name products?\n\n` +
+          `Some products have the same name across stores (e.g. "${dupNames}").\n\n` +
+          'Combine them into one role?\n\n' +
+          '**Yes** - One role for all products with the same name\n' +
+          '**No** - Separate roles for each product',
+      ),
+    );
+    container.addActionRowComponents(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`${AUTOSETUP_PREFIX}combine_yes:${userId}:${tenantId}`)
+          .setLabel('Yes, combine')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`${AUTOSETUP_PREFIX}combine_no:${userId}:${tenantId}`)
+          .setLabel('No, separate')
+          .setStyle(ButtonStyle.Secondary),
       ),
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
       components: [container],
     });
-    return;
+  } else {
+    await showProductSelectStep(interaction, convex, apiSecret, session, userId);
   }
-
-  const MAX_OPTIONS = 25;
-  const toShow = availableProducts.slice(0, MAX_OPTIONS);
-  const select = new StringSelectMenuBuilder()
-    .setCustomId(`${AUTOSETUP_PREFIX}products:${interaction.user.id}:${session.tenantId}`)
-    .setPlaceholder('Select products to create roles for...')
-    .setMinValues(1)
-    .setMaxValues(Math.min(toShow.length, 25))
-    .addOptions(
-      toShow.map((p) => {
-        const value = `${p.provider}::${p.id}`;
-        const label = p.name.length > 100 ? p.name.slice(0, 97) + '...' : p.name;
-        const desc = `${p.provider === 'gumroad' ? E.Gumorad : E.Jinxxy} ${p.name}`.slice(0, 100);
-        return new StringSelectMenuOptionBuilder()
-          .setLabel(label)
-          .setValue(value)
-          .setDescription(desc);
-      }),
-    );
-
-  const container = new ContainerBuilder().setAccentColor(0x5865f2);
-  container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(
-      `## ${E.PersonKey} Select products\n\n` +
-        `Choose which products should get new roles. We'll create a role for each and map them automatically.\n\n` +
-        (availableProducts.length > MAX_OPTIONS
-          ? `*(Showing first ${MAX_OPTIONS} of ${availableProducts.length})*`
-          : ''),
-    ),
-  );
-  container.addActionRowComponents(
-    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
-  );
-
-  await interaction.editReply({
-    flags: MessageFlags.IsComponentsV2,
-    components: [container],
-  });
 }
 
-/** Products selected — create roles and map */
+/** Combine duplicates choice */
+export async function handleAutosetupCombineChoice(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  userId: string,
+  tenantId: Id<'tenants'>,
+  combine: boolean,
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = autosetupSessions.get(sessionKey);
+  if (!session || Date.now() > session.expiresAt) return;
+  await interaction.deferUpdate();
+  session.combineDuplicates = combine;
+  await showProductSelectStep(interaction, convex, apiSecret, session, userId);
+}
+
+/** Products selected - create roles and map */
 export async function handleAutosetupProductsSelect(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
@@ -362,25 +758,38 @@ export async function handleAutosetupProductsSelect(
 
   await interaction.deferUpdate();
 
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: [loadingContainer('Creating roles...')],
+  });
+
   const guild = interaction.guild;
   if (!guild) {
-    await interaction.editReply({ content: 'Guild not found.' });
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [errorContainer('Guild not found.')],
+    });
     return;
   }
 
   const createdRoleIds: Record<string, string> = {};
   const productList = session.products ?? [];
-  const productMap = new Map(productList.map((p) => [`${p.provider}::${p.id}`, p]));
+  const productMap = new Map(productList.map((p) => [productKey(p), p]));
 
   let created = 0;
   let failed = 0;
 
   for (const value of session.selectedProductIds ?? []) {
-    const product = productMap.get(value);
-    if (!product) continue;
+    const productKeys = value.split(',').map((k) => k.trim()).filter(Boolean);
+    const products = productKeys
+      .map((k) => productMap.get(k))
+      .filter((p): p is AutosetupProduct => p != null);
+    if (products.length === 0) continue;
+
+    const primaryProduct = products[0];
+    const roleName = formatRoleName(primaryProduct.name, session);
 
     try {
-      const roleName = sanitizeRoleName(product.name);
       const role = await guild.roles.create({
         name: roleName,
         reason: 'Creator Assistant autosetup',
@@ -393,41 +802,43 @@ export async function handleAutosetupProductsSelect(
         continue;
       }
 
-      createdRoleIds[value] = role.id;
+      for (const pk of productKeys) createdRoleIds[pk] = role.id;
 
-      if (product.provider === 'gumroad') {
-        const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
-          apiSecret,
-          tenantId,
-          productId: product.id,
-          providerProductRef: product.id,
-        });
-        await convex.mutation(api.role_rules.createRoleRule as any, {
-          apiSecret,
-          tenantId,
-          guildId: session.guildId,
-          guildLinkId: session.guildLinkId,
-          productId: result.productId,
-          catalogProductId: result.catalogProductId,
-          verifiedRoleId: role.id,
-        });
-      } else {
-        const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
-          apiSecret,
-          tenantId,
-          productId: product.id,
-          providerProductRef: product.id,
-          displayName: product.name,
-        });
-        await convex.mutation(api.role_rules.createRoleRule as any, {
-          apiSecret,
-          tenantId,
-          guildId: session.guildId,
-          guildLinkId: session.guildLinkId,
-          productId: result.productId,
-          catalogProductId: result.catalogProductId,
-          verifiedRoleId: role.id,
-        });
+      for (const product of products) {
+        if (product.provider === 'gumroad') {
+          const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
+            apiSecret,
+            tenantId,
+            productId: product.id,
+            providerProductRef: product.id,
+          });
+          await convex.mutation(api.role_rules.createRoleRule as any, {
+            apiSecret,
+            tenantId,
+            guildId: session.guildId,
+            guildLinkId: session.guildLinkId,
+            productId: result.productId,
+            catalogProductId: result.catalogProductId,
+            verifiedRoleId: role.id,
+          });
+        } else {
+          const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
+            apiSecret,
+            tenantId,
+            productId: product.id,
+            providerProductRef: product.id,
+            displayName: product.name,
+          });
+          await convex.mutation(api.role_rules.createRoleRule as any, {
+            apiSecret,
+            tenantId,
+            guildId: session.guildId,
+            guildLinkId: session.guildLinkId,
+            productId: result.productId,
+            catalogProductId: result.catalogProductId,
+            verifiedRoleId: role.id,
+          });
+        }
       }
       created++;
 
@@ -436,7 +847,7 @@ export async function handleAutosetupProductsSelect(
       }
     } catch (err) {
       logger.error('Autosetup role creation failed', {
-        product: product.name,
+        product: primaryProduct.name,
         error: err instanceof Error ? err.message : String(err),
       });
       failed++;
@@ -542,7 +953,10 @@ export async function handleAutosetupCreateVerify(
 
   const guild = interaction.guild;
   if (!guild) {
-    await interaction.editReply({ content: 'Guild not found.' });
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [errorContainer('Guild not found.')],
+    });
     return;
   }
 
@@ -551,6 +965,12 @@ export async function handleAutosetupCreateVerify(
       name: 'verify',
       type: ChannelType.GuildText,
       reason: 'Creator Assistant autosetup',
+      permissionOverwrites: [
+        {
+          id: guild.id,
+          deny: [PermissionFlagsBits.SendMessages],
+        },
+      ],
     });
     session.verifyChannelId = channel.id;
 
@@ -563,9 +983,9 @@ export async function handleAutosetupCreateVerify(
         [
           `${(await import('../lib/emojis')).E.Touch} Click the button below to open the verification panel.`,
           '',
-          `${(await import('../lib/emojis')).E.Link} **Sign in** — Connect Gumroad or Discord. We recognize your purchases and grant your role automatically.`,
+          `${(await import('../lib/emojis')).E.Link} **Sign in** - Connect Gumroad or Discord. We recognize your purchases and grant your role automatically.`,
           '',
-          `${(await import('../lib/emojis')).E.KeyCloud} **License key** — Using Jinxxy or Gumroad license? Enter one key once. We link your account and sync all past and future purchases.`,
+          `${(await import('../lib/emojis')).E.KeyCloud} **License key** - Using Jinxxy or Gumroad license? Enter one key once. We link your account and sync all past and future purchases.`,
           '',
           'Connections are secure and used only for verification.',
         ].join('\n'),
@@ -607,7 +1027,10 @@ export async function handleAutosetupCreateVerify(
       guildId: session.guildId,
     });
     await interaction.editReply({
-      content: `${E.X_} Could not create the verify channel. Check that the bot has Manage Channels permission.`,
+      flags: MessageFlags.IsComponentsV2,
+      components: [
+        errorContainer('Could not create the verify channel. Check that the bot has **Manage Channels** permission.'),
+      ],
     });
   }
 }
@@ -635,7 +1058,10 @@ export async function handleAutosetupSpawnHere(
 
   const channel = interaction.channel;
   if (!channel || !('send' in channel)) {
-    await interaction.editReply({ content: 'Cannot send messages in this channel.' });
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [errorContainer('Cannot send messages in this channel.')],
+    });
     return;
   }
 
@@ -648,9 +1074,9 @@ export async function handleAutosetupSpawnHere(
       [
         `${Em.Touch} Click the button below to open the verification panel.`,
         '',
-        `${Em.Link} **Sign in** — Connect Gumroad or Discord.`,
+        `${Em.Link} **Sign in** - Connect Gumroad or Discord.`,
         '',
-        `${Em.KeyCloud} **License key** — Enter your license key to verify.`,
+        `${Em.KeyCloud} **License key** - Enter your license key to verify.`,
         '',
         'Connections are secure and used only for verification.',
       ].join('\n'),
@@ -758,10 +1184,14 @@ async function handleMigrateFlowStart(
 
   session.products = products;
   session.migrateRoleIndex = 0;
+  session.migrateMappedProductKeys = [];
 
   const guild = interaction.guild;
   if (!guild) {
-    await interaction.editReply({ content: 'Guild not found.' });
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [errorContainer('Guild not found.')],
+    });
     return;
   }
 
@@ -807,7 +1237,7 @@ async function handleMigrateFlowStart(
   });
 }
 
-/** Role selected for migration — show product picker */
+/** Role selected for migration - show product picker */
 export async function handleAutosetupMigrateRoleSelect(
   interaction: RoleSelectMenuInteraction,
   convex: ConvexHttpClient,
@@ -820,18 +1250,33 @@ export async function handleAutosetupMigrateRoleSelect(
   const session = autosetupSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
-    await interaction.update({
-      content: `${E.Timer} Session expired. Run \`/creator-admin autosetup\` again.`,
-      components: [],
+    const container = new ContainerBuilder().setAccentColor(0xfaa61a);
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`## ${E.Timer} Session expired\n\nRun \`/creator-admin autosetup\` again.`),
+    );
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [container],
     });
     return;
   }
 
   session.migrateRoleId = roleId;
 
+  const mapped = new Set(session.migrateMappedProductKeys ?? []);
   const products = session.products ?? [];
+  const unmapped = products.filter((p) => !mapped.has(productKey(p)));
   const MAX_OPTIONS = 25;
-  const toShow = products.slice(0, MAX_OPTIONS);
+  const toShow = unmapped.slice(0, MAX_OPTIONS);
+
+  if (toShow.length === 0) {
+    const { container } = buildMigrateConfirmationUI(session, userId, tenantId);
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [container],
+    });
+    return;
+  }
 
   const select = new StringSelectMenuBuilder()
     .setCustomId(`${AUTOSETUP_PREFIX}mp:${userId}:${tenantId}`)
@@ -860,13 +1305,13 @@ export async function handleAutosetupMigrateRoleSelect(
     new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
   );
 
-  await interaction.reply({
-    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
     components: [container],
   });
 }
 
-/** Product selected for migration — create rule */
+/** Product selected for migration - create rule */
 export async function handleAutosetupMigrateProductSelect(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
@@ -943,20 +1388,19 @@ export async function handleAutosetupMigrateProductSelect(
     }
 
     const role = interaction.guild?.roles.cache.get(roleId);
-    const container = new ContainerBuilder().setAccentColor(0x57f287);
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `## ${E.Checkmark} Mapped!\n\n` +
-          `**${role?.name ?? 'Role'}** → **${product.name}**\n\n` +
-          'Map another role? Run `/creator-admin autosetup` and choose **Migrate** again.',
-      ),
-    );
+    const key = productKey(product);
+    if (!session.migrateMappedProductKeys) session.migrateMappedProductKeys = [];
+    session.migrateMappedProductKeys.push(key);
+    session.migrateRoleId = undefined;
+
+    const { container } = buildMigrateConfirmationUI(session, userId, tenantId, {
+      roleName: role?.name ?? 'Role',
+      productName: product.name,
+    });
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
       components: [container],
     });
-
-    session.migrateRoleId = undefined;
 
     track(interaction.user.id, 'autosetup_migrate_mapped', {
       tenantId,
@@ -969,7 +1413,285 @@ export async function handleAutosetupMigrateProductSelect(
       productId: product.id,
     });
     await interaction.editReply({
-      content: `${E.X_} Could not create the mapping. Try again.`,
+      flags: MessageFlags.IsComponentsV2,
+      components: [errorContainer('Could not create the mapping. Try again.')],
+    });
+  }
+}
+
+/** Migrate confirmation - Done button */
+export async function handleAutosetupMigrateDone(
+  interaction: ButtonInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = autosetupSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: `${E.Timer} Session expired. Run \`/creator-admin autosetup\` again.`,
+      components: [],
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+
+  const mapped = session.migrateMappedProductKeys?.length ?? 0;
+  const container = new ContainerBuilder().setAccentColor(0x57f287);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `## ${E.ThumbsUp} Done!\n\n` +
+        `Mapped **${mapped}** product${mapped === 1 ? '' : 's'} to roles. You're all set.`,
+    ),
+  );
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: [container],
+  });
+}
+
+/** Migrate confirmation - Map another button */
+export async function handleAutosetupMigrateMapAnother(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = autosetupSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: `${E.Timer} Session expired. Run \`/creator-admin autosetup\` again.`,
+      components: [],
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+
+  const select = new RoleSelectMenuBuilder()
+    .setCustomId(`${AUTOSETUP_PREFIX}migrate_role:${userId}:${tenantId}`)
+    .setPlaceholder('Select a role to map to a product...');
+
+  const container = new ContainerBuilder().setAccentColor(0x5865f2);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `## ${E.Refresh} Map another role\n\n` +
+        'Select a role from your server. Next, we\'ll ask which product it corresponds to.',
+    ),
+  );
+  container.addActionRowComponents(
+    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select),
+  );
+
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: [container],
+  });
+}
+
+/** Migrate confirmation - Map all button */
+export async function handleAutosetupMigrateMapAll(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = autosetupSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: `${E.Timer} Session expired. Run \`/creator-admin autosetup\` again.`,
+      components: [],
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+
+  const mapped = new Set(session.migrateMappedProductKeys ?? []);
+  const products = session.products ?? [];
+  const firstUnmapped = products.find((p) => !mapped.has(productKey(p)));
+
+  if (!firstUnmapped) {
+    const { container } = buildMigrateConfirmationUI(session, userId, tenantId);
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [container],
+    });
+    return;
+  }
+
+  session.migrateMapAllProduct = { provider: firstUnmapped.provider, id: firstUnmapped.id };
+  session.migrateRoleId = undefined;
+
+  const select = new RoleSelectMenuBuilder()
+    .setCustomId(`${AUTOSETUP_PREFIX}mp_all_role:${userId}:${tenantId}`)
+    .setPlaceholder(`Which role represents "${firstUnmapped.name}"?`);
+
+  const container = new ContainerBuilder().setAccentColor(0x5865f2);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `## ${E.ClapStars} Map all\n\n` +
+        `**${firstUnmapped.name}** (${firstUnmapped.provider})\n\n` +
+        'Select the role that grants access to this product:',
+    ),
+  );
+  container.addActionRowComponents(
+    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select),
+  );
+
+  await interaction.editReply({
+    flags: MessageFlags.IsComponentsV2,
+    components: [container],
+  });
+}
+
+/** Role selected in map-all flow - create rule and show next or confirmation */
+export async function handleAutosetupMigrateMapAllRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  userId: string,
+  tenantId: Id<'tenants'>,
+): Promise<void> {
+  const roleId = interaction.values[0];
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = autosetupSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    const container = new ContainerBuilder().setAccentColor(0xfaa61a);
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`## ${E.Timer} Session expired\n\nRun \`/creator-admin autosetup\` again.`),
+    );
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [container],
+    });
+    return;
+  }
+
+  const productSpec = session.migrateMapAllProduct;
+  if (!productSpec) {
+    const container = new ContainerBuilder().setAccentColor(0xfaa61a);
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`## ${E.Timer} Session state lost\n\nRun \`/creator-admin autosetup\` again.`),
+    );
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [container],
+    });
+    return;
+  }
+
+  const product = session.products?.find(
+    (p) => p.provider === productSpec.provider && p.id === productSpec.id,
+  );
+  if (!product) {
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [errorContainer('Product not found.')],
+    });
+    return;
+  }
+
+  try {
+    if (product.provider === 'gumroad') {
+      const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
+        apiSecret,
+        tenantId,
+        productId: product.id,
+        providerProductRef: product.id,
+      });
+      await convex.mutation(api.role_rules.createRoleRule as any, {
+        apiSecret,
+        tenantId,
+        guildId: session.guildId,
+        guildLinkId: session.guildLinkId,
+        productId: result.productId,
+        catalogProductId: result.catalogProductId,
+        verifiedRoleId: roleId,
+      });
+    } else {
+      const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
+        apiSecret,
+        tenantId,
+        productId: product.id,
+        providerProductRef: product.id,
+        displayName: product.name,
+      });
+      await convex.mutation(api.role_rules.createRoleRule as any, {
+        apiSecret,
+        tenantId,
+        guildId: session.guildId,
+        guildLinkId: session.guildLinkId,
+        productId: result.productId,
+        catalogProductId: result.catalogProductId,
+        verifiedRoleId: roleId,
+      });
+    }
+
+    const key = productKey(product);
+    if (!session.migrateMappedProductKeys) session.migrateMappedProductKeys = [];
+    session.migrateMappedProductKeys.push(key);
+    session.migrateMapAllProduct = undefined;
+
+    const mapped = new Set(session.migrateMappedProductKeys);
+    const products = session.products ?? [];
+    const nextUnmapped = products.find((p) => !mapped.has(productKey(p)));
+
+    if (nextUnmapped) {
+      session.migrateMapAllProduct = { provider: nextUnmapped.provider, id: nextUnmapped.id };
+      const select = new RoleSelectMenuBuilder()
+        .setCustomId(`${AUTOSETUP_PREFIX}mp_all_role:${userId}:${tenantId}`)
+        .setPlaceholder(`Which role represents "${nextUnmapped.name}"?`);
+
+      const role = interaction.guild?.roles.cache.get(roleId);
+      const container = new ContainerBuilder().setAccentColor(0x57f287);
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `## ${E.Checkmark} **${role?.name ?? 'Role'}** → **${product.name}**\n\n` +
+            `Next: **${nextUnmapped.name}**\n\n` +
+            'Select the role for this product:',
+        ),
+      );
+      container.addActionRowComponents(
+        new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select),
+      );
+      await interaction.editReply({
+        flags: MessageFlags.IsComponentsV2,
+        components: [container],
+      });
+    } else {
+      const { container } = buildMigrateConfirmationUI(session, userId, tenantId, {
+        roleName: interaction.guild?.roles.cache.get(roleId)?.name ?? 'Role',
+        productName: product.name,
+      });
+      await interaction.editReply({
+        flags: MessageFlags.IsComponentsV2,
+        components: [container],
+      });
+    }
+
+    track(interaction.user.id, 'autosetup_migrate_mapped', {
+      tenantId,
+      guildId: session.guildId,
+    });
+  } catch (err) {
+    logger.error('Autosetup migrate map-all failed', {
+      error: err instanceof Error ? err.message : String(err),
+      tenantId,
+      productId: product.id,
+    });
+    await interaction.editReply({
+      flags: MessageFlags.IsComponentsV2,
+      components: [errorContainer('Could not create the mapping. Try again.')],
     });
   }
 }

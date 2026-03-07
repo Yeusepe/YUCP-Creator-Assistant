@@ -542,9 +542,9 @@ export class RoleSyncService {
    * Process retroactive rule sync job.
    * For all products (including discord_role): creates role_sync jobs for users who already have
    * entitlements. Discord role products grant entitlements when users verify via OAuth ("Use
-   * Another Server")—we check their roles via the Discord API with their token. Retroactive sync
+   * Another Server")-we check their roles via the Discord API with their token. Retroactive sync
    * ensures those verified users get the role in the target guild. We cannot proactively find
-   * users who have the role but haven't verified—that requires each user's OAuth token.
+   * users who have the role but haven't verified-that requires each user's OAuth token.
    */
   private async processRetroactiveRuleSyncJob(job: OutboxJob): Promise<void> {
     const payload = job.payload as RetroactiveRuleSyncPayload;

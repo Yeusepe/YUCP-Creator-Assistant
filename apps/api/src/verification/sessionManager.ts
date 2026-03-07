@@ -694,7 +694,7 @@ export function createVerificationSessionManager(
       // for proactive scanning when new discord_role products are added.
       if (sessionMode === 'discord_role') {
         // Always store the Discord OAuth token for future proactive checks.
-        // This happens before role checking — even if the user doesn't have
+        // This happens before role checking - even if the user doesn't have
         // the required role right now, we want the token for later.
         try {
           const encryptionSecret = process.env.BETTER_AUTH_SECRET;
@@ -734,7 +734,7 @@ export function createVerificationSessionManager(
         const enabled = policy.enableDiscordRoleFromOtherServers === true;
         const allowedGuildIds = policy.allowedSourceGuildIds ?? [];
         if (!enabled || allowedGuildIds.length === 0) {
-          // Policy not enabled — token is still stored for when it is enabled later
+          // Policy not enabled - token is still stored for when it is enabled later
           logger.info('[verification] Discord role from other servers not enabled, but token stored');
         } else {
           const rules = await convex.query(

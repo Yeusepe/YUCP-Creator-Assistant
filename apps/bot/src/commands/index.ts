@@ -2,8 +2,8 @@
  * Discord slash command definitions and registration
  *
  * Uses discord.js REST API to register commands.
- * - /creator: user-facing — visible to everyone, no subcommands (state-aware status panel)
- * - /creator-admin: moderator-only — hidden from users without Administrator
+ * - /creator: user-facing - visible to everyone, no subcommands (state-aware status panel)
+ * - /creator-admin: moderator-only - hidden from users without Administrator
  *
  * @see https://discordjs.guide/slash-commands/permissions.html
  */
@@ -22,7 +22,7 @@ const CREATOR_USER_COMMAND = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName('verify')
-      .setDescription('Verify a purchase with a license key — pick a product and enter your key')
+      .setDescription('Verify a purchase with a license key - pick a product and enter your key')
       .addStringOption((o) =>
         o
           .setName('product')
@@ -40,7 +40,7 @@ const CREATOR_USER_COMMAND = new SlashCommandBuilder()
 /** Admin-only command. setDefaultMemberPermissions hides it from non-admins. */
 const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
   .setName('creator-admin')
-  .setDescription('Creator Assistant — configuration and moderation (admin only)')
+  .setDescription('Creator Assistant - configuration and moderation (admin only)')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addSubcommandGroup((setup) =>
     setup
@@ -104,20 +104,20 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
       .addStringOption((o) =>
         o
           .setName('title')
-          .setDescription('Embed title — leave empty for default: "Verify Your Purchase"'),
+          .setDescription('Embed title - leave empty for default: "Verify Your Purchase"'),
       )
       .addStringOption((o) =>
         o
           .setName('description')
-          .setDescription('Embed body text — leave empty for default that explains how verification works'),
+          .setDescription('Embed body text - leave empty for default that explains how verification works'),
       )
       .addStringOption((o) =>
-        o.setName('button_text').setDescription('Text on the verify button — default: "Verify"'),
+        o.setName('button_text').setDescription('Text on the verify button - default: "Verify"'),
       )
       .addStringOption((o) =>
         o
           .setName('color')
-          .setDescription('Embed accent color as hex (e.g. #5865F2) — default: Discord blurple'),
+          .setDescription('Embed accent color as hex (e.g. #5865F2) - default: Discord blurple'),
       )
       .addStringOption((o) =>
         o.setName('image_url').setDescription('Optional banner image URL for the embed'),
@@ -176,7 +176,7 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
   .addSubcommandGroup((collab) =>
     collab
       .setName('collab')
-      .setDescription('Collaborating creators — share license verification')
+      .setDescription('Collaborating creators - share license verification')
       .addSubcommand((s) =>
         s.setName('invite').setDescription('Invite a creator to share their Jinxxy store with this server'),
       )
@@ -185,7 +185,7 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
       ),
   );
 
-/** No user-facing subcommands — /creator has no subcommands */
+/** No user-facing subcommands - /creator has no subcommands */
 const USER_COMMANDS: string[] = [];
 
 export async function registerCommands(

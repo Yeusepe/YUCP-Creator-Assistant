@@ -11,7 +11,7 @@
  * 6. Server stores Discord identity in state store, redirects back to consent page
  * 7. Page fetches /api/collab/session/discord-status (returns identity only)
  * 8. Collaborator completes setup, POST /api/collab/session/submit
- * 9. Server reads Discord identity from state store — never from client body
+ * 9. Server reads Discord identity from state store - never from client body
  *
  * Endpoints:
  * POST   /api/collab/invite                          – Create invite link (setup session auth)
@@ -549,7 +549,7 @@ export function createCollabRoutes(config: CollabConfig) {
       logger.warn('Collab submit: Jinxxy API key validation failed', {
         error: validationErr instanceof Error ? validationErr.message : String(validationErr),
       });
-      return Response.json({ error: 'Invalid Jinxxy API key — could not authenticate' }, { status: 422 });
+      return Response.json({ error: 'Invalid Jinxxy API key - could not authenticate' }, { status: 422 });
     }
 
     const jinxxyApiKeyEncrypted = await encrypt(jinxxyApiKey.trim(), config.encryptionSecret);
@@ -598,7 +598,7 @@ export function createCollabRoutes(config: CollabConfig) {
   }
 
   /**
-   * GET /api/collab/connections — list owner's connections
+   * GET /api/collab/connections - list owner's connections
    */
   async function listConnections(request: Request): Promise<Response> {
     const session = await resolveSetupToken(request, config.encryptionSecret);
@@ -612,7 +612,7 @@ export function createCollabRoutes(config: CollabConfig) {
   }
 
   /**
-   * DELETE /api/collab/connections/:id — remove a connection
+   * DELETE /api/collab/connections/:id - remove a connection
    */
   async function removeConnection(request: Request, connectionId: string): Promise<Response> {
     if (request.method !== 'DELETE') return Response.json({ error: 'Method not allowed' }, { status: 405 });

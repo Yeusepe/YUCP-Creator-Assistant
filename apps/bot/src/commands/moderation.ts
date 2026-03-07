@@ -1,5 +1,5 @@
 /**
- * /creator-admin moderation — Suspicious account management (admin)
+ * /creator-admin moderation - Suspicious account management (admin)
  *
  * mark: Flag user (shows reason select menu)
  * list: List flagged accounts
@@ -29,7 +29,7 @@ import { createLogger } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
-/** /creator-admin moderation mark @user — shows reason select menu */
+/** /creator-admin moderation mark @user - shows reason select menu */
 export async function handleModerationMark(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
@@ -75,7 +75,7 @@ export async function handleModerationMark(
   });
 }
 
-/** Select menu: reason selected — perform the flag */
+/** Select menu: reason selected - perform the flag */
 export async function handleModerationReasonSelect(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
@@ -127,7 +127,7 @@ export async function handleModerationReasonSelect(
   await interaction.editReply({ embeds: [embed], components: [] });
 }
 
-/** /creator-admin moderation list — shows flagged accounts */
+/** /creator-admin moderation list - shows flagged accounts */
 export async function handleModerationList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
@@ -152,7 +152,7 @@ export async function handleModerationList(
       const date = s._creationTime
         ? `<t:${Math.floor(s._creationTime / 1000)}:d>`
         : '';
-      return `<@${s.discordUserId}> — **${s.reason ?? 'No reason'}** ${date}`;
+      return `<@${s.discordUserId}> - **${s.reason ?? 'No reason'}** ${date}`;
     },
   );
 
@@ -165,7 +165,7 @@ export async function handleModerationList(
   await interaction.editReply({ embeds: [embed] });
 }
 
-/** /creator-admin moderation clear @user — shows confirmation */
+/** /creator-admin moderation clear @user - shows confirmation */
 export async function handleModerationClear(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
@@ -201,7 +201,7 @@ export async function handleModerationClear(
   });
 }
 
-/** Confirm clear button — actually clears the flag */
+/** Confirm clear button - actually clears the flag */
 export async function handleModerationConfirmClear(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
@@ -242,7 +242,7 @@ export async function handleModerationConfirmClear(
 
 // ─── Unverify command ────────────────────────────────────────────────────────
 
-/** /creator-admin moderation unverify @user product_id — removes a verified product */
+/** /creator-admin moderation unverify @user product_id - removes a verified product */
 export async function handleModerationUnverify(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,

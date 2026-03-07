@@ -1,5 +1,5 @@
 /**
- * /creator-admin stats — Verification statistics with navigation buttons
+ * /creator-admin stats - Verification statistics with navigation buttons
  *
  * Single command shows overview. Navigation buttons open sub-views.
  * Uses custom Discord icons (E.*, Emoji.*) and CDN thumbnails.
@@ -66,7 +66,7 @@ function buildOverviewButtons(tenantId: Id<'tenants'>, guildId: string): ActionR
   );
 }
 
-/** /creator-admin stats — shows overview with navigation buttons */
+/** /creator-admin stats - shows overview with navigation buttons */
 export async function handleStats(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
@@ -105,7 +105,7 @@ export async function handleStats(
   await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
-/** Button: View Users — shows paginated verified users list */
+/** Button: View Users - shows paginated verified users list */
 export async function handleStatsViewUsersButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
@@ -161,7 +161,7 @@ export async function handleStatsViewUsersButton(
 
   const lines = users.map(
     (u: { discordUserId: string; productCount: number }) =>
-      `• <@${u.discordUserId}> — ${u.productCount} product(s)`,
+      `• <@${u.discordUserId}> - ${u.productCount} product(s)`,
   );
 
   const embed = new EmbedBuilder()
@@ -233,7 +233,7 @@ export async function handleStatsViewUsersPageButton(
 
   const lines = users.map(
     (u: { discordUserId: string; productCount: number }) =>
-      `• <@${u.discordUserId}> — ${u.productCount} product(s)`,
+      `• <@${u.discordUserId}> - ${u.productCount} product(s)`,
   );
 
   const start = newPageIndex * USERS_PAGE_SIZE + 1;
@@ -340,7 +340,7 @@ export async function handleStatsBackButton(
   await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
-/** Button: View Products — shows product verification counts with display names */
+/** Button: View Products - shows product verification counts with display names */
 export async function handleStatsViewProductsButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
@@ -391,7 +391,7 @@ export async function handleStatsViewProductsButton(
     .sort((a, b) => b.verifiedCount - a.verifiedCount)
     .map((p) => {
       const name = nameMap.get(p.productId) ?? p.productId.slice(0, 12) + (p.productId.length > 12 ? '…' : '');
-      return `• **${name}** — ${p.verifiedCount} verified`;
+      return `• **${name}** - ${p.verifiedCount} verified`;
     });
 
   const embed = new EmbedBuilder()
@@ -411,7 +411,7 @@ export async function handleStatsViewProductsButton(
   await interaction.editReply({ embeds: [embed], components: [backRow] });
 }
 
-/** Button: Check a User — shows user select menu */
+/** Button: Check a User - shows user select menu */
 export async function handleStatsCheckUserButton(
   interaction: ButtonInteraction,
   tenantId: Id<'tenants'>,

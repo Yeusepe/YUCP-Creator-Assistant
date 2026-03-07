@@ -70,7 +70,7 @@ export async function handleSuspiciousList(
 
   const lines = list.map(
     (s: { discordUserId: string; reason?: string }) =>
-      `<@${s.discordUserId}> — ${s.reason ?? 'No reason'}`,
+      `<@${s.discordUserId}> - ${s.reason ?? 'No reason'}`,
   );
   const embed = new EmbedBuilder()
     .setTitle('Suspicious Accounts')

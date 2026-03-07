@@ -7,7 +7,7 @@
  * - getSession: verifies sessions by calling Convex directly
  * - exchangeOTT: exchanges a one-time-token for a session (post-OAuth)
  *
- * No proxy is needed — the cross-domain plugin on Convex handles the
+ * No proxy is needed - the cross-domain plugin on Convex handles the
  * cookie gap between the Bun API server and Convex via custom headers
  * and one-time-tokens.
  */

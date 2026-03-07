@@ -1,7 +1,7 @@
 /**
- * /creator — State-aware verification status panel (user command)
- * /creator-admin spawn-verify — Spawn verify button in channel
- * Verify button interaction — shows same status panel
+ * /creator - State-aware verification status panel (user command)
+ * /creator-admin spawn-verify - Spawn verify button in channel
+ * Verify button interaction - shows same status panel
  */
 
 import {
@@ -41,9 +41,9 @@ const DEFAULT_SPAWN_TITLE = `${E.Assistant} Verify your purchase`;
 const DEFAULT_SPAWN_DESCRIPTION = [
   `${E.Touch} Click the button below to open the verification panel.`,
   '',
-  `${E.Link} **Sign in** — Connect ${E.Gumorad} Gumroad or ${E.Discord} Discord. We recognize your purchases and grant your role automatically.`,
+  `${E.Link} **Sign in** - Connect ${E.Gumorad} Gumroad or ${E.Discord} Discord. We recognize your purchases and grant your role automatically.`,
   '',
-  `${E.KeyCloud} **One license key, then you’re set** — Using ${E.Jinxxy} Jinxxy or a ${E.Gumorad} Gumroad license? Enter one key once. We link your account and sync all past and future purchases so you only verify once.`,
+  `${E.KeyCloud} **One license key, then you’re set** - Using ${E.Jinxxy} Jinxxy or a ${E.Gumorad} Gumroad license? Enter one key once. We link your account and sync all past and future purchases so you only verify once.`,
   '',
   'Connections are secure and used only for verification.',
 ].join('\n');
@@ -172,10 +172,10 @@ async function getRoleSyncBanner(
   const err = jobs[0]?.lastError;
   if (!err) return undefined;
   if (err.includes('Role hierarchy') || err.toLowerCase().includes('role hierarchy')) {
-    return `${E.Wrench} **Role setup needed** — The verified role is above the bot's role. Ask a server admin to move the bot's role above the verified role in Server Settings → Roles.`;
+    return `${E.Wrench} **Role setup needed** - The verified role is above the bot's role. Ask a server admin to move the bot's role above the verified role in Server Settings → Roles.`;
   }
   if (err.includes('50013') || err.includes('Missing Permissions') || err.includes('Manage Roles')) {
-    return `${E.Wrench} **Permissions needed** — The bot needs Manage Roles. Re-invite with the updated link in the Creator Portal.`;
+    return `${E.Wrench} **Permissions needed** - The bot needs Manage Roles. Re-invite with the updated link in the Creator Portal.`;
   }
   return `${E.Wrench} Could not assign role: ${err.slice(0, 120)}${err.length > 120 ? '…' : ''}`;
 }
@@ -234,7 +234,7 @@ function buildStatusContainer(
 
   const container = new ContainerBuilder().setAccentColor(accentColor);
 
-  // Optional banner (e.g. success/error) — must use TextDisplay when using MessageFlags.IsComponentsV2
+  // Optional banner (e.g. success/error) - must use TextDisplay when using MessageFlags.IsComponentsV2
   if (bannerMessage) {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(bannerMessage),
@@ -259,13 +259,13 @@ function buildStatusContainer(
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
   );
 
-  // Connected accounts — show all known providers (Gumroad, Jinxxy, Discord)
-  const gumroadStatus = hasGumroad ? `${E.Checkmark} Connected` : '— Not connected';
-  const jinxxyStatus = hasJinxxy ? `${E.Checkmark} Connected` : '— Not connected';
-  const discordStatus = hasDiscord ? `${E.Checkmark} Connected` : '— Not connected';
+  // Connected accounts - show all known providers (Gumroad, Jinxxy, Discord)
+  const gumroadStatus = hasGumroad ? `${E.Checkmark} Connected` : '- Not connected';
+  const jinxxyStatus = hasJinxxy ? `${E.Checkmark} Connected` : '- Not connected';
+  const discordStatus = hasDiscord ? `${E.Checkmark} Connected` : '- Not connected';
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `**Connected Accounts**\n${E.Gumorad} Gumroad — ${gumroadStatus}\n${E.Jinxxy} Jinxxy — ${jinxxyStatus}\n${E.Discord} Discord (other server) — ${discordStatus}`,
+      `**Connected Accounts**\n${E.Gumorad} Gumroad - ${gumroadStatus}\n${E.Jinxxy} Jinxxy - ${jinxxyStatus}\n${E.Discord} Discord (other server) - ${discordStatus}`,
     ),
   );
 
@@ -453,7 +453,7 @@ function buildStatusContainer(
   return container;
 }
 
-/** /creator slash command — shows state-aware verification status panel */
+/** /creator slash command - shows state-aware verification status panel */
 export async function handleCreatorCommand(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
@@ -501,7 +501,7 @@ export async function handleCreatorCommand(
   }
 }
 
-/** "Verify" button in channel — shows same state-aware panel */
+/** "Verify" button in channel - shows same state-aware panel */
 export async function handleVerifyStartButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
@@ -547,7 +547,7 @@ export async function handleVerifyStartButton(
   }
 }
 
-/** "Add another account" button — shows connect options overlay */
+/** "Add another account" button - shows connect options overlay */
 export async function handleVerifyAddMore(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
@@ -584,7 +584,7 @@ export async function handleVerifyAddMore(
   }
 }
 
-/** /creator-admin spawn-verify — post non-ephemeral verify button in channel */
+/** /creator-admin spawn-verify - post non-ephemeral verify button in channel */
 export async function handleVerifySpawn(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
@@ -863,7 +863,7 @@ export async function handleVerifyDisconnectButton(
       provider,
       userId: interaction.user.id,
     });
-    // Error path: use plain content (no IsComponentsV2) — legacy content is allowed
+    // Error path: use plain content (no IsComponentsV2) - legacy content is allowed
     await interaction.editReply({
       content: `${E.X_} Couldn’t disconnect this account right now. Try again in a moment.`,
     });

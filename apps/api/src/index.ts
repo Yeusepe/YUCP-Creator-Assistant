@@ -32,7 +32,7 @@ let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
 
-// Resolved after initializeAuth — used for apiBase injection and CORS
+// Resolved after initializeAuth - used for apiBase injection and CORS
 let resolvedApiBaseUrl = 'http://localhost:3001';
 let resolvedFrontendOrigin: string | null = null;
 const RATE_LIMIT_BUCKETS = new Map<string, { count: number; resetAt: number }>();
@@ -168,7 +168,7 @@ function initializeAuth(webhookBaseUrl?: string) {
 }
 
 /**
- * Core routing logic — called by handleRequest after CORS is handled.
+ * Core routing logic - called by handleRequest after CORS is handled.
  */
 async function routeRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
@@ -352,7 +352,7 @@ async function routeRequest(request: Request): Promise<Response> {
     return Response.redirect(redirectUrl, 302);
   }
 
-  // Auth is handled directly by Convex (.site URL) — no proxy needed.
+  // Auth is handled directly by Convex (.site URL) - no proxy needed.
   // The browser talks to Convex for sign-in/callback, and the Bun server
   // verifies sessions by calling Convex directly.
 
@@ -688,7 +688,7 @@ async function handleRequest(request: Request): Promise<Response> {
     }
   }
 
-  // CORS preflight — respond immediately.
+  // CORS preflight - respond immediately.
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }

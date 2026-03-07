@@ -2,8 +2,8 @@
  * Global custom emoji list for the Creator Assistant bot.
  * Use in embed text (titles, descriptions) or with discord.js setEmoji().
  *
- * - E.* — markdown strings for embed text (e.g. E.Assistant)
- * - Emoji.* — { id, name } for components (e.g. .setEmoji(Emoji.Bag))
+ * - E.* - markdown strings for embed text (e.g. E.Assistant)
+ * - Emoji.* - { id, name } for components (e.g. .setEmoji(Emoji.Bag))
  */
 
 import type { ComponentEmojiResolvable } from 'discord.js';
@@ -82,7 +82,7 @@ export const EmojiIds = {
   Home: '1478761067155951749',
 } as const;
 
-/** Discord CDN URL for custom emoji — use with embed.setThumbnail(). */
+/** Discord CDN URL for custom emoji - use with embed.setThumbnail(). */
 export function getEmojiCdnUrl(emojiId: string): string {
   return `https://cdn.discordapp.com/emojis/${emojiId}.png`;
 }

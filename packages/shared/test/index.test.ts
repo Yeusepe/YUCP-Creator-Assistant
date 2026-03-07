@@ -1,6 +1,6 @@
 /**
  * Tests for shared package exports.
- * Uses real capture transport (sink) for logger tests—no mocks.
+ * Uses real capture transport (sink) for logger tests-no mocks.
  */
 
 import { describe, expect, it } from 'bun:test';
