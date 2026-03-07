@@ -362,6 +362,14 @@ async function handleSlashCommand(
       } else if (sub === 'unverify') {
         await handleModerationUnverify(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
       }
+    } else if (subcommandGroup === 'collab') {
+      const sub = interaction.options.getSubcommand();
+      const { handleCollabInvite, handleCollabList } = await import('../commands/collab');
+      if (sub === 'invite') {
+        await handleCollabInvite(interaction, ctx.apiSecret, tenantId);
+      } else if (sub === 'list') {
+        await handleCollabList(interaction, ctx.apiSecret, tenantId);
+      }
     } else {
       await interaction.reply({
         content: 'Unknown command.',
@@ -831,6 +839,18 @@ async function handleButton(
 
   if (customId === 'creator_moderation:cancel_clear') {
     await interaction.update({ content: 'Cancelled.', components: [], embeds: [] });
+    return;
+  }
+
+  // ─── Collab invite ─────────────────────────────────────────────────────────
+  // creator_collab:remove:{tenantId}:{connectionId}
+  if (customId.startsWith('creator_collab:remove:')) {
+    const rest = customId.slice('creator_collab:remove:'.length);
+    const colonIdx = rest.indexOf(':');
+    const tenantId = rest.slice(0, colonIdx) as Id<'tenants'>;
+    const connectionId = rest.slice(colonIdx + 1);
+    const { handleCollabRemove } = await import('../commands/collab');
+    await handleCollabRemove(interaction, ctx.apiSecret, tenantId, connectionId);
     return;
   }
 

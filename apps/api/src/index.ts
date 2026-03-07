@@ -149,6 +149,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
+    discordClientId: env.DISCORD_CLIENT_ID ?? '',
+    discordClientSecret: env.DISCORD_CLIENT_SECRET ?? '',
   });
 
   logger.info('Better Auth initialized', {

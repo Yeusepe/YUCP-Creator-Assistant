@@ -335,6 +335,18 @@
             z-index: -1;
             pointer-events: none;
         }
+
+        .page-loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #5865F2;
+            border-radius: 50%;
+            animation: page-loading-spin 0.8s linear infinite;
+        }
+        @keyframes page-loading-spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 
     <!-- ES Module Shims for React-Three-Fiber context -->
@@ -359,6 +371,12 @@
 </head>
 
 <body class="selection:bg-yellow-200">
+    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center" style="background-color: var(--bg-color);">
+        <img src="Icons/MainLogo.png" alt="YUCP" class="h-10 mb-8" />
+        <div class="page-loading-spinner"></div>
+        <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
+    </div>
+    <div id="page-content" style="display: none;">
     <!-- Background layers -->
     <div id="bg-canvas-root"></div>
     <div id="fg-canvas-root"></div>
@@ -819,6 +837,7 @@
             <p class="mt-12 text-xs font-medium text-white/20">© 2026 YUCP Creator Assistant. All rights reserved.</p>
         </div>
     </footer>
+    </div>
 
     <!-- Interactive Scripts -->
     <script>
@@ -1004,6 +1023,13 @@
         // Render Foreground
         const fgRoot = createRoot(document.getElementById('fg-canvas-root'));
         fgRoot.render(<ForegroundApp />);
+
+        (function hideLoading() {
+            const overlay = document.getElementById('page-loading-overlay');
+            const content = document.getElementById('page-content');
+            if (overlay) overlay.style.display = 'none';
+            if (content) content.style.display = '';
+        })();
     </script>
 </body>
 

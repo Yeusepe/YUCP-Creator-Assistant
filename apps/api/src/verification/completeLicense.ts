@@ -228,6 +228,63 @@ export async function handleCompleteLicense(
         }
       );
 
+      if (mutationResult.success) {
+        return {
+          success: true,
+          provider: 'jinxxy',
+          entitlementIds: mutationResult.entitlementIds,
+        };
+      }
+
+      // Primary key failed — try collaborator connections
+      const collabConnections = await convex.query(
+        'collaboratorInvites:getCollabConnectionsForVerification' as any,
+        { apiSecret: config.convexApiSecret, ownerTenantId: tenantId }
+      ) as Array<{ id: string; jinxxyApiKeyEncrypted?: string }>;
+
+      for (const collab of collabConnections) {
+        if (!collab.jinxxyApiKeyEncrypted) continue;
+        try {
+          const collabKey = await decrypt(collab.jinxxyApiKeyEncrypted, config.encryptionSecret ?? '');
+          const collabClient = new JinxxyApiClient({
+            apiKey: collabKey,
+            apiBaseUrl: process.env.JINXXY_API_BASE_URL,
+          });
+          const collabResult = await collabClient.verifyLicenseByKey(licenseKey.trim());
+          if (collabResult.valid && collabResult.license) {
+            const collabLicense = collabResult.license;
+            if (!collabLicense.product_id) continue;
+            const collabCustomerId = collabLicense.customer_id ?? collabLicense.id;
+            const collabMutation = await convex.mutation(
+              'licenseVerification:completeLicenseVerification' as any,
+              {
+                apiSecret: config.convexApiSecret,
+                tenantId,
+                subjectId,
+                provider: 'jinxxy',
+                providerUserId: collabCustomerId,
+                productsToGrant: [{
+                  productId: collabLicense.product_id,
+                  sourceReference: `jinxxy-collab:${collab.id}:license:${collabLicense.id}`,
+                }],
+              }
+            );
+            if (collabMutation.success) {
+              return {
+                success: true,
+                provider: 'jinxxy',
+                entitlementIds: collabMutation.entitlementIds,
+              };
+            }
+          }
+        } catch (collabErr) {
+          logger.warn('Collab Jinxxy verification failed', {
+            collabConnectionId: collab.id,
+            error: collabErr instanceof Error ? collabErr.message : String(collabErr),
+          });
+        }
+      }
+
       return {
         success: mutationResult.success,
         provider: 'jinxxy',

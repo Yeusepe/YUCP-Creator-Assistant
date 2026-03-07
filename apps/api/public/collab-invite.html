@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
+    <title>Collaborator Invite | YUCP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
+        rel="stylesheet">
+    <script src="https://unpkg.com/lucide@0.344.0"></script>
+    <link rel="stylesheet" href="./tokens.css">
+    <style>
+        :root {
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.8);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            font-family: 'DM Sans', sans-serif;
+            color: var(--text-primary);
+            overflow-x: hidden;
+            width: 100%;
+            min-height: 100vh;
+        }
+
+        h1, h2, h3, .font-heading {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .stage {
+            display: none;
+        }
+
+        .stage.active {
+            display: block;
+        }
+
+        .card-option {
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        .card-option:hover {
+            border-color: rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.05);
+        }
+
+        .card-option.selected {
+            border-color: #5865F2;
+            background: rgba(88, 101, 242, 0.1);
+        }
+
+        .btn-primary {
+            background: #5865F2;
+            color: white;
+            font-weight: 600;
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 15px;
+            transition: opacity 0.2s, transform 0.1s;
+            font-family: 'DM Sans', sans-serif;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            opacity: 0.9;
+        }
+
+        .btn-primary:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.08);
+            color: white;
+            font-weight: 500;
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.15);
+            cursor: pointer;
+            font-size: 15px;
+            transition: background 0.2s;
+            font-family: 'DM Sans', sans-serif;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.12);
+        }
+
+        .input-field {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px;
+            color: white;
+            padding: 12px 16px;
+            font-size: 15px;
+            width: 100%;
+            font-family: 'DM Sans', sans-serif;
+            transition: border-color 0.2s;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: #5865F2;
+        }
+
+        .input-field::placeholder {
+            color: rgba(255,255,255,0.3);
+        }
+
+        .warning-box {
+            background: rgba(255, 165, 0, 0.1);
+            border: 1px solid rgba(255, 165, 0, 0.3);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: rgba(255, 220, 100, 0.9);
+            font-size: 14px;
+        }
+
+        .copy-btn {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 6px;
+            color: white;
+            padding: 8px 14px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s, transform 0.1s;
+            font-family: 'DM Sans', sans-serif;
+            white-space: nowrap;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255,255,255,0.12);
+        }
+
+        .copy-btn:active {
+            transform: scale(0.95);
+        }
+
+        .code-block {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-family: monospace;
+            font-size: 13px;
+            word-break: break-all;
+            color: rgba(255,255,255,0.9);
+        }
+
+        .step-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .step-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+        }
+
+        .step-dot.active {
+            background: #5865F2;
+        }
+
+        .step-dot.done {
+            background: #43b581;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #5865F2;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .check-circle {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: rgba(67, 181, 129, 0.15);
+            border: 2px solid #43b581;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+        }
+
+        .webhook-step {
+            padding: 16px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .webhook-step.completed {
+            border-color: rgba(67, 181, 129, 0.4);
+            background: rgba(67, 181, 129, 0.05);
+        }
+
+        .page-loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #5865F2;
+            border-radius: 50%;
+            animation: page-loading-spin 0.8s linear infinite;
+        }
+        @keyframes page-loading-spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+
+    <!-- ES Module Shims for better browser compatibility -->
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "three": "https://esm.sh/three@0.160.0",
+            "troika-three-utils": "https://unpkg.com/troika-three-utils@0.47.2/dist/troika-three-utils.esm.js",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center" style="background-color: var(--bg-color);">
+        <img src="Icons/MainLogo.png" alt="YUCP" class="h-10 mb-8" />
+        <div class="page-loading-spinner"></div>
+        <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
+    </div>
+    <div id="page-content" style="display: none;">
+    <div id="bg-canvas-root"
+        style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
+    </div>
+    <div class="w-full max-w-lg relative z-10">
+        <!-- Logo -->
+        <div class="text-center mb-8">
+            <img src="Icons/MainLogo.png" alt="YUCP Creator Assistant logo" role="img" class="h-10 mx-auto" />
+        </div>
+
+        <!-- Stage 0: Loading -->
+        <div id="stage-loading" class="stage active text-center">
+            <div class="flex justify-center mb-4">
+                <div class="spinner"></div>
+            </div>
+            <p style="color: var(--text-secondary);">Loading invite...</p>
+        </div>
+
+        <!-- Stage 1: Consent -->
+        <div id="stage-consent" class="stage">
+            <div class="fade-in">
+                <h1 class="text-2xl font-heading font-bold mb-2 text-center" id="consent-title"></h1>
+                <p class="text-center mb-6" style="color: var(--text-secondary);" id="consent-expiry"></p>
+
+                <div class="rounded-xl p-6 mb-6" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);">
+                    <h3 class="font-heading font-semibold mb-3">What this grants access to:</h3>
+                    <ul class="space-y-2" style="color: var(--text-secondary);">
+                        <li class="flex gap-2 items-start">
+                            <img src="Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
+                            <span>Your Jinxxy API key is used to verify licenses sold through your store</span>
+                        </li>
+                        <li class="flex gap-2 items-start">
+                            <img src="Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
+                            <span>YUCP will only check if a license key is valid — no personal data is stored beyond your Discord ID</span>
+                        </li>
+                        <li class="flex gap-2 items-start">
+                            <img src="Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
+                            <span>You can revoke access at any time by contacting the server owner</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <button class="btn-primary w-full" id="btn-discord-auth" onclick="beginDiscordAuth()" style="display:flex;align-items:center;justify-content:center;gap:10px;">
+                    <img src="Icons/Discord.png" width="20" height="20" alt="">
+                    Continue with Discord
+                </button>
+            </div>
+        </div>
+
+        <!-- Stage 2: Returning user (conditional) -->
+        <div id="stage-returning" class="stage">
+            <div class="fade-in">
+                <h2 class="text-xl font-heading font-bold mb-2 text-center">Welcome back!</h2>
+                <p class="text-center mb-6" style="color: var(--text-secondary);">
+                    We noticed you've connected with YUCP before.<br>Would you like to reuse your previous API key?
+                </p>
+
+                <div class="space-y-3 mb-6">
+                    <button class="btn-primary w-full" onclick="setReuseKey(true)">Reuse my previous API key</button>
+                    <button class="btn-secondary w-full" onclick="setReuseKey(false)">Enter a new key</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stage 3: Type selection -->
+        <div id="stage-type" class="stage">
+            <div class="fade-in">
+                <h2 class="text-xl font-heading font-bold mb-2 text-center">Choose how to connect</h2>
+                <p class="text-center mb-6" style="color: var(--text-secondary);">Select your preferred integration method.</p>
+
+                <div class="space-y-3 mb-6">
+                    <div class="card-option" id="card-account" onclick="selectType('account')">
+                        <div class="flex items-start gap-3">
+                            <img src="Icons/Link.png" width="20" height="20" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.85;">
+                            <div>
+                                <h3 class="font-heading font-semibold">Account Linking <span class="text-xs ml-1 px-2 py-0.5 rounded-full" style="background: rgba(88,101,242,0.2); color: #8b9cf4;">Recommended</span></h3>
+                                <p class="text-sm mt-1" style="color: var(--text-secondary);">API key + webhook. Automatic role assignment when purchases are made, plus manual verification.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-option" id="card-api" onclick="selectType('api')">
+                        <div class="flex items-start gap-3">
+                            <img src="Icons/Key.png" width="20" height="20" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.85;">
+                            <div>
+                                <h3 class="font-heading font-semibold">API Linking</h3>
+                                <p class="text-sm mt-1" style="color: var(--text-secondary);">API key only. Users must run /verify manually — no automatic role assignment.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn-primary w-full" id="btn-type-continue" disabled onclick="continueFromType()">Continue</button>
+            </div>
+        </div>
+
+        <!-- Stage 4a: Account Linking Wizard -->
+        <div id="stage-account-wizard" class="stage">
+            <div class="fade-in">
+                <!-- Header: title + step counter -->
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex items-center gap-2">
+                        <img src="Icons/Link.png" width="16" height="16" alt="" style="opacity:0.7;">
+                        <span class="text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Account Linking</span>
+                    </div>
+                    <span class="text-sm font-semibold" style="color:rgba(255,255,255,0.4);">Step <span id="wiz-step-num">1</span> of 5</span>
+                </div>
+                <!-- Progress bar -->
+                <div class="flex gap-1.5 mb-6">
+                    <div class="wiz-dot rounded-full transition-all duration-300" style="height:4px;width:32px;background:#5865F2;" data-step="1"></div>
+                    <div class="wiz-dot rounded-full transition-all duration-300" style="height:4px;width:8px;background:rgba(255,255,255,0.15);" data-step="2"></div>
+                    <div class="wiz-dot rounded-full transition-all duration-300" style="height:4px;width:8px;background:rgba(255,255,255,0.15);" data-step="3"></div>
+                    <div class="wiz-dot rounded-full transition-all duration-300" style="height:4px;width:8px;background:rgba(255,255,255,0.15);" data-step="4"></div>
+                    <div class="wiz-dot rounded-full transition-all duration-300" style="height:4px;width:8px;background:rgba(255,255,255,0.15);" data-step="5"></div>
+                </div>
+
+                <!-- Step 1: Open Jinxxy webhooks -->
+                <div id="wiz-step-1" class="wiz-step">
+                    <!-- Visual mockup: Jinxxy sidebar -->
+                    <div class="rounded-xl overflow-hidden mb-5" style="background:#0f0f0f;border:1px solid #2a2a2a;display:flex;height:120px;">
+                        <div style="width:130px;background:#1a1a1a;border-right:1px solid #2a2a2a;padding:10px;display:flex;flex-direction:column;gap:5px;flex-shrink:0;">
+                            <div style="height:10px;width:55px;background:#333;border-radius:3px;margin-bottom:8px;"></div>
+                            <div style="height:8px;width:90%;background:#2a2a2a;border-radius:2px;"></div>
+                            <div style="height:8px;width:70%;background:#2a2a2a;border-radius:2px;"></div>
+                            <div style="height:6px;width:45%;background:#444;border-radius:2px;margin-top:6px;margin-bottom:2px;"></div>
+                            <div style="height:8px;width:80%;background:#2a2a2a;border-radius:2px;"></div>
+                            <!-- Highlighted Webhooks -->
+                            <div style="padding:5px 7px;background:rgba(88,101,242,0.15);border:1px solid #5865F2;border-radius:4px;display:flex;align-items:center;gap:5px;">
+                                <div style="width:10px;height:10px;background:#5865F2;border-radius:2px;flex-shrink:0;"></div>
+                                <div style="height:7px;width:42px;background:#8b9cf4;border-radius:2px;opacity:0.7;"></div>
+                            </div>
+                        </div>
+                        <div style="flex:1;padding:12px;opacity:0.25;">
+                            <div style="height:10px;width:60px;background:#333;border-radius:3px;margin-bottom:10px;"></div>
+                            <div style="height:50px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:5px;"></div>
+                        </div>
+                    </div>
+                    <h2 class="text-xl font-heading font-bold mb-2">Open Jinxxy Webhooks</h2>
+                    <p class="mb-6" style="color:var(--text-secondary);font-size:14px;line-height:1.7;">
+                        Go to your <strong style="color:white;">Jinxxy Creator Dashboard</strong> and open the left sidebar. Under the <strong style="color:white;">Management</strong> section, click <strong style="color:white;">Webhooks</strong>.
+                    </p>
+                    <button class="btn-primary w-full" onclick="wizNext()">I'm on the Webhooks page</button>
+                </div>
+
+                <!-- Step 2: Paste values -->
+                <div id="wiz-step-2" class="wiz-step hidden">
+                    <!-- Visual mockup: New Webhook form -->
+                    <div class="rounded-xl overflow-hidden mb-5" style="background:#0f0f0f;border:1px solid #2a2a2a;">
+                        <div style="background:#1a1a1a;padding:8px 12px;border-bottom:1px solid #2a2a2a;font-size:10px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">New Webhook</div>
+                        <div style="padding:12px;display:flex;flex-direction:column;gap:8px;">
+                            <div>
+                                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:#666;margin-bottom:3px;font-weight:700;">Callback URL</div>
+                                <div style="height:28px;background:#0a0a0a;border:1.5px solid #5865F2;border-radius:4px;display:flex;align-items:center;padding:0 8px;">
+                                    <div style="font-size:9px;color:#8b9cf4;font-family:monospace;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;" id="wiz-mock-url">Loading...</div>
+                                </div>
+                            </div>
+                            <div>
+                                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:#666;margin-bottom:3px;font-weight:700;">Signing Secret</div>
+                                <div style="height:28px;background:#0a0a0a;border:1.5px solid #5865F2;border-radius:4px;display:flex;align-items:center;padding:0 8px;">
+                                    <div style="font-size:9px;color:#8b9cf4;font-family:monospace;letter-spacing:0.1em;">••••••••••••••••••••</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <h2 class="text-xl font-heading font-bold mb-2">Add a new webhook</h2>
+                    <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.6;">Click <strong style="color:white;">New Webhook</strong> in Jinxxy, then copy and paste both values into the form:</p>
+                    <div class="space-y-3 mb-5">
+                        <div>
+                            <label class="block text-xs font-bold mb-1.5" style="color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.05em;">Callback URL</label>
+                            <div class="flex gap-2">
+                                <div class="code-block flex-1 text-xs" id="webhook-callback-url">Loading...</div>
+                                <button class="copy-btn" onclick="copyText('webhook-callback-url', this)">Copy</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold mb-1.5" style="color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.05em;">Signing Secret</label>
+                            <div class="flex gap-2">
+                                <div class="code-block flex-1 text-xs" id="webhook-signing-secret">Loading...</div>
+                                <button class="copy-btn" onclick="copyText('webhook-signing-secret', this)">Copy</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn-secondary" onclick="wizBack()" style="flex:0 0 80px;">Back</button>
+                        <button class="btn-primary flex-1" onclick="wizNext()">Values pasted — Next</button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Select event & save -->
+                <div id="wiz-step-3" class="wiz-step hidden">
+                    <!-- Visual mockup: events checklist -->
+                    <div class="rounded-xl overflow-hidden mb-5" style="background:#0f0f0f;border:1px solid #2a2a2a;">
+                        <div style="background:#1a1a1a;padding:8px 12px;border-bottom:1px solid #2a2a2a;font-size:10px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Webhook Events</div>
+                        <div style="padding:12px;display:flex;flex-direction:column;gap:6px;">
+                            <div style="display:flex;align-items:center;gap:8px;padding:7px 9px;background:rgba(88,101,242,0.12);border:1px solid #5865F2;border-radius:4px;">
+                                <div style="width:13px;height:13px;background:#5865F2;border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                    <svg width="8" height="6" viewBox="0 0 8 6"><polyline points="1,3 3,5 7,1" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                </div>
+                                <span style="font-size:11px;color:#fff;font-weight:600;font-family:monospace;">order.created</span>
+                                <span style="margin-left:auto;font-size:8px;color:#8b9cf4;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Check this</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;padding:7px 9px;opacity:0.3;">
+                                <div style="width:13px;height:13px;border:1px solid #555;border-radius:3px;flex-shrink:0;"></div>
+                                <span style="font-size:11px;color:#777;font-family:monospace;">order.updated</span>
+                            </div>
+                        </div>
+                        <div style="padding:8px 12px;border-top:1px solid #2a2a2a;display:flex;justify-content:flex-end;">
+                            <div style="background:rgba(88,101,242,0.15);border:1.5px solid #5865F2;color:#8b9cf4;font-size:10px;font-weight:700;padding:5px 12px;border-radius:4px;">Save Changes</div>
+                        </div>
+                    </div>
+                    <h2 class="text-xl font-heading font-bold mb-2">Select events and save</h2>
+                    <div class="space-y-3 mb-5" style="color:var(--text-secondary);font-size:14px;">
+                        <div class="flex gap-3 items-start">
+                            <div style="width:20px;height:20px;border-radius:50%;background:rgba(88,101,242,0.2);border:1px solid rgba(88,101,242,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;font-weight:700;color:#8b9cf4;margin-top:1px;">1</div>
+                            <p>Under <strong style="color:white;">Events</strong>, check <strong style="color:white;">order.created</strong>. Leave other events unchecked.</p>
+                        </div>
+                        <div class="flex gap-3 items-start">
+                            <div style="width:20px;height:20px;border-radius:50%;background:rgba(88,101,242,0.2);border:1px solid rgba(88,101,242,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;font-weight:700;color:#8b9cf4;margin-top:1px;">2</div>
+                            <p>Click <strong style="color:white;">Save Changes</strong> to create the webhook.</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn-secondary" onclick="wizBack()" style="flex:0 0 80px;">Back</button>
+                        <button class="btn-primary flex-1" onclick="wizNext()">Saved — Next</button>
+                    </div>
+                </div>
+
+                <!-- Step 4: Test webhook -->
+                <div id="wiz-step-4" class="wiz-step hidden">
+                    <!-- Visual: waiting indicator -->
+                    <div class="rounded-xl mb-5 flex flex-col items-center justify-center gap-3" style="background:#0f0f0f;border:1px solid #2a2a2a;padding:28px 20px;min-height:110px;">
+                        <div id="wiz-test-visual" class="flex flex-col items-center gap-2">
+                            <div class="spinner" style="width:28px;height:28px;border-width:2px;"></div>
+                            <span style="font-size:12px;color:rgba(255,255,255,0.35);">Waiting for test webhook...</span>
+                        </div>
+                    </div>
+                    <h2 class="text-xl font-heading font-bold mb-2">Send a test webhook</h2>
+                    <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.7;">
+                        Back in Jinxxy on the Webhooks page, click the <strong style="color:white;">three dots (···)</strong> next to your new webhook and choose <strong style="color:white;">Test Webhook</strong>. We'll confirm once we receive it.
+                    </p>
+                    <div class="flex gap-2">
+                        <button class="btn-secondary" onclick="wizBack()" style="flex:0 0 80px;">Back</button>
+                        <button class="btn-primary flex-1" id="btn-wiz-test-next" onclick="wizNext()" disabled>Waiting...</button>
+                    </div>
+                </div>
+
+                <!-- Step 5: API key -->
+                <div id="wiz-step-5" class="wiz-step hidden">
+                    <!-- Visual mockup: API Keys page -->
+                    <div class="rounded-xl overflow-hidden mb-5" style="background:#0f0f0f;border:1px solid #2a2a2a;display:flex;height:110px;">
+                        <div style="width:120px;background:#1a1a1a;border-right:1px solid #2a2a2a;padding:10px;display:flex;flex-direction:column;gap:5px;flex-shrink:0;">
+                            <div style="height:10px;width:50px;background:#333;border-radius:3px;margin-bottom:8px;"></div>
+                            <div style="height:8px;width:85%;background:#2a2a2a;border-radius:2px;"></div>
+                            <div style="height:8px;width:65%;background:#2a2a2a;border-radius:2px;"></div>
+                            <div style="height:6px;width:40%;background:#444;border-radius:2px;margin-top:6px;margin-bottom:2px;"></div>
+                            <!-- Highlighted API Keys -->
+                            <div style="padding:5px 7px;background:rgba(88,101,242,0.15);border:1px solid #5865F2;border-radius:4px;display:flex;align-items:center;gap:5px;">
+                                <img src="Icons/Key.png" width="10" height="10" alt="" style="flex-shrink:0;opacity:0.8;">
+                                <div style="height:7px;width:36px;background:#8b9cf4;border-radius:2px;opacity:0.7;"></div>
+                            </div>
+                        </div>
+                        <div style="flex:1;padding:10px;">
+                            <div style="font-size:10px;font-weight:700;color:#fff;margin-bottom:7px;">API Keys</div>
+                            <div style="background:rgba(88,101,242,0.1);border:1px solid rgba(88,101,242,0.35);border-radius:4px;padding:6px 9px;font-size:9px;color:#8b9cf4;font-weight:700;display:inline-block;margin-bottom:6px;">+ New API Key</div>
+                            <div style="font-size:8px;color:#555;line-height:1.5;">products_read, orders_read,<br>licenses_read</div>
+                        </div>
+                    </div>
+                    <h2 class="text-xl font-heading font-bold mb-2">Create and paste your API key</h2>
+                    <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.7;">
+                        In Jinxxy, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong style="color:white;">New API Key</strong>. Enable these scopes: <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>. Then paste your key below.
+                    </p>
+                    <div id="api-key-reuse-notice" class="hidden mb-3">
+                        <p class="text-sm" style="color:rgba(67,181,129,0.9);display:flex;align-items:center;gap:6px;"><img src="Icons/Checkmark.png" width="14" height="14" alt=""> Using your previously saved API key</p>
+                    </div>
+                    <div id="api-key-input-group" class="mb-3">
+                        <input type="password" class="input-field" id="account-api-key" placeholder="jinxxy_..." autocomplete="off">
+                    </div>
+                    <div id="account-error" class="warning-box mb-3 hidden"></div>
+                    <div class="flex gap-2">
+                        <button class="btn-secondary" onclick="wizBack()" style="flex:0 0 80px;">Back</button>
+                        <button class="btn-primary flex-1" id="btn-account-submit" onclick="submitAccountLinking()">Connect</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stage 4b: API Linking Form -->
+        <div id="stage-api-form" class="stage">
+            <div class="fade-in">
+                <!-- Visual mockup: API Keys page -->
+                <div class="rounded-xl overflow-hidden mb-5" style="background:#0f0f0f;border:1px solid #2a2a2a;display:flex;height:100px;">
+                    <div style="width:120px;background:#1a1a1a;border-right:1px solid #2a2a2a;padding:10px;display:flex;flex-direction:column;gap:5px;flex-shrink:0;">
+                        <div style="height:10px;width:50px;background:#333;border-radius:3px;margin-bottom:8px;"></div>
+                        <div style="height:8px;width:85%;background:#2a2a2a;border-radius:2px;"></div>
+                        <div style="height:8px;width:65%;background:#2a2a2a;border-radius:2px;"></div>
+                        <div style="height:6px;width:40%;background:#444;border-radius:2px;margin-top:6px;margin-bottom:2px;"></div>
+                        <div style="padding:5px 7px;background:rgba(88,101,242,0.15);border:1px solid #5865F2;border-radius:4px;display:flex;align-items:center;gap:5px;">
+                            <img src="Icons/Key.png" width="10" height="10" alt="" style="flex-shrink:0;opacity:0.8;">
+                            <div style="height:7px;width:36px;background:#8b9cf4;border-radius:2px;opacity:0.7;"></div>
+                        </div>
+                    </div>
+                    <div style="flex:1;padding:10px;">
+                        <div style="font-size:10px;font-weight:700;color:#fff;margin-bottom:7px;">API Keys</div>
+                        <div style="background:rgba(88,101,242,0.1);border:1px solid rgba(88,101,242,0.35);border-radius:4px;padding:6px 9px;font-size:9px;color:#8b9cf4;font-weight:700;display:inline-block;margin-bottom:6px;">+ New API Key</div>
+                        <div style="font-size:8px;color:#555;line-height:1.5;">products_read, orders_read,<br>licenses_read</div>
+                    </div>
+                </div>
+
+                <h2 class="text-xl font-heading font-bold mb-3">Enter your Jinxxy API key</h2>
+
+                <div class="warning-box mb-4">
+                    <strong>Manual verification only</strong> — users must run /verify manually. There is no automatic role assignment when someone makes a purchase.
+                </div>
+
+                <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.7;">
+                    In Jinxxy, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong style="color:white;">New API Key</strong>. Enable these scopes: <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>. Then paste it below.
+                </p>
+
+                <div id="api-form-reuse-notice" class="hidden mb-3">
+                    <p class="text-sm" style="color:rgba(67,181,129,0.9);display:flex;align-items:center;gap:6px;"><img src="Icons/Checkmark.png" width="14" height="14" alt=""> Using your previously saved API key — no need to re-enter it.</p>
+                </div>
+
+                <div id="api-form-key-group" class="mb-3">
+                    <input type="password" class="input-field" id="api-form-key" placeholder="jinxxy_..." autocomplete="off">
+                </div>
+
+                <div id="api-form-error" class="warning-box mb-3 hidden"></div>
+                <button class="btn-primary w-full" onclick="submitApiLinking()">Connect</button>
+            </div>
+        </div>
+
+        <!-- Stage 5: Success -->
+        <div id="stage-success" class="stage">
+            <div class="fade-in text-center">
+                <div class="check-circle">
+                    <img src="Icons/Checkmark.png" width="28" height="28" alt="">
+                </div>
+                <h2 class="text-2xl font-heading font-bold mb-3">You're connected!</h2>
+                <p class="mb-6" style="color: var(--text-secondary);" id="success-message"></p>
+                <p class="text-sm" style="color: rgba(255,255,255,0.4);">You can close this tab.</p>
+            </div>
+        </div>
+
+        <!-- Error screen -->
+        <div id="stage-error" class="stage">
+            <div class="fade-in text-center">
+                <div class="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style="background: rgba(240,71,71,0.15); border: 2px solid rgba(240,71,71,0.5);">
+                    <img src="Icons/X.png" width="28" height="28" alt="">
+                </div>
+                <h2 class="text-xl font-heading font-bold mb-3" id="error-title">Something went wrong</h2>
+                <p style="color: var(--text-secondary);" id="error-message"></p>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <script>
+        const API_BASE = '__API_BASE__';
+
+        let inviteData = null;
+        let selectedType = null;
+        let reuseKey = false;
+        let rawToken = null;
+        let webhookConfig = null;
+        let testWebhookInterval = null;
+        let discordStatus = null;
+        let wizStep = 1;
+        let testWebhookReceived = false;
+        let testWebhookPollingStarted = false;
+
+        function goToStage(id) {
+            document.querySelectorAll('.stage').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        function showError(title, message) {
+            document.getElementById('error-title').textContent = title;
+            document.getElementById('error-message').textContent = message;
+            goToStage('stage-error');
+        }
+
+        function copyText(elementId, btn) {
+            const text = document.getElementById(elementId).textContent.trim();
+            navigator.clipboard.writeText(text).then(() => {
+                const orig = btn.textContent;
+                btn.textContent = 'Copied!';
+                btn.style.color = '#43b581';
+                setTimeout(() => {
+                    btn.textContent = orig;
+                    btn.style.color = '';
+                }, 2000);
+            });
+        }
+
+        function selectType(type) {
+            selectedType = type;
+            document.querySelectorAll('.card-option').forEach(c => c.classList.remove('selected'));
+            document.getElementById('card-' + type).classList.add('selected');
+            document.getElementById('btn-type-continue').disabled = false;
+        }
+
+        function wizNext() {
+            if (wizStep >= 5) return;
+            document.getElementById('wiz-step-' + wizStep).classList.add('hidden');
+            wizStep++;
+            document.getElementById('wiz-step-' + wizStep).classList.remove('hidden');
+            updateWizDots();
+            if (wizStep === 4 && !testWebhookPollingStarted) {
+                testWebhookPollingStarted = true;
+                startTestWebhookPolling();
+            }
+        }
+
+        function wizBack() {
+            if (wizStep <= 1) return;
+            document.getElementById('wiz-step-' + wizStep).classList.add('hidden');
+            wizStep--;
+            document.getElementById('wiz-step-' + wizStep).classList.remove('hidden');
+            updateWizDots();
+        }
+
+        function updateWizDots() {
+            document.getElementById('wiz-step-num').textContent = wizStep;
+            document.querySelectorAll('.wiz-dot').forEach(dot => {
+                const s = parseInt(dot.dataset.step);
+                if (s < wizStep) {
+                    dot.style.background = '#43b581';
+                    dot.style.width = '8px';
+                } else if (s === wizStep) {
+                    dot.style.background = '#5865F2';
+                    dot.style.width = '32px';
+                } else {
+                    dot.style.background = 'rgba(255,255,255,0.15)';
+                    dot.style.width = '8px';
+                }
+            });
+        }
+
+        function beginDiscordAuth() {
+            window.location.href = `${API_BASE}/api/collab/auth/begin?t=${encodeURIComponent(rawToken)}`;
+        }
+
+        function setReuseKey(reuse) {
+            reuseKey = reuse;
+            goToStage('stage-type');
+        }
+
+        function continueFromType() {
+            if (!selectedType) return;
+            if (selectedType === 'account') {
+                startAccountLinking();
+            } else {
+                startApiLinking();
+            }
+        }
+
+        async function startAccountLinking() {
+            // Reset wizard state
+            wizStep = 1;
+            testWebhookReceived = false;
+            testWebhookPollingStarted = false;
+            if (testWebhookInterval) { clearInterval(testWebhookInterval); testWebhookInterval = null; }
+            document.querySelectorAll('.wiz-step').forEach(s => s.classList.add('hidden'));
+            document.getElementById('wiz-step-1').classList.remove('hidden');
+            updateWizDots();
+
+            // Show reuse notice in step 5
+            if (reuseKey) {
+                document.getElementById('api-key-reuse-notice').classList.remove('hidden');
+                document.getElementById('api-key-input-group').classList.add('hidden');
+            }
+
+            goToStage('stage-account-wizard');
+
+            // Fetch webhook config in background
+            try {
+                const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/webhook-config`);
+                if (!res.ok) throw new Error('Failed to fetch webhook config');
+                webhookConfig = await res.json();
+                document.getElementById('webhook-callback-url').textContent = webhookConfig.callbackUrl;
+                document.getElementById('webhook-signing-secret').textContent = webhookConfig.signingSecret;
+                const mockEl = document.getElementById('wiz-mock-url');
+                if (mockEl) mockEl.textContent = webhookConfig.callbackUrl;
+            } catch (err) {
+                document.getElementById('webhook-callback-url').textContent = 'Error loading config';
+                document.getElementById('webhook-signing-secret').textContent = 'Error loading config';
+            }
+        }
+
+        function startApiLinking() {
+            goToStage('stage-api-form');
+            if (reuseKey) {
+                document.getElementById('api-form-reuse-notice').classList.remove('hidden');
+                document.getElementById('api-form-key-group').classList.add('hidden');
+            }
+        }
+
+        function startTestWebhookPolling() {
+            let elapsed = 0;
+            const nextBtn = document.getElementById('btn-wiz-test-next');
+            testWebhookInterval = setInterval(async () => {
+                elapsed += 2500;
+                try {
+                    const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/test-webhook`);
+                    const data = await res.json();
+                    if (data.received) {
+                        clearInterval(testWebhookInterval);
+                        testWebhookReceived = true;
+                        document.getElementById('wiz-test-visual').innerHTML =
+                            '<img src="Icons/Checkmark.png" width="32" height="32" alt="">' +
+                            '<span style="font-size:13px;color:#43b581;margin-top:4px;">Test webhook received!</span>';
+                        if (nextBtn) { nextBtn.disabled = false; nextBtn.textContent = 'Next'; }
+                    }
+                } catch { /* ignore */ }
+
+                if (elapsed >= 60000 && !testWebhookReceived) {
+                    clearInterval(testWebhookInterval);
+                    document.getElementById('wiz-test-visual').innerHTML =
+                        '<img src="Icons/Timer.png" width="28" height="28" alt="" style="opacity:0.6;">' +
+                        '<span style="font-size:12px;color:rgba(255,165,0,0.8);margin-top:4px;text-align:center;">Timed out — you can still continue.<br>The webhook may still work once configured.</span>';
+                    if (nextBtn) { nextBtn.disabled = false; nextBtn.textContent = 'Continue anyway'; }
+                }
+            }, 2500);
+        }
+
+        async function submitAccountLinking() {
+            const btn = document.getElementById('btn-account-submit');
+            const errorEl = document.getElementById('account-error');
+            errorEl.classList.add('hidden');
+
+            const jinxxyApiKey = reuseKey ? null : document.getElementById('account-api-key').value.trim();
+            if (!reuseKey && !jinxxyApiKey) {
+                errorEl.textContent = 'Please enter your Jinxxy API key.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+
+            try {
+                // Identity (collaboratorDiscordUserId, collaboratorDisplayName) is derived
+                // server-side from the invite — never sent by the client.
+                const body = {
+                    linkType: 'account',
+                    reuseKey,
+                    webhookSecret: webhookConfig?.signingSecret,
+                    webhookEndpoint: webhookConfig?.callbackUrl,
+                };
+                if (!reuseKey) body.jinxxyApiKey = jinxxyApiKey;
+
+                const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    errorEl.textContent = data.error || 'Failed to connect. Please try again.';
+                    errorEl.classList.remove('hidden');
+                    btn.disabled = false;
+                    btn.textContent = 'Connect';
+                    return;
+                }
+
+                showSuccess();
+            } catch (err) {
+                errorEl.textContent = 'Network error. Please try again.';
+                errorEl.classList.remove('hidden');
+                btn.disabled = false;
+                btn.textContent = 'Connect';
+            }
+        }
+
+        async function submitApiLinking() {
+            const btn = document.querySelector('#stage-api-form .btn-primary');
+            const errorEl = document.getElementById('api-form-error');
+            errorEl.classList.add('hidden');
+
+            const jinxxyApiKey = reuseKey ? null : document.getElementById('api-form-key').value.trim();
+            if (!reuseKey && !jinxxyApiKey) {
+                errorEl.textContent = 'Please enter your Jinxxy API key.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+
+            try {
+                // Identity is derived server-side from the invite.
+                const body = {
+                    linkType: 'api',
+                    reuseKey,
+                };
+                if (!reuseKey) body.jinxxyApiKey = jinxxyApiKey;
+
+                const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    errorEl.textContent = data.error || 'Failed to connect. Please try again.';
+                    errorEl.classList.remove('hidden');
+                    btn.disabled = false;
+                    btn.textContent = 'Connect';
+                    return;
+                }
+
+                showSuccess();
+            } catch (err) {
+                errorEl.textContent = 'Network error. Please try again.';
+                errorEl.classList.remove('hidden');
+                btn.disabled = false;
+                btn.textContent = 'Connect';
+            }
+        }
+
+        function showSuccess() {
+            if (testWebhookInterval) clearInterval(testWebhookInterval);
+            document.getElementById('success-message').textContent =
+                `Your customers can now verify their purchases in ${inviteData.ownerDisplayName}'s Discord server.`;
+            goToStage('stage-success');
+            // Confetti
+            if (typeof confetti !== 'undefined') {
+                confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+            }
+        }
+
+        async function init() {
+            const params = new URLSearchParams(window.location.search);
+            rawToken = params.get('t');
+            const authParam = params.get('auth');
+
+            if (!rawToken) {
+                showError('Invalid Link', 'This invite link is missing a token. Please ask the server owner to resend the invite.');
+                return;
+            }
+
+            if (authParam === 'error') {
+                showError('Authentication Failed', 'Could not verify your Discord identity. Please try the link again or contact the server owner.');
+                return;
+            }
+
+            // Always fetch invite metadata first (for title and expiry)
+            try {
+                const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}`);
+                const data = await res.json();
+
+                if (!res.ok) {
+                    const errorMap = {
+                        not_found: ['Invite Not Found', 'This invite link is invalid or has already been used.'],
+                        revoked: ['Invite Revoked', 'This invite has been revoked by the server owner.'],
+                        already_used: ['Already Used', 'This invite has already been accepted. Each invite can only be used once.'],
+                        expired: ['Invite Expired', 'This invite link has expired. Please ask the server owner to send a new one.'],
+                    };
+                    const [title, msg] = errorMap[data.error] || ['Error', 'Something went wrong with this invite link.'];
+                    showError(title, msg);
+                    return;
+                }
+
+                inviteData = data;
+
+                // Populate consent title and expiry
+                document.getElementById('consent-title').textContent =
+                    `${data.ownerDisplayName} wants to share license verification with your Jinxxy store`;
+                const expiryDate = new Date(data.expiresAt).toLocaleDateString(undefined, {
+                    month: 'long', day: 'numeric', year: 'numeric'
+                });
+                document.getElementById('consent-expiry').textContent = `Invite expires ${expiryDate}`;
+
+            } catch (err) {
+                showError('Connection Error', 'Could not load this invite. Please check your internet connection and try again.');
+                return;
+            }
+
+            if (authParam === 'done') {
+                // Coming back from Discord OAuth — check identity + prior history
+                try {
+                    const statusRes = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/discord-status`);
+                    const status = await statusRes.json();
+
+                    if (!status.authenticated) {
+                        showError('Authentication Failed', 'Your Discord identity could not be confirmed. Please try the link again.');
+                        return;
+                    }
+
+                    discordStatus = status;
+
+                    if (status.hasApiOnly || status.hasFullAccount) {
+                        goToStage('stage-returning');
+                    } else {
+                        goToStage('stage-type');
+                    }
+                } catch (err) {
+                    showError('Connection Error', 'Could not verify your Discord identity. Please check your connection and try again.');
+                }
+                return;
+            }
+
+            // Fresh visit — show consent with Discord auth button
+            goToStage('stage-consent');
+        }
+
+        window.addEventListener('load', () => {
+            lucide.createIcons();
+            init();
+        });
+    </script>
+
+    <script type="text/babel" data-type="module">
+        import React, { useRef, Component } from "react";
+        import { createRoot } from "react-dom/client";
+        import * as THREE from "three";
+        import { Canvas, useFrame } from "@react-three/fiber";
+        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
+
+        class ErrorBoundary extends Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            componentDidCatch(error, errorInfo) { console.error("React Error Boundary caught an error", error, errorInfo); }
+            render() { return this.state.hasError ? null : this.props.children; }
+        }
+
+        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
+            const ref = useRef();
+            useFrame((state) => {
+                if (ref.current) {
+                    const elapsed = state.clock.getElapsedTime();
+                    const range = 240;
+                    let currentX = startX - elapsed * speed;
+                    currentX = ((currentX + 120) % range + range) % range - 120;
+                    ref.current.position.x = currentX;
+                }
+            });
+            return (
+                <group ref={ref} position={[startX, y, z]}>
+                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
+                </group>
+            );
+        }
+
+        function BackgroundSky() {
+            return (
+                <React.Fragment>
+                    <SkyImpl sunPosition={[100, 20, 100]} turbidity={1.2} rayleigh={0.6} />
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#8fa3c9" volume={15} opacity={0.45} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
+                        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#7a8fb8" volume={6} opacity={0.35} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
+                        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#6b82a8" volume={40} opacity={0.55} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
+                        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#9aa8c4" volume={35} opacity={0.5} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
+                    </Clouds>
+                </React.Fragment>
+            )
+        }
+
+        function BackgroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
+                        <BackgroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        const bgRoot = createRoot(document.getElementById('bg-canvas-root'));
+        bgRoot.render(<BackgroundApp />);
+
+        (function hideLoading() {
+            const overlay = document.getElementById('page-loading-overlay');
+            const content = document.getElementById('page-content');
+            if (overlay) overlay.style.display = 'none';
+            if (content) content.style.display = '';
+        })();
+    </script>
+</body>
+
+</html>

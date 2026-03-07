@@ -51,6 +51,8 @@ interface ProductSession {
   discordRoleSetupToken?: string;
   /** Jinxxy product id -> name map (for display when adding) */
   jinxxyProductNames?: Record<string, string>;
+  /** Jinxxy product id -> collaborator display name (undefined = owner's own store) */
+  jinxxyProductSources?: Record<string, string>;
   expiresAt: number;
 }
 
@@ -250,7 +252,7 @@ export async function handleProductTypeSelect(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiSecret, tenantId }),
       });
-      const data = (await res.json()) as { products?: { id: string; name: string }[]; error?: string };
+      const data = (await res.json()) as { products?: { id: string; name: string; collaboratorName?: string }[]; error?: string };
 
       if (data.error && (!data.products || data.products.length === 0)) {
         await interaction.editReply({
@@ -270,20 +272,29 @@ export async function handleProductTypeSelect(
       }
 
       session.jinxxyProductNames = Object.fromEntries(products.map((p) => [p.id, p.name]));
+      session.jinxxyProductSources = Object.fromEntries(
+        products.filter((p) => p.collaboratorName).map((p) => [p.id, p.collaboratorName!]),
+      );
 
       // Discord select menu limit: 25 options
       const MAX_OPTIONS = 25;
       const toShow = products.slice(0, MAX_OPTIONS);
+      const hasCollabProducts = products.some((p) => p.collaboratorName);
       const select = new StringSelectMenuBuilder()
         .setCustomId(`creator_product:jinxxy_product_select:${interaction.user.id}:${tenantId}`)
         .setPlaceholder('Select a Jinxxy product...')
         .addOptions(
-          toShow.map((p) =>
-            new StringSelectMenuOptionBuilder()
-              .setLabel(p.name.length > 100 ? p.name.slice(0, 97) + '...' : p.name)
+          toShow.map((p) => {
+            const label = p.name.length > 100 ? p.name.slice(0, 97) + '...' : p.name;
+            const sourcePrefix = p.collaboratorName ? `[${p.collaboratorName}] ` : '';
+            const description = (sourcePrefix + p.name).length > 100
+              ? (sourcePrefix + p.name).slice(0, 97) + '...'
+              : sourcePrefix + p.name;
+            return new StringSelectMenuOptionBuilder()
+              .setLabel(label)
               .setValue(p.id)
-              .setDescription(p.name.length > 50 ? p.name.slice(0, 47) + '...' : p.name),
-          ),
+              .setDescription(description);
+          }),
         );
 
       const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
@@ -291,8 +302,11 @@ export async function handleProductTypeSelect(
         products.length > MAX_OPTIONS
           ? `\n\n*(Showing first ${MAX_OPTIONS} of ${products.length} products.)*`
           : '';
+      const collabNote = hasCollabProducts
+        ? '\n\nCollaborator products are shown with **[Name]** in the description.'
+        : '';
       await interaction.editReply({
-        content: `**Step 2 of 3:** Select a Jinxxy product from your store.${moreNote}`,
+        content: `**Step 2 of 3:** Select a Jinxxy product from your store.${moreNote}${collabNote}`,
         components: [row],
       });
     } catch (err) {
@@ -709,7 +723,11 @@ export async function handleProductConfirmAdd(
       // Product ID comes from Jinxxy API (product select), not URL parsing
       const productIdFromApi = urlOrId?.trim();
       if (!productIdFromApi) throw new Error('No Jinxxy product selected');
-      const displayName = session.jinxxyProductNames?.[productIdFromApi];
+      const productName = session.jinxxyProductNames?.[productIdFromApi];
+      const collabSource = session.jinxxyProductSources?.[productIdFromApi];
+      const displayName = productName
+        ? (collabSource ? `${productName} (via ${collabSource})` : productName)
+        : undefined;
       const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
         apiSecret,
         tenantId,
@@ -745,8 +763,14 @@ export async function handleProductConfirmAdd(
     productSessions.delete(sessionKey);
     track(interaction.user.id, 'product_added', { tenantId, guildId, productId, ruleId });
 
+    let finalProductLabel = productId;
+    if (session.type === 'jinxxy' && session.jinxxyProductNames?.[productId]) {
+      const name = session.jinxxyProductNames[productId];
+      const src = session.jinxxyProductSources?.[productId];
+      finalProductLabel = src ? `${name} (via ${src})` : name;
+    }
     await interaction.editReply({
-      content: `${E.Checkmark} Product **${session.type === 'jinxxy' && session.jinxxyProductNames?.[productId] ? session.jinxxyProductNames[productId] : productId}** mapped to <@&${roleId}>. Users who verify this product will automatically receive the role.`,
+      content: `${E.Checkmark} Product **${finalProductLabel}** mapped to <@&${roleId}>. Users who verify this product will automatically receive the role.`,
       components: [],
       embeds: [],
     });

@@ -21,6 +21,8 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const JINXXY_TEST_PREFIX = 'jinxxy_test:';
 const JINXXY_TEST_TTL_MS = 60 * 1000; // 60 seconds
+const COLLAB_TEST_PREFIX = 'collab_test:';
+const COLLAB_TEST_TTL_MS = 60 * 1000; // 60 seconds
 
 export interface WebhookConfig {
   convexUrl: string;
@@ -97,6 +99,104 @@ export function createWebhookRoutes(config: WebhookConfig) {
       );
     } catch {
       return null;
+    }
+  }
+
+  async function getCollabWebhookSecret(inviteId: string): Promise<string | null> {
+    try {
+      return await convex.query(
+        'collaboratorInvites:getCollabWebhookSecret' as any,
+        { apiSecret, inviteId }
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  async function handleJinxxyCollabWebhook(
+    request: Request,
+    ownerTenantId: string,
+    inviteId: string
+  ): Promise<Response> {
+    if (request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
+
+    try {
+      const rawBody = await request.text();
+      logger.info('Webhook received', {
+        provider: 'jinxxy-collab',
+        ownerTenantId,
+        inviteId,
+        payloadBytes: rawBody.length,
+      });
+      const signature = request.headers.get('x-signature');
+
+      const webhookSecret = await getCollabWebhookSecret(inviteId);
+      let signatureValid = false;
+
+      if (webhookSecret && signature) {
+        const expectedSig = await hmacSha256(webhookSecret, rawBody);
+        signatureValid = timingSafeEqual(expectedSig, signature);
+      } else if (!webhookSecret) {
+        logger.warn('Collab webhook: no secret configured', { ownerTenantId, inviteId });
+        signatureValid = false;
+      }
+
+      let payload: { event_id?: string; event_type?: string };
+      try {
+        payload = JSON.parse(rawBody) as { event_id?: string; event_type?: string };
+      } catch {
+        logger.warn('Collab webhook: invalid JSON', { ownerTenantId, inviteId });
+        return new Response('Bad Request', { status: 400 });
+      }
+
+      const eventId = payload.event_id ?? payload.event_type ?? '';
+      const eventType = payload.event_type ?? 'unknown';
+
+      if (!eventId) {
+        logger.warn('Collab webhook: missing event_id', { ownerTenantId, inviteId });
+        return new Response('OK', { status: 200 });
+      }
+
+      if (!signatureValid) {
+        logger.warn('Collab webhook: rejected (unverified)', { ownerTenantId, inviteId, eventId });
+        return new Response('Forbidden', { status: 403 });
+      }
+
+      const result = await convex.mutation(
+        'webhookIngestion:insertWebhookEvent' as any,
+        {
+          apiSecret,
+          tenantId: ownerTenantId,
+          provider: 'jinxxy',
+          providerEventId: eventId,
+          eventType,
+          rawPayload: payload,
+          signatureValid,
+        }
+      );
+
+      if (result.duplicate) {
+        logger.debug('Collab webhook: duplicate event', { eventId, ownerTenantId, inviteId });
+      }
+
+      // Set test webhook flag for collab invite polling
+      try {
+        const store = getStateStore();
+        await store.set(`${COLLAB_TEST_PREFIX}${inviteId}`, '1', COLLAB_TEST_TTL_MS);
+      } catch {
+        // Non-fatal
+      }
+
+      return new Response('OK', { status: 200 });
+    } catch (err) {
+      logger.error('Collab webhook failed', {
+        error: err instanceof Error ? err.message : String(err),
+        ownerTenantId,
+        inviteId,
+      });
+      return new Response('Internal Server Error', { status: 500 });
     }
   }
 
@@ -317,6 +417,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
   return {
     handleGumroadWebhook,
     handleJinxxyWebhook,
+    handleJinxxyCollabWebhook,
   };
 }
 
@@ -344,6 +445,15 @@ export function createWebhookHandler(config: WebhookConfig): (request: Request) 
       provider,
       tenantId: tenantId || undefined,
     });
+
+    // /webhooks/jinxxy-collab/:ownerTenantId/:inviteId
+    if (provider === 'jinxxy-collab') {
+      const inviteId = pathParts[3];
+      if (!tenantId || !inviteId) {
+        return new Response('Not Found', { status: 404 });
+      }
+      return routes.handleJinxxyCollabWebhook(request, tenantId, inviteId);
+    }
 
     if (!tenantId) {
       return new Response('Not Found', { status: 404 });

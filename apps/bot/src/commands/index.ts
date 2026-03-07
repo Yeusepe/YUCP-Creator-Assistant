@@ -167,6 +167,17 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
               .setAutocomplete(true),
           ),
       ),
+  )
+  .addSubcommandGroup((collab) =>
+    collab
+      .setName('collab')
+      .setDescription('Collaborating creators — share license verification')
+      .addSubcommand((s) =>
+        s.setName('invite').setDescription('Invite a creator to share their Jinxxy store with this server'),
+      )
+      .addSubcommand((s) =>
+        s.setName('list').setDescription('List active collaborator connections'),
+      ),
   );
 
 /** No user-facing subcommands — /creator has no subcommands */

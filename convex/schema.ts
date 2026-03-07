@@ -1015,6 +1015,56 @@ const tenant_provider_config = defineTable({
 })
   .index('by_tenant', ['tenantId']);
 
+/**
+ * Collaborator Invites - Single-use invite tokens for cross-creator API key sharing
+ * Allows a server owner to invite another creator to share Jinxxy credentials.
+ */
+const collaborator_invites = defineTable({
+  ownerTenantId: v.id('tenants'),
+  /** SHA-256 hex of raw invite token (never stored plaintext) */
+  tokenHash: v.string(),
+  status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('revoked')),
+  /** Guild name shown to collaborator on consent page */
+  ownerDisplayName: v.string(),
+  ownerGuildId: v.optional(v.string()),
+  /** Discord ID of the user who accepted (set at accept time via OAuth, not at creation) */
+  targetDiscordUserId: v.optional(v.string()),
+  /** Discord display name of the user who accepted */
+  targetDiscordDisplayName: v.optional(v.string()),
+  expiresAt: v.number(),
+  createdAt: v.number(),
+})
+  .index('by_token_hash', ['tokenHash'])
+  .index('by_owner', ['ownerTenantId'])
+  .index('by_owner_status', ['ownerTenantId', 'status'])
+  .index('by_target_discord_user', ['targetDiscordUserId']);
+
+/**
+ * Collaborator Connections - Active collaborator API key sharing relationships
+ * Created when a collaborator accepts an invite.
+ */
+const collaborator_connections = defineTable({
+  ownerTenantId: v.id('tenants'),
+  inviteId: v.id('collaborator_invites'),
+  provider: v.literal('jinxxy'),
+  jinxxyApiKeyEncrypted: v.optional(v.string()),
+  /** null for api-type connections */
+  webhookSecretRef: v.optional(v.string()),
+  /** null for api-type connections */
+  webhookEndpoint: v.optional(v.string()),
+  webhookConfigured: v.boolean(),
+  linkType: v.union(v.literal('account'), v.literal('api')),
+  status: v.union(v.literal('active'), v.literal('paused'), v.literal('disconnected')),
+  collaboratorDiscordUserId: v.string(),
+  collaboratorDisplayName: v.string(),
+  createdAt: v.number(),
+})
+  .index('by_owner', ['ownerTenantId'])
+  .index('by_invite', ['inviteId'])
+  .index('by_owner_status', ['ownerTenantId', 'status'])
+  .index('by_owner_provider', ['ownerTenantId', 'provider'])
+  .index('by_collaborator_discord', ['collaboratorDiscordUserId']);
+
 // ============================================================================
 // SCHEMA EXPORT
 // ============================================================================
@@ -1038,6 +1088,8 @@ export default defineSchema({
   tenant_provider_config,
   purchase_facts,
   provider_connections,
+  collaborator_invites,
+  collaborator_connections,
 
   // Platform-level tables
   subjects,

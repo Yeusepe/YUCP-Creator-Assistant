@@ -34,6 +34,8 @@ export interface JinxxyProductsRequest {
 export interface JinxxyProductItem {
   id: string;
   name: string;
+  /** Display name of the collaborator store this product belongs to, or undefined for owner's own store */
+  collaboratorName?: string;
 }
 
 export interface JinxxyProductsResponse {
@@ -154,8 +156,64 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
       page++;
     }
 
+    // Also fetch products from active collaborator connections
+    try {
+      const collabConnections = await convex.query('collaboratorInvites:getCollabConnectionsForVerification' as any, {
+        apiSecret,
+        ownerTenantId: tenantId,
+      }) as Array<{ id: string; jinxxyApiKeyEncrypted?: string; collaboratorDisplayName?: string }>;
+
+      for (const collab of collabConnections) {
+        if (!collab.jinxxyApiKeyEncrypted) continue;
+        try {
+          const collabKey = await decrypt(collab.jinxxyApiKeyEncrypted, encryptionSecret);
+          const collabClient = new JinxxyApiClient({
+            apiKey: collabKey,
+            apiBaseUrl: process.env.JINXXY_API_BASE_URL,
+          });
+          let collabPage = 1;
+          while (collabPage <= HARD_PAGE_LIMIT) {
+            const { products: pageProducts, pagination } = await collabClient.getProducts({
+              page: collabPage,
+              per_page: 50,
+            });
+            for (const p of pageProducts) {
+              if (p.id && p.name) {
+                products.push({
+                  id: p.id,
+                  name: p.name,
+                  collaboratorName: collab.collaboratorDisplayName ?? 'Collaborator',
+                });
+              }
+            }
+            if (!pagination?.has_next || pageProducts.length < 50) break;
+            collabPage++;
+          }
+        } catch (err) {
+          logger.warn('Failed to fetch products for collaborator', {
+            collabId: collab.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn('Failed to fetch collaborator connections for product list', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Deduplicate by product ID — owner's own products take precedence
+    const seen = new Set<string>();
+    const deduped: JinxxyProductItem[] = [];
+    for (const p of products) {
+      if (!seen.has(p.id)) {
+        seen.add(p.id);
+        deduped.push(p);
+      }
+    }
+
     return new Response(
-      JSON.stringify({ products }),
+      JSON.stringify({ products: deduped }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   } catch (err) {
