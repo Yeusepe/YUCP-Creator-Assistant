@@ -8,6 +8,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ChannelSelectMenuBuilder,
+  EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
   type AutocompleteInteraction,
@@ -521,6 +522,18 @@ async function handleUserCommand(
       await handleRefreshCommand(interaction, ctx.convex, ctx.apiSecret, {
         tenantId,
       });
+      return;
+    }
+
+    if (subcommand === 'docs') {
+      const docsUrl = 'https://creators.yucp.club/docs.html';
+      const embed = new EmbedBuilder()
+        .setTitle('Creator Assistant Documentation')
+        .setURL(docsUrl)
+        .setDescription('Full guide covering setup, commands, product types, collaborators, protected downloads, and more.')
+        .setThumbnail('https://creators.yucp.club/Icons/Library.png')
+        .setColor(0x0ea5e9);
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       return;
     }
 

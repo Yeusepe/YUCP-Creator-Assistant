@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
+    <title>Documentation Creator Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="tokens.css">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
+        html {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.08) transparent;
+        }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+
+        body {
+            margin: 0;
+            font-family: 'DM Sans', sans-serif;
+            color: rgba(255,255,255,0.9);
+            background: #09090f;
+            overflow-x: hidden;
+            cursor: none;
+        }
+
+        h1,h2,h3,h4,.display-text {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+        }
+
+        ::selection { background: var(--accent-mustard); color: #000; }
+
+        /* ── Blob Background ─────────────────────────────────────────────────── */
+        .blobs-container {
+            position: fixed; inset: 0; z-index: -1; pointer-events: none;
+            overflow: hidden;
+        }
+
+        .blob {
+            position: absolute; top: 0; left: 0;
+            width: 650px; height: 650px;
+            border-radius: 50%;
+            filter: blur(110px);
+            opacity: 0.5;
+            will-change: transform;
+        }
+
+        .blob:nth-child(1) { background: #FF75C3; }
+        .blob:nth-child(2) { background: #FFA647; }
+        .blob:nth-child(3) { background: #FFE83F; }
+        .blob:nth-child(4) { background: #9FFF5B; }
+        .blob:nth-child(5) { background: #70E2FF; }
+
+        /* ── Custom Cursor ────────────────────────────────────────────────────── */
+        .cursor-dot, .cursor-dot-outline {
+            position: fixed; top: 0; left: 0;
+            transform: translate(-50%,-50%);
+            border-radius: 50%; z-index: 9999; pointer-events: none;
+        }
+        .cursor-dot {
+            width: 8px; height: 8px;
+            background: var(--accent-mustard);
+            box-shadow: 0 0 10px rgba(255,235,59,0.8);
+        }
+        .cursor-dot-outline {
+            width: 40px; height: 40px;
+            border: 1px solid var(--accent-sky);
+            transition: width .2s, height .2s, background-color .2s, border-color .2s;
+        }
+        body:has(a:hover) .cursor-dot-outline,
+        body:has(button:hover) .cursor-dot-outline,
+        body:has(.clickable:hover) .cursor-dot-outline {
+            width: 60px; height: 60px;
+            background: rgba(14,165,233,0.2);
+            border-color: var(--accent-mustard);
+            mix-blend-mode: color-dodge;
+        }
+
+        /* ── Glow Ring ────────────────────────────────────────────────────────── */
+        .glow-ring {
+            position: absolute; border-radius: 50%;
+            filter: blur(80px); pointer-events: none;
+        }
+
+        /* ── Gradient Text ────────────────────────────────────────────────────── */
+        .grad-text {
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .grad-sky    { background-image: linear-gradient(90deg,#38bdf8,#818cf8); }
+        .grad-gold   { background-image: linear-gradient(90deg,#ffeb3b,#FF90E8); }
+        .grad-green  { background-image: linear-gradient(90deg,#00e676,#0ea5e9); }
+        .grad-purple { background-image: linear-gradient(90deg,#a78bfa,#f472b6); }
+        .grad-red    { background-image: linear-gradient(90deg,#f87171,#fb923c); }
+
+        /* ── Top Navbar ───────────────────────────────────────────────────────── */
+        .top-navbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+            height: 60px;
+            display: flex; align-items: center; padding: 0 1.5rem; gap: 1rem;
+            background: rgba(9,9,15,0.75);
+            backdrop-filter: blur(32px) saturate(160%);
+            -webkit-backdrop-filter: blur(32px) saturate(160%);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
+        }
+        .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; flex-shrink: 0; }
+        .nav-logo img { height: 18px; width: auto; object-fit: contain; }
+        .nav-divider { width: 1px; height: 18px; background: rgba(255,255,255,0.12); flex-shrink: 0; }
+        .nav-badge {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+            color: rgba(255,255,255,0.4);
+        }
+        .nav-back-link {
+            margin-left: auto;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+            color: rgba(255,255,255,0.35);
+            text-decoration: none;
+            display: flex; align-items: center; gap: 6px;
+            padding: 6px 14px; border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.03);
+            transition: color .2s, background .2s, border-color .2s;
+        }
+        .nav-back-link:hover {
+            color: rgba(255,255,255,0.85);
+            background: rgba(255,255,255,0.07);
+            border-color: rgba(255,255,255,0.15);
+        }
+        .hamburger-btn {
+            display: none; background: none; border: none;
+            cursor: pointer; color: rgba(255,255,255,0.6);
+            padding: 4px; margin-left: auto;
+        }
+
+        /* ── Layout ───────────────────────────────────────────────────────────── */
+        .docs-layout { display: flex; padding-top: 60px; min-height: 100vh; }
+
+        /* ── Sidebar ──────────────────────────────────────────────────────────── */
+        .docs-sidebar {
+            position: fixed; top: 60px; left: 0;
+            width: 256px; height: calc(100vh - 60px);
+            overflow-y: auto;
+            background: rgba(9,9,15,0.65);
+            backdrop-filter: blur(24px);
+            border-right: 1px solid rgba(255,255,255,0.06);
+            padding: 1.75rem 0 3rem;
+            z-index: 40;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.06) transparent;
+        }
+        .docs-sidebar::-webkit-scrollbar { width: 3px; }
+        .docs-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); }
+
+        .sidebar-group-label {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+            color: rgba(255,255,255,0.2);
+            padding: 1rem 1.25rem 0.4rem;
+        }
+        .sidebar-group-label:first-child { padding-top: 0.25rem; }
+
+        .sidebar-link {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 1.25rem;
+            font-size: 13px; font-weight: 500;
+            color: rgba(255,255,255,0.45);
+            text-decoration: none;
+            border-left: 2px solid transparent;
+            transition: color .15s, border-color .15s, background .15s;
+        }
+        .sidebar-link:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.03); }
+        .sidebar-link.active {
+            color: #38bdf8;
+            border-left-color: #38bdf8;
+            background: rgba(56,189,248,0.06);
+            font-weight: 600;
+        }
+        .sidebar-num {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 20px; height: 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 5px;
+            font-size: 10px; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif;
+            color: rgba(255,255,255,0.25); flex-shrink: 0;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .sidebar-link.active .sidebar-num {
+            background: rgba(56,189,248,0.15); color: #38bdf8; border-color: rgba(56,189,248,0.3);
+        }
+
+        /* ── Main Content ─────────────────────────────────────────────────────── */
+        .docs-main {
+            margin-left: 256px; flex: 1;
+            padding: 3.5rem 3.5rem 8rem;
+            max-width: calc(256px + 860px); min-width: 0;
+        }
+
+        /* ── Doc Section ──────────────────────────────────────────────────────── */
+        .doc-section { margin-bottom: 5rem; scroll-margin-top: 80px; position: relative; }
+
+        /* ── Section Label ────────────────────────────────────────────────────── */
+        .section-label {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 11px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase;
+            color: var(--accent-sky); margin-bottom: 0.6rem;
+        }
+        .section-title { font-size: clamp(1.75rem,3vw,2.25rem); color: #fff; margin: 0 0 0.75rem; line-height: 1.1; }
+        .section-lead { font-size: 15px; color: rgba(255,255,255,0.55); line-height: 1.75; margin-bottom: 2rem; }
+
+        /* ── Bento Card ───────────────────────────────────────────────────────── */
+        .bento-card {
+            background: rgba(255,255,255,0.04);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 20px; padding: 1.75rem;
+            transition: background .25s, transform .25s, box-shadow .25s;
+            position: relative; overflow: hidden;
+        }
+        .bento-card::before {
+            content: '';
+            position: absolute; inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.04), transparent);
+            pointer-events: none;
+        }
+        .bento-card:hover {
+            background: rgba(255,255,255,0.07);
+            transform: translateY(-2px);
+            box-shadow: 0 16px 40px rgba(0,0,0,0.3);
+        }
+
+        /* ── Inline Code ──────────────────────────────────────────────────────── */
+        code {
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 5px; padding: 2px 7px;
+            font-size: 0.85em; font-family: 'Fira Code','Cascadia Code','Consolas',monospace;
+            color: #38bdf8;
+        }
+
+        /* ── Command Block ────────────────────────────────────────────────────── */
+        .cmd-wrap { position: relative; margin: 0.4rem 0; }
+        .cmd-block {
+            background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 10px; padding: 0.8rem 3.5rem 0.8rem 1rem;
+            font-family: 'Fira Code','Cascadia Code','Consolas',monospace;
+            font-size: 13px; line-height: 1.5;
+        }
+        .cmd-slash  { color: rgba(255,255,255,0.25); }
+        .cmd-name   { color: #38bdf8; font-weight: 600; }
+        .cmd-sub    { color: #a78bfa; }
+        .cmd-req    { color: #f87171; }
+        .cmd-opt    { color: rgba(255,255,255,0.35); }
+        .cmd-desc   { display: block; font-family: 'DM Sans',sans-serif; font-size: 12px; color: rgba(255,255,255,0.38); margin-top: 4px; }
+
+        /* ── Copy Button (large, for standalone cmd-wrap) ─────────────────────── */
+        .copy-btn {
+            position: absolute; top: 50%; right: 10px;
+            transform: translateY(-50%);
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px; color: rgba(255,255,255,0.35); cursor: pointer;
+            width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            transition: background .15s, color .15s, border-color .15s;
+        }
+        .copy-btn:hover { background: rgba(255,255,255,0.12); color: #fff; border-color: rgba(255,255,255,0.2); }
+        .copy-btn.copied { background: rgba(0,230,118,0.15); border-color: rgba(0,230,118,0.3); color: #00e676; }
+        .copy-btn svg, .copy-btn-sm svg { pointer-events: none; }
+
+        /* ── Copy Button (small, inline in table) ─────────────────────────────── */
+        .copy-btn-sm {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 5px; color: rgba(255,255,255,0.25); cursor: pointer;
+            width: 24px; height: 24px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            transition: background .15s, color .15s;
+            margin-top: 1px;
+        }
+        .copy-btn-sm:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); }
+        .copy-btn-sm.copied { background: rgba(0,230,118,0.12); color: #00e676; border-color: rgba(0,230,118,0.25); }
+
+        /* ── Command Table ────────────────────────────────────────────────────── */
+        .cmd-table {
+            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 14px; overflow: hidden; margin-bottom: 1.25rem;
+        }
+        .cmd-table-head {
+            background: rgba(255,255,255,0.03); padding: 0.6rem 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-family: 'Plus Jakarta Sans',sans-serif;
+            font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+            color: rgba(255,255,255,0.3);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .cmd-row {
+            display: grid; grid-template-columns: minmax(190px,auto) 1fr;
+            align-items: start; gap: 1rem; padding: 0.85rem 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            transition: background .12s;
+        }
+        .cmd-row:last-child { border-bottom: none; }
+        .cmd-row:hover { background: rgba(255,255,255,0.02); }
+        .cmd-row-syntax { font-family: 'Fira Code','Cascadia Code',monospace; font-size: 12.5px; line-height: 1.4; }
+        .cmd-row-desc { font-size: 13px; color: rgba(255,255,255,0.45); line-height: 1.5; padding-top: 1px; }
+        .cmd-row-left { display: flex; align-items: flex-start; gap: 8px; }
+
+        /* ── Step Flow ────────────────────────────────────────────────────────── */
+        .step-flow { display: flex; flex-direction: column; gap: 0; margin: 1.75rem 0; }
+        .step-item { display: flex; gap: 1.1rem; }
+        .step-left { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+        .step-badge {
+            width: 36px; height: 36px; border-radius: 50%;
+            background: linear-gradient(135deg, rgba(56,189,248,0.2), rgba(129,140,248,0.2));
+            border: 2px solid rgba(56,189,248,0.45);
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Plus Jakarta Sans',sans-serif; font-size: 14px; font-weight: 800;
+            color: #38bdf8; flex-shrink: 0;
+        }
+        .step-connector {
+            width: 2px; flex: 1; min-height: 16px;
+            background: linear-gradient(to bottom,rgba(56,189,248,0.3),rgba(56,189,248,0.04));
+            margin: 4px 0;
+        }
+        .step-content { padding-bottom: 1.75rem; flex: 1; }
+        .step-content h4 { font-size: 15px; color: #fff; margin: 3px 0 5px; }
+        .step-content p { font-size: 13.5px; color: rgba(255,255,255,0.5); line-height: 1.65; margin: 0; }
+        .step-item:last-child .step-connector { display: none; }
+
+        /* ── Callout ──────────────────────────────────────────────────────────── */
+        .callout { display: flex; gap: 12px; padding: 1rem 1.2rem; border-radius: 12px; font-size: 13.5px; line-height: 1.65; margin: 1rem 0; }
+        .callout-info  { background: rgba(56,189,248,0.08);  border: 1px solid rgba(56,189,248,0.2);  }
+        .callout-warn  { background: rgba(245,158,11,0.08);  border: 1px solid rgba(245,158,11,0.25); }
+        .callout-admin { background: rgba(239,68,68,0.07);   border: 1px solid rgba(239,68,68,0.18);  }
+        .callout-icon  { flex-shrink: 0; display: flex; align-items: center; padding-top: 1px; }
+        .callout-icon img { width: 20px; height: 20px; object-fit: contain; }
+
+        /* ── Badges ───────────────────────────────────────────────────────────── */
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px;
+            font-family: 'Plus Jakarta Sans',sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em;
+        }
+        .badge-gumroad { background: rgba(54,169,174,0.12); border: 1px solid rgba(54,169,174,0.35); color: #36a9ae; }
+        .badge-jinxxy  { background: rgba(145,70,255,0.12);  border: 1px solid rgba(145,70,255,0.35);  color: #a78bfa; }
+        .badge-discord { background: rgba(88,101,242,0.12);  border: 1px solid rgba(88,101,242,0.35);  color: #818cf8; }
+        .badge-manual  { background: rgba(0,230,118,0.10);   border: 1px solid rgba(0,230,118,0.3);    color: #34d399; }
+        .badge-admin   { background: rgba(239,68,68,0.10);   border: 1px solid rgba(239,68,68,0.25);   color: #f87171; }
+        .badge-new     { background: rgba(255,235,59,0.12);  border: 1px solid rgba(255,235,59,0.3);   color: #fde047; }
+
+        /* ── Tag Pill ─────────────────────────────────────────────────────────── */
+        .tag-pill {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.05); backdrop-filter: blur(8px);
+            padding: 9px 16px; border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.09);
+            font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em;
+            color: rgba(255,255,255,0.75);
+        }
+
+        /* ── Product Grid ─────────────────────────────────────────────────────── */
+        .product-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+        .product-card {
+            background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 14px; padding: 1.25rem;
+            transition: border-color .2s, background .2s, transform .2s;
+        }
+        .product-card:hover { border-color: rgba(255,255,255,0.14); transform: translateY(-2px); }
+        .product-icon { width: 42px; height: 42px; border-radius: 11px; display: flex; align-items: center; justify-content: center; margin-bottom: 0.85rem; }
+        .product-icon img { width: 26px; height: 26px; object-fit: contain; }
+        .product-card h4 { font-size: 14px; color: #fff; margin: 0 0 5px; }
+        .product-card p  { font-size: 13px; color: rgba(255,255,255,0.45); line-height: 1.55; margin: 0; }
+
+        /* ── Two-col ──────────────────────────────────────────────────────────── */
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+        .two-col-card { background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 1.25rem; }
+        .two-col-card h4 { font-size: 13.5px; margin: 0 0 0.8rem; }
+        .two-col-card ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 5px; }
+        .two-col-card ul li { font-size: 13px; color: rgba(255,255,255,0.5); line-height: 1.45; display: flex; align-items: flex-start; gap: 8px; }
+        .two-col-card ul li::before { content: '→'; color: #38bdf8; flex-shrink: 0; }
+
+        /* ── Overview Steps ───────────────────────────────────────────────────── */
+        .overview-steps { display: flex; gap: 0; margin: 1.5rem 0; }
+        .overview-step { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 1.5rem 0.75rem; position: relative; }
+        .overview-step::after { content: '→'; position: absolute; right: -8px; top: 50%; transform: translateY(-50%); color: rgba(255,255,255,0.15); font-size: 16px; }
+        .overview-step:last-child::after { display: none; }
+        .overview-num { width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg,rgba(56,189,248,0.2),rgba(129,140,248,0.2)); border: 2px solid rgba(56,189,248,0.35); display: flex; align-items: center; justify-content: center; font-family: 'Plus Jakarta Sans',sans-serif; font-size: 18px; font-weight: 800; color: #38bdf8; margin-bottom: 0.75rem; }
+        .overview-step h4 { font-size: 14px; color: #fff; margin: 0 0 3px; }
+        .overview-step p  { font-size: 12px; color: rgba(255,255,255,0.4); margin: 0; line-height: 1.4; }
+
+        /* ── Sub-heading ──────────────────────────────────────────────────────── */
+        .sub-heading { font-size: 1.05rem; color: #fff; margin: 2.25rem 0 1rem; padding-bottom: 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; gap: 8px; }
+        .sub-dot { width: 7px; height: 7px; border-radius: 50%; background: #38bdf8; flex-shrink: 0; }
+
+        /* ── Command group label ──────────────────────────────────────────────── */
+        .cmd-group-label { font-family: 'Plus Jakarta Sans',sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.2); margin: 1.5rem 0 0.5rem; }
+
+        /* ── Sidebar backdrop ─────────────────────────────────────────────────── */
+        .sidebar-backdrop { display: none; position: fixed; inset: 0; top: 60px; background: rgba(0,0,0,0.65); z-index: 39; backdrop-filter: blur(4px); }
+        .sidebar-backdrop.open { display: block; }
+
+        /* ── Responsive ───────────────────────────────────────────────────────── */
+        @media (max-width: 900px) {
+            .hamburger-btn { display: flex; }
+            .nav-back-link { display: none; }
+            .docs-sidebar { transform: translateX(-100%); transition: transform .3s cubic-bezier(.22,1,.36,1); }
+            .docs-sidebar.open { transform: translateX(0); box-shadow: 8px 0 40px rgba(0,0,0,0.5); }
+            .docs-main { margin-left: 0; padding: 2rem 1.25rem 5rem; }
+            .cmd-row { grid-template-columns: 1fr; gap: 0.2rem; }
+            .product-grid, .two-col { grid-template-columns: 1fr; }
+            .overview-steps { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+            .overview-step::after { display: none; }
+            .overview-step { padding: 0.75rem 0.25rem; flex-direction: row; text-align: left; gap: 1rem; align-items: center; }
+            .overview-num { flex-shrink: 0; margin-bottom: 0; }
+        }
+        @media (min-width: 901px) { .hamburger-btn { display: none !important; } }
+    </style>
+</head>
+
+<body>
+    <div class="blobs-container">
+        <div class="blob"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+    </div>
+    <div class="cursor-dot hidden md:block"></div>
+    <div class="cursor-dot-outline hidden md:block"></div>
+
+    <!-- ── Navbar ───────────────────────────────────────────────────────────── -->
+    <nav class="top-navbar">
+        <a href="index.html" class="nav-logo clickable">
+            <img src="Icons/MainLogo.png" alt="Creator Assistant">
+        </a>
+        <div class="nav-divider"></div>
+        <span class="nav-badge">Documentation</span>
+        <a href="index.html" class="nav-back-link clickable">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+            Back to Home
+        </a>
+        <button class="hamburger-btn clickable" id="hamburger-btn" aria-label="Toggle navigation">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+    </nav>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <div class="docs-layout">
+
+        <!-- ── Sidebar ──────────────────────────────────────────────────────── -->
+        <aside class="docs-sidebar" id="docs-sidebar">
+            <div class="sidebar-group-label">Overview</div>
+            <a href="#introduction"    class="sidebar-link clickable" data-section="introduction">   <span class="sidebar-num">1</span> Introduction</a>
+            <a href="#getting-started" class="sidebar-link clickable" data-section="getting-started"><span class="sidebar-num">2</span> Getting Started</a>
+            <div class="sidebar-group-label">Buyer</div>
+            <a href="#buyer-verification" class="sidebar-link clickable" data-section="buyer-verification"><span class="sidebar-num">3</span> Buyer Verification</a>
+            <div class="sidebar-group-label">Reference</div>
+            <a href="#commands"      class="sidebar-link clickable" data-section="commands">     <span class="sidebar-num">4</span> Slash Commands</a>
+            <a href="#product-types" class="sidebar-link clickable" data-section="product-types"><span class="sidebar-num">5</span> Product Types</a>
+            <div class="sidebar-group-label">Features</div>
+            <a href="#collaborators" class="sidebar-link clickable" data-section="collaborators"><span class="sidebar-num">6</span> Collaborators</a>
+            <a href="#cross-server"  class="sidebar-link clickable" data-section="cross-server"> <span class="sidebar-num">7</span> Cross-Server</a>
+            <a href="#downloads"     class="sidebar-link clickable" data-section="downloads">    <span class="sidebar-num">8</span> Downloads</a>
+            <a href="#moderation"    class="sidebar-link clickable" data-section="moderation">   <span class="sidebar-num">9</span> Moderation</a>
+            <a href="#analytics"     class="sidebar-link clickable" data-section="analytics">    <span class="sidebar-num">10</span> Analytics</a>
+        </aside>
+
+        <!-- ── Main ─────────────────────────────────────────────────────────── -->
+        <main class="docs-main">
+
+            <!-- Hero -->
+            <div style="padding-bottom:2.5rem;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:3.5rem;">
+                <p class="section-label">Creator Assistant</p>
+                <h1 style="font-size:clamp(2.2rem,5vw,3.25rem);color:#fff;margin:0 0 0.5rem;line-height:1.05;">
+                    <span class="grad-text grad-sky">Documentation</span>
+                </h1>
+                <p style="font-size:15.5px;color:rgba(255,255,255,0.45);max-width:520px;margin:0 0 2rem;line-height:1.7;">Everything you need to install, configure, and operate Creator Assistant, from first setup to advanced moderation.</p>
+                <div style="display:flex;flex-wrap:wrap;gap:10px;">
+                    <span class="tag-pill"><span style="width:7px;height:7px;border-radius:50%;background:#38bdf8;display:inline-block;"></span>10 Sections</span>
+                    <span class="tag-pill"><span style="width:7px;height:7px;border-radius:50%;background:#a78bfa;display:inline-block;"></span>18+ Commands</span>
+                    <span class="tag-pill"><span style="width:7px;height:7px;border-radius:50%;background:#34d399;display:inline-block;"></span>4 Product Types</span>
+                </div>
+            </div>
+
+            <!-- ══ 1. Introduction ══════════════════════════════════════════ -->
+            <section class="doc-section" id="introduction">
+                <div class="glow-ring" style="width:280px;height:280px;background:var(--accent-sky);top:-40px;right:-60px;opacity:0.2;"></div>
+                <p class="section-label">Section 1</p>
+                <h2 class="section-title">Introduction</h2>
+                <p class="section-lead">Creator Assistant bridges your <strong style="color:#fff;">Gumroad or Jinxxy storefront</strong> with your Discord server, automatically granting roles when buyers verify a purchase. No DMs, no spreadsheets, no manual grants.</p>
+
+                <div class="bento-card" style="margin-bottom:1.25rem;">
+                    <div class="overview-steps">
+                        <div class="overview-step"><div class="overview-num">1</div><h4>Install</h4><p>Add the bot to your server</p></div>
+                        <div class="overview-step"><div class="overview-num">2</div><h4>Connect</h4><p>Link Gumroad or Jinxxy</p></div>
+                        <div class="overview-step"><div class="overview-num">3</div><h4>Verify</h4><p>Buyers get roles instantly</p></div>
+                    </div>
+                </div>
+
+                <div class="two-col">
+                    <div class="two-col-card" style="border-color:rgba(56,189,248,0.18);">
+                        <h4 style="color:#38bdf8;">For Creators</h4>
+                        <ul>
+                            <li>Automatic role assignment on purchase</li>
+                            <li>Connect Gumroad or Jinxxy stores</li>
+                            <li>Map any product to any Discord role</li>
+                            <li>Invite collaborating creators</li>
+                            <li>Gate download channels to buyers</li>
+                            <li>Monitor analytics and fraud</li>
+                        </ul>
+                    </div>
+                    <div class="two-col-card" style="border-color:rgba(129,140,248,0.18);">
+                        <h4 style="color:#818cf8;">For Buyers</h4>
+                        <ul>
+                            <li>Click the Verify button in-server</li>
+                            <li>Sign in with Gumroad OAuth</li>
+                            <li>Enter a license key from receipt</li>
+                            <li>Prove a role in another server</li>
+                            <li>Roles assigned in seconds</li>
+                            <li>Re-sync with <code>/creator refresh</code></li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ 2. Getting Started ══════════════════════════════════════ -->
+            <section class="doc-section" id="getting-started">
+                <p class="section-label">Section 2</p>
+                <h2 class="section-title">Getting <span class="grad-text grad-sky">Started</span></h2>
+                <p class="section-lead">Install the bot, connect your store, and post a verification panel; usually takes under five minutes.</p>
+
+                <div class="callout callout-warn">
+                    <span class="callout-icon"><img src="Icons/Wrench.png" alt="Warning"></span>
+                    <span>You need <strong>Administrator</strong> permission in your Discord server to run the setup flow.</span>
+                </div>
+
+                <h3 class="sub-heading"><span class="sub-dot"></span>Prerequisites</h3>
+                <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1.75rem;">
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> Administrator permissions in your Discord server</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> A Gumroad account with products, or a Jinxxy creator account</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> At least one Discord role to assign to verified buyers</div>
+                </div>
+
+                <h3 class="sub-heading"><span class="sub-dot"></span>Setup Steps</h3>
+                <div class="step-flow">
+                    <div class="step-item">
+                        <div class="step-left"><div class="step-badge">1</div><div class="step-connector"></div></div>
+                        <div class="step-content">
+                            <h4>Install the bot</h4>
+                            <p>Authorize Creator Assistant in your server. Ensure the bot's role is above all roles it needs to assign.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-left"><div class="step-badge">2</div><div class="step-connector"></div></div>
+                        <div class="step-content">
+                            <h4>Launch the setup wizard</h4>
+                            <p>Run <code>/creator-admin setup start</code>. The bot replies with a private, time-limited link to the web setup wizard.</p>
+                            <div class="cmd-wrap" style="margin-top:8px;">
+                                <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">setup start</span></div>
+                                <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin setup start')" aria-label="Copy command">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-left"><div class="step-badge">3</div><div class="step-connector"></div></div>
+                        <div class="step-content">
+                            <h4>Connect your store</h4>
+                            <p><span class="badge badge-gumroad">Gumroad</span> connects via OAuth: click "Connect Gumroad" and authorize. <span class="badge badge-jinxxy">Jinxxy</span> requires an API key from your Jinxxy dashboard.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-left"><div class="step-badge">4</div><div class="step-connector"></div></div>
+                        <div class="step-content">
+                            <h4>Run autosetup <span class="badge badge-new" style="font-size:9px;vertical-align:middle;">Recommended</span></h4>
+                            <p>Use <code>/creator-admin autosetup</code> for a guided wizard that creates roles, sets up a verification channel, posts the verify button, and can migrate from another bot, all in one flow.</p>
+                            <div class="cmd-wrap" style="margin-top:8px;">
+                                <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">autosetup</span></div>
+                                <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin autosetup')" aria-label="Copy command">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-left"><div class="step-badge">5</div><div class="step-connector"></div></div>
+                        <div class="step-content">
+                            <h4>Add products and map roles</h4>
+                            <p>Add products via the wizard or <code>/creator-admin product add</code>. For each product, select the Discord role to grant upon verification.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-left"><div class="step-badge">6</div></div>
+                        <div class="step-content">
+                            <h4>Spawn the verify button</h4>
+                            <p>In your verification channel, run <code>/creator-admin spawn-verify</code>. The bot posts a persistent embed with a Verify button. Customize the title, description, color, and image.</p>
+                            <div class="cmd-wrap" style="margin-top:8px;">
+                                <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">spawn-verify</span> <span class="cmd-opt">[title] [description] [button_text] [color] [image_url]</span></div>
+                                <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin spawn-verify')" aria-label="Copy command">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ 3. Buyer Verification ════════════════════════════════════ -->
+            <section class="doc-section" id="buyer-verification">
+                <p class="section-label">Section 3</p>
+                <h2 class="section-title">Buyer <span class="grad-text grad-purple">Verification</span></h2>
+                <p class="section-lead">Buyers verify their purchase directly in Discord. Three methods are supported; the bot never asks for payment details.</p>
+
+                <div style="display:flex;flex-direction:column;gap:0.85rem;margin-bottom:1.75rem;">
+                    <div class="bento-card" style="padding:1.25rem;">
+                        <div style="margin-bottom:8px;"><span class="badge badge-gumroad">Gumroad OAuth</span></div>
+                        <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">Buyer clicks <strong style="color:#fff;">Sign in with Gumroad</strong>, authorizes read-only access to their purchase history. The bot matches purchases to your product mappings and grants roles automatically.</p>
+                    </div>
+                    <div class="bento-card" style="padding:1.25rem;">
+                        <div style="margin-bottom:8px;"><span class="badge badge-jinxxy">License Key</span></div>
+                        <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">Buyer selects a product from a dropdown and enters the license key from their receipt. Validated in real time against your Jinxxy store or manual license list.</p>
+                    </div>
+                    <div class="bento-card" style="padding:1.25rem;">
+                        <div style="margin-bottom:8px;"><span class="badge badge-discord">Discord Role</span></div>
+                        <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">If cross-server verification is enabled, buyers prove they hold a specific role in another Discord server. The bot checks membership via the Discord API automatically.</p>
+                    </div>
+                </div>
+
+                <h3 class="sub-heading"><span class="sub-dot"></span>Buyer Commands</h3>
+                <div class="cmd-table">
+                    <div class="cmd-table-head">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        /creator: available to all members
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator status')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">status</span></span></div>
+                        <span class="cmd-row-desc">View linked accounts and verified products</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator verify')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">verify</span> <span class="cmd-req">&lt;product&gt;</span></span></div>
+                        <span class="cmd-row-desc">Verify a specific product with a license key. Supports autocomplete.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator refresh')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">refresh</span></span></div>
+                        <span class="cmd-row-desc">Re-query linked stores for new purchases and sync Discord roles</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ 4. Slash Commands Reference ══════════════════════════════ -->
+            <section class="doc-section" id="commands">
+                <p class="section-label">Section 4</p>
+                <h2 class="section-title">Slash Commands <span class="grad-text grad-sky">Reference</span></h2>
+                <p class="section-lead">Complete reference for every command. User commands are visible to all members. Admin commands require <strong style="color:#fff;">Administrator</strong> permission and are hidden from non-admins by Discord.</p>
+
+                <h3 class="sub-heading"><span class="sub-dot"></span>User Commands <code style="font-size:.8em;">/creator</code></h3>
+                <div class="cmd-table" style="margin-bottom:2rem;">
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> /creator</div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator status')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">status</span></span></div>
+                        <span class="cmd-row-desc">Open the verification panel; shows linked accounts and verified products</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator verify')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">verify</span> <span class="cmd-req">&lt;product&gt;</span></span></div>
+                        <span class="cmd-row-desc">Directly verify a product by license key. Product argument supports autocomplete.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator refresh')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">refresh</span></span></div>
+                        <span class="cmd-row-desc">Re-query linked stores for new purchases and sync roles immediately</span>
+                    </div>
+                </div>
+
+                <h3 class="sub-heading"><span class="sub-dot"></span>Admin Commands <code style="font-size:.8em;">/creator-admin</code></h3>
+                <div class="callout callout-admin" style="margin-bottom:1.5rem;">
+                    <span class="callout-icon"><img src="Icons/KeyCloud.png" alt="Admin only"></span>
+                    <span>All <code>/creator-admin</code> commands require <strong>Administrator</strong> permission. Discord hides them from non-admins automatically.</span>
+                </div>
+
+                <p class="cmd-group-label">Setup &amp; Autosetup</p>
+                <div class="cmd-table" style="margin-bottom:1.5rem;">
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg> setup / autosetup</div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin autosetup')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">autosetup</span></span></div>
+                        <span class="cmd-row-desc">Guided wizard: create roles, set up channels, post verify button, or migrate from another bot. Best for new setups.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin setup start')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">setup start</span></span></div>
+                        <span class="cmd-row-desc">Launch the web-based onboarding wizard. Returns a private, time-limited link.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin setup restart')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">setup restart</span></span></div>
+                        <span class="cmd-row-desc">Generate a fresh setup link if the previous one has expired.</span>
+                    </div>
+                </div>
+
+                <p class="cmd-group-label">Products</p>
+                <div class="cmd-table" style="margin-bottom:1.5rem;">
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8l-1 4h10l-1-4z"/></svg> product</div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin product add')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">product add</span></span></div>
+                        <span class="cmd-row-desc">Guided flow: choose type → enter URL or ID → map to a Discord role.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin product list')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">product list</span></span></div>
+                        <span class="cmd-row-desc">List all active product-to-role mappings for this server.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin product remove')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">product remove</span> <span class="cmd-req">&lt;product_id&gt;</span></span></div>
+                        <span class="cmd-row-desc">Remove a product mapping. Supports autocomplete; start typing to find the product.</span>
+                    </div>
+                </div>
+
+                <p class="cmd-group-label">Verification Panel</p>
+                <div class="cmd-table" style="margin-bottom:1.5rem;">
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg> spawn-verify &amp; stats</div>
+                    <div class="cmd-row">
+                        <div style="display:flex;flex-direction:column;gap:3px;">
+                            <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin spawn-verify')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">spawn-verify</span></span></div>
+                            <div style="font-family:'Fira Code',monospace;font-size:11px;color:rgba(255,255,255,0.25);padding-left:32px;"><span class="cmd-opt">[title] [description] [button_text] [color] [image_url]</span></div>
+                        </div>
+                        <span class="cmd-row-desc">Post a persistent verify embed in the current channel. All parameters optional; defaults look great out of the box.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin stats')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">stats</span></span></div>
+                        <span class="cmd-row-desc">Quick summary: verified members, active products, roles assigned, collaborators.</span>
+                    </div>
+                </div>
+
+                <p class="cmd-group-label">Analytics</p>
+                <div class="cmd-table" style="margin-bottom:1.5rem;">
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> analytics</div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin analytics')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">analytics</span></span></div>
+                        <span class="cmd-row-desc">View key metrics and a deep link to your PostHog analytics dashboard.</span>
+                    </div>
+                </div>
+
+                <p class="cmd-group-label">Settings</p>
+                <div class="cmd-table" style="margin-bottom:1.5rem;">
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg> settings</div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin settings cross-server')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">settings cross-server</span></span></div>
+                        <span class="cmd-row-desc">Toggle cross-server role verification on or off for this server.</span>
+                    </div>
+                </div>
+
+                <p class="cmd-group-label">Downloads</p>
+                <div class="cmd-table" style="margin-bottom:1.5rem;">
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> downloads</div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin downloads setup')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">downloads setup</span></span></div>
+                        <span class="cmd-row-desc">Protect the current channel: only verified buyers can access content here.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin downloads manage')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">downloads manage</span></span></div>
+                        <span class="cmd-row-desc">View and manage all protected download channel configurations.</span>
+                    </div>
+                </div>
+
+                <p class="cmd-group-label">Moderation</p>
+                <div class="cmd-table" style="margin-bottom:1.5rem;">
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> moderation</div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin moderation mark')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">moderation mark</span> <span class="cmd-req">&lt;user&gt;</span></span></div>
+                        <span class="cmd-row-desc">Flag a user as suspicious. Future verification attempts will be blocked.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin moderation list')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">moderation list</span></span></div>
+                        <span class="cmd-row-desc">View all flagged users in this server with reasons and timestamps.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin moderation clear')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">moderation clear</span> <span class="cmd-req">&lt;user&gt;</span></span></div>
+                        <span class="cmd-row-desc">Remove a user's suspicious flag and restore normal verification access.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div style="display:flex;flex-direction:column;gap:3px;">
+                            <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin moderation unverify')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">moderation unverify</span></span></div>
+                            <div style="font-family:'Fira Code',monospace;font-size:11px;padding-left:32px;"><span class="cmd-req">&lt;user&gt;</span> <span class="cmd-req">&lt;product_id&gt;</span></div>
+                        </div>
+                        <span class="cmd-row-desc">Revoke a user's verification for a specific product and remove the associated role immediately.</span>
+                    </div>
+                </div>
+
+                <p class="cmd-group-label">Collaborators</p>
+                <div class="cmd-table">
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg> collab</div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin collab invite')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">collab invite</span></span></div>
+                        <span class="cmd-row-desc">Generate a 7-day invite link to share with a collaborating Jinxxy creator.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin collab add')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">collab add</span></span></div>
+                        <span class="cmd-row-desc">Manually add a collaborator by API key; use when the collaborator shares their key directly with you.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin collab list')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">collab list</span></span></div>
+                        <span class="cmd-row-desc">View all active collaborator connections and their linked stores.</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ 5. Product Types ══════════════════════════════════════════ -->
+            <section class="doc-section" id="product-types">
+                <p class="section-label">Section 5</p>
+                <h2 class="section-title">Product <span class="grad-text grad-green">Types</span></h2>
+                <p class="section-lead">Four product types with different verification mechanisms. Mix and match within the same server, each mapped to whichever Discord role you choose.</p>
+
+                <div class="product-grid">
+                    <div class="product-card" style="border-color:rgba(54,169,174,0.2);">
+                        <div class="product-icon" style="background:rgba(54,169,174,0.12);"><img src="Icons/Gumorad.png" alt="Gumroad"></div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>Gumroad</h4><span class="badge badge-gumroad">OAuth</span></div>
+                        <p>Link by product URL or ID. Buyers sign in with Gumroad: the bot reads purchase history automatically. No key entry needed.</p>
+                    </div>
+                    <div class="product-card" style="border-color:rgba(145,70,255,0.2);">
+                        <div class="product-icon" style="background:rgba(145,70,255,0.12);"><img src="Icons/Jinxxy.png" alt="Jinxxy"></div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>Jinxxy</h4><span class="badge badge-jinxxy">License Key</span></div>
+                        <p>Products pulled from your connected Jinxxy store. Buyers enter the license key from their receipt, validated in real time.</p>
+                    </div>
+                    <div class="product-card" style="border-color:rgba(0,230,118,0.18);">
+                        <div class="product-icon" style="background:rgba(0,230,118,0.1);"><img src="Icons/Key.png" alt="Manual License"></div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>Manual License</h4><span class="badge badge-manual">Custom Keys</span></div>
+                        <p>Define your own license codes. Perfect for off-platform sales, giveaways, or beta access.</p>
+                    </div>
+                    <div class="product-card" style="border-color:rgba(88,101,242,0.2);">
+                        <div class="product-icon" style="background:rgba(88,101,242,0.12);"><img src="Icons/Discord.png" alt="Discord Role"></div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>Discord Role</h4><span class="badge badge-discord">Cross-Server</span></div>
+                        <p>Verify by proving ownership of a role in another server. Requires cross-server verification to be enabled.</p>
+                    </div>
+                </div>
+
+                <div class="callout callout-info">
+                    <span class="callout-icon"><img src="Icons/Assistant.png" alt="Info"></span>
+                    <span>When adding a product via <code>/creator-admin product add</code>, you select the type first. The bot then guides you through type-specific fields.</span>
+                </div>
+            </section>
+
+            <!-- ══ 6. Collaborators ══════════════════════════════════════════ -->
+            <section class="doc-section" id="collaborators">
+                <p class="section-label">Section 6</p>
+                <h2 class="section-title">Collaborator <span class="grad-text grad-purple">Invites</span></h2>
+                <p class="section-lead">Invite other Jinxxy creators to share their store with your Discord server. Their buyers can verify and get roles without either creator exchanging credentials.</p>
+
+                <div class="two-col" style="margin-bottom:1.75rem;">
+                    <div class="two-col-card" style="border-color:rgba(167,139,250,0.2);">
+                        <h4 style="color:#a78bfa;">Server Owner (you)</h4>
+                        <ul>
+                            <li>Run <code>/creator-admin collab invite</code></li>
+                            <li>Bot generates a 7-day link</li>
+                            <li>Share the link with the collaborator</li>
+                            <li>Track connections via <code>collab list</code></li>
+                        </ul>
+                    </div>
+                    <div class="two-col-card" style="border-color:rgba(129,140,248,0.2);">
+                        <h4 style="color:#818cf8;">Collaborator</h4>
+                        <ul>
+                            <li>Open the invite link in a browser</li>
+                            <li>Authorize with Discord OAuth</li>
+                            <li>Enter their Jinxxy API key</li>
+                            <li>Test the webhook connection</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="step-flow">
+                    <div class="step-item"><div class="step-left"><div class="step-badge">1</div><div class="step-connector"></div></div><div class="step-content"><h4>Generate an invite link</h4><p>Run <code>/creator-admin collab invite</code>. The bot replies privately with a unique link expiring in 7 days.</p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">2</div><div class="step-connector"></div></div><div class="step-content"><h4>Collaborator opens the link</h4><p>They visit the link and authorize with Discord OAuth to confirm identity.</p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">3</div><div class="step-connector"></div></div><div class="step-content"><h4>Collaborator enters their Jinxxy API key</h4><p>They paste their own Jinxxy API key. The bot tests the connection and confirms the webhook is live. Alternatively, you can add them manually with <code>/creator-admin collab add</code>.</p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">4</div></div><div class="step-content"><h4>Collaboration is live</h4><p>Buyers from the collaborator's store can now verify in your server. Manage connections with <code>/creator-admin collab list</code>.</p></div></div>
+                </div>
+
+                <div class="callout callout-info">
+                    <span class="callout-icon"><img src="Icons/World.png" alt="Cross-server"></span>
+                    <span>Neither creator sees the other's API key or credentials. The collaborator's key is stored securely and only used to validate their buyers' license codes.</span>
+                </div>
+            </section>
+
+            <!-- ══ 7. Cross-Server ══════════════════════════════════════════ -->
+            <section class="doc-section" id="cross-server">
+                <p class="section-label">Section 7</p>
+                <h2 class="section-title">Cross-Server <span class="grad-text grad-sky">Verification</span></h2>
+                <p class="section-lead">Let buyers verify by proving they hold a role in a different Discord server. Useful for partnerships, community tiers, or cross-server access passes.</p>
+
+                <h3 class="sub-heading"><span class="sub-dot"></span>Enable it</h3>
+                <div class="cmd-wrap">
+                    <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">settings cross-server</span><span class="cmd-desc">Toggles the feature on or off. Disabled by default.</span></div>
+                    <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin settings cross-server')" aria-label="Copy"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+                </div>
+
+                <h3 class="sub-heading"><span class="sub-dot"></span>Add a Discord Role product</h3>
+                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.7;margin-bottom:1rem;">Use <code>/creator-admin product add</code> and select <strong style="color:#818cf8;">Discord Role</strong> as the type. You'll specify:</p>
+                <ul style="list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:7px;">
+                    <li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.55);"><span style="color:#38bdf8;margin-top:2px;">•</span><span><strong style="color:#fff;">Source Server ID</strong>: the server the buyer must be a member of</span></li>
+                    <li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.55);"><span style="color:#38bdf8;margin-top:2px;">•</span><span><strong style="color:#fff;">Required Role ID</strong>: the specific role they must hold in that server</span></li>
+                    <li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.55);"><span style="color:#38bdf8;margin-top:2px;">•</span><span><strong style="color:#fff;">Granted Role</strong>: the role to assign in <em>your</em> server upon verification</span></li>
+                </ul>
+
+                <div class="callout callout-warn">
+                    <span class="callout-icon"><img src="Icons/X.png" alt="Warning"></span>
+                    <span>The buyer must be a member of the source server at the time of verification. If they later leave, <code>/creator refresh</code> may revoke the role depending on your role-sync settings.</span>
+                </div>
+            </section>
+
+            <!-- ══ 8. Downloads ══════════════════════════════════════════════ -->
+            <section class="doc-section" id="downloads">
+                <p class="section-label">Section 8</p>
+                <h2 class="section-title">Protected <span class="grad-text grad-green">Downloads</span></h2>
+                <p class="section-lead">Gate Discord channels so only verified buyers can view or access download links. Unverified members see the channel exists but cannot read its contents.</p>
+
+                <div class="step-flow">
+                    <div class="step-item"><div class="step-left"><div class="step-badge">1</div><div class="step-connector"></div></div><div class="step-content"><h4>Go to the channel to protect</h4><p>Navigate to the channel; for example <code>#downloads</code> or <code>#exclusive-files</code>.</p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">2</div><div class="step-connector"></div></div><div class="step-content"><h4>Run the setup command</h4><p>Run <code>/creator-admin downloads setup</code> in that channel. The bot adjusts permissions so only the verified role can read messages.</p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">3</div></div><div class="step-content"><h4>Post your files</h4><p>Upload files or paste download links. Unverified members attempting access are redirected to the verification panel.</p></div></div>
+                </div>
+
+                <div class="callout callout-info">
+                    <span class="callout-icon"><img src="Icons/PointDown.png" alt="Note"></span>
+                    <span>Make sure the bot's role is positioned <strong>above</strong> the verified buyer role in Server Settings → Roles, otherwise Discord will block permission changes.</span>
+                </div>
+            </section>
+
+            <!-- ══ 9. Moderation ═════════════════════════════════════════════ -->
+            <section class="doc-section" id="moderation">
+                <div class="glow-ring" style="width:300px;height:300px;background:#ef4444;top:-60px;left:-80px;opacity:0.1;"></div>
+                <p class="section-label">Section 9</p>
+                <h2 class="section-title">Fraud Protection <span class="grad-text grad-red">&amp; Moderation</span></h2>
+                <p class="section-lead">Built-in tools to identify and block fraudulent verification, automatically via OAuth validation, and manually when you need finer control.</p>
+
+                <h3 class="sub-heading"><span class="sub-dot"></span>Automatic protection</h3>
+                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1.5rem;">OAuth-based verification (Gumroad, Discord) means the buyer must actually own the account; fake keys or screenshots won't work. License key validation hits the provider's API in real time, so revoked or reused keys are rejected immediately.</p>
+
+                <div class="two-col">
+                    <div class="two-col-card" style="border-color:rgba(245,158,11,0.2);">
+                        <h4 style="color:#fbbf24;">Suspicious flag</h4>
+                        <ul>
+                            <li>Blocks all future verification attempts</li>
+                            <li>User sees a "contact moderator" message</li>
+                            <li>Existing roles preserved until unverified</li>
+                            <li>Visible in <code>moderation list</code> with reason</li>
+                        </ul>
+                    </div>
+                    <div class="two-col-card" style="border-color:rgba(239,68,68,0.2);">
+                        <h4 style="color:#f87171;">Unverify</h4>
+                        <ul>
+                            <li>Revokes a specific product's role instantly</li>
+                            <li>Audit trail preserved</li>
+                            <li>User can re-verify with a valid key</li>
+                            <li>Use after a chargeback or license revoke</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══ 10. Analytics ════════════════════════════════════════════ -->
+            <section class="doc-section" id="analytics">
+                <p class="section-label">Section 10</p>
+                <h2 class="section-title">Analytics <span class="grad-text grad-sky">&amp; Stats</span></h2>
+                <p class="section-lead">Track how your verification system is performing: verified members, product popularity, method breakdowns, and trends over time.</p>
+
+                <div style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:1.75rem;">
+                    <div class="cmd-wrap">
+                        <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">stats</span><span class="cmd-desc">Quick card: total verified members, active products, roles assigned, collaborators.</span></div>
+                        <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin stats')" aria-label="Copy"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+                    </div>
+                    <div class="cmd-wrap">
+                        <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">analytics</span><span class="cmd-desc">Key metrics inline + a deep link to your PostHog dashboard for full charts and funnels.</span></div>
+                        <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin analytics')" aria-label="Copy"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+                    </div>
+                </div>
+
+                <div class="bento-card">
+                    <p style="font-family:'Plus Jakarta Sans',sans-serif;font-size:10.5px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.25);margin:0 0 1rem;">Metrics Tracked</p>
+                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;">
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Total Verified</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Unique members who verified at least one product</div></div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">By Product</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Verification count per mapped product</div></div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Method Split</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">OAuth vs license key vs cross-server breakdown</div></div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Trends</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Daily / weekly volume in PostHog dashboards</div></div>
+                    </div>
+                </div>
+
+                <div class="callout callout-info" style="margin-top:1rem;">
+                    <span class="callout-icon"><img src="Icons/ClapStars.png" alt="Analytics"></span>
+                    <span>The PostHog link returned by <code>/creator-admin analytics</code> is pre-filtered to your server's data only.</span>
+                </div>
+            </section>
+
+            <!-- Footer -->
+            <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:2.5rem;margin-top:1rem;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:1rem;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <img src="Icons/MainLogo.png" alt="Creator Assistant" style="height:15px;opacity:0.35;">
+                    <span style="font-size:12px;color:rgba(255,255,255,0.18);">&copy; 2026 Creator Assistant</span>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:1.5rem;">
+                    <a href="index.html" style="font-size:12px;color:rgba(255,255,255,0.28);text-decoration:none;" onmouseover="this.style.color='rgba(255,255,255,.65)'" onmouseout="this.style.color='rgba(255,255,255,.28)'">Home</a>
+                    <a href="https://verify.creators.yucp.club/legal/terms-of-service" target="_blank" rel="noopener" style="font-size:12px;color:rgba(255,255,255,0.28);text-decoration:none;" onmouseover="this.style.color='rgba(255,255,255,.65)'" onmouseout="this.style.color='rgba(255,255,255,.28)'">Terms</a>
+                    <a href="https://verify.creators.yucp.club/legal/privacy-policy" target="_blank" rel="noopener" style="font-size:12px;color:rgba(255,255,255,0.28);text-decoration:none;" onmouseover="this.style.color='rgba(255,255,255,.65)'" onmouseout="this.style.color='rgba(255,255,255,.28)'">Privacy</a>
+                    <a href="https://discord.gg/mnCdqyzu27" target="_blank" rel="noopener" style="font-size:12px;color:rgba(255,255,255,0.28);text-decoration:none;" onmouseover="this.style.color='rgba(255,255,255,.65)'" onmouseout="this.style.color='rgba(255,255,255,.28)'">Support</a>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        // ── Blob background animation ──────────────────────────────────────────
+        // Each blob floats on an independent Lissajous-style path using sin/cos
+        // with different frequencies, amplitudes, and phase offsets so they
+        // never repeat in sync. Positions are in pixels from top-left of viewport.
+        (function () {
+            const blobs = document.querySelectorAll('.blob');
+            const W = () => window.innerWidth;
+            const H = () => window.innerHeight;
+
+            // [centerX%, centerY%, ampX%, ampY%, freqX, freqY, phase]
+            const params = [
+                { cx: 0.10, cy: 0.10, ax: 0.25, ay: 0.20, fx: 0.00028, fy: 0.00021, ph: 0.00 },
+                { cx: 0.70, cy: 0.05, ax: 0.22, ay: 0.25, fx: 0.00019, fy: 0.00033, ph: 1.26 },
+                { cx: 0.45, cy: 0.50, ax: 0.30, ay: 0.22, fx: 0.00035, fy: 0.00017, ph: 2.51 },
+                { cx: 0.10, cy: 0.70, ax: 0.20, ay: 0.22, fx: 0.00023, fy: 0.00029, ph: 3.77 },
+                { cx: 0.75, cy: 0.65, ax: 0.24, ay: 0.20, fx: 0.00030, fy: 0.00024, ph: 5.03 },
+            ];
+
+            // Half blob size so center point is mid-blob
+            const HALF = 325;
+
+            function tick(t) {
+                const w = W(), h = H();
+                blobs.forEach((blob, i) => {
+                    const p = params[i];
+                    const x = (p.cx + Math.sin(t * p.fx + p.ph) * p.ax) * w - HALF;
+                    const y = (p.cy + Math.cos(t * p.fy + p.ph * 1.4) * p.ay) * h - HALF;
+                    blob.style.transform = `translate(${x}px, ${y}px)`;
+                });
+                requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+        })();
+
+        // Custom cursor
+        const dot = document.querySelector('.cursor-dot');
+        const outline = document.querySelector('.cursor-dot-outline');
+        if (dot && outline) {
+            window.addEventListener('mousemove', (e) => {
+                dot.style.left = `${e.clientX}px`;
+                dot.style.top  = `${e.clientY}px`;
+                outline.animate({ left: `${e.clientX}px`, top: `${e.clientY}px` }, { duration: 300, fill: 'forwards', easing: 'ease-out' });
+            });
+        }
+
+        // Copy command to clipboard
+        function copyCmd(btn, text) {
+            navigator.clipboard.writeText(text).then(() => {
+                const isSm = btn.classList.contains('copy-btn-sm');
+                const sz = isSm ? 11 : 13;
+                btn.classList.add('copied');
+                const orig = btn.innerHTML;
+                btn.innerHTML = `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><polyline points="20 6 9 17 4 12"/></svg>`;
+                setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = orig; }, 1800);
+            }).catch(() => {});
+        }
+
+        // Mobile sidebar
+        const hamburger = document.getElementById('hamburger-btn');
+        const sidebar   = document.getElementById('docs-sidebar');
+        const backdrop  = document.getElementById('sidebar-backdrop');
+        hamburger.addEventListener('click', () => { const o = sidebar.classList.toggle('open'); backdrop.classList.toggle('open', o); });
+        backdrop.addEventListener('click', () => { sidebar.classList.remove('open'); backdrop.classList.remove('open'); });
+        sidebar.querySelectorAll('.sidebar-link').forEach(l => l.addEventListener('click', () => {
+            if (window.innerWidth <= 900) { sidebar.classList.remove('open'); backdrop.classList.remove('open'); }
+        }));
+
+        // Active section tracking
+        const sections = document.querySelectorAll('.doc-section[id]');
+        const links    = document.querySelectorAll('.sidebar-link[data-section]');
+        const io = new IntersectionObserver((entries) => {
+            entries.forEach(e => {
+                if (e.isIntersecting) links.forEach(l => l.classList.toggle('active', l.dataset.section === e.target.id));
+            });
+        }, { rootMargin: '-60px 0px -60% 0px', threshold: 0 });
+        sections.forEach(s => io.observe(s));
+
+        // Smooth scroll
+        links.forEach(l => l.addEventListener('click', (e) => {
+            e.preventDefault();
+            const t = document.getElementById(l.dataset.section);
+            if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }));
+    </script>
+</body>
+</html>
