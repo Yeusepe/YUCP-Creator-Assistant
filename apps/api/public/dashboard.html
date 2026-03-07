@@ -26,158 +26,229 @@
             min-height: 100vh;
         }
 
-        h1,
-        h2,
-        h3,
-        .display-text {
-            font-family: 'Plus Jakarta Sans', "Plus Jakarta Sans", sans-serif;
+        h1, h2, h3, .display-text {
+            font-family: 'Plus Jakarta Sans', sans-serif;
             font-weight: 800;
             letter-spacing: -0.04em;
         }
 
+        /* ── Section Cards ─────────────────────────────────────────────────── */
         .section-card {
-            background: rgba(0, 0, 0, 0.25);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 32px;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
-            overflow: visible;
-            margin-bottom: 32px;
+            background: rgba(0, 0, 0, 0.22);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            border-radius: 28px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255,255,255,0.1);
+            margin-bottom: 24px;
         }
 
+        /* ── Platform Cards ────────────────────────────────────────────────── */
+        .platform-card {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1.5px solid rgba(255, 255, 255, 0.12);
+            border-radius: 20px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .platform-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 20px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 60%);
+            pointer-events: none;
+        }
+
+        .platform-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        }
+
+        .platform-card.connected {
+            border-color: rgba(74, 222, 128, 0.4);
+            box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.15), 0 8px 24px rgba(74, 222, 128, 0.08);
+        }
+
+        .platform-card.disconnected {
+            opacity: 0.85;
+        }
+
+        /* ── Status Pills ──────────────────────────────────────────────────── */
         .status-pill {
             font-size: 10px;
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-            padding: 4px 10px;
+            letter-spacing: 0.07em;
+            padding: 3px 10px;
             border-radius: 99px;
         }
 
+        .status-pill.connected {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+            border: 1px solid rgba(74, 222, 128, 0.3);
+        }
+
+        .status-pill.disconnected {
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* ── Action Buttons on Cards ───────────────────────────────────────── */
+        .card-action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            margin-top: auto;
+            align-self: flex-start;
+        }
+
+        .card-action-btn.link {
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+        }
+
+        .card-action-btn.link:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .card-action-btn.disconnect {
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .card-action-btn.disconnect:hover {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+        }
+
+        /* ── Toggle Switch ─────────────────────────────────────────────────── */
         .toggle-switch {
             width: 44px;
             height: 24px;
-            background: var(--border-color);
+            background: rgba(255, 255, 255, 0.15);
             border-radius: 12px;
             position: relative;
             cursor: pointer;
-            transition: background 0.3s;
+            transition: background 0.25s;
             flex-shrink: 0;
         }
 
         .toggle-switch.active {
-            background: var(--accent-sky);
+            background: #0ea5e9;
         }
 
         .toggle-switch::after {
             content: '';
             position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 20px;
-            height: 20px;
-            background: rgba(255, 255, 255, 0.05);
+            top: 3px;
+            left: 3px;
+            width: 18px;
+            height: 18px;
+            background: white;
             border-radius: 50%;
-            transition: transform 0.3s;
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
         }
 
         .toggle-switch.active::after {
             transform: translateX(20px);
         }
 
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(34, 66, 133, 0.4);
-            backdrop-filter: blur(4px);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-        }
-
-        .setting-select {
-            appearance: none;
-            background: rgba(255, 255, 255, 0.05);
-            border: 2px solid var(--border-color);
-            border-radius: 12px;
-            padding: 10px 36px 10px 14px;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            font-weight: 600;
-            font-size: 13px;
-            color: var(--accent-blue);
-            cursor: pointer;
-            transition: border-color 0.2s, box-shadow 0.2s;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23224285' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 12px center;
-            min-width: 140px;
-        }
-
-        .setting-select:focus {
-            outline: none;
-            border-color: var(--accent-blue);
-            box-shadow: 0 0 0 3px rgba(34, 66, 133, 0.1);
-        }
-
+        /* ── Setting Rows ──────────────────────────────────────────────────── */
         .setting-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 12px 0;
-            border-bottom: 1px solid rgba(224, 214, 212, 0.4);
+            gap: 12px;
+            padding: 13px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
         }
 
         .setting-row:last-child {
             border-bottom: none;
         }
 
-        .platform-card {
-            padding: 20px;
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
+        .setting-row-left {
             display: flex;
-            flex-direction: column;
-            gap: 16px;
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            min-width: 0;
         }
 
-        .platform-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(34, 66, 133, 0.06);
+        .setting-icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
         }
 
-        .platform-card.connected {
-            opacity: 1;
+        .setting-icon img {
+            width: 18px;
+            height: 18px;
+            object-fit: contain;
         }
 
-        .platform-card.disconnected {
-            opacity: 0.7;
-        }
-
-        .link-btn {
+        /* ── Setting Select ────────────────────────────────────────────────── */
+        .setting-select {
+            appearance: none;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1.5px solid rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            padding: 8px 32px 8px 12px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 600;
             font-size: 12px;
-            font-weight: 700;
-            text-align: left;
-            margin-top: auto;
+            color: #fff;
             cursor: pointer;
-            background: none;
-            border: none;
-            padding: 0;
-            transition: opacity 0.2s;
+            transition: border-color 0.2s, background 0.2s;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='white' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            min-width: 130px;
+            flex-shrink: 0;
         }
 
-        .link-btn:hover {
-            opacity: 0.7;
+        .setting-select:focus {
+            outline: none;
+            border-color: rgba(14, 165, 233, 0.6);
+            background-color: rgba(255, 255, 255, 0.1);
         }
 
+        .setting-select option {
+            background: #1e3a8a;
+            color: #fff;
+        }
+
+        /* ── Save Indicator ────────────────────────────────────────────────── */
         .save-indicator {
             display: inline-flex;
             align-items: center;
             gap: 4px;
             font-size: 11px;
             font-weight: 700;
-            color: #00e676;
+            color: #4ade80;
             opacity: 0;
             transition: opacity 0.3s;
         }
@@ -186,48 +257,271 @@
             opacity: 1;
         }
 
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(16px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        /* ── Section Label ─────────────────────────────────────────────────── */
+        .section-label {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: rgba(255, 255, 255, 0.45);
+            margin-bottom: 4px;
+            display: block;
         }
 
-        .animate-in {
-            animation: fadeInUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        /* ── Collab Rows ───────────────────────────────────────────────────── */
+        .collab-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
         }
 
-        .animate-in-delay-1 {
-            animation-delay: 0.1s;
-            opacity: 0;
+        .collab-row:last-child {
+            border-bottom: none;
         }
 
-        .animate-in-delay-2 {
-            animation-delay: 0.2s;
-            opacity: 0;
+        .collab-avatar {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, rgba(14,165,233,0.4), rgba(88,101,242,0.4));
+            border: 1.5px solid rgba(255,255,255,0.2);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 800;
+            flex-shrink: 0;
+            letter-spacing: -0.02em;
         }
 
-        .animate-in-delay-3 {
-            animation-delay: 0.3s;
-            opacity: 0;
+        .collab-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            display: block;
         }
 
+        .collab-meta {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 2px;
+        }
+
+        .badge-account {
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 2px 7px;
+            border-radius: 99px;
+            background: rgba(14, 165, 233, 0.2);
+            color: #38bdf8;
+            border: 1px solid rgba(14, 165, 233, 0.3);
+        }
+
+        .badge-api {
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 2px 7px;
+            border-radius: 99px;
+            background: rgba(255, 235, 59, 0.15);
+            color: #fde047;
+            border: 1px solid rgba(255, 235, 59, 0.25);
+        }
+
+        .webhook-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .webhook-dot.ok { background: #4ade80; box-shadow: 0 0 4px rgba(74,222,128,0.6); }
+        .webhook-dot.warn { background: #facc15; }
+
+        .collab-remove-btn {
+            margin-left: auto;
+            font-size: 11px;
+            font-weight: 700;
+            background: transparent;
+            border: 1.5px solid rgba(255,255,255,0.12);
+            color: rgba(255,255,255,0.5);
+            border-radius: 8px;
+            padding: 5px 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            flex-shrink: 0;
+        }
+
+        .collab-remove-btn:hover {
+            background: rgba(239,68,68,0.15);
+            border-color: rgba(239,68,68,0.4);
+            color: #f87171;
+        }
+
+        /* ── Primary Button ────────────────────────────────────────────────── */
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #0ea5e9;
+            color: white;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 13px;
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(14,165,233,0.3);
+        }
+
+        .btn-primary:hover {
+            background: #0284c7;
+            box-shadow: 0 6px 20px rgba(14,165,233,0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ── Empty State ───────────────────────────────────────────────────── */
+        .empty-state {
+            text-align: center;
+            padding: 32px 16px;
+        }
+
+        .empty-state img {
+            width: 48px;
+            height: 48px;
+            object-fit: contain;
+            margin: 0 auto 12px;
+            opacity: 0.5;
+        }
+
+        /* ── Modal ─────────────────────────────────────────────────────────── */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 20, 80, 0.55);
+            backdrop-filter: blur(6px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .modal-box {
+            background: rgba(10, 30, 90, 0.85);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 28px;
+            padding: 36px;
+            max-width: 420px;
+            width: calc(100% - 32px);
+            box-shadow: 0 24px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+
+        .modal-box h3 {
+            font-size: 20px;
+            font-weight: 800;
+            color: #fff;
+            margin: 0 0 10px;
+        }
+
+        .modal-box p {
+            font-size: 14px;
+            font-family: 'DM Sans', sans-serif;
+            color: rgba(255,255,255,0.75);
+            line-height: 1.6;
+            margin: 0 0 24px;
+        }
+
+        .modal-btn-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .btn-ghost {
+            padding: 12px;
+            border-radius: 14px;
+            border: 1.5px solid rgba(255,255,255,0.12);
+            background: transparent;
+            color: #fff;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-ghost:hover { background: rgba(255,255,255,0.08); }
+
+        .btn-danger {
+            padding: 12px;
+            border-radius: 14px;
+            border: none;
+            background: #0ea5e9;
+            color: #fff;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-danger:hover { background: #0284c7; }
+
+        /* ── Invite URL box ────────────────────────────────────────────────── */
+        .invite-url-box {
+            background: rgba(0,0,0,0.3);
+            border: 1.5px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            color: rgba(255,255,255,0.8);
+            word-break: break-all;
+            line-height: 1.5;
+            margin-bottom: 12px;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        /* ── Page loading ──────────────────────────────────────────────────── */
         .page-loading-spinner {
             width: 40px;
             height: 40px;
             border: 3px solid rgba(255, 255, 255, 0.1);
-            border-top-color: #5865F2;
+            border-top-color: #0ea5e9;
             border-radius: 50%;
             animation: page-loading-spin 0.8s linear infinite;
         }
-        @keyframes page-loading-spin {
-            to { transform: rotate(360deg); }
+
+        @keyframes page-loading-spin { to { transform: rotate(360deg); } }
+
+        /* ── Animations ────────────────────────────────────────────────────── */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+
+        .animate-in { animation: fadeInUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+        .animate-in-delay-1 { animation-delay: 0.08s; opacity: 0; }
+        .animate-in-delay-2 { animation-delay: 0.16s; opacity: 0; }
+        .animate-in-delay-3 { animation-delay: 0.24s; opacity: 0; }
+        .animate-in-delay-4 { animation-delay: 0.32s; opacity: 0; }
     </style>
 
     <!-- ES Module Shims for better browser compatibility -->
@@ -252,274 +546,320 @@
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center" style="background-color: var(--bg-color);">
         <img src="Icons/MainLogo.png" alt="YUCP" class="h-10 mb-8" />
         <div class="page-loading-spinner"></div>
-        <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
+        <p class="mt-4 text-sm font-semibold" style="color: rgba(255,255,255,0.6);">Loading your dashboard...</p>
     </div>
+
     <div id="page-content" style="display: none;">
-    <div id="bg-canvas-root"
-        style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
-    </div>
-    <main class="max-w-5xl mx-auto px-6 mt-12">
-        <!-- Playful Background Stickers -->
-        <div id="holo-world-0" class="absolute top-10 right-20 w-28 opacity-70 sticker pointer-events-auto z-0 h-28"
-            style="animation-delay: -1s;"></div>
-        <div id="holo-gumorad-1" class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24"
-            style="animation-delay: -4s;"></div>
-        <div id="holo-checkmark-2"
-            class="absolute top-1/2 right-10 w-20 opacity-50 sticker pointer-events-auto z-0 h-20"
-            style="animation-delay: -2s;"></div>
 
-        <header class="mb-12 animate-in relative z-10">
-            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                <div class="relative">
-                    <img src="./Icons/Assistant.png"
-                        class="absolute -top-10 -left-12 w-16 sticker pointer-events-none hidden md:block"
-                        alt="Assistant">
-                    <div
-                        class="inline-block px-4 py-1 bg-[#ffffff]/20 text-[#ffffff] rounded-full text-[10px] font-black uppercase tracking-widest mb-4 backdrop-blur-md border border-white/30">
-                        Server Dashboard
+        <!-- Background canvas -->
+        <div id="bg-canvas-root" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;"></div>
+
+        <main class="max-w-5xl mx-auto px-6 mt-12">
+
+            <!-- Holographic Stickers -->
+            <div id="holo-world-0" class="absolute top-10 right-20 w-28 opacity-70 sticker pointer-events-auto z-0 h-28" style="animation-delay: -1s;"></div>
+            <div id="holo-gumorad-1" class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24" style="animation-delay: -4s;"></div>
+            <div id="holo-checkmark-2" class="absolute top-1/2 right-10 w-20 opacity-50 sticker pointer-events-auto z-0 h-20" style="animation-delay: -2s;"></div>
+
+            <!-- Header -->
+            <header class="mb-10 animate-in relative z-10">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                    <div class="relative">
+                        <img src="./Icons/Assistant.png" class="absolute -top-10 -left-12 w-16 sticker pointer-events-none hidden md:block" alt="">
+                        <div class="inline-block px-4 py-1 bg-white/15 text-white rounded-full text-[10px] font-black uppercase tracking-widest mb-4 backdrop-blur-md border border-white/25">
+                            Server Dashboard
+                        </div>
+                        <h1 class="text-5xl md:text-6xl tracking-tight mb-2 font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-blue-200">
+                            Settings
+                        </h1>
+                        <p class="text-white/80 font-medium text-base max-w-sm" style="font-family: 'DM Sans', sans-serif;">
+                            Manage your integrations and server preferences.
+                        </p>
                     </div>
-                    <h1
-                        class="text-5xl md:text-6xl tracking-tight mb-2 font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-blue-200">
-                        Settings
-                    </h1>
-                    <p class="text-[rgba(255,255,255,0.9)] font-medium text-lg max-w-md"
-                        style="font-family: 'DM Sans', sans-serif;">
-                        Manage your integrations and server preferences.
+                    <div id="onboarding-done" class="hidden">
+                        <button id="done-btn" class="btn-primary text-base px-8 py-3 rounded-2xl shadow-xl">
+                            Done Setup
+                        </button>
+                        <p id="status-text" class="text-center text-xs mt-2 font-bold"></p>
+                    </div>
+                </div>
+            </header>
+
+            <div class="space-y-6">
+
+                <!-- ── Connected Platforms ────────────────────────────────────────── -->
+                <section class="section-card p-7 animate-in animate-in-delay-1">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background: rgba(255,235,59,0.15);">
+                            <img src="Icons/Link.png" class="w-4 h-4 object-contain" alt="">
+                        </div>
+                        <h2 class="text-lg font-black">Connected Platforms</h2>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="platforms-grid">
+
+                        <!-- Discord (always connected) -->
+                        <div class="platform-card connected">
+                            <div class="flex items-start justify-between">
+                                <div class="w-10 h-10 bg-[#5865F2] rounded-xl flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.196.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
+                                    </svg>
+                                </div>
+                                <span class="status-pill connected">Connected</span>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-base mb-0.5">Discord</h3>
+                                <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Bot access active</p>
+                            </div>
+                        </div>
+
+                        <!-- Gumroad -->
+                        <div id="gumroad-card" class="platform-card disconnected">
+                            <div class="flex items-start justify-between">
+                                <div class="w-10 h-10 bg-black rounded-xl flex items-center justify-center overflow-hidden">
+                                    <img class="w-6 h-6 rounded object-cover"
+                                        src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
+                                        alt="Gumroad">
+                                </div>
+                                <span id="gumroad-status" class="status-pill disconnected">Not Linked</span>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-base mb-0.5">Gumroad</h3>
+                                <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import sales &amp; buyers</p>
+                            </div>
+                            <button id="gumroad-btn" class="card-action-btn link" onclick="navigateGumroad()">
+                                Link Account
+                            </button>
+                        </div>
+
+                        <!-- Jinxxy -->
+                        <div id="jinxxy-card" class="platform-card disconnected">
+                            <div class="flex items-start justify-between">
+                                <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center" style="background:#9146FF;">
+                                    <img class="w-6 h-6 rounded object-cover"
+                                        src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
+                                        alt="Jinxxy">
+                                </div>
+                                <span id="jinxxy-status" class="status-pill disconnected">Not Linked</span>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-base mb-0.5">Jinxxy</h3>
+                                <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import sales &amp; buyers</p>
+                            </div>
+                            <button id="jinxxy-btn" class="card-action-btn link" onclick="navigateJinxxy()">
+                                Link Account
+                            </button>
+                        </div>
+
+                    </div>
+                </section>
+
+                <!-- ── Server Settings ─────────────────────────────────────────────── -->
+                <section class="section-card p-7 animate-in animate-in-delay-2">
+                    <div class="flex items-center gap-3 mb-1">
+                        <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background: rgba(88,101,242,0.2);">
+                            <img src="Icons/Wrench.png" class="w-4 h-4 object-contain" alt="">
+                        </div>
+                        <h2 class="text-lg font-black">Server Settings</h2>
+                        <span id="save-indicator" class="save-indicator ml-2">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                <path d="M5 13l4 4L19 7"/>
+                            </svg>
+                            Saved
+                        </span>
+                    </div>
+                    <p class="text-xs text-white/50 font-medium mb-7 ml-11" style="font-family:'DM Sans',sans-serif;">
+                        Configure how verification and security work for your server.
                     </p>
-                </div>
-                <div id="onboarding-done" class="hidden">
-                    <button id="done-btn"
-                        class="bg-[#0ea5e9] text-white px-8 py-3 rounded-xl font-extrabold hover:bg-[#b84d2e] transition-colors shadow-lg shadow-[#0ea5e9]/20">Done
-                        Setup</button>
-                    <p id="status-text" class="text-center text-xs mt-2 font-bold"></p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-10">
+                        <!-- Left: Toggles -->
+                        <div>
+                            <span class="section-label">Verification</span>
+                            <div class="mt-3">
+                                <div class="setting-row">
+                                    <div class="setting-row-left">
+                                        <div class="setting-icon">
+                                            <img src="Icons/World.png" alt="">
+                                        </div>
+                                        <div>
+                                            <span class="font-bold text-sm text-white block">Allow Mismatched Emails</span>
+                                            <span class="text-xs text-white/55" style="font-family:'DM Sans',sans-serif;">Verify with a different email than Discord.</span>
+                                        </div>
+                                    </div>
+                                    <div id="toggle-allowMismatchedEmails" class="toggle-switch" onclick="toggleSetting('allowMismatchedEmails')"></div>
+                                </div>
+
+                                <div class="setting-row">
+                                    <div class="setting-row-left">
+                                        <div class="setting-icon">
+                                            <img src="Icons/Refresh.png" alt="">
+                                        </div>
+                                        <div>
+                                            <span class="font-bold text-sm text-white block">Auto-Verify on Join</span>
+                                            <span class="text-xs text-white/55" style="font-family:'DM Sans',sans-serif;">Automatically verify members when they join.</span>
+                                        </div>
+                                    </div>
+                                    <div id="toggle-autoVerifyOnJoin" class="toggle-switch" onclick="toggleSetting('autoVerifyOnJoin')"></div>
+                                </div>
+
+                                <div class="setting-row">
+                                    <div class="setting-row-left">
+                                        <div class="setting-icon">
+                                            <img src="Icons/Link.png" alt="">
+                                        </div>
+                                        <div>
+                                            <span class="font-bold text-sm text-white block">Share Across Servers</span>
+                                            <span class="text-xs text-white/55" style="font-family:'DM Sans',sans-serif;">Allow verification to carry over between servers.</span>
+                                        </div>
+                                    </div>
+                                    <div id="toggle-shareVerificationWithServers" class="toggle-switch" onclick="toggleSetting('shareVerificationWithServers')"></div>
+                                </div>
+
+                                <div class="setting-row">
+                                    <div class="setting-row-left">
+                                        <div class="setting-icon">
+                                            <img src="Icons/PersonKey.png" alt="">
+                                        </div>
+                                        <div>
+                                            <span class="font-bold text-sm text-white block">Cross-Server Role Checks</span>
+                                            <span class="text-xs text-white/55" style="font-family:'DM Sans',sans-serif;">Check roles from other Discord servers.</span>
+                                        </div>
+                                    </div>
+                                    <div id="toggle-enableDiscordRoleFromOtherServers" class="toggle-switch" onclick="toggleSetting('enableDiscordRoleFromOtherServers')"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Selects -->
+                        <div class="mt-7 md:mt-0">
+                            <span class="section-label">Security &amp; Behavior</span>
+                            <div class="mt-3">
+                                <div class="setting-row">
+                                    <div class="setting-row-left">
+                                        <div class="setting-icon">
+                                            <img src="Icons/Key.png" alt="">
+                                        </div>
+                                        <div>
+                                            <span class="font-bold text-sm text-white block">Verification Scope</span>
+                                            <span class="text-xs text-white/55" style="font-family:'DM Sans',sans-serif;">How verifications are scoped for buyers.</span>
+                                        </div>
+                                    </div>
+                                    <select id="select-verificationScope" class="setting-select" onchange="selectSetting('verificationScope', this.value)">
+                                        <option value="account">Account</option>
+                                        <option value="license">License</option>
+                                    </select>
+                                </div>
+
+                                <div class="setting-row">
+                                    <div class="setting-row-left">
+                                        <div class="setting-icon">
+                                            <img src="Icons/ClapStars.png" alt="">
+                                        </div>
+                                        <div>
+                                            <span class="font-bold text-sm text-white block">Duplicate Verifications</span>
+                                            <span class="text-xs text-white/55" style="font-family:'DM Sans',sans-serif;">What happens when a user verifies twice.</span>
+                                        </div>
+                                    </div>
+                                    <select id="select-duplicateVerificationBehavior" class="setting-select" onchange="selectSetting('duplicateVerificationBehavior', this.value)">
+                                        <option value="allow">Allow</option>
+                                        <option value="notify">Notify</option>
+                                        <option value="block">Block</option>
+                                    </select>
+                                </div>
+
+                                <div class="setting-row">
+                                    <div class="setting-row-left">
+                                        <div class="setting-icon">
+                                            <img src="Icons/X.png" alt="">
+                                        </div>
+                                        <div>
+                                            <span class="font-bold text-sm text-white block">Suspicious Accounts</span>
+                                            <span class="text-xs text-white/55" style="font-family:'DM Sans',sans-serif;">How to handle potentially fraudulent accounts.</span>
+                                        </div>
+                                    </div>
+                                    <select id="select-suspiciousAccountBehavior" class="setting-select" onchange="selectSetting('suspiciousAccountBehavior', this.value)">
+                                        <option value="notify">Notify</option>
+                                        <option value="quarantine">Quarantine</option>
+                                        <option value="revoke">Revoke</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ── Collaborating Creators ──────────────────────────────────────── -->
+                <section class="section-card p-7 animate-in animate-in-delay-3" id="collab-section">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background: rgba(145,70,255,0.2);">
+                                <img src="Icons/CreditCard.png" class="w-4 h-4 object-contain" alt="">
+                            </div>
+                            <h2 class="text-lg font-black">Collaborating Creators</h2>
+                        </div>
+                        <button id="invite-btn" class="btn-primary" onclick="generateCollabInvite()" style="font-size:12px;padding:8px 16px;" id="invite-btn">
+                            <img src="Icons/Link.png" class="w-3.5 h-3.5 object-contain" alt="">
+                            Invite a Creator
+                        </button>
+                    </div>
+                    <p class="text-xs text-white/50 font-medium mb-6 ml-11" style="font-family:'DM Sans',sans-serif;">
+                        Allow members to verify licenses from other creators' stores.
+                    </p>
+
+                    <!-- Collab list -->
+                    <div id="collab-list"></div>
+
+                    <!-- Empty state -->
+                    <div id="collab-empty" class="empty-state hidden">
+                        <img src="Icons/World.png" alt="">
+                        <p class="text-sm text-white/50 font-semibold" style="font-family:'DM Sans',sans-serif;">No collaborators yet.<br>Invite a creator to share license verification.</p>
+                    </div>
+
+                    <!-- Loading state -->
+                    <div id="collab-loading" class="text-center py-8">
+                        <div class="inline-block w-5 h-5 border-2 border-white/20 border-t-sky-400 rounded-full" style="animation: page-loading-spin 0.8s linear infinite;"></div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+
+        <!-- ── Disconnect Modal ────────────────────────────────────────────── -->
+        <div id="disconnectModal" class="modal-overlay">
+            <div class="modal-box">
+                <h3>Confirm Disconnect</h3>
+                <p>Are you sure you want to disconnect your <strong id="platformName" class="text-white">Platform</strong> account? This will remove all associated syncing.</p>
+                <div class="modal-btn-row">
+                    <button onclick="closeModal()" class="btn-ghost">Cancel</button>
+                    <button id="confirmDisconnectBtn" class="btn-danger">Confirm</button>
                 </div>
             </div>
-        </header>
-
-        <div class="space-y-8">
-            <!-- Connected Platforms -->
-            <section class="section-card p-8 animate-in animate-in-delay-1">
-                <div class="flex items-center gap-3 mb-8">
-                    <div class="w-8 h-8 bg-[#ffeb3b]/20 flex items-center justify-center rounded-lg text-[#ffffff]">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                            <path
-                                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1">
-                            </path>
-                        </svg>
-                    </div>
-                    <h2 class="text-xl">Connected Platforms</h2>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="platforms-grid">
-                    <!-- Discord Card -->
-                    <div class="platform-card connected">
-                        <div class="flex justify-between items-start">
-                            <div class="bg-[#5865F2] p-2.5 rounded-xl text-white">
-                                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                                    <path
-                                        d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515a.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0a12.64 12.64 0 0 0-.617-1.25a.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057a19.9 19.9 0 0 0 5.993 3.03a.078.078 0 0 0 .084-.028a14.09 14.09 0 0 0 1.226-1.994a.076.076 0 0 0-.041-.106a13.107 13.107 0 0 1-1.872-.892a.077.077 0 0 1-.008-.128a10.2 10.2 0 0 0 .372-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.196.373.292a.077.077 0 0 1-.006.127a12.299 12.299 0 0 1-1.873.892a.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028a19.839 19.839 0 0 0 6.002-3.03a.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z">
-                                    </path>
-                                </svg>
-                            </div>
-                            <span class="status-pill bg-green-100 text-green-700">Connected</span>
-                        </div>
-                        <div>
-                            <h3 class="font-bold text-lg">Discord</h3>
-                            <p class="text-xs text-[rgba(255,255,255,0.8)] font-semibold">Synced for bot access</p>
-                        </div>
-                    </div>
-
-                    <!-- Gumroad Card -->
-                    <div id="gumroad-card" class="platform-card disconnected">
-                        <div class="flex justify-between items-start">
-                            <div class="bg-black p-2.5 rounded-xl text-white">
-                                <img class="w-6 h-6 rounded-md object-cover"
-                                    src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
-                                    alt="Gumroad">
-                            </div>
-                            <span id="gumroad-status"
-                                class="status-pill bg-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.8)]">Not
-                                Linked</span>
-                        </div>
-                        <div>
-                            <h3 class="font-bold text-lg">Gumroad</h3>
-                            <p class="text-xs text-[rgba(255,255,255,0.8)] font-semibold">Import sales &amp; buyers</p>
-                        </div>
-                        <button id="gumroad-btn" class="link-btn text-[#ffffff]" onclick="navigateGumroad()">Link
-                            Account</button>
-                    </div>
-
-                    <!-- Jinxxy Card -->
-                    <div id="jinxxy-card" class="platform-card disconnected">
-                        <div class="flex justify-between items-start">
-                            <div class="bg-[#9146FF] p-2.5 rounded-xl text-white">
-                                <img class="w-6 h-6 rounded-md object-cover"
-                                    src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
-                                    alt="Jinxxy">
-                            </div>
-                            <span id="jinxxy-status"
-                                class="status-pill bg-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.8)]">Not
-                                Linked</span>
-                        </div>
-                        <div>
-                            <h3 class="font-bold text-lg">Jinxxy</h3>
-                            <p class="text-xs text-[rgba(255,255,255,0.8)] font-semibold">Import sales &amp; buyers</p>
-                        </div>
-                        <button id="jinxxy-btn" class="link-btn text-[#ffffff]" onclick="navigateJinxxy()">Link
-                            Account</button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Server Settings -->
-            <section class="section-card p-8 animate-in animate-in-delay-2">
-                <div class="flex items-center gap-3 mb-2">
-                    <div class="w-8 h-8 bg-[#5865F2]/20 flex items-center justify-center rounded-lg text-[#5865F2]">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                            <path
-                                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
-                            </path>
-                            <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                        </svg>
-                    </div>
-                    <h2 class="text-xl">Server Settings</h2>
-                    <span id="save-indicator" class="save-indicator ml-2">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-                            <path d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Saved
-                    </span>
-                </div>
-                <p class="text-xs text-[rgba(255,255,255,0.8)] font-semibold mb-8"
-                    style="font-family: 'DM Sans', sans-serif;">
-                    Configure how verification and security work for your server.</p>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-0">
-                    <!-- Left Column — Toggles -->
-                    <div>
-                        <label
-                            class="block text-[10px] font-extrabold uppercase tracking-widest text-[rgba(255,255,255,0.8)] mb-4">Verification</label>
-
-                        <div class="setting-row">
-                            <div>
-                                <span class="font-bold text-sm text-[#ffffff] block">Allow Mismatched Emails</span>
-                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
-                                    style="font-family: 'DM Sans', sans-serif;">Let buyers verify with an email
-                                    different from their Discord.</span>
-                            </div>
-                            <div id="toggle-allowMismatchedEmails" class="toggle-switch"
-                                onclick="toggleSetting('allowMismatchedEmails')"></div>
-                        </div>
-
-                        <div class="setting-row">
-                            <div>
-                                <span class="font-bold text-sm text-[#ffffff] block">Auto-Verify on Join</span>
-                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
-                                    style="font-family: 'DM Sans', sans-serif;">Automatically verify members when they
-                                    join the server.</span>
-                            </div>
-                            <div id="toggle-autoVerifyOnJoin" class="toggle-switch"
-                                onclick="toggleSetting('autoVerifyOnJoin')"></div>
-                        </div>
-
-                        <div class="setting-row">
-                            <div>
-                                <span class="font-bold text-sm text-[#ffffff] block">Share Verification Across
-                                    Servers</span>
-                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
-                                    style="font-family: 'DM Sans', sans-serif;">Allow verification to carry over between
-                                    your Discord servers.</span>
-                            </div>
-                            <div id="toggle-shareVerificationWithServers" class="toggle-switch"
-                                onclick="toggleSetting('shareVerificationWithServers')"></div>
-                        </div>
-
-                        <div class="setting-row">
-                            <div>
-                                <span class="font-bold text-sm text-[#ffffff] block">Cross-Server Role Checks</span>
-                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
-                                    style="font-family: 'DM Sans', sans-serif;">Check roles from other Discord servers
-                                    for verification.</span>
-                            </div>
-                            <div id="toggle-enableDiscordRoleFromOtherServers" class="toggle-switch"
-                                onclick="toggleSetting('enableDiscordRoleFromOtherServers')"></div>
-                        </div>
-                    </div>
-
-                    <!-- Right Column — Selects -->
-                    <div>
-                        <label
-                            class="block text-[10px] font-extrabold uppercase tracking-widest text-[rgba(255,255,255,0.8)] mb-4">Security
-                            &amp; Behavior</label>
-
-                        <div class="setting-row">
-                            <div>
-                                <span class="font-bold text-sm text-[#ffffff] block">Verification Scope</span>
-                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
-                                    style="font-family: 'DM Sans', sans-serif;">How verifications are scoped for
-                                    buyers.</span>
-                            </div>
-                            <select id="select-verificationScope" class="setting-select"
-                                onchange="selectSetting('verificationScope', this.value)">
-                                <option value="account">Account</option>
-                                <option value="license">License</option>
-                            </select>
-                        </div>
-
-                        <div class="setting-row">
-                            <div>
-                                <span class="font-bold text-sm text-[#ffffff] block">Duplicate Verifications</span>
-                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
-                                    style="font-family: 'DM Sans', sans-serif;">What happens when a user tries to verify
-                                    twice.</span>
-                            </div>
-                            <select id="select-duplicateVerificationBehavior" class="setting-select"
-                                onchange="selectSetting('duplicateVerificationBehavior', this.value)">
-                                <option value="allow">Allow</option>
-                                <option value="notify">Notify</option>
-                                <option value="block">Block</option>
-                            </select>
-                        </div>
-
-                        <div class="setting-row">
-                            <div>
-                                <span class="font-bold text-sm text-[#ffffff] block">Suspicious Accounts</span>
-                                <span class="text-xs font-medium text-[rgba(255,255,255,0.8)]"
-                                    style="font-family: 'DM Sans', sans-serif;">How to handle potentially fraudulent
-                                    accounts.</span>
-                            </div>
-                            <select id="select-suspiciousAccountBehavior" class="setting-select"
-                                onchange="selectSetting('suspiciousAccountBehavior', this.value)">
-                                <option value="notify">Notify</option>
-                                <option value="quarantine">Quarantine</option>
-                                <option value="revoke">Revoke</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            </section>
         </div>
 
-    </main>
-
-
-    <div id="disconnectModal" class="modal-overlay">
-        <div
-            class="bg-black/25 backdrop-blur-md rounded-[32px] p-10 max-w-md w-full mx-4 shadow-2xl border border-white/10">
-            <h3 class="text-2xl font-extrabold mb-4">Confirm Disconnect</h3>
-            <p class="text-[rgba(255,255,255,0.8)] font-medium mb-8 leading-relaxed"
-                style="font-family: 'DM Sans', sans-serif;">Are
-                you sure you want to disconnect your <span id="platformName"
-                    class="font-bold text-[#ffffff]">Platform</span> account? This will remove all
-                associated syncing.</p>
-            <div class="grid grid-cols-2 gap-4">
-                <button onclick="closeModal()"
-                    class="py-4 rounded-2xl border border-[rgba(255,255,255,0.1)] font-bold text-[#ffffff] hover:bg-[#1a6bff]">Cancel</button>
-                <button id="confirmDisconnectBtn"
-                    class="py-4 rounded-2xl bg-[#0ea5e9] font-bold text-white hover:opacity-90">Confirm</button>
+        <!-- ── Invite Link Modal ───────────────────────────────────────────── -->
+        <div id="inviteModal" class="modal-overlay">
+            <div class="modal-box">
+                <div class="flex items-center gap-3 mb-5">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background:rgba(145,70,255,0.25);">
+                        <img src="Icons/Link.png" class="w-4 h-4 object-contain" alt="">
+                    </div>
+                    <h3 style="margin:0;">Collaborator Invite Link</h3>
+                </div>
+                <p style="margin-bottom:12px;">Share this link with the creator you'd like to invite. <span id="invite-expiry" class="font-semibold text-white/70"></span></p>
+                <div id="invite-url-display" class="invite-url-box"></div>
+                <div class="flex gap-3">
+                    <button id="copy-invite-btn" class="btn-primary flex-1" onclick="copyInviteUrl()">
+                        <img src="Icons/ClapStars.png" class="w-4 h-4 object-contain" alt="">
+                        Copy Link
+                    </button>
+                    <button onclick="closeInviteModal()" class="btn-ghost flex-1">Close</button>
+                </div>
             </div>
         </div>
-    </div>
+
+    </div><!-- #page-content -->
 
     <script>
         const guildId = '__GUILD_ID__';
@@ -532,15 +872,13 @@
         let connectionsMap = new Map();
         let settingsMap = new Map();
         let pendingDisconnectPlatform = null;
+        let collabConnections = [];
 
-        async function apiFetch(url, options = {}) {
-            return fetch(url, {
-                credentials: 'include',
-                ...options,
-            });
+        function apiFetch(url, options = {}) {
+            return fetch(url, { credentials: 'include', ...options });
         }
 
-        // ── Default navigation handlers (work immediately, before API loads) ───
+        // ── Navigation ──────────────────────────────────────────────────────────
 
         function navigateGumroad() {
             if (setupToken) {
@@ -548,7 +886,7 @@
             } else if (tenantId && guildId) {
                 window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
             } else {
-                alert('Please wait for the page to finish loading your account details.');
+                alert('Please wait for the page to finish loading.');
             }
         }
 
@@ -558,20 +896,18 @@
             } else if (tenantId && guildId) {
                 window.location.href = `/jinxxy-setup?tenant_id=${encodeURIComponent(tenantId)}&guild_id=${encodeURIComponent(guildId)}`;
             } else {
-                alert('Please wait for the page to finish loading your account details.');
+                alert('Please wait for the page to finish loading.');
             }
         }
 
-        // ── Initialization ─────────────────────────────────────────────────────
+        // ── Init ────────────────────────────────────────────────────────────────
 
         async function init() {
             try {
                 if (!setupToken && !tenantId && guildId) {
                     const res = await apiFetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}${token ? '&token=' + encodeURIComponent(token) : ''}`);
                     const data = await res.json();
-                    if (data.tenantId) {
-                        tenantId = data.tenantId;
-                    }
+                    if (data.tenantId) tenantId = data.tenantId;
                 }
 
                 if ((token || setupToken) && document.getElementById('onboarding-done')) {
@@ -579,9 +915,10 @@
                 }
 
                 await fetchAllData();
+                await fetchCollabConnections();
 
             } catch (err) {
-                console.error("Initialization error:", err);
+                console.error('Initialization error:', err);
             }
         }
 
@@ -594,9 +931,7 @@
                         connectionsMap.clear();
                         if (statusData.connections) {
                             statusData.connections.forEach(c => {
-                                if (c.status === 'active') {
-                                    connectionsMap.set(c.provider, c);
-                                }
+                                if (c.status === 'active') connectionsMap.set(c.provider, c);
                             });
                         }
                         updatePlatformCards();
@@ -606,7 +941,6 @@
                     if (settingsRes.ok) {
                         const settingsData = await settingsRes.json();
                         if (settingsData.policy) {
-                            // Load all settings into our map
                             const policy = settingsData.policy;
                             const keys = [
                                 'allowMismatchedEmails', 'autoVerifyOnJoin',
@@ -614,9 +948,7 @@
                                 'verificationScope', 'duplicateVerificationBehavior',
                                 'suspiciousAccountBehavior'
                             ];
-                            keys.forEach(k => {
-                                if (policy[k] !== undefined) settingsMap.set(k, policy[k]);
-                            });
+                            keys.forEach(k => { if (policy[k] !== undefined) settingsMap.set(k, policy[k]); });
                             updateSettingsUI();
                         }
                     }
@@ -629,7 +961,7 @@
                     }
                 }
             } catch (err) {
-                console.error("Failed to fetch data", err);
+                console.error('Failed to fetch data', err);
             }
         }
 
@@ -644,28 +976,23 @@
             const card = document.getElementById(`${platform}-card`);
             const status = document.getElementById(`${platform}-status`);
             const btn = document.getElementById(`${platform}-btn`);
+            if (!card || !status || !btn) return;
 
             if (isLinked) {
                 card.classList.remove('disconnected');
                 card.classList.add('connected');
-                status.classList.remove('bg-[rgba(255,255,255,0.1)]', 'text-[rgba(255,255,255,0.8)]');
-                status.classList.add('bg-green-100', 'text-green-700');
+                status.className = 'status-pill connected';
                 status.innerText = 'Connected';
-
-                btn.innerText = 'Disconnect Account';
-                btn.classList.remove('text-[#ffffff]');
-                btn.classList.add('text-[#0ea5e9]');
+                btn.className = 'card-action-btn disconnect';
+                btn.innerText = 'Disconnect';
                 btn.onclick = () => openModal(platform);
             } else {
                 card.classList.add('disconnected');
                 card.classList.remove('connected');
-                status.classList.add('bg-[rgba(255,255,255,0.1)]', 'text-[rgba(255,255,255,0.8)]');
-                status.classList.remove('bg-green-100', 'text-green-700');
+                status.className = 'status-pill disconnected';
                 status.innerText = 'Not Linked';
-
+                btn.className = 'card-action-btn link';
                 btn.innerText = 'Link Account';
-                btn.classList.add('text-[#ffffff]');
-                btn.classList.remove('text-[#0ea5e9]');
                 btn.onclick = () => {
                     if (platform === 'gumroad') navigateGumroad();
                     else if (platform === 'jinxxy') navigateJinxxy();
@@ -673,26 +1000,16 @@
             }
         }
 
-        // ── Settings UI ─────────────────────────────────────────────────────────
+        // ── Settings ────────────────────────────────────────────────────────────
 
         function updateSettingsUI() {
-            // Toggles
-            const toggleKeys = ['allowMismatchedEmails', 'autoVerifyOnJoin', 'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers'];
-            toggleKeys.forEach(key => {
+            ['allowMismatchedEmails', 'autoVerifyOnJoin', 'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers'].forEach(key => {
                 const el = document.getElementById(`toggle-${key}`);
-                if (el) {
-                    if (settingsMap.get(key)) el.classList.add('active');
-                    else el.classList.remove('active');
-                }
+                if (el) el.classList.toggle('active', !!settingsMap.get(key));
             });
-
-            // Selects
-            const selectKeys = ['verificationScope', 'duplicateVerificationBehavior', 'suspiciousAccountBehavior'];
-            selectKeys.forEach(key => {
+            ['verificationScope', 'duplicateVerificationBehavior', 'suspiciousAccountBehavior'].forEach(key => {
                 const el = document.getElementById(`select-${key}`);
-                if (el && settingsMap.has(key)) {
-                    el.value = settingsMap.get(key);
-                }
+                if (el && settingsMap.has(key)) el.value = settingsMap.get(key);
             });
         }
 
@@ -705,24 +1022,20 @@
 
         async function toggleSetting(key) {
             if (!setupToken) {
-                alert('Settings can only be changed when using a secure setup link from Discord.');
+                alert('Settings can only be changed using a secure setup link from Discord.');
                 return;
             }
-
             const el = document.getElementById(`toggle-${key}`);
             const newValue = !settingsMap.get(key);
-
-            // Optimistic UI update
             el.classList.toggle('active');
             settingsMap.set(key, newValue);
-
             try {
                 const res = await apiFetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key, value: newValue })
                 });
-                if (!res.ok) throw new Error('Failed to update setting');
+                if (!res.ok) throw new Error('Failed');
                 showSaved();
             } catch (e) {
                 console.error('Error updating setting:', e);
@@ -734,20 +1047,18 @@
 
         async function selectSetting(key, value) {
             if (!setupToken) {
-                alert('Settings can only be changed when using a secure setup link from Discord.');
+                alert('Settings can only be changed using a secure setup link from Discord.');
                 return;
             }
-
             const oldValue = settingsMap.get(key);
             settingsMap.set(key, value);
-
             try {
                 const res = await apiFetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key, value })
                 });
-                if (!res.ok) throw new Error('Failed to update setting');
+                if (!res.ok) throw new Error('Failed');
                 showSaved();
             } catch (e) {
                 console.error('Error updating setting:', e);
@@ -758,7 +1069,7 @@
             }
         }
 
-        // ── Modal ───────────────────────────────────────────────────────────────
+        // ── Disconnect Modal ─────────────────────────────────────────────────────
 
         function openModal(platform) {
             pendingDisconnectPlatform = platform;
@@ -775,18 +1086,12 @@
             if (!pendingDisconnectPlatform || !setupToken) return;
             const platform = pendingDisconnectPlatform;
             const conn = connectionsMap.get(platform);
+            if (!conn) { closeModal(); return; }
 
-            if (!conn) {
-                closeModal();
-                return;
-            }
-
-            document.getElementById('confirmDisconnectBtn').innerText = 'Disconnecting...';
-
+            const btn = document.getElementById('confirmDisconnectBtn');
+            btn.textContent = 'Disconnecting...';
             try {
-                const res = await apiFetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}&id=${conn.id}`, {
-                    method: 'DELETE'
-                });
+                const res = await apiFetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}&id=${conn.id}`, { method: 'DELETE' });
                 if (res.ok) {
                     connectionsMap.delete(platform);
                     updatePlatformCards();
@@ -797,18 +1102,17 @@
                 console.error('Disconnect error:', e);
                 alert('Network error while disconnecting.');
             }
-
-            document.getElementById('confirmDisconnectBtn').innerText = 'Confirm';
+            btn.textContent = 'Confirm';
             closeModal();
         });
 
-        // ── Done Button ─────────────────────────────────────────────────────────
+        // ── Done Button ──────────────────────────────────────────────────────────
 
         document.getElementById('done-btn')?.addEventListener('click', async () => {
             const btn = document.getElementById('done-btn');
             const status = document.getElementById('status-text');
             btn.disabled = true;
-            btn.innerHTML = 'Completing Setup...';
+            btn.textContent = 'Completing Setup...';
             status.textContent = '';
 
             try {
@@ -819,14 +1123,11 @@
                         body: JSON.stringify({ guildId, token: token || undefined }),
                     });
                     const data = await res.json();
-
-                    if (!res.ok || !data.success) {
-                        throw new Error(data.error || 'Failed to complete setup');
-                    }
+                    if (!res.ok || !data.success) throw new Error(data.error || 'Failed to complete setup');
                 }
 
                 status.textContent = 'Setup complete! You can close this window.';
-                status.className = 'text-center text-xs mt-2 font-bold text-green-600';
+                status.className = 'text-center text-xs mt-2 font-bold text-green-400';
 
                 const end = Date.now() + 1500;
                 (function frame() {
@@ -839,26 +1140,163 @@
 
             } catch (err) {
                 status.textContent = 'Could not finish setup right now. Try again in a moment.';
-                status.className = 'text-center text-xs mt-2 font-bold text-red-600';
+                status.className = 'text-center text-xs mt-2 font-bold text-red-400';
                 btn.disabled = false;
-                btn.innerHTML = 'Done Setup';
+                btn.textContent = 'Done Setup';
             }
         });
 
-        // ── Boot ────────────────────────────────────────────────────────────────
+        // ── Collaborating Creators ────────────────────────────────────────────────
 
-        if (new URLSearchParams(window.location.search).get('gumroad') === 'connected' || new URLSearchParams(window.location.search).get('jinxxy') === 'connected') {
-            const cleanUrl = setupToken ?
-                window.location.pathname + '?s=' + encodeURIComponent(setupToken) :
-                window.location.pathname + '?guild_id=' + guildId + (token ? '&token=' + token : '');
+        async function fetchCollabConnections() {
+            if (!setupToken) {
+                document.getElementById('collab-loading').classList.add('hidden');
+                document.getElementById('collab-empty').classList.remove('hidden');
+                return;
+            }
+            try {
+                const res = await fetch(`${apiBase}/api/collab/connections`, {
+                    headers: { 'Authorization': `Bearer ${setupToken}` }
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                collabConnections = data.connections ?? [];
+            } catch (e) {
+                console.error('Failed to fetch collab connections:', e);
+                collabConnections = [];
+            }
+            renderCollabSection();
+        }
+
+        function renderCollabSection() {
+            document.getElementById('collab-loading').classList.add('hidden');
+            const list = document.getElementById('collab-list');
+            const empty = document.getElementById('collab-empty');
+            const active = collabConnections.filter(c => c.status === 'active');
+
+            if (active.length === 0) {
+                list.innerHTML = '';
+                empty.classList.remove('hidden');
+                return;
+            }
+
+            empty.classList.add('hidden');
+            list.innerHTML = active.map(conn => {
+                const initials = (conn.collaboratorDisplayName || '?').slice(0, 2).toUpperCase();
+                const typeBadge = conn.linkType === 'account'
+                    ? '<span class="badge-account">Account</span>'
+                    : '<span class="badge-api">API Key</span>';
+                const webhookStatus = conn.linkType === 'account'
+                    ? (conn.webhookConfigured
+                        ? '<span class="webhook-dot ok" title="Webhook active"></span>'
+                        : '<span class="webhook-dot warn" title="Webhook not configured"></span>')
+                    : '';
+                const name = conn.collaboratorDisplayName || conn.collaboratorDiscordUserId || 'Unknown';
+                return `
+                    <div class="collab-row">
+                        <div class="collab-avatar">${initials}</div>
+                        <div>
+                            <span class="collab-name">${name}</span>
+                            <div class="collab-meta">${typeBadge}${webhookStatus}</div>
+                        </div>
+                        <button class="collab-remove-btn" onclick="removeCollabConnection('${conn.id}')">Remove</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function generateCollabInvite() {
+            if (!setupToken) {
+                alert('Settings can only be changed using a secure setup link from Discord.');
+                return;
+            }
+            const btn = document.getElementById('invite-btn');
+            const originalHTML = btn.innerHTML;
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+            try {
+                const res = await fetch(`${apiBase}/api/collab/invite`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${setupToken}`
+                    },
+                    body: JSON.stringify({ guildName: 'this server', guildId: guildId || '' })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || 'Failed to generate invite');
+                }
+                const data = await res.json();
+                showInviteModal(data.inviteUrl, data.expiresAt);
+            } catch (e) {
+                console.error('Failed to generate collab invite:', e);
+                alert('Failed to generate invite link. Please try again.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+            }
+        }
+
+        function showInviteModal(url, expiresAt) {
+            document.getElementById('invite-url-display').textContent = url;
+            if (expiresAt) {
+                const d = new Date(expiresAt);
+                document.getElementById('invite-expiry').textContent = `Expires ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}.`;
+            } else {
+                document.getElementById('invite-expiry').textContent = 'Expires in 7 days.';
+            }
+            document.getElementById('inviteModal').style.display = 'flex';
+        }
+
+        function closeInviteModal() {
+            document.getElementById('inviteModal').style.display = 'none';
+        }
+
+        async function copyInviteUrl() {
+            const url = document.getElementById('invite-url-display').textContent;
+            try {
+                await navigator.clipboard.writeText(url);
+                const btn = document.getElementById('copy-invite-btn');
+                const orig = btn.innerHTML;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.innerHTML = orig; }, 2000);
+            } catch { /* silent */ }
+        }
+
+        async function removeCollabConnection(connectionId) {
+            if (!setupToken) return;
+            if (!confirm('Remove this collaborator connection? Members will no longer be able to verify their licenses.')) return;
+            try {
+                const res = await fetch(`${apiBase}/api/collab/connections/${connectionId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${setupToken}` }
+                });
+                if (res.ok) {
+                    collabConnections = collabConnections.filter(c => c.id !== connectionId);
+                    renderCollabSection();
+                } else {
+                    alert('Failed to remove connection. Please try again.');
+                }
+            } catch (e) {
+                console.error('Failed to remove collab connection:', e);
+                alert('Network error. Please try again.');
+            }
+        }
+
+        // ── Boot ─────────────────────────────────────────────────────────────────
+
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('gumroad') === 'connected' || params.get('jinxxy') === 'connected') {
+            const cleanUrl = setupToken
+                ? window.location.pathname + '?s=' + encodeURIComponent(setupToken)
+                : window.location.pathname + '?guild_id=' + guildId + (token ? '&token=' + token : '');
             window.history.replaceState({}, '', cleanUrl);
             setTimeout(init, 500);
         } else {
             init();
         }
-
     </script>
-    </div>
 
     <script type="text/babel" data-type="module">
         import React, { useRef, Component } from "react";
@@ -934,22 +1372,9 @@
             )
         }
 
-        function ForegroundApp() {
-            return (
-                <ErrorBoundary>
-                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: true }} style={{ pointerEvents: 'none' }}>
-                        <ForegroundSky />
-                        <ambientLight intensity={Math.PI / 1.5} />
-                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
-                    </Canvas>
-                </ErrorBoundary>
-            )
-        }
-
         const bgRoot = createRoot(document.getElementById('bg-canvas-root'));
         bgRoot.render(<BackgroundApp />);
 
-        // Holographic Stickers
         const HoloWrapper = ({ src, alt }) => (
             <HolographicSticker.Root>
                 <HolographicSticker.Scene>
@@ -970,17 +1395,13 @@
         );
 
         const root_holo_world_0 = document.getElementById("holo-world-0");
-        if (root_holo_world_0) {
-            createRoot(root_holo_world_0).render(<HoloWrapper src="./Icons/World.png" alt="World" />);
-        }
+        if (root_holo_world_0) createRoot(root_holo_world_0).render(<HoloWrapper src="./Icons/World.png" alt="World" />);
+
         const root_holo_gumorad_1 = document.getElementById("holo-gumorad-1");
-        if (root_holo_gumorad_1) {
-            createRoot(root_holo_gumorad_1).render(<HoloWrapper src="./Icons/Gumorad.png" alt="Bag" />);
-        }
+        if (root_holo_gumorad_1) createRoot(root_holo_gumorad_1).render(<HoloWrapper src="./Icons/Gumorad.png" alt="Bag" />);
+
         const root_holo_checkmark_2 = document.getElementById("holo-checkmark-2");
-        if (root_holo_checkmark_2) {
-            createRoot(root_holo_checkmark_2).render(<HoloWrapper src="./Icons/Checkmark.png" alt="Check" />);
-        }
+        if (root_holo_checkmark_2) createRoot(root_holo_checkmark_2).render(<HoloWrapper src="./Icons/Checkmark.png" alt="Check" />);
 
         (function hideLoading() {
             const overlay = document.getElementById('page-loading-overlay');
