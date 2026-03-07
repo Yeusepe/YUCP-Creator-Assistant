@@ -420,7 +420,7 @@
                                     });
                                     if (!res.ok) throw new Error('Failed to update setting');
                                 } catch (e) {
-                                    alert('Error updating setting: ' + e.message);
+                                    alert('Could not save that setting right now. Please try again.');
                                     this.checked = !this.checked; // Revert
                                 }
                             });
@@ -633,7 +633,7 @@
                             alert(data.error || 'Failed to disconnect');
                         }
                     } catch (err) {
-                        alert('Error trying to disconnect: ' + err.message);
+                        alert('Could not disconnect that account right now. Please try again.');
                     }
                     return;
                 }

@@ -12,6 +12,7 @@ import {
   PermissionFlagsBits,
   type AutocompleteInteraction,
   type ButtonInteraction,
+  type ChannelSelectMenuInteraction,
   type ChatInputCommandInteraction,
   type ModalSubmitInteraction,
   type RoleSelectMenuInteraction,
@@ -108,7 +109,7 @@ export async function handleInteraction(
     return;
   }
   if (interaction.isChannelSelectMenu()) {
-    await handleSelectMenu(interaction as any, ctx);
+    await handleChannelSelectMenu(interaction, ctx);
     return;
   }
 }
@@ -123,11 +124,6 @@ async function handleAutocomplete(
 
   if (commandName === 'creator-admin') {
     const focused = options.getFocused(true);
-    if (focused.name !== 'product_id') {
-      await interaction.respond([]);
-      return;
-    }
-
     const guildId = interaction.guildId;
     if (!guildId) { await interaction.respond([]); return; }
 
@@ -137,6 +133,23 @@ async function handleAutocomplete(
         discordGuildId: guildId,
       });
       if (!guildLink) { await interaction.respond([]); return; }
+
+      if (focused.name === 'route_id') {
+        const { handleDownloadsRouteAutocomplete } = await import('../commands/downloads');
+        await handleDownloadsRouteAutocomplete(
+          interaction,
+          ctx.convex,
+          ctx.apiSecret,
+          guildLink.tenantId as Id<'tenants'>,
+          guildId,
+        );
+        return;
+      }
+
+      if (focused.name !== 'product_id') {
+        await interaction.respond([]);
+        return;
+      }
 
       // We use getByGuildWithProductNames because it lists all products currently configured for the server
       const products = await ctx.convex.query(api.role_rules.getByGuildWithProductNames as any, {
@@ -303,6 +316,17 @@ async function handleSlashCommand(
         await handleProductList(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
       } else if (sub === 'remove') {
         await handleProductRemove(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
+      }
+    } else if (subcommandGroup === 'downloads') {
+      const sub = interaction.options.getSubcommand();
+      const {
+        handleDownloadsAdd,
+        handleDownloadsManage,
+      } = await import('../commands/downloads');
+      if (sub === 'setup') {
+        await handleDownloadsAdd(interaction, { tenantId, guildLinkId, guildId });
+      } else if (sub === 'manage' || sub === 'list') {
+        await handleDownloadsManage(interaction, ctx.convex, ctx.apiSecret, { tenantId, guildId });
       }
     } else if (subcommand === 'stats') {
       // Single subcommand (not a group) — overview with navigation buttons
@@ -623,6 +647,168 @@ async function handleButton(
     return;
   }
 
+  if (customId.startsWith('creator_downloads:to_access:')) {
+    const rest = customId.slice('creator_downloads:to_access:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsGoToAccess } = await import('../commands/downloads');
+    await handleDownloadsGoToAccess(interaction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:back_to_channels:')) {
+    const rest = customId.slice('creator_downloads:back_to_channels:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsBackToChannels } = await import('../commands/downloads');
+    await handleDownloadsBackToChannels(interaction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:to_confirm:')) {
+    const rest = customId.slice('creator_downloads:to_confirm:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsGoToConfirm } = await import('../commands/downloads');
+    await handleDownloadsGoToConfirm(interaction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:back_to_access:')) {
+    const rest = customId.slice('creator_downloads:back_to_access:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsGoToAccess } = await import('../commands/downloads');
+    await handleDownloadsGoToAccess(interaction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:confirm_add:')) {
+    const rest = customId.slice('creator_downloads:confirm_add:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsConfirmAdd } = await import('../commands/downloads');
+    await handleDownloadsConfirmAdd(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:customize_message:')) {
+    const rest = customId.slice('creator_downloads:customize_message:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsCustomizeMessage } = await import('../commands/downloads');
+    await handleDownloadsCustomizeMessage(interaction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:cancel_add:')) {
+    const rest = customId.slice('creator_downloads:cancel_add:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsCancelAdd } = await import('../commands/downloads');
+    await handleDownloadsCancelAdd(interaction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:autofix_prompt:')) {
+    const rest = customId.slice('creator_downloads:autofix_prompt:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const routeId = rest.slice(colonIdx + 1) as Id<'download_routes'>;
+    const { handleDownloadsAutofixPrompt } = await import('../commands/downloads');
+    await handleDownloadsAutofixPrompt(interaction, ctx.convex, ctx.apiSecret, userId, routeId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:autofix_run:')) {
+    const rest = customId.slice('creator_downloads:autofix_run:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const routeId = rest.slice(colonIdx + 1) as Id<'download_routes'>;
+    const { handleDownloadsAutofixRun } = await import('../commands/downloads');
+    await handleDownloadsAutofixRun(interaction, ctx.convex, ctx.apiSecret, userId, routeId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:autofix_cancel:')) {
+    const { handleDownloadsAutofixCancel } = await import('../commands/downloads');
+    await handleDownloadsAutofixCancel(interaction);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:manage_toggle:')) {
+    const panelToken = customId.slice('creator_downloads:manage_toggle:'.length);
+    const { handleDownloadsManageToggle } = await import('../commands/downloads');
+    await handleDownloadsManageToggle(interaction, ctx.convex, ctx.apiSecret, panelToken);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:manage_edit_message:')) {
+    const panelToken = customId.slice('creator_downloads:manage_edit_message:'.length);
+    const { handleDownloadsManageEditMessage } = await import('../commands/downloads');
+    await handleDownloadsManageEditMessage(interaction, ctx.convex, ctx.apiSecret, panelToken);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:manage_remove_prompt:')) {
+    const panelToken = customId.slice('creator_downloads:manage_remove_prompt:'.length);
+    const { handleDownloadsManageRemovePrompt } = await import('../commands/downloads');
+    await handleDownloadsManageRemovePrompt(interaction, ctx.convex, ctx.apiSecret, panelToken);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:manage_remove_confirm:')) {
+    const panelToken = customId.slice('creator_downloads:manage_remove_confirm:'.length);
+    const { handleDownloadsManageRemoveConfirm } = await import('../commands/downloads');
+    await handleDownloadsManageRemoveConfirm(interaction, ctx.convex, ctx.apiSecret, panelToken);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:manage_refresh:')) {
+    const panelToken = customId.slice('creator_downloads:manage_refresh:'.length);
+    const { handleDownloadsManageRefresh } = await import('../commands/downloads');
+    await handleDownloadsManageRefresh(interaction, ctx.convex, ctx.apiSecret, panelToken);
+    return;
+  }
+
+  if (customId.startsWith('creator_download:artifact:')) {
+    const artifactId = customId.slice('creator_download:artifact:'.length);
+    const { LienedDownloadsService } = await import('../services/lienedDownloads');
+    const service = new LienedDownloadsService(interaction.client, ctx.convex, ctx.apiSecret);
+    await service.handleDownloadButton(interaction, artifactId);
+    return;
+  }
+
+  if (customId.startsWith('creator_download:autofix_prompt:')) {
+    const artifactId = customId.slice('creator_download:autofix_prompt:'.length);
+    const { LienedDownloadsService } = await import('../services/lienedDownloads');
+    const service = new LienedDownloadsService(interaction.client, ctx.convex, ctx.apiSecret);
+    await service.handleAutofixPrompt(interaction, artifactId);
+    return;
+  }
+
+  if (customId.startsWith('creator_download:autofix_run:')) {
+    const artifactId = customId.slice('creator_download:autofix_run:'.length);
+    const { LienedDownloadsService } = await import('../services/lienedDownloads');
+    const service = new LienedDownloadsService(interaction.client, ctx.convex, ctx.apiSecret);
+    await service.handleAutofixRun(interaction, artifactId);
+    return;
+  }
+
+  if (customId.startsWith('creator_download:autofix_cancel:')) {
+    const { LienedDownloadsService } = await import('../services/lienedDownloads');
+    const service = new LienedDownloadsService(interaction.client, ctx.convex, ctx.apiSecret);
+    await service.handleAutofixCancel(interaction);
+    return;
+  }
+
   // ─── Moderation ────────────────────────────────────────────────────────────
   if (customId.startsWith('creator_moderation:confirm_clear:')) {
     // Format: creator_moderation:confirm_clear:{targetUserId}:{tenantId}:{actorUserId}
@@ -720,6 +906,23 @@ async function handleModalSubmit(
     return;
   }
 
+  if (customId.startsWith('creator_downloads:message_modal:')) {
+    const rest = customId.slice('creator_downloads:message_modal:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsMessageModal } = await import('../commands/downloads');
+    await handleDownloadsMessageModal(interaction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:manage_message_modal:')) {
+    const panelToken = customId.slice('creator_downloads:manage_message_modal:'.length);
+    const { handleDownloadsManageMessageModal } = await import('../commands/downloads');
+    await handleDownloadsManageMessageModal(interaction, ctx.convex, ctx.apiSecret, panelToken);
+    return;
+  }
+
   // Stats — check user modal: creator_stats:check_user_modal:{tenantId}
   if (customId.startsWith('creator_stats:check_user_modal:')) {
     const tenantId = customId.slice('creator_stats:check_user_modal:'.length) as Id<'tenants'>;
@@ -772,6 +975,33 @@ async function handleSelectMenu(
     return;
   }
 
+  if (customId.startsWith('creator_downloads:logic_select:')) {
+    const rest = customId.slice('creator_downloads:logic_select:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsLogicSelect } = await import('../commands/downloads');
+    await handleDownloadsLogicSelect(interaction as StringSelectMenuInteraction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:ext_select:')) {
+    const rest = customId.slice('creator_downloads:ext_select:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsExtensionSelect } = await import('../commands/downloads');
+    await handleDownloadsExtensionSelect(interaction as StringSelectMenuInteraction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:manage_select:')) {
+    const panelToken = customId.slice('creator_downloads:manage_select:'.length);
+    const { handleDownloadsManageSelect } = await import('../commands/downloads');
+    await handleDownloadsManageSelect(interaction as StringSelectMenuInteraction, ctx.convex, ctx.apiSecret, panelToken);
+    return;
+  }
+
   // Moderation reason select: creator_moderation:reason_select:{actorId}:{tenantId}:{targetUserId}
   if (customId.startsWith('creator_moderation:reason_select:')) {
     const rest = customId.slice('creator_moderation:reason_select:'.length);
@@ -811,5 +1041,44 @@ async function handleRoleSelectMenu(
     return;
   }
 
+  if (customId.startsWith('creator_downloads:roles_select:')) {
+    const rest = customId.slice('creator_downloads:roles_select:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsRoleSelect } = await import('../commands/downloads');
+    await handleDownloadsRoleSelect(interaction, userId, tenantId);
+    return;
+  }
+
   await interaction.reply({ content: 'Unknown role select.', flags: MessageFlags.Ephemeral }).catch(() => { });
+}
+
+async function handleChannelSelectMenu(
+  interaction: ChannelSelectMenuInteraction,
+  _ctx: InteractionHandlerContext,
+): Promise<void> {
+  const customId = interaction.customId;
+
+  if (customId.startsWith('creator_downloads:source_select:')) {
+    const rest = customId.slice('creator_downloads:source_select:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsSourceSelect } = await import('../commands/downloads');
+    await handleDownloadsSourceSelect(interaction, userId, tenantId);
+    return;
+  }
+
+  if (customId.startsWith('creator_downloads:archive_select:')) {
+    const rest = customId.slice('creator_downloads:archive_select:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleDownloadsArchiveSelect } = await import('../commands/downloads');
+    await handleDownloadsArchiveSelect(interaction, userId, tenantId);
+    return;
+  }
+
+  await interaction.reply({ content: 'Unknown channel select.', flags: MessageFlags.Ephemeral }).catch(() => { });
 }

@@ -29,6 +29,10 @@ import { api } from '../../../../convex/_generated/api';
 import { E, Emoji } from '../lib/emojis';
 import { getApiUrls } from '../lib/apiUrls';
 import { track } from '../lib/posthog';
+import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
+import { createLogger } from '@yucp/shared';
+
+const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const VERIFY_PREFIX = 'creator_verify:';
 
@@ -710,7 +714,9 @@ export async function handleLicenseModalSubmit(
 
     if (!result.success) {
       await interaction.editReply({
-        content: `${E.X_} We couldn't find a matching purchase. Make sure you're using the license key from your purchase confirmation.\n\n${result.error ?? 'Verification failed.'}`,
+        content:
+          `${E.X_} We couldn’t find a matching purchase. Make sure you’re using the license key from your purchase confirmation.\n\n` +
+          `${sanitizeUserFacingErrorMessage(result.error, 'Verification failed.')}`,
       });
       track(interaction.user.id, 'verification_failed', { error: result.error, tenantId });
       return;
@@ -750,8 +756,13 @@ export async function handleLicenseModalSubmit(
       });
     }
   } catch (err) {
+    logger.error('Verification flow failed', {
+      error: err instanceof Error ? err.message : String(err),
+      tenantId,
+      userId: interaction.user.id,
+    });
     await interaction.editReply({
-      content: `${E.X_} An error occurred during verification. Please try again.\n\`${err instanceof Error ? err.message : 'Unknown error'}\``,
+      content: `${E.X_} Verification didn’t finish. Try again in a moment.`,
     });
   }
 }
@@ -814,7 +825,7 @@ export async function handleVerifyDisconnectButton(
 
     if (!result.success) {
       await interaction.editReply({
-        content: result.error ?? 'Failed to disconnect account.',
+        content: sanitizeUserFacingErrorMessage(result.error, 'Couldn’t disconnect this account right now.'),
       });
       return;
     }
@@ -847,9 +858,14 @@ export async function handleVerifyDisconnectButton(
       components: [container],
     });
   } catch (err) {
+    logger.error('Disconnect verification failed in bot command', {
+      error: err instanceof Error ? err.message : String(err),
+      provider,
+      userId: interaction.user.id,
+    });
     // Error path: use plain content (no IsComponentsV2) — legacy content is allowed
     await interaction.editReply({
-      content: `Error disconnecting: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      content: `${E.X_} Couldn’t disconnect this account right now. Try again in a moment.`,
     });
   }
 }
@@ -920,8 +936,13 @@ export async function handleRefreshCommand(
       });
     }
   } catch (err) {
+    logger.error('Refresh verification command failed', {
+      error: err instanceof Error ? err.message : String(err),
+      tenantId: ctx.tenantId,
+      userId: interaction.user.id,
+    });
     await interaction.editReply({
-      content: `An error occurred while refreshing your verification status.\n\`${err instanceof Error ? err.message : 'Unknown error'}\``,
+      content: `${E.X_} Couldn’t refresh your verification status right now. Try again in a moment.`,
     });
   }
 }

@@ -76,6 +76,19 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
           ),
       ),
   )
+  .addSubcommandGroup((downloads) =>
+    downloads
+      .setName('downloads')
+      .setDescription('Manage protected downloads')
+      .addSubcommand((s) =>
+        s
+          .setName('setup')
+          .setDescription('Set up protected downloads for a channel or forum'),
+      )
+      .addSubcommand((s) =>
+        s.setName('manage').setDescription('View and manage protected download routes'),
+      ),
+  )
   .addSubcommand((s) =>
     s.setName('stats').setDescription('View verification statistics'),
   )

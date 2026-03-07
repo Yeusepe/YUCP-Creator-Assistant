@@ -10,6 +10,7 @@ import { createLogger } from '@yucp/shared';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { loadEnv } from '../lib/env';
 import { decrypt } from '../lib/encrypt';
+import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { JinxxyApiClient } from '@yucp/providers/jinxxy';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -164,7 +165,10 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
       stack: err instanceof Error ? err.stack : undefined,
     });
     return new Response(
-      JSON.stringify({ products: [], error: msg }),
+      JSON.stringify({
+        products: [],
+        error: sanitizePublicErrorMessage(msg, 'Could not load Jinxxy products right now.'),
+      }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

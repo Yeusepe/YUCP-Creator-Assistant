@@ -10,6 +10,7 @@ import { createLogger } from '@yucp/shared';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { loadEnv } from '../lib/env';
 import { decrypt } from '../lib/encrypt';
+import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { JinxxyApiClient } from '@yucp/providers/jinxxy';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -271,7 +272,9 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Backfill failed', { error: msg, stack: err instanceof Error ? err.stack : undefined });
-    return new Response(JSON.stringify({ error: msg }), {
+    return new Response(JSON.stringify({
+      error: sanitizePublicErrorMessage(msg, 'Backfill failed. Try again in a moment.'),
+    }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

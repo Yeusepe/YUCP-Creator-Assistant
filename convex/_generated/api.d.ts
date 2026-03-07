@@ -13,6 +13,7 @@ import type * as auth from "../auth.js";
 import type * as backgroundSync from "../backgroundSync.js";
 import type * as bindings from "../bindings.js";
 import type * as crons from "../crons.js";
+import type * as downloads from "../downloads.js";
 import type * as entitlements from "../entitlements.js";
 import type * as guildLinks from "../guildLinks.js";
 import type * as guildMemberAdd from "../guildMemberAdd.js";
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   backgroundSync: typeof backgroundSync;
   bindings: typeof bindings;
   crons: typeof crons;
+  downloads: typeof downloads;
   entitlements: typeof entitlements;
   guildLinks: typeof guildLinks;
   guildMemberAdd: typeof guildMemberAdd;

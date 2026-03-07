@@ -441,7 +441,7 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
           healthy: false,
           botPresent: false,
           reason: 'Health check failed',
-          error: err instanceof Error ? err.message : 'Unknown error',
+          error: 'Temporary server issue',
         },
         { status: 500 }
       );

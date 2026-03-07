@@ -8,6 +8,7 @@ import { startBot } from './client';
 import { registerCommands } from './commands';
 import { handleInteraction } from './handlers/interactions';
 import { handleGuildMemberAdd } from './handlers/guildMemberAdd';
+import { LienedDownloadsService, getLienedDownloadsInvitePermissions } from './services/lienedDownloads';
 import { RoleSyncService } from './services/roleSync';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -71,6 +72,19 @@ async function discordPreflight(token: string): Promise<void> {
   );
   if (!gatewayResponse.ok) {
     const body = (await gatewayResponse.text()).slice(0, 300);
+    if (gatewayResponse.status >= 500) {
+      logger.warn('Discord preflight /gateway/bot returned transient server error; continuing to login', {
+        gatewayStatus: gatewayResponse.status,
+        gatewayStatusText: gatewayResponse.statusText,
+        gatewayBody: body,
+      });
+      logger.info('Discord preflight passed with degraded gateway metadata check', {
+        meStatus: meResponse.status,
+        gatewayStatus: gatewayResponse.status,
+      });
+      return;
+    }
+
     throw new Error(
       `Discord preflight /gateway/bot failed: HTTP ${gatewayResponse.status} ${gatewayResponse.statusText}; body=${body}`,
     );
@@ -159,8 +173,8 @@ async function main() {
   await registerCommands(env.DISCORD_BOT_TOKEN!, clientId, guildId);
   logger.info('Slash commands registered', { guildId: guildId ?? 'global' });
 
-  // Include MANAGE_ROLES (268435456) for role sync; 274877975552 = View Channels, Send Messages, etc.
-  const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=275146411008&scope=bot%20applications.commands`;
+  const invitePermissions = getLienedDownloadsInvitePermissions();
+  const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${invitePermissions.toString()}&scope=bot%20applications.commands`;
   logger.info('Add bot to your server', { inviteUrl });
 
   const convex = new ConvexHttpClient(env.CONVEX_URL!);
@@ -168,6 +182,11 @@ async function main() {
     convex,
     apiSecret: env.CONVEX_API_SECRET!,
   };
+  const lienedDownloadsService = new LienedDownloadsService(
+    client,
+    convex,
+    env.CONVEX_API_SECRET!,
+  );
 
   client.on('interactionCreate', async (interaction) => {
     try {
@@ -182,6 +201,17 @@ async function main() {
 
   client.on('guildMemberAdd', async (member) => {
     await handleGuildMemberAdd(member, interactionCtx);
+  });
+
+  client.on('messageCreate', async (message) => {
+    try {
+      await lienedDownloadsService.handleMessage(message);
+    } catch (err) {
+      logger.error('Liened Downloads message handler failed', {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+    }
   });
 
   const roleSyncService = new RoleSyncService({

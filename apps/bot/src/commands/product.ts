@@ -32,6 +32,7 @@ import { api } from '../../../../convex/_generated/api';
 import { E, Emoji } from '../lib/emojis';
 import { canBotManageRole } from '../lib/roleHierarchy';
 import { track } from '../lib/posthog';
+import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { resolveGumroadProductId } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
 
@@ -214,8 +215,13 @@ export async function handleProductTypeSelect(
         components: [row],
       });
     } catch (err) {
+      logger.error('Failed to start Discord role setup', {
+        error: err instanceof Error ? err.message : String(err),
+        tenantId,
+        guildId: session.guildId,
+      });
       await interaction.editReply({
-        content: `${E.X_} Failed to start setup: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+        content: `${E.X_} Couldn’t start setup right now. Run \`/creator-admin product add\` again in a moment.`,
         components: [],
       });
     }
@@ -248,7 +254,7 @@ export async function handleProductTypeSelect(
 
       if (data.error && (!data.products || data.products.length === 0)) {
         await interaction.editReply({
-          content: `${E.X_} ${data.error}\n\nPlease run \`/creator-admin product add\` to try again.`,
+          content: `${E.X_} ${sanitizeUserFacingErrorMessage(data.error, 'Couldn’t load Jinxxy products right now.')}\n\nRun \`/creator-admin product add\` again in a moment.`,
           components: [],
         });
         return;
@@ -290,8 +296,12 @@ export async function handleProductTypeSelect(
         components: [row],
       });
     } catch (err) {
+      logger.error('Failed to load Jinxxy products for product setup', {
+        error: err instanceof Error ? err.message : String(err),
+        tenantId,
+      });
       await interaction.editReply({
-        content: `${E.X_} Failed to fetch products: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+        content: `${E.X_} Couldn’t load Jinxxy products right now. Run \`/creator-admin product add\` again in a moment.`,
         components: [],
       });
     }
@@ -509,8 +519,13 @@ export async function handleProductDiscordRoleDone(
       components: [row],
     });
   } catch (err) {
+    logger.error('Failed to retrieve Discord role setup result', {
+      error: err instanceof Error ? err.message : String(err),
+      tenantId,
+      tokenPresent: Boolean(session.discordRoleSetupToken),
+    });
     await interaction.editReply({
-      content: `${E.X_} Failed to retrieve setup result: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+      content: `${E.X_} Couldn’t load your setup result right now. Run \`/creator-admin product add\` again if this keeps happening.`,
       components: [],
     });
   }
@@ -736,10 +751,15 @@ export async function handleProductConfirmAdd(
       embeds: [],
     });
   } catch (err) {
-
+    logger.error('Failed to create product mapping', {
+      error: err instanceof Error ? err.message : String(err),
+      tenantId,
+      guildId: session.guildId,
+      type: session.type,
+    });
     productSessions.delete(sessionKey);
     await interaction.editReply({
-      content: `${E.X_} Failed to create mapping: ${err instanceof Error ? err.message : String(err)}\n\nPlease run \`/creator-admin product add\` to try again.`,
+      content: `${E.X_} Couldn’t create this product mapping right now. Run \`/creator-admin product add\` again in a moment.`,
       components: [],
       embeds: [],
     });

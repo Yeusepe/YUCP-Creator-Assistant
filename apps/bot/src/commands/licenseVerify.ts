@@ -40,6 +40,7 @@ import { createLogger } from '@yucp/shared';
 import type { Id } from '../../../../convex/_generated/dataModel';
 
 import { E, Emoji } from '../lib/emojis';
+import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -402,7 +403,7 @@ export async function handleLicenseKeyModal(
         const data = (await res.json()) as { success: boolean; error?: string };
 
         if (!data.success) {
-            const msg = data.error ?? 'Verification failed';
+            const msg = sanitizeUserFacingErrorMessage(data.error, 'Verification failed.');
             logger.warn('License verification failed', { msg, tenantId, provider });
             await interaction.editReply({ content: `${E.X_} ${msg}` });
             return;

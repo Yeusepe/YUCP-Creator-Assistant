@@ -137,6 +137,24 @@ const RuntimeAssertionStatus = v.union(
   v.literal('revoked'),
 );
 
+/** Download route role logic */
+const DownloadRoleLogic = v.union(
+  v.literal('all'),
+  v.literal('any'),
+);
+
+/** Download artifact status */
+const DownloadArtifactStatus = v.union(
+  v.literal('active'),
+  v.literal('deleted'),
+  v.literal('failed'),
+);
+
+const DownloadArtifactSourceMode = v.union(
+  v.literal('reply'),
+  v.literal('webhook'),
+);
+
 /** Outbox job status */
 const OutboxJobStatus = v.union(
   v.literal('pending'),
@@ -444,6 +462,70 @@ const role_rules = defineTable({
   .index('by_product', ['productId'])
   .index('by_catalog_product', ['catalogProductId'])
   .index('by_source_guild', ['sourceGuildId']);
+
+/**
+ * Download Routes - Per-guild capture/archive rules for Liened Downloads.
+ * Routes qualifying attachments from source locations into private archive locations.
+ */
+const download_routes = defineTable({
+  tenantId: v.id('tenants'),
+  guildId: v.string(),
+  guildLinkId: v.id('guild_links'),
+  sourceChannelId: v.string(),
+  archiveChannelId: v.string(),
+  messageTitle: v.string(),
+  messageBody: v.string(),
+  requiredRoleIds: v.array(v.string()),
+  roleLogic: DownloadRoleLogic,
+  allowedExtensions: v.array(v.string()),
+  enabled: v.boolean(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_tenant', ['tenantId'])
+  .index('by_tenant_guild', ['tenantId', 'guildId'])
+  .index('by_guild_source_channel', ['guildId', 'sourceChannelId'])
+  .index('by_guild_archive_channel', ['guildId', 'archiveChannelId'])
+  .index('by_guild_link', ['guildLinkId']);
+
+/**
+ * Download Artifacts - Archived mirrored files plus gating metadata.
+ * One record per archived download post / file set.
+ */
+const download_artifacts = defineTable({
+  tenantId: v.id('tenants'),
+  guildId: v.string(),
+  routeId: v.id('download_routes'),
+  sourceChannelId: v.string(),
+  sourceMessageId: v.string(),
+  sourceMessageUrl: v.string(),
+  sourceAuthorId: v.string(),
+  archiveChannelId: v.string(),
+  archiveMessageId: v.string(),
+  archiveThreadId: v.optional(v.string()),
+  sourceRelayMessageId: v.optional(v.string()),
+  sourceDeliveryMode: v.optional(DownloadArtifactSourceMode),
+  requiredRoleIds: v.array(v.string()),
+  roleLogic: DownloadRoleLogic,
+  files: v.array(
+    v.object({
+      filename: v.string(),
+      url: v.string(),
+      size: v.optional(v.number()),
+      contentType: v.optional(v.string()),
+      extension: v.string(),
+    }),
+  ),
+  status: DownloadArtifactStatus,
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_tenant', ['tenantId'])
+  .index('by_tenant_guild', ['tenantId', 'guildId'])
+  .index('by_route', ['routeId'])
+  .index('by_source_message', ['sourceMessageId'])
+  .index('by_archive_message', ['archiveMessageId'])
+  .index('by_status', ['status']);
 
 /**
  * Unity Installations - Signals for Unity runtime usage
@@ -945,6 +1027,8 @@ export default defineSchema({
   entitlements,
   guild_links,
   role_rules,
+  download_routes,
+  download_artifacts,
   unity_installations,
   runtime_assertions,
   outbox_jobs,

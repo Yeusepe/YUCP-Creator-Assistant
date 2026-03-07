@@ -10,6 +10,7 @@ import { createLogger } from '@yucp/shared';
 import { detectLicenseFormat, GumroadAdapter, JinxxyApiClient } from '@yucp/providers';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt } from '../lib/encrypt';
+import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import type { VerificationConfig } from './sessionManager';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -93,7 +94,7 @@ export async function handleCompleteLicense(
       if (!result.valid) {
         return {
           success: false,
-          error: result.error ?? 'License verification failed',
+          error: sanitizePublicErrorMessage(result.error, 'License verification failed'),
         };
       }
 
@@ -129,7 +130,10 @@ export async function handleCompleteLicense(
         success: mutationResult.success,
         provider: 'gumroad',
         entitlementIds: mutationResult.entitlementIds,
-        error: mutationResult.error,
+        error: sanitizePublicErrorMessage(
+          mutationResult.error,
+          'The license could not be verified right now.',
+        ),
       };
     }
 
@@ -186,7 +190,10 @@ export async function handleCompleteLicense(
       if (!verifyResult.valid || !verifyResult.license) {
         return {
           success: false,
-          error: verifyResult.error ?? 'License verification failed',
+          error: sanitizePublicErrorMessage(
+            verifyResult.error,
+            'License verification failed',
+          ),
         };
       }
 
@@ -225,7 +232,10 @@ export async function handleCompleteLicense(
         success: mutationResult.success,
         provider: 'jinxxy',
         entitlementIds: mutationResult.entitlementIds,
-        error: mutationResult.error,
+        error: sanitizePublicErrorMessage(
+          mutationResult.error,
+          'The license could not be verified right now.',
+        ),
       };
     }
 
@@ -238,7 +248,10 @@ export async function handleCompleteLicense(
     });
     return {
       success: false,
-      error: err instanceof Error ? err.message : 'Internal server error',
+      error: sanitizePublicErrorMessage(
+        err instanceof Error ? err.message : String(err),
+        'The license could not be verified right now.',
+      ),
     };
   }
 }

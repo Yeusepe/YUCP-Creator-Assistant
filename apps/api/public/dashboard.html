@@ -820,7 +820,7 @@
                 setTimeout(() => window.close(), 2500);
 
             } catch (err) {
-                status.textContent = err.message || 'Error completing setup.';
+                status.textContent = 'Could not finish setup right now. Try again in a moment.';
                 status.className = 'text-center text-xs mt-2 font-bold text-red-600';
                 btn.disabled = false;
                 btn.innerHTML = 'Done Setup';

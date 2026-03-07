@@ -25,6 +25,9 @@ import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
 import { Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
+import { createLogger } from '@yucp/shared';
+
+const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 /** /creator-admin moderation mark @user — shows reason select menu */
 export async function handleModerationMark(
@@ -299,8 +302,15 @@ export async function handleModerationUnverify(
       revokedCount: result.revokedCount,
     });
   } catch (err) {
+    logger.error('Failed to remove verification via moderation command', {
+      error: err instanceof Error ? err.message : String(err),
+      tenantId: ctx.tenantId,
+      guildId: ctx.guildId,
+      targetUserId: targetUser.id,
+      productId,
+    });
     await interaction.editReply({
-      content: `Failed to remove verification.\n\`${err instanceof Error ? err.message : 'Unknown error'}\``,
+      content: 'Couldn’t remove that verification right now. Try again in a moment.',
     });
   }
 }

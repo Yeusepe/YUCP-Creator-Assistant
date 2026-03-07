@@ -14,6 +14,7 @@
 import { createLogger } from '@yucp/shared';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { encrypt } from '../lib/encrypt';
+import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -442,7 +443,10 @@ export function createVerificationSessionManager(
           });
           return {
             success: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: sanitizePublicErrorMessage(
+              err instanceof Error ? err.message : String(err),
+              'Could not start verification.',
+            ),
           };
         }
       }
@@ -462,7 +466,10 @@ export function createVerificationSessionManager(
       });
       return {
         success: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: sanitizePublicErrorMessage(
+          err instanceof Error ? err.message : String(err),
+          'Could not start verification.',
+        ),
       };
     }
   }
@@ -867,7 +874,10 @@ export function createVerificationSessionManager(
       });
       return {
         success: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: sanitizePublicErrorMessage(
+          err instanceof Error ? err.message : String(err),
+          'Could not complete verification.',
+        ),
       };
     }
   }
@@ -919,7 +929,10 @@ export function createVerificationSessionManager(
       });
       return {
         success: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: sanitizePublicErrorMessage(
+          err instanceof Error ? err.message : String(err),
+          'Could not finish verification.',
+        ),
       };
     }
   }
