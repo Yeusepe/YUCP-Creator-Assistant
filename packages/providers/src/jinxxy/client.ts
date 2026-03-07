@@ -201,20 +201,35 @@ export class JinxxyApiClient {
   // ============================================================================
 
   /**
-   * Get the authenticated user's profile
+   * Get the authenticated user's profile.
+   * Jinxxy API returns the user object directly (AuthUser), not wrapped in { success, user }.
+   * See jinx-master src/http/jinxxy/dto.rs AuthUser and mod.rs get_own_user.
    */
   async getCurrentUser(): Promise<JinxxyUser> {
-    const response = await this.request<JinxxyUserResponse>('GET', '/me');
+    const data = await this.request<JinxxyUserResponse | JinxxyUser>('GET', '/me');
 
-    if (!response.success || !response.user) {
-      throw new JinxxyApiError(
-        response.error ?? 'Failed to get user profile',
-        401,
-        'unauthorized'
-      );
+    // Wrapped format: { success, user }
+    if ('success' in data && data.success && data.user) {
+      return data.user;
     }
 
-    return response.user;
+    // Direct format: AuthUser with id, username/name (Jinxxy API actual response)
+    if ('id' in data && typeof data.id === 'string') {
+      const raw = data as { id: string; username?: string; name?: string; email?: string };
+      return {
+        id: raw.id,
+        username: raw.username ?? raw.name ?? raw.id,
+        email: raw.email,
+        created_at: '',
+      };
+    }
+
+    const err = data as JinxxyUserResponse;
+    throw new JinxxyApiError(
+      err.error ?? err.message ?? 'Failed to get user profile',
+      401,
+      'unauthorized'
+    );
   }
 
   // ============================================================================

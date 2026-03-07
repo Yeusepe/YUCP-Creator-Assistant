@@ -36,6 +36,9 @@ export interface LocalEnv {
   // State store (OAuth/install flows)
   DRAGONFLY_URI?: string;
   REDIS_URL?: string;
+  // Email (Resend)
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
 }
 
 async function fetchFromInfisical(): Promise<Record<string, string>> {
@@ -83,6 +86,8 @@ function loadFromEnv(): LocalEnv {
     LOG_LEVEL: process.env.LOG_LEVEL,
     DRAGONFLY_URI: process.env.DRAGONFLY_URI,
     REDIS_URL: process.env.REDIS_URL,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    EMAIL_FROM: process.env.EMAIL_FROM,
   };
 }
 

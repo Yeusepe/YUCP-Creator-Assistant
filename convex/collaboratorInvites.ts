@@ -200,8 +200,42 @@ export const acceptCollaboratorInvite = mutation({
       webhookConfigured,
       linkType: args.linkType,
       status: 'active',
+      source: 'invite',
       collaboratorDiscordUserId: args.collaboratorDiscordUserId,
       collaboratorDisplayName: args.collaboratorDisplayName,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Manually add a collaborator connection (no invite).
+ * Used when a creator shares their API key directly (e.g. via DM).
+ * Identity comes from Jinxxy API since collaborator may not be in Discord server.
+ */
+export const addCollaboratorConnectionManual = mutation({
+  args: {
+    apiSecret: v.string(),
+    ownerTenantId: v.id('tenants'),
+    jinxxyApiKeyEncrypted: v.string(),
+    collaboratorDisplayName: v.string(),
+    collaboratorIdentity: v.string(),
+    addedByDiscordUserId: v.string(),
+  },
+  returns: v.id('collaborator_connections'),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    return await ctx.db.insert('collaborator_connections', {
+      ownerTenantId: args.ownerTenantId,
+      provider: 'jinxxy',
+      jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
+      webhookConfigured: false,
+      linkType: 'api',
+      status: 'active',
+      source: 'manual',
+      collaboratorDiscordUserId: args.collaboratorIdentity,
+      collaboratorDisplayName: args.collaboratorDisplayName,
+      addedByDiscordUserId: args.addedByDiscordUserId,
       createdAt: Date.now(),
     });
   },
@@ -247,6 +281,7 @@ export const listCollaboratorConnections = query({
       provider: c.provider,
       linkType: c.linkType,
       status: c.status,
+      source: c.source ?? 'invite',
       webhookConfigured: c.webhookConfigured,
       collaboratorDiscordUserId: c.collaboratorDiscordUserId,
       collaboratorDisplayName: c.collaboratorDisplayName,

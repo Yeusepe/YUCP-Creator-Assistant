@@ -1047,11 +1047,12 @@ const collaborator_invites = defineTable({
 
 /**
  * Collaborator Connections - Active collaborator API key sharing relationships
- * Created when a collaborator accepts an invite.
+ * Created when a collaborator accepts an invite or is manually added.
  */
 const collaborator_connections = defineTable({
   ownerTenantId: v.id('tenants'),
-  inviteId: v.id('collaborator_invites'),
+  /** Omitted for manual adds */
+  inviteId: v.optional(v.id('collaborator_invites')),
   provider: v.literal('jinxxy'),
   jinxxyApiKeyEncrypted: v.optional(v.string()),
   /** Encrypted webhook signing secret; null for api-type connections */
@@ -1061,8 +1062,13 @@ const collaborator_connections = defineTable({
   webhookConfigured: v.boolean(),
   linkType: v.union(v.literal('account'), v.literal('api')),
   status: v.union(v.literal('active'), v.literal('paused'), v.literal('disconnected')),
+  /** Discord user ID for invite flow; manual:{jinxxy_user_id} for manual adds */
   collaboratorDiscordUserId: v.string(),
   collaboratorDisplayName: v.string(),
+  /** 'invite' when created via invite link; 'manual' when added by admin. Optional for backward compat. */
+  source: v.optional(v.union(v.literal('invite'), v.literal('manual'))),
+  /** Discord user ID of admin who ran the manual add (audit) */
+  addedByDiscordUserId: v.optional(v.string()),
   createdAt: v.number(),
 })
   .index('by_owner', ['ownerTenantId'])

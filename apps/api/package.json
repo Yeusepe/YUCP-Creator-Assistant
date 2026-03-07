@@ -16,6 +16,7 @@
     "test:ci": "bun test --coverage"
   },
   "dependencies": {
+    "@react-email/components": "^0.0.30",
     "@convex-dev/better-auth": "^0.10.13",
     "@infisical/sdk": "^4.0.6",
     "@react-three/drei": "^10.7.6",
@@ -30,6 +31,7 @@
     "lucide": "^0.577.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "resend": "^4.0.0",
     "tailwindcss": "^4.1.12",
     "three": "^0.179.1",
     "vite": "^7.1.3"

@@ -34,6 +34,7 @@ import { SETUP_SESSION_COOKIE } from '../lib/browserSessions';
 import { encrypt } from '../lib/encrypt';
 import { getStateStore } from '../lib/stateStore';
 import { resolveSetupSession } from '../lib/setupSession';
+import { sendCollabKeyAddedEmail } from '../lib/email';
 import { JinxxyApiClient } from '@yucp/providers';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -612,6 +613,80 @@ export function createCollabRoutes(config: CollabConfig) {
   }
 
   /**
+   * POST /api/collab/connections/manual
+   * Manually add a collaborator by API key (no invite). Identity from Jinxxy API.
+   * Body: { jinxxyApiKey: string, serverName?: string }
+   */
+  async function addConnectionManual(request: Request): Promise<Response> {
+    if (request.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405 });
+
+    const session = await resolveSetupToken(request, config.encryptionSecret);
+    if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
+    let body: { jinxxyApiKey?: string; serverName?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const jinxxyApiKey = body.jinxxyApiKey?.trim();
+    if (!jinxxyApiKey) {
+      return Response.json({ error: 'jinxxyApiKey is required' }, { status: 400 });
+    }
+
+    let user: { username: string; id: string; email?: string };
+    try {
+      const client = new JinxxyApiClient({
+        apiKey: jinxxyApiKey,
+        apiBaseUrl: process.env.JINXXY_API_BASE_URL,
+      });
+      user = await client.getCurrentUser();
+    } catch (validationErr) {
+      logger.warn('Collab manual add: Jinxxy API key validation failed', {
+        error: validationErr instanceof Error ? validationErr.message : String(validationErr),
+      });
+      return Response.json({ error: 'Invalid Jinxxy API key - could not authenticate' }, { status: 422 });
+    }
+
+    const jinxxyApiKeyEncrypted = await encrypt(jinxxyApiKey, config.encryptionSecret);
+    const collaboratorIdentity = `manual:${user.id}`;
+
+    let connectionId: string;
+    try {
+      connectionId = await convex.mutation('collaboratorInvites:addCollaboratorConnectionManual' as any, {
+        apiSecret,
+        ownerTenantId: session.tenantId,
+        jinxxyApiKeyEncrypted,
+        collaboratorDisplayName: user.username,
+        collaboratorIdentity,
+        addedByDiscordUserId: session.discordUserId,
+      });
+    } catch (e) {
+      logger.error('Failed to add collab connection manually', { err: e });
+      return Response.json({ error: 'Failed to add connection' }, { status: 500 });
+    }
+
+    if (user.email) {
+      sendCollabKeyAddedEmail({
+        to: user.email,
+        collaboratorDisplayName: user.username,
+        serverName: body.serverName ?? 'a Discord server',
+        addedAt: new Date().toISOString(),
+        connectionId,
+      }).catch((err) => {
+        logger.warn('Failed to send collab key added email', { err, connectionId });
+      });
+    }
+
+    return Response.json({
+      success: true,
+      connectionId,
+      displayName: user.username,
+    });
+  }
+
+  /**
    * DELETE /api/collab/connections/:id - remove a connection
    */
   async function removeConnection(request: Request, connectionId: string): Promise<Response> {
@@ -648,6 +723,7 @@ export function createCollabRoutes(config: CollabConfig) {
     if (pathname === '/api/collab/session/test-webhook' && request.method === 'GET') return testWebhook(request);
     if (pathname === '/api/collab/session/submit' && request.method === 'POST') return submitInvite(request);
     if (pathname === '/api/collab/connections' && request.method === 'GET') return listConnections(request);
+    if (pathname === '/api/collab/connections/manual' && request.method === 'POST') return addConnectionManual(request);
 
     const connDeleteMatch = pathname.match(/^\/api\/collab\/connections\/([^/]+)$/);
     if (connDeleteMatch && request.method === 'DELETE') return removeConnection(request, connDeleteMatch[1]);
