@@ -47,7 +47,10 @@ interface ProductSession {
   urlOrId?: string;
   sourceGuildId?: string;
   sourceRoleId?: string;
+  sourceRoleIds?: string[];
+  requiredRoleMatchMode?: 'any' | 'all';
   roleId?: string;
+  roleIds?: string[];
   discordRoleSetupToken?: string;
   /** Jinxxy product id -> name map (for display when adding) */
   jinxxyProductNames?: Record<string, string>;
@@ -170,11 +173,20 @@ export async function handleProductTypeSelect(
           ),
           new ActionRowBuilder<TextInputBuilder>().addComponents(
             new TextInputBuilder()
-              .setCustomId('source_role_id')
-              .setLabel('Source Role ID')
-              .setPlaceholder('Right-click the role → Copy Role ID (requires Developer Mode)')
-              .setStyle(TextInputStyle.Short)
+              .setCustomId('source_role_ids')
+              .setLabel('Source Role ID(s)')
+              .setPlaceholder('One per line or comma-separated. e.g. 123456789012345678')
+              .setStyle(TextInputStyle.Paragraph)
               .setRequired(true),
+          ),
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('match_mode')
+              .setLabel('Match mode (any/all)')
+              .setPlaceholder('any = user needs one role; all = user needs every role')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+              .setValue('any'),
           ),
         );
       await interaction.showModal(modal);
@@ -371,12 +383,14 @@ export async function handleProductJinxxySelect(
 
   const roleSelect = new RoleSelectMenuBuilder()
     .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
-    .setPlaceholder('Select the role to assign when verified...');
+    .setMinValues(1)
+    .setMaxValues(25)
+    .setPlaceholder('Select role(s) to assign when verified (1–25)');
 
   const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
   await interaction.reply({
-    content: '**Step 3 of 3:** Which role should users receive when they verify this product?',
+    content: '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
@@ -404,15 +418,24 @@ export async function handleProductUrlModal(
 
   const roleSelect = new RoleSelectMenuBuilder()
     .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
-    .setPlaceholder('Select the role to assign when verified...');
+    .setMinValues(1)
+    .setMaxValues(25)
+    .setPlaceholder('Select role(s) to assign when verified (1–25)');
 
   const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
   await interaction.reply({
-    content: '**Step 3 of 3:** Which role should users receive when they verify this product?',
+    content: '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
+}
+
+function parseRoleIdsFromInput(input: string): string[] {
+  return input
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 /** Step 2c: Discord role modal submitted — show role select for local role */
@@ -422,7 +445,10 @@ export async function handleProductDiscordModal(
   tenantId: Id<'tenants'>,
 ): Promise<void> {
   const sourceGuildId = interaction.fields.getTextInputValue('source_guild_id')?.trim();
-  const sourceRoleId = interaction.fields.getTextInputValue('source_role_id')?.trim();
+  const roleIdsRaw =
+    interaction.fields.getTextInputValue('source_role_ids')?.trim() ??
+    interaction.fields.getTextInputValue('source_role_id')?.trim();
+  const matchModeRaw = interaction.fields.getTextInputValue('match_mode')?.trim().toLowerCase();
   const sessionKey = getSessionKey(userId, tenantId);
   const session = productSessions.get(sessionKey);
 
@@ -434,18 +460,40 @@ export async function handleProductDiscordModal(
     return;
   }
 
+  const sourceRoleIds = parseRoleIdsFromInput(roleIdsRaw ?? '');
+  if (sourceRoleIds.length === 0) {
+    await interaction.reply({
+      content: `${E.X_} Please enter at least one valid Role ID (17–20 digits).`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  const validId = /^\d{17,20}$/;
+  const invalid = sourceRoleIds.find((id) => !validId.test(id));
+  if (invalid) {
+    await interaction.reply({
+      content: `${E.X_} Invalid Role ID: "${invalid}". Must be 17–20 digits.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   session.sourceGuildId = sourceGuildId;
-  session.sourceRoleId = sourceRoleId;
+  session.sourceRoleIds = sourceRoleIds;
+  session.sourceRoleId = sourceRoleIds.length === 1 ? sourceRoleIds[0] : undefined;
+  session.requiredRoleMatchMode = matchModeRaw === 'all' ? 'all' : 'any';
 
   const roleSelect = new RoleSelectMenuBuilder()
     .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
-    .setPlaceholder('Select the role to assign in THIS server...');
+    .setMinValues(1)
+    .setMaxValues(25)
+    .setPlaceholder('Select role(s) to assign in THIS server (1–25)');
 
   const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
   await interaction.reply({
     content:
-      '**Step 3 of 3:** Which role should users receive **in this server** when they verify?\n*(Select a role from this server — not the source server.)*',
+      '**Step 3 of 3:** Which role(s) should users receive **in this server** when they verify? You can select multiple.\n*(Select roles from this server — not the source server.)*',
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
@@ -496,7 +544,13 @@ export async function handleProductDiscordRoleDone(
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     const result = (await res.json()) as
       | { completed: false }
-      | { completed: true; sourceGuildId: string; sourceRoleId: string };
+      | {
+          completed: true;
+          sourceGuildId: string;
+          sourceRoleId?: string;
+          sourceRoleIds?: string[];
+          requiredRoleMatchMode?: 'any' | 'all';
+        };
 
     if (!result.completed) {
       // Re-show the link button so they can go back
@@ -518,18 +572,24 @@ export async function handleProductDiscordRoleDone(
     }
 
     session.sourceGuildId = result.sourceGuildId;
-    session.sourceRoleId = result.sourceRoleId;
+    session.sourceRoleIds =
+      result.sourceRoleIds ?? (result.sourceRoleId ? [result.sourceRoleId] : []);
+    session.sourceRoleId =
+      result.sourceRoleId ?? session.sourceRoleIds[0];
+    session.requiredRoleMatchMode = result.requiredRoleMatchMode ?? 'any';
     session.discordRoleSetupToken = undefined;
 
     const roleSelect = new RoleSelectMenuBuilder()
       .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
-      .setPlaceholder('Select the role to assign in THIS server...');
+      .setMinValues(1)
+      .setMaxValues(25)
+      .setPlaceholder('Select role(s) to assign in THIS server (1–25)');
 
     const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
     await interaction.editReply({
       content:
-        '**Step 3 of 3:** Which role should users receive **in this server** when they verify?\n*(Select a role from this server — not the source server.)*',
+        '**Step 3 of 3:** Which role(s) should users receive **in this server** when they verify? You can select multiple.\n*(Select roles from this server — not the source server.)*',
       components: [row],
     });
   } catch (err) {
@@ -551,7 +611,7 @@ export async function handleProductRoleSelect(
   userId: string,
   tenantId: Id<'tenants'>,
 ): Promise<void> {
-  const roleId = interaction.values[0];
+  const roleIds = interaction.values;
   const sessionKey = getSessionKey(userId, tenantId);
   const session = productSessions.get(sessionKey);
 
@@ -563,10 +623,11 @@ export async function handleProductRoleSelect(
     return;
   }
 
-  session.roleId = roleId;
+  session.roleIds = roleIds;
+  session.roleId = roleIds[0];
 
   const guild = interaction.guild;
-  const hierarchyCheck = guild ? canBotManageRole(guild, roleId) : null;
+  const hierarchyCheck = guild ? canBotManageRole(guild, roleIds[0]) : null;
 
   const typeLabels: Record<string, string> = {
     gumroad: 'Gumroad',
@@ -581,7 +642,11 @@ export async function handleProductRoleSelect(
 
   if (session.type === 'discord_role') {
     detailLines.push(`**Source Server ID:** \`${session.sourceGuildId}\``);
-    detailLines.push(`**Source Role:** <@&${session.sourceRoleId}>`);
+    const srcIds = session.sourceRoleIds ?? (session.sourceRoleId ? [session.sourceRoleId] : []);
+    const matchMode = session.requiredRoleMatchMode ?? 'any';
+    detailLines.push(
+      `**Source Role(s):** ${srcIds.map((id) => `<@&${id}>`).join(', ')} (${matchMode})`,
+    );
   } else if (session.urlOrId) {
     const productLabel =
       session.type === 'jinxxy' && session.jinxxyProductNames?.[session.urlOrId]
@@ -590,7 +655,9 @@ export async function handleProductRoleSelect(
     detailLines.push(`**Product:** ${productLabel}`);
   }
 
-  detailLines.push(`**Assigns Role:** <@&${roleId}>`);
+  detailLines.push(
+    `**Assigns Role(s):** ${roleIds.map((id) => `<@&${id}>`).join(', ')}`,
+  );
 
   if (hierarchyCheck && !hierarchyCheck.canManage) {
     detailLines.push('');
@@ -641,23 +708,26 @@ export async function handleProductConfirmAdd(
   await interaction.deferUpdate();
 
   try {
-    const { type, urlOrId, sourceGuildId, sourceRoleId, roleId, guildId, guildLinkId } = session;
+    const { type, urlOrId, sourceGuildId, sourceRoleId, sourceRoleIds, requiredRoleMatchMode, roleId, roleIds, guildId, guildLinkId } = session;
 
-    if (!roleId) throw new Error('No role selected');
+    const verifiedRoleIds = roleIds ?? (roleId ? [roleId] : []);
+    if (verifiedRoleIds.length === 0) throw new Error('No role selected');
 
     let productId: string;
     let catalogProductId: Id<'product_catalog'> | undefined;
 
     if (type === 'discord_role') {
-      if (!sourceGuildId || !sourceRoleId) throw new Error('Source guild/role ID missing');
+      const reqIds = sourceRoleIds ?? (sourceRoleId ? [sourceRoleId] : []);
+      if (!sourceGuildId || reqIds.length === 0) throw new Error('Source guild/role ID missing');
       const result = await convex.mutation(api.role_rules.addProductFromDiscordRole as any, {
         apiSecret,
         tenantId,
         sourceGuildId,
-        requiredRoleId: sourceRoleId,
+        requiredRoleIds: reqIds,
+        requiredRoleMatchMode: requiredRoleMatchMode ?? 'any',
         guildId,
         guildLinkId,
-        verifiedRoleId: roleId,
+        verifiedRoleIds,
       });
       productId = result.productId;
 
@@ -681,9 +751,11 @@ export async function handleProductConfirmAdd(
 
       productSessions.delete(sessionKey);
 
+      const modeLabel = requiredRoleMatchMode === 'all' ? 'all' : 'any';
+      const rolesMsg = verifiedRoleIds.map((id) => `<@&${id}>`).join(', ');
       track(interaction.user.id, 'product_added', { tenantId, guildId, productId });
       await interaction.editReply({
-        content: `${E.Checkmark} Discord role rule added! Users with the source role will receive <@&${roleId}>.`,
+        content: `${E.Checkmark} Discord role rule added! Users with ${modeLabel} of the source roles will receive ${rolesMsg}.`,
         components: [],
         embeds: [],
       });
@@ -758,7 +830,7 @@ export async function handleProductConfirmAdd(
       guildLinkId,
       productId,
       catalogProductId,
-      verifiedRoleId: roleId,
+      verifiedRoleIds,
     });
     productSessions.delete(sessionKey);
     track(interaction.user.id, 'product_added', { tenantId, guildId, productId, ruleId });
@@ -769,8 +841,9 @@ export async function handleProductConfirmAdd(
       const src = session.jinxxyProductSources?.[productId];
       finalProductLabel = src ? `${name} (via ${src})` : name;
     }
+    const rolesMsg = verifiedRoleIds.map((id) => `<@&${id}>`).join(', ');
     await interaction.editReply({
-      content: `${E.Checkmark} Product **${finalProductLabel}** mapped to <@&${roleId}>. Users who verify this product will automatically receive the role.`,
+      content: `${E.Checkmark} Product **${finalProductLabel}** mapped to ${rolesMsg}. Users who verify this product will automatically receive the role(s).`,
       components: [],
       embeds: [],
     });
@@ -852,9 +925,13 @@ export async function handleProductList(
             displayName: string | null;
             provider?: string;
             verifiedRoleId?: string;
+            verifiedRoleIds?: string[];
             enabled?: boolean;
-          }) =>
-            `• **${providerLabel(r)}${r.displayName ?? r.productId}** → <@&${r.verifiedRoleId}> ${r.enabled !== false ? E.Checkmark : '(disabled)'}`,
+          }) => {
+            const roleIds = r.verifiedRoleIds ?? (r.verifiedRoleId ? [r.verifiedRoleId] : []);
+            const rolesStr = roleIds.map((id) => `<@&${id}>`).join(', ');
+            return `• **${providerLabel(r)}${r.displayName ?? r.productId}** → ${rolesStr} ${r.enabled !== false ? E.Checkmark : '(disabled)'}`;
+          },
         )
         .join('\n'),
     );

@@ -440,8 +440,10 @@ const role_rules = defineTable({
   productId: v.string(),
   // Optional catalog product reference
   catalogProductId: v.optional(v.id('product_catalog')),
-  // Discord role ID to assign
+  // Discord role ID to assign (backward compat; use verifiedRoleIds when multiple)
   verifiedRoleId: v.string(),
+  // Multiple Discord role IDs to assign when verified
+  verifiedRoleIds: v.optional(v.array(v.string())),
   // Whether to remove the role on entitlement revoke
   removeOnRevoke: v.boolean(),
   // Priority for multiple role rules
@@ -450,8 +452,12 @@ const role_rules = defineTable({
   enabled: v.boolean(),
   // Discord cross-server: upstream guild to check membership
   sourceGuildId: v.optional(v.string()),
-  // Discord cross-server: role ID user must have in source guild
+  // Discord cross-server: role ID user must have in source guild (backward compat)
   requiredRoleId: v.optional(v.string()),
+  // Discord cross-server: multiple role IDs user must have in source guild
+  requiredRoleIds: v.optional(v.array(v.string())),
+  // Match mode for requiredRoleIds: 'any' = at least one, 'all' = every role
+  requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
   // Timestamps
   createdAt: v.number(),
   updatedAt: v.number(),

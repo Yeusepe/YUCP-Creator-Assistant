@@ -88,6 +88,7 @@ export interface RoleRule {
   guildId: string;
   productId: string;
   verifiedRoleId: string;
+  verifiedRoleIds?: string[];
   removeOnRevoke: boolean;
   enabled: boolean;
   priority: number;
@@ -432,28 +433,33 @@ export class RoleSyncService {
         continue;
       }
 
-      try {
-        const result = await this.addRoleToMember(
-          rule.guildId,
-          discordUserId,
-          rule.verifiedRoleId
-        );
+      const roleIds =
+        rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
 
-        if (result.added) {
-          rolesAdded.push(rule.verifiedRoleId);
-        }
+      for (const roleId of roleIds) {
+        try {
+          const result = await this.addRoleToMember(
+            rule.guildId,
+            discordUserId,
+            roleId,
+          );
 
-        if (result.error) {
-          errors.push(`${rule.guildId}: ${result.error}`);
+          if (result.added) {
+            rolesAdded.push(roleId);
+          }
+
+          if (result.error) {
+            errors.push(`${rule.guildId}: ${result.error}`);
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          errors.push(`${rule.guildId}: ${errorMsg}`);
+          this.logger.error('Failed to add role', {
+            guildId: rule.guildId,
+            roleId,
+            error: errorMsg,
+          });
         }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        errors.push(`${rule.guildId}: ${errorMsg}`);
-        this.logger.error('Failed to add role', {
-          guildId: rule.guildId,
-          roleId: rule.verifiedRoleId,
-          error: errorMsg,
-        });
       }
     }
 

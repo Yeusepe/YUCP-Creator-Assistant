@@ -1384,29 +1384,34 @@ async function emitRoleRemovalJobs(
   const subject = await (ctx as any).db.get(subjectId);
 
   for (const rule of roleRules) {
-    const idempotencyKey = `role_removal:${tenantId}:${subjectId}:${rule.guildId}:${productId}:${now}`;
+    const roleIds =
+      rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
 
-    const outboxJobId = await (ctx as any).db.insert('outbox_jobs', {
-      tenantId,
-      jobType: 'role_removal',
-      payload: {
-        subjectId,
-        entitlementId,
-        guildId: rule.guildId,
-        roleId: rule.verifiedRoleId,
-        discordUserId: subject?.primaryDiscordUserId,
-      },
-      status: 'pending',
-      idempotencyKey,
-      targetGuildId: rule.guildId,
-      targetDiscordUserId: subject?.primaryDiscordUserId,
-      retryCount: 0,
-      maxRetries: 5,
-      createdAt: now,
-      updatedAt: now,
-    });
+    for (const roleId of roleIds) {
+      const idempotencyKey = `role_removal:${tenantId}:${subjectId}:${rule.guildId}:${productId}:${roleId}:${now}`;
 
-    outboxJobIds.push(outboxJobId);
+      const outboxJobId = await (ctx as any).db.insert('outbox_jobs', {
+        tenantId,
+        jobType: 'role_removal',
+        payload: {
+          subjectId,
+          entitlementId,
+          guildId: rule.guildId,
+          roleId,
+          discordUserId: subject?.primaryDiscordUserId,
+        },
+        status: 'pending',
+        idempotencyKey,
+        targetGuildId: rule.guildId,
+        targetDiscordUserId: subject?.primaryDiscordUserId,
+        retryCount: 0,
+        maxRetries: 5,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      outboxJobIds.push(outboxJobId);
+    }
   }
 
   return outboxJobIds;
