@@ -73,3 +73,16 @@ export const Emoji = {
   Home: customEmoji('1478761067155951749', 'Home'),
   Checkmark: customEmoji('1478775474443518084', 'Checkmark'),
 } as const;
+
+/** Emoji IDs for CDN URLs (embed thumbnails). Use with getEmojiCdnUrl(). */
+export const EmojiIds = {
+  Library: '1478732160683872327',
+  Bag: '1478606849220677632',
+  PersonKey: '1478740004569223198',
+  Home: '1478761067155951749',
+} as const;
+
+/** Discord CDN URL for custom emoji — use with embed.setThumbnail(). */
+export function getEmojiCdnUrl(emojiId: string): string {
+  return `https://cdn.discordapp.com/emojis/${emojiId}.png`;
+}

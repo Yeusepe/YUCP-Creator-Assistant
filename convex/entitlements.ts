@@ -265,6 +265,45 @@ export const getStatsOverview = query({
 });
 
 /**
+ * Extended stats overview with 24h, 7d, 30d verification counts.
+ */
+export const getStatsOverviewExtended = query({
+  args: { apiSecret: v.string(), tenantId: v.id('tenants') },
+  returns: v.object({
+    totalVerified: v.number(),
+    totalProducts: v.number(),
+    recent24h: v.number(),
+    recent7d: v.number(),
+    recent30d: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const activeEntitlements = await ctx.db
+      .query('entitlements')
+      .withIndex('by_tenant_status', (q) =>
+        q.eq('tenantId', args.tenantId).eq('status', 'active'),
+      )
+      .collect();
+    const uniqueSubjects = new Set(activeEntitlements.map((e) => e.subjectId));
+    const uniqueProducts = new Set(activeEntitlements.map((e) => e.productId));
+    const now = Date.now();
+    const oneDayAgo = now - 24 * 60 * 60 * 1000;
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+    const recent24h = activeEntitlements.filter((e) => e.grantedAt >= oneDayAgo).length;
+    const recent7d = activeEntitlements.filter((e) => e.grantedAt >= sevenDaysAgo).length;
+    const recent30d = activeEntitlements.filter((e) => e.grantedAt >= thirtyDaysAgo).length;
+    return {
+      totalVerified: uniqueSubjects.size,
+      totalProducts: uniqueProducts.size,
+      recent24h,
+      recent7d,
+      recent30d,
+    };
+  },
+});
+
+/**
  * Verified users for tenant (paginated, for /yucp stats verified).
  */
 export const getVerifiedUsersPaginated = query({
@@ -284,6 +323,7 @@ export const getVerifiedUsersPaginated = query({
       }),
     ),
     nextCursor: v.optional(v.string()),
+    totalCount: v.number(),
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -307,6 +347,7 @@ export const getVerifiedUsersPaginated = query({
       }
     }
     const subjectIds = Array.from(bySubject.keys());
+    const totalCount = subjectIds.length;
     const start = args.cursor ? subjectIds.indexOf(args.cursor) + 1 : 0;
     const slice = subjectIds.slice(start, start + limit);
     const users: Array<{
@@ -329,7 +370,7 @@ export const getVerifiedUsersPaginated = query({
     }
     const nextCursor =
       start + limit < subjectIds.length ? subjectIds[start + limit - 1] : undefined;
-    return { users, nextCursor };
+    return { users, nextCursor, totalCount };
   },
 });
 

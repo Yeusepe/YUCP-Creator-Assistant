@@ -2,6 +2,7 @@
  * /creator-admin stats — Verification statistics with navigation buttons
  *
  * Single command shows overview. Navigation buttons open sub-views.
+ * Uses custom Discord icons (E.*, Emoji.*) and CDN thumbnails.
  */
 
 import {
@@ -10,19 +11,60 @@ import {
   ButtonStyle,
   EmbedBuilder,
   MessageFlags,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
+  UserSelectMenuBuilder,
 } from 'discord.js';
 import type {
   ButtonInteraction,
   ChatInputCommandInteraction,
-  ModalSubmitInteraction,
+  UserSelectMenuInteraction,
 } from 'discord.js';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
-import { E } from '../lib/emojis';
+import { E, Emoji, EmojiIds, getEmojiCdnUrl } from '../lib/emojis';
+
+const USERS_PAGE_SIZE = 25;
+const STATS_SESSION_TTL_MS = 10 * 60 * 1000;
+
+interface StatsUsersSession {
+  cursorStack: (string | undefined)[];
+  pageIndex: number;
+  totalCount: number;
+  expiresAt: number;
+}
+
+const statsUsersSessions = new Map<string, StatsUsersSession>();
+
+function getStatsSessionKey(userId: string, tenantId: string): string {
+  return `${userId}:${tenantId}`;
+}
+
+function cleanExpiredStatsSessions(): void {
+  const now = Date.now();
+  for (const [key, session] of statsUsersSessions.entries()) {
+    if (now > session.expiresAt) statsUsersSessions.delete(key);
+  }
+}
+
+function buildOverviewButtons(tenantId: Id<'tenants'>, guildId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_stats:view_users:${tenantId}:${guildId}`)
+      .setLabel('View Users')
+      .setEmoji(Emoji.Library)
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`creator_stats:view_products:${tenantId}:${guildId}`)
+      .setLabel('View Products')
+      .setEmoji(Emoji.Bag)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`creator_stats:check_user:${tenantId}:${guildId}`)
+      .setLabel('Check a User')
+      .setEmoji(Emoji.PersonKey)
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
 
 /** /creator-admin stats — shows overview with navigation buttons */
 export async function handleStats(
@@ -37,7 +79,7 @@ export async function handleStats(
     tenantId: ctx.tenantId,
     guildId: ctx.guildId,
   });
-  const stats = await convex.query(api.entitlements.getStatsOverview as any, {
+  const stats = await convex.query(api.entitlements.getStatsOverviewExtended as any, {
     apiSecret,
     tenantId: ctx.tenantId,
   });
@@ -45,27 +87,21 @@ export async function handleStats(
   const embed = new EmbedBuilder()
     .setTitle(`${E.Library} Verification Stats`)
     .setColor(0x5865f2)
+    .setThumbnail(getEmojiCdnUrl(EmojiIds.Library))
+    .setDescription(
+      'Unique verified users, product-role mappings, and new verifications in the last 24h, 7d, and 30d.',
+    )
     .addFields(
       { name: 'Verified Users', value: String(stats.totalVerified), inline: true },
       { name: 'Products Mapped', value: String(rules.length), inline: true },
-      { name: 'Verified (24h)', value: String(stats.recentGrantsCount), inline: true },
-    );
+      { name: 'Verified (24h)', value: String(stats.recent24h), inline: true },
+      { name: 'Verified (7d)', value: String(stats.recent7d), inline: true },
+      { name: 'Verified (30d)', value: String(stats.recent30d), inline: true },
+    )
+    .setTimestamp()
+    .setFooter({ text: 'Use the buttons below to explore' });
 
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`creator_stats:view_users:${ctx.tenantId}`)
-      .setLabel('View Users')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`creator_stats:view_products:${ctx.tenantId}`)
-      .setLabel('View Products')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`creator_stats:check_user:${ctx.tenantId}`)
-      .setLabel('Check a User')
-      .setStyle(ButtonStyle.Secondary),
-  );
-
+  const row = buildOverviewButtons(ctx.tenantId, ctx.guildId);
   await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
@@ -75,102 +111,359 @@ export async function handleStatsViewUsersButton(
   convex: ConvexHttpClient,
   apiSecret: string,
   tenantId: Id<'tenants'>,
+  guildId: string,
 ): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferUpdate();
 
-  const { users } = await convex.query(api.entitlements.getVerifiedUsersPaginated as any, {
-    apiSecret,
-    tenantId,
-    limit: 25,
+  cleanExpiredStatsSessions();
+  const sessionKey = getStatsSessionKey(interaction.user.id, tenantId);
+  statsUsersSessions.set(sessionKey, {
+    cursorStack: [undefined],
+    pageIndex: 0,
+    totalCount: 0,
+    expiresAt: Date.now() + STATS_SESSION_TTL_MS,
+  });
+
+  const { users, nextCursor, totalCount } = await convex.query(
+    api.entitlements.getVerifiedUsersPaginated as any,
+    {
+      apiSecret,
+      tenantId,
+      limit: USERS_PAGE_SIZE,
+    },
+  );
+
+  statsUsersSessions.set(sessionKey, {
+    cursorStack: nextCursor != null ? [undefined, nextCursor] : [undefined],
+    pageIndex: 0,
+    totalCount,
+    expiresAt: Date.now() + STATS_SESSION_TTL_MS,
   });
 
   if (!users.length) {
-    await interaction.editReply({ content: 'No verified users yet.' });
+    const embed = new EmbedBuilder()
+      .setTitle(`${E.PersonKey} Verified Users`)
+      .setColor(0x5865f2)
+      .setThumbnail(getEmojiCdnUrl(EmojiIds.PersonKey))
+      .setDescription('No verified users yet.')
+      .setFooter({ text: 'Use the button below to return' });
+
+    const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+        .setLabel('Back to Overview')
+        .setEmoji(Emoji.Home)
+        .setStyle(ButtonStyle.Secondary),
+    );
+    await interaction.editReply({ embeds: [embed], components: [backRow] });
     return;
   }
 
   const lines = users.map(
     (u: { discordUserId: string; productCount: number }) =>
-      `<@${u.discordUserId}> — ${u.productCount} product(s)`,
+      `• <@${u.discordUserId}> — ${u.productCount} product(s)`,
   );
 
   const embed = new EmbedBuilder()
-    .setTitle('Verified Users')
+    .setTitle(`${E.PersonKey} Verified Users`)
     .setColor(0x5865f2)
+    .setThumbnail(getEmojiCdnUrl(EmojiIds.PersonKey))
     .setDescription(lines.join('\n'))
-    .setFooter({ text: `Showing up to 25 users` });
+    .setFooter({
+      text: `Page 1 • Showing ${users.length} of ${totalCount} users`,
+    });
 
-  await interaction.editReply({ embeds: [embed] });
+  const row = buildViewUsersPaginationRow(
+    tenantId,
+    guildId,
+    0,
+    totalCount,
+    nextCursor != null,
+  );
+  await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
-/** Button: View Products — shows product verification counts */
+/** Button: View Users pagination (next/prev) */
+export async function handleStatsViewUsersPageButton(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  tenantId: Id<'tenants'>,
+  guildId: string,
+  direction: 'next' | 'prev',
+): Promise<void> {
+  await interaction.deferUpdate();
+
+  cleanExpiredStatsSessions();
+  const sessionKey = getStatsSessionKey(interaction.user.id, tenantId);
+  const session = statsUsersSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.editReply({
+      content: `${E.Timer} Session expired. Run \`/creator-admin stats\` again.`,
+      components: [],
+    });
+    return;
+  }
+
+  const newPageIndex = direction === 'next' ? session.pageIndex + 1 : session.pageIndex - 1;
+  const cursor = session.cursorStack[newPageIndex];
+
+  const { users, nextCursor, totalCount } = await convex.query(
+    api.entitlements.getVerifiedUsersPaginated as any,
+    {
+      apiSecret,
+      tenantId,
+      limit: USERS_PAGE_SIZE,
+      cursor: cursor ?? undefined,
+    },
+  );
+
+  const newCursorStack = [...session.cursorStack];
+  if (direction === 'next' && nextCursor && newPageIndex + 1 >= newCursorStack.length) {
+    newCursorStack.push(nextCursor);
+  }
+
+  statsUsersSessions.set(sessionKey, {
+    cursorStack: newCursorStack,
+    pageIndex: newPageIndex,
+    totalCount,
+    expiresAt: Date.now() + STATS_SESSION_TTL_MS,
+  });
+
+  const lines = users.map(
+    (u: { discordUserId: string; productCount: number }) =>
+      `• <@${u.discordUserId}> — ${u.productCount} product(s)`,
+  );
+
+  const start = newPageIndex * USERS_PAGE_SIZE + 1;
+  const end = Math.min(start + users.length - 1, totalCount);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${E.PersonKey} Verified Users`)
+    .setColor(0x5865f2)
+    .setThumbnail(getEmojiCdnUrl(EmojiIds.PersonKey))
+    .setDescription(lines.join('\n'))
+    .setFooter({
+      text: `Page ${newPageIndex + 1} • Showing ${start}-${end} of ${totalCount} users`,
+    });
+
+  const row = buildViewUsersPaginationRow(
+    tenantId,
+    guildId,
+    newPageIndex,
+    totalCount,
+    nextCursor != null,
+  );
+  await interaction.editReply({ embeds: [embed], components: [row] });
+}
+
+function buildViewUsersPaginationRow(
+  tenantId: Id<'tenants'>,
+  guildId: string,
+  pageIndex: number,
+  totalCount: number,
+  hasNext: boolean,
+): ActionRowBuilder<ButtonBuilder> {
+  const buttons: ButtonBuilder[] = [];
+
+  if (pageIndex > 0) {
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId(`creator_stats:view_users_page:${tenantId}:${guildId}:prev`)
+        .setLabel('Previous')
+        .setStyle(ButtonStyle.Secondary),
+    );
+  }
+
+  buttons.push(
+    new ButtonBuilder()
+      .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+      .setLabel('Back to Overview')
+      .setEmoji(Emoji.Home)
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  if (hasNext) {
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId(`creator_stats:view_users_page:${tenantId}:${guildId}:next`)
+        .setLabel('Next')
+        .setStyle(ButtonStyle.Secondary),
+    );
+  }
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(buttons);
+}
+
+/** Button: Back to Overview */
+export async function handleStatsBackButton(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  tenantId: Id<'tenants'>,
+  guildId: string,
+): Promise<void> {
+  await interaction.deferUpdate();
+
+  cleanExpiredStatsSessions();
+  const sessionKey = getStatsSessionKey(interaction.user.id, tenantId);
+  statsUsersSessions.delete(sessionKey);
+
+  const rules = await convex.query(api.role_rules.getByGuild as any, {
+    tenantId,
+    guildId,
+  });
+  const stats = await convex.query(api.entitlements.getStatsOverviewExtended as any, {
+    apiSecret,
+    tenantId,
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${E.Library} Verification Stats`)
+    .setColor(0x5865f2)
+    .setThumbnail(getEmojiCdnUrl(EmojiIds.Library))
+    .setDescription(
+      'Unique verified users, product-role mappings, and new verifications in the last 24h, 7d, and 30d.',
+    )
+    .addFields(
+      { name: 'Verified Users', value: String(stats.totalVerified), inline: true },
+      { name: 'Products Mapped', value: String(rules.length), inline: true },
+      { name: 'Verified (24h)', value: String(stats.recent24h), inline: true },
+      { name: 'Verified (7d)', value: String(stats.recent7d), inline: true },
+      { name: 'Verified (30d)', value: String(stats.recent30d), inline: true },
+    )
+    .setTimestamp()
+    .setFooter({ text: 'Use the buttons below to explore' });
+
+  const row = buildOverviewButtons(tenantId, guildId);
+  await interaction.editReply({ embeds: [embed], components: [row] });
+}
+
+/** Button: View Products — shows product verification counts with display names */
 export async function handleStatsViewProductsButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
   tenantId: Id<'tenants'>,
+  guildId: string,
 ): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferUpdate();
 
-  const productStats = await convex.query(api.entitlements.getProductStats as any, {
-    apiSecret,
-    tenantId,
-  });
+  const [productStats, productNames] = await Promise.all([
+    convex.query(api.entitlements.getProductStats as any, {
+      apiSecret,
+      tenantId,
+    }),
+    convex.query(api.role_rules.getByGuildWithProductNames as any, {
+      tenantId,
+      guildId,
+    }),
+  ]);
+
+  const nameMap = new Map(
+    (productNames as { productId: string; displayName: string | null }[]).map((p) => [
+      p.productId,
+      p.displayName ?? p.productId.slice(0, 12) + (p.productId.length > 12 ? '…' : ''),
+    ]),
+  );
 
   if (!productStats.length) {
-    await interaction.editReply({ content: 'No product verification data yet.' });
+    const embed = new EmbedBuilder()
+      .setTitle(`${E.Bag} Product Verification Counts`)
+      .setColor(0x5865f2)
+      .setThumbnail(getEmojiCdnUrl(EmojiIds.Bag))
+      .setDescription('No product verification data yet.')
+      .setFooter({ text: 'Use the button below to return' });
+
+    const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+        .setLabel('Back to Overview')
+        .setEmoji(Emoji.Home)
+        .setStyle(ButtonStyle.Secondary),
+    );
+    await interaction.editReply({ embeds: [embed], components: [backRow] });
     return;
   }
 
-  const lines = productStats
-    .sort(
-      (a: { verifiedCount: number }, b: { verifiedCount: number }) =>
-        b.verifiedCount - a.verifiedCount,
-    )
-    .map((p: { productId: string; verifiedCount: number }) => `• \`${p.productId}\`: ${p.verifiedCount}`);
+  const sorted = (productStats as { productId: string; verifiedCount: number }[])
+    .sort((a, b) => b.verifiedCount - a.verifiedCount)
+    .map((p) => {
+      const name = nameMap.get(p.productId) ?? p.productId.slice(0, 12) + (p.productId.length > 12 ? '…' : '');
+      return `• **${name}** — ${p.verifiedCount} verified`;
+    });
 
   const embed = new EmbedBuilder()
-    .setTitle('Product Verification Counts')
+    .setTitle(`${E.Bag} Product Verification Counts`)
     .setColor(0x5865f2)
-    .setDescription(lines.join('\n'));
+    .setThumbnail(getEmojiCdnUrl(EmojiIds.Bag))
+    .setDescription(sorted.join('\n'))
+    .setFooter({ text: 'Top products by verification count' });
 
-  await interaction.editReply({ embeds: [embed] });
+  const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+      .setLabel('Back to Overview')
+      .setEmoji(Emoji.Home)
+      .setStyle(ButtonStyle.Secondary),
+  );
+  await interaction.editReply({ embeds: [embed], components: [backRow] });
 }
 
-/** Button: Check a User — shows modal to enter user ID */
+/** Button: Check a User — shows user select menu */
 export async function handleStatsCheckUserButton(
   interaction: ButtonInteraction,
   tenantId: Id<'tenants'>,
+  guildId: string,
 ): Promise<void> {
-  const modal = new ModalBuilder()
-    .setCustomId(`creator_stats:check_user_modal:${tenantId}`)
-    .setTitle('Check User Verification')
-    .addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId('discord_user_id')
-          .setLabel('Discord User ID')
-          .setPlaceholder('Right-click the user → Copy User ID (requires Developer Mode)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setMinLength(17)
-          .setMaxLength(20),
-      ),
-    );
+  await interaction.deferUpdate();
 
-  await interaction.showModal(modal);
+  const userSelect = new UserSelectMenuBuilder()
+    .setCustomId(`creator_stats:check_user_select:${tenantId}:${guildId}`)
+    .setPlaceholder('Select a user to check verification status...')
+    .setMinValues(1)
+    .setMaxValues(1);
+
+  const row = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(userSelect);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${E.PersonKey} Check User Verification`)
+    .setColor(0x5865f2)
+    .setThumbnail(getEmojiCdnUrl(EmojiIds.PersonKey))
+    .setDescription('Select a user from the dropdown to view their verification status.')
+    .setFooter({ text: 'Use the button below to return' });
+
+  const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+      .setLabel('Back to Overview')
+      .setEmoji(Emoji.Home)
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [row, backRow],
+  });
 }
 
-/** Modal: Check user verification status */
-export async function handleStatsCheckUserModal(
-  interaction: ModalSubmitInteraction,
+/** User select: Check user verification status */
+export async function handleStatsCheckUserSelect(
+  interaction: UserSelectMenuInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
   tenantId: Id<'tenants'>,
+  guildId: string,
 ): Promise<void> {
-  const discordUserId = interaction.fields.getTextInputValue('discord_user_id')?.trim();
+  const selectedUser = interaction.users.first();
+  if (!selectedUser) {
+    await interaction.reply({ content: 'No user selected.', flags: MessageFlags.Ephemeral });
+    return;
+  }
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const discordUserId = selectedUser.id;
+  await interaction.deferUpdate();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
     discordUserId,
@@ -178,131 +471,57 @@ export async function handleStatsCheckUserModal(
 
   if (!subjectResult.found) {
     await interaction.editReply({
-      content: `No account found for user ID \`${discordUserId}\`. They may not have verified yet.`,
+      content: `No account found for <@${discordUserId}>. They may not have verified yet.`,
+      embeds: [],
+      components: [],
     });
     return;
   }
 
-  const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject as any, {
+  const entitlements = (await convex.query(api.entitlements.getEntitlementsBySubject as any, {
     apiSecret,
     tenantId,
     subjectId: subjectResult.subject._id,
     includeInactive: false,
-  });
+  })) as { productId: string }[];
 
-  const productIds = [...new Set(entitlements.map((e: { productId: string }) => e.productId))];
+  const productIds = [...new Set(entitlements.map((e) => e.productId))];
   const status = productIds.length ? `Verified ${E.Checkmark}` : 'No active products';
+
+  let productDisplay = 'None';
+  if (productIds.length) {
+    const productNames = await convex.query(api.role_rules.getByGuildWithProductNames as any, {
+      tenantId,
+      guildId,
+    });
+    const nameMap = new Map(
+      (productNames as { productId: string; displayName: string | null }[]).map((p) => [
+        p.productId,
+        p.displayName ?? p.productId,
+      ]),
+    );
+    productDisplay = productIds
+      .map((id) => nameMap.get(id) ?? id)
+      .map((n) => `\`${n}\``)
+      .join(', ');
+  }
 
   const embed = new EmbedBuilder()
     .setTitle(`Verification: <@${discordUserId}>`)
     .setColor(0x5865f2)
+    .setThumbnail(getEmojiCdnUrl(EmojiIds.PersonKey))
     .addFields(
       { name: 'Status', value: status, inline: false },
-      {
-        name: 'Products',
-        value: productIds.length ? productIds.map((p) => `\`${p}\``).join(', ') : 'None',
-        inline: false,
-      },
+      { name: 'Products', value: productDisplay, inline: false },
     );
 
-  await interaction.editReply({ embeds: [embed] });
-}
-
-// Legacy named exports kept for any existing references
-export async function handleStatsOverview(
-  interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
-): Promise<void> {
-  return handleStats(interaction, convex, apiSecret, ctx);
-}
-
-export async function handleStatsVerified(
-  interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
-): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const { users } = await convex.query(api.entitlements.getVerifiedUsersPaginated as any, {
-    apiSecret,
-    tenantId: ctx.tenantId,
-    limit: 25,
-  });
-  if (!users.length) {
-    await interaction.editReply({ content: 'No verified users.' });
-    return;
-  }
-  const lines = users.map(
-    (u: { discordUserId: string; productCount: number }) =>
-      `<@${u.discordUserId}> — ${u.productCount} product(s)`,
+  const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+      .setLabel('Back to Overview')
+      .setEmoji(Emoji.Home)
+      .setStyle(ButtonStyle.Secondary),
   );
-  const embed = new EmbedBuilder()
-    .setTitle('Verified Users')
-    .setColor(0x5865f2)
-    .setDescription(lines.join('\n'));
-  await interaction.editReply({ embeds: [embed] });
-}
 
-export async function handleStatsProducts(
-  interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
-): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const productStats = await convex.query(api.entitlements.getProductStats as any, {
-    apiSecret,
-    tenantId: ctx.tenantId,
-  });
-  if (!productStats.length) {
-    await interaction.editReply({ content: 'No product verification data.' });
-    return;
-  }
-  const lines = productStats
-    .sort((a: { verifiedCount: number }, b: { verifiedCount: number }) => b.verifiedCount - a.verifiedCount)
-    .map((p: { productId: string; verifiedCount: number }) => `• \`${p.productId}\`: ${p.verifiedCount}`);
-  const embed = new EmbedBuilder()
-    .setTitle('Product Verification Counts')
-    .setColor(0x5865f2)
-    .setDescription(lines.join('\n'));
-  await interaction.editReply({ embeds: [embed] });
-}
-
-export async function handleStatsUser(
-  interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
-): Promise<void> {
-  const targetUser = interaction.options.getUser('user', true);
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
-    discordUserId: targetUser.id,
-  });
-  if (!subjectResult.found) {
-    await interaction.editReply({ content: `No account found for <@${targetUser.id}>.` });
-    return;
-  }
-  const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject as any, {
-    apiSecret,
-    tenantId: ctx.tenantId,
-    subjectId: subjectResult.subject._id,
-    includeInactive: false,
-  });
-  const productIds = [...new Set(entitlements.map((e: { productId: string }) => e.productId))];
-  const status = productIds.length ? `Verified ${E.Checkmark}` : 'No active products';
-  const embed = new EmbedBuilder()
-    .setTitle(`Verification: ${targetUser.username}`)
-    .setColor(0x5865f2)
-    .addFields(
-      { name: 'Status', value: status, inline: false },
-      {
-        name: 'Products',
-        value: productIds.length ? productIds.map((p) => `\`${p}\``).join(', ') : 'None',
-        inline: false,
-      },
-    );
-  await interaction.editReply({ embeds: [embed] });
+  await interaction.editReply({ embeds: [embed], components: [backRow] });
 }

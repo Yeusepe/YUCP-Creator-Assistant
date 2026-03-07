@@ -17,6 +17,7 @@ import {
   type ModalSubmitInteraction,
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
+  type UserSelectMenuInteraction,
 } from 'discord.js';
 import { createLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
@@ -81,7 +82,8 @@ export async function handleInteraction(
     | StringSelectMenuInteraction
     | RoleSelectMenuInteraction
     | AutocompleteInteraction
-    | import('discord.js').ChannelSelectMenuInteraction,
+    | ChannelSelectMenuInteraction
+    | UserSelectMenuInteraction,
   ctx: InteractionHandlerContext,
 ): Promise<void> {
   if (interaction.isAutocomplete()) {
@@ -110,6 +112,10 @@ export async function handleInteraction(
   }
   if (interaction.isChannelSelectMenu()) {
     await handleChannelSelectMenu(interaction, ctx);
+    return;
+  }
+  if (interaction.isUserSelectMenu()) {
+    await handleUserSelectMenu(interaction, ctx);
     return;
   }
 }
@@ -607,24 +613,66 @@ async function handleButton(
   }
 
   // ─── Stats navigation ──────────────────────────────────────────────────────
+  // Format: creator_stats:view_users:{tenantId}:{guildId}
   if (customId.startsWith('creator_stats:view_users:')) {
-    const tenantId = customId.slice('creator_stats:view_users:'.length) as Id<'tenants'>;
+    const rest = customId.slice('creator_stats:view_users:'.length);
+    const parts = rest.split(':');
+    const tenantId = parts[0] as Id<'tenants'>;
+    const guildId = parts[1] ?? interaction.guildId ?? '';
     const { handleStatsViewUsersButton } = await import('../commands/stats');
-    await handleStatsViewUsersButton(interaction, ctx.convex, ctx.apiSecret, tenantId);
+    await handleStatsViewUsersButton(interaction, ctx.convex, ctx.apiSecret, tenantId, guildId);
     return;
   }
 
+  // Format: creator_stats:view_users_page:{tenantId}:{guildId}:next|prev
+  if (customId.startsWith('creator_stats:view_users_page:')) {
+    const rest = customId.slice('creator_stats:view_users_page:'.length);
+    const parts = rest.split(':');
+    const tenantId = parts[0] as Id<'tenants'>;
+    const guildId = parts[1] ?? interaction.guildId ?? '';
+    const direction = parts[2] as 'next' | 'prev';
+    const { handleStatsViewUsersPageButton } = await import('../commands/stats');
+    await handleStatsViewUsersPageButton(
+      interaction,
+      ctx.convex,
+      ctx.apiSecret,
+      tenantId,
+      guildId,
+      direction,
+    );
+    return;
+  }
+
+  // Format: creator_stats:back:{tenantId}:{guildId}
+  if (customId.startsWith('creator_stats:back:')) {
+    const rest = customId.slice('creator_stats:back:'.length);
+    const parts = rest.split(':');
+    const tenantId = parts[0] as Id<'tenants'>;
+    const guildId = parts[1] ?? interaction.guildId ?? '';
+    const { handleStatsBackButton } = await import('../commands/stats');
+    await handleStatsBackButton(interaction, ctx.convex, ctx.apiSecret, tenantId, guildId);
+    return;
+  }
+
+  // Format: creator_stats:view_products:{tenantId}:{guildId}
   if (customId.startsWith('creator_stats:view_products:')) {
-    const tenantId = customId.slice('creator_stats:view_products:'.length) as Id<'tenants'>;
+    const rest = customId.slice('creator_stats:view_products:'.length);
+    const parts = rest.split(':');
+    const tenantId = parts[0] as Id<'tenants'>;
+    const guildId = parts[1] ?? interaction.guildId ?? '';
     const { handleStatsViewProductsButton } = await import('../commands/stats');
-    await handleStatsViewProductsButton(interaction, ctx.convex, ctx.apiSecret, tenantId);
+    await handleStatsViewProductsButton(interaction, ctx.convex, ctx.apiSecret, tenantId, guildId);
     return;
   }
 
+  // Format: creator_stats:check_user:{tenantId}:{guildId}
   if (customId.startsWith('creator_stats:check_user:')) {
-    const tenantId = customId.slice('creator_stats:check_user:'.length) as Id<'tenants'>;
+    const rest = customId.slice('creator_stats:check_user:'.length);
+    const parts = rest.split(':');
+    const tenantId = parts[0] as Id<'tenants'>;
+    const guildId = parts[1] ?? interaction.guildId ?? '';
     const { handleStatsCheckUserButton } = await import('../commands/stats');
-    await handleStatsCheckUserButton(interaction, tenantId);
+    await handleStatsCheckUserButton(interaction, tenantId, guildId);
     return;
   }
 
@@ -961,14 +1009,6 @@ async function handleModalSubmit(
     return;
   }
 
-  // Stats — check user modal: creator_stats:check_user_modal:{tenantId}
-  if (customId.startsWith('creator_stats:check_user_modal:')) {
-    const tenantId = customId.slice('creator_stats:check_user_modal:'.length) as Id<'tenants'>;
-    const { handleStatsCheckUserModal } = await import('../commands/stats');
-    await handleStatsCheckUserModal(interaction, ctx.convex, ctx.apiSecret, tenantId);
-    return;
-  }
-
   await interaction.reply({ content: 'Unknown modal.', flags: MessageFlags.Ephemeral }).catch(() => { });
 }
 
@@ -1119,4 +1159,24 @@ async function handleChannelSelectMenu(
   }
 
   await interaction.reply({ content: 'Unknown channel select.', flags: MessageFlags.Ephemeral }).catch(() => { });
+}
+
+async function handleUserSelectMenu(
+  interaction: UserSelectMenuInteraction,
+  ctx: InteractionHandlerContext,
+): Promise<void> {
+  const customId = interaction.customId;
+
+  // Stats — check user select: creator_stats:check_user_select:{tenantId}:{guildId}
+  if (customId.startsWith('creator_stats:check_user_select:')) {
+    const rest = customId.slice('creator_stats:check_user_select:'.length);
+    const parts = rest.split(':');
+    const tenantId = parts[0] as Id<'tenants'>;
+    const guildId = parts[1] ?? interaction.guildId ?? '';
+    const { handleStatsCheckUserSelect } = await import('../commands/stats');
+    await handleStatsCheckUserSelect(interaction, ctx.convex, ctx.apiSecret, tenantId, guildId);
+    return;
+  }
+
+  await interaction.reply({ content: 'Unknown user select.', flags: MessageFlags.Ephemeral }).catch(() => { });
 }
