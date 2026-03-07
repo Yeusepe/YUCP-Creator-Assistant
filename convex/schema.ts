@@ -1048,7 +1048,7 @@ const collaborator_connections = defineTable({
   inviteId: v.id('collaborator_invites'),
   provider: v.literal('jinxxy'),
   jinxxyApiKeyEncrypted: v.optional(v.string()),
-  /** null for api-type connections */
+  /** Encrypted webhook signing secret; null for api-type connections */
   webhookSecretRef: v.optional(v.string()),
   /** null for api-type connections */
   webhookEndpoint: v.optional(v.string()),

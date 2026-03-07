@@ -85,9 +85,46 @@ export const getCollaboratorInviteByTokenHash = query({
 });
 
 /**
+ * Look up an invite by id for cookie-backed collab setup sessions.
+ */
+export const getCollaboratorInviteById = query({
+  args: {
+    apiSecret: v.string(),
+    inviteId: v.id('collaborator_invites'),
+  },
+  returns: v.union(
+    v.object({
+      _id: v.id('collaborator_invites'),
+      ownerTenantId: v.id('tenants'),
+      tokenHash: v.string(),
+      status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('revoked')),
+      ownerDisplayName: v.string(),
+      ownerGuildId: v.optional(v.string()),
+      expiresAt: v.number(),
+      createdAt: v.number(),
+    }),
+    v.null()
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const invite = await ctx.db.get(args.inviteId);
+    if (!invite) return null;
+    return {
+      _id: invite._id,
+      ownerTenantId: invite.ownerTenantId,
+      tokenHash: invite.tokenHash,
+      status: invite.status,
+      ownerDisplayName: invite.ownerDisplayName,
+      ownerGuildId: invite.ownerGuildId,
+      expiresAt: invite.expiresAt,
+      createdAt: invite.createdAt,
+    };
+  },
+});
+
+/**
  * Check if a Discord user has previously connected as a collaborator.
- * Returns info about their prior connection history (for "returning user" UX).
- * Does NOT return the encrypted API key — the client never needs it directly.
+ * Returns only coarse history flags for UI messaging.
  */
 export const getPriorCollabHistory = query({
   args: {
@@ -97,7 +134,6 @@ export const getPriorCollabHistory = query({
   returns: v.object({
     hasApiOnly: v.boolean(),
     hasFullAccount: v.boolean(),
-    encryptedApiKey: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -112,12 +148,9 @@ export const getPriorCollabHistory = query({
     const hasApiOnly = activeConnections.some((c) => c.linkType === 'api');
     const hasFullAccount = activeConnections.some((c) => c.linkType === 'account');
 
-    // Return encrypted key from most recent active connection (for reuse UX)
-    const withKey = activeConnections.find((c) => c.jinxxyApiKeyEncrypted);
     return {
       hasApiOnly,
       hasFullAccount,
-      encryptedApiKey: withKey?.jinxxyApiKeyEncrypted,
     };
   },
 });

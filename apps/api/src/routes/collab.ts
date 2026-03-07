@@ -4,30 +4,32 @@
  * Flow:
  * 1. Server owner runs /creator-admin collab invite → bot calls POST /api/collab/invite → gets link
  * 2. Owner sends link to the collaborator however they like (DM, email, etc.)
- * 3. Collaborator opens /collab-invite?t=TOKEN in browser
- * 4. Consent page → "Continue with Discord" → GET /api/collab/auth/begin?t=TOKEN
+ * 3. Collaborator opens /collab-invite#t=TOKEN in browser
+ * 4. Browser exchanges the one-time token for a short-lived HTTP-only session cookie
+ * 5. Consent page → "Continue with Discord" → GET /api/collab/auth/begin
  * 5. Discord OAuth (identify scope) → GET /api/collab/auth/callback
  * 6. Server stores Discord identity in state store, redirects back to consent page
- * 7. Page fetches /api/collab/invite/:token/discord-status (returns identity + prior history)
- * 8. Collaborator completes setup, POST /api/collab/invite/:token/submit
+ * 7. Page fetches /api/collab/session/discord-status (returns identity only)
+ * 8. Collaborator completes setup, POST /api/collab/session/submit
  * 9. Server reads Discord identity from state store — never from client body
  *
  * Endpoints:
  * POST   /api/collab/invite                          – Create invite link (setup session auth)
- * GET    /api/collab/auth/begin?t=TOKEN              – Start Discord OAuth
+ * POST   /api/collab/session/exchange                – Exchange invite token for a setup session
+ * GET    /api/collab/auth/begin                      – Start Discord OAuth
  * GET    /api/collab/auth/callback?code=&state=      – Discord OAuth callback
- * GET    /api/collab/invite/:token                   – Validate token, return invite metadata
- * GET    /api/collab/invite/:token/discord-status    – Check OAuth state + prior history
- * GET    /api/collab/invite/:token/webhook-config    – Get webhook URL + signing secret
- * GET    /api/collab/invite/:token/test-webhook      – Poll for test webhook
- * POST   /api/collab/invite/:token/submit            – Submit Jinxxy credentials
+ * GET    /api/collab/session/invite                  – Read invite metadata from collab session
+ * GET    /api/collab/session/discord-status          – Check OAuth state
+ * GET    /api/collab/session/webhook-config          – Get webhook URL + signing secret after OAuth
+ * GET    /api/collab/session/test-webhook            – Poll for test webhook
+ * POST   /api/collab/session/submit                  – Submit Jinxxy credentials
  * GET    /api/collab/connections                     – List owner's connections (setup session auth)
  * DELETE /api/collab/connections/:id                 – Remove connection (setup session auth)
  */
 
 import { createLogger } from '@yucp/shared';
 import { getConvexClientFromUrl } from '../lib/convex';
-import { encrypt, decrypt } from '../lib/encrypt';
+import { decrypt, encrypt } from '../lib/encrypt';
 import { getStateStore } from '../lib/stateStore';
 import { resolveSetupSession } from '../lib/setupSession';
 import { JinxxyApiClient } from '@yucp/providers';
@@ -39,6 +41,11 @@ const COLLAB_TEST_PREFIX = 'collab_test:';
 const COLLAB_TEST_TTL_MS = 60 * 1000;
 const COLLAB_DISCORD_PREFIX = 'collab_discord:'; // keyed by inviteId
 const COLLAB_DISCORD_TTL_MS = 30 * 60 * 1000;   // 30 minutes to complete setup after OAuth
+const COLLAB_SESSION_PREFIX = 'collab_session:'; // keyed by collab session id
+const COLLAB_WEBHOOK_PREFIX = 'collab_webhook:'; // keyed by inviteId
+const COLLAB_OAUTH_PREFIX = 'collab_oauth:';     // keyed by oauth state nonce
+const COLLAB_OAUTH_TTL_MS = 10 * 60 * 1000;
+const COLLAB_SESSION_COOKIE = 'yucp_collab_session';
 
 export interface CollabConfig {
   apiBaseUrl: string;
@@ -65,6 +72,33 @@ async function sha256Hex(input: string): Promise<string> {
     .join('');
 }
 
+function getCookieValue(request: Request, name: string): string | null {
+  const cookieHeader = request.headers.get('cookie');
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(';')) {
+    const [rawName, ...rest] = part.trim().split('=');
+    if (rawName === name) return rest.join('=');
+  }
+  return null;
+}
+
+function buildCookie(name: string, value: string, request: Request, maxAgeSeconds?: number): string {
+  const isSecure = new URL(request.url).protocol === 'https:';
+  const parts = [
+    `${name}=${value}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+  ];
+  if (isSecure) parts.push('Secure');
+  if (typeof maxAgeSeconds === 'number') parts.push(`Max-Age=${maxAgeSeconds}`);
+  return parts.join('; ');
+}
+
+function clearCookie(name: string, request: Request): string {
+  return buildCookie(name, '', request, 0);
+}
+
 async function resolveSetupToken(
   request: Request,
   encryptionSecret: string
@@ -80,6 +114,7 @@ async function resolveSetupToken(
 export function createCollabRoutes(config: CollabConfig) {
   const convex = getConvexClientFromUrl(config.convexUrl);
   const apiSecret = config.convexApiSecret;
+  const store = getStateStore();
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -99,12 +134,38 @@ export function createCollabRoutes(config: CollabConfig) {
     } | null>;
   }
 
+  async function lookupInviteById(inviteId: string) {
+    return convex.query('collaboratorInvites:getCollaboratorInviteById' as any, {
+      apiSecret,
+      inviteId,
+    }) as Promise<{
+      _id: string;
+      ownerTenantId: string;
+      status: string;
+      ownerDisplayName: string;
+      ownerGuildId?: string;
+      expiresAt: number;
+      createdAt: number;
+    } | null>;
+  }
+
   function inviteErrorResponse(invite: { status: string; expiresAt: number } | null): Response | null {
     if (!invite) return Response.json({ error: 'not_found' }, { status: 404 });
     if (invite.status === 'revoked') return Response.json({ error: 'revoked' }, { status: 410 });
     if (invite.status === 'accepted') return Response.json({ error: 'already_used' }, { status: 410 });
     if (Date.now() > invite.expiresAt) return Response.json({ error: 'expired' }, { status: 410 });
     return null;
+  }
+
+  async function resolveSessionInvite(request: Request) {
+    const sessionId = getCookieValue(request, COLLAB_SESSION_COOKIE);
+    if (!sessionId) return null;
+    const raw = await store.get(`${COLLAB_SESSION_PREFIX}${sessionId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { inviteId: string };
+    const invite = await lookupInviteById(parsed.inviteId);
+    if (!invite) return null;
+    return { sessionId, invite };
   }
 
   // ── Endpoints ──────────────────────────────────────────────────────────────
@@ -143,23 +204,78 @@ export function createCollabRoutes(config: CollabConfig) {
     }
 
     const frontendUrl = config.frontendBaseUrl.replace(/\/$/, '');
-    return Response.json({ inviteUrl: `${frontendUrl}/collab-invite?t=${rawToken}`, expiresAt });
+    return Response.json({ inviteUrl: `${frontendUrl}/collab-invite#t=${rawToken}`, expiresAt });
   }
 
   /**
-   * GET /api/collab/auth/begin?t=TOKEN
-   * Redirects the collaborator to Discord OAuth (identify scope).
-   * The OAuth state encodes the raw token so the callback can link back to the invite.
+   * POST /api/collab/session/exchange
+   * Exchanges a one-time invite token for a short-lived HTTP-only cookie session.
    */
-  async function authBegin(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const rawToken = url.searchParams.get('t');
-    if (!rawToken) return new Response('Missing token', { status: 400 });
+  async function exchangeSession(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
 
-    // Validate invite before starting OAuth
+    let body: { token?: string };
+    try {
+      body = (await request.json()) as { token?: string };
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const rawToken = body.token?.trim();
+    if (!rawToken) return Response.json({ error: 'Missing token' }, { status: 400 });
+
     const invite = await lookupInviteByToken(rawToken);
     const err = inviteErrorResponse(invite);
     if (err) return err;
+
+    const sessionId = generateToken();
+    const ttlMs = Math.max(1, invite!.expiresAt - Date.now());
+    await store.set(
+      `${COLLAB_SESSION_PREFIX}${sessionId}`,
+      JSON.stringify({ inviteId: invite!._id }),
+      ttlMs,
+    );
+
+    return Response.json(
+      {
+        inviteId: invite!._id,
+        ownerDisplayName: invite!.ownerDisplayName,
+        ownerGuildId: invite!.ownerGuildId,
+        expiresAt: invite!.expiresAt,
+      },
+      {
+        headers: {
+          'Set-Cookie': buildCookie(
+            COLLAB_SESSION_COOKIE,
+            sessionId,
+            request,
+            Math.max(1, Math.floor(ttlMs / 1000)),
+          ),
+        },
+      },
+    );
+  }
+
+  /**
+   * GET /api/collab/auth/begin
+   * Redirects the collaborator to Discord OAuth (identify scope).
+   * The OAuth state is a random nonce, not the invite token.
+   */
+  async function authBegin(request: Request): Promise<Response> {
+    const session = await resolveSessionInvite(request);
+    if (!session) return new Response('Missing or expired collab session', { status: 401 });
+
+    const err = inviteErrorResponse(session.invite);
+    if (err) return err;
+
+    const oauthState = generateToken();
+    await store.set(
+      `${COLLAB_OAUTH_PREFIX}${oauthState}`,
+      JSON.stringify({ inviteId: session.invite._id, sessionId: session.sessionId }),
+      COLLAB_OAUTH_TTL_MS,
+    );
 
     const redirectUri = `${config.apiBaseUrl}/api/collab/auth/callback`;
     const params = new URLSearchParams({
@@ -167,30 +283,38 @@ export function createCollabRoutes(config: CollabConfig) {
       redirect_uri: redirectUri,
       response_type: 'code',
       scope: 'identify',
-      state: rawToken, // echoed back by Discord in the callback
+      state: oauthState,
     });
 
     return Response.redirect(`https://discord.com/api/oauth2/authorize?${params}`, 302);
   }
 
   /**
-   * GET /api/collab/auth/callback?code=&state=TOKEN
+   * GET /api/collab/auth/callback?code=&state=NONCE
    * Discord sends the user here after OAuth.
    * Exchanges the code, stores the Discord identity, redirects to consent page.
    */
   async function authCallback(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const code = url.searchParams.get('code');
-    const rawToken = url.searchParams.get('state');
+    const oauthState = url.searchParams.get('state');
 
-    if (!code || !rawToken) return new Response('Missing code or state', { status: 400 });
+    if (!code || !oauthState) return new Response('Missing code or state', { status: 400 });
 
-    // Validate invite is still usable
-    const invite = await lookupInviteByToken(rawToken);
+    const rawOAuth = await store.get(`${COLLAB_OAUTH_PREFIX}${oauthState}`);
+    if (!rawOAuth) {
+      const frontendUrl = config.frontendBaseUrl.replace(/\/$/, '');
+      return Response.redirect(`${frontendUrl}/collab-invite?auth=error`, 302);
+    }
+
+    const { inviteId, sessionId } = JSON.parse(rawOAuth) as { inviteId: string; sessionId: string };
+    await store.delete(`${COLLAB_OAUTH_PREFIX}${oauthState}`);
+
+    const invite = await lookupInviteById(inviteId);
     const err = inviteErrorResponse(invite);
     if (err) {
       const frontendUrl = config.frontendBaseUrl.replace(/\/$/, '');
-      return Response.redirect(`${frontendUrl}/collab-invite?t=${rawToken}&auth=error`, 302);
+      return Response.redirect(`${frontendUrl}/collab-invite?auth=error`, 302);
     }
 
     // Exchange code for access token
@@ -214,7 +338,7 @@ export function createCollabRoutes(config: CollabConfig) {
       if (!tokenRes.ok) {
         logger.warn('Discord OAuth token exchange failed', { status: tokenRes.status });
         const frontendUrl = config.frontendBaseUrl.replace(/\/$/, '');
-        return Response.redirect(`${frontendUrl}/collab-invite?t=${rawToken}&auth=error`, 302);
+        return Response.redirect(`${frontendUrl}/collab-invite?auth=error`, 302);
       }
 
       const tokenData = await tokenRes.json() as { access_token: string };
@@ -231,11 +355,10 @@ export function createCollabRoutes(config: CollabConfig) {
     } catch (oauthErr) {
       logger.error('Discord OAuth failed', { err: oauthErr });
       const frontendUrl = config.frontendBaseUrl.replace(/\/$/, '');
-      return Response.redirect(`${frontendUrl}/collab-invite?t=${rawToken}&auth=error`, 302);
+      return Response.redirect(`${frontendUrl}/collab-invite?auth=error`, 302);
     }
 
     // Store Discord identity in state store, keyed by inviteId
-    const store = getStateStore();
     await store.set(
       `${COLLAB_DISCORD_PREFIX}${invite!._id}`,
       JSON.stringify({ discordUserId, discordUsername }),
@@ -248,38 +371,49 @@ export function createCollabRoutes(config: CollabConfig) {
     });
 
     const frontendUrl = config.frontendBaseUrl.replace(/\/$/, '');
-    return Response.redirect(`${frontendUrl}/collab-invite?t=${rawToken}&auth=done`, 302);
-  }
-
-  /**
-   * GET /api/collab/invite/:token
-   * Returns invite metadata (server name, expiry). No identity info — that comes after OAuth.
-   */
-  async function getInvite(_request: Request, rawToken: string): Promise<Response> {
-    const invite = await lookupInviteByToken(rawToken);
-    const err = inviteErrorResponse(invite);
-    if (err) return err;
-
-    return Response.json({
-      inviteId: invite!._id,
-      ownerDisplayName: invite!.ownerDisplayName,
-      ownerGuildId: invite!.ownerGuildId,
-      expiresAt: invite!.expiresAt,
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: `${frontendUrl}/collab-invite?auth=done`,
+        'Set-Cookie': buildCookie(
+          COLLAB_SESSION_COOKIE,
+          sessionId,
+          request,
+          Math.max(1, Math.floor((invite!.expiresAt - Date.now()) / 1000)),
+        ),
+      },
     });
   }
 
   /**
-   * GET /api/collab/invite/:token/discord-status
-   * Returns whether the collaborator has completed Discord OAuth for this invite,
-   * and if so, their prior connection history (for "returning user" UX).
+   * GET /api/collab/session/invite
+   * Returns invite metadata for the current collab session.
    */
-  async function discordStatus(_request: Request, rawToken: string): Promise<Response> {
-    const invite = await lookupInviteByToken(rawToken);
-    const err = inviteErrorResponse(invite);
+  async function getInvite(request: Request): Promise<Response> {
+    const session = await resolveSessionInvite(request);
+    if (!session) return Response.json({ error: 'not_found' }, { status: 404 });
+    const err = inviteErrorResponse(session.invite);
     if (err) return err;
 
-    const store = getStateStore();
-    const raw = await store.get(`${COLLAB_DISCORD_PREFIX}${invite!._id}`);
+    return Response.json({
+      inviteId: session.invite._id,
+      ownerDisplayName: session.invite.ownerDisplayName,
+      ownerGuildId: session.invite.ownerGuildId,
+      expiresAt: session.invite.expiresAt,
+    });
+  }
+
+  /**
+   * GET /api/collab/session/discord-status
+   * Returns whether the collaborator has completed Discord OAuth for this invite.
+   */
+  async function discordStatus(request: Request): Promise<Response> {
+    const session = await resolveSessionInvite(request);
+    if (!session) return Response.json({ error: 'not_found' }, { status: 404 });
+    const err = inviteErrorResponse(session.invite);
+    if (err) return err;
+
+    const raw = await store.get(`${COLLAB_DISCORD_PREFIX}${session.invite._id}`);
 
     if (!raw) {
       return Response.json({ authenticated: false });
@@ -290,68 +424,87 @@ export function createCollabRoutes(config: CollabConfig) {
       discordUsername: string;
     };
 
-    const history = await convex.query('collaboratorInvites:getPriorCollabHistory' as any, {
-      apiSecret,
-      discordUserId,
-    }) as { hasApiOnly: boolean; hasFullAccount: boolean };
-
     return Response.json({
       authenticated: true,
       discordUserId,
       discordUsername,
-      hasApiOnly: history.hasApiOnly,
-      hasFullAccount: history.hasFullAccount,
     });
   }
 
   /**
-   * GET /api/collab/invite/:token/webhook-config
+   * GET /api/collab/session/webhook-config
    */
-  async function getWebhookConfig(_request: Request, rawToken: string): Promise<Response> {
-    const invite = await lookupInviteByToken(rawToken);
-    if (!invite || invite.status !== 'pending' || Date.now() > invite.expiresAt) {
+  async function getWebhookConfig(request: Request): Promise<Response> {
+    const session = await resolveSessionInvite(request);
+    if (!session) return Response.json({ error: 'not_found' }, { status: 404 });
+    if (session.invite.status !== 'pending' || Date.now() > session.invite.expiresAt) {
       return Response.json({ error: 'invalid_invite' }, { status: 410 });
     }
 
-    const result = await convex.mutation('collaboratorInvites:getOrCreateCollabWebhookConfig' as any, {
-      apiSecret,
-      ownerTenantId: invite.ownerTenantId,
-      inviteId: invite._id,
-      baseUrl: config.apiBaseUrl,
-    }) as { callbackUrl: string; signingSecret: string };
+    const rawDiscord = await store.get(`${COLLAB_DISCORD_PREFIX}${session.invite._id}`);
+    if (!rawDiscord) {
+      return Response.json({ error: 'Discord authentication required' }, { status: 401 });
+    }
 
+    const existing = await store.get(`${COLLAB_WEBHOOK_PREFIX}${session.invite._id}`);
+    if (existing) {
+      const parsedExisting = JSON.parse(existing) as { callbackUrl: string; signingSecretEncrypted: string };
+      return Response.json({
+        callbackUrl: parsedExisting.callbackUrl,
+        signingSecret: await decrypt(parsedExisting.signingSecretEncrypted, config.encryptionSecret),
+      });
+    }
+
+    const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(14)))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const signingSecret = `whsec_yucp_${randomPart}`;
+    const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy-collab/${session.invite.ownerTenantId}/${session.invite._id}`;
+    const result = {
+      callbackUrl,
+      signingSecret,
+    };
+    await store.set(
+      `${COLLAB_WEBHOOK_PREFIX}${session.invite._id}`,
+      JSON.stringify({
+        callbackUrl,
+        signingSecretEncrypted: await encrypt(signingSecret, config.encryptionSecret),
+      }),
+      Math.min(COLLAB_DISCORD_TTL_MS, Math.max(1, session.invite.expiresAt - Date.now())),
+    );
+    
     return Response.json(result);
   }
 
   /**
-   * GET /api/collab/invite/:token/test-webhook
+   * GET /api/collab/session/test-webhook
    */
-  async function testWebhook(_request: Request, rawToken: string): Promise<Response> {
-    const invite = await lookupInviteByToken(rawToken);
-    if (!invite || invite.status !== 'pending' || Date.now() > invite.expiresAt) {
+  async function testWebhook(request: Request): Promise<Response> {
+    const session = await resolveSessionInvite(request);
+    if (!session) return Response.json({ error: 'not_found' }, { status: 404 });
+    if (session.invite.status !== 'pending' || Date.now() > session.invite.expiresAt) {
       return Response.json({ error: 'invalid_invite' }, { status: 410 });
     }
 
-    const store = getStateStore();
-    const value = await store.get(`${COLLAB_TEST_PREFIX}${invite._id}`);
+    const value = await store.get(`${COLLAB_TEST_PREFIX}${session.invite._id}`);
     return Response.json({ received: !!value });
   }
 
   /**
-   * POST /api/collab/invite/:token/submit
-   * Body: { linkType, reuseKey?, jinxxyApiKey?, webhookSecret?, webhookEndpoint? }
+   * POST /api/collab/session/submit
+   * Body: { linkType, jinxxyApiKey? }
    * Discord identity comes from the state store (OAuth result), NEVER from the client body.
    */
-  async function submitInvite(request: Request, rawToken: string): Promise<Response> {
+  async function submitInvite(request: Request): Promise<Response> {
     if (request.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405 });
 
-    const invite = await lookupInviteByToken(rawToken);
-    const err = inviteErrorResponse(invite);
+    const session = await resolveSessionInvite(request);
+    if (!session) return Response.json({ error: 'not_found' }, { status: 404 });
+    const err = inviteErrorResponse(session.invite);
     if (err) return err;
 
     // Require OAuth to have been completed
-    const store = getStateStore();
-    const rawDiscord = await store.get(`${COLLAB_DISCORD_PREFIX}${invite!._id}`);
+    const rawDiscord = await store.get(`${COLLAB_DISCORD_PREFIX}${session.invite._id}`);
     if (!rawDiscord) {
       return Response.json({ error: 'Discord authentication required. Please complete OAuth first.' }, { status: 401 });
     }
@@ -363,9 +516,6 @@ export function createCollabRoutes(config: CollabConfig) {
     let body: {
       jinxxyApiKey?: string;
       linkType?: 'account' | 'api';
-      reuseKey?: boolean;
-      webhookSecret?: string;
-      webhookEndpoint?: string;
     };
     try {
       body = (await request.json()) as typeof body;
@@ -373,53 +523,47 @@ export function createCollabRoutes(config: CollabConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const { linkType, reuseKey } = body;
+    const { linkType } = body;
     if (!linkType || !['account', 'api'].includes(linkType)) {
       return Response.json({ error: 'linkType must be account or api' }, { status: 400 });
     }
 
-    let jinxxyApiKeyEncrypted: string;
-
-    if (reuseKey) {
-      const history = await convex.query('collaboratorInvites:getPriorCollabHistory' as any, {
-        apiSecret,
-        discordUserId,
-      }) as { hasApiOnly: boolean; hasFullAccount: boolean; encryptedApiKey?: string };
-
-      if (!history.encryptedApiKey) {
-        return Response.json({ error: 'No prior API key found to reuse' }, { status: 400 });
-      }
-      jinxxyApiKeyEncrypted = history.encryptedApiKey;
-    } else {
-      const { jinxxyApiKey } = body;
-      if (!jinxxyApiKey?.trim()) {
-        return Response.json({ error: 'jinxxyApiKey is required' }, { status: 400 });
-      }
-
-      try {
-        const client = new JinxxyApiClient({
-          apiKey: jinxxyApiKey.trim(),
-          apiBaseUrl: process.env.JINXXY_API_BASE_URL,
-        });
-        // Validate key by fetching products (same call used in jinxxyProducts route)
-        await client.getProducts({ per_page: 1 });
-      } catch (validationErr) {
-        logger.warn('Collab submit: Jinxxy API key validation failed', {
-          error: validationErr instanceof Error ? validationErr.message : String(validationErr),
-        });
-        return Response.json({ error: 'Invalid Jinxxy API key — could not authenticate' }, { status: 422 });
-      }
-
-      jinxxyApiKeyEncrypted = await encrypt(jinxxyApiKey.trim(), config.encryptionSecret);
+    const { jinxxyApiKey } = body;
+    if (!jinxxyApiKey?.trim()) {
+      return Response.json({ error: 'jinxxyApiKey is required' }, { status: 400 });
     }
 
-    const webhookSecretRef = linkType === 'account' ? (body.webhookSecret ?? undefined) : undefined;
-    const webhookEndpoint = linkType === 'account' ? (body.webhookEndpoint ?? undefined) : undefined;
+    try {
+      const client = new JinxxyApiClient({
+        apiKey: jinxxyApiKey.trim(),
+        apiBaseUrl: process.env.JINXXY_API_BASE_URL,
+      });
+      await client.getProducts({ per_page: 1 });
+    } catch (validationErr) {
+      logger.warn('Collab submit: Jinxxy API key validation failed', {
+        error: validationErr instanceof Error ? validationErr.message : String(validationErr),
+      });
+      return Response.json({ error: 'Invalid Jinxxy API key — could not authenticate' }, { status: 422 });
+    }
+
+    const jinxxyApiKeyEncrypted = await encrypt(jinxxyApiKey.trim(), config.encryptionSecret);
+
+    let webhookSecretRef: string | undefined;
+    let webhookEndpoint: string | undefined;
+    if (linkType === 'account') {
+      const pendingWebhook = await store.get(`${COLLAB_WEBHOOK_PREFIX}${session.invite._id}`);
+      if (!pendingWebhook) {
+        return Response.json({ error: 'Webhook setup is required before completing account linking.' }, { status: 400 });
+      }
+      const parsedWebhook = JSON.parse(pendingWebhook) as { callbackUrl: string; signingSecretEncrypted: string };
+      webhookSecretRef = parsedWebhook.signingSecretEncrypted;
+      webhookEndpoint = parsedWebhook.callbackUrl;
+    }
 
     try {
       await convex.mutation('collaboratorInvites:acceptCollaboratorInvite' as any, {
         apiSecret,
-        inviteId: invite!._id,
+        inviteId: session.invite._id,
         jinxxyApiKeyEncrypted,
         webhookSecretRef,
         webhookEndpoint,
@@ -436,10 +580,15 @@ export function createCollabRoutes(config: CollabConfig) {
       return Response.json({ error: 'Failed to submit credentials' }, { status: 500 });
     }
 
-    // Clean up OAuth state — invite is single-use
-    await store.delete(`${COLLAB_DISCORD_PREFIX}${invite!._id}`);
+    await store.delete(`${COLLAB_DISCORD_PREFIX}${session.invite._id}`);
+    await store.delete(`${COLLAB_WEBHOOK_PREFIX}${session.invite._id}`);
+    await store.delete(`${COLLAB_TEST_PREFIX}${session.invite._id}`);
+    await store.delete(`${COLLAB_SESSION_PREFIX}${session.sessionId}`);
 
-    return Response.json({ success: true });
+    return Response.json(
+      { success: true },
+      { headers: { 'Set-Cookie': clearCookie(COLLAB_SESSION_COOKIE, request) } },
+    );
   }
 
   /**
@@ -484,24 +633,18 @@ export function createCollabRoutes(config: CollabConfig) {
     const pathname = url.pathname;
 
     if (pathname === '/api/collab/invite' && request.method === 'POST') return createInvite(request);
+    if (pathname === '/api/collab/session/exchange' && request.method === 'POST') return exchangeSession(request);
     if (pathname === '/api/collab/auth/begin') return authBegin(request);
     if (pathname === '/api/collab/auth/callback') return authCallback(request);
+    if (pathname === '/api/collab/session/invite' && request.method === 'GET') return getInvite(request);
+    if (pathname === '/api/collab/session/discord-status' && request.method === 'GET') return discordStatus(request);
+    if (pathname === '/api/collab/session/webhook-config' && request.method === 'GET') return getWebhookConfig(request);
+    if (pathname === '/api/collab/session/test-webhook' && request.method === 'GET') return testWebhook(request);
+    if (pathname === '/api/collab/session/submit' && request.method === 'POST') return submitInvite(request);
     if (pathname === '/api/collab/connections' && request.method === 'GET') return listConnections(request);
 
     const connDeleteMatch = pathname.match(/^\/api\/collab\/connections\/([^/]+)$/);
     if (connDeleteMatch && request.method === 'DELETE') return removeConnection(request, connDeleteMatch[1]);
-
-    const tokenMatch = pathname.match(/^\/api\/collab\/invite\/([^/]+)(\/.*)?$/);
-    if (!tokenMatch) return Response.json({ error: 'Not found' }, { status: 404 });
-
-    const rawToken = tokenMatch[1];
-    const subPath = tokenMatch[2] ?? '';
-
-    if (subPath === '' && request.method === 'GET') return getInvite(request, rawToken);
-    if (subPath === '/discord-status' && request.method === 'GET') return discordStatus(request, rawToken);
-    if (subPath === '/webhook-config' && request.method === 'GET') return getWebhookConfig(request, rawToken);
-    if (subPath === '/test-webhook' && request.method === 'GET') return testWebhook(request, rawToken);
-    if (subPath === '/submit' && request.method === 'POST') return submitInvite(request, rawToken);
 
     return Response.json({ error: 'Not found' }, { status: 404 });
   }

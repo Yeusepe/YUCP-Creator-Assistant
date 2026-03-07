@@ -301,7 +301,7 @@
                         </li>
                         <li class="flex gap-2 items-start">
                             <img src="Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
-                            <span>YUCP will only check if a license key is valid — no personal data is stored beyond your Discord ID</span>
+                            <span>YUCP will only check if a license key is valid. No personal data is stored beyond your Discord ID</span>
                         </li>
                         <li class="flex gap-2 items-start">
                             <img src="Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
@@ -354,7 +354,7 @@
                             <img src="Icons/Key.png" width="20" height="20" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.85;">
                             <div>
                                 <h3 class="font-heading font-semibold">API Linking</h3>
-                                <p class="text-sm mt-1" style="color: var(--text-secondary);">API key only. Users must run /verify manually — no automatic role assignment.</p>
+                                <p class="text-sm mt-1" style="color: var(--text-secondary);">API key only. Users must run /verify manually. No automatic role assignment.</p>
                             </div>
                         </div>
                     </div>
@@ -629,8 +629,6 @@
 
         let inviteData = null;
         let selectedType = null;
-        let reuseKey = false;
-        let rawToken = null;
         let webhookConfig = null;
         let testWebhookInterval = null;
         let discordStatus = null;
@@ -707,11 +705,10 @@
         }
 
         function beginDiscordAuth() {
-            window.location.href = `${API_BASE}/api/collab/auth/begin?t=${encodeURIComponent(rawToken)}`;
+            window.location.href = `${API_BASE}/api/collab/auth/begin`;
         }
 
         function setReuseKey(reuse) {
-            reuseKey = reuse;
             goToStage('stage-type');
         }
 
@@ -733,18 +730,16 @@
             document.querySelectorAll('.wiz-step').forEach(s => s.classList.add('hidden'));
             document.getElementById('wiz-step-1').classList.remove('hidden');
             updateWizDots();
-
-            // Show reuse notice in step 5
-            if (reuseKey) {
-                document.getElementById('api-key-reuse-notice').classList.remove('hidden');
-                document.getElementById('api-key-input-group').classList.add('hidden');
-            }
+            document.getElementById('api-key-reuse-notice').classList.add('hidden');
+            document.getElementById('api-key-input-group').classList.remove('hidden');
 
             goToStage('stage-account-wizard');
 
             // Fetch webhook config in background
             try {
-                const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/webhook-config`);
+                const res = await fetch(`${API_BASE}/api/collab/session/webhook-config`, {
+                    credentials: 'include',
+                });
                 if (!res.ok) throw new Error('Failed to fetch webhook config');
                 webhookConfig = await res.json();
                 document.getElementById('webhook-callback-url').textContent = webhookConfig.callbackUrl;
@@ -759,10 +754,8 @@
 
         function startApiLinking() {
             goToStage('stage-api-form');
-            if (reuseKey) {
-                document.getElementById('api-form-reuse-notice').classList.remove('hidden');
-                document.getElementById('api-form-key-group').classList.add('hidden');
-            }
+            document.getElementById('api-form-reuse-notice').classList.add('hidden');
+            document.getElementById('api-form-key-group').classList.remove('hidden');
         }
 
         function startTestWebhookPolling() {
@@ -771,7 +764,9 @@
             testWebhookInterval = setInterval(async () => {
                 elapsed += 2500;
                 try {
-                    const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/test-webhook`);
+                    const res = await fetch(`${API_BASE}/api/collab/session/test-webhook`, {
+                        credentials: 'include',
+                    });
                     const data = await res.json();
                     if (data.received) {
                         clearInterval(testWebhookInterval);
@@ -798,8 +793,8 @@
             const errorEl = document.getElementById('account-error');
             errorEl.classList.add('hidden');
 
-            const jinxxyApiKey = reuseKey ? null : document.getElementById('account-api-key').value.trim();
-            if (!reuseKey && !jinxxyApiKey) {
+            const jinxxyApiKey = document.getElementById('account-api-key').value.trim();
+            if (!jinxxyApiKey) {
                 errorEl.textContent = 'Please enter your Jinxxy API key.';
                 errorEl.classList.remove('hidden');
                 return;
@@ -813,15 +808,13 @@
                 // server-side from the invite — never sent by the client.
                 const body = {
                     linkType: 'account',
-                    reuseKey,
-                    webhookSecret: webhookConfig?.signingSecret,
-                    webhookEndpoint: webhookConfig?.callbackUrl,
+                    jinxxyApiKey,
                 };
-                if (!reuseKey) body.jinxxyApiKey = jinxxyApiKey;
 
-                const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/submit`, {
+                const res = await fetch(`${API_BASE}/api/collab/session/submit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
                     body: JSON.stringify(body),
                 });
                 const data = await res.json();
@@ -848,8 +841,8 @@
             const errorEl = document.getElementById('api-form-error');
             errorEl.classList.add('hidden');
 
-            const jinxxyApiKey = reuseKey ? null : document.getElementById('api-form-key').value.trim();
-            if (!reuseKey && !jinxxyApiKey) {
+            const jinxxyApiKey = document.getElementById('api-form-key').value.trim();
+            if (!jinxxyApiKey) {
                 errorEl.textContent = 'Please enter your Jinxxy API key.';
                 errorEl.classList.remove('hidden');
                 return;
@@ -862,13 +855,13 @@
                 // Identity is derived server-side from the invite.
                 const body = {
                     linkType: 'api',
-                    reuseKey,
+                    jinxxyApiKey,
                 };
-                if (!reuseKey) body.jinxxyApiKey = jinxxyApiKey;
 
-                const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/submit`, {
+                const res = await fetch(`${API_BASE}/api/collab/session/submit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
                     body: JSON.stringify(body),
                 });
                 const data = await res.json();
@@ -901,57 +894,89 @@
             }
         }
 
+        function readInviteTokenFromHash() {
+            const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+            const params = new URLSearchParams(hash);
+            return params.get('t');
+        }
+
+        async function exchangeInviteToken(rawToken) {
+            const res = await fetch(`${API_BASE}/api/collab/session/exchange`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ token: rawToken }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                const errorMap = {
+                    not_found: ['Invite Not Found', 'This invite link is invalid or has already been used.'],
+                    revoked: ['Invite Revoked', 'This invite has been revoked by the server owner.'],
+                    already_used: ['Already Used', 'This invite has already been accepted. Each invite can only be used once.'],
+                    expired: ['Invite Expired', 'This invite link has expired. Please ask the server owner to send a new one.'],
+                };
+                const [title, msg] = errorMap[data.error] || ['Error', 'Something went wrong with this invite link.'];
+                throw new Error(JSON.stringify({ title, msg }));
+            }
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+            return data;
+        }
+
         async function init() {
             const params = new URLSearchParams(window.location.search);
-            rawToken = params.get('t');
             const authParam = params.get('auth');
-
-            if (!rawToken) {
-                showError('Invalid Link', 'This invite link is missing a token. Please ask the server owner to resend the invite.');
-                return;
-            }
+            const hashToken = readInviteTokenFromHash();
 
             if (authParam === 'error') {
                 showError('Authentication Failed', 'Could not verify your Discord identity. Please try the link again or contact the server owner.');
                 return;
             }
 
-            // Always fetch invite metadata first (for title and expiry)
             try {
-                const res = await fetch(`${API_BASE}/api/collab/invite/${rawToken}`);
-                const data = await res.json();
-
-                if (!res.ok) {
-                    const errorMap = {
-                        not_found: ['Invite Not Found', 'This invite link is invalid or has already been used.'],
-                        revoked: ['Invite Revoked', 'This invite has been revoked by the server owner.'],
-                        already_used: ['Already Used', 'This invite has already been accepted. Each invite can only be used once.'],
-                        expired: ['Invite Expired', 'This invite link has expired. Please ask the server owner to send a new one.'],
-                    };
-                    const [title, msg] = errorMap[data.error] || ['Error', 'Something went wrong with this invite link.'];
-                    showError(title, msg);
-                    return;
+                if (hashToken) {
+                    inviteData = await exchangeInviteToken(hashToken);
+                } else {
+                    const res = await fetch(`${API_BASE}/api/collab/session/invite`, {
+                        credentials: 'include',
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        const errorMap = {
+                            not_found: ['Invalid Link', 'This invite session is missing or has expired. Please ask the server owner to resend the invite.'],
+                            revoked: ['Invite Revoked', 'This invite has been revoked by the server owner.'],
+                            already_used: ['Already Used', 'This invite has already been accepted. Each invite can only be used once.'],
+                            expired: ['Invite Expired', 'This invite link has expired. Please ask the server owner to send a new one.'],
+                        };
+                        const [title, msg] = errorMap[data.error] || ['Error', 'Something went wrong with this invite link.'];
+                        showError(title, msg);
+                        return;
+                    }
+                    inviteData = data;
                 }
-
-                inviteData = data;
 
                 // Populate consent title and expiry
                 document.getElementById('consent-title').textContent =
-                    `${data.ownerDisplayName} wants to share license verification with your Jinxxy store`;
-                const expiryDate = new Date(data.expiresAt).toLocaleDateString(undefined, {
+                    `${inviteData.ownerDisplayName} wants to share license verification with your Jinxxy store`;
+                const expiryDate = new Date(inviteData.expiresAt).toLocaleDateString(undefined, {
                     month: 'long', day: 'numeric', year: 'numeric'
                 });
                 document.getElementById('consent-expiry').textContent = `Invite expires ${expiryDate}`;
-
             } catch (err) {
-                showError('Connection Error', 'Could not load this invite. Please check your internet connection and try again.');
+                try {
+                    const parsed = JSON.parse(err.message);
+                    showError(parsed.title, parsed.msg);
+                } catch {
+                    showError('Connection Error', 'Could not load this invite. Please check your internet connection and try again.');
+                }
                 return;
             }
 
             if (authParam === 'done') {
                 // Coming back from Discord OAuth — check identity + prior history
                 try {
-                    const statusRes = await fetch(`${API_BASE}/api/collab/invite/${rawToken}/discord-status`);
+                    const statusRes = await fetch(`${API_BASE}/api/collab/session/discord-status`, {
+                        credentials: 'include',
+                    });
                     const status = await statusRes.json();
 
                     if (!status.authenticated) {
@@ -960,12 +985,7 @@
                     }
 
                     discordStatus = status;
-
-                    if (status.hasApiOnly || status.hasFullAccount) {
-                        goToStage('stage-returning');
-                    } else {
-                        goToStage('stage-type');
-                    }
+                    goToStage('stage-type');
                 } catch (err) {
                     showError('Connection Error', 'Could not verify your Discord identity. Please check your connection and try again.');
                 }

@@ -104,10 +104,12 @@ export function createWebhookRoutes(config: WebhookConfig) {
 
   async function getCollabWebhookSecret(inviteId: string): Promise<string | null> {
     try {
-      return await convex.query(
+      const encryptedSecret = await convex.query(
         'collaboratorInvites:getCollabWebhookSecret' as any,
         { apiSecret, inviteId }
       );
+      if (!encryptedSecret) return null;
+      return await decrypt(encryptedSecret, encryptionSecret);
     } catch {
       return null;
     }
