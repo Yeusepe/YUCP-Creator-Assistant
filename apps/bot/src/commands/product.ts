@@ -828,14 +828,33 @@ export async function handleProductList(
     return;
   }
 
+  const providerLabel = (p: { provider?: string }) => {
+    switch (p.provider) {
+      case 'gumroad':
+        return '[Gumroad] ';
+      case 'jinxxy':
+        return '[Jinxxy] ';
+      case 'discord':
+        return '[Discord Role] ';
+      default:
+        return '';
+    }
+  };
+
   const embed = new EmbedBuilder()
     .setTitle('Product-Role Mappings')
     .setColor(0x5865f2)
     .setDescription(
       rules
         .map(
-          (r: { productId: string; displayName: string | null; verifiedRoleId?: string; enabled?: boolean }) =>
-            `• **${r.displayName ?? r.productId}** → <@&${r.verifiedRoleId}> ${r.enabled !== false ? E.Checkmark : '(disabled)'}`,
+          (r: {
+            productId: string;
+            displayName: string | null;
+            provider?: string;
+            verifiedRoleId?: string;
+            enabled?: boolean;
+          }) =>
+            `• **${providerLabel(r)}${r.displayName ?? r.productId}** → <@&${r.verifiedRoleId}> ${r.enabled !== false ? E.Checkmark : '(disabled)'}`,
         )
         .join('\n'),
     );

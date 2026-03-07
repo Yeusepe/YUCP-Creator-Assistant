@@ -136,6 +136,7 @@ export const getByGuildWithProductNames = query({
     v.object({
       productId: v.string(),
       displayName: v.union(v.string(), v.null()),
+      provider: v.optional(v.string()),
       sourceGuildId: v.optional(v.string()),
       requiredRoleId: v.optional(v.string()),
       verifiedRoleId: v.optional(v.string()),
@@ -155,6 +156,7 @@ export const getByGuildWithProductNames = query({
     const result: Array<{
       productId: string;
       displayName: string | null;
+      provider?: string;
       sourceGuildId?: string;
       requiredRoleId?: string;
       verifiedRoleId?: string;
@@ -166,16 +168,22 @@ export const getByGuildWithProductNames = query({
       seen.add(r.productId);
 
       let displayName: string | null = null;
+      let provider: string | undefined;
       if (r.catalogProductId) {
         const catalog = await ctx.db.get(r.catalogProductId);
         if (catalog) {
           displayName = catalog.displayName ?? catalog.canonicalSlug ?? catalog.providerProductRef ?? r.productId;
+          provider = catalog.provider;
         }
+      }
+      if (!provider) {
+        provider = r.productId.startsWith('discord_role:') ? 'discord' : 'manual';
       }
 
       result.push({
         productId: r.productId,
         displayName,
+        provider,
         sourceGuildId: r.sourceGuildId,
         requiredRoleId: r.requiredRoleId,
         verifiedRoleId: r.verifiedRoleId,
