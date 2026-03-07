@@ -948,6 +948,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!webhookSecret || webhookSecret.length < 16) {
         return Response.json({ error: 'Webhook secret must be at least 16 characters' }, { status: 400 });
       }
+      if (webhookSecret.length > 40) {
+        return Response.json({ error: 'Jinxxy limits the signing secret to 40 characters' }, { status: 400 });
+      }
 
       const store = getStateStore();
       await store.set(
