@@ -16,6 +16,7 @@ import {
   type InstallConfig,
   type VerificationConfig,
 } from './routes';
+import { createCollabRoutes } from './routes/collab';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -27,6 +28,7 @@ let installRoutes: Map<string, (request: Request) => Promise<Response>> | null =
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
+let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
 
 // Resolved after initializeAuth — used for apiBase injection and CORS
 let resolvedApiBaseUrl = 'http://localhost:3001';
@@ -141,6 +143,14 @@ function initializeAuth(webhookBaseUrl?: string) {
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   });
 
+  collabRoutes = createCollabRoutes({
+    apiBaseUrl: publicBaseUrl,
+    frontendBaseUrl: frontendUrl,
+    convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
+    convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
+  });
+
   logger.info('Better Auth initialized', {
     installRoutes: installRoutes.size,
     verificationRoutes: verificationRoutes.size,
@@ -171,6 +181,14 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
   if (pathname.startsWith('/api/connect/')) {
+    if (isRateLimited(`connect:${clientAddress}`, 120, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  if (pathname.startsWith('/api/collab/')) {
     if (isRateLimited(`connect:${clientAddress}`, 120, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
@@ -441,6 +459,11 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return connectRoutes.getSettingsHandler(request);
   }
+
+  // Collab routes
+  if (pathname.startsWith('/api/collab/') && collabRoutes) {
+    return collabRoutes.handleCollabRequest(request);
+  }
   const HTML_SECURITY_HEADERS: Record<string, string> = {
     'Content-Security-Policy':
       "default-src 'self'; " +
@@ -471,6 +494,21 @@ async function routeRequest(request: Request): Promise<Response> {
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', escapeForSingleQuotedJsString(setupToken));
+    return new Response(html, { headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS } });
+  }
+
+  if (pathname === '/collab-invite' || pathname === '/collab-invite.html') {
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
+    const filePath = `${import.meta.dir}/../public/collab-invite.html`;
+    const file = Bun.file(filePath);
+    let html = await file.text();
+    const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     return new Response(html, { headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS } });
   }
 
@@ -514,6 +552,36 @@ async function routeRequest(request: Request): Promise<Response> {
     if (handler) {
       return handler(request);
     }
+  }
+
+  // Legal: Terms of Service
+  if (pathname === '/legal/terms-of-service' || pathname === '/legal/terms-of-service.html') {
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
+    const filePath = `${import.meta.dir}/../public/termsofservice.html`;
+    const file = Bun.file(filePath);
+    return new Response(file, {
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
+  // Legal: Privacy Policy
+  if (pathname === '/legal/privacy-policy' || pathname === '/legal/privacy-policy.html') {
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
+    const filePath = `${import.meta.dir}/../public/privacypolicy.html`;
+    const file = Bun.file(filePath);
+    return new Response(file, {
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
   }
 
   // Static verification result pages
