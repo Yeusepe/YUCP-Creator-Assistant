@@ -39,7 +39,7 @@
             position: fixed;
             top: 0;
             left: 0;
-            width: 100vw;
+            width: 100%;
             height: 100vh;
             z-index: -20;
             pointer-events: none;
@@ -49,7 +49,7 @@
             position: fixed;
             top: 0;
             left: 0;
-            width: 100vw;
+            width: 100%;
             height: 100vh;
             z-index: 40;
             pointer-events: none;
@@ -614,15 +614,15 @@
         <p class="mt-4 text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Loading...</p>
     </div>
 
-    <div id="page-content" style="display:none;">
+    <div id="page-content" style="display:none;" class="overflow-x-hidden w-full m-0 p-0 relative">
 
         <!-- Canvas layers -->
-        <div id="bg-canvas-root"></div>
-        <div id="fg-canvas-root"></div>
+        <div id="bg-canvas-root" class="w-full"></div>
+        <div id="fg-canvas-root" class="w-full"></div>
 
         <!-- Custom cursor -->
-        <div class="cursor-dot"></div>
-        <div class="cursor-dot-outline"></div>
+        <div class="cursor-dot hidden md:block"></div>
+        <div class="cursor-dot-outline hidden md:block"></div>
 
         <!-- ── Floating Pill Nav ─────────────────────────────────────────────────── -->
         <div class="fixed top-5 inset-x-0 flex justify-center z-50 px-3 sm:px-4 pointer-events-none">
@@ -640,7 +640,7 @@
 
                 <!-- Logo -->
                 <img src="Icons/MainLogo.png" alt="Creator Assistant"
-                    class="h-4 sm:h-5 w-auto max-w-[40vw] sm:max-w-none object-contain clickable cursor-pointer mx-auto md:mx-3"
+                    class="h-[14px] sm:h-[18px] w-auto max-w-[50vw] sm:max-w-none object-contain clickable cursor-pointer mx-auto md:mx-3"
                     onclick="window.scrollTo({top:0,behavior:'smooth'})">
 
                 <!-- Desktop Nav Links -->
@@ -712,21 +712,20 @@
 
                 <!-- Left: Copy -->
                 <div>
-                    <!-- Platform badges -->
-                    <div class="flex flex-wrap items-center gap-2 mb-10 reveal">
+                    <div class="flex flex-wrap items-center gap-2 mb-8 md:mb-10 reveal">
                         <div class="flex items-center gap-2 px-3 py-1.5 rounded-full"
                             style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
                             <img src="Icons/Gumorad.png" class="h-3.5 w-3.5 object-contain" alt="Gumroad">
                             <span class="text-white/50 text-xs font-bold">Gumroad</span>
                         </div>
-                        <span class="text-white/20 text-xs">+</span>
+                        <span class="text-white/20 text-xs hidden sm:inline px-1">+</span>
                         <div class="flex items-center gap-2 px-3 py-1.5 rounded-full"
                             style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
                             <img src="Icons/Jinxxy.png" class="h-3.5 w-3.5 object-contain" alt="Jinxxy">
                             <span class="text-white/50 text-xs font-bold">Jinxxy</span>
                         </div>
-                        <span class="text-white/20 text-xs hidden sm:inline">→</span>
-                        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full mt-2 sm:mt-0"
+                        <span class="text-white/20 text-xs hidden sm:inline px-1">→</span>
+                        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full"
                             style="background:rgba(88,101,242,0.15);border:1px solid rgba(88,101,242,0.3);">
                             <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain" alt="Discord">
                             <span class="text-[#818cf8] text-xs font-bold">Discord</span>
@@ -735,7 +734,7 @@
 
                     <!-- Headline -->
                     <h1 class="text-white reveal reveal-delay-1"
-                        style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2rem,6vw,5.25rem);line-height:1.02;letter-spacing:-0.04em;margin-bottom:1.5rem;">
+                        style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2.5rem,8vw,5.25rem);line-height:1.05;letter-spacing:-0.04em;margin-bottom:1.5rem;">
                         License verified.<br>
                         Role granted.<br>
                         <span
@@ -744,11 +743,10 @@
 
                     <!-- Sub -->
                     <p class="text-white/55 reveal reveal-delay-2"
-                        style="font-size:clamp(1rem,1.8vw,1.15rem);line-height:1.75;max-width:460px;margin-bottom:2.5rem;">
+                        style="font-size:clamp(0.95rem,4vw,1.15rem);line-height:1.6;max-width:460px;margin-bottom:2.5rem;">
                         Connect your storefront to Discord. Buyers get their roles automatically. No spreadsheets, no
                         DMs, no manual work.
                     </p>
-
                     <!-- CTAs -->
                     <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center reveal reveal-delay-3">
                         <button

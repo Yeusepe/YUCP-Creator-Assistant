@@ -363,6 +363,13 @@ async function handleSlashCommand(
         guildLinkId,
         guildId,
       });
+    } else if (subcommand === 'autosetup') {
+      const { handleAutosetupStart } = await import('../commands/autosetup');
+      await handleAutosetupStart(interaction, ctx.convex, ctx.apiSecret, {
+        tenantId,
+        guildLinkId,
+        guildId,
+      });
     } else if (subcommandGroup === 'settings') {
       // settings cross-server
       const { handleDiscordRoleVerification } = await import(
@@ -688,6 +695,44 @@ async function handleButton(
     const tenantId = customId.slice('creator_settings:disable:'.length) as Id<'tenants'>;
     const { handleSettingsDisable } = await import('../commands/discordRoleVerification');
     await handleSettingsDisable(interaction, ctx.convex, ctx.apiSecret, tenantId);
+    return;
+  }
+
+  // ─── Autosetup flow ────────────────────────────────────────────────────────
+  if (customId.startsWith('creator_autosetup:create_verify:')) {
+    const rest = customId.slice('creator_autosetup:create_verify:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupCreateVerify } = await import('../commands/autosetup');
+    await handleAutosetupCreateVerify(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
+  if (customId.startsWith('creator_autosetup:spawn_here:')) {
+    const rest = customId.slice('creator_autosetup:spawn_here:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupSpawnHere } = await import('../commands/autosetup');
+    await handleAutosetupSpawnHere(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
+  if (customId.startsWith('creator_autosetup:channels_skip:')) {
+    const rest = customId.slice('creator_autosetup:channels_skip:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupChannelsSkip } = await import('../commands/autosetup');
+    await handleAutosetupChannelsSkip(interaction, userId, tenantId);
+    return;
+  }
+  if (customId.startsWith('creator_autosetup:channels_next:')) {
+    const rest = customId.slice('creator_autosetup:channels_next:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupChannelsNext } = await import('../commands/autosetup');
+    await handleAutosetupChannelsNext(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
     return;
   }
 
@@ -1023,6 +1068,40 @@ async function handleSelectMenu(
     return;
   }
 
+  // Autosetup — mode select
+  if (customId.startsWith('creator_autosetup:mode:')) {
+    const tenantId = customId.slice('creator_autosetup:mode:'.length) as Id<'tenants'>;
+    const { handleAutosetupModeSelect } = await import('../commands/autosetup');
+    await handleAutosetupModeSelect(interaction, ctx.convex, ctx.apiSecret, tenantId);
+    return;
+  }
+  // Autosetup — products select (roles flow)
+  if (customId.startsWith('creator_autosetup:products:')) {
+    const rest = customId.slice('creator_autosetup:products:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupProductsSelect } = await import('../commands/autosetup');
+    await handleAutosetupProductsSelect(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
+  // Autosetup — migrate product select (roleId stored in session to keep customId under 100 chars)
+  if (customId.startsWith('creator_autosetup:mp:')) {
+    const rest = customId.slice('creator_autosetup:mp:'.length);
+    const parts = rest.split(':');
+    const userId = parts[0];
+    const tenantId = parts[1] as Id<'tenants'>;
+    const { handleAutosetupMigrateProductSelect } = await import('../commands/autosetup');
+    await handleAutosetupMigrateProductSelect(
+      interaction,
+      ctx.convex,
+      ctx.apiSecret,
+      userId,
+      tenantId,
+    );
+    return;
+  }
+
   // Product picker — product selected
   if (customId.startsWith('creator_verify:lp_select:')) {
     // Format: creator_verify:lp_select:{tenantId}:{filter}:{page}
@@ -1107,6 +1186,17 @@ async function handleRoleSelectMenu(
   ctx: InteractionHandlerContext,
 ): Promise<void> {
   const customId = interaction.customId;
+
+  // Autosetup — migrate role select
+  if (customId.startsWith('creator_autosetup:migrate_role:')) {
+    const rest = customId.slice('creator_autosetup:migrate_role:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleAutosetupMigrateRoleSelect } = await import('../commands/autosetup');
+    await handleAutosetupMigrateRoleSelect(interaction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
 
   // Product role select: creator_product:role_select:{userId}:{tenantId}
   if (customId.startsWith('creator_product:role_select:')) {

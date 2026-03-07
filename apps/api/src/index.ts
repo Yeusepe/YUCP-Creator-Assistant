@@ -396,6 +396,12 @@ async function routeRequest(request: Request): Promise<Response> {
     return handleJinxxyProducts(request);
   }
 
+  // Gumroad products (for autosetup and product add flow - fetches from Gumroad API using OAuth token)
+  if (pathname === '/api/gumroad/products' && request.method === 'POST') {
+    const { handleGumroadProducts } = await import('./routes/gumroadProducts');
+    return handleGumroadProducts(request);
+  }
+
   // Webhook routes (Gumroad, Jinxxy)
   if (pathname.startsWith('/webhooks/') && webhookHandler) {
     return webhookHandler(request);

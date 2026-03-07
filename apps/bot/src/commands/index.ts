@@ -53,6 +53,11 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
         s.setName('restart').setDescription('Restart onboarding wizard (generates a new secure link)'),
       ),
   )
+  .addSubcommand((s) =>
+    s
+      .setName('autosetup')
+      .setDescription('Guided setup: create roles, channels, verify button, or migrate from another bot'),
+  )
   .addSubcommandGroup((product) =>
     product
       .setName('product')
