@@ -5,7 +5,9 @@
 
 import { createLogger } from '@yucp/shared';
 import { type Auth, createAuth } from './auth';
+import { DISCORD_ROLE_SETUP_COOKIE, getCookieValue, SETUP_SESSION_COOKIE } from './lib/browserSessions';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
+import { getStateStore } from './lib/stateStore';
 import { detectTunnelUrl } from './lib/tunnel';
 import { resolveSetupSession } from './lib/setupSession';
 import {
@@ -213,16 +215,37 @@ async function routeRequest(request: Request): Promise<Response> {
     });
   }
 
-  if (pathname.startsWith('/Icons/')) {
+  // Handle /Icons/ even with path prefix (e.g. /api/Icons/ when API has base path)
+  const iconsPath = pathname.includes('/Icons/') ? pathname.slice(pathname.indexOf('/Icons/')) : pathname;
+  if (iconsPath.startsWith('/Icons/')) {
+    const assetPath = `${import.meta.dir}/../public${iconsPath}`;
+    const file = Bun.file(assetPath);
+    if (await file.exists()) {
+      const ext = iconsPath.split('.').pop()?.toLowerCase();
+      const contentType =
+        ext === 'png' ? 'image/png' :
+          ext === 'svg' ? 'image/svg+xml' :
+            ext === 'ico' ? 'image/x-icon' :
+              ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
+                'application/octet-stream';
+      return new Response(file, {
+        headers: { 'Content-Type': contentType },
+      });
+    }
+  }
+
+  if (pathname.startsWith('/assets/')) {
     const assetPath = `${import.meta.dir}/../public${pathname}`;
     const file = Bun.file(assetPath);
     if (await file.exists()) {
       const ext = pathname.split('.').pop()?.toLowerCase();
       const contentType =
+        ext === 'js' ? 'text/javascript; charset=utf-8' :
+        ext === 'css' ? 'text/css; charset=utf-8' :
+        ext === 'map' ? 'application/json; charset=utf-8' :
         ext === 'png' ? 'image/png' :
-          ext === 'svg' ? 'image/svg+xml' :
-            ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
-              'application/octet-stream';
+        ext === 'svg' ? 'image/svg+xml' :
+        'application/octet-stream';
       return new Response(file, {
         headers: { 'Content-Type': contentType },
       });
@@ -385,6 +408,9 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/complete' && connectRoutes) {
     return connectRoutes.completeSetup(request);
   }
+  if (pathname === '/api/connect/bootstrap' && connectRoutes) {
+    return connectRoutes.exchangeConnectBootstrap(request);
+  }
   if (pathname === '/api/connect/ensure-tenant' && connectRoutes) {
     return connectRoutes.ensureTenant(request);
   }
@@ -433,6 +459,9 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/setup/discord-role-session' && connectRoutes) {
     return connectRoutes.createDiscordRoleSession(request);
   }
+  if (pathname === '/api/setup/discord-role-session/exchange' && connectRoutes) {
+    return connectRoutes.exchangeDiscordRoleSetupSession(request);
+  }
   if (pathname === '/api/setup/discord-role-oauth/begin' && connectRoutes) {
     return connectRoutes.discordRoleOAuthBegin(request);
   }
@@ -469,13 +498,28 @@ async function routeRequest(request: Request): Promise<Response> {
   const HTML_SECURITY_HEADERS: Record<string, string> = {
     'Content-Security-Policy':
       "default-src 'self'; " +
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://ga.jspm.io https://esm.sh; " +
+      "script-src 'self' 'unsafe-inline'; " +
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
       "img-src 'self' data: blob: https:; " +
       "font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; " +
       "connect-src 'self' https: wss:; " +
-      "worker-src 'self' blob:; " +
-      "child-src 'self' blob:; " +
+      "worker-src 'self'; " +
+      "child-src 'self'; " +
+      "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+  };
+  const COLLAB_HTML_SECURITY_HEADERS: Record<string, string> = {
+    'Content-Security-Policy':
+      "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline'; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "img-src 'self' data:; " +
+      "font-src 'self' data: https://fonts.gstatic.com; " +
+      "connect-src 'self' https:; " +
+      "worker-src 'self'; " +
+      "child-src 'self'; " +
       "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
@@ -492,10 +536,12 @@ async function routeRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/discord-role-setup.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    const setupToken = url.searchParams.get('s') ?? '';
+    const setupCookieToken = getCookieValue(request, DISCORD_ROLE_SETUP_COOKIE) ?? '';
+    const resolvedSetupToken = setupCookieToken;
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
-    html = html.replaceAll('__SETUP_TOKEN__', escapeForSingleQuotedJsString(setupToken));
+    html = html.replaceAll('__SETUP_TOKEN__', '');
+    html = html.replaceAll('__HAS_SETUP_SESSION__', resolvedSetupToken ? 'true' : 'false');
     return new Response(html, { headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS } });
   }
 
@@ -511,7 +557,7 @@ async function routeRequest(request: Request): Promise<Response> {
     let html = await file.text();
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
-    return new Response(html, { headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS } });
+    return new Response(html, { headers: { 'Content-Type': 'text/html', ...COLLAB_HTML_SECURITY_HEADERS } });
   }
 
   if (pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html') {
@@ -524,14 +570,14 @@ async function routeRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/jinxxy-setup.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    const setupToken = url.searchParams.get('s') ?? '';
     let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
     let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
+    const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
 
     // Resolve setup token if present
-    if (setupToken) {
+    if (setupCookieToken) {
       const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
-      const session = await resolveSetupSession(setupToken, encryptionSecret);
+      const session = await resolveSetupSession(setupCookieToken, encryptionSecret);
       if (session) {
         tenantId = session.tenantId;
         guildId = session.guildId;
@@ -542,7 +588,8 @@ async function routeRequest(request: Request): Promise<Response> {
     html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
-    html = html.replaceAll('__SETUP_TOKEN__', escapeForSingleQuotedJsString(setupToken));
+    html = html.replaceAll('__SETUP_TOKEN__', '');
+    html = html.replaceAll('__HAS_SETUP_SESSION__', setupCookieToken ? 'true' : 'false');
     return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
@@ -556,6 +603,8 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
 
+  const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+
   // Legal: Terms of Service
   if (pathname === '/legal/terms-of-service' || pathname === '/legal/terms-of-service.html') {
     if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
@@ -565,8 +614,9 @@ async function routeRequest(request: Request): Promise<Response> {
       return Response.redirect(redirectUrl.toString(), 302);
     }
     const filePath = `${import.meta.dir}/../public/termsofservice.html`;
-    const file = Bun.file(filePath);
-    return new Response(file, {
+    let html = await Bun.file(filePath).text();
+    html = html.replaceAll('__API_BASE__', browserApiBase);
+    return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
   }
@@ -580,8 +630,9 @@ async function routeRequest(request: Request): Promise<Response> {
       return Response.redirect(redirectUrl.toString(), 302);
     }
     const filePath = `${import.meta.dir}/../public/privacypolicy.html`;
-    const file = Bun.file(filePath);
-    return new Response(file, {
+    let html = await Bun.file(filePath).text();
+    html = html.replaceAll('__API_BASE__', browserApiBase);
+    return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
   }
@@ -589,15 +640,17 @@ async function routeRequest(request: Request): Promise<Response> {
   // Static verification result pages
   if (pathname === '/verify-success' || pathname === '/verify-success.html') {
     const filePath = `${import.meta.dir}/../public/verify-success.html`;
-    const file = Bun.file(filePath);
-    return new Response(file, {
+    let html = await Bun.file(filePath).text();
+    html = html.replaceAll('__API_BASE__', browserApiBase);
+    return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
   }
   if (pathname === '/verify-error' || pathname === '/verify-error.html') {
     const filePath = `${import.meta.dir}/../public/verify-error.html`;
-    const file = Bun.file(filePath);
-    return new Response(file, {
+    let html = await Bun.file(filePath).text();
+    html = html.replaceAll('__API_BASE__', browserApiBase);
+    return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
   }

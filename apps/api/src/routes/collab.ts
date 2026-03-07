@@ -20,7 +20,8 @@
  * GET    /api/collab/auth/callback?code=&state=      – Discord OAuth callback
  * GET    /api/collab/session/invite                  – Read invite metadata from collab session
  * GET    /api/collab/session/discord-status          – Check OAuth state
- * GET    /api/collab/session/webhook-config          – Get webhook URL + signing secret after OAuth
+ * GET    /api/collab/session/webhook-config          – Get webhook URL after OAuth
+ * POST   /api/collab/session/webhook-config          – Stage collaborator-provided signing secret
  * GET    /api/collab/session/test-webhook            – Poll for test webhook
  * POST   /api/collab/session/submit                  – Submit Jinxxy credentials
  * GET    /api/collab/connections                     – List owner's connections (setup session auth)
@@ -29,7 +30,8 @@
 
 import { createLogger } from '@yucp/shared';
 import { getConvexClientFromUrl } from '../lib/convex';
-import { decrypt, encrypt } from '../lib/encrypt';
+import { SETUP_SESSION_COOKIE } from '../lib/browserSessions';
+import { encrypt } from '../lib/encrypt';
 import { getStateStore } from '../lib/stateStore';
 import { resolveSetupSession } from '../lib/setupSession';
 import { JinxxyApiClient } from '@yucp/providers';
@@ -106,7 +108,7 @@ async function resolveSetupToken(
   const authHeader = request.headers.get('authorization');
   const token = authHeader?.startsWith('Bearer ')
     ? authHeader.slice(7)
-    : new URL(request.url).searchParams.get('s');
+    : getCookieValue(request, SETUP_SESSION_COOKIE);
   if (!token) return null;
   return resolveSetupSession(token, encryptionSecret);
 }
@@ -433,6 +435,7 @@ export function createCollabRoutes(config: CollabConfig) {
 
   /**
    * GET /api/collab/session/webhook-config
+   * POST /api/collab/session/webhook-config
    */
   async function getWebhookConfig(request: Request): Promise<Response> {
     const session = await resolveSessionInvite(request);
@@ -446,34 +449,37 @@ export function createCollabRoutes(config: CollabConfig) {
       return Response.json({ error: 'Discord authentication required' }, { status: 401 });
     }
 
-    const existing = await store.get(`${COLLAB_WEBHOOK_PREFIX}${session.invite._id}`);
-    if (existing) {
-      const parsedExisting = JSON.parse(existing) as { callbackUrl: string; signingSecretEncrypted: string };
-      return Response.json({
-        callbackUrl: parsedExisting.callbackUrl,
-        signingSecret: await decrypt(parsedExisting.signingSecretEncrypted, config.encryptionSecret),
-      });
+    const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy-collab/${session.invite.ownerTenantId}/${session.invite._id}`;
+
+    if (request.method === 'GET') {
+      return Response.json({ callbackUrl });
+    }
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
 
-    const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(14)))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    const signingSecret = `whsec_yucp_${randomPart}`;
-    const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy-collab/${session.invite.ownerTenantId}/${session.invite._id}`;
-    const result = {
-      callbackUrl,
-      signingSecret,
-    };
+    let body: { webhookSecret?: string };
+    try {
+      body = (await request.json()) as { webhookSecret?: string };
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const webhookSecret = body.webhookSecret?.trim();
+    if (!webhookSecret || webhookSecret.length < 16) {
+      return Response.json({ error: 'Webhook secret must be at least 16 characters' }, { status: 400 });
+    }
+
     await store.set(
       `${COLLAB_WEBHOOK_PREFIX}${session.invite._id}`,
       JSON.stringify({
         callbackUrl,
-        signingSecretEncrypted: await encrypt(signingSecret, config.encryptionSecret),
+        signingSecretEncrypted: await encrypt(webhookSecret, config.encryptionSecret),
       }),
       Math.min(COLLAB_DISCORD_TTL_MS, Math.max(1, session.invite.expiresAt - Date.now())),
     );
-    
-    return Response.json(result);
+
+    return Response.json({ success: true });
   }
 
   /**
@@ -638,7 +644,7 @@ export function createCollabRoutes(config: CollabConfig) {
     if (pathname === '/api/collab/auth/callback') return authCallback(request);
     if (pathname === '/api/collab/session/invite' && request.method === 'GET') return getInvite(request);
     if (pathname === '/api/collab/session/discord-status' && request.method === 'GET') return discordStatus(request);
-    if (pathname === '/api/collab/session/webhook-config' && request.method === 'GET') return getWebhookConfig(request);
+    if (pathname === '/api/collab/session/webhook-config' && (request.method === 'GET' || request.method === 'POST')) return getWebhookConfig(request);
     if (pathname === '/api/collab/session/test-webhook' && request.method === 'GET') return testWebhook(request);
     if (pathname === '/api/collab/session/submit' && request.method === 'POST') return submitInvite(request);
     if (pathname === '/api/collab/connections' && request.method === 'GET') return listConnections(request);

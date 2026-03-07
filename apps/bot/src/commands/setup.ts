@@ -16,6 +16,7 @@ import {
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexHttpClient } from 'convex/browser';
 import { track } from '../lib/posthog';
+import { E } from '../lib/emojis';
 import { getApiUrls } from '../lib/apiUrls';
 
 const SETUP_PREFIX = 'creator_setup:';
@@ -67,26 +68,26 @@ export async function runSetupStart(
   }
 
   const connectUrl = setupToken
-    ? `${apiBase}/connect?s=${encodeURIComponent(setupToken)}`
+    ? `${apiBase}/connect#s=${encodeURIComponent(setupToken)}`
     : `${apiBase}/connect?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}`;
   const jinxxyUrl = setupToken
-    ? `${apiBase}/jinxxy-setup?s=${encodeURIComponent(setupToken)}`
+    ? `${apiBase}/jinxxy-setup#s=${encodeURIComponent(setupToken)}`
     : `${apiBase}/jinxxy-setup?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}`;
 
   const embed = new EmbedBuilder()
-    .setTitle('🔧 Creator Setup')
+    .setTitle(`${E.Wrench} Creator Setup`)
     .setDescription(
       'Configure your server through the website. Use the buttons below to get started.',
     )
     .setColor(0x5865f2)
     .addFields(
       {
-        name: '🔗 Connect Accounts',
+        name: `${E.Link} Connect Accounts`,
         value: 'Link your Gumroad, Jinxxy, or Discord accounts.',
         inline: false,
       },
       {
-        name: '🦊 Jinxxy Setup',
+        name: `${E.Jinxxy} Jinxxy Setup`,
         value: 'Configure your Jinxxy API key and webhook.',
         inline: false,
       },

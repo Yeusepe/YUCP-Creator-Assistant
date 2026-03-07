@@ -275,46 +275,6 @@ export const removeCollaboratorConnection = mutation({
 });
 
 /**
- * Get or create webhook config for a collab connection.
- * Uses the same signing secret pattern as getOrCreateJinxxyWebhookConfig.
- * Webhook URL format: {baseUrl}/webhooks/jinxxy-collab/{ownerTenantId}/{inviteId}
- */
-export const getOrCreateCollabWebhookConfig = mutation({
-  args: {
-    apiSecret: v.string(),
-    ownerTenantId: v.id('tenants'),
-    inviteId: v.id('collaborator_invites'),
-    baseUrl: v.string(),
-  },
-  returns: v.object({
-    callbackUrl: v.string(),
-    signingSecret: v.string(),
-  }),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-
-    const invite = await ctx.db.get(args.inviteId);
-    if (!invite || invite.ownerTenantId !== args.ownerTenantId) {
-      throw new Error('Invite not found or access denied');
-    }
-
-    const callbackUrl = `${args.baseUrl.replace(/\/$/, '')}/webhooks/jinxxy-collab/${args.ownerTenantId}/${args.inviteId}`;
-
-    // Check if there is an existing pending connection with a webhook secret
-    // (re-use if under 40 char limit, same as primary webhook config)
-    // We store the temp secret on the invite itself via a separate DB pattern.
-    // For simplicity: generate a new one each time unless already stored in state.
-    // 14 random bytes = 28 hex chars + "whsec_yucp_" (11 chars) = 39 chars total
-    const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(14)))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    const signingSecret = `whsec_yucp_${randomPart}`;
-
-    return { callbackUrl, signingSecret };
-  },
-});
-
-/**
  * Get active collaborator connections for license verification.
  * Returns only active connections with an encrypted API key.
  */

@@ -4,16 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
-    <title>Dashboard | YUCP</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" href="__API_BASE__/Icons/favicon.ico" type="image/x-icon">
+    <title>Dashboard | Creator Assistant</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-
     <link rel="stylesheet" href="./tokens.css">
 
     <style>
@@ -524,27 +521,13 @@
         .animate-in-delay-4 { animation-delay: 0.32s; opacity: 0; }
     </style>
 
-    <!-- ES Module Shims for better browser compatibility -->
-    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
-    <script type="importmap">
-    {
-        "imports": {
-            "react": "https://esm.sh/react@18.2.0",
-            "react-dom": "https://esm.sh/react-dom@18.2.0",
-            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            "three": "https://esm.sh/three@0.160.0",
-            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
-            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12",
-            "holographic-sticker": "https://esm.sh/holographic-sticker@1.0.4?deps=react@18.2.0,react-dom@18.2.0"
-        }
-    }
-    </script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="stylesheet" href="/assets/site/site.css">
+    <script type="module" src="/assets/site/site.js"></script>
 </head>
 
-<body class="pb-20">
+<body class="pb-32">
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center" style="background-color: var(--bg-color);">
-        <img src="Icons/MainLogo.png" alt="YUCP" class="h-10 mb-8" />
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4 text-sm font-semibold" style="color: rgba(255,255,255,0.6);">Loading your dashboard...</p>
     </div>
@@ -554,7 +537,7 @@
         <!-- Background canvas -->
         <div id="bg-canvas-root" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;"></div>
 
-        <main class="max-w-5xl mx-auto px-6 mt-12">
+        <main class="max-w-5xl mx-auto px-6 mt-12 pb-12">
 
             <!-- Holographic Stickers -->
             <div id="holo-world-0" class="absolute top-10 right-20 w-28 opacity-70 sticker pointer-events-auto z-0 h-28" style="animation-delay: -1s;"></div>
@@ -565,7 +548,7 @@
             <header class="mb-10 animate-in relative z-10">
                 <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
                     <div class="relative">
-                        <img src="./Icons/Assistant.png" class="absolute -top-10 -left-12 w-16 sticker pointer-events-none hidden md:block" alt="">
+                        <img src="__API_BASE__/Icons/Assistant.png" class="absolute -top-10 -left-12 w-16 sticker pointer-events-none hidden md:block" alt="">
                         <div class="inline-block px-4 py-1 bg-white/15 text-white rounded-full text-[10px] font-black uppercase tracking-widest mb-4 backdrop-blur-md border border-white/25">
                             Server Dashboard
                         </div>
@@ -591,7 +574,7 @@
                 <section class="section-card p-7 animate-in animate-in-delay-1">
                     <div class="flex items-center gap-3 mb-6">
                         <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background: rgba(255,235,59,0.15);">
-                            <img src="Icons/Link.png" class="w-4 h-4 object-contain" alt="">
+                            <img src="__API_BASE__/Icons/Link.png" class="w-4 h-4 object-contain" alt="">
                         </div>
                         <h2 class="text-lg font-black">Connected Platforms</h2>
                     </div>
@@ -601,10 +584,8 @@
                         <!-- Discord (always connected) -->
                         <div class="platform-card connected">
                             <div class="flex items-start justify-between">
-                                <div class="w-10 h-10 bg-[#5865F2] rounded-xl flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                                        <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.196.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
-                                    </svg>
+                                <div class="w-10 h-10 bg-[#5865F2] rounded-xl flex items-center justify-center overflow-hidden">
+                                    <img src="__API_BASE__/Icons/Discord.png" class="w-6 h-6 object-contain" alt="Discord">
                                 </div>
                                 <span class="status-pill connected">Connected</span>
                             </div>
@@ -659,7 +640,7 @@
                 <section class="section-card p-7 animate-in animate-in-delay-2">
                     <div class="flex items-center gap-3 mb-1">
                         <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background: rgba(88,101,242,0.2);">
-                            <img src="Icons/Wrench.png" class="w-4 h-4 object-contain" alt="">
+                            <img src="__API_BASE__/Icons/Wrench.png" class="w-4 h-4 object-contain" alt="">
                         </div>
                         <h2 class="text-lg font-black">Server Settings</h2>
                         <span id="save-indicator" class="save-indicator ml-2">
@@ -681,7 +662,7 @@
                                 <div class="setting-row">
                                     <div class="setting-row-left">
                                         <div class="setting-icon">
-                                            <img src="Icons/World.png" alt="">
+                                            <img src="__API_BASE__/Icons/World.png" alt="">
                                         </div>
                                         <div>
                                             <span class="font-bold text-sm text-white block">Allow Mismatched Emails</span>
@@ -694,7 +675,7 @@
                                 <div class="setting-row">
                                     <div class="setting-row-left">
                                         <div class="setting-icon">
-                                            <img src="Icons/Refresh.png" alt="">
+                                            <img src="__API_BASE__/Icons/Refresh.png" alt="">
                                         </div>
                                         <div>
                                             <span class="font-bold text-sm text-white block">Auto-Verify on Join</span>
@@ -707,7 +688,7 @@
                                 <div class="setting-row">
                                     <div class="setting-row-left">
                                         <div class="setting-icon">
-                                            <img src="Icons/Link.png" alt="">
+                                            <img src="__API_BASE__/Icons/Link.png" alt="">
                                         </div>
                                         <div>
                                             <span class="font-bold text-sm text-white block">Share Across Servers</span>
@@ -720,7 +701,7 @@
                                 <div class="setting-row">
                                     <div class="setting-row-left">
                                         <div class="setting-icon">
-                                            <img src="Icons/PersonKey.png" alt="">
+                                            <img src="__API_BASE__/Icons/PersonKey.png" alt="">
                                         </div>
                                         <div>
                                             <span class="font-bold text-sm text-white block">Cross-Server Role Checks</span>
@@ -739,7 +720,7 @@
                                 <div class="setting-row">
                                     <div class="setting-row-left">
                                         <div class="setting-icon">
-                                            <img src="Icons/Key.png" alt="">
+                                            <img src="__API_BASE__/Icons/Key.png" alt="">
                                         </div>
                                         <div>
                                             <span class="font-bold text-sm text-white block">Verification Scope</span>
@@ -755,7 +736,7 @@
                                 <div class="setting-row">
                                     <div class="setting-row-left">
                                         <div class="setting-icon">
-                                            <img src="Icons/ClapStars.png" alt="">
+                                            <img src="__API_BASE__/Icons/ClapStars.png" alt="">
                                         </div>
                                         <div>
                                             <span class="font-bold text-sm text-white block">Duplicate Verifications</span>
@@ -772,7 +753,7 @@
                                 <div class="setting-row">
                                     <div class="setting-row-left">
                                         <div class="setting-icon">
-                                            <img src="Icons/X.png" alt="">
+                                            <img src="__API_BASE__/Icons/X.png" alt="">
                                         </div>
                                         <div>
                                             <span class="font-bold text-sm text-white block">Suspicious Accounts</span>
@@ -795,12 +776,12 @@
                     <div class="flex items-center justify-between mb-1">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background: rgba(145,70,255,0.2);">
-                                <img src="Icons/CreditCard.png" class="w-4 h-4 object-contain" alt="">
+                                <img src="__API_BASE__/Icons/CreditCard.png" class="w-4 h-4 object-contain" alt="">
                             </div>
                             <h2 class="text-lg font-black">Collaborating Creators</h2>
                         </div>
                         <button id="invite-btn" class="btn-primary" onclick="generateCollabInvite()" style="font-size:12px;padding:8px 16px;" id="invite-btn">
-                            <img src="Icons/Link.png" class="w-3.5 h-3.5 object-contain" alt="">
+                            <img src="__API_BASE__/Icons/Link.png" class="w-3.5 h-3.5 object-contain" alt="">
                             Invite a Creator
                         </button>
                     </div>
@@ -813,7 +794,7 @@
 
                     <!-- Empty state -->
                     <div id="collab-empty" class="empty-state hidden">
-                        <img src="Icons/World.png" alt="">
+                        <img src="__API_BASE__/Icons/World.png" alt="">
                         <p class="text-sm text-white/50 font-semibold" style="font-family:'DM Sans',sans-serif;">No collaborators yet.<br>Invite a creator to share license verification.</p>
                     </div>
 
@@ -843,7 +824,7 @@
             <div class="modal-box">
                 <div class="flex items-center gap-3 mb-5">
                     <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background:rgba(145,70,255,0.25);">
-                        <img src="Icons/Link.png" class="w-4 h-4 object-contain" alt="">
+                        <img src="__API_BASE__/Icons/Link.png" class="w-4 h-4 object-contain" alt="">
                     </div>
                     <h3 style="margin:0;">Collaborator Invite Link</h3>
                 </div>
@@ -851,7 +832,7 @@
                 <div id="invite-url-display" class="invite-url-box"></div>
                 <div class="flex gap-3">
                     <button id="copy-invite-btn" class="btn-primary flex-1" onclick="copyInviteUrl()">
-                        <img src="Icons/ClapStars.png" class="w-4 h-4 object-contain" alt="">
+                        <img src="__API_BASE__/Icons/ClapStars.png" class="w-4 h-4 object-contain" alt="">
                         Copy Link
                     </button>
                     <button onclick="closeInviteModal()" class="btn-ghost flex-1">Close</button>
@@ -863,9 +844,8 @@
 
     <script>
         const guildId = '__GUILD_ID__';
-        const token = '__TOKEN__';
         const apiBase = '__API_BASE__';
-        const setupToken = '__SETUP_TOKEN__';
+        const hasSetupSession = '__HAS_SETUP_SESSION__' === 'true';
         const tenantIdFromServer = '__TENANT_ID__';
         let tenantId = tenantIdFromServer || null;
 
@@ -873,28 +853,61 @@
         let settingsMap = new Map();
         let pendingDisconnectPlatform = null;
         let collabConnections = [];
+        let currentInviteUrl = '';
+
+        function redirectToExpiredLinkError() {
+            const errorUrl = new URL(`${apiBase}/verify-error`, window.location.origin);
+            errorUrl.searchParams.set('error', 'link_expired');
+            window.location.replace(errorUrl.toString());
+        }
 
         function apiFetch(url, options = {}) {
             return fetch(url, { credentials: 'include', ...options });
         }
 
+        async function exchangeBootstrapTokens() {
+            const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+            const setupToken = hash.get('s');
+            const connectToken = hash.get('token');
+            if (!setupToken && !connectToken) return false;
+
+            const res = await fetch(`${apiBase}/api/connect/bootstrap`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    setupToken: setupToken || undefined,
+                    connectToken: connectToken || undefined,
+                }),
+            });
+
+            if (!res.ok) {
+                redirectToExpiredLinkError();
+                return true;
+            }
+
+            window.history.replaceState({}, '', window.location.pathname + window.location.search);
+            window.location.reload();
+            return true;
+        }
+
         // ── Navigation ──────────────────────────────────────────────────────────
 
         function navigateGumroad() {
-            if (setupToken) {
-                window.location.href = `${apiBase}/api/connect/gumroad/begin?s=${encodeURIComponent(setupToken)}`;
-            } else if (tenantId && guildId) {
+            if (tenantId && guildId) {
                 window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
+            } else if (hasSetupSession) {
+                window.location.href = `${apiBase}/api/connect/gumroad/begin`;
             } else {
                 alert('Please wait for the page to finish loading.');
             }
         }
 
         function navigateJinxxy() {
-            if (setupToken) {
-                window.location.href = `/jinxxy-setup?s=${encodeURIComponent(setupToken)}`;
-            } else if (tenantId && guildId) {
+            if (tenantId && guildId) {
                 window.location.href = `/jinxxy-setup?tenant_id=${encodeURIComponent(tenantId)}&guild_id=${encodeURIComponent(guildId)}`;
+            } else if (hasSetupSession) {
+                window.location.href = `/jinxxy-setup`;
             } else {
                 alert('Please wait for the page to finish loading.');
             }
@@ -904,13 +917,15 @@
 
         async function init() {
             try {
-                if (!setupToken && !tenantId && guildId) {
-                    const res = await apiFetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}${token ? '&token=' + encodeURIComponent(token) : ''}`);
+                if (await exchangeBootstrapTokens()) return;
+
+                if (!hasSetupSession && !tenantId && guildId) {
+                    const res = await apiFetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}`);
                     const data = await res.json();
                     if (data.tenantId) tenantId = data.tenantId;
                 }
 
-                if ((token || setupToken) && document.getElementById('onboarding-done')) {
+                if (hasSetupSession && document.getElementById('onboarding-done')) {
                     document.getElementById('onboarding-done').classList.remove('hidden');
                 }
 
@@ -924,8 +939,8 @@
 
         async function fetchAllData() {
             try {
-                if (setupToken) {
-                    const statusRes = await apiFetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}`);
+                if (hasSetupSession) {
+                    const statusRes = await apiFetch(`${apiBase}/api/connections`);
                     if (statusRes.ok) {
                         const statusData = await statusRes.json();
                         connectionsMap.clear();
@@ -937,7 +952,7 @@
                         updatePlatformCards();
                     }
 
-                    const settingsRes = await apiFetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`);
+                    const settingsRes = await apiFetch(`${apiBase}/api/connect/settings`);
                     if (settingsRes.ok) {
                         const settingsData = await settingsRes.json();
                         if (settingsData.policy) {
@@ -1021,7 +1036,7 @@
         }
 
         async function toggleSetting(key) {
-            if (!setupToken) {
+            if (!hasSetupSession) {
                 alert('Settings can only be changed using a secure setup link from Discord.');
                 return;
             }
@@ -1030,39 +1045,53 @@
             el.classList.toggle('active');
             settingsMap.set(key, newValue);
             try {
-                const res = await apiFetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`, {
+                const res = await apiFetch(`${apiBase}/api/connect/settings`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key, value: newValue })
                 });
-                if (!res.ok) throw new Error('Failed');
+                if (!res.ok) {
+                    let message = 'Failed to save setting.';
+                    try {
+                        const data = await res.json();
+                        if (data?.error) message = data.error;
+                    } catch { }
+                    throw new Error(message);
+                }
                 showSaved();
             } catch (e) {
                 console.error('Error updating setting:', e);
-                alert('Failed to save setting. Reverting.');
+                alert(`${e instanceof Error ? e.message : 'Failed to save setting.'} Reverting.`);
                 el.classList.toggle('active');
                 settingsMap.set(key, !newValue);
             }
         }
 
         async function selectSetting(key, value) {
-            if (!setupToken) {
+            if (!hasSetupSession) {
                 alert('Settings can only be changed using a secure setup link from Discord.');
                 return;
             }
             const oldValue = settingsMap.get(key);
             settingsMap.set(key, value);
             try {
-                const res = await apiFetch(`${apiBase}/api/connect/settings?s=${encodeURIComponent(setupToken)}`, {
+                const res = await apiFetch(`${apiBase}/api/connect/settings`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key, value })
                 });
-                if (!res.ok) throw new Error('Failed');
+                if (!res.ok) {
+                    let message = 'Failed to save setting.';
+                    try {
+                        const data = await res.json();
+                        if (data?.error) message = data.error;
+                    } catch { }
+                    throw new Error(message);
+                }
                 showSaved();
             } catch (e) {
                 console.error('Error updating setting:', e);
-                alert('Failed to save setting. Reverting.');
+                alert(`${e instanceof Error ? e.message : 'Failed to save setting.'} Reverting.`);
                 settingsMap.set(key, oldValue);
                 const el = document.getElementById(`select-${key}`);
                 if (el) el.value = oldValue ?? '';
@@ -1083,7 +1112,7 @@
         }
 
         document.getElementById('confirmDisconnectBtn').addEventListener('click', async () => {
-            if (!pendingDisconnectPlatform || !setupToken) return;
+            if (!pendingDisconnectPlatform || !hasSetupSession) return;
             const platform = pendingDisconnectPlatform;
             const conn = connectionsMap.get(platform);
             if (!conn) { closeModal(); return; }
@@ -1091,7 +1120,7 @@
             const btn = document.getElementById('confirmDisconnectBtn');
             btn.textContent = 'Disconnecting...';
             try {
-                const res = await apiFetch(`${apiBase}/api/connections?s=${encodeURIComponent(setupToken)}&id=${conn.id}`, { method: 'DELETE' });
+                const res = await apiFetch(`${apiBase}/api/connections?id=${conn.id}`, { method: 'DELETE' });
                 if (res.ok) {
                     connectionsMap.delete(platform);
                     updatePlatformCards();
@@ -1116,14 +1145,14 @@
             status.textContent = '';
 
             try {
-                if (token && guildId) {
+                    if (guildId) {
                     const res = await apiFetch(`${apiBase}/api/connect/complete`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ guildId, token: token || undefined }),
+                        body: JSON.stringify({ guildId }),
                     });
                     const data = await res.json();
-                    if (!res.ok || !data.success) throw new Error(data.error || 'Failed to complete setup');
+                    if (!res.ok || !data.success) throw new Error('Could not finish setup right now.');
                 }
 
                 status.textContent = 'Setup complete! You can close this window.';
@@ -1149,15 +1178,13 @@
         // ── Collaborating Creators ────────────────────────────────────────────────
 
         async function fetchCollabConnections() {
-            if (!setupToken) {
+            if (!hasSetupSession) {
                 document.getElementById('collab-loading').classList.add('hidden');
                 document.getElementById('collab-empty').classList.remove('hidden');
                 return;
             }
             try {
-                const res = await fetch(`${apiBase}/api/collab/connections`, {
-                    headers: { 'Authorization': `Bearer ${setupToken}` }
-                });
+                const res = await fetch(`${apiBase}/api/collab/connections`, { credentials: 'include' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 collabConnections = data.connections ?? [];
@@ -1174,39 +1201,65 @@
             const empty = document.getElementById('collab-empty');
             const active = collabConnections.filter(c => c.status === 'active');
 
+            list.replaceChildren();
+
             if (active.length === 0) {
-                list.innerHTML = '';
                 empty.classList.remove('hidden');
                 return;
             }
 
             empty.classList.add('hidden');
-            list.innerHTML = active.map(conn => {
-                const initials = (conn.collaboratorDisplayName || '?').slice(0, 2).toUpperCase();
-                const typeBadge = conn.linkType === 'account'
-                    ? '<span class="badge-account">Account</span>'
-                    : '<span class="badge-api">API Key</span>';
-                const webhookStatus = conn.linkType === 'account'
-                    ? (conn.webhookConfigured
-                        ? '<span class="webhook-dot ok" title="Webhook active"></span>'
-                        : '<span class="webhook-dot warn" title="Webhook not configured"></span>')
-                    : '';
-                const name = conn.collaboratorDisplayName || conn.collaboratorDiscordUserId || 'Unknown';
-                return `
-                    <div class="collab-row">
-                        <div class="collab-avatar">${initials}</div>
-                        <div>
-                            <span class="collab-name">${name}</span>
-                            <div class="collab-meta">${typeBadge}${webhookStatus}</div>
-                        </div>
-                        <button class="collab-remove-btn" onclick="removeCollabConnection('${conn.id}')">Remove</button>
-                    </div>
-                `;
-            }).join('');
-        }
 
+            for (const conn of active) {
+                const initials = (conn.collaboratorDisplayName || '?').slice(0, 2).toUpperCase();
+                const name = conn.collaboratorDisplayName || conn.collaboratorDiscordUserId || 'Unknown';
+
+                const row = document.createElement('div');
+                row.className = 'collab-row';
+
+                const avatar = document.createElement('div');
+                avatar.className = 'collab-avatar';
+                avatar.textContent = initials;
+
+                const info = document.createElement('div');
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'collab-name';
+                nameSpan.textContent = name;
+
+                const meta = document.createElement('div');
+                meta.className = 'collab-meta';
+
+                const typeBadge = document.createElement('span');
+                typeBadge.className = conn.linkType === 'account' ? 'badge-account' : 'badge-api';
+                typeBadge.textContent = conn.linkType === 'account' ? 'Account' : 'API Key';
+                meta.appendChild(typeBadge);
+
+                if (conn.linkType === 'account') {
+                    const webhookStatus = document.createElement('span');
+                    webhookStatus.className = conn.webhookConfigured ? 'webhook-dot ok' : 'webhook-dot warn';
+                    webhookStatus.title = conn.webhookConfigured ? 'Webhook active' : 'Webhook not configured';
+                    meta.appendChild(webhookStatus);
+                }
+
+                info.appendChild(nameSpan);
+                info.appendChild(meta);
+
+                const removeButton = document.createElement('button');
+                removeButton.className = 'collab-remove-btn';
+                removeButton.type = 'button';
+                removeButton.textContent = 'Remove';
+                removeButton.addEventListener('click', function () {
+                    removeCollabConnection(conn.id);
+                });
+
+                row.appendChild(avatar);
+                row.appendChild(info);
+                row.appendChild(removeButton);
+                list.appendChild(row);
+            }
+        }
         async function generateCollabInvite() {
-            if (!setupToken) {
+            if (!hasSetupSession) {
                 alert('Settings can only be changed using a secure setup link from Discord.');
                 return;
             }
@@ -1217,15 +1270,15 @@
             try {
                 const res = await fetch(`${apiBase}/api/collab/invite`, {
                     method: 'POST',
+                    credentials: 'include',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${setupToken}`
                     },
                     body: JSON.stringify({ guildName: 'this server', guildId: guildId || '' })
                 });
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({}));
-                    throw new Error(err.error || 'Failed to generate invite');
+                    throw new Error('Could not generate an invite right now.');
                 }
                 const data = await res.json();
                 showInviteModal(data.inviteUrl, data.expiresAt);
@@ -1239,7 +1292,9 @@
         }
 
         function showInviteModal(url, expiresAt) {
-            document.getElementById('invite-url-display').textContent = url;
+            currentInviteUrl = url;
+            const maskedUrl = url.length > 36 ? `${url.slice(0, 18)}...${url.slice(-12)}` : url;
+            document.getElementById('invite-url-display').textContent = maskedUrl;
             if (expiresAt) {
                 const d = new Date(expiresAt);
                 document.getElementById('invite-expiry').textContent = `Expires ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}.`;
@@ -1254,7 +1309,8 @@
         }
 
         async function copyInviteUrl() {
-            const url = document.getElementById('invite-url-display').textContent;
+            const url = currentInviteUrl;
+            if (!url) return;
             try {
                 await navigator.clipboard.writeText(url);
                 const btn = document.getElementById('copy-invite-btn');
@@ -1265,12 +1321,12 @@
         }
 
         async function removeCollabConnection(connectionId) {
-            if (!setupToken) return;
+            if (!hasSetupSession) return;
             if (!confirm('Remove this collaborator connection? Members will no longer be able to verify their licenses.')) return;
             try {
                 const res = await fetch(`${apiBase}/api/collab/connections/${connectionId}`, {
                     method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${setupToken}` }
+                    credentials: 'include'
                 });
                 if (res.ok) {
                     collabConnections = collabConnections.filter(c => c.id !== connectionId);
@@ -1288,9 +1344,9 @@
 
         const params = new URLSearchParams(window.location.search);
         if (params.get('gumroad') === 'connected' || params.get('jinxxy') === 'connected') {
-            const cleanUrl = setupToken
-                ? window.location.pathname + '?s=' + encodeURIComponent(setupToken)
-                : window.location.pathname + '?guild_id=' + guildId + (token ? '&token=' + token : '');
+            const cleanUrl = guildId
+                ? window.location.pathname + '?guild_id=' + encodeURIComponent(guildId)
+                : window.location.pathname;
             window.history.replaceState({}, '', cleanUrl);
             setTimeout(init, 500);
         } else {
@@ -1298,118 +1354,8 @@
         }
     </script>
 
-    <script type="text/babel" data-type="module">
-        import React, { useRef, Component } from "react";
-        import { createRoot } from "react-dom/client";
-        import * as THREE from "three";
-        import { Canvas, useFrame } from "@react-three/fiber";
-        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
-        import HolographicSticker from "holographic-sticker";
-
-        class ErrorBoundary extends Component {
-            constructor(props) {
-                super(props);
-                this.state = { hasError: false, error: null };
-            }
-            static getDerivedStateFromError(error) { return { hasError: true, error }; }
-            componentDidCatch(error, errorInfo) { console.error("React Error Boundary caught an error", error, errorInfo); }
-            render() { return this.state.hasError ? null : this.props.children; }
-        }
-
-        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
-            const ref = useRef();
-            useFrame((state) => {
-                if (ref.current) {
-                    const elapsed = state.clock.getElapsedTime();
-                    const range = 240;
-                    let currentX = startX - elapsed * speed;
-                    currentX = ((currentX + 120) % range + range) % range - 120;
-                    ref.current.position.x = currentX;
-                }
-            });
-            return (
-                <group ref={ref} position={[startX, y, z]}>
-                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
-                </group>
-            );
-        }
-
-        function BackgroundSky() {
-            return (
-                <React.Fragment>
-                    <SkyImpl sunPosition={[100, 20, 100]} turbidity={0.8} rayleigh={0.5} />
-                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
-                        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#ffffff" volume={15} opacity={0.6} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
-                        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#eaebff" volume={6} opacity={0.4} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
-                        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#d3e2ff" volume={40} opacity={0.9} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
-                        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#fdfdfd" volume={35} opacity={0.7} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
-                    </Clouds>
-                </React.Fragment>
-            )
-        }
-
-        function ForegroundSky() {
-            return (
-                <React.Fragment>
-                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
-                        <MovingCloud startX={45} speed={2.8} bounds={[10, 10, 5]} color="#f0f0f0" volume={12} opacity={0.8} seed={4} y={2} z={10} growth={15} fade={5} segments={15} concentrate="inside" />
-                        <MovingCloud startX={15} speed={3.5} bounds={[20, 5, 8]} color="#ffffff" volume={8} opacity={0.6} seed={6} y={-2} z={5} growth={5} fade={25} segments={12} />
-                    </Clouds>
-                </React.Fragment>
-            )
-        }
-
-        function BackgroundApp() {
-            return (
-                <ErrorBoundary>
-                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
-                        <BackgroundSky />
-                        <ambientLight intensity={Math.PI / 1.5} />
-                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
-                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
-                    </Canvas>
-                </ErrorBoundary>
-            )
-        }
-
-        const bgRoot = createRoot(document.getElementById('bg-canvas-root'));
-        bgRoot.render(<BackgroundApp />);
-
-        const HoloWrapper = ({ src, alt }) => (
-            <HolographicSticker.Root>
-                <HolographicSticker.Scene>
-                    <HolographicSticker.Card className="w-full h-full rounded-2xl bg-transparent border-none overflow-visible">
-                        <HolographicSticker.ImageLayer src={src} alt={alt} objectFit="contain" />
-                        <HolographicSticker.Pattern
-                            maskUrl={src}
-                            maskSize="contain"
-                            textureUrl="https://assets.codepen.io/605876/figma-texture.png"
-                            textureSize="300px"
-                            mixBlendMode="hard-light"
-                            opacity={0.6}>
-                            <HolographicSticker.Refraction intensity={2.5} />
-                        </HolographicSticker.Pattern>
-                    </HolographicSticker.Card>
-                </HolographicSticker.Scene>
-            </HolographicSticker.Root>
-        );
-
-        const root_holo_world_0 = document.getElementById("holo-world-0");
-        if (root_holo_world_0) createRoot(root_holo_world_0).render(<HoloWrapper src="./Icons/World.png" alt="World" />);
-
-        const root_holo_gumorad_1 = document.getElementById("holo-gumorad-1");
-        if (root_holo_gumorad_1) createRoot(root_holo_gumorad_1).render(<HoloWrapper src="./Icons/Gumorad.png" alt="Bag" />);
-
-        const root_holo_checkmark_2 = document.getElementById("holo-checkmark-2");
-        if (root_holo_checkmark_2) createRoot(root_holo_checkmark_2).render(<HoloWrapper src="./Icons/Checkmark.png" alt="Check" />);
-
-        (function hideLoading() {
-            const overlay = document.getElementById('page-loading-overlay');
-            const content = document.getElementById('page-content');
-            if (overlay) overlay.style.display = 'none';
-            if (content) content.style.display = '';
-        })();
-    </script>
-</body>
+    </body>
 
 </html>
+
+

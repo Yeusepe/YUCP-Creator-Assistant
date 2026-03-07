@@ -4,15 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
-    <title>Collaborator Invite | YUCP</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <link rel="icon" href="__API_BASE__/Icons/favicon.ico" type="image/x-icon">
+    <title>Collaborator Invite | Creator Assistant</title>
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
-    <script src="https://unpkg.com/lucide@0.344.0"></script>
     <link rel="stylesheet" href="./tokens.css">
+    <link rel="stylesheet" href="/assets/collab-invite/collab-invite.css">
     <style>
         :root {
             --text-primary: #ffffff;
@@ -243,28 +241,11 @@
             to { transform: rotate(360deg); }
         }
     </style>
-
-    <!-- ES Module Shims for better browser compatibility -->
-    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
-    <script type="importmap">
-    {
-        "imports": {
-            "react": "https://esm.sh/react@18.2.0",
-            "react-dom": "https://esm.sh/react-dom@18.2.0",
-            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            "three": "https://esm.sh/three@0.160.0",
-            "troika-three-utils": "https://unpkg.com/troika-three-utils@0.47.2/dist/troika-three-utils.esm.js",
-            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
-            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12"
-        }
-    }
-    </script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 
 <body class="flex flex-col items-center justify-center min-h-screen p-4">
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center" style="background-color: var(--bg-color);">
-        <img src="Icons/MainLogo.png" alt="YUCP" class="h-10 mb-8" />
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
     </div>
@@ -275,7 +256,7 @@
     <div class="w-full max-w-lg relative z-10">
         <!-- Logo -->
         <div class="text-center mb-8">
-            <img src="Icons/MainLogo.png" alt="YUCP Creator Assistant logo" role="img" class="h-10 mx-auto" />
+            <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant logo" role="img" class="h-10 mx-auto" />
         </div>
 
         <!-- Stage 0: Loading -->
@@ -296,22 +277,22 @@
                     <h3 class="font-heading font-semibold mb-3">What this grants access to:</h3>
                     <ul class="space-y-2" style="color: var(--text-secondary);">
                         <li class="flex gap-2 items-start">
-                            <img src="Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
+                            <img src="__API_BASE__/Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
                             <span>Your Jinxxy API key is used to verify licenses sold through your store</span>
                         </li>
                         <li class="flex gap-2 items-start">
-                            <img src="Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
-                            <span>YUCP will only check if a license key is valid. No personal data is stored beyond your Discord ID</span>
+                            <img src="__API_BASE__/Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
+                            <span>The Assistant will only check if a license key is valid. No personal data is stored beyond your Discord ID</span>
                         </li>
                         <li class="flex gap-2 items-start">
-                            <img src="Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
+                            <img src="__API_BASE__/Icons/Checkmark.png" width="16" height="16" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.8;">
                             <span>You can revoke access at any time by contacting the server owner</span>
                         </li>
                     </ul>
                 </div>
 
                 <button class="btn-primary w-full" id="btn-discord-auth" onclick="beginDiscordAuth()" style="display:flex;align-items:center;justify-content:center;gap:10px;">
-                    <img src="Icons/Discord.png" width="20" height="20" alt="">
+                    <img src="__API_BASE__/Icons/Discord.png" width="20" height="20" alt="">
                     Continue with Discord
                 </button>
             </div>
@@ -322,7 +303,7 @@
             <div class="fade-in">
                 <h2 class="text-xl font-heading font-bold mb-2 text-center">Welcome back!</h2>
                 <p class="text-center mb-6" style="color: var(--text-secondary);">
-                    We noticed you've connected with YUCP before.<br>Would you like to reuse your previous API key?
+                    We noticed you've connected with Creator Assistant before.<br>Would you like to reuse your previous API key?
                 </p>
 
                 <div class="space-y-3 mb-6">
@@ -341,9 +322,9 @@
                 <div class="space-y-3 mb-6">
                     <div class="card-option" id="card-account" onclick="selectType('account')">
                         <div class="flex items-start gap-3">
-                            <img src="Icons/Link.png" width="20" height="20" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.85;">
+                            <img src="__API_BASE__/Icons/Link.png" width="20" height="20" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.85;">
                             <div>
-                                <h3 class="font-heading font-semibold">Account Linking <span class="text-xs ml-1 px-2 py-0.5 rounded-full" style="background: rgba(88,101,242,0.2); color: #8b9cf4;">Recommended</span></h3>
+                                <h3 class="font-heading font-semibold">Account Linking <span class="text-xs ml-1 px-2 py-0.5 rounded-full" style="background: #5865F2; color: #ffffff;">Recommended</span></h3>
                                 <p class="text-sm mt-1" style="color: var(--text-secondary);">API key + webhook. Automatic role assignment when purchases are made, plus manual verification.</p>
                             </div>
                         </div>
@@ -351,7 +332,7 @@
 
                     <div class="card-option" id="card-api" onclick="selectType('api')">
                         <div class="flex items-start gap-3">
-                            <img src="Icons/Key.png" width="20" height="20" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.85;">
+                            <img src="__API_BASE__/Icons/Key.png" width="20" height="20" alt="" style="margin-top:2px;flex-shrink:0;opacity:0.85;">
                             <div>
                                 <h3 class="font-heading font-semibold">API Linking</h3>
                                 <p class="text-sm mt-1" style="color: var(--text-secondary);">API key only. Users must run /verify manually. No automatic role assignment.</p>
@@ -370,7 +351,7 @@
                 <!-- Header: title + step counter -->
                 <div class="flex justify-between items-center mb-4">
                     <div class="flex items-center gap-2">
-                        <img src="Icons/Link.png" width="16" height="16" alt="" style="opacity:0.7;">
+                        <img src="__API_BASE__/Icons/Link.png" width="16" height="16" alt="" style="opacity:0.7;">
                         <span class="text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Account Linking</span>
                     </div>
                     <span class="text-sm font-semibold" style="color:rgba(255,255,255,0.4);">Step <span id="wiz-step-num">1</span> of 5</span>
@@ -433,7 +414,7 @@
                         </div>
                     </div>
                     <h2 class="text-xl font-heading font-bold mb-2">Add a new webhook</h2>
-                    <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.6;">Click <strong style="color:white;">New Webhook</strong> in Jinxxy, then copy and paste both values into the form:</p>
+                    <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.6;">Click <strong style="color:white;">New Webhook</strong> in Jinxxy, paste the callback URL, then create your own signing secret and paste the same value here.</p>
                     <div class="space-y-3 mb-5">
                         <div>
                             <label class="block text-xs font-bold mb-1.5" style="color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.05em;">Callback URL</label>
@@ -444,10 +425,8 @@
                         </div>
                         <div>
                             <label class="block text-xs font-bold mb-1.5" style="color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.05em;">Signing Secret</label>
-                            <div class="flex gap-2">
-                                <div class="code-block flex-1 text-xs" id="webhook-signing-secret">Loading...</div>
-                                <button class="copy-btn" onclick="copyText('webhook-signing-secret', this)">Copy</button>
-                            </div>
+                            <input type="password" class="input-field" id="webhook-signing-secret-input" autocomplete="off" placeholder="Create a long secret, then paste the same value into Jinxxy">
+                            <p class="mt-2 text-xs" style="color:rgba(255,255,255,0.55);line-height:1.5;">Use at least 16 characters. the Assistant stores it encrypted after you continue.</p>
                         </div>
                     </div>
                     <div class="flex gap-2">
@@ -525,7 +504,7 @@
                             <div style="height:6px;width:40%;background:#444;border-radius:2px;margin-top:6px;margin-bottom:2px;"></div>
                             <!-- Highlighted API Keys -->
                             <div style="padding:5px 7px;background:rgba(88,101,242,0.15);border:1px solid #5865F2;border-radius:4px;display:flex;align-items:center;gap:5px;">
-                                <img src="Icons/Key.png" width="10" height="10" alt="" style="flex-shrink:0;opacity:0.8;">
+                                <img src="__API_BASE__/Icons/Key.png" width="10" height="10" alt="" style="flex-shrink:0;opacity:0.8;">
                                 <div style="height:7px;width:36px;background:#8b9cf4;border-radius:2px;opacity:0.7;"></div>
                             </div>
                         </div>
@@ -540,7 +519,7 @@
                         In Jinxxy, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong style="color:white;">New API Key</strong>. Enable these scopes: <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>. Then paste your key below.
                     </p>
                     <div id="api-key-reuse-notice" class="hidden mb-3">
-                        <p class="text-sm" style="color:rgba(67,181,129,0.9);display:flex;align-items:center;gap:6px;"><img src="Icons/Checkmark.png" width="14" height="14" alt=""> Using your previously saved API key</p>
+                        <p class="text-sm" style="color:rgba(67,181,129,0.9);display:flex;align-items:center;gap:6px;"><img src="__API_BASE__/Icons/Checkmark.png" width="14" height="14" alt=""> Using your previously saved API key</p>
                     </div>
                     <div id="api-key-input-group" class="mb-3">
                         <input type="password" class="input-field" id="account-api-key" placeholder="jinxxy_..." autocomplete="off">
@@ -565,7 +544,7 @@
                         <div style="height:8px;width:65%;background:#2a2a2a;border-radius:2px;"></div>
                         <div style="height:6px;width:40%;background:#444;border-radius:2px;margin-top:6px;margin-bottom:2px;"></div>
                         <div style="padding:5px 7px;background:rgba(88,101,242,0.15);border:1px solid #5865F2;border-radius:4px;display:flex;align-items:center;gap:5px;">
-                            <img src="Icons/Key.png" width="10" height="10" alt="" style="flex-shrink:0;opacity:0.8;">
+                            <img src="__API_BASE__/Icons/Key.png" width="10" height="10" alt="" style="flex-shrink:0;opacity:0.8;">
                             <div style="height:7px;width:36px;background:#8b9cf4;border-radius:2px;opacity:0.7;"></div>
                         </div>
                     </div>
@@ -587,7 +566,7 @@
                 </p>
 
                 <div id="api-form-reuse-notice" class="hidden mb-3">
-                    <p class="text-sm" style="color:rgba(67,181,129,0.9);display:flex;align-items:center;gap:6px;"><img src="Icons/Checkmark.png" width="14" height="14" alt=""> Using your previously saved API key — no need to re-enter it.</p>
+                    <p class="text-sm" style="color:rgba(67,181,129,0.9);display:flex;align-items:center;gap:6px;"><img src="__API_BASE__/Icons/Checkmark.png" width="14" height="14" alt=""> Using your previously saved API key — no need to re-enter it.</p>
                 </div>
 
                 <div id="api-form-key-group" class="mb-3">
@@ -603,7 +582,7 @@
         <div id="stage-success" class="stage">
             <div class="fade-in text-center">
                 <div class="check-circle">
-                    <img src="Icons/Checkmark.png" width="28" height="28" alt="">
+                    <img src="__API_BASE__/Icons/Checkmark.png" width="28" height="28" alt="">
                 </div>
                 <h2 class="text-2xl font-heading font-bold mb-3">You're connected!</h2>
                 <p class="mb-6" style="color: var(--text-secondary);" id="success-message"></p>
@@ -615,7 +594,7 @@
         <div id="stage-error" class="stage">
             <div class="fade-in text-center">
                 <div class="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style="background: rgba(240,71,71,0.15); border: 2px solid rgba(240,71,71,0.5);">
-                    <img src="Icons/X.png" width="28" height="28" alt="">
+                    <img src="__API_BASE__/Icons/X.png" width="28" height="28" alt="">
                 </div>
                 <h2 class="text-xl font-heading font-bold mb-3" id="error-title">Something went wrong</h2>
                 <p style="color: var(--text-secondary);" id="error-message"></p>
@@ -667,8 +646,34 @@
             document.getElementById('btn-type-continue').disabled = false;
         }
 
+        async function saveWebhookSecret() {
+            const webhookSecret = document.getElementById('webhook-signing-secret-input').value.trim();
+            if (!webhookSecret || webhookSecret.length < 16) {
+                throw new Error('Create a signing secret with at least 16 characters.');
+            }
+            const res = await fetch(`${API_BASE}/api/collab/session/webhook-config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ webhookSecret }),
+            });
+            if (!res.ok) {
+                throw new Error('Could not save your signing secret.');
+            }
+        }
+
         function wizNext() {
+            advanceWizard().catch((error) => {
+                const message = error instanceof Error ? error.message : 'Could not continue right now.';
+                showError('Webhook Setup Incomplete', message);
+            });
+        }
+
+        async function advanceWizard() {
             if (wizStep >= 5) return;
+            if (wizStep === 2) {
+                await saveWebhookSecret();
+            }
             document.getElementById('wiz-step-' + wizStep).classList.add('hidden');
             wizStep++;
             document.getElementById('wiz-step-' + wizStep).classList.remove('hidden');
@@ -743,12 +748,10 @@
                 if (!res.ok) throw new Error('Failed to fetch webhook config');
                 webhookConfig = await res.json();
                 document.getElementById('webhook-callback-url').textContent = webhookConfig.callbackUrl;
-                document.getElementById('webhook-signing-secret').textContent = webhookConfig.signingSecret;
                 const mockEl = document.getElementById('wiz-mock-url');
                 if (mockEl) mockEl.textContent = webhookConfig.callbackUrl;
             } catch (err) {
                 document.getElementById('webhook-callback-url').textContent = 'Error loading config';
-                document.getElementById('webhook-signing-secret').textContent = 'Error loading config';
             }
         }
 
@@ -772,7 +775,7 @@
                         clearInterval(testWebhookInterval);
                         testWebhookReceived = true;
                         document.getElementById('wiz-test-visual').innerHTML =
-                            '<img src="Icons/Checkmark.png" width="32" height="32" alt="">' +
+                            '<img src="__API_BASE__/Icons/Checkmark.png" width="32" height="32" alt="">' +
                             '<span style="font-size:13px;color:#43b581;margin-top:4px;">Test webhook received!</span>';
                         if (nextBtn) { nextBtn.disabled = false; nextBtn.textContent = 'Next'; }
                     }
@@ -781,7 +784,7 @@
                 if (elapsed >= 60000 && !testWebhookReceived) {
                     clearInterval(testWebhookInterval);
                     document.getElementById('wiz-test-visual').innerHTML =
-                        '<img src="Icons/Timer.png" width="28" height="28" alt="" style="opacity:0.6;">' +
+                        '<img src="__API_BASE__/Icons/Timer.png" width="28" height="28" alt="" style="opacity:0.6;">' +
                         '<span style="font-size:12px;color:rgba(255,165,0,0.8);margin-top:4px;text-align:center;">Timed out — you can still continue.<br>The webhook may still work once configured.</span>';
                     if (nextBtn) { nextBtn.disabled = false; nextBtn.textContent = 'Continue anyway'; }
                 }
@@ -820,7 +823,7 @@
                 const data = await res.json();
 
                 if (!res.ok) {
-                    errorEl.textContent = data.error || 'Failed to connect. Please try again.';
+                    errorEl.textContent = 'Could not connect this account right now. Check the key and try again.';
                     errorEl.classList.remove('hidden');
                     btn.disabled = false;
                     btn.textContent = 'Connect';
@@ -867,7 +870,7 @@
                 const data = await res.json();
 
                 if (!res.ok) {
-                    errorEl.textContent = data.error || 'Failed to connect. Please try again.';
+                errorEl.textContent = 'Could not connect this account right now. Check the key and try again.';
                     errorEl.classList.remove('hidden');
                     btn.disabled = false;
                     btn.textContent = 'Connect';
@@ -997,83 +1000,10 @@
         }
 
         window.addEventListener('load', () => {
-            lucide.createIcons();
             init();
         });
     </script>
-
-    <script type="text/babel" data-type="module">
-        import React, { useRef, Component } from "react";
-        import { createRoot } from "react-dom/client";
-        import * as THREE from "three";
-        import { Canvas, useFrame } from "@react-three/fiber";
-        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
-
-        class ErrorBoundary extends Component {
-            constructor(props) {
-                super(props);
-                this.state = { hasError: false, error: null };
-            }
-            static getDerivedStateFromError(error) { return { hasError: true, error }; }
-            componentDidCatch(error, errorInfo) { console.error("React Error Boundary caught an error", error, errorInfo); }
-            render() { return this.state.hasError ? null : this.props.children; }
-        }
-
-        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
-            const ref = useRef();
-            useFrame((state) => {
-                if (ref.current) {
-                    const elapsed = state.clock.getElapsedTime();
-                    const range = 240;
-                    let currentX = startX - elapsed * speed;
-                    currentX = ((currentX + 120) % range + range) % range - 120;
-                    ref.current.position.x = currentX;
-                }
-            });
-            return (
-                <group ref={ref} position={[startX, y, z]}>
-                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
-                </group>
-            );
-        }
-
-        function BackgroundSky() {
-            return (
-                <React.Fragment>
-                    <SkyImpl sunPosition={[100, 20, 100]} turbidity={1.2} rayleigh={0.6} />
-                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
-                        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#8fa3c9" volume={15} opacity={0.45} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
-                        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#7a8fb8" volume={6} opacity={0.35} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
-                        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#6b82a8" volume={40} opacity={0.55} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
-                        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#9aa8c4" volume={35} opacity={0.5} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
-                    </Clouds>
-                </React.Fragment>
-            )
-        }
-
-        function BackgroundApp() {
-            return (
-                <ErrorBoundary>
-                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
-                        <BackgroundSky />
-                        <ambientLight intensity={Math.PI / 1.5} />
-                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
-                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
-                    </Canvas>
-                </ErrorBoundary>
-            )
-        }
-
-        const bgRoot = createRoot(document.getElementById('bg-canvas-root'));
-        bgRoot.render(<BackgroundApp />);
-
-        (function hideLoading() {
-            const overlay = document.getElementById('page-loading-overlay');
-            const content = document.getElementById('page-content');
-            if (overlay) overlay.style.display = 'none';
-            if (content) content.style.display = '';
-        })();
-    </script>
+    <script type="module" src="/assets/collab-invite/collab-invite.js"></script>
 </body>
 
 </html>

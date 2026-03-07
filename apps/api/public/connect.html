@@ -5,14 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
-    <title>Connect Accounts | YUCP</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Connect Accounts | Creator Assistant</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <link href="https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black"
         rel="stylesheet">
     <link rel="stylesheet" href="./tokens.css">
@@ -146,28 +144,14 @@
             to { transform: rotate(360deg); }
         }
     </style>
-    <!-- ES Module Shims for better browser compatibility -->
-    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
-    <script type="importmap">
-    {
-        "imports": {
-            "react": "https://esm.sh/react@18.2.0",
-            "react-dom": "https://esm.sh/react-dom@18.2.0",
-            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            "three": "https://esm.sh/three@0.160.0",
-            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
-            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12",
-            "holographic-sticker": "https://esm.sh/holographic-sticker@1.0.4?deps=react@18.2.0,react-dom@18.2.0"
-        }
-    }
-    </script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="stylesheet" href="/assets/site/site.css">
+    <script type="module" src="/assets/site/site.js"></script>
 </head>
 
 <body
     class="min-h-screen flex flex-col selection:bg-yellow-200 bg-gradient-to-b from-[#0a3d9e] to-[#0ea5e9] text-white">
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center" style="background-color: var(--bg-color);">
-        <img src="Icons/MainLogo.png" alt="YUCP" class="h-10 mb-8" />
+        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
     </div>
@@ -221,7 +205,7 @@
                     class="w-full flex items-center justify-between p-4 rounded-3xl bg-[rgba(88,101,242,0.9)] backdrop-blur-md text-white shadow-xl shadow-[#5865F2]/30 opacity-95 cursor-default border border-white/20 transition-transform hover:scale-[1.02]"
                     data-platform="discord">
                     <div class="flex items-center gap-5">
-                        <img class="w-12 h-12 sticker drop-shadow-lg" src="./Icons/Discord.png" alt="Discord">
+                        <img class="w-12 h-12 sticker drop-shadow-lg" src="Icons/Discord.png" alt="Discord">
                         <div class="text-left flex flex-col justify-center">
                             <span class="font-bold tracking-tight text-xl block text-white"
                                 style="font-family: 'Plus Jakarta Sans', sans-serif;">Discord</span>
@@ -323,18 +307,16 @@
 
     <script>
         const guildId = '__GUILD_ID__';
-        const token = '__TOKEN__';
         const apiBase = '__API_BASE__';
-        const setupToken = '__SETUP_TOKEN__';
+        const hasSetupSession = '__HAS_SETUP_SESSION__' === 'true';
         const tenantIdFromServer = '__TENANT_ID__';
-
-        // Clear setup token from URL to prevent it staying in browser history
-        if (setupToken && window.history.replaceState) {
-            const clean = new URL(window.location.href);
-            clean.searchParams.delete('s');
-            window.history.replaceState({}, document.title, clean.toString());
-        }
         let tenantId = tenantIdFromServer || null;
+
+        function redirectToExpiredLinkError() {
+            const errorUrl = new URL(`${apiBase}/verify-error`, window.location.origin);
+            errorUrl.searchParams.set('error', 'link_expired');
+            window.location.replace(errorUrl.toString());
+        }
 
         const cursorDot = document.querySelector('.cursor-dot');
         const cursorOutline = document.querySelector('.cursor-dot-outline');
@@ -365,33 +347,53 @@
 
         let connectionsMap = new Map();
 
+        async function exchangeBootstrapTokens() {
+            const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+            const setupToken = hash.get('s');
+            const connectToken = hash.get('token');
+            if (!setupToken && !connectToken) return false;
+
+            const res = await fetch(`${apiBase}/api/connect/bootstrap`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    setupToken: setupToken || undefined,
+                    connectToken: connectToken || undefined,
+                }),
+            });
+
+            if (!res.ok) {
+                redirectToExpiredLinkError();
+                return true;
+            }
+
+            window.history.replaceState({}, '', window.location.pathname + window.location.search);
+            window.location.reload();
+            return true;
+        }
+
         async function ensureTenantAndStatus() {
             try {
                 let statusRes;
 
-                if (setupToken) {
+                if (hasSetupSession) {
                     // Start by checking statuses using the setup token
                     statusRes = await fetch(`${apiBase}/api/connections`, {
-                        headers: { 'Authorization': `Bearer ${setupToken}` }
+                        credentials: 'include'
                     });
                 } else if (tenantIdFromServer) {
                     tenantId = tenantIdFromServer;
                     // Fallback to legacy GET if we don't have setupToken
                     statusRes = await fetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`);
                 } else {
-                    const res = await fetch(`${apiBase}/api/connect/ensure-tenant?guild_id=${encodeURIComponent(guildId)}&token=${encodeURIComponent(token)}`);
+                    const res = await fetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}`, {
+                        credentials: 'include'
+                    });
                     const data = await res.json();
                     if (data.tenantId) {
                         tenantId = data.tenantId;
-                        if (data.setupToken && !setupToken) {
-                            // Automatically switch to using the newly generated setup token
-                            window.history.replaceState({}, '', `/connect?s=${encodeURIComponent(data.setupToken)}`);
-                            statusRes = await fetch(`${apiBase}/api/connections`, {
-                                headers: { 'Authorization': `Bearer ${data.setupToken}` }
-                            });
-                        } else {
-                            statusRes = await fetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`);
-                        }
+                        statusRes = await fetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`);
                     } else {
                         document.getElementById('status').textContent = 'Error: Could not resolve or create tenant.';
                         document.getElementById('status').classList.remove('hidden');
@@ -421,7 +423,7 @@
                         if (toggle) {
                             toggle.checked = !!statusData.allowMismatchedEmails;
                             toggle.addEventListener('change', async function () {
-                                if (!setupToken) {
+                                if (!hasSetupSession) {
                                     alert('Settings can only be changed when using a secure setup link. Please restart the /creator setup command.');
                                     this.checked = !this.checked; // Revert
                                     return;
@@ -430,7 +432,8 @@
                                 try {
                                     const res = await fetch(`${apiBase}/api/connect/settings`, {
                                         method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${setupToken}` },
+                                        credentials: 'include',
+                                        headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({
                                             key: 'allowMismatchedEmails',
                                             value: this.checked
@@ -545,11 +548,22 @@
             }
         }
 
-        ensureTenantAndStatus();
+        async function bootstrapPage() {
+            if (await exchangeBootstrapTokens()) return;
+
+            if (!guildId && !tenantIdFromServer && !hasSetupSession) {
+                redirectToExpiredLinkError();
+                return;
+            }
+
+            ensureTenantAndStatus();
+        }
+
+        bootstrapPage();
         if (new URLSearchParams(window.location.search).get('gumroad') === 'connected') {
-            const cleanUrl = setupToken
-                ? window.location.pathname + '?s=' + encodeURIComponent(setupToken)
-                : window.location.pathname + '?guild_id=' + guildId + (token ? '&token=' + token : '');
+            const cleanUrl = guildId
+                ? window.location.pathname + '?guild_id=' + encodeURIComponent(guildId)
+                : window.location.pathname;
             window.history.replaceState({}, '', cleanUrl);
             setTimeout(ensureTenantAndStatus, 500);
         }
@@ -568,7 +582,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
-                    body: JSON.stringify({ guildId, token: token || undefined }),
+                    body: JSON.stringify({ guildId }),
                 });
                 const data = await res.json();
 
@@ -618,14 +632,14 @@
                 // Discord is display-only
                 if (platform === 'discord') return;
 
-                if (!tenantId && !setupToken) {
+                if (!tenantId && !hasSetupSession) {
                     alert('Please wait for the page to load.');
                     return;
                 }
 
                 // Disconnect flow
                 if (this.dataset.connected === "true") {
-                    if (!setupToken) {
+                    if (!hasSetupSession) {
                         alert('Connections can only be removed when using a secure setup link. Please restart the /creator setup command in Discord.');
                         return;
                     }
@@ -640,7 +654,7 @@
                     try {
                         const res = await fetch(`${apiBase}/api/connections?id=${conn.id}`, {
                             method: 'DELETE',
-                            headers: { 'Authorization': `Bearer ${setupToken}` }
+                            credentials: 'include'
                         });
 
                         if (res.ok) {
@@ -676,15 +690,14 @@
 
                 setTimeout(() => {
                     if (platform === 'gumroad') {
-                        if (setupToken) {
-                            window.location.href = `${apiBase}/api/connect/gumroad/begin?s=${encodeURIComponent(setupToken)}`;
-                        } else {
-                            window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
-                        }
+                        const gumroadUrl = tenantId && guildId
+                            ? `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`
+                            : `${apiBase}/api/connect/gumroad/begin`;
+                        window.location.href = gumroadUrl;
                     } else if (platform === 'jinxxy') {
-                        const jinxxyUrl = setupToken
-                            ? `${apiBase}/jinxxy-setup?s=${encodeURIComponent(setupToken)}`
-                            : `${apiBase}/jinxxy-setup?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
+                        const jinxxyUrl = tenantId && guildId
+                            ? `${apiBase}/jinxxy-setup?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`
+                            : `${apiBase}/jinxxy-setup`;
                         window.location.href = jinxxyUrl;
                     }
                 }, 400); // Give confetti a little head start
@@ -693,112 +706,6 @@
     </script>
     </div>
 
-    <script type="text/babel" data-type="module">
-        import React, { useRef, Component } from "react";
-        import { createRoot } from "react-dom/client";
-        import * as THREE from "three";
-        import { Canvas, useFrame } from "@react-three/fiber";
-        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
-        import HolographicSticker from "holographic-sticker";
-
-        class ErrorBoundary extends Component {
-            constructor(props) {
-                super(props);
-                this.state = { hasError: false, error: null };
-            }
-            static getDerivedStateFromError(error) { return { hasError: true, error }; }
-            componentDidCatch(error, errorInfo) { console.error("React Error Boundary caught an error", error, errorInfo); }
-            render() { return this.state.hasError ? null : this.props.children; }
-        }
-
-        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
-            const ref = useRef();
-            useFrame((state) => {
-                if (ref.current) {
-                    const elapsed = state.clock.getElapsedTime();
-                    const range = 240;
-                    let currentX = startX - elapsed * speed;
-                    currentX = ((currentX + 120) % range + range) % range - 120;
-                    ref.current.position.x = currentX;
-                }
-            });
-            return (
-                <group ref={ref} position={[startX, y, z]}>
-                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
-                </group>
-            );
-        }
-
-        function BackgroundSky() {
-            return (
-                <React.Fragment>
-                    <SkyImpl sunPosition={[100, 20, 100]} turbidity={0.8} rayleigh={0.5} />
-                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
-                        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#ffffff" volume={15} opacity={0.6} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
-                        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#eaebff" volume={6} opacity={0.4} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
-                        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#d3e2ff" volume={40} opacity={0.9} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
-                        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#fdfdfd" volume={35} opacity={0.7} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
-                    </Clouds>
-                </React.Fragment>
-            )
-        }
-
-        function BackgroundApp() {
-            return (
-                <ErrorBoundary>
-                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
-                        <BackgroundSky />
-                        <ambientLight intensity={Math.PI / 1.5} />
-                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
-                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
-                    </Canvas>
-                </ErrorBoundary>
-            )
-        }
-
-        const bgRoot = createRoot(document.getElementById('bg-canvas-root'));
-        bgRoot.render(<BackgroundApp />);
-
-        // Holographic Stickers
-        const HoloWrapper = ({ src, alt }) => (
-            <HolographicSticker.Root>
-                <HolographicSticker.Scene>
-                    <HolographicSticker.Card className="w-full h-full rounded-2xl bg-transparent border-none overflow-visible">
-                        <HolographicSticker.ImageLayer src={src} alt={alt} objectFit="contain" />
-                        <HolographicSticker.Pattern
-                            maskUrl={src}
-                            maskSize="contain"
-                            textureUrl="https://assets.codepen.io/605876/figma-texture.png"
-                            textureSize="300px"
-                            mixBlendMode="hard-light"
-                            opacity={0.6}>
-                            <HolographicSticker.Refraction intensity={2.5} />
-                        </HolographicSticker.Pattern>
-                    </HolographicSticker.Card>
-                </HolographicSticker.Scene>
-            </HolographicSticker.Root>
-        );
-
-        const root_holo_world_0 = document.getElementById("holo-world-0");
-        if (root_holo_world_0) {
-            createRoot(root_holo_world_0).render(<HoloWrapper src="./Icons/World.png" alt="World" />);
-        }
-        const root_holo_link_1 = document.getElementById("holo-link-1");
-        if (root_holo_link_1) {
-            createRoot(root_holo_link_1).render(<HoloWrapper src="./Icons/Link.png" alt="Link" />);
-        }
-        const root_holo_assistant_2 = document.getElementById("holo-assistant-2");
-        if (root_holo_assistant_2) {
-            createRoot(root_holo_assistant_2).render(<HoloWrapper src="./Icons/Assistant.png" alt="Assistant" />);
-        }
-
-        (function hideLoading() {
-            const overlay = document.getElementById('page-loading-overlay');
-            const content = document.getElementById('page-content');
-            if (overlay) overlay.style.display = 'none';
-            if (content) content.style.display = '';
-        })();
-    </script>
-</body>
+    </body>
 
 </html>

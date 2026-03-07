@@ -2,7 +2,7 @@
  * Connect Routes - Creator onboarding without dashboard
  *
  * Flow:
- * 1. User visits /connect?guild_id=XXX (from bot link when server not configured)
+ * 1. User visits /connect?guild_id=XXX or /connect#s=TOKEN (from bot link)
  * 2. If not logged in -> redirect to Discord OAuth with redirect_uri back to /connect
  * 3. After login -> show Connect page (Gumroad, Jinxxy, etc.)
  * 4. User clicks Done -> POST /api/connect/complete -> create tenant + guild link
@@ -15,6 +15,16 @@ import { getConvexClient, getConvexApiSecret, getConvexClientFromUrl } from '../
 import { getStateStore } from '../lib/stateStore';
 import { encrypt } from '../lib/encrypt';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
+import {
+  buildCookie,
+  clearCookie,
+  CONNECT_TOKEN_COOKIE,
+  DISCORD_ROLE_SETUP_COOKIE,
+  getCookieValue,
+  JINXXY_PENDING_WEBHOOK_PREFIX,
+  JINXXY_PENDING_WEBHOOK_TTL_MS,
+  SETUP_SESSION_COOKIE,
+} from '../lib/browserSessions';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -33,13 +43,13 @@ const DISCORD_ROLE_SETUP_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const HTML_SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy':
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://ga.jspm.io https://esm.sh; " +
+    "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://db.onlinewebfonts.com; " +
     "img-src 'self' data: blob: https:; " +
     "font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; " +
     "connect-src 'self' https: wss:; " +
-    "worker-src 'self' blob:; " +
-    "child-src 'self' blob:; " +
+    "worker-src 'self'; " +
+    "child-src 'self'; " +
     "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
@@ -79,6 +89,10 @@ function escapeForSingleQuotedJsString(value: string): string {
     .replace(/<\/script/gi, '<\\/script');
 }
 
+function toCookieAge(ms: number): number {
+  return Math.max(1, Math.ceil(ms / 1000));
+}
+
 export interface ConnectConfig {
   apiBaseUrl: string;
   frontendBaseUrl: string;
@@ -94,18 +108,134 @@ export interface ConnectConfig {
 }
 
 export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
-  const ALLOWED_SETTING_KEYS = new Set(['allowMismatchedEmails']);
+  const ALLOWED_SETTING_KEYS = new Set([
+    'allowMismatchedEmails',
+    'autoVerifyOnJoin',
+    'shareVerificationWithServers',
+    'enableDiscordRoleFromOtherServers',
+    'verificationScope',
+    'duplicateVerificationBehavior',
+    'suspiciousAccountBehavior',
+  ]);
+
+  async function getAuthenticatedDiscordUserId(request: Request): Promise<string | null> {
+    return auth.getDiscordUserId(request);
+  }
+
+  async function resolveSetupSessionFromRequest(
+    request: Request
+  ): Promise<{ tenantId: string; guildId: string; discordUserId: string } | null> {
+    const authHeader = request.headers.get('authorization');
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const cookieToken = getCookieValue(request, SETUP_SESSION_COOKIE);
+    const token = bearerToken ?? cookieToken;
+    if (!token) return null;
+    return resolveSetupSession(token, config.encryptionSecret);
+  }
+
+  async function resolveConnectDiscordUserId(
+    request: Request
+  ): Promise<string | null> {
+    const token = getCookieValue(request, CONNECT_TOKEN_COOKIE);
+    if (!token) return null;
+    const store = getStateStore();
+    const raw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as { discordUserId: string };
+    return data.discordUserId;
+  }
 
   /**
    * Helper: resolve a setup token from Authorization header (preferred) or URL ?s= (fallback).
    */
   async function resolveToken(request: Request): Promise<{ tenantId: string; guildId: string; discordUserId: string } | null> {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.startsWith('Bearer ')
-      ? authHeader.slice(7)
-      : new URL(request.url).searchParams.get('s');
-    if (!token) return null;
-    return resolveSetupSession(token, config.encryptionSecret);
+    return resolveSetupSessionFromRequest(request);
+  }
+
+  async function requireBoundSetupSession(
+    request: Request
+  ): Promise<
+    | {
+        ok: true;
+        setupSession: { tenantId: string; guildId: string; discordUserId: string };
+        authSession: NonNullable<Awaited<ReturnType<typeof auth.getSession>>>;
+        authDiscordUserId: string;
+      }
+    | { ok: false; response: Response }
+  > {
+    const setupSession = await resolveSetupSessionFromRequest(request);
+    if (!setupSession) {
+      return { ok: false, response: Response.json({ error: 'Valid setup session required' }, { status: 401 }) };
+    }
+
+    const authSession = await auth.getSession(request);
+    if (!authSession) {
+      return { ok: false, response: Response.json({ error: 'Authentication required' }, { status: 401 }) };
+    }
+
+    const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
+    if (!authDiscordUserId) {
+      return { ok: false, response: Response.json({ error: 'Discord account required' }, { status: 401 }) };
+    }
+
+    if (authDiscordUserId !== setupSession.discordUserId) {
+      logger.warn('Setup session Discord identity mismatch', {
+        expectedDiscordUserId: setupSession.discordUserId,
+        actualDiscordUserId: authDiscordUserId,
+        guildId: setupSession.guildId,
+        tenantId: setupSession.tenantId,
+      });
+      return { ok: false, response: Response.json({ error: 'This setup link belongs to a different Discord account' }, { status: 403 }) };
+    }
+
+    return { ok: true, setupSession, authSession, authDiscordUserId };
+  }
+
+  async function requireBoundDiscordRoleSetupSession(
+    request: Request
+  ): Promise<
+    | {
+        ok: true;
+        sessionToken: string;
+        roleSession: DiscordRoleSetupSession;
+        authSession: NonNullable<Awaited<ReturnType<typeof auth.getSession>>>;
+        authDiscordUserId: string;
+      }
+    | { ok: false; response: Response }
+  > {
+    const token = getCookieValue(request, DISCORD_ROLE_SETUP_COOKIE);
+    if (!token) {
+      return { ok: false, response: Response.json({ error: 'Valid setup session required' }, { status: 401 }) };
+    }
+
+    const store = getStateStore();
+    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
+    if (!raw) {
+      return { ok: false, response: Response.json({ error: 'Invalid or expired session' }, { status: 401 }) };
+    }
+
+    const authSession = await auth.getSession(request);
+    if (!authSession) {
+      return { ok: false, response: Response.json({ error: 'Authentication required' }, { status: 401 }) };
+    }
+
+    const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
+    if (!authDiscordUserId) {
+      return { ok: false, response: Response.json({ error: 'Discord account required' }, { status: 401 }) };
+    }
+
+    const roleSession = JSON.parse(raw) as DiscordRoleSetupSession;
+    if (authDiscordUserId !== roleSession.adminDiscordUserId) {
+      logger.warn('Discord role setup identity mismatch', {
+        expectedDiscordUserId: roleSession.adminDiscordUserId,
+        actualDiscordUserId: authDiscordUserId,
+        guildId: roleSession.guildId,
+        tenantId: roleSession.tenantId,
+      });
+      return { ok: false, response: Response.json({ error: 'This setup link belongs to a different Discord account' }, { status: 403 }) };
+    }
+
+    return { ok: true, sessionToken: token, roleSession, authSession, authDiscordUserId };
   }
 
   async function isTenantOwnedBySessionUser(authUserId: string, tenantId: string): Promise<boolean> {
@@ -172,7 +302,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   /**
    * GET /connect
-   * Serves the connect page. Accepts ?s=TOKEN or legacy ?guild_id=XXX.
+   * Serves the connect page. Supports fragment bootstrap handled by the browser.
    */
   async function serveConnectPage(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -185,30 +315,20 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       redirectUrl.host = frontendUrl.host;
       return Response.redirect(redirectUrl.toString(), 302);
     }
-    const setupToken = url.searchParams.get('s');
     const legacyGuildId = url.searchParams.get('guild_id');
     const legacyTenantId = url.searchParams.get('tenant_id');
-    const token = url.searchParams.get('token');
     const ott = url.searchParams.get('ott');
 
     // Resolve setup token if present
     let resolvedGuildId = legacyGuildId ?? '';
     let resolvedTenantId = legacyTenantId ?? '';
-    let resolvedSetupToken = setupToken ?? '';
+    let hasSetupSession = false;
 
-    if (setupToken) {
-      const session = await resolveSetupSession(setupToken, config.encryptionSecret);
-      if (session) {
-        resolvedGuildId = session.guildId;
-        resolvedTenantId = session.tenantId;
-        resolvedSetupToken = setupToken;
-      } else {
-        logger.warn('Invalid or expired setup token', { tokenPrefix: setupToken.slice(0, 8) + '...' });
-      }
-    }
-
-    if (!resolvedGuildId && !resolvedTenantId && !setupToken) {
-      return new Response('Missing setup token or guild_id', { status: 400 });
+    const setupSession = await resolveSetupSessionFromRequest(request);
+    if (setupSession) {
+      resolvedGuildId = setupSession.guildId;
+      resolvedTenantId = setupSession.tenantId;
+      hasSetupSession = true;
     }
 
     // Step 1: If we have a one-time-token (from OAuth callback), exchange it for a session.
@@ -226,15 +346,18 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       logger.warn('OTT exchange failed, showing sign-in page', { guildId: resolvedGuildId });
     }
 
-    // Step 2: Check for existing session (skip if setup token already authenticated us).
-    const hasValidSetupToken = !!(setupToken && resolvedTenantId);
-    const session = hasValidSetupToken ? null : await auth.getSession(request);
+    // Step 2: Check for existing session and bind any setup session to the signed-in Discord account.
+    const session = await auth.getSession(request);
+    if (hasSetupSession && session) {
+      const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
+      if (!authDiscordUserId || authDiscordUserId !== setupSession!.discordUserId) {
+        return new Response('This setup link belongs to a different Discord account.', { status: 403 });
+      }
+    }
 
-    if (!session && !hasValidSetupToken) {
+    if (!session) {
       // Build callback URL preserving the setup token
-      const callbackParams = setupToken
-        ? `s=${encodeURIComponent(setupToken)}`
-        : `guild_id=${encodeURIComponent(resolvedGuildId)}${resolvedTenantId ? '&tenant_id=' + encodeURIComponent(resolvedTenantId) : ''}`;
+      const callbackParams = `guild_id=${encodeURIComponent(resolvedGuildId)}${resolvedTenantId ? '&tenant_id=' + encodeURIComponent(resolvedTenantId) : ''}`;
       const callbackUrl = `${config.frontendBaseUrl}/connect?${callbackParams}`;
       const filePath = `${import.meta.dir}/../../public/sign-in-redirect.html`;
       let html = await Bun.file(filePath).text();
@@ -243,7 +366,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         requestUrl: request.url,
         guildId: resolvedGuildId || undefined,
         tenantId: resolvedTenantId || undefined,
-        hasSetupToken: Boolean(setupToken),
+        hasSetupToken: hasSetupSession,
         frontendBaseUrl: config.frontendBaseUrl,
         apiBaseUrl: config.apiBaseUrl,
         callbackUrl,
@@ -266,9 +389,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     let html = await file.text();
     const templateValues: Record<string, string> = {
       '__GUILD_ID__': resolvedGuildId,
-      '__TOKEN__': token ?? '',
+      '__TOKEN__': '',
       '__API_BASE__': apiBase,
-      '__SETUP_TOKEN__': resolvedSetupToken,
+      '__SETUP_TOKEN__': '',
+      '__HAS_SETUP_SESSION__': hasSetupSession ? 'true' : 'false',
       '__TENANT_ID__': resolvedTenantId,
     };
     for (const [placeholder, rawValue] of Object.entries(templateValues)) {
@@ -278,6 +402,71 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
+  }
+
+  /**
+   * POST /api/connect/bootstrap
+   * Exchanges a fragment-delivered setup/connect token into an HTTP-only cookie.
+   */
+  async function exchangeConnectBootstrap(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    let body: { setupToken?: string; connectToken?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const setupToken = body.setupToken?.trim();
+    const connectToken = body.connectToken?.trim();
+
+    if ((!setupToken && !connectToken) || (setupToken && connectToken)) {
+      return Response.json({ error: 'Provide exactly one token' }, { status: 400 });
+    }
+
+    if (setupToken) {
+      const session = await resolveSetupSession(setupToken, config.encryptionSecret);
+      if (!session) {
+        return Response.json({ error: 'Invalid or expired setup token' }, { status: 401 });
+      }
+
+      return Response.json(
+        { success: true },
+        {
+          headers: {
+            'Set-Cookie': buildCookie(
+              SETUP_SESSION_COOKIE,
+              setupToken,
+              request,
+              toCookieAge(60 * 60 * 1000),
+            ),
+          },
+        },
+      );
+    }
+
+    const store = getStateStore();
+    const raw = await store.get(`${CONNECT_TOKEN_PREFIX}${connectToken}`);
+    if (!raw) {
+      return Response.json({ error: 'Invalid or expired connect token' }, { status: 401 });
+    }
+
+    return Response.json(
+      { success: true },
+      {
+        headers: {
+          'Set-Cookie': buildCookie(
+            CONNECT_TOKEN_COOKIE,
+            connectToken!,
+            request,
+            toCookieAge(TOKEN_EXPIRY_MS),
+          ),
+        },
+      },
+    );
   }
 
   /**
@@ -294,33 +483,30 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    let body: { guildId: string; token?: string };
+    let body: { guildId: string };
     try {
       body = (await request.json()) as { guildId: string; token?: string };
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const { guildId, token } = body;
+    const { guildId } = body;
     if (!guildId) {
       return Response.json({ error: 'guildId is required' }, { status: 400 });
     }
 
-    let discordUserId: string | null = null;
-    if (token) {
-      const store = getStateStore();
-      const raw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
-      if (raw) {
-        await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
-        const data = JSON.parse(raw) as { discordUserId: string };
-        discordUserId = data.discordUserId;
-      }
+    const connectDiscordUserId = await resolveConnectDiscordUserId(request);
+    const sessionDiscordUserId = await getAuthenticatedDiscordUserId(request);
+    if (connectDiscordUserId && sessionDiscordUserId && connectDiscordUserId !== sessionDiscordUserId) {
+      logger.warn('Connect token Discord identity mismatch', {
+        expectedDiscordUserId: connectDiscordUserId,
+        actualDiscordUserId: sessionDiscordUserId,
+        guildId,
+      });
+      return Response.json({ error: 'This setup link belongs to a different Discord account' }, { status: 403 });
     }
 
-    // Fallback: get Discord ID from the Better Auth linked accounts
-    if (!discordUserId) {
-      discordUserId = await auth.getDiscordUserId(request);
-    }
+    let discordUserId: string | null = connectDiscordUserId ?? sessionDiscordUserId;
 
     const convex = getConvexClient();
     const apiSecret = getConvexApiSecret();
@@ -365,7 +551,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         authUserId: session.user.id,
       });
 
-      return Response.json({ success: true, tenantId });
+      const headers = new Headers();
+      headers.append('Set-Cookie', clearCookie(CONNECT_TOKEN_COOKIE, request));
+      return new Response(JSON.stringify({ success: true, tenantId }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'Set-Cookie': headers.get('Set-Cookie')! },
+      });
     } catch (err) {
       logger.error('Connect complete failed', {
         error: err instanceof Error ? err.message : String(err),
@@ -398,28 +589,26 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     const url = new URL(request.url);
-    const guildId = url.searchParams.get('guildId');
-    const token = url.searchParams.get('token');
+    const guildId = url.searchParams.get('guildId') ?? url.searchParams.get('guild_id');
 
     if (!guildId) {
       return Response.json({ error: 'guildId is required' }, { status: 400 });
     }
 
-    let discordUserId: string | null = null;
     const convex = getConvexClient();
 
-    if (token) {
-      const store = getStateStore();
-      const raw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
-      if (raw) {
-        await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
-        const data = JSON.parse(raw) as { discordUserId: string };
-        discordUserId = data.discordUserId;
-      }
-    } else if (session?.user?.id) {
-      // Look up the linked Discord account via the Better Auth API (cross-domain pattern)
-      discordUserId = await auth.getDiscordUserId(request);
+    const connectDiscordUserId = await resolveConnectDiscordUserId(request);
+    const sessionDiscordUserId = await getAuthenticatedDiscordUserId(request);
+    if (connectDiscordUserId && sessionDiscordUserId && connectDiscordUserId !== sessionDiscordUserId) {
+      logger.warn('Ensure tenant connect token Discord identity mismatch', {
+        expectedDiscordUserId: connectDiscordUserId,
+        actualDiscordUserId: sessionDiscordUserId,
+        guildId,
+      });
+      return Response.json({ error: 'This setup link belongs to a different Discord account' }, { status: 403 });
     }
+
+    let discordUserId: string | null = connectDiscordUserId ?? sessionDiscordUserId;
 
     const apiSecret = getConvexApiSecret();
     const existing = await convex.query('tenants:getTenantByOwnerAuth' as any, {
@@ -478,23 +667,22 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const url = new URL(request.url);
     let tenantId = url.searchParams.get('tenantId');
     let guildId = url.searchParams.get('guildId');
-    const setupToken = url.searchParams.get('s');
 
-    // Accept either a browser session OR a valid setup token as authentication
-    const session = await auth.getSession(request);
-    let authenticatedViaSetupToken = false;
-
-    if (setupToken) {
-      const resolved = await resolveSetupSession(setupToken, config.encryptionSecret);
-      if (resolved) {
-        tenantId = tenantId || resolved.tenantId;
-        guildId = guildId || resolved.guildId;
-        authenticatedViaSetupToken = true;
-      }
+    const setupBinding = await requireBoundSetupSession(request);
+    const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
+    const session = setupBinding.ok ? setupBinding.authSession : await auth.getSession(request);
+    const authenticatedViaSetupToken = Boolean(setupSession);
+    if (setupSession) {
+      tenantId = tenantId || setupSession.tenantId;
+      guildId = guildId || setupSession.guildId;
     }
 
     if (!session && !authenticatedViaSetupToken) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    const hasSetupSession = Boolean(await resolveSetupSessionFromRequest(request));
+    if (!setupBinding.ok && hasSetupSession) {
+      return setupBinding.response;
     }
 
     if (!tenantId || !guildId || !config.gumroadClientId || !config.gumroadClientSecret) {
@@ -515,7 +703,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const store = getStateStore();
     await store.set(
       `${GUMROAD_STATE_PREFIX}${state}`,
-      JSON.stringify({ tenantId, guildId, setupToken: setupToken ?? '' }),
+      JSON.stringify({ tenantId, guildId, setupToken: getCookieValue(request, SETUP_SESSION_COOKIE) ?? '' }),
       GUMROAD_STATE_EXPIRY_MS
     );
 
@@ -656,9 +844,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         }
       }
 
-      const redirectUrl = storedSetupToken
-        ? `${config.frontendBaseUrl}/connect?s=${encodeURIComponent(storedSetupToken)}&gumroad=connected`
-        : `${config.frontendBaseUrl}/connect?guild_id=${guildId}&gumroad=connected`;
+      const redirectParams = new URLSearchParams();
+      if (guildId) redirectParams.set('guild_id', guildId);
+      redirectParams.set('gumroad', 'connected');
+      const redirectUrl = `${config.frontendBaseUrl}/connect?${redirectParams.toString()}`;
       return Response.redirect(redirectUrl, 302);
     } catch (err) {
       logger.error('Gumroad callback failed', {
@@ -709,19 +898,17 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   /**
    * GET /api/connect/jinxxy/webhook-config?tenantId=XXX
-   * Returns { callbackUrl, signingSecret }.
+   * Returns { callbackUrl }.
+   * POST /api/connect/jinxxy/webhook-config
+   * Body: { tenantId?, webhookSecret }
+   * Stores a pending encrypted webhook secret for test delivery.
    */
   async function jinxxyWebhookConfig(request: Request): Promise<Response> {
     const url = new URL(request.url);
     let tenantId: string | null = null;
-    const setupToken = url.searchParams.get('s');
-
-    if (setupToken) {
-      const setupSession = await resolveSetupSession(setupToken, config.encryptionSecret);
-      if (!setupSession) {
-        return Response.json({ error: 'Invalid or expired setup token' }, { status: 401 });
-      }
-      tenantId = setupSession.tenantId;
+    const setupBinding = await requireBoundSetupSession(request);
+    if (setupBinding.ok) {
+      tenantId = setupBinding.setupSession.tenantId;
     } else {
       const session = await auth.getSession(request);
       if (!session) {
@@ -739,16 +926,36 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const configResult = await convex.mutation(
-        'providerConnections:getOrCreateJinxxyWebhookConfig' as any,
-        {
-          apiSecret: config.convexApiSecret,
-          tenantId,
-          baseUrl: config.apiBaseUrl,
-        }
+      const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${tenantId}`;
+      if (request.method === 'GET') {
+        return Response.json({ callbackUrl });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405 });
+      }
+
+      let body: { webhookSecret?: string };
+      try {
+        body = (await request.json()) as { webhookSecret?: string };
+      } catch {
+        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+      }
+
+      const webhookSecret = body.webhookSecret?.trim();
+      if (!webhookSecret || webhookSecret.length < 16) {
+        return Response.json({ error: 'Webhook secret must be at least 16 characters' }, { status: 400 });
+      }
+
+      const store = getStateStore();
+      await store.set(
+        `${JINXXY_PENDING_WEBHOOK_PREFIX}${tenantId}`,
+        JSON.stringify({
+          callbackUrl,
+          signingSecretEncrypted: await encrypt(webhookSecret, config.encryptionSecret),
+        }),
+        JINXXY_PENDING_WEBHOOK_TTL_MS
       );
-      return Response.json(configResult);
+      return Response.json({ success: true });
     } catch (err) {
       logger.error('Jinxxy webhook config failed', {
         error: err instanceof Error ? err.message : String(err),
@@ -767,12 +974,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   async function jinxxyTestWebhook(request: Request): Promise<Response> {
     const url = new URL(request.url);
     let tenantId = url.searchParams.get('tenantId');
-    const setupToken = url.searchParams.get('s');
+    const setupBinding = await requireBoundSetupSession(request);
 
-    if (setupToken) {
-      const session = await resolveSetupSession(setupToken, config.encryptionSecret);
-      if (session) tenantId = session.tenantId;
-      else return Response.json({ error: 'Invalid or expired setup token' }, { status: 401 });
+    if (setupBinding.ok) {
+      tenantId = setupBinding.setupSession.tenantId;
     } else {
       const session = await auth.getSession(request);
       if (!session) {
@@ -798,45 +1003,75 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   /**
    * POST /api/connect/jinxxy-store
-   * Body: { tenantId, apiKey, webhookSecret, callbackUrl }
+   * Body: { tenantId?, apiKey }
    */
   async function jinxxyStore(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
 
-    const session = await auth.getSession(request);
-    if (!session) {
+    const setupBinding = await requireBoundSetupSession(request);
+    const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
+    const authSession = setupBinding.ok ? setupBinding.authSession : await auth.getSession(request);
+    if (!authSession && !setupSession) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    let body: { tenantId: string; apiKey: string; webhookSecret?: string; callbackUrl?: string };
+    let body: { tenantId?: string; apiKey: string; webhookSecret?: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const { tenantId, apiKey, webhookSecret, callbackUrl } = body;
+    const tenantId = setupSession?.tenantId ?? body.tenantId ?? null;
+    const { apiKey } = body;
     if (!tenantId || !apiKey) {
       return Response.json({ error: 'tenantId and apiKey are required' }, { status: 400 });
     }
 
-    const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
-    if (!tenantOwned) {
-      return Response.json({ error: 'Forbidden' }, { status: 403 });
+    if (!setupSession) {
+      if (!authSession) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, tenantId);
+      if (!tenantOwned) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      }
     }
 
     try {
       const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret);
+      const store = getStateStore();
+      const pendingWebhookRaw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${tenantId}`);
+      let webhookSecretRef: string | undefined;
+      let webhookEndpoint: string | undefined;
+      if (pendingWebhookRaw) {
+        const pendingWebhook = JSON.parse(pendingWebhookRaw) as { callbackUrl: string; signingSecretEncrypted: string };
+        webhookSecretRef = pendingWebhook.signingSecretEncrypted;
+        webhookEndpoint = pendingWebhook.callbackUrl;
+      } else {
+        const webhookSecret = body.webhookSecret?.trim();
+        if (!webhookSecret || webhookSecret.length < 16) {
+          return Response.json(
+            { error: 'Webhook secret is required and must be at least 16 characters' },
+            { status: 400 }
+          );
+        }
+        webhookSecretRef = await encrypt(webhookSecret, config.encryptionSecret);
+        webhookEndpoint = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${tenantId}`;
+      }
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation('providerConnections:upsertJinxxyConnection' as any, {
         apiSecret: config.convexApiSecret,
         tenantId,
         jinxxyApiKeyEncrypted: apiKeyEncrypted,
-        webhookSecretRef: webhookSecret,
-        webhookEndpoint: callbackUrl,
+        webhookSecretRef,
+        webhookEndpoint,
       });
+      if (pendingWebhookRaw) {
+        await store.delete(`${JINXXY_PENDING_WEBHOOK_PREFIX}${tenantId}`);
+      }
       return Response.json({ success: true });
     } catch (err) {
       logger.error('Jinxxy store failed', {
@@ -857,10 +1092,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (request.method !== 'GET' && request.method !== 'DELETE') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const session = await resolveToken(request);
-    if (!session) {
-      return Response.json({ error: 'Valid setup token required' }, { status: 401 });
+    const setupBinding = await requireBoundSetupSession(request);
+    if (!setupBinding.ok) {
+      return setupBinding.response;
     }
+    const session = setupBinding.setupSession;
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const result = await convex.query('providerConnections:listConnections' as any, {
@@ -882,10 +1118,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (request.method !== 'DELETE') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const session = await resolveToken(request);
-    if (!session) {
-      return Response.json({ error: 'Valid setup token required' }, { status: 401 });
+    const setupBinding = await requireBoundSetupSession(request);
+    if (!setupBinding.ok) {
+      return setupBinding.response;
     }
+    const session = setupBinding.setupSession;
     const url = new URL(request.url);
     const connectionId = url.searchParams.get('id');
     if (!connectionId) {
@@ -910,10 +1147,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Returns the current tenant policy settings.
    */
   async function getSettingsHandler(request: Request): Promise<Response> {
-    const session = await resolveToken(request);
-    if (!session) {
-      return Response.json({ error: 'Valid setup token required' }, { status: 401 });
+    const setupBinding = await requireBoundSetupSession(request);
+    if (!setupBinding.ok) {
+      return setupBinding.response;
     }
+    const session = setupBinding.setupSession;
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const tenant = await convex.query('tenants:getTenant' as any, {
@@ -935,10 +1173,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const session = await resolveToken(request);
-    if (!session) {
-      return Response.json({ error: 'Valid setup token required' }, { status: 401 });
+    const setupBinding = await requireBoundSetupSession(request);
+    if (!setupBinding.ok) {
+      return setupBinding.response;
     }
+    const session = setupBinding.setupSession;
 
     let body: { key: string; value: any };
     try {
@@ -1005,17 +1244,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * GET /api/setup/discord-role-oauth/begin?s={token}
+   * GET /api/setup/discord-role-oauth/begin
    * Redirects admin to Discord OAuth with guilds scope.
    */
   async function discordRoleOAuthBegin(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const token = url.searchParams.get('s');
-    if (!token) return Response.json({ error: 'Missing token' }, { status: 400 });
+    const binding = await requireBoundDiscordRoleSetupSession(request);
+    if (!binding.ok) return binding.response;
 
+    const { sessionToken: token } = binding;
     const store = getStateStore();
-    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
-    if (!raw) return Response.json({ error: 'Invalid or expired session' }, { status: 401 });
 
     const state = `${token}:${generateSecureRandom(16)}`;
     await store.set(`${DISCORD_ROLE_OAUTH_STATE_PREFIX}${state}`, token, DISCORD_ROLE_SETUP_TTL_MS);
@@ -1073,12 +1310,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       if (!tokenRes.ok) {
         logger.error('Discord role OAuth token exchange failed', { status: tokenRes.status });
-        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=token_exchange_failed`, 302);
+        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=token_exchange_failed`, 302);
       }
 
       const tokens = (await tokenRes.json()) as { access_token?: string };
       if (!tokens.access_token) {
-        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=no_token`, 302);
+        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=no_token`, 302);
       }
 
       const guildsRes = await fetch('https://discord.com/api/users/@me/guilds', {
@@ -1086,39 +1323,41 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
 
       if (!guildsRes.ok) {
-        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=guilds_fetch_failed`, 302);
+        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=guilds_fetch_failed`, 302);
       }
 
       const guilds = (await guildsRes.json()) as Array<{ id: string; name: string; icon: string | null; owner: boolean; permissions: string }>;
 
       const session = JSON.parse(raw) as DiscordRoleSetupSession;
+      const currentDiscordUserId = await getAuthenticatedDiscordUserId(request);
+      if (!currentDiscordUserId || currentDiscordUserId !== session.adminDiscordUserId) {
+        logger.warn('Discord role OAuth callback identity mismatch', {
+          expectedDiscordUserId: session.adminDiscordUserId,
+          actualDiscordUserId: currentDiscordUserId,
+          guildId: session.guildId,
+          tenantId: session.tenantId,
+        });
+        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=account_mismatch`, 302);
+      }
       session.guilds = guilds.sort((a, b) => a.name.localeCompare(b.name));
       await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${setupToken}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
 
-      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}`, 302);
+      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup`, 302);
     } catch (err) {
       logger.error('Discord role OAuth callback failed', { error: err instanceof Error ? err.message : String(err) });
-      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?s=${encodeURIComponent(setupToken)}&error=internal_error`, 302);
+      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=internal_error`, 302);
     }
   }
 
   /**
-   * GET /api/setup/discord-role-guilds?s={token}
+   * GET /api/setup/discord-role-guilds
    * Returns the stored guild list for this session.
    */
   async function getDiscordRoleGuilds(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.startsWith('Bearer ')
-      ? authHeader.slice(7)
-      : url.searchParams.get('s');
-    if (!token) return Response.json({ error: 'Missing token' }, { status: 400 });
+    const binding = await requireBoundDiscordRoleSetupSession(request);
+    if (!binding.ok) return binding.response;
 
-    const store = getStateStore();
-    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
-    if (!raw) return Response.json({ error: 'Invalid or expired session' }, { status: 401 });
-
-    const session = JSON.parse(raw) as DiscordRoleSetupSession;
+    const session = binding.roleSession;
     return Response.json({
       guilds: session.guilds ?? null,
       completed: session.completed,
@@ -1130,47 +1369,43 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   /**
    * POST /api/setup/discord-role-save
    * Saves the admin's chosen sourceGuildId and sourceRoleId.
-   * Body: { s: token, sourceGuildId, sourceRoleId }
+   * Uses the setup session cookie or an Authorization bearer token.
    */
   async function saveDiscordRoleSelection(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    let body: { s?: string; sourceGuildId: string; sourceRoleId: string };
+    let body: { sourceGuildId: string; sourceRoleId: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.startsWith('Bearer ')
-      ? authHeader.slice(7)
-      : (body.s ?? null);
     const { sourceGuildId, sourceRoleId } = body;
-    if (!token || !sourceGuildId || !sourceRoleId) {
-      return Response.json({ error: 'token, sourceGuildId, and sourceRoleId are required' }, { status: 400 });
+    if (!sourceGuildId || !sourceRoleId) {
+      return Response.json({ error: 'sourceGuildId and sourceRoleId are required' }, { status: 400 });
     }
 
-    const store = getStateStore();
-    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
-    if (!raw) return Response.json({ error: 'Invalid or expired session' }, { status: 401 });
+    const binding = await requireBoundDiscordRoleSetupSession(request);
+    if (!binding.ok) return binding.response;
 
-    const session = JSON.parse(raw) as DiscordRoleSetupSession;
+    const store = getStateStore();
+    const session = binding.roleSession;
     session.sourceGuildId = sourceGuildId;
     session.sourceRoleId = sourceRoleId;
     session.completed = true;
-    await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${token}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
+    await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${binding.sessionToken}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
 
     return Response.json({ success: true });
   }
 
   /**
-   * GET /api/setup/discord-role-result?s={token}
+   * GET /api/setup/discord-role-result
    * Called by the bot's "Done" button handler. Returns the saved selection if complete.
    */
   async function getDiscordRoleResult(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const token = url.searchParams.get('s');
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return Response.json({ error: 'Missing token' }, { status: 400 });
 
     const store = getStateStore();
@@ -1187,8 +1422,42 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     return Response.json({ completed: true, sourceGuildId: session.sourceGuildId, sourceRoleId: session.sourceRoleId });
   }
 
+  /**
+   * POST /api/setup/discord-role-session/exchange
+   * Exchanges a fragment-delivered setup token into an HTTP-only cookie.
+   */
+  async function exchangeDiscordRoleSetupSession(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    let body: { token?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const token = body.token?.trim();
+    if (!token) return Response.json({ error: 'Missing token' }, { status: 400 });
+
+    const store = getStateStore();
+    const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
+    if (!raw) return Response.json({ error: 'Invalid or expired session' }, { status: 401 });
+
+    return Response.json(
+      { success: true },
+      {
+        headers: {
+          'Set-Cookie': buildCookie(DISCORD_ROLE_SETUP_COOKIE, token, request, 30 * 60),
+        },
+      },
+    );
+  }
+
   return {
     serveConnectPage,
+    exchangeConnectBootstrap,
     createSessionEndpoint,
     createTokenEndpoint,
     completeSetup,
@@ -1204,6 +1473,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     getSettingsHandler,
     updateSettingHandler,
     createDiscordRoleSession,
+    exchangeDiscordRoleSetupSession,
     discordRoleOAuthBegin,
     discordRoleOAuthCallback,
     getDiscordRoleGuilds,

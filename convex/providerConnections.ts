@@ -268,71 +268,6 @@ export const upsertGumroadConnection = mutation({
 });
 
 /**
- * Get or create Jinxxy webhook config (callback URL, signing secret).
- * Generates a new signing secret if none exists.
- */
-export const getOrCreateJinxxyWebhookConfig = mutation({
-  args: {
-    apiSecret: v.string(),
-    tenantId: v.id('tenants'),
-    baseUrl: v.string(),
-  },
-  returns: v.object({
-    callbackUrl: v.string(),
-    signingSecret: v.string(),
-  }),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    const now = Date.now();
-    const existing = await ctx.db
-      .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', 'jinxxy')
-      )
-      .first();
-
-    const callbackUrl = `${args.baseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${args.tenantId}`;
-
-    if (existing?.webhookSecretRef && existing.webhookSecretRef.length <= 40) {
-      return {
-        callbackUrl,
-        signingSecret: existing.webhookSecretRef,
-      };
-    }
-
-    // 14 random bytes = 28 hex chars + "whsec_yucp_" (11 chars) = 39 chars total (under 40 limit)
-    const randomPart = Array.from(crypto.getRandomValues(new Uint8Array(14)))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    const signingSecret = `whsec_yucp_${randomPart}`;
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        webhookSecretRef: signingSecret,
-        webhookEndpoint: callbackUrl,
-        webhookConfigured: false,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert('provider_connections', {
-        tenantId: args.tenantId,
-        provider: 'jinxxy',
-        label: 'Jinxxy Store',
-        connectionType: 'setup',
-        status: 'active',
-        webhookSecretRef: signingSecret,
-        webhookEndpoint: callbackUrl,
-        webhookConfigured: false,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    return { callbackUrl, signingSecret };
-  },
-});
-
-/**
  * Upsert Jinxxy provider connection (API key, webhook secret).
  * Called from Discord setup when creator configures Jinxxy.
  */
@@ -360,6 +295,7 @@ export const upsertJinxxyConnection = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
+        status: 'active',
         jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted ?? existing.jinxxyApiKeyEncrypted,
         webhookSecretRef: args.webhookSecretRef ?? existing.webhookSecretRef,
         webhookEndpoint: args.webhookEndpoint ?? existing.webhookEndpoint,

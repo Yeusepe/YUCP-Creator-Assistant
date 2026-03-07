@@ -13,6 +13,7 @@
 
 import { createLogger } from '@yucp/shared';
 import { GumroadAdapter } from '@yucp/providers';
+import { JINXXY_PENDING_WEBHOOK_PREFIX } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt } from '../lib/encrypt';
 import { getStateStore } from '../lib/stateStore';
@@ -82,10 +83,28 @@ export function createWebhookRoutes(config: WebhookConfig) {
 
   async function getJinxxyWebhookSecret(tenantId: string): Promise<string | null> {
     try {
-      return await convex.query(
+      const secretRef = await convex.query(
         'providerConnections:getJinxxyWebhookSecret' as any,
         { apiSecret, tenantId }
       );
+      if (!secretRef) return null;
+      try {
+        return await decrypt(secretRef, encryptionSecret);
+      } catch {
+        return secretRef;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  async function getPendingJinxxyWebhookSecret(tenantId: string): Promise<string | null> {
+    try {
+      const store = getStateStore();
+      const raw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${tenantId}`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { signingSecretEncrypted: string };
+      return await decrypt(parsed.signingSecretEncrypted, encryptionSecret);
     } catch {
       return null;
     }
@@ -345,7 +364,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       });
       const signature = request.headers.get('x-signature');
 
-      const webhookSecret = await getJinxxyWebhookSecret(tenantId);
+      const webhookSecret = await getJinxxyWebhookSecret(tenantId) ?? await getPendingJinxxyWebhookSecret(tenantId);
       let signatureValid = false;
 
       if (webhookSecret && signature) {

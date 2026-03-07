@@ -5,8 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
-    <title>Discord Role Setup | YUCP</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Discord Role Setup | Creator Assistant</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
@@ -283,29 +282,15 @@
         .animate-in { animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
     </style>
 
-    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
-    <script type="importmap">
-    {
-        "imports": {
-            "react": "https://esm.sh/react@18.2.0",
-            "react-dom": "https://esm.sh/react-dom@18.2.0",
-            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            "three": "https://esm.sh/three@0.160.0",
-            "troika-three-utils": "https://unpkg.com/troika-three-utils@0.47.2/dist/troika-three-utils.esm.js",
-            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
-            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12",
-            "holographic-sticker": "https://esm.sh/holographic-sticker@1.0.4?deps=react@18.2.0,react-dom@18.2.0"
-        }
-    }
-    </script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="stylesheet" href="/assets/site/site.css">
+    <script type="module" src="/assets/site/site.js"></script>
 </head>
 
 <body class="flex items-center justify-center p-6" style="min-height:100vh;">
 
     <!-- Loading overlay -->
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center" style="background-color: var(--bg-color);">
-        <img src="Icons/MainLogo.png" alt="YUCP" class="h-10 mb-8">
+        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8">
         <div class="page-loading-spinner"></div>
         <p class="mt-4 text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Loading...</p>
     </div>
@@ -319,7 +304,7 @@
 
             <!-- Header -->
             <div class="text-center mb-8">
-                <img src="Icons/MainLogo.png" alt="YUCP" class="h-8 mx-auto mb-5 opacity-90">
+                <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-8 mx-auto mb-5 opacity-90">
                 <div class="inline-flex items-center gap-2.5 bg-[#5865F2]/20 border border-[#5865F2]/30 rounded-full px-4 py-1.5 mb-4">
                     <svg class="w-4 h-4 text-[#7289da]" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.032.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
@@ -363,9 +348,7 @@
                 </div>
 
                 <a id="discord-oauth-link" href="#" class="btn-discord">
-                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.032.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
-                    </svg>
+                    <img src="Icons/Discord.png" width="20" height="20" alt="">
                     Continue with Discord
                 </a>
 
@@ -477,13 +460,7 @@
 
     <script>
         const API_BASE = '__API_BASE__';
-        const SETUP_TOKEN = '__SETUP_TOKEN__';
-
-        if (SETUP_TOKEN && window.history.replaceState) {
-            const clean = new URL(window.location.href);
-            clean.searchParams.delete('s');
-            window.history.replaceState({}, document.title, clean.toString());
-        }
+        const HAS_SETUP_SESSION = '__HAS_SETUP_SESSION__' === 'true';
 
         function showStep(id) {
             document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
@@ -529,9 +506,38 @@
             box.style.display = 'flex';
         }
 
+        function redirectToExpiredLinkError() {
+            const errorUrl = new URL(`${API_BASE}/verify-error`, window.location.origin);
+            errorUrl.searchParams.set('error', 'link_expired');
+            window.location.replace(errorUrl.toString());
+        }
+
         async function init() {
-            if (!SETUP_TOKEN) {
-                showStep('step-error');
+            const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+            const hashToken = hash.get('s');
+            if (hashToken) {
+                try {
+                    const res = await fetch(`${API_BASE}/api/setup/discord-role-session/exchange`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: hashToken }),
+                    });
+                    if (!res.ok) {
+                        redirectToExpiredLinkError();
+                        return;
+                    }
+                    window.history.replaceState({}, '', window.location.pathname + window.location.search);
+                    window.location.reload();
+                    return;
+                } catch {
+                    redirectToExpiredLinkError();
+                    return;
+                }
+            }
+
+            if (!HAS_SETUP_SESSION) {
+                redirectToExpiredLinkError();
                 return;
             }
 
@@ -541,15 +547,15 @@
             let session;
             try {
                 const res = await fetch(`${API_BASE}/api/setup/discord-role-guilds`, {
-                    headers: { 'Authorization': `Bearer ${SETUP_TOKEN}` }
+                    credentials: 'include'
                 });
                 if (!res.ok) {
-                    showStep('step-error');
+                    redirectToExpiredLinkError();
                     return;
                 }
                 session = await res.json();
             } catch {
-                showStep('step-error');
+                redirectToExpiredLinkError();
                 return;
             }
 
@@ -565,7 +571,7 @@
                 if (error) showPickError(getErrorMessage(error));
                 showStep('step-pick');
             } else {
-                const oauthLink = `${API_BASE}/api/setup/discord-role-oauth/begin?s=${encodeURIComponent(SETUP_TOKEN)}`;
+                const oauthLink = `${API_BASE}/api/setup/discord-role-oauth/begin`;
                 document.getElementById('discord-oauth-link').href = oauthLink;
                 if (error) showSigninError(getErrorMessage(error));
                 showStep('step-signin');
@@ -604,7 +610,8 @@
             try {
                 const res = await fetch(`${API_BASE}/api/setup/discord-role-save`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SETUP_TOKEN}` },
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sourceGuildId: guildId, sourceRoleId: roleId }),
                 });
                 const data = await res.json();
@@ -629,64 +636,6 @@
         init();
     </script>
 
-    <script type="text/babel" data-type="module">
-        import React, { useRef, Component } from "react";
-        import { createRoot } from "react-dom/client";
-        import * as THREE from "three";
-        import { Canvas, useFrame } from "@react-three/fiber";
-        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
-
-        class ErrorBoundary extends Component {
-            constructor(props) { super(props); this.state = { hasError: false }; }
-            static getDerivedStateFromError() { return { hasError: true }; }
-            componentDidCatch(e, i) { console.error("React Error Boundary", e, i); }
-            render() { return this.state.hasError ? null : this.props.children; }
-        }
-
-        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
-            const ref = useRef();
-            useFrame((state) => {
-                if (ref.current) {
-                    const elapsed = state.clock.getElapsedTime();
-                    const range = 240;
-                    let currentX = startX - elapsed * speed;
-                    currentX = ((currentX + 120) % range + range) % range - 120;
-                    ref.current.position.x = currentX;
-                }
-            });
-            return (
-                <group ref={ref} position={[startX, y, z]}>
-                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
-                </group>
-            );
-        }
-
-        function BackgroundApp() {
-            return (
-                <ErrorBoundary>
-                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
-                        <SkyImpl sunPosition={[100, 20, 100]} turbidity={0.8} rayleigh={0.5} />
-                        <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
-                            <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#ffffff" volume={15} opacity={0.6} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
-                            <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#eaebff" volume={6} opacity={0.4} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
-                            <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#d3e2ff" volume={40} opacity={0.9} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
-                            <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#fdfdfd" volume={35} opacity={0.7} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
-                        </Clouds>
-                        <ambientLight intensity={Math.PI / 1.5} />
-                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
-                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
-                    </Canvas>
-                </ErrorBoundary>
-            );
-        }
-
-        createRoot(document.getElementById('bg-canvas-root')).render(<BackgroundApp />);
-
-        (function hideLoading() {
-            document.getElementById('page-loading-overlay').style.display = 'none';
-            document.getElementById('page-content').style.display = '';
-        })();
-    </script>
-</body>
+    </body>
 
 </html>

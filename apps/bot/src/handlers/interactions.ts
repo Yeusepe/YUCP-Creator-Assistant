@@ -50,7 +50,7 @@ async function getNotConfiguredMessage(guildId: string, discordUserId: string, a
         });
         if (res.ok) {
           const { token } = await res.json() as { token: string };
-          return `This server is not configured. [Sign in to configure](${apiBase}/connect?guild_id=${guildId}&token=${token})`;
+          return `This server is not configured. [Sign in to configure](${apiBase}/connect?guild_id=${guildId}#token=${token})`;
         }
       } catch (e) {
         logger.error('Failed to generate secure connect token', { error: e });

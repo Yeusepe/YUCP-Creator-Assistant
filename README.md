@@ -33,18 +33,41 @@ Use this repo as a reference for architecture, integration patterns, and impleme
 - **Convex backend**: Persistent state, tenant and guild links, webhook ingestion, provider connection storage.
 - **Role sync**: Timed service that keeps Discord roles in sync with verification state.
 - **Policy engine**: Evaluates entitlement requests and returns deny decisions with remediation instructions.
+- **Liened Downloads**: Role-gated file delivery in Discord. Files posted in configured channels are secured and replaced with a Download button; only members with the required roles can access them. Supports FBX, Unity packages, archives, and Substance files. Includes backfill for existing messages and Autofix for forum posts.
+- **Collaborators**: Invite other creators to share their Jinxxy API key for cross-store license verification. Buyers from both stores get verified in your Discord. Invite flow uses Discord OAuth for identity verification; collaborators can link via account (with webhook) or API key.
 
 ## Architecture overview
 
 | Component | Location | Notes |
 |-----------|----------|--------|
-| **Bot** | `apps/bot` | Entry: `apps/bot/src/index.ts`. Slash commands: `apps/bot/src/commands/index.ts`. RoleSyncService for verified users and role assignment. |
-| **API** | `apps/api` | Entry: `apps/api/src/index.ts`. Install, webhooks, connect, Better Auth. |
+| **Bot** | `apps/bot` | Entry: `apps/bot/src/index.ts`. Slash commands: `apps/bot/src/commands/index.ts`. RoleSyncService, LienedDownloadsService. |
+| **API** | `apps/api` | Entry: `apps/api/src/index.ts`. Install, webhooks, connect, Better Auth, collaborator invite flow (`/api/collab/*`). |
 | **Providers** | `packages/providers` | Adapters: Gumroad, Jinxxy, Discord (placeholder), manual. |
 | **Policy** | `packages/policy` | Engine: `packages/policy/src/engine.ts`. Allow/deny, remediation, auto-verification and revocation timing. |
+| **Convex** | `convex/` | Schema, entitlements, downloads, collaboratorInvites, webhooks. |
 | **Secrets** | `ops/infisical` | Secret layout and rotation; see `ops/infisical/README.md`. |
 
 **Tech stack:** Node / discord.js (bot), Bun HTTP server (API), Convex (data and server-side functions), Better Auth, TypeScript.
+
+### Liened Downloads
+
+Role-gated file delivery for Discord. When members post files in configured channels, the system:
+
+1. **Secures** matching attachments (FBX, Unity packages, zip, blend, Substance, etc.) and archives them to a private channel.
+2. **Replaces** the original message with a Download button. Only members with the required roles can access the files.
+3. **Delivers** files privately via Discord DMs when access is confirmed.
+
+Use `/creator-admin downloads setup` to create a route (source channel, archive channel, roles, file types). Use `/creator-admin downloads manage` to toggle, edit, or remove routes. Backfill secures existing messages; Autofix replaces forum posts that still show original attachments.
+
+### Collaborators
+
+Cross-store license verification. A server owner can invite another creator (who sells on Jinxxy) to share their store’s licenses. Buyers from either store then get verified in the owner’s Discord.
+
+1. Owner runs `/creator-admin collab invite` and shares the generated link.
+2. Collaborator opens the link, signs in with Discord OAuth, and submits their Jinxxy API key.
+3. The system links the collaborator’s store for verification. Owner can list and remove connections with `/creator-admin collab list`.
+
+Supports **account linking** (with webhook for real-time purchases) or **API key linking** (periodic sync).
 
 ## Prerequisites
 
@@ -89,14 +112,16 @@ Do not commit real values; use env files or a secret store (all env files are gi
 
 | Group | Subcommand | Notes |
 |-------|------------|--------|
-| setup | start | Onboarding wizard |
+| setup | start, restart | Onboarding wizard |
 | product | add, list, remove | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy |
-| stats | overview, verified, products, user | Stats and verification counts |
-| (root) | verify-spawn | Spawn verify button (admin) |
-| discord-role-verification | enable, disable, status | Cross-server role verification |
-| analytics | link, summary | Dashboard and metrics |
-| suspicious | mark, list, clear | Suspicious account handling |
-| (root) | link, status, help | User linking and help |
+| downloads | setup, manage | **Liened Downloads**: protected file routes; setup creates routes, manage toggles/edits/removes |
+| collab | invite, list | **Collaborators**: invite creators to share Jinxxy store; list active connections |
+| stats | — | Verification statistics |
+| (root) | spawn-verify | Spawn verify button (admin) |
+| settings | cross-server | Cross-server role verification |
+| analytics | — | Dashboard and metrics |
+| moderation | mark, list, clear, unverify | Suspicious account handling; unverify removes product from user |
+| (root) | link, status, verify, refresh | User linking, status panel, license verification, role refresh |
 
 Full options and catalog: `apps/bot/src/commands/index.ts`.
 

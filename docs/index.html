@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
+    <title>Creator Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <link rel="stylesheet" href="tokens.css">
+
+    <style>
+        :root {
+            --bg-color-solid: transparent;
+            --bg-color: transparent; /* override blue from tokens.css */
+        }
+
+        html, body {
+            background-color: transparent !important;
+            background: transparent !important;
+        }
+
+        body {
+            color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+            overflow-x: hidden;
+            cursor: none;
+        }
+
+        #bg-canvas-root {
+            position: fixed; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: -20; pointer-events: none;
+        }
+
+        #fg-canvas-root {
+            position: fixed; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 40; pointer-events: none;
+        }
+
+        h1, h2, h3, .display-text {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+
+        /* ── Custom Cursor ───────────────────────────────────────────────────── */
+        .cursor-dot, .cursor-dot-outline {
+            position: fixed; top: 0; left: 0;
+            transform: translate(-50%, -50%);
+            border-radius: 50%; z-index: 9999;
+            pointer-events: none;
+        }
+        .cursor-dot {
+            width: 8px; height: 8px;
+            background-color: var(--accent-mustard);
+            box-shadow: 0 0 10px rgba(255,235,59,0.8);
+        }
+        .cursor-dot-outline {
+            width: 40px; height: 40px;
+            border: 1px solid var(--accent-sky);
+            transition: width 0.2s, height 0.2s, background-color 0.2s, border-color 0.2s;
+        }
+        body:has(a:hover) .cursor-dot-outline,
+        body:has(button:hover) .cursor-dot-outline,
+        body:has(.clickable:hover) .cursor-dot-outline {
+            width: 60px; height: 60px;
+            background-color: rgba(14,165,233,0.2);
+            border-color: var(--accent-mustard);
+            mix-blend-mode: color-dodge;
+        }
+
+        /* ── Reveal on scroll ────────────────────────────────────────────────── */
+        .reveal {
+            opacity: 0; transform: translateY(40px);
+            transition: opacity 0.7s cubic-bezier(0.22,1,0.36,1), transform 0.7s cubic-bezier(0.22,1,0.36,1);
+        }
+        .reveal.visible { opacity: 1; transform: translateY(0); }
+        .reveal-delay-1 { transition-delay: 0.1s; }
+        .reveal-delay-2 { transition-delay: 0.2s; }
+        .reveal-delay-3 { transition-delay: 0.35s; }
+
+        /* ── Typography effects ──────────────────────────────────────────────── */
+        ::selection { background: var(--accent-mustard); color: #000; }
+
+        .brand-gradient-text {
+            background: linear-gradient(90deg, #ffeb3b, #FF90E8, #ffffff, #00e676, #ffeb3b);
+            background-size: 300% 100%;
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: rainbow-move 5s ease infinite;
+        }
+        @keyframes rainbow-move {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .sticker {
+            display: inline-block;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .sticker:hover { animation: sticker-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        @keyframes sticker-pop {
+            0% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.25) rotate(4deg); }
+            100% { transform: scale(1.15) rotate(2deg); }
+        }
+
+        .blob-text {
+            font-weight: 700; padding: 0.1em 0.5em; border-radius: 12px;
+            border: 2px solid currentColor; display: inline-flex;
+            align-items: center; justify-content: center;
+            vertical-align: middle; margin: 0 4px; line-height: 1;
+        }
+        .blob-solid {
+            background-color: currentColor; color: #111; border-radius: 8px;
+            padding: 0.2em 0.6em; border: none; font-weight: 800;
+        }
+
+        /* ── Floating Pill Nav ───────────────────────────────────────────────── */
+        .pill-nav {
+            display: flex; align-items: center;
+            padding: 5px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.07);
+            backdrop-filter: blur(48px) saturate(180%);
+            -webkit-backdrop-filter: blur(48px) saturate(180%);
+            border: 1px solid rgba(255,255,255,0.18);
+            box-shadow:
+                0 1px 0 rgba(255,255,255,0.22) inset,
+                0 -1px 0 rgba(0,0,0,0.15) inset,
+                0 8px 40px rgba(0,0,0,0.45),
+                0 2px 8px rgba(0,0,0,0.25);
+        }
+        .pill-nav-divider {
+            width: 1px; height: 14px; flex-shrink: 0;
+            background: rgba(255,255,255,0.12);
+        }
+        .nav-link {
+            position: relative;
+            color: rgba(255,255,255,0.5);
+            transition: color 0.2s;
+        }
+        .nav-link:hover { color: rgba(255,255,255,0.95); }
+        .nav-link::after {
+            content: ''; position: absolute; bottom: 2px; left: 50%;
+            transform: translateX(-50%);
+            width: 0; height: 1.5px; background: var(--accent-mustard);
+            transition: width 0.25s ease; border-radius: 999px;
+        }
+        .nav-link:hover::after { width: 60%; }
+        .pill-cta {
+            border-radius: 999px; padding: 8px 18px;
+            font-size: 11px; font-weight: 800;
+            text-transform: uppercase; letter-spacing: 0.1em;
+            color: #fff; flex-shrink: 0; border: none;
+            display: flex; align-items: center; gap: 7px;
+            background: rgba(88,101,242,0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow:
+                0 1px 0 rgba(255,255,255,0.25) inset,
+                0 4px 16px rgba(88,101,242,0.4);
+            transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+        }
+        .pill-cta:hover {
+            background: rgba(88,101,242,0.95);
+            box-shadow: 0 1px 0 rgba(255,255,255,0.25) inset, 0 6px 24px rgba(88,101,242,0.6);
+            transform: translateY(-1px);
+        }
+        .pill-cta:active { transform: scale(0.96); }
+
+        /* ── Primary Button ──────────────────────────────────────────────────── */
+        .btn-primary {
+            position: relative;
+            background: rgba(255,255,255,0.07) !important;
+            backdrop-filter: blur(8px);
+            border: 1.5px solid rgba(255,255,255,0.2) !important;
+            transition: all 0.3s ease;
+            overflow: hidden; border-radius: 999px; z-index: 1;
+        }
+        .btn-primary::before {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(90deg, var(--accent-sky), #818cf8);
+            z-index: -1; opacity: 0; transition: opacity 0.3s ease;
+        }
+        .btn-primary:hover { border-color: transparent !important; box-shadow: 0 8px 30px rgba(14,165,233,0.4); transform: translateY(-2px); }
+        .btn-primary:hover::before { opacity: 1; }
+        .btn-primary:active { transform: scale(0.96) !important; }
+
+        /* ── Discord Mockup ──────────────────────────────────────────────────── */
+        .discord-mockup {
+            background: #2b2d31;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6);
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.06);
+            position: relative;
+        }
+        .discord-mockup::before {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.05), transparent);
+            pointer-events: none; z-index: 1;
+        }
+        .discord-mockup > * { position: relative; z-index: 2; }
+
+        .mockup-header {
+            background: #1e1f22; padding: 12px;
+            display: flex; align-items: center; gap: 8px;
+            border-bottom: 1px solid rgba(0,0,0,0.4);
+        }
+        .mockup-dot { width: 8px; height: 8px; border-radius: 50%; background: #4e5058; }
+
+        /* ── Stat Cards ──────────────────────────────────────────────────────── */
+        .stat-card {
+            background: rgba(0,0,0,0.3); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 1.5rem; border-radius: 16px; text-align: center;
+            transition: transform 0.3s;
+            box-shadow: inset 0 1px 1px rgba(255,255,255,0.1);
+        }
+        .stat-card:hover { transform: translateY(-5px); }
+
+        /* ── Feature Bento Cards ─────────────────────────────────────────────── */
+        .bento-card {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.09);
+            border-radius: 20px; padding: 28px;
+            transition: all 0.25s ease;
+            position: relative; overflow: hidden;
+        }
+        .bento-card::before {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.04), transparent);
+            pointer-events: none;
+        }
+        .bento-card:hover { background: rgba(255,255,255,0.09); transform: translateY(-3px); box-shadow: 0 20px 40px rgba(0,0,0,0.35); }
+
+        .bento-icon {
+            width: 48px; height: 48px; border-radius: 14px;
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 18px; flex-shrink: 0;
+        }
+        .bento-icon img { width: 24px; height: 24px; object-fit: contain; }
+
+        /* ── Feature icon boxes ──────────────────────────────────────────────── */
+        .feature-icon-box {
+            width: 64px; height: 64px; border-radius: 20px;
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 28px; border: 1px solid rgba(255,255,255,0.15);
+        }
+        .feature-icon-box img { width: 32px; height: 32px; object-fit: contain; }
+
+        /* ── Tag pills ───────────────────────────────────────────────────────── */
+        .tag-pill {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.06);
+            backdrop-filter: blur(8px);
+            padding: 10px 18px; border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.1);
+            font-size: 11px; font-weight: 800;
+            text-transform: uppercase; letter-spacing: 0.1em;
+            color: rgba(255,255,255,0.85);
+        }
+
+        /* ── Feature download mockup ─────────────────────────────────────────── */
+        .dl-message {
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px; padding: 12px 16px;
+            border: 1px solid rgba(255,255,255,0.06);
+            margin-bottom: 8px;
+        }
+
+        /* ── Glow ring ───────────────────────────────────────────────────────── */
+        .glow-ring {
+            position: absolute; border-radius: 50%;
+            filter: blur(60px); opacity: 0.5;
+            z-index: -1; pointer-events: none;
+        }
+
+        /* ── Page loading ────────────────────────────────────────────────────── */
+        .page-loading-spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #5865F2;
+            border-radius: 50%;
+            animation: page-loading-spin 0.8s linear infinite;
+        }
+        @keyframes page-loading-spin { to { transform: rotate(360deg); } }
+
+        /* ── Ticker ──────────────────────────────────────────────────────────── */
+        .ticker-wrap {
+            overflow: hidden;
+            border-top: 1px solid rgba(255,255,255,0.07);
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+            background: rgba(0,0,0,0.18);
+        }
+        .ticker-inner {
+            display: flex; gap: 0;
+            animation: ticker-scroll 30s linear infinite;
+            width: max-content;
+        }
+        @keyframes ticker-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        .ticker-item {
+            display: inline-flex; align-items: center; gap: 10px;
+            padding: 12px 32px;
+            font-size: 11px; font-weight: 800;
+            text-transform: uppercase; letter-spacing: 0.12em;
+            color: rgba(255,255,255,0.4); white-space: nowrap;
+        }
+        .ticker-item img { width: 14px; height: 14px; object-fit: contain; opacity: 0.5; }
+        .ticker-sep { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.15); margin: 0 8px; }
+
+        /* ── Section BG ─────────────────────────────────────────────────────── */
+        .section-bg { background: var(--bg-color); }
+        .section-bg-alt { background: transparent; }
+
+        /* ── Gradient heading text ───────────────────────────────────────────── */
+        .grad-text {
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* ── Footer ──────────────────────────────────────────────────────────── */
+        .footer-link {
+            color: rgba(255,255,255,0.45); font-size: 14px;
+            font-weight: 600; transition: color 0.2s; text-decoration: none;
+        }
+        .footer-link:hover { color: rgba(255,255,255,0.9); }
+        .footer-col-title {
+            font-size: 10px; font-weight: 900; letter-spacing: 0.18em;
+            text-transform: uppercase; color: rgba(255,255,255,0.25); margin-bottom: 16px;
+        }
+
+        /* ── Bento badge ─────────────────────────────────────────────────────── */
+        .bento-badge {
+            display: inline-flex; gap: 6px; padding: 6px 12px;
+            border-radius: 8px; font-size: 11px; font-weight: 800;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+    </style>
+
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "three": "https://esm.sh/three@0.160.0",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+
+<body class="selection:bg-yellow-200">
+    <!-- Loading overlay -->
+    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center" style="background-color: var(--bg-color);">
+        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8">
+        <div class="page-loading-spinner"></div>
+        <p class="mt-4 text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Loading...</p>
+    </div>
+
+    <div id="page-content" style="display:none;">
+
+    <!-- Canvas layers -->
+    <div id="bg-canvas-root"></div>
+    <div id="fg-canvas-root"></div>
+
+    <!-- Custom cursor -->
+    <div class="cursor-dot"></div>
+    <div class="cursor-dot-outline"></div>
+
+    <!-- ── Floating Pill Nav ─────────────────────────────────────────────────── -->
+    <div class="fixed top-5 inset-x-0 flex justify-center z-50 px-4 pointer-events-none">
+        <nav class="pill-nav pointer-events-auto">
+            <!-- Logo -->
+            <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-4 w-auto clickable cursor-pointer flex-shrink-0 sticker mx-3" onclick="window.scrollTo({top:0,behavior:'smooth'})">
+            <!-- Divider -->
+            <div class="pill-nav-divider hidden md:block mx-1"></div>
+            <!-- Nav links -->
+            <div class="hidden md:flex items-center">
+                <a href="#features"      class="nav-link clickable px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em]">Features</a>
+                <a href="#integrations"  class="nav-link clickable px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em]">Integrations</a>
+                <a href="#security"      class="nav-link clickable px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em]">Security</a>
+            </div>
+            <!-- Divider -->
+            <div class="pill-nav-divider hidden md:block mx-1"></div>
+            <!-- CTA -->
+            <button class="pill-cta clickable ml-1">
+                <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain flex-shrink-0" alt="">
+                Add to Discord
+            </button>
+        </nav>
+    </div>
+
+    <!-- ── Hero ──────────────────────────────────────────────────────────────── -->
+    <main class="min-h-screen flex items-center px-6 md:px-16 lg:px-24 relative overflow-hidden pt-28 pb-20">
+
+        <!-- Background glows -->
+        <div class="absolute inset-0 pointer-events-none z-0">
+            <div class="absolute top-1/3 -left-40 w-[560px] h-[560px] rounded-full" style="background:radial-gradient(circle,rgba(14,165,233,0.18),transparent 70%);filter:blur(80px);"></div>
+            <div class="absolute bottom-1/4 -right-40 w-[440px] h-[440px] rounded-full" style="background:radial-gradient(circle,rgba(145,70,255,0.14),transparent 70%);filter:blur(80px);"></div>
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[260px]" style="background:radial-gradient(ellipse,rgba(255,235,59,0.06),transparent 70%);filter:blur(100px);"></div>
+        </div>
+
+        <div class="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-16 xl:gap-28 items-center relative z-10">
+
+            <!-- Left: Copy -->
+            <div>
+                <!-- Platform badges -->
+                <div class="flex flex-wrap items-center gap-2 mb-10 reveal">
+                    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
+                        <img src="Icons/Gumorad.png" class="h-3.5 w-3.5 object-contain" alt="Gumroad">
+                        <span class="text-white/50 text-xs font-bold">Gumroad</span>
+                    </div>
+                    <span class="text-white/20 text-xs">+</span>
+                    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
+                        <img src="Icons/Jinxxy.png" class="h-3.5 w-3.5 object-contain" alt="Jinxxy">
+                        <span class="text-white/50 text-xs font-bold">Jinxxy</span>
+                    </div>
+                    <span class="text-white/20 text-xs">→</span>
+                    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full" style="background:rgba(88,101,242,0.15);border:1px solid rgba(88,101,242,0.3);">
+                        <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain" alt="Discord">
+                        <span class="text-[#818cf8] text-xs font-bold">Discord</span>
+                    </div>
+                </div>
+
+                <!-- Headline -->
+                <h1 class="text-white reveal reveal-delay-1" style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2.8rem,5.5vw,5.25rem);line-height:1.02;letter-spacing:-0.04em;margin-bottom:1.75rem;">
+                    License verified.<br>
+                    Role granted.<br>
+                    <span style="background:linear-gradient(100deg,#38bdf8 0%,#818cf8 50%,#FF90E8 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">Done.</span>
+                </h1>
+
+                <!-- Sub -->
+                <p class="text-white/55 reveal reveal-delay-2" style="font-size:clamp(1rem,1.8vw,1.15rem);line-height:1.75;max-width:460px;margin-bottom:2.5rem;">
+                    Connect your storefront to Discord. Buyers get their roles automatically. No spreadsheets, no DMs, no manual work.
+                </p>
+
+                <!-- CTAs -->
+                <div class="flex flex-wrap gap-4 items-center reveal reveal-delay-3">
+                    <button class="btn-primary clickable px-7 py-3.5 font-bold text-sm uppercase tracking-widest text-white group flex items-center gap-2.5" onclick="fireConfetti(this)">
+                        <img src="Icons/Discord.png" class="h-4 w-4 object-contain" alt="">
+                        Add to Discord
+                        <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+                    </button>
+                    <a href="#features" class="clickable text-sm font-bold uppercase tracking-widest text-white/45 hover:text-white transition-colors flex items-center gap-1.5">
+                        See how it works
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Right: Discord mockup -->
+            <div class="relative reveal reveal-delay-2 hidden lg:block">
+
+                <!-- Floating chip: Verified -->
+                <div class="absolute -top-5 -left-8 z-20 flex items-center gap-3 px-4 py-3 rounded-2xl" style="background:rgba(8,10,18,0.9);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.1);box-shadow:0 12px 40px rgba(0,0,0,0.5);">
+                    <div class="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(0,230,118,0.15);">
+                        <img src="Icons/Checkmark.png" class="w-4 h-4 object-contain" alt="">
+                    </div>
+                    <div>
+                        <div class="text-white text-xs font-black leading-none mb-0.5">Purchase verified</div>
+                        <div class="text-white/35 text-[10px] font-semibold">Role assigned instantly</div>
+                    </div>
+                </div>
+
+                <!-- Floating chip: Protected -->
+                <div class="absolute -bottom-5 -right-8 z-20 px-4 py-3 rounded-2xl" style="background:rgba(8,10,18,0.9);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.1);box-shadow:0 12px 40px rgba(0,0,0,0.5);">
+                    <div class="text-white/35 text-[10px] font-semibold uppercase tracking-wider mb-1">Protected from</div>
+                    <div class="text-white text-sm font-black flex items-center gap-2">
+                        <img src="Icons/Key.png" class="w-4 h-4 object-contain" alt="">
+                        Leaks &amp; Fraud
+                    </div>
+                </div>
+
+                <!-- Discord window -->
+                <div class="discord-mockup" style="max-width:480px;margin:0 auto;">
+                    <!-- Title bar -->
+                    <div class="mockup-header">
+                        <div class="mockup-dot"></div>
+                        <div class="mockup-dot"></div>
+                        <div class="mockup-dot"></div>
+                        <div class="flex items-center gap-2 ml-3">
+                            <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain opacity-40" alt="">
+                            <span class="text-white/30 text-xs font-semibold"># verify-purchase</span>
+                        </div>
+                    </div>
+
+                    <!-- Chat body -->
+                    <div class="p-5 space-y-5">
+
+                        <!-- User slash command -->
+                        <div class="flex items-start gap-3">
+                            <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-black" style="background:linear-gradient(135deg,#818cf8,#FF90E8);">M</div>
+                            <div>
+                                <div class="flex items-baseline gap-2 mb-1.5">
+                                    <span class="text-white text-xs font-bold">maya.creates</span>
+                                    <span class="text-white/20 text-[10px]">Today at 2:41 PM</span>
+                                </div>
+                                <div class="text-white/65 text-sm font-mono rounded-lg px-3 py-2 inline-block" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.07);">
+                                    /verify
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Bot response -->
+                        <div class="flex items-start gap-3">
+                            <div class="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden" style="background:rgba(88,101,242,0.2);border:1px solid rgba(88,101,242,0.35);">
+                                <img src="Icons/Assistant.png" class="w-full h-full object-cover" alt="">
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-baseline gap-2 mb-1.5">
+                                    <span class="text-[#5865F2] text-xs font-bold">Creator Assistant</span>
+                                    <span class="font-bold px-1.5 py-0.5 rounded text-white" style="background:#5865F2;font-size:9px;line-height:1.4;">BOT</span>
+                                    <span class="text-white/20 text-[10px]">Today at 2:41 PM</span>
+                                </div>
+                                <!-- Embed -->
+                                <div class="rounded-lg overflow-hidden" style="border-left:4px solid #00e676;background:rgba(0,0,0,0.28);border-top:1px solid rgba(255,255,255,0.05);border-right:1px solid rgba(255,255,255,0.05);border-bottom:1px solid rgba(255,255,255,0.05);">
+                                    <div class="p-4">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <div class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:#00e676;">
+                                                <svg class="w-2.5 h-2.5" fill="#000" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                            </div>
+                                            <span class="text-white text-xs font-black">Purchase Verified!</span>
+                                        </div>
+                                        <p class="text-white/50 text-xs leading-relaxed mb-3">Your Gumroad purchase has been confirmed. Welcome to the community!</p>
+                                        <div class="flex flex-wrap gap-2">
+                                            <span class="text-xs font-bold px-2.5 py-1 rounded-full" style="background:rgba(0,230,118,0.12);color:#00e676;border:1px solid rgba(0,230,118,0.25);">@Premium Member</span>
+                                            <span class="text-xs font-bold px-2.5 py-1 rounded-full" style="background:rgba(88,101,242,0.12);color:#818cf8;border:1px solid rgba(88,101,242,0.25);">@VIP Access</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- System line -->
+                        <div class="flex items-center gap-3">
+                            <div class="flex-1 h-px" style="background:rgba(255,255,255,0.05);"></div>
+                            <span class="text-white/20 text-[10px] font-semibold whitespace-nowrap">maya.creates was given @Premium Member</span>
+                            <div class="flex-1 h-px" style="background:rgba(255,255,255,0.05);"></div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Bottom fade -->
+        <div class="absolute bottom-0 left-0 w-full h-40 pointer-events-none z-10" style="background:linear-gradient(to top, var(--bg-color, #0a0c14), transparent);"></div>
+    </main>
+
+    <!-- ── Feature Ticker ────────────────────────────────────────────────────── -->
+    <div class="ticker-wrap py-0 z-10 relative">
+        <div class="ticker-inner">
+            <div class="ticker-item"><img src="Icons/Checkmark.png" alt="">License Verification</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Discord.png" alt="">Discord Role Sync</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Bag.png" alt="">Gumroad Integration</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Jinxxy.png" alt="">Jinxxy Integration</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Library.png" alt="">Liened Downloads</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/PersonKey.png" alt="">Collaborating Creators</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Key.png" alt="">Fraud Protection</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/World.png" alt="">Cross-Server Verification</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Refresh.png" alt="">Auto Role Assignment</div>
+            <div class="ticker-sep"></div>
+            <!-- Duplicate for seamless loop -->
+            <div class="ticker-item"><img src="Icons/Checkmark.png" alt="">License Verification</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Discord.png" alt="">Discord Role Sync</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Bag.png" alt="">Gumroad Integration</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Jinxxy.png" alt="">Jinxxy Integration</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Library.png" alt="">Liened Downloads</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/PersonKey.png" alt="">Collaborating Creators</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Key.png" alt="">Fraud Protection</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/World.png" alt="">Cross-Server Verification</div>
+            <div class="ticker-sep"></div>
+            <div class="ticker-item"><img src="Icons/Refresh.png" alt="">Auto Role Assignment</div>
+            <div class="ticker-sep"></div>
+        </div>
+    </div>
+
+    <!-- ── Philosophy Statement ──────────────────────────────────────────────── -->
+    <section class="py-24 px-4 overflow-hidden relative border-t border-white/5 section-bg backdrop-blur-sm z-10" id="features">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-16 reveal">
+                <p class="text-[var(--accent-sky)] font-bold uppercase tracking-[0.3em] text-sm mb-4">The Philosophy</p>
+                <h2 class="text-4xl md:text-6xl text-white">
+                    Functionality with <span class="text-[var(--accent-mustard)] inline-block transform -rotate-2 hover:rotate-2 transition-transform cursor-default">flavor.</span>
+                </h2>
+            </div>
+            <div class="text-2xl md:text-4xl font-medium leading-[1.5] text-center max-w-4xl mx-auto text-white/80 reveal reveal-delay-1">
+                A seamless bridge between your
+                <span class="blob-text border-[#FF90E8] text-[#FF90E8] hover:bg-[#FF90E8] hover:text-white transition-colors cursor-crosshair sticker">STOREFRONT</span>
+                and your server. Automatically grant
+                <span class="inline-block relative group mx-2"><span class="relative z-10 text-[var(--accent-mustard)] font-bold">ROLES</span><span class="absolute bottom-0 left-0 w-full h-2 bg-[var(--accent-mustard)]/30 group-hover:h-full transition-all duration-300 -z-10 rounded"></span></span>
+                based on purchases. Secure your community from
+                <span class="blob-solid bg-rose-500 text-white text-2xl sticker shadow-lg">LEAKS</span>
+                without sacrificing the experience.
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Feature: Seamless Integrations ───────────────────────────────────── -->
+    <section class="py-32 px-8 md:px-24 relative z-10 section-bg-alt" id="integrations">
+        <div class="glow-ring w-96 h-96 bg-[var(--accent-sky)] -top-20 -left-20"></div>
+        <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-20">
+            <div class="flex-1 reveal">
+                <div class="feature-icon-box sticker" style="background:rgba(14,165,233,0.15);box-shadow:0 8px 24px rgba(14,165,233,0.2);">
+                    <img src="Icons/Link.png" alt="">
+                </div>
+                <h2 class="text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight leading-[1.1]">
+                    Your storefronts,<br class="hidden md:block">
+                    <span class="grad-text" style="background-image:linear-gradient(90deg,#38bdf8,#2dd4bf);">united.</span>
+                </h2>
+                <p class="text-xl text-white/70 leading-relaxed mb-8">
+                    Connect <span class="font-bold text-[#FF90E8]">Gumroad</span>, <span class="font-bold text-[#9146FF]">Jinxxy</span>, and <span class="font-bold text-[#5865F2]">Discord</span> in minutes. Customers sign in once and the Assistant verifies every purchase, past and future, without them lifting a finger again.
+                </p>
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="stat-card">
+                        <div class="text-4xl font-black text-white mb-2">OAuth2</div>
+                        <div class="text-[10px] uppercase tracking-[0.2em] font-bold text-sky-400/90">Secure Connection</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="text-4xl font-black text-white mb-2">Real-time</div>
+                        <div class="text-[10px] uppercase tracking-[0.2em] font-bold text-purple-400/90">Webhook Sync</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 w-full reveal reveal-delay-1">
+                <div class="relative w-full h-80">
+                    <!-- Discord card -->
+                    <div class="absolute top-0 left-10 right-10 z-30 transform hover:-translate-y-2 transition-transform duration-300">
+                        <div class="bg-[#1e1f22] rounded-xl p-5 border border-white/10 shadow-2xl flex items-center justify-between">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-full bg-[#5865F2]/20 flex items-center justify-center">
+                                    <img src="Icons/Discord.png" class="w-6 h-6 object-contain" alt="Discord">
+                                </div>
+                                <div>
+                                    <div class="text-sm font-bold text-white">Discord Identity</div>
+                                    <div class="text-xs text-white/50">Primary Connection</div>
+                                </div>
+                            </div>
+                            <div class="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/30">Connected</div>
+                        </div>
+                    </div>
+                    <!-- Gumroad card -->
+                    <div class="absolute top-20 left-4 right-16 z-20 transform hover:-translate-y-2 transition-transform duration-300">
+                        <div class="bg-[#1e1f22] rounded-xl p-5 border border-white/10 shadow-2xl flex items-center justify-between opacity-90">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-full bg-[#FF90E8]/20 flex items-center justify-center font-black text-xl text-[#FF90E8]">
+                                    <img src="Icons/Bag.png" class="w-6 h-6 object-contain" alt="Gumroad">
+                                </div>
+                                <div>
+                                    <div class="text-sm font-bold text-white">Gumroad Account</div>
+                                    <div class="text-xs text-white/50">Store Integration</div>
+                                </div>
+                            </div>
+                            <div class="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/30">Linked</div>
+                        </div>
+                    </div>
+                    <!-- Jinxxy card -->
+                    <div class="absolute top-40 left-16 right-4 z-10 transform hover:-translate-y-2 transition-transform duration-300">
+                        <div class="bg-[#1e1f22] rounded-xl p-5 border border-white/10 shadow-2xl flex items-center justify-between opacity-80">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-full bg-[#9146FF]/20 flex items-center justify-center">
+                                    <img src="Icons/Jinxxy.png" class="w-6 h-6 object-contain rounded" alt="Jinxxy">
+                                </div>
+                                <div>
+                                    <div class="text-sm font-bold text-white">Jinxxy Store</div>
+                                    <div class="text-xs text-white/50">Store Integration</div>
+                                </div>
+                            </div>
+                            <div class="text-xs font-bold text-[#9146FF] border border-[#9146FF]/30 px-3 py-1 rounded-full bg-[#9146FF]/10">Connect</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Feature: Rules Engine ─────────────────────────────────────────────── -->
+    <section class="py-32 px-8 md:px-24 relative z-10 section-bg border-y border-white/5">
+        <div class="glow-ring w-96 h-96 bg-[var(--accent-mustard)] top-1/2 right-0 translate-x-1/4 -translate-y-1/2 opacity-30"></div>
+        <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-20">
+            <div class="flex-1 reveal">
+                <div class="feature-icon-box sticker" style="background:rgba(255,235,59,0.15);box-shadow:0 8px 24px rgba(255,235,59,0.15);">
+                    <img src="Icons/Wrench.png" alt="">
+                </div>
+                <h2 class="text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight leading-[1.1]">
+                    Set the rules.<br>
+                    <span class="grad-text" style="background-image:linear-gradient(90deg,#facc15,#f97316);">Let the Assistant enforce them.</span>
+                </h2>
+                <p class="text-xl text-white/70 leading-relaxed mb-8">
+                    Map any product to any Discord role with one command. The moment a purchase lands, the role appears. When a refund hits, it's revoked. Zero manual work, ever.
+                </p>
+                <div class="flex flex-wrap gap-3">
+                    <div class="tag-pill"><div class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></div>Auto Role Assignment</div>
+                    <div class="tag-pill"><div class="w-2 h-2 rounded-full bg-emerald-400"></div>Cross-Server Checks</div>
+                    <div class="tag-pill"><div class="w-2 h-2 rounded-full bg-sky-400"></div>Real-time Webhooks</div>
+                </div>
+            </div>
+            <div class="flex-1 w-full reveal reveal-delay-1">
+                <div class="discord-mockup p-8">
+                    <div class="bg-[#1e1f22] rounded-xl border border-white/5 overflow-hidden">
+                        <div class="bg-black/20 p-4 border-b border-white/5 flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-[#FF90E8]/20 flex items-center justify-center">
+                                <img src="Icons/Bag.png" class="w-4 h-4 object-contain" alt="">
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold text-white">Product to Role Mapping</div>
+                                <div class="text-[10px] text-white/50 uppercase tracking-widest">Active Rule</div>
+                            </div>
+                        </div>
+                        <div class="p-6">
+                            <div class="mb-4">
+                                <div class="text-[10px] uppercase tracking-widest text-emerald-400 font-black mb-2 px-2">If user owns</div>
+                                <div class="bg-black/40 rounded-lg p-3 border border-white/5 flex items-center gap-3">
+                                    <div class="w-8 h-8 bg-white/10 rounded flex items-center justify-center">
+                                        <img src="Icons/GiftCard.png" class="w-4 h-4 object-contain" alt="">
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="text-sm text-white font-bold">Ultimate Avatar Base</div>
+                                        <div class="text-xs text-white/40">Gumroad Product</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex justify-center my-2 text-white/20">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-widest text-sky-400 font-black mb-2 px-2">Then grant role</div>
+                                <div class="bg-black/40 rounded-lg p-3 border border-white/5 flex items-center gap-3">
+                                    <div class="w-4 h-4 rounded-full bg-yellow-400 ml-2"></div>
+                                    <div class="text-sm text-white font-bold">@Verified Buyer</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Feature: Liened Downloads ────────────────────────────────────────── -->
+    <section class="py-32 px-8 md:px-24 relative z-10 section-bg-alt">
+        <div class="glow-ring w-96 h-96 bg-emerald-500 -top-20 right-20 opacity-20"></div>
+        <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-20">
+            <div class="flex-1 reveal">
+                <div class="feature-icon-box sticker" style="background:rgba(0,230,118,0.12);box-shadow:0 8px 24px rgba(0,230,118,0.15);">
+                    <img src="Icons/Library.png" alt="">
+                </div>
+                <h2 class="text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight leading-[1.1]">
+                    Liened <br class="hidden md:block">
+                    <span class="grad-text" style="background-image:linear-gradient(90deg,#34d399,#2dd4bf);">Downloads</span>
+                </h2>
+                <p class="text-xl text-white/70 leading-relaxed mb-8">
+                    Role-gate your files directly in Discord. When members post assets in configured channels, the Assistant automatically secures them and replaces them with a gated <span class="text-white font-bold">Download button</span>. Only verified buyers can access the files, delivered privately via DM.
+                </p>
+                <div class="flex flex-wrap gap-3 mb-8">
+                    <div class="tag-pill"><div class="w-2 h-2 rounded-full bg-emerald-400"></div>FBX &amp; Unity Packages</div>
+                    <div class="tag-pill"><div class="w-2 h-2 rounded-full bg-teal-400"></div>Zip &amp; Blend Files</div>
+                    <div class="tag-pill"><div class="w-2 h-2 rounded-full bg-cyan-400"></div>Substance Files</div>
+                </div>
+                <p class="text-sm text-white/50 font-medium" style="font-family:'DM Sans',sans-serif;">
+                    Set up with <code class="bg-white/10 px-2 py-0.5 rounded text-white/70">/creator-admin downloads setup</code>. Backfill secures existing messages automatically.
+                </p>
+            </div>
+
+            <div class="flex-1 w-full reveal reveal-delay-1">
+                <div class="discord-mockup">
+                    <div class="mockup-header">
+                        <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+                        <span class="text-xs text-white/40 ml-1 font-bold">#share-assets</span>
+                    </div>
+
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <div class="text-[10px] text-white/30 uppercase tracking-widest font-bold mb-2">Before</div>
+                            <div class="dl-message opacity-50">
+                                <div class="flex items-center gap-3 mb-2">
+                                    <div class="w-8 h-8 rounded-full bg-purple-500/30 flex items-center justify-center text-xs font-bold text-purple-300">CR</div>
+                                    <span class="text-xs text-white/60 font-bold">Creator</span>
+                                    <span class="text-[10px] text-white/30">Today at 2:14 PM</span>
+                                </div>
+                                <p class="text-sm text-white/50 mb-2">Here's the new pack!</p>
+                                <div class="bg-white/5 rounded-lg p-3 flex items-center gap-3 border border-white/5">
+                                    <div class="w-8 h-8 bg-white/10 rounded flex items-center justify-center">
+                                        <img src="Icons/Library.png" class="w-4 h-4 object-contain opacity-60" alt="">
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-white/60">avatar_pack_v2.zip</div>
+                                        <div class="text-[10px] text-white/30">84 MB, visible to everyone</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2 pl-2">
+                            <div class="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+                            </div>
+                            <span class="text-[10px] text-emerald-400 font-black uppercase tracking-widest">Assistant Secured</span>
+                        </div>
+
+                        <div>
+                            <div class="text-[10px] text-emerald-400 uppercase tracking-widest font-bold mb-2">After</div>
+                            <div class="dl-message border-emerald-500/20">
+                                <div class="flex items-center gap-3 mb-3">
+                                    <div class="w-8 h-8 rounded-full bg-purple-500/30 flex items-center justify-center text-xs font-bold text-purple-300">CR</div>
+                                    <span class="text-xs text-white/60 font-bold">Creator</span>
+                                    <span class="text-[10px] text-white/30">Today at 2:14 PM</span>
+                                </div>
+                                <p class="text-sm text-white/80 mb-3">Here's the new pack!</p>
+                                <div class="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20 flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-emerald-500/20 rounded-lg flex items-center justify-center">
+                                            <img src="Icons/Key.png" class="w-5 h-5 object-contain" alt="">
+                                        </div>
+                                        <div>
+                                            <div class="text-xs font-bold text-white">avatar_pack_v2.zip</div>
+                                            <div class="text-[10px] text-emerald-400 font-bold">Requires @Verified Buyer</div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-emerald-500 text-white text-xs font-black px-4 py-2 rounded-lg cursor-pointer hover:bg-emerald-400 transition-colors">
+                                        Download
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Feature: Collaborating Creators ──────────────────────────────────── -->
+    <section class="py-32 px-8 md:px-24 relative z-10 section-bg border-y border-white/5">
+        <div class="glow-ring w-96 h-96 bg-[#9146FF] -bottom-20 left-1/4 opacity-25"></div>
+        <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-20">
+            <div class="flex-1 reveal">
+                <div class="feature-icon-box sticker" style="background:rgba(145,70,255,0.15);box-shadow:0 8px 24px rgba(145,70,255,0.2);">
+                    <img src="Icons/PersonKey.png" alt="">
+                </div>
+                <h2 class="text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight leading-[1.1]">
+                    Collaborating <br class="hidden md:block">
+                    <span class="grad-text" style="background-image:linear-gradient(90deg,#a78bfa,#f472b6);">Creators</span>
+                </h2>
+                <p class="text-xl text-white/70 leading-relaxed mb-8">
+                    Expand your community's reach. Invite other Jinxxy creators to share their store and buyers from <span class="text-white font-bold">both stores</span> verify in your Discord automatically. No manual role granting, no spreadsheets.
+                </p>
+                <div class="flex flex-wrap gap-3 mb-8">
+                    <div class="tag-pill"><div class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></div>Discord OAuth Verification</div>
+                    <div class="tag-pill"><div class="w-2 h-2 rounded-full bg-pink-400"></div>Account or API Key Linking</div>
+                    <div class="tag-pill"><div class="w-2 h-2 rounded-full bg-violet-400"></div>Real-time Webhook Sync</div>
+                </div>
+                <p class="text-sm text-white/50" style="font-family:'DM Sans',sans-serif;">
+                    Owner runs <code class="bg-white/10 px-2 py-0.5 rounded text-white/70">/creator-admin collab invite</code> &rarr; share link &rarr; collaborator signs in and links their Jinxxy store.
+                </p>
+            </div>
+
+            <div class="flex-1 w-full reveal reveal-delay-1">
+                <div class="discord-mockup p-8">
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="bg-[#1e1f22] rounded-xl p-4 border border-[#9146FF]/20 flex flex-col items-center gap-3 text-center">
+                                <div class="w-10 h-10 rounded-xl bg-[#9146FF]/20 flex items-center justify-center">
+                                    <img src="Icons/Jinxxy.png" class="w-6 h-6 rounded object-cover" alt="">
+                                </div>
+                                <div class="text-xs font-bold text-white">Your Store</div>
+                                <div class="text-[10px] text-white/40">Owner's Jinxxy</div>
+                                <div class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">Active</div>
+                            </div>
+                            <div class="bg-[#1e1f22] rounded-xl p-4 border border-purple-500/20 flex flex-col items-center gap-3 text-center">
+                                <div class="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
+                                    <img src="Icons/Jinxxy.png" class="w-6 h-6 rounded object-cover opacity-70" alt="">
+                                </div>
+                                <div class="text-xs font-bold text-white">Collab Store</div>
+                                <div class="text-[10px] text-white/40">Partner's Jinxxy</div>
+                                <div class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 text-[10px] font-bold border border-purple-500/20">Linked</div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-center">
+                            <div class="flex flex-col items-center gap-1">
+                                <svg class="w-5 h-5 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+                                <svg class="w-5 h-5 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+                            </div>
+                        </div>
+
+                        <div class="bg-[#1e1f22] rounded-xl p-4 border border-[#5865F2]/25 flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl bg-[#5865F2] flex items-center justify-center flex-shrink-0">
+                                <img src="Icons/Discord.png" class="w-6 h-6 object-contain" alt="">
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-sm font-bold text-white">Your Discord Server</div>
+                                <div class="text-xs text-white/50">Buyers from both stores verified here</div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-xs font-black text-emerald-400">2 stores</div>
+                                <div class="text-[10px] text-white/30">connected</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white/5 border border-white/8 rounded-xl p-3 flex items-center gap-3">
+                            <img src="Icons/Checkmark.png" class="w-5 h-5 object-contain opacity-80 flex-shrink-0" alt="">
+                            <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">
+                                Buyer from partner's store verifies and receives <span class="text-white font-bold">@Verified Buyer</span> automatically
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Feature: Security & Controls ─────────────────────────────────────── -->
+    <section class="py-32 px-4 md:px-8 relative z-10 section-bg-alt" id="security">
+        <div class="glow-ring w-96 h-96 bg-rose-500 -bottom-20 left-1/4 opacity-20"></div>
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-20 reveal">
+                <div class="feature-icon-box mx-auto sticker" style="background:rgba(239,68,68,0.15);box-shadow:0 8px 24px rgba(239,68,68,0.15);">
+                    <img src="Icons/Key.png" alt="">
+                </div>
+                <h2 class="text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight">
+                    Built to stay<br>
+                    <span class="grad-text" style="background-image:linear-gradient(90deg,#f87171,#fb923c);">locked down.</span>
+                </h2>
+                <p class="text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
+                    Total control over who gets in, how they get in, and what happens when they try to cheat the system.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 reveal reveal-delay-1">
+                <div class="bento-card">
+                    <div class="bento-icon" style="background:rgba(14,165,233,0.15);">
+                        <img src="Icons/World.png" alt="">
+                    </div>
+                    <h3 class="text-lg font-bold text-white mb-2">Email Flexibility</h3>
+                    <p class="text-sm text-white/60 mb-5 leading-relaxed">Discord email doesn't match the purchase email? You decide whether to allow or block mismatches.</p>
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-6 bg-emerald-500 rounded-full p-0.5 relative shadow-inner">
+                            <div class="w-5 h-5 rounded-full bg-white absolute right-0.5 top-0.5 shadow"></div>
+                        </div>
+                        <span class="text-xs font-bold text-emerald-400">Allow Mismatches</span>
+                    </div>
+                </div>
+
+                <div class="bento-card">
+                    <div class="bento-icon" style="background:rgba(74,222,128,0.15);">
+                        <img src="Icons/Refresh.png" alt="">
+                    </div>
+                    <h3 class="text-lg font-bold text-white mb-2">Auto-Verify on Join</h3>
+                    <p class="text-sm text-white/60 mb-5 leading-relaxed">Returning buyers get their role the moment they join. No commands, no waiting, no friction.</p>
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-6 bg-emerald-500 rounded-full p-0.5 relative shadow-inner">
+                            <div class="w-5 h-5 rounded-full bg-white absolute right-0.5 top-0.5 shadow"></div>
+                        </div>
+                        <span class="text-xs font-bold text-emerald-400">Enabled</span>
+                    </div>
+                </div>
+
+                <div class="bento-card">
+                    <div class="bento-icon" style="background:rgba(139,92,246,0.15);">
+                        <img src="Icons/World.png" alt="">
+                    </div>
+                    <h3 class="text-lg font-bold text-white mb-2">Cross-Server Trust</h3>
+                    <p class="text-sm text-white/60 mb-5 leading-relaxed">Verify once in your main server and sub-servers inherit that trust automatically. One community, one verification.</p>
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-6 bg-emerald-500 rounded-full p-0.5 relative shadow-inner">
+                            <div class="w-5 h-5 rounded-full bg-white absolute right-0.5 top-0.5 shadow"></div>
+                        </div>
+                        <span class="text-xs font-bold text-emerald-400">Global Sync</span>
+                    </div>
+                </div>
+
+                <div class="bento-card" style="background:linear-gradient(135deg,rgba(30,31,34,0.8),rgba(0,0,0,0.4));">
+                    <div class="bento-icon" style="background:rgba(59,130,246,0.15);">
+                        <img src="Icons/Key.png" alt="">
+                    </div>
+                    <h3 class="text-lg font-bold text-white mb-2">Verification Scope</h3>
+                    <p class="text-sm text-white/60 mb-5 leading-relaxed">Tie verifications to a specific License Key or the entire purchasing Account. Match your product's security requirements.</p>
+                    <div class="flex gap-2">
+                        <span class="bento-badge bg-white/10 text-white/70">Account</span>
+                        <span class="bento-badge bg-blue-500/20 text-blue-400 border border-blue-500/30">License Key</span>
+                    </div>
+                </div>
+
+                <div class="bento-card" style="background:linear-gradient(135deg,rgba(30,31,34,0.8),rgba(0,0,0,0.4));">
+                    <div class="bento-icon" style="background:rgba(234,179,8,0.15);">
+                        <img src="Icons/Timer.png" alt="">
+                    </div>
+                    <h3 class="text-lg font-bold text-white mb-2">Duplicate Prevention</h3>
+                    <p class="text-sm text-white/60 mb-5 leading-relaxed">When a license key is used more than once, block the attempt or flag it to your moderation team.</p>
+                    <div class="flex gap-2">
+                        <span class="bento-badge bg-yellow-500/20 text-yellow-500 border border-yellow-500/30">BLOCK</span>
+                        <span class="bento-badge bg-white/10 text-white/70">NOTIFY</span>
+                    </div>
+                </div>
+
+                <div class="bento-card" style="background:linear-gradient(135deg,rgba(30,31,34,0.8),rgba(0,0,0,0.4));">
+                    <div class="bento-icon" style="background:rgba(239,68,68,0.15);">
+                        <img src="Icons/X.png" alt="">
+                    </div>
+                    <h3 class="text-lg font-bold text-white mb-2">Fraud Protection</h3>
+                    <p class="text-sm text-white/60 mb-5 leading-relaxed">Suspicious accounts attempting unauthorized access can be quarantined or have their verification revoked instantly.</p>
+                    <div class="flex gap-2">
+                        <span class="bento-badge bg-rose-500/20 text-rose-500 border border-rose-500/30">QUARANTINE</span>
+                        <span class="bento-badge bg-white/10 text-white/70">REVOKE</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Footer ────────────────────────────────────────────────────────────── -->
+    <footer class="relative z-20 border-t border-white/10" style="background:rgba(0,0,0,0.65);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);">
+
+        <!-- CTA -->
+        <div class="text-center py-24 px-6">
+            <img src="Icons/ClapStars.png" class="w-10 h-10 mx-auto mb-6 object-contain sticker" style="opacity:0.7;" alt="">
+            <h3 class="text-4xl md:text-5xl text-white font-extrabold tracking-tight mb-3 reveal">Stop verifying by hand.</h3>
+            <p class="text-white/40 text-base mb-10 reveal reveal-delay-1" style="font-family:'DM Sans',sans-serif;">Buyers get instant access. You get your time back. Free to install.</p>
+            <button class="btn-primary clickable px-12 py-4 text-base font-black uppercase tracking-widest text-white reveal reveal-delay-2" onclick="fireConfetti(this)">
+                Add to Discord
+            </button>
+        </div>
+
+        <!-- Bottom bar -->
+        <div class="border-t border-white/8 px-8 py-7 flex flex-col md:flex-row items-center justify-between gap-5 max-w-7xl mx-auto">
+            <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-5 opacity-40">
+            <div class="flex flex-wrap justify-center items-center gap-x-8 gap-y-2">
+                <a href="#features" class="footer-link">Features</a>
+                <a href="#integrations" class="footer-link">Integrations</a>
+                <a href="#security" class="footer-link">Security</a>
+                <span class="w-px h-3 bg-white/15 hidden md:block"></span>
+                <a href="termsofservice.html" class="footer-link">Terms</a>
+                <a href="privacypolicy.html" class="footer-link">Privacy</a>
+                <a href="https://discord.gg/yucp" target="_blank" rel="noopener" class="footer-link">Support</a>
+            </div>
+            <p class="text-xs text-white/20 font-medium whitespace-nowrap">&copy; 2026 Creator Assistant</p>
+        </div>
+    </footer>
+
+    </div><!-- #page-content -->
+
+    <script>
+        const cursorDot = document.querySelector('.cursor-dot');
+        const cursorOutline = document.querySelector('.cursor-dot-outline');
+
+        window.addEventListener('mousemove', (e) => {
+            cursorDot.style.left = `${e.clientX}px`;
+            cursorDot.style.top = `${e.clientY}px`;
+            cursorOutline.animate({ left: `${e.clientX}px`, top: `${e.clientY}px` }, { duration: 300, fill: "forwards", easing: "ease-out" });
+        });
+
+        const revealObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('visible'); });
+        }, { threshold: 0.15, rootMargin: "0px 0px -50px 0px" });
+        document.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
+
+        document.querySelectorAll('.btn-primary').forEach(btn => {
+            btn.addEventListener('mousemove', (e) => {
+                const rect = btn.getBoundingClientRect();
+                const cx = rect.width / 2, cy = rect.height / 2;
+                const tiltX = (e.clientY - rect.top - cy) / 10;
+                const tiltY = (cx - (e.clientX - rect.left)) / 10;
+                btn.style.transform = `perspective(500px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) scale(1.02)`;
+            });
+            btn.addEventListener('mouseleave', () => { btn.style.transform = ''; });
+        });
+
+        function fireConfetti(element) {
+            const rect = element.getBoundingClientRect();
+            confetti({
+                particleCount: 150, spread: 80,
+                origin: { x: (rect.left + rect.width / 2) / window.innerWidth, y: (rect.top + rect.height / 2) / window.innerHeight },
+                colors: ['#0ea5e9', '#ffeb3b', '#00e676', '#ffffff', '#9146FF'],
+                disableForReducedMotion: true, zIndex: 9999
+            });
+        }
+    </script>
+
+    <script type="text/babel" data-type="module">
+        import React, { useRef, Component } from "react";
+        import { createRoot } from "react-dom/client";
+        import * as THREE from "three";
+        import { Canvas, useFrame } from "@react-three/fiber";
+        import { Clouds, Cloud, Sky as SkyImpl } from "@react-three/drei";
+
+        class ErrorBoundary extends Component {
+            constructor(props) { super(props); this.state = { hasError: false }; }
+            static getDerivedStateFromError() { return { hasError: true }; }
+            componentDidCatch(e) { console.error("Three.js Canvas Error", e); }
+            render() { return this.state.hasError ? null : this.props.children; }
+        }
+
+        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
+            const ref = useRef();
+            useFrame((state) => {
+                if (ref.current) {
+                    const elapsed = state.clock.getElapsedTime();
+                    const range = 240;
+                    let currentX = startX - elapsed * speed;
+                    currentX = ((currentX + 120) % range + range) % range - 120;
+                    ref.current.position.x = currentX;
+                }
+            });
+            return (
+                <group ref={ref} position={[startX, y, z]}>
+                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
+                </group>
+            );
+        }
+
+        function BackgroundSky() {
+            return (
+                <>
+                    <SkyImpl sunPosition={[100, 8, 100]} turbidity={4} rayleigh={1.2} mieCoefficient={0.003} mieDirectionalG={0.7} />
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#ffffff" volume={15} opacity={0.6} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
+                        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#ffeef0" volume={6} opacity={0.4} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
+                        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#e0f0ff" volume={40} opacity={0.9} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
+                        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#fdfdfd" volume={35} opacity={0.7} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
+                        <MovingCloud startX={55} speed={0.8} bounds={[20, 15, 20]} color="#f0f8ff" volume={20} opacity={0.5} seed={7} y={12} z={-30} growth={10} fade={20} segments={25} />
+                        <MovingCloud startX={-10} speed={1.7} bounds={[15, 6, 15]} color="#fdfdff" volume={10} opacity={0.6} seed={8} y={-10} z={-12} growth={5} fade={10} segments={20} />
+                    </Clouds>
+                </>
+            )
+        }
+
+        function ForegroundSky() {
+            return (
+                <>
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={45} speed={2.8} bounds={[10, 10, 5]} color="#f0f0f0" volume={12} opacity={0.8} seed={4} y={2} z={10} growth={15} fade={5} segments={15} concentrate="inside" />
+                        <MovingCloud startX={15} speed={3.5} bounds={[20, 5, 8]} color="#ffffff" volume={8} opacity={0.6} seed={6} y={-2} z={5} growth={5} fade={25} segments={12} />
+                        <MovingCloud startX={-30} speed={2.5} bounds={[30, 15, 25]} color="#fff" volume={30} opacity={0.4} seed={9} y={0} z={8} growth={20} fade={15} segments={40} />
+                    </Clouds>
+                </>
+            )
+        }
+
+        function BackgroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: true }}>
+                        <BackgroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        function ForegroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: true }} style={{ pointerEvents: 'none' }}>
+                        <ForegroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                    </Canvas>
+                </ErrorBoundary>
+            )
+        }
+
+        createRoot(document.getElementById('bg-canvas-root')).render(<BackgroundApp />);
+        createRoot(document.getElementById('fg-canvas-root')).render(<ForegroundApp />);
+
+        (function hideLoading() {
+            document.getElementById('page-loading-overlay').style.display = 'none';
+            document.getElementById('page-content').style.display = '';
+        })();
+    </script>
+</body>
+
+</html>

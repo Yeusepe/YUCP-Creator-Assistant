@@ -199,7 +199,7 @@ export async function handleProductTypeSelect(
       const { token } = (await res.json()) as { token: string };
       session.discordRoleSetupToken = token;
 
-      const setupUrl = `${apiBase}/discord-role-setup?s=${encodeURIComponent(token)}`;
+      const setupUrl = `${apiBase}/discord-role-setup#s=${encodeURIComponent(token)}`;
       const doneButtonId = `creator_product:discord_role_done:${interaction.user.id}:${tenantId}`;
 
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -490,9 +490,9 @@ export async function handleProductDiscordRoleDone(
   }
 
   try {
-    const res = await fetch(
-      `${apiForFetch}/api/setup/discord-role-result?s=${encodeURIComponent(session.discordRoleSetupToken)}`,
-    );
+    const res = await fetch(`${apiForFetch}/api/setup/discord-role-result`, {
+      headers: { Authorization: `Bearer ${session.discordRoleSetupToken}` },
+    });
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     const result = (await res.json()) as
       | { completed: false }
@@ -500,7 +500,7 @@ export async function handleProductDiscordRoleDone(
 
     if (!result.completed) {
       // Re-show the link button so they can go back
-      const setupUrl = `${apiBase}/discord-role-setup?s=${encodeURIComponent(session.discordRoleSetupToken)}`;
+      const setupUrl = `${apiBase}/discord-role-setup#s=${encodeURIComponent(session.discordRoleSetupToken)}`;
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setLabel('Open Setup Page').setStyle(ButtonStyle.Link).setURL(setupUrl),
         new ButtonBuilder()
