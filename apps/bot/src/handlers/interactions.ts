@@ -40,24 +40,26 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 /** Message when server has no guild link. forAdmin: securely fetch token to sign-in; otherwise tell user to ask admin. */
 async function getNotConfiguredMessage(guildId: string, discordUserId: string, apiSecret: string, forAdmin = false): Promise<string> {
   if (forAdmin) {
-    const { apiInternal, apiPublic } = getApiUrls();
-    const apiBase = apiPublic;
-    if (apiBase) {
+    const { apiInternal, apiPublic, webPublic } = getApiUrls();
+    const apiForFetch = apiInternal ?? apiPublic;
+    const linkBase = webPublic ?? apiPublic;
+    if (linkBase) {
       try {
-        const apiForFetch = apiInternal ?? apiBase;
-        const res = await fetch(`${apiForFetch}/api/connect/create-token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ discordUserId, apiSecret })
-        });
-        if (res.ok) {
-          const { token } = await res.json() as { token: string };
-          return `This server is not configured. [Sign in to configure](${apiBase}/connect?guild_id=${guildId}#token=${token})`;
+        if (apiForFetch) {
+          const res = await fetch(`${apiForFetch}/api/connect/create-token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ discordUserId, apiSecret })
+          });
+          if (res.ok) {
+            const { token } = await res.json() as { token: string };
+            return `This server is not configured. [Sign in to configure](${linkBase}/connect?guild_id=${guildId}#token=${token})`;
+          }
         }
       } catch (e) {
         logger.error('Failed to generate secure connect token', { error: e });
       }
-      return `This server is not configured. [Sign in to configure](${apiBase}/connect?guild_id=${guildId})`;
+      return `This server is not configured. [Sign in to configure](${linkBase}/connect?guild_id=${guildId})`;
     }
     return 'This server is not configured. Please sign in to configure (API_BASE_URL not set).';
   }

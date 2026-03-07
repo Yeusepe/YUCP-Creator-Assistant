@@ -194,16 +194,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     return { ok: true, setupSession, authSession, authDiscordUserId };
   }
 
+  /**
+   * Requires a valid Discord role setup session (cookie from exchange or OAuth callback).
+   * Does NOT use Better Auth - the role setup flow uses its own OAuth and session.
+   */
   async function requireBoundDiscordRoleSetupSession(
     request: Request
   ): Promise<
-    | {
-        ok: true;
-        sessionToken: string;
-        roleSession: DiscordRoleSetupSession;
-        authSession: NonNullable<Awaited<ReturnType<typeof auth.getSession>>>;
-        authDiscordUserId: string;
-      }
+    | { ok: true; sessionToken: string; roleSession: DiscordRoleSetupSession }
     | { ok: false; response: Response }
   > {
     const token = getCookieValue(request, DISCORD_ROLE_SETUP_COOKIE);
@@ -217,28 +215,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return { ok: false, response: Response.json({ error: 'Invalid or expired session' }, { status: 401 }) };
     }
 
-    const authSession = await auth.getSession(request);
-    if (!authSession) {
-      return { ok: false, response: Response.json({ error: 'Authentication required' }, { status: 401 }) };
-    }
-
-    const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
-    if (!authDiscordUserId) {
-      return { ok: false, response: Response.json({ error: 'Discord account required' }, { status: 401 }) };
-    }
-
     const roleSession = JSON.parse(raw) as DiscordRoleSetupSession;
-    if (authDiscordUserId !== roleSession.adminDiscordUserId) {
-      logger.warn('Discord role setup identity mismatch', {
-        expectedDiscordUserId: roleSession.adminDiscordUserId,
-        actualDiscordUserId: authDiscordUserId,
-        guildId: roleSession.guildId,
-        tenantId: roleSession.tenantId,
-      });
-      return { ok: false, response: Response.json({ error: 'This setup link belongs to a different Discord account' }, { status: 403 }) };
-    }
-
-    return { ok: true, sessionToken: token, roleSession, authSession, authDiscordUserId };
+    return { ok: true, sessionToken: token, roleSession };
   }
 
   async function isTenantOwnedBySessionUser(authUserId: string, tenantId: string): Promise<boolean> {
@@ -316,7 +294,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const redirectUrl = new URL(url);
       redirectUrl.protocol = frontendUrl.protocol;
       redirectUrl.host = frontendUrl.host;
-      return Response.redirect(redirectUrl.toString(), 302);
+      const targetUrl = redirectUrl.toString();
+      // Use client-side redirect to preserve the URL fragment (#token= or #s=).
+      // Fragments are never sent to the server, so a 302 would drop them.
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Redirecting...</title></head><body><p>Redirecting...</p><script>window.location.replace(${JSON.stringify(targetUrl)} + window.location.hash);</script></body></html>`;
+      return new Response(html, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
     }
     const legacyGuildId = url.searchParams.get('guild_id');
     const legacyTenantId = url.searchParams.get('tenant_id');
@@ -454,6 +439,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const store = getStateStore();
     const raw = await store.get(`${CONNECT_TOKEN_PREFIX}${connectToken}`);
     if (!raw) {
+      logger.warn('Connect token not found or expired', {
+        tokenPrefix: connectToken?.slice(0, 8) + '...',
+        hint: 'Ensure DRAGONFLY_URI/REDIS_URL is set so token storage is shared across instances',
+      });
       return Response.json({ error: 'Invalid or expired connect token' }, { status: 401 });
     }
 
@@ -1324,8 +1313,21 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=no_token`, 302);
       }
 
+      const accessToken = tokens.access_token;
+
+      // Fetch Discord user from OAuth token (not Better Auth - role setup uses its own OAuth)
+      const userRes = await fetch('https://discord.com/api/users/@me', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!userRes.ok) {
+        logger.error('Discord role OAuth user fetch failed', { status: userRes.status });
+        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=guilds_fetch_failed`, 302);
+      }
+      const discordUser = (await userRes.json()) as { id?: string };
+      const oauthDiscordUserId = discordUser.id;
+
       const guildsRes = await fetch('https://discord.com/api/users/@me/guilds', {
-        headers: { Authorization: `Bearer ${tokens.access_token}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
 
       if (!guildsRes.ok) {
@@ -1335,11 +1337,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const guilds = (await guildsRes.json()) as Array<{ id: string; name: string; icon: string | null; owner: boolean; permissions: string }>;
 
       const session = JSON.parse(raw) as DiscordRoleSetupSession;
-      const currentDiscordUserId = await getAuthenticatedDiscordUserId(request);
-      if (!currentDiscordUserId || currentDiscordUserId !== session.adminDiscordUserId) {
+      if (!oauthDiscordUserId || oauthDiscordUserId !== session.adminDiscordUserId) {
         logger.warn('Discord role OAuth callback identity mismatch', {
           expectedDiscordUserId: session.adminDiscordUserId,
-          actualDiscordUserId: currentDiscordUserId,
+          actualDiscordUserId: oauthDiscordUserId,
           guildId: session.guildId,
           tenantId: session.tenantId,
         });

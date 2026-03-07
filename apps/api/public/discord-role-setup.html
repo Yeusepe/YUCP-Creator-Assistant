@@ -280,6 +280,51 @@
         }
 
         .animate-in { animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+        /* ── Option Pills (Verification rule) ─────────────────────────────────── */
+        .option-pill-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .option-pill {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1.5px solid rgba(255, 255, 255, 0.14);
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.7);
+            text-align: center;
+        }
+
+        .option-pill:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.22);
+            color: #fff;
+        }
+
+        .option-pill:has(input:checked) {
+            background: rgba(88, 101, 242, 0.2);
+            border-color: rgba(88, 101, 242, 0.5);
+            color: #a5b4fc;
+            box-shadow: 0 0 0 1px rgba(88, 101, 242, 0.15);
+        }
+
+        .option-pill input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
     </style>
 
     <link rel="stylesheet" href="/assets/site/site.css">
@@ -403,14 +448,14 @@
 
                 <div class="mb-5 mt-4">
                     <label class="form-label">Verification rule</label>
-                    <div class="space-y-2">
-                        <label class="flex items-center gap-3 cursor-pointer">
-                            <input type="radio" name="match-mode" value="any" checked class="w-4 h-4 accent-[#5865F2]">
-                            <span class="text-sm text-white/80">User must have <strong>any</strong> of these roles</span>
+                    <div class="option-pill-group">
+                        <label class="option-pill">
+                            <input type="radio" name="match-mode" value="any" checked>
+                            <span>User must have <strong>any</strong> of these roles</span>
                         </label>
-                        <label class="flex items-center gap-3 cursor-pointer">
-                            <input type="radio" name="match-mode" value="all" class="w-4 h-4 accent-[#5865F2]">
-                            <span class="text-sm text-white/80">User must have <strong>all</strong> of these roles</span>
+                        <label class="option-pill">
+                            <input type="radio" name="match-mode" value="all">
+                            <span>User must have <strong>all</strong> of these roles</span>
                         </label>
                     </div>
                     <p class="text-xs text-white/50 mt-1" style="font-family:'DM Sans',sans-serif;">Choose whether the user needs at least one role or every role.</p>

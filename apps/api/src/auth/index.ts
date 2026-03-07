@@ -48,10 +48,18 @@ export function createAuth(config: AuthConfig) {
   return {
     /** Get session by calling Convex get-session directly with the request cookies. */
     async getSession(request: Request): Promise<SessionData | null> {
+      const getSessionUrl = `${convexAuthBase}/get-session`;
       try {
         const cookie = request.headers.get('cookie') ?? '';
-        // Send cookie as Better-Auth-Cookie header (cross-domain pattern)
-        const res = await fetch(`${convexAuthBase}/get-session`, {
+        logger.debug('getSession: calling Convex', {
+          url: getSessionUrl,
+          cookieLength: cookie.length,
+          cookieNames: summarizeCookieNames(cookie),
+          requestOrigin: request.headers.get('origin'),
+          requestHost: request.headers.get('host'),
+        });
+
+        const res = await fetch(getSessionUrl, {
           method: 'GET',
           headers: {
             'Better-Auth-Cookie': cookie,
@@ -59,9 +67,11 @@ export function createAuth(config: AuthConfig) {
           },
         });
 
+        const responseBody = await res.text().catch(() => '');
+
         if (!res.ok) {
-          const responseBody = await res.text().catch(() => '');
           logger.warn('Better Auth get-session returned non-OK', {
+            url: getSessionUrl,
             status: res.status,
             statusText: res.statusText,
             requestOrigin: request.headers.get('origin'),
@@ -69,23 +79,39 @@ export function createAuth(config: AuthConfig) {
             hasCookieHeader: Boolean(cookie),
             cookieLength: cookie.length,
             cookieNames: summarizeCookieNames(cookie),
-            responseBodyPreview: responseBody.slice(0, 300),
+            responseBodyPreview: responseBody.slice(0, 500),
             setCookieHeader: res.headers.get('set-cookie'),
             setBetterAuthCookieHeader: res.headers.get('set-better-auth-cookie'),
           });
           return null;
         }
 
-        // Also check Set-Better-Auth-Cookie for any updated cookies
-        const json = (await res.json()) as SessionData | null;
-        // Only warn when we had cookies but got empty session (unexpected).
-        // No cookies + empty session is normal (unauthenticated, API calls, etc.).
-        if (!json && cookie.length > 0) {
+        let json: SessionData | null = null;
+        try {
+          json = responseBody ? (JSON.parse(responseBody) as SessionData) : null;
+        } catch (parseErr) {
+          logger.warn('Better Auth get-session: response OK but body not valid JSON', {
+            url: getSessionUrl,
+            responseBodyPreview: responseBody.slice(0, 500),
+            parseError: parseErr instanceof Error ? parseErr.message : String(parseErr),
+          });
+          return null;
+        }
+
+        if (json) {
+          logger.debug('getSession: session found', {
+            userId: json.user?.id,
+            sessionId: json.session?.id?.slice(0, 8) + '...',
+          });
+        } else if (cookie.length > 0) {
           logger.warn('Better Auth get-session returned empty session despite cookies', {
+            url: getSessionUrl,
             requestOrigin: request.headers.get('origin'),
             requestHost: request.headers.get('host'),
             cookieLength: cookie.length,
             cookieNames: summarizeCookieNames(cookie),
+            responseBodyRaw: responseBody.slice(0, 500),
+            responseBodyLength: responseBody.length,
             setCookieHeader: res.headers.get('set-cookie'),
             setBetterAuthCookieHeader: res.headers.get('set-better-auth-cookie'),
           });
@@ -93,6 +119,7 @@ export function createAuth(config: AuthConfig) {
         return json ?? null;
       } catch (err) {
         logger.error('Better Auth get-session failed', {
+          url: getSessionUrl,
           message: err instanceof Error ? err.message : String(err),
           requestOrigin: request.headers.get('origin'),
           requestHost: request.headers.get('host'),
