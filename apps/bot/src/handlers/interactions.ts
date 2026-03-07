@@ -159,17 +159,33 @@ async function handleAutocomplete(
 
       const query = focused.value.toLowerCase();
       const filtered = products
-        .filter((p: { productId: string; displayName: string | null }) => {
+        .filter((p: { productId: string; displayName: string | null; provider?: string }) => {
           const searchLabel = (p.displayName ?? p.productId).toLowerCase();
           const discordLabel = p.productId.startsWith('discord_role:') ? 'discord role' : '';
-          return !query || searchLabel.includes(query) || discordLabel.includes(query);
+          const providerLabel = (p.provider ?? '').toLowerCase();
+          return !query || searchLabel.includes(query) || discordLabel.includes(query) || providerLabel.includes(query);
         })
         .slice(0, 25);
+
+      const providerPrefix = (p: { provider?: string }) => {
+        switch (p.provider) {
+          case 'gumroad':
+            return '[Gumroad] ';
+          case 'jinxxy':
+            return '[Jinxxy] ';
+          case 'discord':
+            return '[Discord Role] ';
+          case 'manual':
+            return '[License] ';
+          default:
+            return '';
+        }
+      };
 
       // Resolve Discord role names for display (optional; OAuth checks roles, not the bot)
       const currentGuild = interaction.guild;
       const choices = await Promise.all(
-        filtered.map(async (p: { productId: string; displayName: string | null; sourceGuildId?: string; requiredRoleId?: string; verifiedRoleId?: string }) => {
+        filtered.map(async (p: { productId: string; displayName: string | null; provider?: string; sourceGuildId?: string; requiredRoleId?: string; verifiedRoleId?: string }) => {
           let label = p.displayName ?? p.productId;
           if (p.productId.startsWith('discord_role:') && p.sourceGuildId && p.requiredRoleId) {
             try {
@@ -182,6 +198,8 @@ async function handleAutocomplete(
             } catch {
               label = 'Discord Role (cross-server)';
             }
+          } else {
+            label = `${providerPrefix(p)}${label}`;
           }
           return { name: label.slice(0, 100), value: p.productId.slice(0, 100) };
         })
