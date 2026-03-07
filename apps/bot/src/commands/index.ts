@@ -35,6 +35,9 @@ const CREATOR_USER_COMMAND = new SlashCommandBuilder()
     s
       .setName('refresh')
       .setDescription('Refresh your Discord roles based on your connected accounts and purchases'),
+  )
+  .addSubcommand((s) =>
+    s.setName('docs').setDescription('Get a link to the Creator Assistant documentation'),
   ) as SlashCommandBuilder;
 
 /** Admin-only command. setDefaultMemberPermissions hides it from non-admins. */
