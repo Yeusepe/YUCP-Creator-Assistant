@@ -181,6 +181,9 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
         s.setName('invite').setDescription('Invite a creator to share their Jinxxy store with this server'),
       )
       .addSubcommand((s) =>
+        s.setName('add').setDescription('Manually add a collaborator by API key (e.g. if they shared it with you)'),
+      )
+      .addSubcommand((s) =>
         s.setName('list').setDescription('List active collaborator connections'),
       ),
   );

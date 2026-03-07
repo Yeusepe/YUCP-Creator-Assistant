@@ -395,9 +395,11 @@ async function handleSlashCommand(
       }
     } else if (subcommandGroup === 'collab') {
       const sub = interaction.options.getSubcommand();
-      const { handleCollabInvite, handleCollabList } = await import('../commands/collab');
+      const { handleCollabInvite, handleCollabAdd, handleCollabList } = await import('../commands/collab');
       if (sub === 'invite') {
         await handleCollabInvite(interaction, ctx.apiSecret, tenantId);
+      } else if (sub === 'add') {
+        await handleCollabAdd(interaction, ctx.apiSecret, tenantId);
       } else if (sub === 'list') {
         await handleCollabList(interaction, ctx.apiSecret, tenantId);
       }
@@ -1069,6 +1071,13 @@ async function handleModalSubmit(
 
   if (customId.startsWith('creator_setup:jinxxy:')) {
     await handleSetupJinxxyModal(interaction, ctx.convex, ctx.apiSecret);
+    return;
+  }
+
+  if (customId.startsWith('creator_collab:add_modal:')) {
+    const tenantId = customId.slice('creator_collab:add_modal:'.length) as Id<'tenants'>;
+    const { handleCollabAddModalSubmit } = await import('../commands/collab');
+    await handleCollabAddModalSubmit(interaction, ctx.apiSecret, tenantId);
     return;
   }
 

@@ -21,7 +21,7 @@ Secrets are organized by service and access scope:
 ├── api/             # API service secrets
 │   ├── auth/        # Authentication secrets (Better Auth, OAuth)
 │   ├── database/    # Database connection strings
-│   └── integrations/# Third-party integrations (Gumroad, Jinxxy)
+│   └── integrations/# Third-party integrations (Gumroad, Jinxxy, Email)
 ├── bot/             # Discord bot secrets
 │   └── discord/     # Discord-specific credentials
 └── infra/           # Infrastructure secrets
@@ -68,6 +68,13 @@ Each service has its own machine identity with least-privilege access:
 |------------|-------------|----------|
 | `JINXXY_API_KEY` | API key for Jinxxy | On compromise / 90 days |
 
+### Email (`/api/integrations/email/`)
+
+| Secret Key | Description | Rotation |
+|------------|-------------|----------|
+| `RESEND_API_KEY` | Resend API key for transactional emails | On compromise / 90 days |
+| `EMAIL_FROM` | From address (e.g. `Creator Assistant <noreply@yourdomain.com>`) | On domain change |
+
 ### Authentication (`/api/auth/`)
 
 | Secret Key | Description | Rotation |
@@ -100,6 +107,8 @@ DISCORD_CLIENT_SECRET=/api/auth/discord/DISCORD_CLIENT_SECRET
 GUMROAD_CLIENT_ID=/api/integrations/gumroad/GUMROAD_CLIENT_ID
 GUMROAD_CLIENT_SECRET=/api/integrations/gumroad/GUMROAD_CLIENT_SECRET
 JINXXY_API_KEY=/api/integrations/jinxxy/JINXXY_API_KEY
+RESEND_API_KEY=/api/integrations/email/RESEND_API_KEY
+EMAIL_FROM=/api/integrations/email/EMAIL_FROM
 
 # Infrastructure
 CONVEX_URL=/infra/convex/CONVEX_URL
