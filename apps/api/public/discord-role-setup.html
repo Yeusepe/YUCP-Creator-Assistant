@@ -381,9 +381,10 @@
                 </div>
 
                 <div class="mb-2">
-                    <label class="form-label">Role ID</label>
-                    <input type="text" id="role-id-input" placeholder="e.g. 123456789012345678" maxlength="20" />
-                    <div class="helper-box">
+                    <label class="form-label">Required Role(s)</label>
+                    <textarea id="role-ids-input" rows="3" placeholder="One role ID per line, e.g.:&#10;123456789012345678&#10;987654321098765432" class="w-full rounded-xl border border-white/15 bg-black/20 px-4 py-3 text-white placeholder-white/30 focus:border-[#5865F2] focus:outline-none focus:ring-1 focus:ring-[#5865F2] font-mono text-sm"></textarea>
+                    <p class="text-xs text-white/50 mt-1" style="font-family:'DM Sans',sans-serif;">Users must have these roles in the source server. Add one or more.</p>
+                    <div class="helper-box mt-2">
                         <div class="helper-step">
                             <div class="helper-num">1</div>
                             <span>Open the target server in Discord</span>
@@ -398,6 +399,21 @@
                             <span class="text-white/40">(Requires Developer Mode: User Settings → Advanced → Developer Mode)</span></span>
                         </div>
                     </div>
+                </div>
+
+                <div class="mb-5 mt-4">
+                    <label class="form-label">Verification rule</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="radio" name="match-mode" value="any" checked class="w-4 h-4 accent-[#5865F2]">
+                            <span class="text-sm text-white/80">User must have <strong>any</strong> of these roles</span>
+                        </label>
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="radio" name="match-mode" value="all" class="w-4 h-4 accent-[#5865F2]">
+                            <span class="text-sm text-white/80">User must have <strong>all</strong> of these roles</span>
+                        </label>
+                    </div>
+                    <p class="text-xs text-white/50 mt-1" style="font-family:'DM Sans',sans-serif;">Choose whether the user needs at least one role or every role.</p>
                 </div>
 
                 <div id="pick-error" class="error-box mt-4" style="display:none;">
@@ -428,8 +444,13 @@
                     </div>
                     <div class="border-t border-white/8"></div>
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold uppercase tracking-widest text-white/40">Role ID</span>
-                        <code id="success-role-id" class="text-sm"></code>
+                        <span class="text-xs font-bold uppercase tracking-widest text-white/40">Required roles</span>
+                        <span id="success-role-summary" class="text-sm text-white/90"></span>
+                    </div>
+                    <div class="border-t border-white/8"></div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold uppercase tracking-widest text-white/40">Verification rule</span>
+                        <span id="success-match-mode" class="text-sm text-white/90"></span>
                     </div>
                 </div>
 
@@ -560,8 +581,13 @@
             }
 
             if (session.completed) {
-                document.getElementById('success-guild-name').textContent = session.sourceGuildId;
-                document.getElementById('success-role-id').textContent = session.sourceRoleId;
+                const guildName = session.sourceGuildName ?? session.sourceGuildId ?? '';
+                document.getElementById('success-guild-name').textContent = guildName;
+                const roleIds = session.sourceRoleIds ?? (session.sourceRoleId ? [session.sourceRoleId] : []);
+                document.getElementById('success-role-summary').textContent =
+                    roleIds.length === 1 ? roleIds[0] : `${roleIds.length} roles`;
+                document.getElementById('success-match-mode').textContent =
+                    (session.requiredRoleMatchMode ?? 'any') === 'all' ? 'All roles required' : 'Any role';
                 showStep('step-success');
                 return;
             }
@@ -589,17 +615,39 @@
             }
         }
 
+        function parseRoleIds(input) {
+            return input
+                .split(/[\n,]+/)
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0);
+        }
+
+        function validateRoleIds(roleIds) {
+            const valid = /^\d{17,20}$/;
+            for (const id of roleIds) {
+                if (!valid.test(id)) return { ok: false, msg: `Invalid Role ID: "${id}". Must be 17–20 digits.` };
+            }
+            return { ok: true };
+        }
+
         async function saveSelection() {
             const guildId = document.getElementById('guild-select').value;
-            const roleId = document.getElementById('role-id-input').value.trim();
+            const rawInput = document.getElementById('role-ids-input').value.trim();
+            const matchMode = document.querySelector('input[name="match-mode"]:checked')?.value ?? 'any';
             document.getElementById('pick-error').style.display = 'none';
 
             if (!guildId) {
                 showPickError('Please select a server.');
                 return;
             }
-            if (!roleId || !/^\d{17,20}$/.test(roleId)) {
-                showPickError('Please enter a valid Role ID (17–20 digit number).');
+            const roleIds = parseRoleIds(rawInput);
+            if (roleIds.length === 0) {
+                showPickError('Please add at least one role ID (one per line or comma-separated).');
+                return;
+            }
+            const validation = validateRoleIds(roleIds);
+            if (!validation.ok) {
+                showPickError(validation.msg);
                 return;
             }
 
@@ -608,11 +656,17 @@
             btn.innerHTML = '<div style="width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.7s linear infinite;"></div> Saving...';
 
             try {
+                const guildName = document.getElementById('guild-select').options[document.getElementById('guild-select').selectedIndex].text;
                 const res = await fetch(`${API_BASE}/api/setup/discord-role-save`, {
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sourceGuildId: guildId, sourceRoleId: roleId }),
+                    body: JSON.stringify({
+                        sourceGuildId: guildId,
+                        sourceGuildName: guildName,
+                        sourceRoleIds: roleIds,
+                        requiredRoleMatchMode: matchMode,
+                    }),
                 });
                 const data = await res.json();
                 if (!res.ok || !data.success) {
@@ -624,7 +678,10 @@
 
                 const guildName = document.getElementById('guild-select').options[document.getElementById('guild-select').selectedIndex].text;
                 document.getElementById('success-guild-name').textContent = guildName;
-                document.getElementById('success-role-id').textContent = roleId;
+                document.getElementById('success-role-summary').textContent =
+                    roleIds.length === 1 ? roleIds[0] : `${roleIds.length} roles`;
+                document.getElementById('success-match-mode').textContent =
+                    matchMode === 'all' ? 'All roles required' : 'Any role';
                 showStep('step-success');
             } catch {
                 showPickError('Network error. Please try again.');

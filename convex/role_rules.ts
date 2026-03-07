@@ -139,7 +139,9 @@ export const getByGuildWithProductNames = query({
       provider: v.optional(v.string()),
       sourceGuildId: v.optional(v.string()),
       requiredRoleId: v.optional(v.string()),
+      requiredRoleIds: v.optional(v.array(v.string())),
       verifiedRoleId: v.optional(v.string()),
+      verifiedRoleIds: v.optional(v.array(v.string())),
       enabled: v.optional(v.boolean()),
     })
   ),
@@ -159,7 +161,9 @@ export const getByGuildWithProductNames = query({
       provider?: string;
       sourceGuildId?: string;
       requiredRoleId?: string;
+      requiredRoleIds?: string[];
       verifiedRoleId?: string;
+      verifiedRoleIds?: string[];
       enabled?: boolean;
     }> = [];
 
@@ -186,7 +190,9 @@ export const getByGuildWithProductNames = query({
         provider,
         sourceGuildId: r.sourceGuildId,
         requiredRoleId: r.requiredRoleId,
+        requiredRoleIds: r.requiredRoleIds,
         verifiedRoleId: r.verifiedRoleId,
+        verifiedRoleIds: r.verifiedRoleIds,
         enabled: r.enabled,
       });
     }
@@ -278,7 +284,10 @@ export const getDiscordRoleRulesByTenant = query({
       .collect();
 
     rules = rules.filter(
-      (r) => r.sourceGuildId != null && r.requiredRoleId != null,
+      (r) =>
+        r.sourceGuildId != null &&
+        (r.requiredRoleId != null ||
+          (r.requiredRoleIds != null && r.requiredRoleIds.length > 0)),
     );
 
     if (args.sourceGuildIds && args.sourceGuildIds.length > 0) {
@@ -305,7 +314,8 @@ export const createRoleRule = mutation({
     guildLinkId: v.id('guild_links'),
     productId: v.string(),
     catalogProductId: v.optional(v.id('product_catalog')),
-    verifiedRoleId: v.string(),
+    verifiedRoleId: v.optional(v.string()),
+    verifiedRoleIds: v.optional(v.array(v.string())),
     removeOnRevoke: v.optional(v.boolean()),
     priority: v.optional(v.number()),
     enabled: v.optional(v.boolean()),
@@ -317,13 +327,20 @@ export const createRoleRule = mutation({
     requireApiSecret(args.apiSecret);
     const now = Date.now();
 
+    const roleIds = args.verifiedRoleIds ?? (args.verifiedRoleId ? [args.verifiedRoleId] : []);
+    if (roleIds.length === 0) {
+      throw new Error('At least one verified role is required');
+    }
+    const verifiedRoleId = roleIds[0];
+
     const ruleId = await ctx.db.insert('role_rules', {
       tenantId: args.tenantId,
       guildId: args.guildId,
       guildLinkId: args.guildLinkId,
       productId: args.productId,
       catalogProductId: args.catalogProductId,
-      verifiedRoleId: args.verifiedRoleId,
+      verifiedRoleId,
+      verifiedRoleIds: roleIds.length > 1 ? roleIds : undefined,
       removeOnRevoke: args.removeOnRevoke ?? true,
       priority: args.priority ?? 0,
       enabled: args.enabled ?? true,
@@ -362,6 +379,7 @@ export const updateRoleRule = mutation({
     apiSecret: v.string(),
     ruleId: v.id('role_rules'),
     verifiedRoleId: v.optional(v.string()),
+    verifiedRoleIds: v.optional(v.array(v.string())),
     removeOnRevoke: v.optional(v.boolean()),
     priority: v.optional(v.number()),
     enabled: v.optional(v.boolean()),
@@ -381,8 +399,15 @@ export const updateRoleRule = mutation({
       updatedAt: Date.now(),
     };
 
-    if (args.verifiedRoleId !== undefined) {
+    if (args.verifiedRoleIds !== undefined) {
+      if (args.verifiedRoleIds.length === 0) {
+        throw new Error('At least one verified role is required');
+      }
+      update.verifiedRoleId = args.verifiedRoleIds[0];
+      update.verifiedRoleIds = args.verifiedRoleIds.length > 1 ? args.verifiedRoleIds : undefined;
+    } else if (args.verifiedRoleId !== undefined) {
       update.verifiedRoleId = args.verifiedRoleId;
+      update.verifiedRoleIds = undefined;
     }
     if (args.removeOnRevoke !== undefined) {
       update.removeOnRevoke = args.removeOnRevoke;
@@ -602,9 +627,25 @@ export const addProductFromJinxxy = mutation({
   },
 });
 
+function buildDiscordRoleProductId(
+  sourceGuildId: string,
+  requiredRoleIds: string[],
+  requiredRoleMatchMode?: 'any' | 'all',
+): string {
+  if (requiredRoleIds.length === 0) {
+    throw new Error('At least one required role is needed');
+  }
+  if (requiredRoleIds.length === 1) {
+    return `discord_role:${sourceGuildId}:${requiredRoleIds[0]}`;
+  }
+  const mode = requiredRoleMatchMode ?? 'any';
+  const sorted = [...requiredRoleIds].sort();
+  return `discord_role:${sourceGuildId}:${mode}:${sorted.join(',')}`;
+}
+
 /**
  * Add a Discord cross-server role rule.
- * Creates a role rule that grants verifiedRoleId when the user has requiredRoleId
+ * Creates a role rule that grants verifiedRoleId(s) when the user has requiredRoleId(s)
  * in the source guild. No product_catalog entry; uses synthetic productId.
  */
 export const addProductFromDiscordRole = mutation({
@@ -612,10 +653,13 @@ export const addProductFromDiscordRole = mutation({
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
     sourceGuildId: v.string(),
-    requiredRoleId: v.string(),
+    requiredRoleId: v.optional(v.string()),
+    requiredRoleIds: v.optional(v.array(v.string())),
+    requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
     guildId: v.string(),
     guildLinkId: v.id('guild_links'),
-    verifiedRoleId: v.string(),
+    verifiedRoleId: v.optional(v.string()),
+    verifiedRoleIds: v.optional(v.array(v.string())),
   },
   returns: v.object({
     productId: v.string(),
@@ -623,7 +667,17 @@ export const addProductFromDiscordRole = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const productId = `discord_role:${args.sourceGuildId}:${args.requiredRoleId}`;
+
+    const reqIds = args.requiredRoleIds ?? (args.requiredRoleId ? [args.requiredRoleId] : []);
+    if (reqIds.length === 0) {
+      throw new Error('At least one required role is needed');
+    }
+
+    const productId = buildDiscordRoleProductId(
+      args.sourceGuildId,
+      reqIds,
+      args.requiredRoleMatchMode,
+    );
     const now = Date.now();
 
     const existing = await ctx.db
@@ -638,17 +692,27 @@ export const addProductFromDiscordRole = mutation({
       return { productId, ruleId: existing._id };
     }
 
+    const roleIds = args.verifiedRoleIds ?? (args.verifiedRoleId ? [args.verifiedRoleId] : []);
+    if (roleIds.length === 0) {
+      throw new Error('At least one verified role is required');
+    }
+    const verifiedRoleId = roleIds[0];
+
     const ruleId = await ctx.db.insert('role_rules', {
       tenantId: args.tenantId,
       guildId: args.guildId,
       guildLinkId: args.guildLinkId,
       productId,
-      verifiedRoleId: args.verifiedRoleId,
+      verifiedRoleId,
+      verifiedRoleIds: roleIds.length > 1 ? roleIds : undefined,
       removeOnRevoke: true,
       priority: 0,
       enabled: true,
       sourceGuildId: args.sourceGuildId,
-      requiredRoleId: args.requiredRoleId,
+      requiredRoleId: reqIds.length === 1 ? reqIds[0] : undefined,
+      requiredRoleIds: reqIds.length > 1 ? reqIds : undefined,
+      requiredRoleMatchMode:
+        reqIds.length > 1 ? (args.requiredRoleMatchMode ?? 'any') : undefined,
       createdAt: now,
       updatedAt: now,
     });

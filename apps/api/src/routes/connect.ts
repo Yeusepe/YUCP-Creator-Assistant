@@ -62,7 +62,10 @@ interface DiscordRoleSetupSession {
   adminDiscordUserId: string;
   guilds?: Array<{ id: string; name: string; icon: string | null; owner: boolean; permissions: string }>;
   sourceGuildId?: string;
+  sourceGuildName?: string;
   sourceRoleId?: string;
+  sourceRoleIds?: string[];
+  requiredRoleMatchMode?: 'any' | 'all';
   completed: boolean;
 }
 
@@ -1362,28 +1365,47 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       guilds: session.guilds ?? null,
       completed: session.completed,
       sourceGuildId: session.sourceGuildId,
+      sourceGuildName: session.sourceGuildName,
       sourceRoleId: session.sourceRoleId,
+      sourceRoleIds: session.sourceRoleIds,
+      requiredRoleMatchMode: session.requiredRoleMatchMode,
     });
   }
 
   /**
    * POST /api/setup/discord-role-save
-   * Saves the admin's chosen sourceGuildId and sourceRoleId.
+   * Saves the admin's chosen sourceGuildId and sourceRoleIds (or sourceRoleId).
    * Uses the setup session cookie or an Authorization bearer token.
    */
   async function saveDiscordRoleSelection(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    let body: { sourceGuildId: string; sourceRoleId: string };
+    let body: {
+      sourceGuildId: string;
+      sourceGuildName?: string;
+      sourceRoleId?: string;
+      sourceRoleIds?: string[];
+      requiredRoleMatchMode?: 'any' | 'all';
+    };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
-    const { sourceGuildId, sourceRoleId } = body;
-    if (!sourceGuildId || !sourceRoleId) {
-      return Response.json({ error: 'sourceGuildId and sourceRoleId are required' }, { status: 400 });
+    const { sourceGuildId, sourceGuildName, sourceRoleId, sourceRoleIds, requiredRoleMatchMode } = body;
+    if (!sourceGuildId) {
+      return Response.json({ error: 'sourceGuildId is required' }, { status: 400 });
+    }
+    const roleIds = sourceRoleIds ?? (sourceRoleId ? [sourceRoleId] : []);
+    if (roleIds.length === 0) {
+      return Response.json({ error: 'At least one role ID is required (sourceRoleId or sourceRoleIds)' }, { status: 400 });
+    }
+    const validId = /^\d{17,20}$/;
+    for (const id of roleIds) {
+      if (!validId.test(id)) {
+        return Response.json({ error: `Invalid role ID: ${id}. Must be 17–20 digits.` }, { status: 400 });
+      }
     }
 
     const binding = await requireBoundDiscordRoleSetupSession(request);
@@ -1392,7 +1414,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const store = getStateStore();
     const session = binding.roleSession;
     session.sourceGuildId = sourceGuildId;
-    session.sourceRoleId = sourceRoleId;
+    session.sourceGuildName = sourceGuildName;
+    session.sourceRoleId = roleIds.length === 1 ? roleIds[0] : undefined;
+    session.sourceRoleIds = roleIds.length > 1 ? roleIds : undefined;
+    session.requiredRoleMatchMode = roleIds.length > 1 ? (requiredRoleMatchMode ?? 'any') : undefined;
     session.completed = true;
     await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${binding.sessionToken}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
 
@@ -1413,13 +1438,20 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (!raw) return Response.json({ error: 'Invalid or expired session' }, { status: 401 });
 
     const session = JSON.parse(raw) as DiscordRoleSetupSession;
-    if (!session.completed || !session.sourceGuildId || !session.sourceRoleId) {
+    const roleIds = session.sourceRoleIds ?? (session.sourceRoleId ? [session.sourceRoleId] : []);
+    if (!session.completed || !session.sourceGuildId || roleIds.length === 0) {
       return Response.json({ completed: false });
     }
 
     // Clean up after bot reads the result
     await store.delete(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
-    return Response.json({ completed: true, sourceGuildId: session.sourceGuildId, sourceRoleId: session.sourceRoleId });
+    return Response.json({
+      completed: true,
+      sourceGuildId: session.sourceGuildId,
+      sourceRoleId: session.sourceRoleId,
+      sourceRoleIds: roleIds,
+      requiredRoleMatchMode: session.requiredRoleMatchMode ?? 'any',
+    });
   }
 
   /**

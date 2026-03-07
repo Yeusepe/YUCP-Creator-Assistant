@@ -747,8 +747,10 @@ export function createVerificationSessionManager(
           );
 
           for (const rule of rules) {
-            const { sourceGuildId, requiredRoleId, productId } = rule;
-            if (!sourceGuildId || !requiredRoleId) continue;
+            const { sourceGuildId, requiredRoleId, requiredRoleIds, requiredRoleMatchMode, productId } = rule;
+            const requiredIds =
+              requiredRoleIds ?? (requiredRoleId ? [requiredRoleId] : []);
+            if (!sourceGuildId || requiredIds.length === 0) continue;
 
             let memberRes = await fetch(
               `https://discord.com/api/v10/users/@me/guilds/${sourceGuildId}/member`,
@@ -769,17 +771,24 @@ export function createVerificationSessionManager(
 
             const member = (await memberRes.json()) as { roles?: string[] };
             const roles = member.roles ?? [];
-            const hasRole =
-              roles.includes(requiredRoleId) ||
-              (requiredRoleId === sourceGuildId && memberRes.ok);
+            const matchAll = requiredRoleMatchMode === 'all';
+            const hasRole = matchAll
+              ? requiredIds.every(
+                  (id: string) =>
+                    roles.includes(id) || (id === sourceGuildId && memberRes.ok),
+                )
+              : requiredIds.some(
+                  (id: string) =>
+                    roles.includes(id) || (id === sourceGuildId && memberRes.ok),
+                );
 
             if (hasRole) {
-              const sourceReference = `discord_role:${sourceGuildId}:${requiredRoleId}`;
+              const sourceReference = productId ?? `discord_role:${sourceGuildId}:${requiredIds[0]}`;
               await convex.mutation('entitlements:grantEntitlement' as any, {
                 apiSecret,
                 tenantId,
                 subjectId: syncResult.subjectId,
-                productId: productId ?? sourceReference,
+                productId,
                 evidence: {
                   provider: 'discord',
                   sourceReference,

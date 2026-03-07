@@ -82,6 +82,13 @@ export const backfillProductPurchases = internalAction({
       const text = await res.text();
       throw new Error(`Backfill API failed: ${res.status} ${text}`);
     }
+
+    await ctx.runMutation(internal.backgroundSync.projectBackfilledPurchasesForProduct, {
+      tenantId: args.tenantId,
+      productId: args.productId,
+      provider: args.provider,
+      providerProductRef: args.providerProductRef,
+    });
   },
 });
 
@@ -356,6 +363,180 @@ export const resolveCatalogProduct = internalQuery({
     };
   },
 });
+
+/**
+ * Internal mutation: project entitlements from backfilled purchases for a specific product.
+ * This closes the gap where product-add backfill populated purchase_facts but never
+ * translated them into entitlements for users who had already linked their accounts.
+ */
+export const projectBackfilledPurchasesForProduct = internalMutation({
+  args: {
+    tenantId: v.id('tenants'),
+    productId: v.string(),
+    provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+    providerProductRef: v.string(),
+  },
+  returns: v.object({
+    purchaseFactsFound: v.number(),
+    linkedToSubject: v.number(),
+    entitlementsGranted: v.number(),
+    skippedInactive: v.number(),
+    unresolved: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    if (!apiSecret) {
+      throw new Error('CONVEX_API_SECRET required for projectBackfilledPurchasesForProduct');
+    }
+
+    const purchaseFacts = await ctx.db
+      .query('purchase_facts')
+      .withIndex('by_tenant_product', (q) =>
+        q.eq('tenantId', args.tenantId).eq('providerProductId', args.providerProductRef)
+      )
+      .filter((q) => q.eq(q.field('provider'), args.provider))
+      .collect();
+
+    const catalog = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('provider'), args.provider))
+      .filter((q) => q.eq(q.field('providerProductRef'), args.providerProductRef))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .first();
+
+    const productId = catalog?.productId ?? args.productId;
+    const catalogProductId = catalog?._id;
+
+    let linkedToSubject = 0;
+    let entitlementsGranted = 0;
+    let skippedInactive = 0;
+    let unresolved = 0;
+
+    for (const purchaseFact of purchaseFacts) {
+      if (purchaseFact.lifecycleStatus !== 'active') {
+        skippedInactive++;
+        continue;
+      }
+
+      let subjectId = purchaseFact.subjectId;
+      if (!subjectId) {
+        subjectId = await findSubjectByEmailHash(ctx, args.tenantId, purchaseFact.buyerEmailHash);
+      }
+
+      if (!subjectId && purchaseFact.providerUserId) {
+        subjectId = await findSubjectByProviderUserId(
+          ctx,
+          args.tenantId,
+          args.provider,
+          purchaseFact.providerUserId,
+        );
+      }
+
+      if (!subjectId) {
+        unresolved++;
+        continue;
+      }
+
+      if (purchaseFact.subjectId !== subjectId) {
+        await ctx.db.patch(purchaseFact._id, {
+          subjectId,
+          updatedAt: Date.now(),
+        });
+        linkedToSubject++;
+      }
+
+      const sourceReference =
+        args.provider === 'gumroad'
+          ? `gumroad:${purchaseFact.externalOrderId}`
+          : `jinxxy:${purchaseFact.externalOrderId}:${purchaseFact.externalLineItemId ?? purchaseFact.externalOrderId}`;
+
+      const grantResult = await ctx.runMutation(api.entitlements.grantEntitlement, {
+        apiSecret,
+        tenantId: args.tenantId,
+        subjectId,
+        productId,
+        catalogProductId,
+        evidence: {
+          provider: args.provider,
+          sourceReference,
+          purchasedAt: purchaseFact.purchasedAt,
+        },
+      });
+
+      if (grantResult.isNew || grantResult.previousStatus) {
+        entitlementsGranted++;
+      }
+    }
+
+    return {
+      purchaseFactsFound: purchaseFacts.length,
+      linkedToSubject,
+      entitlementsGranted,
+      skippedInactive,
+      unresolved,
+    };
+  },
+});
+
+async function findSubjectByEmailHash(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  emailHash: string | undefined,
+): Promise<Id<'subjects'> | undefined> {
+  if (!emailHash) return undefined;
+
+  const externalAccounts = await ctx.db
+    .query('external_accounts')
+    .withIndex('by_email_hash', (q: any) => q.eq('emailHash', emailHash))
+    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .collect();
+
+  for (const externalAccount of externalAccounts) {
+    const binding = await ctx.db
+      .query('bindings')
+      .withIndex('by_tenant_external', (q: any) =>
+        q.eq('tenantId', tenantId).eq('externalAccountId', externalAccount._id)
+      )
+      .filter((q: any) => q.eq(q.field('status'), 'active'))
+      .first();
+
+    if (binding) {
+      return binding.subjectId;
+    }
+  }
+
+  return undefined;
+}
+
+async function findSubjectByProviderUserId(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  provider: 'gumroad' | 'jinxxy',
+  providerUserId: string,
+): Promise<Id<'subjects'> | undefined> {
+  const externalAccount = await ctx.db
+    .query('external_accounts')
+    .withIndex('by_provider_user', (q: any) =>
+      q.eq('provider', provider).eq('providerUserId', providerUserId)
+    )
+    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .first();
+
+  if (!externalAccount) {
+    return undefined;
+  }
+
+  const binding = await ctx.db
+    .query('bindings')
+    .withIndex('by_tenant_external', (q: any) =>
+      q.eq('tenantId', tenantId).eq('externalAccountId', externalAccount._id)
+    )
+    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .first();
+
+  return binding?.subjectId;
+}
 
 // ============================================================================
 // 3. RETROACTIVE PRODUCT RULE
