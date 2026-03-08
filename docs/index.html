@@ -103,8 +103,8 @@
         /* ── Reveal on scroll ────────────────────────────────────────────────── */
         .reveal {
             opacity: 0;
-            transform: translateY(40px);
-            transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+            transform: translateY(18px);
+            transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
         }
 
         .reveal.visible {
@@ -376,7 +376,8 @@
         /* ── Feature Bento Cards ─────────────────────────────────────────────── */
         .bento-card {
             background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(8px);
+            backdrop-filter: blur(12px) brightness(88%) saturate(130%);
+            -webkit-backdrop-filter: blur(12px) brightness(88%) saturate(130%);
             border: 1px solid rgba(255, 255, 255, 0.09);
             border-radius: 20px;
             padding: 28px;
@@ -434,6 +435,117 @@
             object-fit: contain;
         }
 
+        /* ── Integration Diagram ────────────────────────────────────────────── */
+        .int-diagram {
+            background: rgba(0,0,0,0.38);
+            backdrop-filter: blur(24px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 24px;
+            padding: 22px;
+            box-shadow: 0 40px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.07);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .int-diagram-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .int-stores-row {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 16px;
+            padding: 16px;
+        }
+        .int-stores-divider { width: 1px; height: 52px; background: rgba(255,255,255,0.08); }
+        .int-store-node { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .int-store-icon {
+            width: 44px; height: 44px; border-radius: 12px; border: 1px solid;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .int-store-icon img { width: 24px; height: 24px; object-fit: contain; }
+        .int-store-label { font-size: 12px; font-weight: 800; color: rgba(255,255,255,0.85); }
+        .int-store-method {
+            font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+            color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.05);
+            padding: 2px 8px; border-radius: 999px;
+        }
+        .int-store-status { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #34d399; font-weight: 700; }
+        .int-arrow-down { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .int-arrow-line {
+            width: 1px; height: 28px;
+            background: linear-gradient(to bottom, rgba(56,189,248,0.5), rgba(56,189,248,0.05));
+            position: relative; overflow: visible;
+        }
+        .int-flow-dot {
+            position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+            width: 5px; height: 5px; border-radius: 50%;
+            background: #38bdf8;
+            box-shadow: 0 0 6px #38bdf8;
+            animation: flow-down 1.4s linear infinite;
+        }
+        @keyframes flow-down {
+            0%   { top: -5px; opacity: 0; }
+            15%  { opacity: 1; }
+            85%  { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .int-hub {
+            position: relative;
+            background: linear-gradient(135deg, rgba(14,165,233,0.14), rgba(45,212,191,0.07));
+            border: 1px solid rgba(56,189,248,0.3);
+            border-radius: 18px;
+            padding: 18px;
+            box-shadow: 0 0 48px rgba(14,165,233,0.12);
+            overflow: hidden;
+        }
+        .int-hub-pulse {
+            position: absolute; inset: -24px; border-radius: 32px;
+            border: 1px solid rgba(14,165,233,0.18);
+            animation: hub-pulse 2.8s ease-out infinite;
+            pointer-events: none;
+        }
+        .int-hub-pulse-2 { animation-delay: 1.4s; }
+        @keyframes hub-pulse {
+            0%   { opacity: 0.7; transform: scale(0.88); }
+            100% { opacity: 0;   transform: scale(1.12); }
+        }
+        .int-hub-inner { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; position: relative; }
+        .int-hub-stats {
+            display: flex; align-items: center;
+            background: rgba(0,0,0,0.3); border-radius: 10px;
+            padding: 10px 0; border: 1px solid rgba(255,255,255,0.06);
+            position: relative;
+        }
+        .int-hub-stat { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .int-hub-stat-divider { width: 1px; height: 28px; background: rgba(255,255,255,0.08); flex-shrink: 0; }
+        .int-discord-result {
+            background: rgba(88,101,242,0.07);
+            border: 1px solid rgba(88,101,242,0.22);
+            border-radius: 16px;
+            padding: 16px;
+        }
+        .int-role-chip {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+            padding: 4px 10px; border-radius: 999px; border: 1px solid;
+        }
+        .int-check-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+        .int-check-item { display: flex; align-items: center; gap: 10px; }
+        .int-check-icon {
+            width: 28px; height: 28px; border-radius: 9px;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+            border: 1px solid;
+        }
+        .int-check-icon img { width: 13px; height: 13px; object-fit: contain; }
+
         /* ── Tag pills ───────────────────────────────────────────────────────── */
         .tag-pill {
             display: inline-flex;
@@ -486,64 +598,8 @@
             }
         }
 
-        /* ── Ticker ──────────────────────────────────────────────────────────── */
-        .ticker-wrap {
-            overflow: hidden;
-            border-top: 1px solid rgba(255, 255, 255, 0.07);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-            background: rgba(0, 0, 0, 0.18);
-        }
-
-        .ticker-inner {
-            display: flex;
-            gap: 0;
-            animation: ticker-scroll 30s linear infinite;
-            width: max-content;
-        }
-
-        @keyframes ticker-scroll {
-            from {
-                transform: translateX(0);
-            }
-
-            to {
-                transform: translateX(-50%);
-            }
-        }
-
-        .ticker-item {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px 32px;
-            font-size: 11px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            color: rgba(255, 255, 255, 0.4);
-            white-space: nowrap;
-        }
-
-        .ticker-item img {
-            width: 14px;
-            height: 14px;
-            object-fit: contain;
-            opacity: 0.5;
-        }
-
-        .ticker-sep {
-            width: 4px;
-            height: 4px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.15);
-            margin: 0 8px;
-        }
-
         /* ── Section BG ─────────────────────────────────────────────────────── */
-        .section-bg {
-            background: var(--bg-color);
-        }
-
+        .section-bg,
         .section-bg-alt {
             background: transparent;
         }
@@ -587,6 +643,50 @@
             font-weight: 800;
             font-family: 'Plus Jakarta Sans', sans-serif;
         }
+
+        /* ── Discord mockup sidebar ──────────────────────────────────────────── */
+        .discord-sidebar-channel {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            margin: 1px 4px;
+            color: rgba(255,255,255,0.32);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: default;
+            transition: background 0.1s, color 0.1s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .discord-sidebar-channel.active {
+            background: rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.9);
+        }
+
+        /* ── Hero stat ───────────────────────────────────────────────────────── */
+        .hero-stat-num {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 900;
+            font-size: clamp(1.35rem, 2.8vw, 1.75rem);
+            line-height: 1;
+            color: #fff;
+            letter-spacing: -0.03em;
+            margin-bottom: 4px;
+        }
+        .hero-stat-label {
+            font-size: 9px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: rgba(255,255,255,0.25);
+        }
+
+        /* ── Scrollbar hide ──────────────────────────────────────────────────── */
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 
     <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
@@ -697,92 +797,89 @@
         </script>
 
         <!-- ── Hero ──────────────────────────────────────────────────────────────── -->
-        <main
-            class="min-h-screen flex items-center px-4 md:px-16 lg:px-24 relative overflow-hidden pt-28 pb-12 lg:pb-20">
+        <main class="min-h-screen flex items-center px-4 sm:px-6 lg:px-10 relative pt-24 pb-12">
 
-            <!-- Background glows -->
-            <div class="absolute inset-0 pointer-events-none z-0">
-                <div class="absolute top-1/3 -left-40 w-[560px] h-[560px] rounded-full"
-                    style="background:radial-gradient(circle,rgba(14,165,233,0.18),transparent 70%);filter:blur(80px);">
-                </div>
-                <div class="absolute bottom-1/4 -right-40 w-[440px] h-[440px] rounded-full"
-                    style="background:radial-gradient(circle,rgba(145,70,255,0.14),transparent 70%);filter:blur(80px);">
-                </div>
-                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[260px]"
-                    style="background:radial-gradient(ellipse,rgba(255,235,59,0.06),transparent 70%);filter:blur(100px);">
-                </div>
-            </div>
+            <div class="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-12 xl:gap-20 items-center relative z-10">
 
-            <div class="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-16 xl:gap-28 items-center relative z-10">
-
-                <!-- Left: Copy -->
+                <!-- ── Left: Copy ────────────────────────────────────────────── -->
                 <div>
-                    <div class="flex flex-wrap items-center gap-2 mb-8 md:mb-10 reveal">
-                        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full"
-                            style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
-                            <img src="Icons/Gumorad.png" class="h-3.5 w-3.5 object-contain" alt="Gumroad">
-                            <span class="text-white/50 text-xs font-bold">Gumroad</span>
-                        </div>
-                        <span class="text-white/20 text-xs hidden sm:inline px-1">+</span>
-                        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full"
-                            style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
-                            <img src="Icons/Jinxxy.png" class="h-3.5 w-3.5 object-contain" alt="Jinxxy">
-                            <span class="text-white/50 text-xs font-bold">Jinxxy</span>
-                        </div>
-                        <span class="text-white/20 text-xs hidden sm:inline px-1">→</span>
-                        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full"
-                            style="background:rgba(88,101,242,0.15);border:1px solid rgba(88,101,242,0.3);">
-                            <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain" alt="Discord">
-                            <span class="text-[#818cf8] text-xs font-bold">Discord</span>
-                        </div>
+                    <!-- Top pill -->
+                    <div class="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full mb-8 reveal"
+                        style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);">
+                        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse"
+                            style="background:#00e676;box-shadow:0 0 6px rgba(0,230,118,0.7);"></span>
+                        <span class="flex items-center gap-1.5">
+                            <img src="Icons/Gumorad.png" class="h-3.5 w-3.5 object-contain opacity-55" alt="">
+                            <img src="Icons/Jinxxy.png" class="h-3.5 w-3.5 object-contain opacity-55" alt="">
+                            <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain opacity-55" alt="">
+                        </span>
+                        <div class="w-px h-3.5 flex-shrink-0" style="background:rgba(255,255,255,0.1);"></div>
+                        <span class="text-white/45 text-[11px] font-bold uppercase tracking-[0.12em]">Gumroad &middot; Jinxxy &middot; VRChat</span>
                     </div>
 
                     <!-- Headline -->
-                    <h1 class="text-white reveal reveal-delay-1"
-                        style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2.5rem,8vw,5.25rem);line-height:1.05;letter-spacing:-0.04em;margin-bottom:1.5rem;">
-                        License verified.<br>
-                        Role granted.<br>
+                    <h1 class="text-white mb-5 reveal reveal-delay-1"
+                        style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2.4rem,5.5vw,4.25rem);line-height:1.04;letter-spacing:-0.04em;">
+                        Sell once.<br>
+                        Gate forever.<br>
                         <span
-                            style="background:linear-gradient(100deg,#38bdf8 0%,#818cf8 50%,#FF90E8 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">Done.</span>
+                            style="background:linear-gradient(100deg,#38bdf8 0%,#818cf8 45%,#FF90E8 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">Effortlessly.</span>
                     </h1>
 
                     <!-- Sub -->
-                    <p class="text-white/55 reveal reveal-delay-2"
-                        style="font-size:clamp(0.95rem,4vw,1.15rem);line-height:1.6;max-width:460px;margin-bottom:2.5rem;">
-                        Connect your storefront to Discord. Buyers get their roles automatically. No spreadsheets, no
-                        DMs, no manual work.
+                    <p class="text-white/50 mb-8 reveal reveal-delay-2"
+                        style="font-size:clamp(0.95rem,2vw,1.1rem);line-height:1.65;max-width:420px;">
+                        Connect your Gumroad or Jinxxy store to Discord. Buyers verify their purchase and get exclusive roles — automatically, in seconds.
                     </p>
+
                     <!-- CTAs -->
-                    <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center reveal reveal-delay-3">
+                    <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center mb-10 reveal reveal-delay-3">
                         <button
                             class="btn-primary clickable px-7 py-3.5 font-bold text-sm uppercase tracking-widest text-white group flex items-center gap-2.5"
                             onclick="fireConfetti(this);window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')">
                             <img src="Icons/Discord.png" class="h-4 w-4 object-contain" alt="">
-                            Add to Discord
+                            Add to Discord &mdash; Free
                             <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none"
                                 stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
                             </svg>
                         </button>
-                        <a href="#features"
-                            class="clickable text-sm font-bold uppercase tracking-widest text-white/45 hover:text-white transition-colors flex items-center gap-1.5">
-                            See how it works
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5"
-                                viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                        <a href="docs.html"
+                            class="clickable text-sm font-bold uppercase tracking-widest text-white/40 hover:text-white/90 transition-colors flex items-center gap-2">
+                            Read the docs
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                             </svg>
                         </a>
                     </div>
+
+                    <!-- Stats row -->
+                    <div class="flex items-center gap-7 reveal reveal-delay-3">
+                        <div>
+                            <div class="hero-stat-num">10K+</div>
+                            <div class="hero-stat-label">Roles Granted</div>
+                        </div>
+                        <div class="w-px h-9 flex-shrink-0" style="background:rgba(255,255,255,0.08);"></div>
+                        <div>
+                            <div class="hero-stat-num">500+</div>
+                            <div class="hero-stat-label">Active Servers</div>
+                        </div>
+                        <div class="w-px h-9 flex-shrink-0" style="background:rgba(255,255,255,0.08);"></div>
+                        <div>
+                            <div class="hero-stat-num">&lt;&thinsp;2s</div>
+                            <div class="hero-stat-label">Avg Verify Time</div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Right: Discord mockup -->
-                <div class="relative reveal reveal-delay-2 hidden lg:block">
+                <!-- ── Right: Discord mockup ──────────────────────────────────── -->
+                <div class="relative hidden lg:block reveal reveal-delay-2">
 
-                    <!-- Floating chip: Verified -->
-                    <div class="absolute -top-5 -left-8 z-20 flex items-center gap-3 px-4 py-3 rounded-2xl"
-                        style="background:rgba(8,10,18,0.9);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.1);box-shadow:0 12px 40px rgba(0,0,0,0.5);">
+                    <!-- Floating chip: verified (top-right) -->
+                    <div class="absolute -top-5 -right-6 z-20 flex items-center gap-3 px-4 py-3 rounded-2xl"
+                        style="background:rgba(8,10,18,0.92);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.09);box-shadow:0 16px 48px rgba(0,0,0,0.6);">
                         <div class="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                            style="background:rgba(0,230,118,0.15);">
+                            style="background:rgba(0,230,118,0.15);border:1px solid rgba(0,230,118,0.2);">
                             <img src="Icons/Checkmark.png" class="w-4 h-4 object-contain" alt="">
                         </div>
                         <div>
@@ -791,98 +888,191 @@
                         </div>
                     </div>
 
-                    <!-- Floating chip: Protected -->
-                    <div class="absolute -bottom-5 -right-8 z-20 px-4 py-3 rounded-2xl"
-                        style="background:rgba(8,10,18,0.9);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.1);box-shadow:0 12px 40px rgba(0,0,0,0.5);">
-                        <div class="text-white/35 text-[10px] font-semibold uppercase tracking-wider mb-1">Protected
-                            from</div>
+                    <!-- Floating chip: protected (bottom-left) -->
+                    <div class="absolute -bottom-5 -left-6 z-20 px-4 py-3 rounded-2xl"
+                        style="background:rgba(8,10,18,0.92);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.09);box-shadow:0 16px 48px rgba(0,0,0,0.6);">
+                        <div class="text-white/30 text-[10px] font-bold uppercase tracking-wider mb-1">Protected from</div>
                         <div class="text-white text-sm font-black flex items-center gap-2">
                             <img src="Icons/Key.png" class="w-4 h-4 object-contain" alt="">
                             Leaks &amp; Fraud
                         </div>
                     </div>
 
-                    <!-- Discord window -->
-                    <div class="discord-mockup w-full max-w-md mx-auto">
+                    <!-- The window -->
+                    <div class="discord-mockup w-full" style="box-shadow:0 32px 80px rgba(0,0,0,0.6);">
+
                         <!-- Title bar -->
-                        <div class="mockup-header">
-                            <div class="mockup-dot"></div>
-                            <div class="mockup-dot"></div>
-                            <div class="mockup-dot"></div>
-                            <div class="flex items-center gap-2 ml-3">
-                                <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain opacity-40" alt="">
-                                <span class="text-white/30 text-xs font-semibold"># verify-purchase</span>
+                        <div class="mockup-header justify-between">
+                            <div class="flex items-center gap-1.5">
+                                <div class="mockup-dot"></div>
+                                <div class="mockup-dot"></div>
+                                <div class="mockup-dot"></div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <img src="Icons/Discord.png" class="h-3 w-3 object-contain opacity-30" alt="">
+                                <span class="text-white/25 text-xs font-semibold">Creator Server &mdash; Discord</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <div class="w-1.5 h-1.5 rounded-full"
+                                    style="background:#00e676;box-shadow:0 0 5px rgba(0,230,118,0.7);"></div>
+                                <span class="text-[10px] font-bold" style="color:#00e676;">Online</span>
                             </div>
                         </div>
 
-                        <!-- Chat body -->
-                        <div class="p-5 space-y-5">
+                        <!-- Body: sidebar + chat -->
+                        <div class="flex" style="height:310px;">
 
-                            <!-- User slash command -->
-                            <div class="flex items-start gap-3">
-                                <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-black"
-                                    style="background:linear-gradient(135deg,#818cf8,#FF90E8);">M</div>
-                                <div>
-                                    <div class="flex items-baseline gap-2 mb-1.5">
-                                        <span class="text-white text-xs font-bold">maya.creates</span>
-                                        <span class="text-white/20 text-[10px]">Today at 2:41 PM</span>
+                            <!-- Sidebar -->
+                            <div class="flex flex-col flex-shrink-0 py-3"
+                                style="width:160px;background:#2b2d31;border-right:1px solid rgba(0,0,0,0.4);">
+                                <!-- Server name -->
+                                <div class="px-3 pb-2.5 mb-1" style="border-bottom:1px solid rgba(0,0,0,0.35);">
+                                    <div class="text-white text-xs font-black leading-tight truncate">Creator Server</div>
+                                    <div class="flex items-center gap-1 mt-0.5">
+                                        <div class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:#00e676;"></div>
+                                        <span class="text-white/30 text-[10px] font-semibold">247 online</span>
                                     </div>
-                                    <div class="text-white/65 text-sm font-mono rounded-lg px-3 py-2 inline-block"
-                                        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.07);">
-                                        /verify
+                                </div>
+                                <!-- Category -->
+                                <div class="px-3 pt-2 pb-1 text-[9px] font-black uppercase tracking-[0.12em] text-white/20">Verification</div>
+                                <div class="discord-sidebar-channel active">
+                                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/>
+                                    </svg>
+                                    verify-here
+                                </div>
+                                <div class="discord-sidebar-channel">
+                                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/>
+                                    </svg>
+                                    general
+                                </div>
+                                <div class="px-3 pt-3 pb-1 text-[9px] font-black uppercase tracking-[0.12em] text-white/20">Premium</div>
+                                <div class="discord-sidebar-channel">
+                                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                                    </svg>
+                                    <span style="color:rgba(255,235,59,0.6);">vip-only</span>
+                                </div>
+                                <div class="discord-sidebar-channel">
+                                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                                    </svg>
+                                    <span style="color:rgba(129,140,248,0.6);">downloads</span>
+                                </div>
+                                <!-- User profile -->
+                                <div class="mt-auto mx-2 px-2 py-2 rounded-lg flex items-center gap-2"
+                                    style="background:rgba(0,0,0,0.2);">
+                                    <div class="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-black"
+                                        style="background:linear-gradient(135deg,#818cf8,#FF90E8);">M</div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-white text-[11px] font-bold truncate leading-tight">maya.creates</div>
+                                        <div class="text-white/30 text-[9px] leading-tight">✦ Verified</div>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Bot response -->
-                            <div class="flex items-start gap-3">
-                                <div class="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden"
-                                    style="background:rgba(88,101,242,0.2);border:1px solid rgba(88,101,242,0.35);">
-                                    <img src="Icons/Assistant.png" class="w-full h-full object-cover" alt="">
+                            <!-- Chat area -->
+                            <div class="flex-1 flex flex-col min-w-0" style="background:#313338;">
+                                <!-- Channel header -->
+                                <div class="px-4 py-2.5 flex items-center gap-2 flex-shrink-0"
+                                    style="border-bottom:1px solid rgba(0,0,0,0.35);">
+                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor"
+                                        stroke-width="2" viewBox="0 0 24 24" style="color:rgba(255,255,255,0.3);">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/>
+                                    </svg>
+                                    <span class="text-white/80 text-xs font-bold">verify-here</span>
+                                    <div class="w-px h-3 flex-shrink-0 mx-1" style="background:rgba(255,255,255,0.1);"></div>
+                                    <span class="text-white/25 text-xs truncate">Verify your purchase</span>
                                 </div>
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex items-baseline gap-2 mb-1.5">
-                                        <span class="text-[#5865F2] text-xs font-bold">Creator Assistant</span>
-                                        <span class="font-bold px-1.5 py-0.5 rounded text-white"
-                                            style="background:#5865F2;font-size:9px;line-height:1.4;">BOT</span>
-                                        <span class="text-white/20 text-[10px]">Today at 2:41 PM</span>
-                                    </div>
-                                    <!-- Embed -->
-                                    <div class="rounded-lg overflow-hidden"
-                                        style="border-left:4px solid #00e676;background:rgba(0,0,0,0.28);border-top:1px solid rgba(255,255,255,0.05);border-right:1px solid rgba(255,255,255,0.05);border-bottom:1px solid rgba(255,255,255,0.05);">
-                                        <div class="p-4">
-                                            <div class="flex items-center gap-2 mb-2">
-                                                <div class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
-                                                    style="background:#00e676;">
-                                                    <svg class="w-2.5 h-2.5" fill="#000" viewBox="0 0 20 20">
-                                                        <path fill-rule="evenodd"
-                                                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                                            clip-rule="evenodd" />
-                                                    </svg>
-                                                </div>
-                                                <span class="text-white text-xs font-black">Purchase Verified!</span>
+
+                                <!-- Messages -->
+                                <div class="flex-1 overflow-y-auto scrollbar-hide p-3 space-y-3">
+
+                                    <!-- Bot welcome / pin -->
+                                    <div class="flex items-start gap-2.5">
+                                        <div class="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden"
+                                            style="background:rgba(88,101,242,0.2);border:1px solid rgba(88,101,242,0.3);">
+                                            <img src="Icons/Assistant.png" class="w-full h-full object-cover" alt="">
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-baseline gap-2 mb-1">
+                                                <span class="text-[#5865F2] text-xs font-bold">Creator Assistant</span>
+                                                <span class="font-bold px-1.5 py-0.5 rounded text-white"
+                                                    style="background:#5865F2;font-size:9px;line-height:1.4;">BOT</span>
                                             </div>
-                                            <p class="text-white/50 text-xs leading-relaxed mb-3">Your Gumroad purchase
-                                                has been confirmed. Welcome to the community!</p>
-                                            <div class="flex flex-wrap gap-2">
-                                                <span class="text-xs font-bold px-2.5 py-1 rounded-full"
-                                                    style="background:rgba(0,230,118,0.12);color:#00e676;border:1px solid rgba(0,230,118,0.25);">@Premium
-                                                    Member</span>
-                                                <span class="text-xs font-bold px-2.5 py-1 rounded-full"
-                                                    style="background:rgba(88,101,242,0.12);color:#818cf8;border:1px solid rgba(88,101,242,0.25);">@VIP
-                                                    Access</span>
+                                            <div class="rounded-lg overflow-hidden inline-block"
+                                                style="border-left:4px solid #5865F2;background:rgba(0,0,0,0.28);border:1px solid rgba(255,255,255,0.06);border-left:4px solid #5865F2;">
+                                                <div class="p-3">
+                                                    <div class="text-white text-xs font-black mb-1">Verify your purchase</div>
+                                                    <p class="text-white/45 text-xs leading-relaxed mb-2.5">Click below to link your purchase and unlock your exclusive roles.</p>
+                                                    <button class="px-3.5 py-1.5 rounded text-white text-xs font-bold"
+                                                        style="background:#5865F2;">Verify Purchase</button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
 
-                            <!-- System line -->
-                            <div class="flex items-center gap-3">
-                                <div class="flex-1 h-px" style="background:rgba(255,255,255,0.05);"></div>
-                                <span class="text-white/20 text-[10px] font-semibold whitespace-nowrap">maya.creates was
-                                    given @Premium Member</span>
-                                <div class="flex-1 h-px" style="background:rgba(255,255,255,0.05);"></div>
+                                    <!-- User types /verify -->
+                                    <div class="flex items-start gap-2.5">
+                                        <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-black"
+                                            style="background:linear-gradient(135deg,#818cf8,#FF90E8);">M</div>
+                                        <div>
+                                            <div class="flex items-baseline gap-2 mb-1">
+                                                <span class="text-white text-xs font-bold">maya.creates</span>
+                                                <span class="text-white/20 text-[10px]">2:41 PM</span>
+                                            </div>
+                                            <div class="text-white/60 text-sm font-mono rounded-lg px-3 py-1.5 inline-block"
+                                                style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.07);">
+                                                /verify
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Bot verified response -->
+                                    <div class="flex items-start gap-2.5">
+                                        <div class="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden"
+                                            style="background:rgba(88,101,242,0.2);border:1px solid rgba(88,101,242,0.3);">
+                                            <img src="Icons/Assistant.png" class="w-full h-full object-cover" alt="">
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-baseline gap-2 mb-1">
+                                                <span class="text-[#5865F2] text-xs font-bold">Creator Assistant</span>
+                                                <span class="font-bold px-1.5 py-0.5 rounded text-white"
+                                                    style="background:#5865F2;font-size:9px;line-height:1.4;">BOT</span>
+                                                <span class="text-white/20 text-[10px]">2:41 PM</span>
+                                            </div>
+                                            <div class="rounded-lg overflow-hidden"
+                                                style="border-left:4px solid #00e676;background:rgba(0,0,0,0.28);border:1px solid rgba(255,255,255,0.06);border-left:4px solid #00e676;">
+                                                <div class="p-3">
+                                                    <div class="flex items-center gap-2 mb-1.5">
+                                                        <div class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:#00e676;">
+                                                            <svg class="w-2.5 h-2.5" fill="#000" viewBox="0 0 20 20">
+                                                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                                            </svg>
+                                                        </div>
+                                                        <span class="text-white text-xs font-black">Purchase Verified!</span>
+                                                    </div>
+                                                    <p class="text-white/50 text-xs leading-relaxed mb-2.5">Gumroad purchase confirmed. Welcome!</p>
+                                                    <div class="flex flex-wrap gap-1.5">
+                                                        <span class="text-xs font-bold px-2.5 py-1 rounded-full"
+                                                            style="background:rgba(0,230,118,0.12);color:#00e676;border:1px solid rgba(0,230,118,0.25);">@Premium Member</span>
+                                                        <span class="text-xs font-bold px-2.5 py-1 rounded-full"
+                                                            style="background:rgba(88,101,242,0.12);color:#818cf8;border:1px solid rgba(88,101,242,0.25);">@VIP Access</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- System line -->
+                                    <div class="flex items-center gap-2">
+                                        <div class="flex-1 h-px" style="background:rgba(255,255,255,0.04);"></div>
+                                        <span class="text-[10px] font-semibold whitespace-nowrap" style="color:rgba(255,255,255,0.18);">maya.creates was given @Premium Member</span>
+                                        <div class="flex-1 h-px" style="background:rgba(255,255,255,0.04);"></div>
+                                    </div>
+
+                                </div>
                             </div>
 
                         </div>
@@ -891,189 +1081,229 @@
 
             </div>
 
-            <!-- Bottom fade -->
-            <div class="absolute bottom-0 left-0 w-full h-40 pointer-events-none z-10"
-                style="background:linear-gradient(to top, var(--bg-color, #0a0c14), transparent);"></div>
         </main>
 
-        <!-- ── Feature Ticker ────────────────────────────────────────────────────── -->
-        <div class="ticker-wrap py-0 z-10 relative">
-            <div class="ticker-inner">
-                <div class="ticker-item"><img src="Icons/Checkmark.png" alt="">License Verification</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Discord.png" alt="">Discord Role Sync</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Bag.png" alt="">Gumroad Integration</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Jinxxy.png" alt="">Jinxxy Integration</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Library.png" alt="">Liened Downloads</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/PersonKey.png" alt="">Collaborating Creators</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Key.png" alt="">Fraud Protection</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/World.png" alt="">Cross-Server Verification</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Refresh.png" alt="">Auto Role Assignment</div>
-                <div class="ticker-sep"></div>
-                <!-- Duplicate for seamless loop -->
-                <div class="ticker-item"><img src="Icons/Checkmark.png" alt="">License Verification</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Discord.png" alt="">Discord Role Sync</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Bag.png" alt="">Gumroad Integration</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Jinxxy.png" alt="">Jinxxy Integration</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Library.png" alt="">Liened Downloads</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/PersonKey.png" alt="">Collaborating Creators</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Key.png" alt="">Fraud Protection</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/World.png" alt="">Cross-Server Verification</div>
-                <div class="ticker-sep"></div>
-                <div class="ticker-item"><img src="Icons/Refresh.png" alt="">Auto Role Assignment</div>
-                <div class="ticker-sep"></div>
-            </div>
-        </div>
 
         <!-- ── Philosophy Statement ──────────────────────────────────────────────── -->
-        <section class="py-24 px-4 overflow-hidden relative border-t border-white/5 section-bg backdrop-blur-sm z-10"
+        <section class="py-14 px-4 sm:px-6 overflow-hidden relative z-10"
             id="features">
-            <div class="max-w-6xl mx-auto">
-                <div class="text-center mb-12 lg:mb-16 reveal">
-                    <p class="text-[var(--accent-sky)] font-bold uppercase tracking-[0.3em] text-sm mb-4">The Philosophy
-                    </p>
-                    <h2 class="text-3xl sm:text-4xl md:text-6xl text-white">
+            <div class="max-w-6xl mx-auto flex flex-col lg:flex-row items-center gap-10 lg:gap-20">
+                <div class="lg:w-5/12 reveal">
+                    <p class="text-[var(--accent-sky)] font-bold uppercase tracking-[0.25em] text-xs mb-3">The Philosophy</p>
+                    <h2 class="text-3xl sm:text-4xl md:text-5xl text-white leading-[1.1]">
                         Functionality with <span
                             class="text-[var(--accent-mustard)] inline-block transform -rotate-2 hover:rotate-2 transition-transform cursor-default">flavor.</span>
                     </h2>
                 </div>
-                <div
-                    class="text-xl sm:text-2xl md:text-4xl font-medium leading-[1.5] text-center max-w-4xl mx-auto text-white/80 reveal reveal-delay-1">
+                <div class="lg:w-7/12 text-base sm:text-lg text-white/65 leading-relaxed reveal reveal-delay-1">
                     A seamless bridge between your
-                    <span
-                        class="blob-text border-[#FF90E8] text-[#FF90E8] hover:bg-[#FF90E8] hover:text-white transition-colors cursor-crosshair sticker">STOREFRONT</span>
+                    <span class="blob-text border-[#FF90E8] text-[#FF90E8] hover:bg-[#FF90E8] hover:text-white transition-colors cursor-crosshair sticker">STOREFRONT</span>
                     and your server. Automatically grant
-                    <span class="inline-block relative group mx-2"><span
-                            class="relative z-10 text-[var(--accent-mustard)] font-bold">ROLES</span><span
-                            class="absolute bottom-0 left-0 w-full h-2 bg-[var(--accent-mustard)]/30 group-hover:h-full transition-all duration-300 -z-10 rounded"></span></span>
+                    <span class="inline-block relative group mx-1"><span class="relative z-10 text-[var(--accent-mustard)] font-bold">ROLES</span><span class="absolute bottom-0 left-0 w-full h-2 bg-[var(--accent-mustard)]/30 group-hover:h-full transition-all duration-300 -z-10 rounded"></span></span>
                     based on purchases. Secure your community from
-                    <span class="blob-solid bg-rose-500 text-white text-2xl sticker shadow-lg">LEAKS</span>
+                    <span class="blob-solid bg-rose-500 text-white sticker shadow-lg">LEAKS</span>
                     without sacrificing the experience.
                 </div>
             </div>
         </section>
 
         <!-- ── Feature: Seamless Integrations ───────────────────────────────────── -->
-        <section class="py-20 lg:py-32 px-4 md:px-12 lg:px-24 relative z-10 section-bg-alt" id="integrations">
-            <div class="glow-ring w-96 h-96 bg-[var(--accent-sky)] -top-20 -left-20"></div>
-            <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
-                <div class="flex-1 reveal">
-                    <div class="feature-icon-box sticker"
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative z-10" id="integrations">
+
+            <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-14 lg:gap-20">
+
+                <!-- Left: Text -->
+                <div class="flex-1 max-w-xl reveal">
+                    <div class="feature-icon-box sticker mb-5"
                         style="background:rgba(14,165,233,0.15);box-shadow:0 8px 24px rgba(14,165,233,0.2);">
                         <img src="Icons/Link.png" alt="">
                     </div>
-                    <h2
-                        class="text-4xl sm:text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight leading-[1.1]">
+                    <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Your storefronts,<br class="hidden md:block">
-                        <span class="grad-text"
-                            style="background-image:linear-gradient(90deg,#38bdf8,#2dd4bf);">united.</span>
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#38bdf8,#2dd4bf);">united.</span>
                     </h2>
-                    <p class="text-xl text-white/70 leading-relaxed mb-8">
-                        Connect <span class="font-bold text-[#FF90E8]">Gumroad</span>, <span
-                            class="font-bold text-[#9146FF]">Jinxxy</span>, and <span
-                            class="font-bold text-[#5865F2]">Discord</span> in minutes. Customers sign in once and the
-                        Assistant verifies every purchase, past and future, without them lifting a finger again.
+                    <p class="text-xl text-white/70 leading-relaxed mb-10">
+                        Connect <span class="font-bold text-[#FF90E8]">Gumroad</span>, <span class="font-bold text-[#9146FF]">Jinxxy</span>, and <span class="font-bold text-[#5865F2]">Discord</span> in minutes. Customers verify once — the Assistant handles every purchase, past and future, automatically.
                     </p>
-                    <div class="grid grid-cols-2 gap-6">
-                        <div class="stat-card">
-                            <div class="text-4xl font-black text-white mb-2">OAuth2</div>
-                            <div class="text-[10px] uppercase tracking-[0.2em] font-bold text-sky-400/90">Secure
-                                Connection</div>
+
+                    <!-- Feature checklist -->
+                    <div class="int-check-list">
+                        <div class="int-check-item">
+                            <div class="int-check-icon" style="background:rgba(56,189,248,0.1);border-color:rgba(56,189,248,0.22);">
+                                <img src="Icons/Checkmark.png" alt="">
+                            </div>
+                            <span class="text-sm text-white/75 font-medium">OAuth2 &amp; webhook-based store connections</span>
                         </div>
-                        <div class="stat-card">
-                            <div class="text-4xl font-black text-white mb-2">Real-time</div>
-                            <div class="text-[10px] uppercase tracking-[0.2em] font-bold text-purple-400/90">Webhook
-                                Sync</div>
+                        <div class="int-check-item">
+                            <div class="int-check-icon" style="background:rgba(45,212,191,0.1);border-color:rgba(45,212,191,0.22);">
+                                <img src="Icons/Refresh.png" alt="">
+                            </div>
+                            <span class="text-sm text-white/75 font-medium">Real-time sync on every new purchase &amp; refund</span>
+                        </div>
+                        <div class="int-check-item">
+                            <div class="int-check-icon" style="background:rgba(167,139,250,0.1);border-color:rgba(167,139,250,0.22);">
+                                <img src="Icons/PersonKey.png" alt="">
+                            </div>
+                            <span class="text-sm text-white/75 font-medium">Multiple collaborators, one unified server</span>
+                        </div>
+                    </div>
+
+                    <!-- Spec strip -->
+                    <div class="flex items-stretch rounded-2xl overflow-hidden"
+                        style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">
+                        <div class="flex items-center gap-3 px-5 py-4 flex-1">
+                            <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                                style="background:rgba(56,189,248,0.14);border:1px solid rgba(56,189,248,0.22);">
+                                <img src="Icons/KeyCloud.png" class="w-4 h-4 object-contain" alt="">
+                            </div>
+                            <div>
+                                <div class="text-white text-sm font-black leading-none mb-1">OAuth2</div>
+                                <div class="text-white/35 text-[10px] font-bold uppercase tracking-[0.12em]">Secure Connection</div>
+                            </div>
+                        </div>
+                        <div class="w-px self-stretch flex-shrink-0" style="background:rgba(255,255,255,0.07);"></div>
+                        <div class="flex items-center gap-3 px-5 py-4 flex-1">
+                            <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                                style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.22);">
+                                <img src="Icons/Refresh.png" class="w-4 h-4 object-contain" alt="">
+                            </div>
+                            <div>
+                                <div class="text-white text-sm font-black leading-none mb-1">Real-time</div>
+                                <div class="text-white/35 text-[10px] font-bold uppercase tracking-[0.12em]">Webhook Sync</div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="flex-1 w-full reveal reveal-delay-1">
-                    <div class="relative w-full h-96 sm:h-80">
-                        <!-- Discord card -->
-                        <div
-                            class="absolute top-0 left-0 sm:left-10 right-0 sm:right-10 z-30 transform hover:-translate-y-2 transition-transform duration-300">
-                            <div
-                                class="bg-[#1e1f22] rounded-xl p-4 sm:p-5 border border-white/10 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                                <div class="flex items-center gap-4">
-                                    <div
-                                        class="w-12 h-12 rounded-full bg-[#5865F2]/20 flex items-center justify-center">
-                                        <img src="Icons/Discord.png" class="w-6 h-6 object-contain" alt="Discord">
-                                    </div>
-                                    <div>
-                                        <div class="text-sm font-bold text-white">Discord Identity</div>
-                                        <div class="text-xs text-white/50">Primary Connection</div>
-                                    </div>
-                                </div>
-                                <div
-                                    class="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/30">
-                                    Connected</div>
+                <!-- Right: Integration flow diagram -->
+                <div class="flex-1 w-full max-w-sm mx-auto lg:mx-0 reveal reveal-delay-1">
+                    <div class="int-diagram">
+
+                        <!-- Header -->
+                        <div class="int-diagram-header">
+                            <div class="flex items-center gap-2">
+                                <img src="Icons/Link.png" class="w-3.5 h-3.5 object-contain opacity-50" alt="">
+                                <span class="text-[10px] font-black uppercase tracking-[0.15em] text-white/50">Active Connections</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                                <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Live</span>
                             </div>
                         </div>
-                        <!-- Gumroad card -->
-                        <div
-                            class="absolute top-24 sm:top-20 left-2 sm:left-4 right-6 sm:right-16 z-20 transform hover:-translate-y-2 transition-transform duration-300">
-                            <div
-                                class="bg-[#1e1f22] rounded-xl p-4 sm:p-5 border border-white/10 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 opacity-90">
-                                <div class="flex items-center gap-4">
-                                    <div
-                                        class="w-12 h-12 rounded-full bg-[#FF90E8]/20 flex items-center justify-center font-black text-xl text-[#FF90E8]">
-                                        <img src="Icons/Bag.png" class="w-6 h-6 object-contain" alt="Gumroad">
-                                    </div>
-                                    <div>
-                                        <div class="text-sm font-bold text-white">Gumroad Account</div>
-                                        <div class="text-xs text-white/50">Store Integration</div>
-                                    </div>
+
+                        <!-- Stores row -->
+                        <div class="int-stores-row">
+                            <div class="int-store-node">
+                                <div class="int-store-icon" style="background:rgba(255,144,232,0.12);border-color:rgba(255,144,232,0.22);">
+                                    <img src="Icons/Gumorad.png" alt="Gumroad">
                                 </div>
-                                <div
-                                    class="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/30">
-                                    Linked</div>
+                                <div class="int-store-label">Gumroad</div>
+                                <div class="int-store-method">OAuth2</div>
+                                <div class="int-store-status">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                                    Connected
+                                </div>
+                            </div>
+                            <div class="int-stores-divider"></div>
+                            <div class="int-store-node">
+                                <div class="int-store-icon" style="background:rgba(145,70,255,0.12);border-color:rgba(145,70,255,0.22);">
+                                    <img src="Icons/Jinxxy.png" alt="Jinxxy">
+                                </div>
+                                <div class="int-store-label">Jinxxy</div>
+                                <div class="int-store-method">Webhook</div>
+                                <div class="int-store-status">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                                    Connected
+                                </div>
                             </div>
                         </div>
-                        <!-- Jinxxy card -->
-                        <div
-                            class="absolute top-48 sm:top-40 left-6 sm:left-16 right-2 sm:right-4 z-10 transform hover:-translate-y-2 transition-transform duration-300">
-                            <div
-                                class="bg-[#1e1f22] rounded-xl p-4 sm:p-5 border border-white/10 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 opacity-80">
-                                <div class="flex items-center gap-4">
-                                    <div
-                                        class="w-12 h-12 rounded-full bg-[#9146FF]/20 flex items-center justify-center">
-                                        <img src="Icons/Jinxxy.png" class="w-6 h-6 object-contain rounded" alt="Jinxxy">
-                                    </div>
-                                    <div>
-                                        <div class="text-sm font-bold text-white">Jinxxy Store</div>
-                                        <div class="text-xs text-white/50">Store Integration</div>
-                                    </div>
+
+                        <!-- Arrow down -->
+                        <div class="int-arrow-down">
+                            <div class="int-arrow-line">
+                                <div class="int-flow-dot"></div>
+                                <div class="int-flow-dot" style="animation-delay:0.7s"></div>
+                            </div>
+                            <svg width="14" height="8" viewBox="0 0 14 8" fill="none">
+                                <path d="M1 1L7 7L13 1" stroke="rgba(56,189,248,0.45)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+
+                        <!-- Hub -->
+                        <div class="int-hub">
+                            <div class="int-hub-pulse"></div>
+                            <div class="int-hub-pulse int-hub-pulse-2"></div>
+                            <div class="int-hub-inner">
+                                <img src="Icons/MainLogo.png" class="w-8 h-8 object-contain relative z-10" alt="Creator Assistant">
+                                <div class="relative z-10">
+                                    <div class="text-sm font-black text-white">Creator Assistant</div>
+                                    <div class="text-[10px] text-white/45 uppercase tracking-widest">Verification Hub</div>
                                 </div>
-                                <div
-                                    class="text-xs font-bold text-[#9146FF] border border-[#9146FF]/30 px-3 py-1 rounded-full bg-[#9146FF]/10">
-                                    Connect</div>
+                            </div>
+                            <div class="int-hub-stats">
+                                <div class="int-hub-stat">
+                                    <span class="text-base font-black text-white">247</span>
+                                    <span class="text-[9px] text-white/45 uppercase tracking-wide">Verified</span>
+                                </div>
+                                <div class="int-hub-stat-divider"></div>
+                                <div class="int-hub-stat">
+                                    <span class="text-base font-black text-white">3</span>
+                                    <span class="text-[9px] text-white/45 uppercase tracking-wide">Products</span>
+                                </div>
+                                <div class="int-hub-stat-divider"></div>
+                                <div class="int-hub-stat">
+                                    <span class="text-base font-black text-white">~0s</span>
+                                    <span class="text-[9px] text-white/45 uppercase tracking-wide">Latency</span>
+                                </div>
                             </div>
                         </div>
+
+                        <!-- Arrow down 2 -->
+                        <div class="int-arrow-down">
+                            <div class="int-arrow-line">
+                                <div class="int-flow-dot" style="animation-delay:0.35s"></div>
+                                <div class="int-flow-dot" style="animation-delay:1.05s"></div>
+                            </div>
+                            <svg width="14" height="8" viewBox="0 0 14 8" fill="none">
+                                <path d="M1 1L7 7L13 1" stroke="rgba(56,189,248,0.45)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+
+                        <!-- Discord result -->
+                        <div class="int-discord-result">
+                            <div class="flex items-center gap-3">
+                                <div class="int-store-icon" style="width:40px;height:40px;background:rgba(88,101,242,0.15);border-color:rgba(88,101,242,0.25);">
+                                    <img src="Icons/Discord.png" alt="Discord">
+                                </div>
+                                <div>
+                                    <div class="text-sm font-bold text-white">Discord Server</div>
+                                    <div class="text-[10px] text-white/45 uppercase tracking-wide">Role Assignment</div>
+                                </div>
+                                <div class="ml-auto flex items-center gap-1.5">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                                    <span class="text-[10px] text-emerald-400 font-bold">Active</span>
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap gap-2 mt-3">
+                                <div class="int-role-chip" style="background:rgba(255,144,232,0.1);border-color:rgba(255,144,232,0.25);color:#FF90E8;">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-[#FF90E8] flex-shrink-0"></div>Gumroad Buyer
+                                </div>
+                                <div class="int-role-chip" style="background:rgba(145,70,255,0.1);border-color:rgba(145,70,255,0.25);color:#a78bfa;">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-[#a78bfa] flex-shrink-0"></div>Jinxxy Buyer
+                                </div>
+                                <div class="int-role-chip" style="background:rgba(52,211,153,0.1);border-color:rgba(52,211,153,0.25);color:#34d399;">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"></div>Verified
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </div>
         </section>
 
         <!-- ── Feature: Rules Engine ─────────────────────────────────────────────── -->
-        <section class="py-20 lg:py-32 px-4 md:px-12 lg:px-24 relative z-10 section-bg border-y border-white/5">
-            <div
-                class="glow-ring w-96 h-96 bg-[var(--accent-mustard)] top-1/2 right-0 translate-x-1/4 -translate-y-1/2 opacity-30">
-            </div>
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative z-10">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal">
                     <div class="feature-icon-box sticker"
@@ -1081,7 +1311,7 @@
                         <img src="Icons/Wrench.png" alt="">
                     </div>
                     <h2
-                        class="text-4xl sm:text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight leading-[1.1]">
+                        class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Set the rules.<br>
                         <span class="grad-text" style="background-image:linear-gradient(90deg,#facc15,#f97316);">Let the
                             Assistant enforce them.</span>
@@ -1154,8 +1384,7 @@
         </section>
 
         <!-- ── Feature: Liened Downloads ────────────────────────────────────────── -->
-        <section class="py-20 lg:py-32 px-4 md:px-12 lg:px-24 relative z-10 section-bg-alt">
-            <div class="glow-ring w-96 h-96 bg-emerald-500 -top-20 right-20 opacity-20"></div>
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative z-10">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal">
                     <div class="feature-icon-box sticker"
@@ -1163,7 +1392,7 @@
                         <img src="Icons/Library.png" alt="">
                     </div>
                     <h2
-                        class="text-4xl sm:text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight leading-[1.1]">
+                        class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Liened <br class="hidden md:block">
                         <span class="grad-text"
                             style="background-image:linear-gradient(90deg,#34d399,#2dd4bf);">Downloads</span>
@@ -1281,8 +1510,7 @@
         </section>
 
         <!-- ── Feature: Collaborating Creators ──────────────────────────────────── -->
-        <section class="py-20 lg:py-32 px-4 md:px-12 lg:px-24 relative z-10 section-bg border-y border-white/5">
-            <div class="glow-ring w-96 h-96 bg-[#9146FF] -bottom-20 left-1/4 opacity-25"></div>
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative z-10">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal">
                     <div class="feature-icon-box sticker"
@@ -1290,7 +1518,7 @@
                         <img src="Icons/PersonKey.png" alt="">
                     </div>
                     <h2
-                        class="text-4xl sm:text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight leading-[1.1]">
+                        class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Collaborating <br class="hidden md:block">
                         <span class="grad-text"
                             style="background-image:linear-gradient(90deg,#a78bfa,#f472b6);">Creators</span>
@@ -1394,15 +1622,14 @@
         </section>
 
         <!-- ── Feature: Security & Controls ─────────────────────────────────────── -->
-        <section class="py-20 lg:py-32 px-4 md:px-8 relative z-10 section-bg-alt" id="security">
-            <div class="glow-ring w-96 h-96 bg-rose-500 -bottom-20 left-1/4 opacity-20"></div>
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative z-10" id="security">
             <div class="max-w-6xl mx-auto">
-                <div class="text-center mb-20 reveal">
+                <div class="text-center mb-12 reveal">
                     <div class="feature-icon-box mx-auto sticker"
                         style="background:rgba(239,68,68,0.15);box-shadow:0 8px 24px rgba(239,68,68,0.15);">
                         <img src="Icons/Key.png" alt="">
                     </div>
-                    <h2 class="text-4xl sm:text-5xl md:text-6xl text-white mb-6 font-extrabold tracking-tight">
+                    <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight">
                         Built to stay<br>
                         <span class="grad-text" style="background-image:linear-gradient(90deg,#f87171,#fb923c);">locked
                             down.</span>
@@ -1512,16 +1739,16 @@
             style="background:rgba(0,0,0,0.65);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);">
 
             <!-- CTA -->
-            <div class="text-center py-24 px-6">
-                <img src="Icons/ClapStars.png" class="w-10 h-10 mx-auto mb-6 object-contain sticker"
+            <div class="text-center py-16 px-6">
+                <img src="Icons/ClapStars.png" class="w-8 h-8 mx-auto mb-5 object-contain sticker"
                     style="opacity:0.7;" alt="">
-                <h3 class="text-3xl sm:text-4xl md:text-5xl text-white font-extrabold tracking-tight mb-3 reveal">Stop
+                <h3 class="text-2xl sm:text-3xl md:text-4xl text-white font-extrabold tracking-tight mb-3 reveal">Stop
                     verifying by hand.</h3>
-                <p class="text-white/40 text-base mb-10 reveal reveal-delay-1"
+                <p class="text-white/40 text-sm mb-8 reveal reveal-delay-1"
                     style="font-family:'DM Sans',sans-serif;">Buyers get instant access. You get your time back. Free to
                     install.</p>
                 <button
-                    class="btn-primary clickable px-12 py-4 text-base font-black uppercase tracking-widest text-white reveal reveal-delay-2"
+                    class="btn-primary clickable px-10 py-3.5 text-sm font-black uppercase tracking-widest text-white reveal reveal-delay-2"
                     onclick="fireConfetti(this);window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')">
                     Add to Discord
                 </button>

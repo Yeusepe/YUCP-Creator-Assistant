@@ -15,6 +15,7 @@
 import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { VerificationModeV } from './lib/providers';
 
 // ============================================================================
 // CONSTANTS
@@ -30,12 +31,7 @@ export const CLEANUP_AGE_MS = 24 * 60 * 60 * 1000;
 // VERIFICATION MODE TYPE
 // ============================================================================
 
-export const VerificationMode = v.union(
-  v.literal('gumroad'),
-  v.literal('discord_role'),
-  v.literal('jinxxy'),
-  v.literal('manual'),
-);
+export const VerificationMode = VerificationModeV;
 
 export type VerificationMode = typeof VerificationMode.type;
 
@@ -70,12 +66,7 @@ export const getVerificationSessionByState = query({
         _creationTime: v.number(),
         tenantId: v.id('tenants'),
         subjectId: v.optional(v.id('subjects')),
-        mode: v.union(
-          v.literal('gumroad'),
-          v.literal('discord_role'),
-          v.literal('jinxxy'),
-          v.literal('manual'),
-        ),
+        mode: VerificationModeV,
         productId: v.optional(v.id('product_catalog')),
         state: v.string(),
         pkceVerifierHash: v.optional(v.string()),
@@ -149,12 +140,7 @@ export const getVerificationSessionByNonce = query({
         _creationTime: v.number(),
         tenantId: v.id('tenants'),
         subjectId: v.optional(v.id('subjects')),
-        mode: v.union(
-          v.literal('gumroad'),
-          v.literal('discord_role'),
-          v.literal('jinxxy'),
-          v.literal('manual'),
-        ),
+        mode: VerificationModeV,
         productId: v.optional(v.id('product_catalog')),
         state: v.string(),
         pkceVerifierHash: v.optional(v.string()),
@@ -218,12 +204,7 @@ export const getPendingSessionsForTenant = query({
     v.object({
       _id: v.id('verification_sessions'),
       _creationTime: v.number(),
-      mode: v.union(
-        v.literal('gumroad'),
-        v.literal('discord_role'),
-        v.literal('jinxxy'),
-        v.literal('manual'),
-      ),
+      mode: VerificationModeV,
       expiresAt: v.number(),
       createdAt: v.number(),
     }),

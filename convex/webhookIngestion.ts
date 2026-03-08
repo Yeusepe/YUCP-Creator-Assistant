@@ -8,6 +8,7 @@
 import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { ProviderV, WebhookProviderV } from './lib/providers';
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;
@@ -24,7 +25,7 @@ export const insertWebhookEvent = mutation({
   args: {
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
-    provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+    provider: WebhookProviderV,
     providerEventId: v.string(),
     eventType: v.string(),
     rawPayload: v.any(),
@@ -112,7 +113,7 @@ export const getPendingWebhookEvents = query({
     v.object({
       _id: v.id('webhook_events'),
       tenantId: v.optional(v.id('tenants')),
-      provider: v.union(v.literal('gumroad'), v.literal('jinxxy'), v.literal('discord'), v.literal('manual')),
+      provider: ProviderV,
       providerEventId: v.string(),
       eventType: v.string(),
       rawPayload: v.any(),

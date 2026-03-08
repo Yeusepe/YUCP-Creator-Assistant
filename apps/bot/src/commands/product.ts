@@ -33,7 +33,7 @@ import { E, Emoji } from '../lib/emojis';
 import { canBotManageRole } from '../lib/roleHierarchy';
 import { track } from '../lib/posthog';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
-import { resolveGumroadProductId } from '@yucp/providers';
+import { resolveGumroadProductId, providerLabel } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -43,7 +43,7 @@ interface ProductSession {
   tenantId: Id<'tenants'>;
   guildLinkId: Id<'guild_links'>;
   guildId: string;
-  type?: 'gumroad' | 'jinxxy' | 'license' | 'discord_role';
+  type?: 'gumroad' | 'jinxxy' | 'license' | 'discord_role' | 'vrchat';
   urlOrId?: string;
   sourceGuildId?: string;
   sourceRoleId?: string;
@@ -116,6 +116,11 @@ export async function handleProductAddInteractive(
         .setDescription('Manual license codes (Gumroad or Jinxxy)')
         .setValue('license')
         .setEmoji(Emoji.PersonKey),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('VRChat Avatar')
+        .setDescription('Avatar from vrchat.com/home/avatar/avtr_xxx')
+        .setValue('vrchat')
+        .setEmoji(Emoji.VRC),
       new StringSelectMenuOptionBuilder()
         .setLabel('Discord Role (Other Server)')
         .setDescription('User has a specific role in another server')
@@ -334,14 +339,16 @@ export async function handleProductTypeSelect(
     return;
   }
 
-  // gumroad, license - URL modal
+  // gumroad, license, vrchat - URL modal
   const labels: Record<string, string> = {
     gumroad: 'Gumroad Product URL or ID',
     license: 'Product ID (or leave generic)',
+    vrchat: 'VRChat Avatar URL or ID',
   };
   const placeholders: Record<string, string> = {
     gumroad: 'URL (gumroad.com/l/abc123) or product ID from Gumroad License Key settings',
     license: 'Product ID to associate with license keys',
+    vrchat: 'https://vrchat.com/home/avatar/avtr_xxx or avtr_xxx',
   };
 
   const modal = new ModalBuilder()
@@ -629,15 +636,15 @@ export async function handleProductRoleSelect(
   const guild = interaction.guild;
   const hierarchyCheck = guild ? canBotManageRole(guild, roleIds[0]) : null;
 
-  const typeLabels: Record<string, string> = {
-    gumroad: 'Gumroad',
-    jinxxy: 'Jinxxy',
-    license: 'License Key',
-    discord_role: 'Discord Role (other server)',
+  const typeLabel = (t: string | undefined): string => {
+    if (!t) return 'Unknown';
+    if (t === 'license') return 'License Key';
+    if (t === 'discord_role') return 'Discord Role (other server)';
+    return providerLabel(t);
   };
 
   const detailLines: string[] = [
-    `**Type:** ${typeLabels[session.type ?? 'gumroad'] ?? session.type}`,
+    `**Type:** ${typeLabel(session.type)}`,
   ];
 
   if (session.type === 'discord_role') {
@@ -819,6 +826,18 @@ export async function handleProductConfirmAdd(
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
+    } else if (type === 'vrchat') {
+      const { extractVrchatAvatarId } = await import('@yucp/providers');
+      const avatarId = extractVrchatAvatarId(urlOrId?.trim() ?? '');
+      if (!avatarId) throw new Error('Could not parse VRChat avatar URL or ID. Use https://vrchat.com/home/avatar/avtr_xxx or avtr_xxx');
+      const result = await convex.mutation(api.role_rules.addProductFromVrchat as any, {
+        apiSecret,
+        tenantId,
+        productId: avatarId,
+        providerProductRef: avatarId,
+      });
+      productId = result.productId;
+      catalogProductId = result.catalogProductId;
     } else {
       throw new Error('Unknown product type');
     }
@@ -901,17 +920,10 @@ export async function handleProductList(
     return;
   }
 
-  const providerLabel = (p: { provider?: string }) => {
-    switch (p.provider) {
-      case 'gumroad':
-        return '[Gumroad] ';
-      case 'jinxxy':
-        return '[Jinxxy] ';
-      case 'discord':
-        return '[Discord Role] ';
-      default:
-        return '';
-    }
+  const productProviderPrefix = (p: { provider?: string }) => {
+    if (!p.provider) return '';
+    if (p.provider === 'discord') return '[Discord Role] ';
+    return `[${providerLabel(p.provider)}] `;
   };
 
   const embed = new EmbedBuilder()
@@ -930,7 +942,7 @@ export async function handleProductList(
           }) => {
             const roleIds = r.verifiedRoleIds ?? (r.verifiedRoleId ? [r.verifiedRoleId] : []);
             const rolesStr = roleIds.map((id) => `<@&${id}>`).join(', ');
-            return `• **${providerLabel(r)}${r.displayName ?? r.productId}** → ${rolesStr} ${r.enabled !== false ? E.Checkmark : '(disabled)'}`;
+            return `• **${productProviderPrefix(r)}${r.displayName ?? r.productId}** → ${rolesStr} ${r.enabled !== false ? E.Checkmark : '(disabled)'}`;
           },
         )
         .join('\n'),

@@ -15,18 +15,14 @@ import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { Doc } from './_generated/dataModel';
+import { ProviderV } from './lib/providers';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 /** Provider types for entitlements */
-export const EntitlementProvider = v.union(
-  v.literal('discord'),
-  v.literal('gumroad'),
-  v.literal('jinxxy'),
-  v.literal('manual'),
-);
+export const EntitlementProvider = ProviderV;
 
 /** Entitlement status values */
 export const EntitlementStatus = v.union(

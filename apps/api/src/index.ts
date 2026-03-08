@@ -78,6 +78,10 @@ function initializeAuth(webhookBaseUrl?: string) {
   const env = loadEnv();
 
   getRequired('BETTER_AUTH_SECRET');
+  if ((env.NODE_ENV ?? 'development') === 'production') {
+    getRequired('INTERNAL_SERVICE_AUTH_SECRET');
+    getRequired('VRCHAT_PENDING_STATE_SECRET');
+  }
   const baseUrl = env.BETTER_AUTH_URL ?? 'http://localhost:3001';
   // Use detected tunnel URL for webhook callbacks; fall back to baseUrl
   const publicBaseUrl = webhookBaseUrl ?? baseUrl;
@@ -587,6 +591,23 @@ async function routeRequest(request: Request): Promise<Response> {
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     return new Response(html, { headers: { 'Content-Type': 'text/html', ...COLLAB_HTML_SECURITY_HEADERS } });
+  }
+
+  if (pathname === '/vrchat-verify' || pathname === '/vrchat-verify.html') {
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
+    const filePath = `${import.meta.dir}/../public/vrchat-verify.html`;
+    const file = Bun.file(filePath);
+    let html = await file.text();
+    const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
   }
 
   if (pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html') {

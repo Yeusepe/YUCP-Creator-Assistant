@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
+    <title>Verify with VRChat | Creator Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="./tokens.css">
+
+    <style>
+        body {
+            background: linear-gradient(to bottom, #0a3d9e, #0ea5e9);
+            color: white;
+            font-family: 'DM Sans', sans-serif;
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+
+        .vrchat-card {
+            background: var(--vrchat-bg, #1E1E21);
+            border: 1px solid rgba(0, 136, 255, 0.3);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            max-width: 28rem;
+            width: 100%;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        .vrchat-card h1 {
+            font-size: 1.5rem;
+            margin: 0 0 0.5rem 0;
+            color: white;
+        }
+
+        .vrchat-card .subtitle {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .disclaimer {
+            background: rgba(0, 136, 255, 0.1);
+            border: 1px solid rgba(0, 136, 255, 0.3);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .disclaimer strong {
+            color: white;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 0.375rem;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid rgba(0, 136, 255, 0.5);
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-family: 'DM Sans', sans-serif;
+            box-sizing: border-box;
+        }
+
+        .form-group input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #0088FF;
+        }
+
+        .btn-verify {
+            width: 100%;
+            padding: 0.875rem 1.5rem;
+            border-radius: 0.5rem;
+            border: none;
+            background: var(--vrchat-button, #064B5C);
+            color: white;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-verify:hover:not(:disabled) {
+            background: #075a6e;
+        }
+
+        .btn-verify:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .error-msg {
+            color: #f87171;
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+            display: none;
+        }
+
+        .error-msg.visible {
+            display: block;
+        }
+
+        .logo {
+            margin-bottom: 1.5rem;
+        }
+
+        .logo img {
+            height: 2.5rem;
+        }
+
+        .no-token {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .success-msg {
+            color: #4ade80;
+            font-size: 0.9rem;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="logo">
+        <img src="Icons/MainLogo.png" alt="Creator Assistant" />
+    </div>
+
+    <div class="vrchat-card">
+        <div id="no-token-view" class="no-token" style="display: none;">
+            <p>This page requires a valid verification link. Please use the <strong>Verify with VRChat</strong> button in Discord to get started.</p>
+        </div>
+
+        <div id="form-view">
+            <h1>Sign in with VRChat</h1>
+            <p class="subtitle">Verify your avatar ownership to unlock your roles</p>
+
+            <div class="disclaimer">
+                <strong>We never store your VRChat password or 2FA code.</strong> Your credentials are used only to verify your avatar licenses and are discarded immediately. We keep only your VRChat user ID, display name, and an encrypted server-side VRChat session so you do not need to sign in again until VRChat expires it.
+            </div>
+
+            <form id="vrchat-form">
+                <div class="form-group" id="username-group">
+                    <label for="username">VRChat Username</label>
+                    <input type="text" id="username" name="username" required placeholder="Your VRChat username" autocomplete="username">
+                </div>
+                <div class="form-group" id="password-group">
+                    <label for="password">VRChat Password</label>
+                    <input type="password" id="password" name="password" required placeholder="Your VRChat password" autocomplete="current-password">
+                </div>
+                <div class="form-group" id="two-factor-group" style="display: none;">
+                    <label for="twoFactorCode">2FA Code</label>
+                    <input type="text" id="twoFactorCode" name="twoFactorCode" placeholder="Enter your authenticator, email, or recovery code" autocomplete="one-time-code">
+                </div>
+                <p id="error-msg" class="error-msg"></p>
+                <button type="submit" class="btn-verify" id="submit-btn">Continue</button>
+            </form>
+
+            <p id="success-msg" class="success-msg" style="display: none;">Verification successful! You can close this window and return to Discord.</p>
+        </div>
+    </div>
+
+    <script>
+        const apiBase = '__API_BASE__';
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+
+        const noTokenView = document.getElementById('no-token-view');
+        const formView = document.getElementById('form-view');
+        const form = document.getElementById('vrchat-form');
+        const errorMsg = document.getElementById('error-msg');
+        const successMsg = document.getElementById('success-msg');
+        const submitBtn = document.getElementById('submit-btn');
+        const usernameGroup = document.getElementById('username-group');
+        const passwordGroup = document.getElementById('password-group');
+        const twoFactorGroup = document.getElementById('two-factor-group');
+        const twoFactorInput = document.getElementById('twoFactorCode');
+        const PENDING_TYPES_KEY = 'vrchat_pending_types';
+        const PENDING_STEP_KEY = 'vrchat_pending_step';
+        let pendingTypes = [];
+
+        if (!token) {
+            noTokenView.style.display = 'block';
+            formView.style.display = 'none';
+        }
+
+        function showSuccess() {
+            form.style.display = 'none';
+            successMsg.style.display = 'block';
+        }
+
+        function showError(msg) {
+            errorMsg.textContent = msg;
+            errorMsg.classList.add('visible');
+        }
+
+        function clearError() {
+            errorMsg.classList.remove('visible');
+            errorMsg.textContent = '';
+        }
+
+        function showCredentialStep() {
+            pendingTypes = [];
+            sessionStorage.removeItem(PENDING_STEP_KEY);
+            sessionStorage.removeItem(PENDING_TYPES_KEY);
+            usernameGroup.style.display = '';
+            passwordGroup.style.display = '';
+            twoFactorGroup.style.display = 'none';
+            twoFactorInput.value = '';
+            submitBtn.textContent = 'Continue';
+        }
+
+        function showTwoFactorStep(types) {
+            pendingTypes = Array.isArray(types) ? types : [];
+            sessionStorage.setItem(PENDING_STEP_KEY, 'true');
+            sessionStorage.setItem(PENDING_TYPES_KEY, JSON.stringify(pendingTypes));
+            usernameGroup.style.display = 'none';
+            passwordGroup.style.display = 'none';
+            twoFactorGroup.style.display = '';
+            submitBtn.textContent = 'Verify';
+            twoFactorInput.focus();
+        }
+
+        function restorePendingStep() {
+            const pendingStep = sessionStorage.getItem(PENDING_STEP_KEY) === 'true';
+            if (!pendingStep) {
+                showCredentialStep();
+                return;
+            }
+
+            try {
+                pendingTypes = JSON.parse(sessionStorage.getItem(PENDING_TYPES_KEY) || '[]');
+            } catch {
+                pendingTypes = [];
+            }
+            showTwoFactorStep(pendingTypes);
+        }
+
+        // On page load: attempt auto-verify using a stored VRChat session.
+        // If the server responds with needsCredentials, show the form normally.
+        if (token) {
+            restorePendingStep();
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Checking…';
+
+            fetch(`${apiBase}/api/verification/vrchat-verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ token }),
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showSuccess();
+                } else if (data.needsCredentials || data.sessionExpired) {
+                    // No stored session (or expired) — show the credentials form
+                    if (data.sessionExpired) {
+                        showError('Your previous VRChat session has expired. Please sign in again.');
+                    }
+                    restorePendingStep();
+                    submitBtn.disabled = false;
+                } else {
+                    showError(data.error || 'Auto-verify failed. Please enter your credentials.');
+                    showCredentialStep();
+                    submitBtn.disabled = false;
+                }
+            })
+            .catch(() => {
+                // Network error — fall back to manual form
+                showCredentialStep();
+                submitBtn.disabled = false;
+            });
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            clearError();
+
+            const username = form.username.value?.trim();
+            const password = form.password.value;
+            const twoFactorCode = form.twoFactorCode.value?.trim() || undefined;
+
+            if (!token) {
+                showError('Invalid or expired link. Please use the Verify with VRChat button in Discord.');
+                return;
+            }
+
+            const requestBody = { token };
+
+            if (twoFactorGroup.style.display !== 'none') {
+                if (!twoFactorCode) {
+                    showError('Please enter your 2FA code.');
+                    return;
+                }
+                requestBody.twoFactorCode = twoFactorCode;
+                if (pendingTypes.length === 1) {
+                    requestBody.type = pendingTypes[0];
+                }
+            } else {
+                if (!username || !password) {
+                    showError('Please enter your VRChat username and password.');
+                    return;
+                }
+                requestBody.username = username;
+                requestBody.password = password;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = twoFactorGroup.style.display !== 'none' ? 'Verifying...' : 'Continuing...';
+
+            try {
+                const res = await fetch(`${apiBase}/api/verification/vrchat-verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(requestBody),
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    sessionStorage.removeItem(PENDING_STEP_KEY);
+                    sessionStorage.removeItem(PENDING_TYPES_KEY);
+                    showSuccess();
+                } else if (data.twoFactorRequired) {
+                    clearError();
+                    showTwoFactorStep(data.types);
+                } else {
+                    if (data.needsCredentials || data.sessionExpired) {
+                        showCredentialStep();
+                    }
+                    showError(data.error || 'Verification failed. Please check your credentials.');
+                }
+            } catch (err) {
+                showError('Network error. Please try again.');
+            }
+
+            submitBtn.disabled = false;
+            if (successMsg.style.display !== 'block') {
+                submitBtn.textContent = twoFactorGroup.style.display !== 'none' ? 'Verify' : 'Continue';
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -31,6 +31,7 @@ import { getApiUrls } from '../lib/apiUrls';
 import { track } from '../lib/posthog';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { createLogger } from '@yucp/shared';
+import { providerLabel } from '@yucp/providers';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -70,6 +71,7 @@ interface VerifyData {
   hasGumroad: boolean;
   hasJinxxy: boolean;
   hasDiscord: boolean;
+  hasVrchat: boolean;
 }
 
 async function fetchVerifyData(
@@ -130,6 +132,7 @@ async function fetchVerifyData(
   const hasGumroad = linkedAccounts.some((a) => a.provider === 'gumroad' && a.status === 'active');
   const hasJinxxy = linkedAccounts.some((a) => a.provider === 'jinxxy' && a.status === 'active');
   const hasDiscord = linkedAccounts.some((a) => a.provider === 'discord' && a.status === 'active');
+  const hasVrchat = linkedAccounts.some((a) => a.provider === 'vrchat' && a.status === 'active');
   const activeAccounts = linkedAccounts.filter((a) => a.status === 'active');
 
   let state: VerifyState;
@@ -150,12 +153,10 @@ async function fetchVerifyData(
     hasGumroad,
     hasJinxxy,
     hasDiscord,
+    hasVrchat,
   };
 }
 
-function providerLabel(p: string): string {
-  return p === 'gumroad' ? 'Gumroad' : p === 'discord' ? 'Discord' : p === 'jinxxy' ? 'Jinxxy' : p;
-}
 
 /** Get user-friendly banner message from failed role_sync jobs (role hierarchy, permissions, etc.). */
 async function getRoleSyncBanner(
@@ -184,6 +185,7 @@ interface EnabledProviders {
   gumroad: boolean;
   jinxxy: boolean;
   discord: boolean;
+  vrchat: boolean;
 }
 
 /** Build context-aware prompt based on which verification methods are available. */
@@ -191,6 +193,7 @@ function getVerifyPrompt(enabled: EnabledProviders): string {
   const methods: string[] = [];
   if (enabled.gumroad) methods.push(`${E.Gumorad} Gumroad`);
   if (enabled.jinxxy) methods.push(`${E.Jinxxy} Jinxxy`);
+  if (enabled.vrchat) methods.push(`${E.VRC} VRChat`);
   if (enabled.discord) methods.push(`${E.Discord} another server`);
   if (methods.length === 0) return '';
   if (methods.length === 1) {
@@ -208,6 +211,7 @@ function getConnectedNoProductsPrompt(enabled: EnabledProviders): string {
   const methods: string[] = [];
   if (enabled.gumroad) methods.push('Gumroad');
   if (enabled.jinxxy) methods.push('Jinxxy');
+  if (enabled.vrchat) methods.push('VRChat');
   if (enabled.discord) methods.push('another server');
   if (methods.length === 0) return '';
   const hint = methods.length === 1
@@ -225,7 +229,7 @@ function buildStatusContainer(
   userId?: string,
   bannerMessage?: string,
 ): ContainerBuilder {
-  const { state, linkedAccounts, guildProductDisplayList, guildProductCount, hasGumroad, hasJinxxy, hasDiscord } = data;
+  const { state, linkedAccounts, guildProductDisplayList, guildProductCount, hasGumroad, hasJinxxy, hasDiscord, hasVrchat } = data;
 
   const accentColor =
     state === 'nothing' ? COLOR_GRAY :
@@ -259,15 +263,17 @@ function buildStatusContainer(
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
   );
 
-  // Connected accounts - show all known providers (Gumroad, Jinxxy, Discord)
-  const gumroadStatus = hasGumroad ? `${E.Checkmark} Connected` : '- Not connected';
-  const jinxxyStatus = hasJinxxy ? `${E.Checkmark} Connected` : '- Not connected';
-  const discordStatus = hasDiscord ? `${E.Checkmark} Connected` : '- Not connected';
-  container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(
-      `**Connected Accounts**\n${E.Gumorad} Gumroad - ${gumroadStatus}\n${E.Jinxxy} Jinxxy - ${jinxxyStatus}\n${E.Discord} Discord (other server) - ${discordStatus}`,
-    ),
-  );
+  // Connected accounts - filter by enabledProviders (server-relevant only)
+  const lines: string[] = [];
+  if (enabledProviders.gumroad) lines.push(`${E.Gumorad} Gumroad - ${hasGumroad ? `${E.Checkmark} Connected` : '- Not connected'}`);
+  if (enabledProviders.jinxxy) lines.push(`${E.Jinxxy} Jinxxy - ${hasJinxxy ? `${E.Checkmark} Connected` : '- Not connected'}`);
+  if (enabledProviders.vrchat) lines.push(`${E.VRC} VRChat - ${hasVrchat ? `${E.Checkmark} Connected` : '- Not connected'}`);
+  if (enabledProviders.discord) lines.push(`${E.Discord} Discord (other server) - ${hasDiscord ? `${E.Checkmark} Connected` : '- Not connected'}`);
+  if (lines.length > 0) {
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`**Connected Accounts**\n${lines.join('\n')}`),
+    );
+  }
 
   container.addSeparatorComponents(
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
@@ -335,6 +341,19 @@ function buildStatusContainer(
       );
     }
 
+    if (enabledProviders.vrchat && apiBaseUrl) {
+      const vrchatParams = new URLSearchParams({ tenantId, mode: 'vrchat', redirectUri });
+      if (userId) vrchatParams.set('discordUserId', userId);
+      const vrchatUrl = `${apiBaseUrl}/api/verification/begin?${vrchatParams.toString()}`;
+      buttons.push(
+        new ButtonBuilder()
+          .setLabel('Verify with VRChat')
+          .setEmoji(Emoji.VRC)
+          .setStyle(ButtonStyle.Link)
+          .setURL(vrchatUrl),
+      );
+    }
+
     if (discordRoleUrl && enabledProviders.discord) {
       buttons.push(
         new ButtonBuilder()
@@ -392,6 +411,19 @@ function buildStatusContainer(
       );
     }
 
+    if (enabledProviders.vrchat && !hasVrchat && apiBaseUrl) {
+      const vrchatParams = new URLSearchParams({ tenantId, mode: 'vrchat', redirectUri });
+      if (userId) vrchatParams.set('discordUserId', userId);
+      const vrchatUrl = `${apiBaseUrl}/api/verification/begin?${vrchatParams.toString()}`;
+      buttons.push(
+        new ButtonBuilder()
+          .setLabel('Verify with VRChat')
+          .setEmoji(Emoji.VRC)
+          .setStyle(ButtonStyle.Link)
+          .setURL(vrchatUrl),
+      );
+    }
+
     if (discordRoleUrl && enabledProviders.discord && !hasDiscord) {
       buttons.push(
         new ButtonBuilder()
@@ -408,15 +440,22 @@ function buildStatusContainer(
       );
     }
 
-    // Disconnect row: show a button for each connected provider
+    // Disconnect row: show only for providers that are connected AND enabled for this server
     const activeProviders = linkedAccounts.filter((a) => a.status === 'active');
-    const disconnectButtons = activeProviders.map((a) =>
-      new ButtonBuilder()
-        .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
-        .setLabel(`Disconnect ${providerLabel(a.provider)}`)
-        .setEmoji(Emoji.X_)
-        .setStyle(ButtonStyle.Danger),
-    );
+    const providerEnabled = (p: string) =>
+      (p === 'gumroad' && enabledProviders.gumroad) ||
+      (p === 'jinxxy' && enabledProviders.jinxxy) ||
+      (p === 'discord' && enabledProviders.discord) ||
+      (p === 'vrchat' && enabledProviders.vrchat);
+    const disconnectButtons = activeProviders
+      .filter((a) => providerEnabled(a.provider))
+      .map((a) =>
+        new ButtonBuilder()
+          .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
+          .setLabel(`Disconnect ${providerLabel(a.provider)}`)
+          .setEmoji(Emoji.X_)
+          .setStyle(ButtonStyle.Danger),
+      );
     if (disconnectButtons.length > 0) {
       container.addActionRowComponents(
         new ActionRowBuilder<ButtonBuilder>().addComponents(...disconnectButtons.slice(0, 5)),
@@ -431,19 +470,26 @@ function buildStatusContainer(
     );
 
     const activeProviders = linkedAccounts.filter((a) => a.status === 'active');
+    const providerEnabled = (p: string) =>
+      (p === 'gumroad' && enabledProviders.gumroad) ||
+      (p === 'jinxxy' && enabledProviders.jinxxy) ||
+      (p === 'discord' && enabledProviders.discord) ||
+      (p === 'vrchat' && enabledProviders.vrchat);
     const primaryButtons = [
       new ButtonBuilder()
         .setCustomId(`${VERIFY_PREFIX}add_more:${tenantId}`)
         .setLabel('Add another account')
         .setEmoji(Emoji.Refresh)
         .setStyle(ButtonStyle.Secondary),
-      ...activeProviders.map((a) =>
-        new ButtonBuilder()
-          .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
-          .setLabel(`Disconnect ${providerLabel(a.provider)}`)
-          .setEmoji(Emoji.X_)
-          .setStyle(ButtonStyle.Danger),
-      ),
+      ...activeProviders
+        .filter((a) => providerEnabled(a.provider))
+        .map((a) =>
+          new ButtonBuilder()
+            .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
+            .setLabel(`Disconnect ${providerLabel(a.provider)}`)
+            .setEmoji(Emoji.X_)
+            .setStyle(ButtonStyle.Danger),
+        ),
     ];
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(...primaryButtons.slice(0, 5)),

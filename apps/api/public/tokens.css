@@ -22,6 +22,11 @@
     --jinxxy-bg: transparent;
     --jinxxy-sidebar: rgba(255, 255, 255, 0.05);
     --jinxxy-border: rgba(255, 255, 255, 0.1);
+
+    /* VRChat */
+    --vrchat-bg: #1E1E21;
+    --vrchat-button: #064B5C;
+    --vrchat-accent: #0088FF;
 }
 
 /* Holographic Sticker Transparency Fix */

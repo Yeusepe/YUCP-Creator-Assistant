@@ -16,18 +16,14 @@
 
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
+import { ProviderV, WebhookProviderV, CustomerProviderV, VerificationModeV } from './lib/providers';
 
 // ============================================================================
 // ENUM-LIKE LITERALS
 // ============================================================================
 
 /** Provider types supported by the platform */
-const Provider = v.union(
-  v.literal('discord'),
-  v.literal('gumroad'),
-  v.literal('jinxxy'),
-  v.literal('manual'),
-);
+const Provider = ProviderV;
 
 /** Subject status values */
 const SubjectStatus = v.union(
@@ -91,12 +87,7 @@ const BindingStatus = v.union(
 );
 
 /** Verification session modes */
-const VerificationMode = v.union(
-  v.literal('gumroad'),
-  v.literal('discord_role'),
-  v.literal('jinxxy'),
-  v.literal('manual'),
-);
+const VerificationMode = VerificationModeV;
 
 /** Verification session status */
 const VerificationSessionStatus = v.union(
@@ -723,7 +714,7 @@ const product_catalog = defineTable({
  */
 const purchase_facts = defineTable({
   tenantId: v.id('tenants'),
-  provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+  provider: WebhookProviderV,
   externalOrderId: v.string(),
   externalLineItemId: v.optional(v.string()),
   externalLicenseId: v.optional(v.string()),
@@ -753,7 +744,7 @@ const purchase_facts = defineTable({
  */
 const provider_connections = defineTable({
   tenantId: v.id('tenants'),
-  provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+  provider: WebhookProviderV,
   // Human-readable label for multi-store support (e.g. "Main Store", "VRChat Assets")
   label: v.optional(v.string()),
   // Whether this is a creator setup connection or verification connection
@@ -865,7 +856,7 @@ const external_accounts = defineTable({
  */
 const provider_customers = defineTable({
   // Provider type
-  provider: v.union(v.literal('gumroad'), v.literal('jinxxy'), v.literal('manual')),
+  provider: CustomerProviderV,
   // Provider's customer/user ID (nullable if not available)
   providerUserId: v.optional(v.string()),
   // Hashed normalized email for matching

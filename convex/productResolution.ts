@@ -8,6 +8,7 @@
 import { query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { ProviderV } from './lib/providers';
 
 /**
  * Normalize a product URL for consistent hashing.
@@ -94,12 +95,7 @@ export const getProductsForTenant = query({
     v.object({
       _id: v.id('product_catalog'),
       productId: v.string(),
-      provider: v.union(
-        v.literal('discord'),
-        v.literal('gumroad'),
-        v.literal('jinxxy'),
-        v.literal('manual'),
-      ),
+      provider: ProviderV,
       providerProductRef: v.string(),
       canonicalSlug: v.optional(v.string()),
       displayName: v.optional(v.string()),

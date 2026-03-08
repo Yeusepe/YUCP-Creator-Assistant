@@ -16,15 +16,13 @@
 import { mutation } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { LicenseProviderV } from './lib/providers';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-const Provider = v.union(
-  v.literal('gumroad'),
-  v.literal('jinxxy'),
-);
+const Provider = LicenseProviderV;
 
 const ProductToGrant = v.object({
   productId: v.string(),

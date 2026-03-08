@@ -61,6 +61,7 @@ export const getEnabledVerificationProvidersFromProducts = query({
     gumroad: v.boolean(),
     jinxxy: v.boolean(),
     discord: v.boolean(),
+    vrchat: v.boolean(),
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -76,6 +77,7 @@ export const getEnabledVerificationProvidersFromProducts = query({
     let gumroad = false;
     let jinxxy = false;
     let discord = false;
+    let vrchat = false;
 
     for (const rule of rules) {
       if (rule.productId.startsWith('discord_role:')) {
@@ -87,6 +89,7 @@ export const getEnabledVerificationProvidersFromProducts = query({
         if (catalog) {
           if (catalog.provider === 'gumroad') gumroad = true;
           else if (catalog.provider === 'jinxxy') jinxxy = true;
+          else if (catalog.provider === 'vrchat') vrchat = true;
         }
       }
     }
@@ -96,7 +99,55 @@ export const getEnabledVerificationProvidersFromProducts = query({
       discord = false;
     }
 
-    return { gumroad, jinxxy, discord };
+    return { gumroad, jinxxy, discord, vrchat };
+  },
+});
+
+/**
+ * Get VRChat product_catalog entries for a tenant where providerProductRef is in ownedAvatarIds.
+ * Used by complete-vrchat API to build productsToGrant for retroactive verification.
+ */
+export const getVrchatCatalogProductsMatchingAvatars = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    ownedAvatarIds: v.array(v.string()),
+  },
+  returns: v.array(
+    v.object({
+      productId: v.string(),
+      catalogProductId: v.id('product_catalog'),
+      providerProductRef: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const ownedSet = new Set(args.ownedAvatarIds.map((id) => id.toLowerCase()));
+    const catalogs = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('provider'), 'vrchat'),
+          q.eq(q.field('status'), 'active')
+        )
+      )
+      .collect();
+    const matches: Array<{
+      productId: string;
+      catalogProductId: Id<'product_catalog'>;
+      providerProductRef: string;
+    }> = [];
+    for (const c of catalogs) {
+      if (ownedSet.has(c.providerProductRef.toLowerCase())) {
+        matches.push({
+          productId: c.productId,
+          catalogProductId: c._id,
+          providerProductRef: c.providerProductRef,
+        });
+      }
+    }
+    return matches;
   },
 });
 
@@ -621,6 +672,89 @@ export const addProductFromJinxxy = mutation({
       productId: args.productId,
       provider: 'jinxxy',
       providerProductRef: args.providerProductRef,
+    });
+
+    return { productId: args.productId, catalogProductId: catalogId };
+  },
+});
+
+/**
+ * Extract VRChat avatar ID from URL or raw ID.
+ * Matches avtr_[a-f0-9-]{36} or extracts from vrchat.com/home/avatar/avtr_xxx
+ * @see https://vrchat.com/home/avatar/avtr_xxx
+ */
+function extractVrchatAvatarId(urlOrId: string): string | null {
+  const trimmed = urlOrId?.trim() ?? '';
+  const directMatch = trimmed.match(/avtr_[a-f0-9-]{36}/i);
+  if (directMatch) return directMatch[0];
+  const urlMatch = trimmed.match(/vrchat\.com\/home\/avatar\/(avtr_[a-f0-9-]{36})/i);
+  return urlMatch ? urlMatch[1] : null;
+}
+
+/**
+ * Get or create product catalog entry for VRChat avatar.
+ * No webhooks/backfill - VRChat has no webhooks.
+ */
+export const addProductFromVrchat = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    productId: v.string(),
+    providerProductRef: v.string(),
+    displayName: v.optional(v.string()),
+  },
+  returns: v.object({
+    productId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const avatarId = extractVrchatAvatarId(args.providerProductRef);
+    if (!avatarId) {
+      throw new Error('Invalid VRChat avatar URL or ID. Expected avtr_xxx or https://vrchat.com/home/avatar/avtr_xxx');
+    }
+    const now = Date.now();
+    const existing = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_provider_ref', (q) =>
+        q.eq('provider', 'vrchat').eq('providerProductRef', avatarId),
+      )
+      .first();
+
+    if (existing) {
+      if (args.displayName && existing.displayName !== args.displayName) {
+        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+      }
+      return { productId: existing.productId, catalogProductId: existing._id };
+    }
+
+    const catalogId = await ctx.db.insert('product_catalog', {
+      tenantId: args.tenantId,
+      productId: args.productId,
+      provider: 'vrchat',
+      providerProductRef: avatarId,
+      displayName: args.displayName,
+      status: 'active',
+      supportsAutoDiscovery: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const url = `https://vrchat.com/home/avatar/${avatarId}`;
+    const normalized = url.toLowerCase().trim();
+    const urlHash = await sha256Hex(normalized);
+
+    await ctx.db.insert('catalog_product_links', {
+      catalogProductId: catalogId,
+      provider: 'vrchat',
+      originalUrl: url,
+      normalizedUrl: normalized,
+      urlHash,
+      linkKind: 'direct_product',
+      status: 'active',
+      submittedByTenantId: args.tenantId,
+      createdAt: now,
+      updatedAt: now,
     });
 
     return { productId: args.productId, catalogProductId: catalogId };

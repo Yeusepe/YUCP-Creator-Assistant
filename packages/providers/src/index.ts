@@ -63,6 +63,14 @@ export type {
 // Re-export Jinxxy adapter (full implementation in ./jinxxy)
 import { JinxxyAdapter, type JinxxyAdapterConfig } from './jinxxy';
 export { JinxxyAdapter, JinxxyApiClient } from './jinxxy';
+export { VrchatApiClient, extractVrchatAvatarId } from './vrchat';
+export type {
+  VrchatCurrentUser,
+  VrchatLicensedAvatar,
+  VrchatVerifyOwnershipResult,
+  TwoFactorAuthType,
+  RequiresTwoFactorAuth,
+} from './vrchat';
 export type {
   JinxxyAdapterConfig,
   JinxxyEvidence,
@@ -280,3 +288,7 @@ export type { LicenseFormat } from './licenseFormat';
 // Provider registry and orchestration layer
 export * from './registry';
 export * from './orchestrator';
+
+// Provider metadata
+export { PROVIDER_META, LICENSE_PROVIDERS, providerLabel } from './meta';
+export type { ProviderMeta } from './meta';

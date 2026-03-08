@@ -18,7 +18,12 @@
 import type { ProviderAdapter } from './index';
 
 /** Supported provider types in the system */
-export type ProviderType = 'gumroad' | 'discord_role' | 'jinxxy' | 'manual';
+export type ProviderType =
+  | 'gumroad'
+  | 'discord_role'
+  | 'jinxxy'
+  | 'manual'
+  | 'vrchat';
 
 /** Provider mode that a tenant can enable */
 export type ProviderMode = ProviderType;

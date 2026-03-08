@@ -41,6 +41,7 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 
 import { E, Emoji } from '../lib/emojis';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
+import { providerLabel, PROVIDER_META } from '@yucp/providers';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -119,13 +120,15 @@ function buildProductPickerComponents(
         .setPlaceholder('Select a product to verify…')
         .addOptions(
             slice.map((p) => {
-                const isGumroad = p.provider === 'gumroad';
+                const meta = PROVIDER_META[p.provider];
                 const label = p.displayName ?? p.canonicalSlug ?? p.productId;
                 const opt = new StringSelectMenuOptionBuilder()
                     .setLabel(label.slice(0, 100))
                     .setValue(`${p.provider}::${p.providerProductRef}`)
-                    .setDescription(isGumroad ? 'Gumroad product' : 'Jinxxy product')
-                    .setEmoji(isGumroad ? Emoji.Gumorad : Emoji.Jinxxy);
+                    .setDescription(meta?.addProductDescription ?? p.provider);
+                if (meta?.emojiKey && Emoji[meta.emojiKey as keyof typeof Emoji]) {
+                    opt.setEmoji(Emoji[meta.emojiKey as keyof typeof Emoji]);
+                }
                 return opt;
             }),
         );
@@ -318,6 +321,129 @@ export async function handleProductSelected(
     await interaction.showModal(modal);
 }
 
+// ── VRChat credentials modal ──────────────────────────────────────────────────
+
+const VRC_DISCLAIMER = 'We never store your password, username, or 2FA code.';
+
+export function buildVrchatCredentialsModal(tenantId: Id<'tenants'>): ModalBuilder {
+  return new ModalBuilder()
+    .setCustomId(`creator_verify:vrchat_modal:${tenantId}`)
+    .setTitle('Verify with VRChat')
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId('vrchat_username')
+          .setLabel('VRChat Username')
+          .setPlaceholder('Your VRChat login')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(100),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId('vrchat_password')
+          .setLabel('VRChat Password')
+          .setPlaceholder('Your VRChat password')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(200),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId('vrchat_2fa')
+          .setLabel('2FA Code (optional)')
+          .setPlaceholder('Leave empty if you don\'t use 2FA')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(10),
+      ),
+    );
+}
+
+export async function handleVrchatCredentialsModal(
+  interaction: ModalSubmitInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  apiBaseUrl: string | undefined,
+): Promise<void> {
+  const customId = interaction.customId;
+  if (!customId.startsWith('creator_verify:vrchat_modal:')) return;
+
+  const tenantId = customId.slice('creator_verify:vrchat_modal:'.length) as Id<'tenants'>;
+  const username = interaction.fields.getTextInputValue('vrchat_username')?.trim() ?? '';
+  const password = interaction.fields.getTextInputValue('vrchat_password') ?? '';
+  const twoFactorCode = interaction.fields.getTextInputValue('vrchat_2fa')?.trim() || undefined;
+
+  if (!username) {
+    await interaction.reply({ content: `${E.X_} Please enter your VRChat username.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (!password) {
+    await interaction.reply({ content: `${E.X_} Please enter your VRChat password.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const discordUserId = interaction.user.id;
+  let subjectId: string | null = null;
+
+  try {
+    const ensureResult = await convex.mutation('subjects:ensureSubjectForDiscord' as any, {
+      apiSecret,
+      discordUserId,
+      displayName: interaction.user.displayName,
+      avatarUrl: interaction.user.displayAvatarURL(),
+    });
+    subjectId = ensureResult.subjectId;
+  } catch (err) {
+    logger.error('Failed to ensure subject for VRChat', { err, discordUserId });
+    await interaction.editReply({ content: `${E.X_} Failed to look up your account. Please try again.` });
+    return;
+  }
+
+  const { getApiUrls } = await import('../lib/apiUrls');
+  const { apiInternal, apiPublic } = getApiUrls();
+  const apiForFetch = apiInternal ?? apiPublic ?? apiBaseUrl;
+  if (!apiForFetch || !apiForFetch.startsWith('https://')) {
+    await interaction.editReply({ content: `${E.X_} API not available. Use HTTPS.` });
+    return;
+  }
+
+  try {
+    const res = await fetch(`${apiForFetch}/api/verification/complete-vrchat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        apiSecret,
+        tenantId,
+        subjectId,
+        username,
+        password,
+        twoFactorCode,
+      }),
+    });
+
+    const data = (await res.json()) as { success: boolean; error?: string; entitlementIds?: string[] };
+
+    if (!data.success) {
+      const msg = sanitizeUserFacingErrorMessage(data.error, 'Verification failed.');
+      await interaction.editReply({ content: `${E.X_} ${msg}` });
+      return;
+    }
+
+    const count = data.entitlementIds?.length ?? 0;
+    await interaction.editReply({
+      content:
+        `${E.ClapStars} ${E.VRC} **VRChat verified!**\n` +
+        `Your account has been linked. ${count > 0 ? `Verified ${count} product${count !== 1 ? 's' : ''}. ` : ''}Run \`/creator\` to see your status.`,
+    });
+  } catch (err) {
+    logger.error('VRChat verification request failed', { err });
+    await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
+  }
+}
+
 // ── Public: license key modal submitted → verify + link ───────────────────────
 
 export async function handleLicenseKeyModal(
@@ -414,12 +540,13 @@ export async function handleLicenseKeyModal(
         // do a direct syncUserFromProvider to ensure the external_account is linked.
         // (The binding creation is already handled inside completeLicense + sessionManager.)
 
-        const providerLabel = provider === 'gumroad' ? 'Gumroad' : 'Jinxxy';
-        const emoji = provider === 'gumroad' ? E.Gumorad : E.Jinxxy;
+        const label = providerLabel(provider);
+        const meta = PROVIDER_META[provider];
+        const emoji = meta?.emojiKey ? (E[meta.emojiKey as keyof typeof E] ?? '') : '';
 
         await interaction.editReply({
             content:
-                `${E.ClapStars} ${emoji} **${providerLabel} license verified!**\n` +
+                `${E.ClapStars} ${emoji} **${label} license verified!**\n` +
                 `Your account has been linked. Run \`/creator\` to see your updated verification status.`,
         });
     } catch (err) {

@@ -372,7 +372,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     // set during OTT exchange remain same-origin and are actually sent.
     const apiBase = config.frontendBaseUrl;
 
-    const filePath = `${import.meta.dir}/../../public/dashboard.html`;
+    const filePath = `${import.meta.dir}/../../public/connect.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
     const templateValues: Record<string, string> = {

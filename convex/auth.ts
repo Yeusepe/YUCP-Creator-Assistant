@@ -17,6 +17,7 @@ import type { GenericCtx } from '@convex-dev/better-auth';
 import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
+import { vrchat } from './plugins/vrchat';
 
 const siteUrl = process.env.SITE_URL ?? 'http://localhost:3001';
 
@@ -73,6 +74,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     plugins: [
       crossDomain({ siteUrl }),
       convex({ authConfig }),
+      vrchat(),
     ],
     session: {
       expiresIn: 60 * 60 * 24 * 7, // 7 days

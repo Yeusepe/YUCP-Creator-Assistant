@@ -9,6 +9,7 @@ import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { Doc } from './_generated/dataModel';
+import { ProviderV } from './lib/providers';
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;
@@ -149,12 +150,7 @@ export const getSubjectWithAccounts = query({
         v.object({
           _id: v.id('external_accounts'),
           _creationTime: v.number(),
-          provider: v.union(
-            v.literal('discord'),
-            v.literal('gumroad'),
-            v.literal('jinxxy'),
-            v.literal('manual'),
-          ),
+          provider: ProviderV,
           providerUserId: v.string(),
           providerUsername: v.optional(v.string()),
           providerMetadata: v.optional(

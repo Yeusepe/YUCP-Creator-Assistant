@@ -12,6 +12,8 @@ import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
 
 const CONVEX_ENV_VARS = [
   'BETTER_AUTH_SECRET',
+  'INTERNAL_SERVICE_AUTH_SECRET',
+  'VRCHAT_PROVIDER_SESSION_SECRET',
   'BETTER_AUTH_URL',
   'DISCORD_CLIENT_ID',
   'DISCORD_CLIENT_SECRET',

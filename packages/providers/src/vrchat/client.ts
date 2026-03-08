@@ -1,0 +1,428 @@
+/**
+ * VRChat API Client
+ *
+ * Uses direct HTTP calls for login, 2FA, and ownership checks so the Bun
+ * verification flow does not depend on SDK-local cookie jar state across
+ * requests. This keeps the public interface stable while avoiding provider
+ * session bugs in multi-step login.
+ */
+
+import type {
+  RequiresTwoFactorAuth,
+  TwoFactorAuthType,
+  VrchatBeginLoginResult,
+  VrchatCurrentUser,
+  VrchatLicensedAvatar,
+  VrchatPendingLoginState,
+  VrchatSessionTokens,
+  VrchatVerifyOwnershipResult,
+} from './types';
+
+const VRCHAT_API_BASE = 'https://api.vrchat.cloud/api/1';
+const VRCHAT_USER_AGENT = 'YUCP Creator Assistant/0.1.0 (https://yucp.app)';
+const AUTH_COOKIE = 'auth';
+const TWO_FACTOR_AUTH_COOKIE = 'twoFactorAuth';
+
+function buildBasicAuth(username: string, password: string): string {
+  const encoded = Buffer.from(
+    `${encodeURIComponent(username)}:${encodeURIComponent(password)}`,
+    'utf-8'
+  ).toString('base64');
+  return `Basic ${encoded}`;
+}
+
+function getSetCookieHeaders(headers: Headers): string[] {
+  const withGetSetCookie = headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  if (typeof withGetSetCookie.getSetCookie === 'function') {
+    return withGetSetCookie.getSetCookie();
+  }
+
+  const raw = headers.get('set-cookie');
+  if (!raw) return [];
+
+  const cookies: string[] = [];
+  let start = 0;
+  let inExpires = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const slice = raw.slice(index, index + 8).toLowerCase();
+    if (slice === 'expires=') {
+      inExpires = true;
+      index += 7;
+      continue;
+    }
+    const char = raw[index];
+    if (inExpires && char === ';') {
+      inExpires = false;
+      continue;
+    }
+    if (!inExpires && char === ',' && raw[index + 1] === ' ') {
+      cookies.push(raw.slice(start, index).trim());
+      start = index + 2;
+    }
+  }
+  cookies.push(raw.slice(start).trim());
+  return cookies.filter(Boolean);
+}
+
+function extractCookieValue(headers: Headers, name: string): string | undefined {
+  const prefix = `${name}=`;
+  for (const setCookie of getSetCookieHeaders(headers)) {
+    const firstSegment = setCookie.split(';', 1)[0]?.trim();
+    if (!firstSegment?.startsWith(prefix)) continue;
+    return firstSegment.slice(prefix.length);
+  }
+  return undefined;
+}
+
+function buildCookieHeader(tokens: VrchatSessionTokens): string {
+  const pairs = [`${AUTH_COOKIE}=${tokens.authToken}`];
+  if (tokens.twoFactorAuthToken) {
+    pairs.push(`${TWO_FACTOR_AUTH_COOKIE}=${tokens.twoFactorAuthToken}`);
+  }
+  return pairs.join('; ');
+}
+
+function isTwoFactorRequired(data: unknown): data is RequiresTwoFactorAuth {
+  return !!data
+    && typeof data === 'object'
+    && Array.isArray((data as RequiresTwoFactorAuth).requiresTwoFactorAuth);
+}
+
+function isCurrentUser(data: unknown): data is VrchatCurrentUser {
+  return !!data && typeof data === 'object' && typeof (data as VrchatCurrentUser).id === 'string';
+}
+
+function sanitizeTwoFactorMethods(methods: readonly string[]): TwoFactorAuthType[] {
+  return methods.filter(
+    (method): method is TwoFactorAuthType =>
+      method === 'totp' || method === 'emailOtp' || method === 'otp'
+  );
+}
+
+function serializePendingState(state: VrchatPendingLoginState): string {
+  return JSON.stringify(state);
+}
+
+function parsePendingState(pendingState: string): VrchatPendingLoginState {
+  const parsed = JSON.parse(pendingState) as Partial<VrchatPendingLoginState>;
+  if (
+    !parsed
+    || typeof parsed !== 'object'
+    || typeof parsed.authToken !== 'string'
+    || !Array.isArray(parsed.requiresTwoFactorAuth)
+  ) {
+    throw new Error('Invalid pending VRChat login state');
+  }
+
+  const requiresTwoFactorAuth = sanitizeTwoFactorMethods(parsed.requiresTwoFactorAuth);
+  if (requiresTwoFactorAuth.length === 0) {
+    throw new Error('Invalid pending VRChat login state');
+  }
+
+  return {
+    authToken: parsed.authToken,
+    requiresTwoFactorAuth,
+  };
+}
+
+async function parseResponseJson(response: Response): Promise<unknown> {
+  return response.json().catch(() => null);
+}
+
+async function request(
+  path: string,
+  init: RequestInit = {}
+): Promise<{ response: Response; data: unknown }> {
+  const headers = new Headers(init.headers);
+  headers.set('user-agent', VRCHAT_USER_AGENT);
+  const response = await fetch(`${VRCHAT_API_BASE}${path}`, {
+    ...init,
+    headers,
+  });
+  const data = await parseResponseJson(response);
+  return { response, data };
+}
+
+function verificationPathForType(type: TwoFactorAuthType): string {
+  switch (type) {
+    case 'totp':
+      return '/auth/twofactorauth/totp/verify';
+    case 'emailOtp':
+      return '/auth/twofactorauth/emailotp/verify';
+    case 'otp':
+      return '/auth/twofactorauth/otp/verify';
+  }
+}
+
+function isVerifiedResponse(data: unknown): data is { verified?: boolean } {
+  return !!data && typeof data === 'object' && 'verified' in data;
+}
+
+function getVerifiedFactorSession(
+  headers: Headers,
+  authToken: string
+): VrchatSessionTokens {
+  return {
+    authToken: extractCookieValue(headers, AUTH_COOKIE) ?? authToken,
+    twoFactorAuthToken: extractCookieValue(headers, TWO_FACTOR_AUTH_COOKIE),
+  };
+}
+
+/**
+ * Extract VRChat avatar ID from URL or raw ID.
+ * @see https://vrchat.com/home/avatar/avtr_xxx
+ */
+export function extractVrchatAvatarId(urlOrId: string): string | null {
+  const trimmed = urlOrId?.trim() ?? '';
+  const directMatch = trimmed.match(/avtr_[a-f0-9-]{36}/i);
+  if (directMatch) return directMatch[0];
+  const urlMatch = trimmed.match(
+    /vrchat\.com\/home\/avatar\/(avtr_[a-f0-9-]{36})/i
+  );
+  return urlMatch ? urlMatch[1] : null;
+}
+
+/**
+ * VRChat API Client - direct HTTP login, 2FA, and licensed avatar retrieval.
+ */
+export class VrchatApiClient {
+  async beginLogin(
+    username: string,
+    password: string
+  ): Promise<VrchatBeginLoginResult> {
+    const { response, data } = await request('/auth/user', {
+      method: 'GET',
+      headers: {
+        authorization: buildBasicAuth(username, password),
+      },
+    });
+
+    console.log('VRChat client beginLogin', {
+      status: response.status,
+      hasAuthCookie: Boolean(extractCookieValue(response.headers, AUTH_COOKIE)),
+      hasTwoFactorAuthCookie: Boolean(extractCookieValue(response.headers, TWO_FACTOR_AUTH_COOKIE)),
+      requiresTwoFactorAuth: isTwoFactorRequired(data)
+        ? sanitizeTwoFactorMethods(data.requiresTwoFactorAuth)
+        : [],
+      isCurrentUser: isCurrentUser(data),
+    });
+
+    const authToken = extractCookieValue(response.headers, AUTH_COOKIE);
+    if (!authToken) {
+      throw new Error(`Verification failed: missing auth cookie (status ${response.status})`);
+    }
+
+    if (isTwoFactorRequired(data)) {
+      const requiresTwoFactorAuth = sanitizeTwoFactorMethods(data.requiresTwoFactorAuth);
+      if (requiresTwoFactorAuth.length === 0) {
+        throw new Error('Verification failed');
+      }
+
+      return {
+        success: false,
+        requiresTwoFactorAuth,
+        pendingState: serializePendingState({
+          authToken,
+          requiresTwoFactorAuth,
+        }),
+      };
+    }
+
+    if (!isCurrentUser(data)) {
+      throw new Error('Verification failed');
+    }
+
+    return {
+      success: true,
+      user: data,
+      session: {
+        authToken,
+        twoFactorAuthToken: extractCookieValue(response.headers, TWO_FACTOR_AUTH_COOKIE),
+      },
+    };
+  }
+
+  async completePendingLogin(
+    pendingState: string,
+    code: string,
+    type?: TwoFactorAuthType
+  ): Promise<{ user: VrchatCurrentUser; session: VrchatSessionTokens }> {
+    const pending = parsePendingState(pendingState);
+    const methods = type ? [type] : pending.requiresTwoFactorAuth;
+    const allowedMethods = methods.filter((method) =>
+      pending.requiresTwoFactorAuth.includes(method)
+    );
+
+    if (!allowedMethods.length) {
+      throw new Error('Verification failed');
+    }
+
+    let session: VrchatSessionTokens | null = null;
+
+    for (const method of allowedMethods) {
+      const { response, data } = await request(verificationPathForType(method), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: `${AUTH_COOKIE}=${pending.authToken}`,
+        },
+        body: JSON.stringify({ code }),
+      });
+
+      console.log('VRChat client completePendingLogin verify', {
+        method,
+        status: response.status,
+        verified: isVerifiedResponse(data) ? Boolean(data.verified) : false,
+        hasAuthCookie: Boolean(extractCookieValue(response.headers, AUTH_COOKIE)),
+        hasTwoFactorAuthCookie: Boolean(extractCookieValue(response.headers, TWO_FACTOR_AUTH_COOKIE)),
+      });
+
+      if (!isVerifiedResponse(data) || !data.verified) {
+        continue;
+      }
+
+      session = getVerifiedFactorSession(response.headers, pending.authToken);
+      break;
+    }
+
+    if (!session) {
+      console.log('VRChat client completePendingLogin failed: no verified factor');
+      throw new Error('Verification failed');
+    }
+
+    const user = await this.getCurrentUser(
+      session.authToken,
+      session.twoFactorAuthToken
+    );
+    console.log('VRChat client completePendingLogin current user', {
+      hasTwoFactorAuthToken: Boolean(session.twoFactorAuthToken),
+      isCurrentUser: Boolean(user),
+    });
+    if (!user) {
+      throw new Error('Verification failed');
+    }
+
+    return { user, session };
+  }
+
+  async login(
+    username: string,
+    password: string,
+    twoFactorCode?: string
+  ): Promise<{ user: VrchatCurrentUser; session: VrchatSessionTokens }> {
+    const initial = await this.beginLogin(username, password);
+    if (initial.success) {
+      return initial;
+    }
+
+    if (!twoFactorCode) {
+      throw new Error('Verification failed');
+    }
+
+    return this.completePendingLogin(initial.pendingState, twoFactorCode);
+  }
+
+  async getCurrentUser(
+    authToken: string,
+    twoFactorAuthToken?: string
+  ): Promise<VrchatCurrentUser | null> {
+    const { response, data } = await request('/auth/user', {
+      method: 'GET',
+      headers: {
+        cookie: buildCookieHeader({ authToken, twoFactorAuthToken }),
+      },
+    });
+
+    if (!isCurrentUser(data)) {
+      console.log('VRChat client getCurrentUser non-user response', {
+        status: response.status,
+        requiresTwoFactorAuth: isTwoFactorRequired(data)
+          ? sanitizeTwoFactorMethods(data.requiresTwoFactorAuth)
+          : [],
+      });
+    }
+
+    if (!data || isTwoFactorRequired(data) || !isCurrentUser(data)) {
+      return null;
+    }
+
+    return data;
+  }
+
+  async getLicensedAvatars(
+    session: VrchatSessionTokens,
+    n = 60,
+    offset = 0
+  ): Promise<VrchatLicensedAvatar[]> {
+    const query = new URLSearchParams({
+      n: String(Math.min(100, Math.max(1, n))),
+      offset: String(Math.max(0, offset)),
+    });
+
+    const { data } = await request(`/avatars/licensed?${query.toString()}`, {
+      method: 'GET',
+      headers: {
+        cookie: buildCookieHeader(session),
+      },
+    });
+
+    if (!Array.isArray(data)) {
+      throw new Error('Verification failed');
+    }
+
+    return data.filter(
+      (entry): entry is VrchatLicensedAvatar =>
+        !!entry && typeof entry === 'object' && typeof (entry as VrchatLicensedAvatar).id === 'string'
+    );
+  }
+
+  async getOwnershipFromSession(
+    session: VrchatSessionTokens
+  ): Promise<VrchatVerifyOwnershipResult | null> {
+    const user = await this.getCurrentUser(
+      session.authToken,
+      session.twoFactorAuthToken
+    );
+    if (!user) {
+      return null;
+    }
+
+    const ownedAvatarIds: string[] = [];
+    const licensedAvatars: VrchatLicensedAvatar[] = [];
+    let offset = 0;
+    const pageSize = 60;
+
+    for (;;) {
+      const page = await this.getLicensedAvatars(session, pageSize, offset);
+      for (const avatar of page) {
+        ownedAvatarIds.push(avatar.id);
+        licensedAvatars.push(avatar);
+      }
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
+
+    return {
+      vrchatUserId: user.id,
+      displayName: user.displayName ?? user.username ?? user.id,
+      ownedAvatarIds,
+      licensedAvatars,
+    };
+  }
+
+  async verifyOwnership(
+    username: string,
+    password: string,
+    twoFactorCode?: string
+  ): Promise<VrchatVerifyOwnershipResult> {
+    const { session } = await this.login(username, password, twoFactorCode);
+    const ownership = await this.getOwnershipFromSession(session);
+    if (!ownership) {
+      throw new Error('Verification failed');
+    }
+
+    return ownership;
+  }
+}
