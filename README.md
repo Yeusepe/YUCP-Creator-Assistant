@@ -118,7 +118,8 @@ Do not commit real values; use env files or a secret store (all env files are gi
 
 | Group      | Subcommand                    | Notes                                                                                           |
 | ---------- | ----------------------------- | ----------------------------------------------------------------------------------------------- |
-| setup      | start, restart                | Onboarding wizard                                                                               |
+| setup      | start                         | Get links to connect Gumroad/Jinxxy and configure (opens in browser)                            |
+| autosetup  | -                             | Guided setup in Discord: create roles, channels, verify button, or migrate from another bot     |
 | product    | add, list, remove             | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy, vrchat              |
 | downloads  | setup, manage                 | **Liened Downloads**: protected file routes; setup creates routes, manage toggles/edits/removes |
 | collab     | invite, list                  | **Collaborators**: invite creators to share Jinxxy store; list active connections               |

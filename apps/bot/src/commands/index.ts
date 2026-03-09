@@ -50,16 +50,13 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
       .setName('setup')
       .setDescription('Onboarding and configuration')
       .addSubcommand((s) =>
-        s.setName('start').setDescription('Start onboarding wizard'),
-      )
-      .addSubcommand((s) =>
-        s.setName('restart').setDescription('Restart onboarding wizard (generates a new secure link)'),
+        s.setName('start').setDescription('Open the setup dashboard to connect stores and configure your server'),
       ),
   )
   .addSubcommand((s) =>
     s
       .setName('autosetup')
-      .setDescription('Guided setup: create roles, channels, verify button, or migrate from another bot'),
+      .setDescription('Guided setup in Discord: create roles, channels, verify button, or migrate from another bot'),
   )
   .addSubcommandGroup((product) =>
     product

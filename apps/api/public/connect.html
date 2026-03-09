@@ -188,7 +188,7 @@
         <div class="cursor-dot"></div>
         <div class="cursor-dot-outline"></div>
 
-        <main class="flex-grow flex flex-col items-center justify-center px-4 relative h-full">
+        <main class="flex-grow flex flex-col items-center justify-center px-4 pt-8 relative h-full">
 
             <!-- Playful Background Stickers -->
             <div id="holo-world-0" class="absolute top-20 left-10 w-24 opacity-60 sticker pointer-events-auto h-24"
@@ -225,7 +225,7 @@
                 </div>
 
 
-                <div class="space-y-3 relative z-10 mt-6">
+                <div class="space-y-3 relative z-10">
 
                     <button type="button"
                         class="w-full flex items-center justify-between p-4 rounded-3xl bg-[rgba(88,101,242,0.9)] backdrop-blur-md text-white shadow-xl shadow-[#5865F2]/30 opacity-95 cursor-default border border-white/20 transition-transform hover:scale-[1.02]"
@@ -316,7 +316,7 @@
                     </div>
                 </div>
 
-                <div class="mt-6 pt-5 border-t border-[rgba(255,255,255,0.1)]/60 flex flex-col gap-3 relative z-10">
+                <div id="done-section" class="mt-6 pt-5 border-t border-[rgba(255,255,255,0.1)]/60 flex flex-col gap-3 relative z-10">
                     <button id="done-btn"
                         class="w-full py-4 rounded-full bg-white/20 text-white font-black text-lg uppercase tracking-widest shadow-xl shadow-white/10 hover:bg-white/30 backdrop-blur-md transition-all platform-btn flex justify-center items-center gap-3 group border border-white/20">
                         <span>Continue in Discord</span>
@@ -326,6 +326,13 @@
                         </svg>
                     </button>
                     <p id="status" class="text-center text-sm text-[#7a7a9f] font-bold hidden"></p>
+                    <div id="post-setup-buttons" class="flex flex-col gap-3 mt-2 hidden">
+                        <p id="first-time-hint" class="text-center text-sm font-bold text-amber-400 hidden"></p>
+                        <div class="flex gap-3">
+                            <a id="open-dashboard-btn" href="#" class="flex-1 py-3 rounded-full bg-white/20 text-white font-bold text-center uppercase tracking-widest hover:bg-white/30 transition-all border border-white/20">Open Dashboard</a>
+                            <button id="return-discord-btn" type="button" class="flex-1 py-3 rounded-full bg-white/20 text-white font-bold uppercase tracking-widest hover:bg-white/30 transition-all border border-white/20">Return to Discord</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -635,7 +642,25 @@
                             if (Date.now() < end) requestAnimationFrame(frame);
                         }());
 
-                        setTimeout(() => window.close(), 2500);
+                        btn.classList.add('hidden');
+                        if (data.tenantId) tenantId = data.tenantId;
+                        const postSetup = document.getElementById('post-setup-buttons');
+                        const firstTimeHint = document.getElementById('first-time-hint');
+                        const openDashboardBtn = document.getElementById('open-dashboard-btn');
+                        const returnDiscordBtn = document.getElementById('return-discord-btn');
+
+                        if (data.isFirstTime) {
+                            firstTimeHint.textContent = 'Next step: Run /creator-admin autosetup in Discord to create roles and the verify button.';
+                            firstTimeHint.classList.remove('hidden');
+                        }
+
+                        const dashboardUrl = new URL(`${apiBase}/dashboard`, window.location.origin);
+                        if (tenantId) dashboardUrl.searchParams.set('tenant_id', tenantId);
+                        if (guildId) dashboardUrl.searchParams.set('guild_id', guildId);
+                        openDashboardBtn.href = dashboardUrl.toString();
+
+                        returnDiscordBtn.addEventListener('click', () => window.close(), { once: true });
+                        postSetup.classList.remove('hidden');
 
                     } else {
                         status.textContent = data.error || 'Something went wrong.';

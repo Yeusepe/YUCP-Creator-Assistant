@@ -543,9 +543,9 @@ async function routeRequest(request: Request): Promise<Response> {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
   };
-  const COLLAB_HTML_SECURITY_HEADERS: Record<string, string> = {
-    'Content-Security-Policy':
-      "default-src 'self'; " +
+const COLLAB_HTML_SECURITY_HEADERS: Record<string, string> = {
+  'Content-Security-Policy':
+    "default-src 'self'; " +
       "script-src 'self' 'unsafe-inline'; " +
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
       "img-src 'self' data:; " +
@@ -556,8 +556,64 @@ async function routeRequest(request: Request): Promise<Response> {
       "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-  };
+  'X-Frame-Options': 'DENY',
+};
+
+async function maybeServeSetupAuthRedirect(
+  request: Request,
+  pathname: string,
+  tenantId: string,
+  guildId: string,
+  setupCookieToken: string
+): Promise<Response | null> {
+  if (!setupCookieToken || !auth) {
+    return null;
+  }
+
+  const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
+  const setupSession = await resolveSetupSession(setupCookieToken, encryptionSecret);
+  if (!setupSession) {
+    return null;
+  }
+
+  const authSession = await auth.getSession(request);
+  const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+  const callbackUrl = `${browserApiBase}${pathname}?tenant_id=${encodeURIComponent(tenantId)}&guild_id=${encodeURIComponent(guildId)}`;
+
+  if (!authSession) {
+    const filePath = `${import.meta.dir}/../public/sign-in-redirect.html`;
+    let html = await Bun.file(filePath).text();
+    const signInUrl = `${resolvedApiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+    html = html.replace('__SIGN_IN_URL__', JSON.stringify(signInUrl));
+    html = html.replace('__CALLBACK_URL__', JSON.stringify(callbackUrl));
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
+  const authDiscordUserId = await auth.getDiscordUserId(request);
+  if (!authDiscordUserId) {
+    const filePath = `${import.meta.dir}/../public/sign-in-redirect.html`;
+    let html = await Bun.file(filePath).text();
+    const signInUrl = `${resolvedApiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+    html = html.replace('__SIGN_IN_URL__', JSON.stringify(signInUrl));
+    html = html.replace('__CALLBACK_URL__', JSON.stringify(callbackUrl));
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
+  if (authDiscordUserId !== setupSession.discordUserId) {
+    return new Response('This setup link belongs to a different Discord account.', {
+      status: 403,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+
+  return null;
+}
 
   if (pathname === '/discord-role-setup' || pathname === '/discord-role-setup.html') {
     if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
@@ -622,7 +678,25 @@ async function routeRequest(request: Request): Promise<Response> {
     let html = await file.text();
     let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
     let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
+    const ott = url.searchParams.get('ott');
     const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
+
+    if (ott && auth) {
+      const { session, setCookieHeaders } = await auth.exchangeOTT(ott);
+      if (session && setCookieHeaders.length > 0) {
+        const redirectUrl = new URL(url);
+        redirectUrl.searchParams.delete('ott');
+        const headers = new Headers({ Location: redirectUrl.toString() });
+        for (const cookie of setCookieHeaders) {
+          headers.append('Set-Cookie', cookie);
+        }
+        return new Response(null, { status: 302, headers });
+      }
+      logger.warn('OTT exchange failed for jinxxy setup page', {
+        tenantId: tenantId || undefined,
+        guildId: guildId || undefined,
+      });
+    }
 
     // Resolve setup token if present
     if (setupCookieToken) {
@@ -634,11 +708,84 @@ async function routeRequest(request: Request): Promise<Response> {
       }
     }
 
+    const setupAuthRedirect = await maybeServeSetupAuthRedirect(
+      request,
+      '/jinxxy-setup',
+      tenantId,
+      guildId,
+      setupCookieToken
+    );
+    if (setupAuthRedirect) {
+      return setupAuthRedirect;
+    }
+
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
     html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', '');
+    html = html.replaceAll('__HAS_SETUP_SESSION__', setupCookieToken ? 'true' : 'false');
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
+  if (pathname === '/dashboard' || pathname === '/dashboard.html') {
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
+    const filePath = `${import.meta.dir}/../public/dashboard.html`;
+    const file = Bun.file(filePath);
+    let html = await file.text();
+    let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
+    const ott = url.searchParams.get('ott');
+    const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
+
+    if (ott && auth) {
+      const { session, setCookieHeaders } = await auth.exchangeOTT(ott);
+      if (session && setCookieHeaders.length > 0) {
+        const redirectUrl = new URL(url);
+        redirectUrl.searchParams.delete('ott');
+        const headers = new Headers({ Location: redirectUrl.toString() });
+        for (const cookie of setCookieHeaders) {
+          headers.append('Set-Cookie', cookie);
+        }
+        return new Response(null, { status: 302, headers });
+      }
+      logger.warn('OTT exchange failed for dashboard page', {
+        tenantId: tenantId || undefined,
+        guildId: guildId || undefined,
+      });
+    }
+
+    if (setupCookieToken) {
+      const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
+      const session = await resolveSetupSession(setupCookieToken, encryptionSecret);
+      if (session) {
+        tenantId = session.tenantId;
+        guildId = session.guildId;
+      }
+    }
+
+    const setupAuthRedirect = await maybeServeSetupAuthRedirect(
+      request,
+      '/dashboard',
+      tenantId,
+      guildId,
+      setupCookieToken
+    );
+    if (setupAuthRedirect) {
+      return setupAuthRedirect;
+    }
+
+    const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
+    html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__HAS_SETUP_SESSION__', setupCookieToken ? 'true' : 'false');
     return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },

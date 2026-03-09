@@ -92,7 +92,7 @@ Use the dedicated workflow in [.github/workflows/bot-e2e.yml](/Users/svalp/OneDr
 - API and bot boot from source.
 - Slash command registration in the target guild.
 - Real `/creator status`, `/creator docs`, and public verify-button entry from Discord Web.
-- Real `/creator-admin stats`, `/creator-admin analytics`, `/creator-admin setup start`, `/creator-admin setup restart`, and `/creator-admin spawn-verify` command execution from Discord Web.
+- Real `/creator-admin stats`, `/creator-admin analytics`, `/creator-admin setup start`, and `/creator-admin spawn-verify` command execution from Discord Web.
 - Real `/creator-admin settings cross-server` enable and disable actions, asserted against tenant policy state.
 - Real cross-server role sync using a source-guild role and `/creator refresh`.
 - Real `/creator refresh` role sync against Convex and Discord roles.

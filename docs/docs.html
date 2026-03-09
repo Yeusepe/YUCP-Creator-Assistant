@@ -563,8 +563,8 @@
                     <div class="step-item">
                         <div class="step-left"><div class="step-badge">2</div><div class="step-connector"></div></div>
                         <div class="step-content">
-                            <h4>Launch the setup wizard</h4>
-                            <p>Run <code>/creator-admin setup start</code>. The bot replies with a private, time-limited link to the web setup wizard.</p>
+                            <h4>Open the secure setup dashboard</h4>
+                            <p>Run <code>/creator-admin setup start</code>. The bot replies privately with a secure, time-limited <strong>Open Setup Dashboard</strong> button. That link carries your server setup context and takes you straight into the web dashboard.</p>
                             <div class="cmd-wrap" style="margin-top:8px;">
                                 <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">setup start</span></div>
                                 <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin setup start')" aria-label="Copy command">
@@ -576,8 +576,9 @@
                     <div class="step-item">
                         <div class="step-left"><div class="step-badge">3</div><div class="step-connector"></div></div>
                         <div class="step-content">
-                            <h4>Connect your store</h4>
-                            <p><span class="badge badge-gumroad">Gumroad</span> connects via OAuth: click "Connect Gumroad" and authorize. <span class="badge badge-jinxxy">Jinxxy</span> requires an API key from your Jinxxy dashboard. <span class="badge badge-vrchat">VRChat</span> verifies avatar ownership via credential login.</p>
+                            <h4>Follow the dashboard Quick Start</h4>
+                            <p>The dashboard now drives setup end-to-end. Its Quick Start panel updates based on what you have already completed, shows the next recommended action, and can be dismissed until your progress changes.</p>
+                            <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,0.6);">Connect <span class="badge badge-gumroad">Gumroad</span> with OAuth or finish <span class="badge badge-jinxxy">Jinxxy</span> from the dashboard, save your server settings, then click <strong>Done Setup</strong>. The setup UI includes progress states, animations, and celebration effects as you complete milestones.</p>
                         </div>
                     </div>
                     <div class="step-item">
@@ -700,11 +701,7 @@
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin setup start')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">setup start</span></span></div>
-                        <span class="cmd-row-desc">Launch the web-based onboarding wizard. Returns a private, time-limited link.</span>
-                    </div>
-                    <div class="cmd-row">
-                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin setup restart')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">setup restart</span></span></div>
-                        <span class="cmd-row-desc">Generate a fresh setup link if the previous one has expired.</span>
+                        <span class="cmd-row-desc">Send a private secure dashboard link for store connections, onboarding progress, and server setup.</span>
                     </div>
                 </div>
 

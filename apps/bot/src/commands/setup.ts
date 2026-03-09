@@ -1,5 +1,5 @@
 /**
- * /creator setup - Directs users to the website for configuration
+ * /creator-admin setup start - Opens the dashboard for configuration
  */
 
 import {
@@ -29,7 +29,7 @@ export interface SetupContext {
 
 export async function runSetupStart(
   interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
+  _convex: ConvexHttpClient,
   apiSecret: string,
   ctx: SetupContext,
 ): Promise<void> {
@@ -64,44 +64,49 @@ export async function runSetupStart(
       setupToken = data.token;
     }
   } catch (_) {
-    // Fall back to legacy URL params if session creation fails
+    // Handled below with a user-visible error.
   }
 
-  const connectUrl = setupToken
-    ? `${apiBase}/connect#s=${encodeURIComponent(setupToken)}`
-    : `${apiBase}/connect?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}`;
-  const jinxxyUrl = setupToken
-    ? `${apiBase}/jinxxy-setup#s=${encodeURIComponent(setupToken)}`
-    : `${apiBase}/jinxxy-setup?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}`;
+  if (!setupToken) {
+    await interaction.editReply({
+      content: 'Could not create a secure setup session. Try `/creator-admin setup start` again in a moment.',
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+
+  const dashboardUrl = `${apiBase}/dashboard?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}#s=${encodeURIComponent(setupToken)}`;
 
   const embed = new EmbedBuilder()
     .setTitle(`${E.Wrench} Creator Setup`)
     .setDescription(
-      'Configure your server through the website. Use the buttons below to get started.',
+      'Open the setup dashboard to connect your stores, review your server settings, and finish onboarding in one place.',
     )
     .setColor(0x5865f2)
     .addFields(
       {
-        name: `${E.Link} Connect Accounts`,
-        value: 'Link your Gumroad, Jinxxy, or Discord accounts.',
+        name: '1. Connect Gumroad or Jinxxy',
+        value: 'Use the platform cards in the dashboard to connect the storefronts you sell through.',
         inline: false,
       },
       {
-        name: `${E.Jinxxy} Jinxxy Setup`,
-        value: 'Configure your Jinxxy API key and webhook.',
+        name: '2. Review Server Options',
+        value: 'Adjust verification settings, collaborator access, and any store-specific configuration from the same page.',
+        inline: false,
+      },
+      {
+        name: '3. Return to Discord',
+        value: 'After the dashboard is set up, finish any role and channel automation back here with `/creator-admin autosetup` if you need it.',
         inline: false,
       },
     );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setLabel('Connect Accounts')
+      .setLabel('Open Setup Dashboard')
       .setStyle(ButtonStyle.Link)
-      .setURL(connectUrl),
-    new ButtonBuilder()
-      .setLabel('Jinxxy Setup')
-      .setStyle(ButtonStyle.Link)
-      .setURL(jinxxyUrl),
+      .setURL(dashboardUrl),
   );
 
   await interaction.editReply({
@@ -123,7 +128,7 @@ export async function handleSetupSelect(
 ): Promise<void> {
   if (!interaction.customId.startsWith(SETUP_PREFIX)) return;
   await interaction.reply({
-    content: 'This setup flow has moved to the website. Use `/creator setup start` for the link.',
+    content: 'This setup flow has moved to the dashboard. Use `/creator-admin setup start` for the link.',
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -135,7 +140,7 @@ export async function handleSetupJinxxyModal(
 ): Promise<void> {
   if (!interaction.customId.startsWith(SETUP_PREFIX + 'jinxxy:')) return;
   await interaction.reply({
-    content: 'Jinxxy setup has moved to the website. Use `/creator setup start` for the link.',
+    content: 'Jinxxy setup has moved to the dashboard. Use `/creator-admin setup start` for the link.',
     flags: MessageFlags.Ephemeral,
   });
 }

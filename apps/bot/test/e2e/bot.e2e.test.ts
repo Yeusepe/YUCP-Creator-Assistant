@@ -39,7 +39,7 @@ describe('discord bot real-infrastructure e2e', () => {
       await admin.runSlashCommand(page, '/creator-admin stats', 'Verification Stats');
       await admin.runSlashCommand(page, '/creator-admin analytics', 'Analytics');
       await admin.runSlashCommand(page, '/creator-admin setup start', 'Creator Setup');
-      await admin.waitForText(page, 'Connect Accounts');
+      await admin.waitForText(page, 'Open Setup Dashboard');
       await admin.close();
     } finally {
       await safeCleanup(harness, scenario, async () => {
@@ -94,7 +94,7 @@ describe('discord bot real-infrastructure e2e', () => {
     }
   });
 
-  it('restarts setup and toggles cross-server verification from the real admin panel', async () => {
+  it('toggles cross-server verification from the real admin panel', async () => {
     const scenario = 'cross-server-settings';
     const channelId = await harness.createScenarioChannel(scenario, 'settings');
     const admin = await harness.openAdminSession();
@@ -107,8 +107,6 @@ describe('discord bot real-infrastructure e2e', () => {
 
     try {
       const page = await admin.openChannel(harness.secrets.targetGuildId, channelId);
-      await admin.runSlashCommand(page, '/creator-admin setup restart', 'Creator Setup');
-      await admin.waitForText(page, 'Connect Accounts');
 
       await admin.runSlashCommand(page, '/creator-admin settings cross-server', 'Cross-Server Role Verification');
       await admin.waitForText(page, 'Allowed Source Servers');

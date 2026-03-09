@@ -44,6 +44,312 @@
             margin-bottom: 24px;
         }
 
+        .section-card.quick-start-card {
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top right, rgba(250, 204, 21, 0.18), transparent 34%),
+                radial-gradient(circle at left center, rgba(14, 165, 233, 0.18), transparent 42%),
+                linear-gradient(140deg, rgba(5, 14, 40, 0.82), rgba(11, 33, 84, 0.68));
+            border-color: rgba(255, 255, 255, 0.16);
+            box-shadow: 0 24px 60px rgba(2, 6, 23, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+
+        .quick-start-card::before,
+        .quick-start-card::after {
+            content: '';
+            position: absolute;
+            border-radius: 999px;
+            pointer-events: none;
+            filter: blur(8px);
+            opacity: 0.9;
+        }
+
+        .quick-start-card::before {
+            width: 240px;
+            height: 240px;
+            top: -120px;
+            right: -40px;
+            background: radial-gradient(circle, rgba(14, 165, 233, 0.32), transparent 70%);
+            animation: quick-start-float 9s ease-in-out infinite;
+        }
+
+        .quick-start-card::after {
+            width: 220px;
+            height: 220px;
+            bottom: -120px;
+            left: -30px;
+            background: radial-gradient(circle, rgba(250, 204, 21, 0.18), transparent 72%);
+            animation: quick-start-float 11s ease-in-out infinite reverse;
+        }
+
+        .quick-start-card.is-hidden {
+            display: none;
+        }
+
+        .quick-start-shell {
+            position: relative;
+            z-index: 1;
+        }
+
+        .quick-start-topline {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 14px;
+        }
+
+        .quick-start-progress-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.88);
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            backdrop-filter: blur(14px);
+        }
+
+        .quick-start-progress-pill strong {
+            color: #fde68a;
+        }
+
+        .quick-start-dismiss {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(255, 255, 255, 0.72);
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .quick-start-dismiss:hover {
+            transform: translateY(-1px);
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+        }
+
+        .quick-start-heading {
+            display: grid;
+            gap: 10px;
+        }
+
+        .quick-start-summary {
+            max-width: 620px;
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 14px;
+            line-height: 1.7;
+            font-family: 'DM Sans', sans-serif;
+        }
+
+        .quick-start-progress-rail {
+            width: 100%;
+            height: 12px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 1px 4px rgba(15, 23, 42, 0.35);
+        }
+
+        .quick-start-progress-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #38bdf8 0%, #60a5fa 45%, #fde047 100%);
+            box-shadow: 0 0 18px rgba(56, 189, 248, 0.35);
+            transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .quick-start-progress-fill::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.42) 38%, transparent 70%);
+            transform: translateX(-100%);
+            animation: progress-sheen 2.8s ease-in-out infinite;
+        }
+
+        .quick-start-step-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 18px;
+        }
+
+        .quick-start-step {
+            position: relative;
+            min-height: 182px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 18px;
+            border-radius: 22px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.06);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            transition: transform 0.28s ease, border-color 0.28s ease, background 0.28s ease, box-shadow 0.28s ease;
+            overflow: hidden;
+        }
+
+        .quick-start-step::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(140deg, rgba(255, 255, 255, 0.08), transparent 58%);
+            opacity: 0.9;
+            pointer-events: none;
+        }
+
+        .quick-start-step.is-active {
+            transform: translateY(-3px);
+            border-color: rgba(56, 189, 248, 0.32);
+            background: rgba(14, 165, 233, 0.1);
+            box-shadow: 0 20px 35px rgba(14, 165, 233, 0.14);
+        }
+
+        .quick-start-step.is-complete {
+            border-color: rgba(74, 222, 128, 0.36);
+            background: linear-gradient(160deg, rgba(34, 197, 94, 0.16), rgba(255, 255, 255, 0.05));
+            box-shadow: 0 18px 34px rgba(34, 197, 94, 0.12);
+        }
+
+        .quick-start-step.is-locked {
+            opacity: 0.78;
+        }
+
+        .quick-start-step.pop {
+            animation: quick-start-pop 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .quick-start-step-header,
+        .quick-start-step-footer {
+            position: relative;
+            z-index: 1;
+        }
+
+        .quick-start-step-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .quick-start-step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            font-size: 12px;
+            font-weight: 800;
+            color: #fff;
+        }
+
+        .quick-start-step.is-complete .quick-start-step-number {
+            background: rgba(34, 197, 94, 0.18);
+            color: #86efac;
+            border-color: rgba(134, 239, 172, 0.28);
+        }
+
+        .quick-start-step.is-active .quick-start-step-number {
+            background: rgba(56, 189, 248, 0.16);
+            color: #bae6fd;
+            border-color: rgba(125, 211, 252, 0.28);
+        }
+
+        .quick-start-step-state {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.58);
+        }
+
+        .quick-start-step.is-complete .quick-start-step-state {
+            color: #86efac;
+        }
+
+        .quick-start-step.is-active .quick-start-step-state {
+            color: #7dd3fc;
+        }
+
+        .quick-start-step-title {
+            position: relative;
+            z-index: 1;
+            color: #fff;
+            font-size: 17px;
+            font-weight: 800;
+            line-height: 1.3;
+        }
+
+        .quick-start-step-body {
+            position: relative;
+            z-index: 1;
+            color: rgba(255, 255, 255, 0.68);
+            font-size: 13px;
+            line-height: 1.6;
+            font-family: 'DM Sans', sans-serif;
+            flex: 1;
+        }
+
+        .quick-start-step-meta {
+            position: relative;
+            z-index: 1;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .quick-start-jump {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 11px 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+        }
+
+        .quick-start-jump:hover {
+            transform: translateY(-1px);
+            background: rgba(255, 255, 255, 0.14);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .quick-start-jump.is-ready {
+            background: rgba(34, 197, 94, 0.16);
+            border-color: rgba(134, 239, 172, 0.3);
+            color: #dcfce7;
+        }
+
         /* ── Platform Cards ────────────────────────────────────────────────── */
         .platform-card {
             background: rgba(255, 255, 255, 0.04);
@@ -76,6 +382,19 @@
         .platform-card.connected {
             border-color: rgba(74, 222, 128, 0.4);
             box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.15), 0 8px 24px rgba(74, 222, 128, 0.08);
+        }
+
+        .platform-card.connected::after {
+            content: '';
+            position: absolute;
+            width: 160px;
+            height: 160px;
+            right: -52px;
+            bottom: -86px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(74, 222, 128, 0.18), transparent 68%);
+            animation: connected-glow 4.5s ease-in-out infinite;
+            pointer-events: none;
         }
 
         .platform-card.disconnected {
@@ -564,6 +883,54 @@
             opacity: 0;
         }
 
+        @keyframes quick-start-float {
+            0%, 100% {
+                transform: translate3d(0, 0, 0) scale(1);
+            }
+
+            50% {
+                transform: translate3d(-10px, 14px, 0) scale(1.04);
+            }
+        }
+
+        @keyframes quick-start-pop {
+            0% {
+                transform: translateY(0) scale(1);
+            }
+
+            35% {
+                transform: translateY(-6px) scale(1.025);
+            }
+
+            100% {
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes progress-sheen {
+            0%,
+            100% {
+                transform: translateX(-100%);
+            }
+
+            50% {
+                transform: translateX(100%);
+            }
+        }
+
+        @keyframes connected-glow {
+            0%,
+            100% {
+                transform: scale(0.9);
+                opacity: 0.5;
+            }
+
+            50% {
+                transform: scale(1.08);
+                opacity: 0.95;
+            }
+        }
+
         /* ── Flash fix ─────────────────────────────────────────────────────── */
         #page-loading-overlay {
             transition: opacity 0.35s ease;
@@ -581,6 +948,12 @@
 
         #page-content.is-visible {
             opacity: 1;
+        }
+
+        @media (max-width: 900px) {
+            .quick-start-step-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 
@@ -627,11 +1000,11 @@
                         </div>
                         <h1
                             class="text-5xl md:text-6xl tracking-tight mb-2 font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-blue-200">
-                            Settings
+                            Setup Dashboard
                         </h1>
-                        <p class="text-white/80 font-medium text-base max-w-sm"
+                        <p class="text-white/80 font-medium text-base max-w-md"
                             style="font-family: 'DM Sans', sans-serif;">
-                            Manage your integrations and server preferences.
+                            Connect your storefronts, verify webhooks, and tune server behavior without bouncing between separate setup pages.
                         </p>
                     </div>
                     <div id="onboarding-done" class="hidden">
@@ -645,8 +1018,32 @@
 
             <div class="space-y-6">
 
+                <section id="quick-start-card" class="section-card quick-start-card p-6 animate-in animate-in-delay-1">
+                    <div class="quick-start-shell">
+                        <div class="quick-start-topline">
+                            <div id="quick-start-pill" class="quick-start-progress-pill">Setup Flow</div>
+                            <button id="quick-start-dismiss" class="quick-start-dismiss" type="button" aria-label="Dismiss quick start">
+                                ×
+                            </button>
+                        </div>
+                        <div class="quick-start-heading">
+                            <div>
+                                <span class="section-label">Quick Start</span>
+                                <h2 id="quick-start-title" class="text-xl font-black text-white mb-2">Finish setup from this page</h2>
+                            </div>
+                            <p id="quick-start-summary" class="quick-start-summary">
+                                Link Gumroad or Jinxxy below, review your verification settings, then click <strong class="text-white">Done Setup</strong> when everything looks right.
+                            </p>
+                            <div class="quick-start-progress-rail">
+                                <div id="quick-start-progress-fill" class="quick-start-progress-fill"></div>
+                            </div>
+                        </div>
+                        <div id="quick-start-steps" class="quick-start-step-grid"></div>
+                    </div>
+                </section>
+
                 <!-- ── Connected Platforms ────────────────────────────────────────── -->
-                <section class="section-card p-7 animate-in animate-in-delay-1">
+                <section class="section-card p-7 animate-in animate-in-delay-2">
                     <div class="flex items-center gap-3 mb-6">
                         <div class="w-8 h-8 rounded-xl flex items-center justify-center"
                             style="background: rgba(255,235,59,0.15);">
@@ -720,7 +1117,7 @@
                 </section>
 
                 <!-- ── Server Settings ─────────────────────────────────────────────── -->
-                <section class="section-card p-7 animate-in animate-in-delay-2">
+                <section class="section-card p-7 animate-in animate-in-delay-3">
                     <div class="flex items-center gap-3 mb-1">
                         <div class="w-8 h-8 rounded-xl flex items-center justify-center"
                             style="background: rgba(88,101,242,0.2);">
@@ -881,7 +1278,7 @@
                 </section>
 
                 <!-- ── Collaborating Creators ──────────────────────────────────────── -->
-                <section class="section-card p-7 animate-in animate-in-delay-3" id="collab-section">
+                <section class="section-card p-7 animate-in animate-in-delay-4" id="collab-section">
                     <div class="flex items-center justify-between mb-1">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-xl flex items-center justify-center"
@@ -961,15 +1358,265 @@
     <script>
         const guildId = '__GUILD_ID__';
         const apiBase = '__API_BASE__';
-        const hasSetupSession = '__HAS_SETUP_SESSION__' === 'true';
+        const SETUP_TOKEN_STORAGE_KEY = 'yucp_dashboard_setup_token';
+        const serverHasSetupSession = '__HAS_SETUP_SESSION__' === 'true';
         const tenantIdFromServer = '__TENANT_ID__';
         let tenantId = tenantIdFromServer || null;
+        let setupToken = sessionStorage.getItem(SETUP_TOKEN_STORAGE_KEY) || '';
+        let hasSetupSession = serverHasSetupSession || !!setupToken;
+        const SETTINGS_TOUCHED_STORAGE_PREFIX = 'yucp_dashboard_settings_touched:';
+        const QUICK_START_DISMISS_STORAGE_PREFIX = 'yucp_dashboard_quick_start_dismissed:';
+        const SETUP_COMPLETE_STORAGE_PREFIX = 'yucp_dashboard_setup_completed:';
 
         let connectionsMap = new Map();
         let settingsMap = new Map();
         let pendingDisconnectPlatform = null;
         let collabConnections = [];
         let currentInviteUrl = '';
+        let quickStartSignature = '';
+        let completedMilestones = new Set();
+        let settingsTouched = false;
+        let setupCompleted = false;
+        let previousQuickStartCompletion = { stores: false, settings: false, finish: false };
+
+        function getTenantStorageKey(prefix) {
+            return `${prefix}${tenantId || tenantIdFromServer || guildId || 'unknown'}`;
+        }
+
+        function loadProgressFlags() {
+            try {
+                settingsTouched = localStorage.getItem(getTenantStorageKey(SETTINGS_TOUCHED_STORAGE_PREFIX)) === '1';
+                setupCompleted = localStorage.getItem(getTenantStorageKey(SETUP_COMPLETE_STORAGE_PREFIX)) === '1';
+            } catch {
+                settingsTouched = false;
+                setupCompleted = false;
+            }
+        }
+
+        function persistSettingsTouched() {
+            settingsTouched = true;
+            try {
+                localStorage.setItem(getTenantStorageKey(SETTINGS_TOUCHED_STORAGE_PREFIX), '1');
+            } catch { }
+        }
+
+        function persistSetupCompleted() {
+            setupCompleted = true;
+            try {
+                localStorage.setItem(getTenantStorageKey(SETUP_COMPLETE_STORAGE_PREFIX), '1');
+            } catch { }
+        }
+
+        function getConnectedProvidersCount() {
+            let count = 0;
+            if (connectionsMap.has('gumroad')) count += 1;
+            if (connectionsMap.has('jinxxy')) count += 1;
+            return count;
+        }
+
+        function hasMeaningfulSettings() {
+            return settingsTouched || settingsMap.size > 0;
+        }
+
+        function getQuickStartState() {
+            const connectedProviders = getConnectedProvidersCount();
+            const storesDone = connectedProviders > 0;
+            const settingsDone = hasMeaningfulSettings();
+            const finalReady = storesDone && settingsDone;
+            const done = setupCompleted;
+
+            const completedCount = [storesDone, settingsDone, done].filter(Boolean).length;
+            const signature = `${storesDone ? 1 : 0}${settingsDone ? 1 : 0}${done ? 1 : 0}`;
+
+            let title = 'Finish setup from this page';
+            let summary = 'Link a store, tune your verification rules, and finish in Discord when the dashboard looks right.';
+            if (done) {
+                title = 'Setup complete';
+                summary = 'Your storefront connection and server preferences are in place. You can close this window or jump back into Discord for role automation.';
+            } else if (finalReady) {
+                title = 'Ready to finish';
+                summary = 'You have connected at least one store and saved your preferences. Click Done Setup whenever you are ready to wrap this up.';
+            } else if (storesDone) {
+                title = 'Strong start';
+                summary = 'Your store connection is in place. Review the server rules next so verification behaves the way you want.';
+            }
+
+            return {
+                connectedProviders,
+                storesDone,
+                settingsDone,
+                finalReady,
+                done,
+                completedCount,
+                signature,
+                title,
+                summary,
+                progressPercent: Math.round((completedCount / 3) * 100),
+                steps: [
+                    {
+                        id: 'stores',
+                        sectionId: 'platforms-grid',
+                        state: storesDone ? 'complete' : 'active',
+                        number: '01',
+                        label: storesDone ? 'Complete' : 'Current',
+                        title: storesDone
+                            ? `${connectedProviders} store${connectedProviders > 1 ? 's' : ''} linked`
+                            : 'Connect Gumroad or Jinxxy',
+                        body: storesDone
+                            ? 'Your storefront credentials are connected. You can add another store or move on.'
+                            : 'Use the platform cards below to connect the storefronts you actually sell through.',
+                        meta: storesDone
+                            ? `Connected: ${Array.from(connectionsMap.keys()).filter((key) => key === 'gumroad' || key === 'jinxxy').join(' + ')}`
+                            : 'Start with the platform cards',
+                        action: storesDone ? 'Review platforms' : 'Go to platforms',
+                    },
+                    {
+                        id: 'settings',
+                        sectionId: 'save-indicator',
+                        state: settingsDone ? 'complete' : (storesDone ? 'active' : 'locked'),
+                        number: '02',
+                        label: settingsDone ? 'Complete' : (storesDone ? 'Next' : 'Locked'),
+                        title: settingsDone ? 'Settings dialed in' : 'Review server settings',
+                        body: settingsDone
+                            ? 'You already saved verification preferences for this tenant.'
+                            : 'Decide how verification, duplicate checks, and cross-server behavior should work.',
+                        meta: settingsDone ? 'Saved on this tenant' : 'Toggle or select a setting to mark this done',
+                        action: settingsDone ? 'Adjust settings' : 'Open settings',
+                    },
+                    {
+                        id: 'finish',
+                        sectionId: 'done-btn',
+                        state: done ? 'complete' : (finalReady ? 'active' : 'locked'),
+                        number: '03',
+                        label: done ? 'Complete' : (finalReady ? 'Ready' : 'Waiting'),
+                        title: done ? 'Back to Discord' : 'Finish in Discord',
+                        body: done
+                            ? 'Setup was completed from this dashboard already.'
+                            : finalReady
+                                ? 'Everything is ready. Confirm the setup and close this page when you are done.'
+                                : 'Finish becomes available after you connect a store and save your preferences.',
+                        meta: done ? 'All set' : (finalReady ? 'Done Setup is ready' : 'Waiting on earlier steps'),
+                        action: done ? 'Review finish' : (finalReady ? 'Jump to finish' : 'See requirements'),
+                    },
+                ],
+            };
+        }
+
+        function celebrateMilestone(milestoneId) {
+            if (completedMilestones.has(milestoneId) || typeof confetti !== 'function') return;
+            completedMilestones.add(milestoneId);
+
+            const palette = ['#0ea5e9', '#facc15', '#ffffff', '#4ade80'];
+            confetti({
+                particleCount: milestoneId === 'finish' ? 90 : 45,
+                spread: milestoneId === 'finish' ? 90 : 65,
+                startVelocity: 28,
+                origin: { y: 0.24 },
+                colors: palette,
+            });
+        }
+
+        function getNewlyCompletedMilestones(state) {
+            const newlyCompleted = [];
+            if (state.storesDone && !previousQuickStartCompletion.stores) newlyCompleted.push('stores');
+            if (state.settingsDone && !previousQuickStartCompletion.settings) newlyCompleted.push('settings');
+            if (state.done && !previousQuickStartCompletion.finish) newlyCompleted.push('finish');
+            previousQuickStartCompletion = {
+                stores: state.storesDone,
+                settings: state.settingsDone,
+                finish: state.done,
+            };
+            return newlyCompleted;
+        }
+
+        function dismissQuickStart() {
+            const state = getQuickStartState();
+            quickStartSignature = state.signature;
+            document.getElementById('quick-start-card')?.classList.add('is-hidden');
+            try {
+                localStorage.setItem(getTenantStorageKey(QUICK_START_DISMISS_STORAGE_PREFIX), state.signature);
+            } catch { }
+        }
+
+        function scrollToSection(sectionId) {
+            const target = document.getElementById(sectionId);
+            if (!target) return;
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.classList.add('pop');
+            setTimeout(() => target.classList.remove('pop'), 700);
+        }
+
+        function renderQuickStart() {
+            const card = document.getElementById('quick-start-card');
+            const pill = document.getElementById('quick-start-pill');
+            const title = document.getElementById('quick-start-title');
+            const summary = document.getElementById('quick-start-summary');
+            const fill = document.getElementById('quick-start-progress-fill');
+            const stepsEl = document.getElementById('quick-start-steps');
+            if (!card || !pill || !title || !summary || !fill || !stepsEl) return;
+
+            const state = getQuickStartState();
+            const dismissedSignature = (() => {
+                try {
+                    return localStorage.getItem(getTenantStorageKey(QUICK_START_DISMISS_STORAGE_PREFIX)) || '';
+                } catch {
+                    return '';
+                }
+            })();
+
+            if (dismissedSignature === state.signature) {
+                card.classList.add('is-hidden');
+            } else {
+                card.classList.remove('is-hidden');
+            }
+
+            if (quickStartSignature && quickStartSignature !== state.signature) {
+                card.classList.remove('is-hidden');
+            }
+
+            quickStartSignature = state.signature;
+            const newlyCompletedMilestones = getNewlyCompletedMilestones(state);
+            pill.innerHTML = `${state.completedCount} of 3 complete <strong>${state.progressPercent}%</strong>`;
+            title.textContent = state.title;
+            summary.textContent = state.summary;
+            fill.style.width = `${state.progressPercent}%`;
+
+            stepsEl.replaceChildren();
+            state.steps.forEach((step) => {
+                const item = document.createElement('article');
+                item.className = `quick-start-step is-${step.state}`;
+                item.dataset.stepId = step.id;
+
+                item.innerHTML = `
+                    <div class="quick-start-step-header">
+                        <div class="quick-start-step-number">${step.number}</div>
+                        <div class="quick-start-step-state">${step.label}</div>
+                    </div>
+                    <div class="quick-start-step-title">${step.title}</div>
+                    <div class="quick-start-step-body">${step.body}</div>
+                    <div class="quick-start-step-footer">
+                        <div class="quick-start-step-meta">${step.meta}</div>
+                        <button class="quick-start-jump ${step.state === 'complete' || step.state === 'active' ? 'is-ready' : ''}" type="button">
+                            ${step.action}
+                        </button>
+                    </div>
+                `;
+
+                item.querySelector('.quick-start-jump')?.addEventListener('click', () => {
+                    scrollToSection(step.sectionId);
+                });
+                stepsEl.appendChild(item);
+            });
+
+            newlyCompletedMilestones.forEach((milestoneId) => {
+                celebrateMilestone(milestoneId);
+                const stepEl = stepsEl.querySelector(`[data-step-id="${milestoneId}"]`);
+                if (stepEl) {
+                    stepEl.classList.add('pop');
+                    setTimeout(() => stepEl.classList.remove('pop'), 720);
+                }
+            });
+        }
 
         function redirectToExpiredLinkError() {
             const errorUrl = new URL(`${apiBase}/verify-error`, window.location.origin);
@@ -978,26 +1625,40 @@
         }
 
         function apiFetch(url, options = {}) {
-            return fetch(url, { credentials: 'include', ...options });
+            const headers = new Headers(options.headers || {});
+            if (setupToken && !headers.has('Authorization')) {
+                headers.set('Authorization', `Bearer ${setupToken}`);
+            }
+            return fetch(url, { credentials: 'include', ...options, headers });
         }
 
         async function exchangeBootstrapTokens() {
             const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-            const setupToken = hash.get('s');
+            const setupTokenFromHash = hash.get('s');
             const connectToken = hash.get('token');
-            if (!setupToken && !connectToken) return false;
+            if (!setupTokenFromHash && !connectToken) return false;
 
-            const res = await fetch(`${apiBase}/api/connect/bootstrap`, {
+            if (setupTokenFromHash) {
+                setupToken = setupTokenFromHash;
+                sessionStorage.setItem(SETUP_TOKEN_STORAGE_KEY, setupTokenFromHash);
+                hasSetupSession = true;
+            }
+
+            const res = await apiFetch(`${apiBase}/api/connect/bootstrap`, {
                 method: 'POST',
-                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    setupToken: setupToken || undefined,
+                    setupToken: setupTokenFromHash || undefined,
                     connectToken: connectToken || undefined,
                 }),
             });
 
             if (!res.ok) {
+                if (setupTokenFromHash) {
+                    sessionStorage.removeItem(SETUP_TOKEN_STORAGE_KEY);
+                    setupToken = '';
+                    hasSetupSession = false;
+                }
                 redirectToExpiredLinkError();
                 return true;
             }
@@ -1007,9 +1668,26 @@
             return true;
         }
 
+        async function ensureSetupSessionCookie() {
+            if (!setupToken) return false;
+            const res = await apiFetch(`${apiBase}/api/connect/bootstrap`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ setupToken }),
+            });
+            return res.ok;
+        }
+
         // ── Navigation ──────────────────────────────────────────────────────────
 
-        function navigateGumroad() {
+        async function navigateGumroad() {
+            if (setupToken) {
+                const restored = await ensureSetupSessionCookie();
+                if (!restored) {
+                    redirectToExpiredLinkError();
+                    return;
+                }
+            }
             if (tenantId && guildId) {
                 window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
             } else if (hasSetupSession) {
@@ -1019,11 +1697,18 @@
             }
         }
 
-        function navigateJinxxy() {
+        async function navigateJinxxy() {
+            if (setupToken) {
+                const restored = await ensureSetupSessionCookie();
+                if (!restored) {
+                    redirectToExpiredLinkError();
+                    return;
+                }
+            }
             if (tenantId && guildId) {
-                window.location.href = `/jinxxy-setup?tenant_id=${encodeURIComponent(tenantId)}&guild_id=${encodeURIComponent(guildId)}`;
+                window.location.href = `${apiBase}/jinxxy-setup?tenant_id=${encodeURIComponent(tenantId)}&guild_id=${encodeURIComponent(guildId)}`;
             } else if (hasSetupSession) {
-                window.location.href = `/jinxxy-setup`;
+                window.location.href = `${apiBase}/jinxxy-setup`;
             } else {
                 alert('Please wait for the page to finish loading.');
             }
@@ -1034,6 +1719,9 @@
         async function init() {
             try {
                 if (await exchangeBootstrapTokens()) return;
+
+                hasSetupSession = serverHasSetupSession || !!setupToken;
+                loadProgressFlags();
 
                 if (!hasSetupSession && !tenantId && guildId) {
                     const res = await apiFetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}`);
@@ -1047,6 +1735,7 @@
 
                 await fetchAllData();
                 await fetchCollabConnections();
+                renderQuickStart();
 
             } catch (err) {
                 console.error('Initialization error:', err);
@@ -1101,6 +1790,7 @@
         function updatePlatformCards() {
             updateCard('gumroad', connectionsMap.has('gumroad'));
             updateCard('jinxxy', connectionsMap.has('jinxxy'));
+            renderQuickStart();
         }
 
         function updateCard(platform, isLinked) {
@@ -1142,6 +1832,7 @@
                 const el = document.getElementById(`select-${key}`);
                 if (el && settingsMap.has(key)) el.value = settingsMap.get(key);
             });
+            renderQuickStart();
         }
 
         function showSaved() {
@@ -1175,11 +1866,14 @@
                     throw new Error(message);
                 }
                 showSaved();
+                persistSettingsTouched();
+                renderQuickStart();
             } catch (e) {
                 console.error('Error updating setting:', e);
                 alert(`${e instanceof Error ? e.message : 'Failed to save setting.'} Reverting.`);
                 el.classList.toggle('active');
                 settingsMap.set(key, !newValue);
+                renderQuickStart();
             }
         }
 
@@ -1205,12 +1899,15 @@
                     throw new Error(message);
                 }
                 showSaved();
+                persistSettingsTouched();
+                renderQuickStart();
             } catch (e) {
                 console.error('Error updating setting:', e);
                 alert(`${e instanceof Error ? e.message : 'Failed to save setting.'} Reverting.`);
                 settingsMap.set(key, oldValue);
                 const el = document.getElementById(`select-${key}`);
                 if (el) el.value = oldValue ?? '';
+                renderQuickStart();
             }
         }
 
@@ -1273,6 +1970,8 @@
 
                 status.textContent = 'Setup complete! You can close this window.';
                 status.className = 'text-center text-xs mt-2 font-bold text-green-400';
+                persistSetupCompleted();
+                renderQuickStart();
 
                 const end = Date.now() + 1500;
                 (function frame() {
@@ -1288,6 +1987,7 @@
                 status.className = 'text-center text-xs mt-2 font-bold text-red-400';
                 btn.disabled = false;
                 btn.textContent = 'Done Setup';
+                renderQuickStart();
             }
         });
 
@@ -1300,7 +2000,7 @@
                 return;
             }
             try {
-                const res = await fetch(`${apiBase}/api/collab/connections`, { credentials: 'include' });
+                const res = await apiFetch(`${apiBase}/api/collab/connections`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 collabConnections = data.connections ?? [];
@@ -1384,9 +2084,8 @@
             btn.disabled = true;
             btn.textContent = 'Generating...';
             try {
-                const res = await fetch(`${apiBase}/api/collab/invite`, {
+                const res = await apiFetch(`${apiBase}/api/collab/invite`, {
                     method: 'POST',
-                    credentials: 'include',
                     headers: {
                         'Content-Type': 'application/json',
                     },
@@ -1440,9 +2139,8 @@
             if (!hasSetupSession) return;
             if (!confirm('Remove this collaborator connection? Members will no longer be able to verify their licenses.')) return;
             try {
-                const res = await fetch(`${apiBase}/api/collab/connections/${connectionId}`, {
-                    method: 'DELETE',
-                    credentials: 'include'
+                const res = await apiFetch(`${apiBase}/api/collab/connections/${connectionId}`, {
+                    method: 'DELETE'
                 });
                 if (res.ok) {
                     collabConnections = collabConnections.filter(c => c.id !== connectionId);
@@ -1459,9 +2157,13 @@
         // ── Boot ─────────────────────────────────────────────────────────────────
 
         const params = new URLSearchParams(window.location.search);
+        document.getElementById('quick-start-dismiss')?.addEventListener('click', dismissQuickStart);
         if (params.get('gumroad') === 'connected' || params.get('jinxxy') === 'connected') {
-            const cleanUrl = guildId
-                ? window.location.pathname + '?guild_id=' + encodeURIComponent(guildId)
+            const cleanParams = new URLSearchParams();
+            if (guildId) cleanParams.set('guild_id', guildId);
+            if (tenantId) cleanParams.set('tenant_id', tenantId);
+            const cleanUrl = cleanParams.toString()
+                ? `${window.location.pathname}?${cleanParams.toString()}`
                 : window.location.pathname;
             window.history.replaceState({}, '', cleanUrl);
             setTimeout(init, 500);

@@ -128,12 +128,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   async function resolveSetupSessionFromRequest(
     request: Request
   ): Promise<{ tenantId: string; guildId: string; discordUserId: string } | null> {
+    const token = getSetupSessionTokenFromRequest(request);
+    if (!token) return null;
+    return resolveSetupSession(token, config.encryptionSecret);
+  }
+
+  function getSetupSessionTokenFromRequest(request: Request): string | null {
     const authHeader = request.headers.get('authorization');
     const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     const cookieToken = getCookieValue(request, SETUP_SESSION_COOKIE);
-    const token = bearerToken ?? cookieToken;
-    if (!token) return null;
-    return resolveSetupSession(token, config.encryptionSecret);
+    return bearerToken ?? cookieToken;
   }
 
   async function resolveConnectDiscordUserId(
@@ -221,11 +225,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function isTenantOwnedBySessionUser(authUserId: string, tenantId: string): Promise<boolean> {
     const convex = getConvexClientFromUrl(config.convexUrl);
-    const ownedTenant = await convex.query('tenants:getTenantByOwnerAuth' as any, {
+    const tenant = await convex.query('tenants:getTenant' as any, {
       apiSecret: config.convexApiSecret,
-      ownerAuthUserId: authUserId,
-    }) as { _id?: string } | null;
-    return ownedTenant?._id === tenantId;
+      tenantId,
+    }) as { ownerAuthUserId?: string } | null;
+    return tenant?.ownerAuthUserId === authUserId;
   }
 
   /**
@@ -545,7 +549,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       const headers = new Headers();
       headers.append('Set-Cookie', clearCookie(CONNECT_TOKEN_COOKIE, request));
-      return new Response(JSON.stringify({ success: true, tenantId }), {
+      return new Response(JSON.stringify({ success: true, tenantId, isFirstTime: !existing }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', 'Set-Cookie': headers.get('Set-Cookie')! },
       });
@@ -695,7 +699,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const store = getStateStore();
     await store.set(
       `${GUMROAD_STATE_PREFIX}${state}`,
-      JSON.stringify({ tenantId, guildId, setupToken: getCookieValue(request, SETUP_SESSION_COOKIE) ?? '' }),
+      JSON.stringify({ tenantId, guildId, setupToken: getSetupSessionTokenFromRequest(request) ?? '' }),
       GUMROAD_STATE_EXPIRY_MS
     );
 
@@ -714,6 +718,17 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Exchanges code for tokens, stores in provider_connections.
    */
   async function gumroadCallback(request: Request): Promise<Response> {
+    const buildDashboardRedirect = (params: Record<string, string | undefined>, setupToken?: string): string => {
+      const redirectUrl = new URL(`${config.frontendBaseUrl.replace(/\/$/, '')}/dashboard`);
+      for (const [key, value] of Object.entries(params)) {
+        if (value) redirectUrl.searchParams.set(key, value);
+      }
+      if (setupToken) {
+        redirectUrl.hash = `s=${encodeURIComponent(setupToken)}`;
+      }
+      return redirectUrl.toString();
+    };
+
     const url = new URL(request.url);
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
@@ -721,26 +736,17 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     if (error) {
       logger.error('Gumroad OAuth error', { error });
-      return Response.redirect(
-        `${config.frontendBaseUrl}/connect?error=${encodeURIComponent(error)}`,
-        302
-      );
+      return Response.redirect(buildDashboardRedirect({ error }), 302);
     }
 
     if (!code || !state) {
-      return Response.redirect(
-        `${config.frontendBaseUrl}/connect?error=missing_parameters`,
-        302
-      );
+      return Response.redirect(buildDashboardRedirect({ error: 'missing_parameters' }), 302);
     }
 
     const store = getStateStore();
     const raw = await store.get(`${GUMROAD_STATE_PREFIX}${state}`);
     if (!raw) {
-      return Response.redirect(
-        `${config.frontendBaseUrl}/connect?error=invalid_state`,
-        302
-      );
+      return Response.redirect(buildDashboardRedirect({ error: 'invalid_state' }), 302);
     }
     await store.delete(`${GUMROAD_STATE_PREFIX}${state}`);
 
@@ -763,7 +769,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         const errText = await tokenRes.text();
         logger.error('Gumroad token exchange failed', { status: tokenRes.status, body: errText });
         return Response.redirect(
-          `${config.frontendBaseUrl}/connect?guild_id=${guildId}&error=token_exchange_failed`,
+          buildDashboardRedirect({ tenant_id: tenantId, guild_id: guildId, error: 'token_exchange_failed' }, storedSetupToken),
           302
         );
       }
@@ -776,7 +782,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const refreshToken = tokens.refresh_token;
       if (!accessToken) {
         return Response.redirect(
-          `${config.frontendBaseUrl}/connect?guild_id=${guildId}&error=no_access_token`,
+          buildDashboardRedirect({ tenant_id: tenantId, guild_id: guildId, error: 'no_access_token' }, storedSetupToken),
           302
         );
       }
@@ -784,7 +790,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const meRes = await fetch(`https://api.gumroad.com/v2/user?access_token=${encodeURIComponent(accessToken)}`);
       if (!meRes.ok) {
         return Response.redirect(
-          `${config.frontendBaseUrl}/connect?guild_id=${guildId}&error=failed_to_fetch_user`,
+          buildDashboardRedirect({ tenant_id: tenantId, guild_id: guildId, error: 'failed_to_fetch_user' }, storedSetupToken),
           302
         );
       }
@@ -838,15 +844,21 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       const redirectParams = new URLSearchParams();
       if (guildId) redirectParams.set('guild_id', guildId);
+      redirectParams.set('tenant_id', tenantId);
       redirectParams.set('gumroad', 'connected');
-      const redirectUrl = `${config.frontendBaseUrl}/connect?${redirectParams.toString()}`;
-      return Response.redirect(redirectUrl, 302);
+      return Response.redirect(
+        buildDashboardRedirect(
+          Object.fromEntries(redirectParams.entries()),
+          storedSetupToken
+        ),
+        302
+      );
     } catch (err) {
       logger.error('Gumroad callback failed', {
         error: err instanceof Error ? err.message : String(err),
       });
       return Response.redirect(
-        `${config.frontendBaseUrl}/connect?guild_id=${guildId}&error=internal_error`,
+        buildDashboardRedirect({ tenant_id: tenantId, guild_id: guildId, error: 'internal_error' }, storedSetupToken),
         302
       );
     }

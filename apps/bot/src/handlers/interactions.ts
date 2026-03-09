@@ -326,7 +326,7 @@ async function handleSlashCommand(
 
   try {
     if (subcommandGroup === 'setup') {
-      if (subcommand === 'start' || subcommand === 'restart') {
+      if (subcommand === 'start') {
         await runSetupStart(interaction, ctx.convex, ctx.apiSecret, {
           tenantId,
           guildLinkId,
@@ -568,14 +568,14 @@ async function handleButton(
       await interaction.reply({ content: 'Use this in a server.', flags: MessageFlags.Ephemeral });
       return;
     }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const guildLink = await ctx.convex.query(api.guildLinks.getByDiscordGuildForBot as any, {
       apiSecret: ctx.apiSecret,
       discordGuildId: guildId,
     });
     if (!guildLink) {
-      await interaction.reply({
+      await interaction.editReply({
         content: await getNotConfiguredMessage(guildId, interaction.user.id, ctx.apiSecret),
-        flags: MessageFlags.Ephemeral,
       });
       return;
     }
