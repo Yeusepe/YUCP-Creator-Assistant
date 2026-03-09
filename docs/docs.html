@@ -352,9 +352,10 @@
         .badge-gumroad { background: rgba(54,169,174,0.12); border: 1px solid rgba(54,169,174,0.35); color: #36a9ae; }
         .badge-jinxxy  { background: rgba(145,70,255,0.12);  border: 1px solid rgba(145,70,255,0.35);  color: #a78bfa; }
         .badge-discord { background: rgba(88,101,242,0.12);  border: 1px solid rgba(88,101,242,0.35);  color: #818cf8; }
-        .badge-manual  { background: rgba(0,230,118,0.10);   border: 1px solid rgba(0,230,118,0.3);    color: #34d399; }
-        .badge-admin   { background: rgba(239,68,68,0.10);   border: 1px solid rgba(239,68,68,0.25);   color: #f87171; }
-        .badge-new     { background: rgba(255,235,59,0.12);  border: 1px solid rgba(255,235,59,0.3);   color: #fde047; }
+.badge-manual  { background: rgba(0,230,118,0.10);   border: 1px solid rgba(0,230,118,0.3);    color: #34d399; }
+.badge-vrchat  { background: rgba(0,230,118,0.12);   border: 1px solid rgba(0,230,118,0.35);   color: #00e676; }
+.badge-admin   { background: rgba(239,68,68,0.10);   border: 1px solid rgba(239,68,68,0.25);   color: #f87171; }
+.badge-new     { background: rgba(255,235,59,0.12);  border: 1px solid rgba(255,235,59,0.3);   color: #fde047; }
 
         /* ── Tag Pill ─────────────────────────────────────────────────────────── */
         .tag-pill {
@@ -487,7 +488,7 @@
                 <div style="display:flex;flex-wrap:wrap;gap:10px;">
                     <span class="tag-pill"><span style="width:7px;height:7px;border-radius:50%;background:#38bdf8;display:inline-block;"></span>10 Sections</span>
                     <span class="tag-pill"><span style="width:7px;height:7px;border-radius:50%;background:#a78bfa;display:inline-block;"></span>18+ Commands</span>
-                    <span class="tag-pill"><span style="width:7px;height:7px;border-radius:50%;background:#34d399;display:inline-block;"></span>4 Product Types</span>
+                    <span class="tag-pill"><span style="width:7px;height:7px;border-radius:50%;background:#34d399;display:inline-block;"></span>5 Product Types</span>
                 </div>
             </div>
 
@@ -496,12 +497,12 @@
                 <div class="glow-ring" style="width:280px;height:280px;background:var(--accent-sky);top:-40px;right:-60px;opacity:0.2;"></div>
                 <p class="section-label">Section 1</p>
                 <h2 class="section-title">Introduction</h2>
-                <p class="section-lead">Creator Assistant bridges your <strong style="color:#fff;">Gumroad or Jinxxy storefront</strong> with your Discord server, automatically granting roles when buyers verify a purchase. No DMs, no spreadsheets, no manual grants.</p>
+                <p class="section-lead">Creator Assistant bridges your <strong style="color:#fff;">Gumroad, Jinxxy, or VRChat storefront</strong> with your Discord server, automatically granting roles when buyers verify a purchase. No DMs, no spreadsheets, no manual grants.</p>
 
                 <div class="bento-card" style="margin-bottom:1.25rem;">
                     <div class="overview-steps">
                         <div class="overview-step"><div class="overview-num">1</div><h4>Install</h4><p>Add the bot to your server</p></div>
-                        <div class="overview-step"><div class="overview-num">2</div><h4>Connect</h4><p>Link Gumroad or Jinxxy</p></div>
+                        <div class="overview-step"><div class="overview-num">2</div><h4>Connect</h4><p>Link Gumroad, Jinxxy, or VRChat</p></div>
                         <div class="overview-step"><div class="overview-num">3</div><h4>Verify</h4><p>Buyers get roles instantly</p></div>
                     </div>
                 </div>
@@ -511,7 +512,7 @@
                         <h4 style="color:#38bdf8;">For Creators</h4>
                         <ul>
                             <li>Automatic role assignment on purchase</li>
-                            <li>Connect Gumroad or Jinxxy stores</li>
+                            <li>Connect Gumroad, Jinxxy, or VRChat stores</li>
                             <li>Map any product to any Discord role</li>
                             <li>Invite collaborating creators</li>
                             <li>Gate download channels to buyers</li>
@@ -546,7 +547,7 @@
                 <h3 class="sub-heading"><span class="sub-dot"></span>Prerequisites</h3>
                 <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1.75rem;">
                     <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> Administrator permissions in your Discord server</div>
-                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> A Gumroad account with products, or a Jinxxy creator account</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> A Gumroad account with products, a Jinxxy creator account, or VRChat avatars to verify</div>
                     <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> At least one Discord role to assign to verified buyers</div>
                 </div>
 
@@ -576,7 +577,7 @@
                         <div class="step-left"><div class="step-badge">3</div><div class="step-connector"></div></div>
                         <div class="step-content">
                             <h4>Connect your store</h4>
-                            <p><span class="badge badge-gumroad">Gumroad</span> connects via OAuth: click "Connect Gumroad" and authorize. <span class="badge badge-jinxxy">Jinxxy</span> requires an API key from your Jinxxy dashboard.</p>
+                            <p><span class="badge badge-gumroad">Gumroad</span> connects via OAuth: click "Connect Gumroad" and authorize. <span class="badge badge-jinxxy">Jinxxy</span> requires an API key from your Jinxxy dashboard. <span class="badge badge-vrchat">VRChat</span> verifies avatar ownership via credential login.</p>
                         </div>
                     </div>
                     <div class="step-item">
@@ -619,7 +620,7 @@
             <section class="doc-section" id="buyer-verification">
                 <p class="section-label">Section 3</p>
                 <h2 class="section-title">Buyer <span class="grad-text grad-purple">Verification</span></h2>
-                <p class="section-lead">Buyers verify their purchase directly in Discord. Three methods are supported; the bot never asks for payment details.</p>
+                <p class="section-lead">Buyers verify their purchase directly in Discord. Four methods are supported; the bot never asks for payment details.</p>
 
                 <div style="display:flex;flex-direction:column;gap:0.85rem;margin-bottom:1.75rem;">
                     <div class="bento-card" style="padding:1.25rem;">
@@ -629,6 +630,10 @@
                     <div class="bento-card" style="padding:1.25rem;">
                         <div style="margin-bottom:8px;"><span class="badge badge-jinxxy">License Key</span></div>
                         <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">Buyer selects a product from a dropdown and enters the license key from their receipt. Validated in real time against your Jinxxy store or manual license list.</p>
+                    </div>
+                    <div class="bento-card" style="padding:1.25rem;">
+                        <div style="margin-bottom:8px;"><span class="badge badge-vrchat">VRChat Avatar</span></div>
+                        <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">Buyer signs in with their VRChat account. The system verifies they own the licensed avatar and grants the role. Supports 2FA and credential-based login.</p>
                     </div>
                     <div class="bento-card" style="padding:1.25rem;">
                         <div style="margin-bottom:8px;"><span class="badge badge-discord">Discord Role</span></div>
@@ -813,7 +818,7 @@
             <section class="doc-section" id="product-types">
                 <p class="section-label">Section 5</p>
                 <h2 class="section-title">Product <span class="grad-text grad-green">Types</span></h2>
-                <p class="section-lead">Four product types with different verification mechanisms. Mix and match within the same server, each mapped to whichever Discord role you choose.</p>
+                <p class="section-lead">Five product types with different verification mechanisms. Mix and match within the same server, each mapped to whichever Discord role you choose.</p>
 
                 <div class="product-grid">
                     <div class="product-card" style="border-color:rgba(54,169,174,0.2);">
@@ -825,6 +830,11 @@
                         <div class="product-icon" style="background:rgba(145,70,255,0.12);"><img src="Icons/Jinxxy.png" alt="Jinxxy"></div>
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>Jinxxy</h4><span class="badge badge-jinxxy">License Key</span></div>
                         <p>Products pulled from your connected Jinxxy store. Buyers enter the license key from their receipt, validated in real time.</p>
+                    </div>
+                    <div class="product-card" style="border-color:rgba(0,230,118,0.2);">
+                        <div class="product-icon" style="background:rgba(0,230,118,0.12);"><img src="Icons/VRC.png" alt="VRChat"></div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>VRChat Avatar</h4><span class="badge badge-vrchat">Credential</span></div>
+                        <p>Verify ownership of a licensed VRChat avatar. Buyers sign in with their VRChat account; the system confirms they own the avatar.</p>
                     </div>
                     <div class="product-card" style="border-color:rgba(0,230,118,0.18);">
                         <div class="product-icon" style="background:rgba(0,230,118,0.1);"><img src="Icons/Key.png" alt="Manual License"></div>

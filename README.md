@@ -1,11 +1,11 @@
 ![YUCP Creator Assistant](https://github.com/user-attachments/assets/ae39c943-3fa2-40ec-b91c-88fea1daf69a)
 
 ---
-**YUCP Creator Assistant** gives creators who sell on Gumroad, Jinxxy, or other storefronts a simple way to gate Discord access (or other benefits) for paying customers. Customers sign in once with Gumroad, Discord, or a single license verification for Gumroad or Jinxxy; the system then verifies all past and future purchases automatically. No repeated license entry. Discord-based verification can also confirm that a user is already verified in another server, so you can reuse that trust for avatar edits, distribution, or cross-server perks.
+**YUCP Creator Assistant** gives creators who sell on Gumroad, Jinxxy, VRChat, or other storefronts a simple way to gate Discord access (or other benefits) for paying customers. Customers sign in once with Gumroad, Discord, or a single license verification for Gumroad or Jinxxy; the system then verifies all past and future purchases automatically. No repeated license entry. Discord-based verification can also confirm that a user is already verified in another server, so you can reuse that trust for avatar edits, distribution, or cross-server perks.
 
 **What problem it solves**
 
-- Creators sell products (courses, assets, access) on storefronts like Gumroad or Jinxxy.
+- Creators sell products (courses, assets, access) on storefronts like Gumroad, Jinxxy, or VRChat.
 - They run a Discord server and want **only buyers** to get certain roles (e.g. “Customer”, “Pro”, or product-specific roles).
 - Doing this by hand does not scale; building custom webhooks and role logic per store is repetitive and error-prone.
 
@@ -17,7 +17,7 @@
 4. **Verifies customers and assigns roles**: Customers use a verification flow (e.g. “Link your Gumroad” or “I bought product X”). The system checks their purchase against your rules, then grants or denies the corresponding Discord role. A background sync keeps roles in line with current entitlements (including revocations/refunds if you support that).
 5. **Supports multiple creators**: The backend is multi-tenant: many Discord guilds (creators) can use the same deployment, each with their own products, role mappings, and policies.
 
-**In short:** buy on Gumroad (or another supported store) → verify in Discord → get the right role. The bot, API, Convex backend, and policy engine handle webhooks, entitlements, and role assignment so creators don’t have to build this themselves.
+**In short:** buy on Gumroad, Jinxxy, or VRChat (or another supported store) → verify in Discord → get the right role. The bot, API, Convex backend, and policy engine handle webhooks, entitlements, and role assignment so creators don’t have to build this themselves.
 
 ## Summary
 
@@ -29,7 +29,7 @@ Use this repo as a reference for architecture, integration patterns, and impleme
 
 - **Discord bot**: Slash commands under `/creator` for onboarding, product–role mapping, verification, and analytics.
 - **API service**: Better Auth, bot installation flows, verification callbacks, webhook ingestion, and connect/onboarding routes.
-- **Provider adapters**: Gumroad, Jinxxy, Discord, and manual license management (token storage, webhooks, purchase verification).
+- **Provider adapters**: Gumroad, Jinxxy, VRChat, Discord, and manual license management (token storage, webhooks, purchase verification).
 - **Convex backend**: Persistent state, tenant and guild links, webhook ingestion, provider connection storage.
 - **Role sync**: Timed service that keeps Discord roles in sync with verification state.
 - **Policy engine**: Evaluates entitlement requests and returns deny decisions with remediation instructions.
@@ -42,7 +42,7 @@ Use this repo as a reference for architecture, integration patterns, and impleme
 |-----------|----------|--------|
 | **Bot** | `apps/bot` | Entry: `apps/bot/src/index.ts`. Slash commands: `apps/bot/src/commands/index.ts`. RoleSyncService, LienedDownloadsService. |
 | **API** | `apps/api` | Entry: `apps/api/src/index.ts`. Install, webhooks, connect, Better Auth, collaborator invite flow (`/api/collab/*`). |
-| **Providers** | `packages/providers` | Adapters: Gumroad, Jinxxy, Discord (placeholder), manual. |
+| **Providers** | `packages/providers` | Adapters: Gumroad, Jinxxy, VRChat, Discord (placeholder), manual. |
 | **Policy** | `packages/policy` | Engine: `packages/policy/src/engine.ts`. Allow/deny, remediation, auto-verification and revocation timing. |
 | **Convex** | `convex/` | Schema, entitlements, downloads, collaboratorInvites, webhooks. |
 | **Secrets** | `ops/infisical` | Secret layout and rotation; see `ops/infisical/README.md`. |
@@ -75,7 +75,7 @@ Supports **account linking** (with webhook for real-time purchases) or **API key
 - Convex deployment and API secret
 - Infisical or equivalent for environment variables
 - Discord application (bot token, OAuth client credentials). **Enable "Server Members Intent"** in [Discord Developer Portal](https://discord.com/developers/applications) → Your App → Bot → Privileged Gateway Intents. **Role sync requires**: bot has "Manage Roles" permission and its role is above the verified role in Server Settings → Roles.
-- Gumroad / Jinxxy credentials if using those providers
+- Gumroad / Jinxxy / VRChat credentials if using those providers
 
 ## Quick start (reference)
 
@@ -113,7 +113,7 @@ Do not commit real values; use env files or a secret store (all env files are gi
 | Group | Subcommand | Notes |
 |-------|------------|--------|
 | setup | start, restart | Onboarding wizard |
-| product | add, list, remove | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy |
+| product | add, list, remove | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy, vrchat |
 | downloads | setup, manage | **Liened Downloads**: protected file routes; setup creates routes, manage toggles/edits/removes |
 | collab | invite, list | **Collaborators**: invite creators to share Jinxxy store; list active connections |
 | stats | - | Verification statistics |

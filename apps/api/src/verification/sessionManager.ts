@@ -11,18 +11,10 @@
  * - Replay protection via session status checks
  */
 
-import { createLogger } from '@yucp/shared';
-import {
-  VrchatApiClient,
-  type TwoFactorAuthType,
-  type VrchatCurrentUser,
-} from '@yucp/providers';
+import { type TwoFactorAuthType, VrchatApiClient, type VrchatCurrentUser } from '@yucp/providers';
 import type { VrchatSessionTokens } from '@yucp/providers/vrchat';
-import {
-  createAuth,
-  type VrchatOwnershipPayload,
-  type VrchatSessionTokensPayload,
-} from '../auth';
+import { createLogger } from '@yucp/shared';
+import { type VrchatOwnershipPayload, type VrchatSessionTokensPayload, createAuth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { encrypt } from '../lib/encrypt';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
@@ -37,6 +29,8 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 // Session expiry: 15 minutes
 export const SESSION_EXPIRY_MS = 15 * 60 * 1000;
 const VRCHAT_VERIFY_ATTEMPTS = new Map<string, { count: number; resetAt: number }>();
+const VERIFY_PANEL_PREFIX = 'verify_panel:';
+const VERIFY_PANEL_TTL_MS = 15 * 60 * 1000;
 
 // ============================================================================
 // CRYPTO UTILITIES
@@ -284,19 +278,13 @@ export interface VerificationSessionManager {
    * Handle OAuth callback
    * Validates state, exchanges code for tokens
    */
-  handleCallback: (
-    mode: string,
-    code: string,
-    state: string
-  ) => Promise<CallbackResult>;
+  handleCallback: (mode: string, code: string, state: string) => Promise<CallbackResult>;
 
   /**
    * Complete verification session
    * Links subject to session and marks as completed
    */
-  completeSession: (
-    input: CompleteVerificationInput
-  ) => Promise<CompleteVerificationResult>;
+  completeSession: (input: CompleteVerificationInput) => Promise<CompleteVerificationResult>;
 }
 
 /**
@@ -369,9 +357,10 @@ export function createVerificationSessionManager(
 
       // Generate state for callback lookup
       // Use verify_gumroad: prefix to distinguish from connect_gumroad:
-      const state = input.mode === 'gumroad'
-        ? `verify_gumroad:${input.tenantId}:${generateSecureRandom(48)}`
-        : `${input.tenantId}:${generateSecureRandom(48)}`;
+      const state =
+        input.mode === 'gumroad'
+          ? `verify_gumroad:${input.tenantId}:${generateSecureRandom(48)}`
+          : `${input.tenantId}:${generateSecureRandom(48)}`;
 
       // Build OAuth URL
       const authUrl = new URL(modeConfig.authUrl);
@@ -381,9 +370,10 @@ export function createVerificationSessionManager(
       authUrl.searchParams.set('code_challenge_method', 'S256');
 
       // For Gumroad, use the unified callback URI to comply with Gumroad's single redirect URI limit
-      const redirectUri = input.mode === 'gumroad'
-        ? `${config.baseUrl}/api/connect/gumroad/callback`
-        : `${config.baseUrl}${modeConfig.callbackPath}`;
+      const redirectUri =
+        input.mode === 'gumroad'
+          ? `${config.baseUrl}/api/connect/gumroad/callback`
+          : `${config.baseUrl}${modeConfig.callbackPath}`;
       authUrl.searchParams.set('redirect_uri', redirectUri);
 
       // Add mode-specific parameters
@@ -462,7 +452,7 @@ export function createVerificationSessionManager(
             success: false,
             error: sanitizePublicErrorMessage(
               err instanceof Error ? err.message : String(err),
-              'Could not start verification.',
+              'Could not start verification.'
             ),
           };
         }
@@ -485,7 +475,7 @@ export function createVerificationSessionManager(
         success: false,
         error: sanitizePublicErrorMessage(
           err instanceof Error ? err.message : String(err),
-          'Could not start verification.',
+          'Could not start verification.'
         ),
       };
     }
@@ -553,9 +543,10 @@ export function createVerificationSessionManager(
       }
 
       // Exchange code for tokens
-      const redirectUri = mode === 'gumroad'
-        ? `${config.baseUrl}/api/connect/gumroad/callback`
-        : `${config.baseUrl}${modeConfig.callbackPath}`;
+      const redirectUri =
+        mode === 'gumroad'
+          ? `${config.baseUrl}/api/connect/gumroad/callback`
+          : `${config.baseUrl}${modeConfig.callbackPath}`;
       const tokenParams = new URLSearchParams({
         grant_type: 'authorization_code',
         code,
@@ -629,11 +620,16 @@ export function createVerificationSessionManager(
       let profileUrl: string | undefined;
 
       if (provider === 'gumroad') {
-        const meRes = await fetch(`https://api.gumroad.com/v2/user?access_token=${encodeURIComponent(accessToken)}`);
+        const meRes = await fetch(
+          `https://api.gumroad.com/v2/user?access_token=${encodeURIComponent(accessToken)}`
+        );
         if (!meRes.ok) {
           return { success: false, error: 'Failed to fetch Gumroad user' };
         }
-        const me = (await meRes.json()) as { success?: boolean; user?: { user_id?: string; name?: string; email?: string } };
+        const me = (await meRes.json()) as {
+          success?: boolean;
+          user?: { user_id?: string; name?: string; email?: string };
+        };
         providerUserId = me.user?.user_id ?? '';
         username = me.user?.name;
         email = me.user?.email;
@@ -685,19 +681,16 @@ export function createVerificationSessionManager(
         sessionId: String(session._id),
       });
 
-      const syncResult = await convex.mutation(
-        'identitySync:syncUserFromProvider' as any,
-        {
-          apiSecret,
-          provider,
-          providerUserId,
-          username,
-          email,
-          avatarUrl,
-          profileUrl,
-          discordUserId: discordUserId ?? undefined,
-        }
-      );
+      const syncResult = await convex.mutation('identitySync:syncUserFromProvider' as any, {
+        apiSecret,
+        provider,
+        providerUserId,
+        username,
+        email,
+        avatarUrl,
+        profileUrl,
+        discordUserId: discordUserId ?? undefined,
+      });
 
       logger.info('[verification] syncUserFromProvider result', {
         subjectId: syncResult.subjectId,
@@ -719,15 +712,12 @@ export function createVerificationSessionManager(
             const tokenEncrypted = await encrypt(accessToken, encryptionSecret);
             // Discord access tokens expire after ~7 days
             const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-            await convex.mutation(
-              'identitySync:storeDiscordToken' as any,
-              {
-                apiSecret,
-                externalAccountId: syncResult.externalAccountId,
-                discordAccessTokenEncrypted: tokenEncrypted,
-                discordTokenExpiresAt: expiresAt,
-              }
-            );
+            await convex.mutation('identitySync:storeDiscordToken' as any, {
+              apiSecret,
+              externalAccountId: syncResult.externalAccountId,
+              discordAccessTokenEncrypted: tokenEncrypted,
+              discordTokenExpiresAt: expiresAt,
+            });
             logger.info('[verification] Stored Discord token for proactive scanning', {
               externalAccountId: syncResult.externalAccountId,
             });
@@ -752,21 +742,25 @@ export function createVerificationSessionManager(
         const allowedGuildIds = policy.allowedSourceGuildIds ?? [];
         if (!enabled || allowedGuildIds.length === 0) {
           // Policy not enabled - token is still stored for when it is enabled later
-          logger.info('[verification] Discord role from other servers not enabled, but token stored');
-        } else {
-          const rules = await convex.query(
-            'role_rules:getDiscordRoleRulesByTenant' as any,
-            {
-              apiSecret,
-              tenantId,
-              sourceGuildIds: allowedGuildIds,
-            }
+          logger.info(
+            '[verification] Discord role from other servers not enabled, but token stored'
           );
+        } else {
+          const rules = await convex.query('role_rules:getDiscordRoleRulesByTenant' as any, {
+            apiSecret,
+            tenantId,
+            sourceGuildIds: allowedGuildIds,
+          });
 
           for (const rule of rules) {
-            const { sourceGuildId, requiredRoleId, requiredRoleIds, requiredRoleMatchMode, productId } = rule;
-            const requiredIds =
-              requiredRoleIds ?? (requiredRoleId ? [requiredRoleId] : []);
+            const {
+              sourceGuildId,
+              requiredRoleId,
+              requiredRoleIds,
+              requiredRoleMatchMode,
+              productId,
+            } = rule;
+            const requiredIds = requiredRoleIds ?? (requiredRoleId ? [requiredRoleId] : []);
             if (!sourceGuildId || requiredIds.length === 0) continue;
 
             let memberRes = await fetch(
@@ -776,7 +770,7 @@ export function createVerificationSessionManager(
 
             if (memberRes.status === 429) {
               const retryAfter = memberRes.headers.get('Retry-After');
-              const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+              const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 5000;
               await new Promise((r) => setTimeout(r, waitMs));
               memberRes = await fetch(
                 `https://discord.com/api/v10/users/@me/guilds/${sourceGuildId}/member`,
@@ -791,16 +785,15 @@ export function createVerificationSessionManager(
             const matchAll = requiredRoleMatchMode === 'all';
             const hasRole = matchAll
               ? requiredIds.every(
-                  (id: string) =>
-                    roles.includes(id) || (id === sourceGuildId && memberRes.ok),
+                  (id: string) => roles.includes(id) || (id === sourceGuildId && memberRes.ok)
                 )
               : requiredIds.some(
-                  (id: string) =>
-                    roles.includes(id) || (id === sourceGuildId && memberRes.ok),
+                  (id: string) => roles.includes(id) || (id === sourceGuildId && memberRes.ok)
                 );
 
             if (hasRole) {
-              const sourceReference = productId ?? `discord_role:${sourceGuildId}:${requiredIds[0]}`;
+              const sourceReference =
+                productId ?? `discord_role:${sourceGuildId}:${requiredIds[0]}`;
               await convex.mutation('entitlements:grantEntitlement' as any, {
                 apiSecret,
                 tenantId,
@@ -826,16 +819,13 @@ export function createVerificationSessionManager(
       // For discord_role: the binding is always created (Discord account linked),
       // and entitlements are granted for matching roles.
       try {
-        const bindingResult = await convex.mutation(
-          'bindings:activateBinding' as any,
-          {
-            apiSecret,
-            tenantId,
-            subjectId: syncResult.subjectId,
-            externalAccountId: syncResult.externalAccountId,
-            bindingType: 'verification',
-          }
-        );
+        const bindingResult = await convex.mutation('bindings:activateBinding' as any, {
+          apiSecret,
+          tenantId,
+          subjectId: syncResult.subjectId,
+          externalAccountId: syncResult.externalAccountId,
+          bindingType: 'verification',
+        });
         logger.info('[verification] Binding created/reactivated', {
           bindingId: String(bindingResult.bindingId),
           isNew: bindingResult.isNew,
@@ -902,7 +892,7 @@ export function createVerificationSessionManager(
         success: false,
         error: sanitizePublicErrorMessage(
           err instanceof Error ? err.message : String(err),
-          'Could not complete verification.',
+          'Could not complete verification.'
         ),
       };
     }
@@ -957,7 +947,7 @@ export function createVerificationSessionManager(
         success: false,
         error: sanitizePublicErrorMessage(
           err instanceof Error ? err.message : String(err),
-          'Could not finish verification.',
+          'Could not finish verification.'
         ),
       };
     }
@@ -1041,6 +1031,71 @@ function isAllowedVrchatOrigin(request: Request, config: VerificationConfig): bo
   }
 }
 
+interface StoredVerifyPanel {
+  applicationId: string;
+  discordUserId: string;
+  guildId: string;
+  interactionToken: string;
+  messageId: string;
+  tenantId: string;
+}
+
+function isAllowedVerifyPanelOrigin(request: Request, config: VerificationConfig): boolean {
+  const origin = request.headers.get('origin');
+  if (!origin) {
+    return true;
+  }
+
+  try {
+    const allowedOrigins = new Set([
+      new URL(config.baseUrl).origin,
+      new URL(config.frontendUrl).origin,
+    ]);
+    return allowedOrigins.has(origin);
+  } catch {
+    return false;
+  }
+}
+
+function buildVerifyPanelRefreshReply() {
+  return {
+    components: [
+      {
+        type: 17,
+        accent_color: 0x57f287,
+        components: [
+          {
+            type: 10,
+            content: '## You are verified',
+          },
+          {
+            type: 14,
+            divider: true,
+            spacing: 1,
+          },
+          {
+            type: 10,
+            content:
+              'Your account is connected. Roles will update shortly. If you want the full status panel again, use the button below.',
+          },
+          {
+            type: 1,
+            components: [
+              {
+                type: 2,
+                custom_id: 'verify_start',
+                label: 'Refresh Status',
+                style: 1,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    flags: 32768,
+  };
+}
+
 /**
  * Creates route handlers for verification endpoints
  */
@@ -1060,7 +1115,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
         body = {
           tenantId: url.searchParams.get('tenantId') ?? '',
           mode: (url.searchParams.get('mode') ?? 'gumroad') as CreateSessionInput['mode'],
-          redirectUri: url.searchParams.get('redirectUri') ?? config.baseUrl + '/verify-success',
+          redirectUri: url.searchParams.get('redirectUri') ?? `${config.baseUrl}/verify-success`,
           discordUserId: url.searchParams.get('discordUserId') ?? undefined,
         };
       } else {
@@ -1068,10 +1123,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       }
 
       if (!body.tenantId || !body.mode || !body.redirectUri) {
-        return Response.json(
-          { success: false, error: 'Missing required fields' },
-          { status: 400 }
-        );
+        return Response.json({ success: false, error: 'Missing required fields' }, { status: 400 });
       }
 
       // VRChat: no OAuth, create token and redirect to vrchat-verify page
@@ -1116,10 +1168,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       logger.error('Begin verification failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json(
-        { success: false, error: 'Internal server error' },
-        { status: 500 }
-      );
+      return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
     }
   }
 
@@ -1146,10 +1195,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       }
 
       if (!code || !state) {
-        return Response.redirect(
-          `${config.baseUrl}/verify-error?error=missing_parameters`,
-          302
-        );
+        return Response.redirect(`${config.baseUrl}/verify-error?error=missing_parameters`, 302);
       }
 
       const result = await manager.handleCallback(mode, code, state);
@@ -1161,15 +1207,16 @@ export function createVerificationRoutes(config: VerificationConfig) {
         );
       }
 
-      return Response.redirect(result.redirectUri!, 302);
+      if (!result.redirectUri) {
+        return Response.redirect(`${config.baseUrl}/verify-error?error=missing_redirect`, 302);
+      }
+
+      return Response.redirect(result.redirectUri, 302);
     } catch (err) {
       logger.error('Verification callback failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.redirect(
-        `${config.baseUrl}/verify-error?error=internal_error`,
-        302
-      );
+      return Response.redirect(`${config.baseUrl}/verify-error?error=internal_error`, 302);
     }
   }
 
@@ -1179,13 +1226,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
    */
   async function completeVerification(request: Request): Promise<Response> {
     try {
-      const body = await request.json() as CompleteVerificationInput;
+      const body = (await request.json()) as CompleteVerificationInput;
 
       if (!body.sessionId || !body.subjectId) {
-        return Response.json(
-          { success: false, error: 'Missing required fields' },
-          { status: 400 }
-        );
+        return Response.json({ success: false, error: 'Missing required fields' }, { status: 400 });
       }
 
       const result = await manager.completeSession(body);
@@ -1199,11 +1243,126 @@ export function createVerificationRoutes(config: VerificationConfig) {
       logger.error('Complete verification failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json(
-        { success: false, error: 'Internal server error' },
-        { status: 500 }
+      return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    }
+  }
+
+  async function bindVerifyPanel(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return jsonNoStore({ success: false, error: 'Method not allowed' }, { status: 405 });
+    }
+
+    let body: {
+      apiSecret?: string;
+      applicationId?: string;
+      discordUserId?: string;
+      guildId?: string;
+      interactionToken?: string;
+      messageId?: string;
+      panelToken?: string;
+      tenantId?: string;
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return jsonNoStore({ success: false, error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    if (!body.apiSecret || body.apiSecret !== config.convexApiSecret) {
+      return jsonNoStore({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (
+      !body.applicationId ||
+      !body.discordUserId ||
+      !body.guildId ||
+      !body.interactionToken ||
+      !body.messageId ||
+      !body.panelToken ||
+      !body.tenantId
+    ) {
+      return jsonNoStore({ success: false, error: 'Missing required fields' }, { status: 400 });
+    }
+
+    const { getStateStore } = await import('../lib/stateStore');
+    const store = getStateStore();
+    await store.set(
+      `${VERIFY_PANEL_PREFIX}${body.panelToken}`,
+      JSON.stringify({
+        applicationId: body.applicationId,
+        discordUserId: body.discordUserId,
+        guildId: body.guildId,
+        interactionToken: body.interactionToken,
+        messageId: body.messageId,
+        tenantId: body.tenantId,
+      } satisfies StoredVerifyPanel),
+      VERIFY_PANEL_TTL_MS
+    );
+
+    return jsonNoStore({ success: true }, { status: 200 });
+  }
+
+  async function refreshVerifyPanel(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return jsonNoStore({ success: false, error: 'Method not allowed' }, { status: 405 });
+    }
+
+    if (!isAllowedVerifyPanelOrigin(request, config)) {
+      return jsonNoStore({ success: false, error: 'Invalid request origin.' }, { status: 403 });
+    }
+
+    let body: { panelToken?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return jsonNoStore({ success: false, error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const panelToken = body.panelToken?.trim();
+    if (!panelToken) {
+      return jsonNoStore({ success: false, error: 'Missing panel token' }, { status: 400 });
+    }
+
+    const { getStateStore } = await import('../lib/stateStore');
+    const store = getStateStore();
+    const raw = await store.get(`${VERIFY_PANEL_PREFIX}${panelToken}`);
+    if (!raw) {
+      return jsonNoStore({ success: false, error: 'Panel token expired' }, { status: 404 });
+    }
+
+    let panel: StoredVerifyPanel;
+    try {
+      panel = JSON.parse(raw) as StoredVerifyPanel;
+    } catch {
+      await store.delete(`${VERIFY_PANEL_PREFIX}${panelToken}`);
+      return jsonNoStore({ success: false, error: 'Invalid panel token' }, { status: 400 });
+    }
+
+    const discordResponse = await fetch(
+      `https://discord.com/api/v10/webhooks/${panel.applicationId}/${panel.interactionToken}/messages/${panel.messageId}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildVerifyPanelRefreshReply()),
+      }
+    );
+
+    if (!discordResponse.ok) {
+      const errorBody = await discordResponse.text().catch(() => '');
+      logger.warn('Failed to refresh verify panel from success page', {
+        bodyPreview: errorBody.slice(0, 300),
+        discordStatus: discordResponse.status,
+        guildId: panel.guildId,
+        userId: panel.discordUserId,
+      });
+      return jsonNoStore(
+        { success: false, error: 'Failed to update Discord panel' },
+        { status: 502 }
       );
     }
+
+    await store.delete(`${VERIFY_PANEL_PREFIX}${panelToken}`);
+    return jsonNoStore({ success: true }, { status: 200 });
   }
 
   /**
@@ -1241,10 +1400,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       logger.error('Complete license verification failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json(
-        { success: false, error: 'Internal server error' },
-        { status: 500 }
-      );
+      return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
     }
   }
 
@@ -1295,12 +1451,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
     return undefined;
   }
 
-  function buildSessionFromAuthResult(
-    result: {
-      browserSetCookies: string[];
-      betterAuthCookieHeader: string;
-    }
-  ): BetterAuthVrchatSessionResult {
+  function buildSessionFromAuthResult(result: {
+    browserSetCookies: string[];
+    betterAuthCookieHeader: string;
+  }): BetterAuthVrchatSessionResult {
     const { browserSetCookies, betterAuthCookieHeader } = result;
     if (!betterAuthCookieHeader) {
       return {
@@ -1368,7 +1522,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       betterAuthCookieHeader,
       requestCookieHeader
     );
-    const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
 
     if (response.ok) {
       if (typeof payload.authToken === 'string' && payload.authToken) {
@@ -1449,10 +1603,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
     };
   }
 
-  async function ensureVrchatSubjectId(
-    tenantId: string,
-    discordUserId: string
-  ): Promise<string> {
+  async function ensureVrchatSubjectId(tenantId: string, discordUserId: string): Promise<string> {
     const convex = getConvexClientFromUrl(config.convexUrl);
     const ensureResult = await convex.mutation('subjects:ensureSubjectForDiscord' as any, {
       apiSecret: config.convexApiSecret,
@@ -1504,7 +1655,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
     if (!token) {
       return jsonNoStore(
-        { success: false, error: 'Invalid or expired link. Please use the Verify with VRChat button in Discord.' },
+        {
+          success: false,
+          error: 'Invalid or expired link. Please use the Verify with VRChat button in Discord.',
+        },
         { status: 400 }
       );
     }
@@ -1512,7 +1666,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
     if ((username && password) || twoFactorCode) {
       if (isVrchatRateLimited(token, request)) {
         return jsonNoStore(
-          { success: false, error: 'Too many verification attempts. Please wait a few minutes and try again.' },
+          {
+            success: false,
+            error: 'Too many verification attempts. Please wait a few minutes and try again.',
+          },
           { status: 429 }
         );
       }
@@ -1523,7 +1680,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
     const raw = await store.get(`${VRCHAT_TOKEN_PREFIX}${token}`);
     if (!raw) {
       return jsonNoStore(
-        { success: false, error: 'Invalid or expired link. Please use the Verify with VRChat button in Discord.' },
+        {
+          success: false,
+          error: 'Invalid or expired link. Please use the Verify with VRChat button in Discord.',
+        },
         { status: 400 }
       );
     }
@@ -1586,7 +1746,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
               success: false,
               error: 'Failed to look up your account. Please try again.',
             },
-            { status: 500, headers: responseHeaders ?? withNoStore({ 'Content-Type': 'application/json' }) }
+            {
+              status: 500,
+              headers: responseHeaders ?? withNoStore({ 'Content-Type': 'application/json' }),
+            }
           );
         }
 
@@ -1605,7 +1768,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
               success: false,
               error: result.error ?? 'Verification failed.',
             },
-            { status: 400, headers: responseHeaders ?? withNoStore({ 'Content-Type': 'application/json' }) }
+            {
+              status: 400,
+              headers: responseHeaders ?? withNoStore({ 'Content-Type': 'application/json' }),
+            }
           );
         }
 
@@ -1616,7 +1782,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
             entitlementIds: result.entitlementIds,
             redirectUri: payload.redirectUri,
           },
-          { status: 200, headers: responseHeaders ?? withNoStore({ 'Content-Type': 'application/json' }) }
+          {
+            status: 200,
+            headers: responseHeaders ?? withNoStore({ 'Content-Type': 'application/json' }),
+          }
         );
       }
 
@@ -1700,7 +1869,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       if (username && password) {
         const responseHeaders = withNoStore({ 'Content-Type': 'application/json' });
-        let initial;
+        let initial: Awaited<ReturnType<VrchatApiClient['beginLogin']>>;
         try {
           initial = await client.beginLogin(username, password);
           logger.info('VRChat verify password step: beginLogin result', {
@@ -1714,7 +1883,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
             error: error instanceof Error ? error.message : String(error),
           });
           return jsonNoStore(
-            { success: false, error: 'Verification failed. Please check your credentials and try again.' },
+            {
+              success: false,
+              error: 'Verification failed. Please check your credentials and try again.',
+            },
             { status: 401, headers: responseHeaders }
           );
         }
@@ -1763,7 +1935,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
                 error: error instanceof Error ? error.message : String(error),
               });
               return jsonNoStore(
-                { success: false, error: 'Verification failed. Please check your credentials and try again.' },
+                {
+                  success: false,
+                  error: 'Verification failed. Please check your credentials and try again.',
+                },
                 { status: 401, headers: responseHeaders }
               );
             }
@@ -1795,7 +1970,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
         const ownership = await getOwnershipFromSession(client, initial.session);
         if (!ownership) {
           return jsonNoStore(
-            { success: false, error: 'Verification failed. Please check your credentials and try again.' },
+            {
+              success: false,
+              error: 'Verification failed. Please check your credentials and try again.',
+            },
             { status: 401, headers: responseHeaders }
           );
         }
@@ -1833,7 +2011,9 @@ export function createVerificationRoutes(config: VerificationConfig) {
         tokenSuffix,
         success: storedSessionResult.success,
         status: storedSessionResult.success ? 200 : storedSessionResult.status,
-        needsCredentials: storedSessionResult.success ? false : storedSessionResult.needsCredentials ?? false,
+        needsCredentials: storedSessionResult.success
+          ? false
+          : (storedSessionResult.needsCredentials ?? false),
       });
       if (!storedSessionResult.success) {
         return jsonNoStore(
@@ -1851,11 +2031,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
         logger.warn('VRChat verify auto step: stored session unusable, clearing', {
           tokenSuffix,
         });
-        await clearStoredVrchatSession(
-          betterAuth,
-          requestCookieHeader,
-          requestCookieHeader
-        );
+        await clearStoredVrchatSession(betterAuth, requestCookieHeader, requestCookieHeader);
         return jsonNoStore(
           {
             success: false,
@@ -1873,11 +2049,12 @@ export function createVerificationRoutes(config: VerificationConfig) {
         error: err instanceof Error ? err.message : String(err),
         tenantId,
         tokenSuffix,
-        branch: pendingToken || (!username && !password && twoFactorCode)
-          ? '2fa'
-          : username && password
-            ? 'password'
-            : 'auto',
+        branch:
+          pendingToken || (!username && !password && twoFactorCode)
+            ? '2fa'
+            : username && password
+              ? 'password'
+              : 'auto',
       });
       if (!username && !password && !twoFactorCode) {
         return jsonNoStore(
@@ -1892,7 +2069,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
       }
 
       return jsonNoStore(
-        { success: false, error: 'Verification failed. Please check your credentials and try again.' },
+        {
+          success: false,
+          error: 'Verification failed. Please check your credentials and try again.',
+        },
         { status: 401 }
       );
     }
@@ -1904,7 +2084,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
    */
   async function disconnectVerification(request: Request): Promise<Response> {
     try {
-      const body = await request.json() as {
+      const body = (await request.json()) as {
         apiSecret?: string;
         tenantId?: string;
         subjectId?: string;
@@ -1912,17 +2092,11 @@ export function createVerificationRoutes(config: VerificationConfig) {
       };
 
       if (!body.apiSecret || body.apiSecret !== config.convexApiSecret) {
-        return Response.json(
-          { success: false, error: 'Unauthorized' },
-          { status: 401 }
-        );
+        return Response.json({ success: false, error: 'Unauthorized' }, { status: 401 });
       }
 
       if (!body.tenantId || !body.subjectId || !body.provider) {
-        return Response.json(
-          { success: false, error: 'Missing required fields' },
-          { status: 400 }
-        );
+        return Response.json({ success: false, error: 'Missing required fields' }, { status: 400 });
       }
 
       const convex = getConvexClientFromUrl(config.convexUrl);
@@ -1942,7 +2116,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
           tenantId: body.tenantId,
         });
         const vrchatAccount = accountsResult.found
-          ? accountsResult.externalAccounts?.find((account: { provider: string; providerUserId: string }) => account.provider === 'vrchat')
+          ? accountsResult.externalAccounts?.find(
+              (account: { provider: string; providerUserId: string }) =>
+                account.provider === 'vrchat'
+            )
           : null;
         vrchatUserIdToClear = vrchatAccount?.providerUserId;
       }
@@ -1956,12 +2133,15 @@ export function createVerificationRoutes(config: VerificationConfig) {
         provider: body.provider,
       });
 
-      const disconnected = await convex.mutation(api.providerConnections.removeAccountForSubject as any, {
-        apiSecret: config.convexApiSecret,
-        tenantId: body.tenantId,
-        subjectId: body.subjectId,
-        provider: body.provider,
-      });
+      const disconnected = await convex.mutation(
+        api.providerConnections.removeAccountForSubject as any,
+        {
+          apiSecret: config.convexApiSecret,
+          tenantId: body.tenantId,
+          subjectId: body.subjectId,
+          provider: body.provider,
+        }
+      );
 
       if (!disconnected) {
         return Response.json(
@@ -1972,11 +2152,9 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       if (body.provider === 'vrchat' && vrchatUserIdToClear) {
         try {
-          await betterAuth.clearVrchatSessionForUser(
-            {
-              id: vrchatUserIdToClear,
-            },
-          );
+          await betterAuth.clearVrchatSessionForUser({
+            id: vrchatUserIdToClear,
+          });
         } catch (error) {
           logger.warn('Disconnect verification: failed to clear BetterAuth VRChat session', {
             subjectId: body.subjectId,
@@ -2008,19 +2186,18 @@ export function createVerificationRoutes(config: VerificationConfig) {
       logger.error('Disconnect verification failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json(
-        { success: false, error: 'Internal server error' },
-        { status: 500 }
-      );
+      return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
     }
   }
 
   return {
     beginVerification,
+    bindVerifyPanel,
     handleVerificationCallback,
     completeVerification,
     completeLicenseVerification,
     completeVrchatVerification,
+    refreshVerifyPanel,
     vrchatVerify,
     disconnectVerification,
   };
@@ -2036,6 +2213,8 @@ export function mountVerificationRoutes(
   const routeMap = new Map<string, (request: Request) => Promise<Response>>();
 
   routeMap.set('/api/verification/begin', routes.beginVerification);
+  routeMap.set('/api/verification/panel/bind', routes.bindVerifyPanel);
+  routeMap.set('/api/verification/panel/refresh', routes.refreshVerifyPanel);
   routeMap.set('/api/verification/callback/gumroad', routes.handleVerificationCallback);
   routeMap.set('/api/verification/callback/discord', routes.handleVerificationCallback);
   routeMap.set('/api/verification/callback/jinxxy', routes.handleVerificationCallback);

@@ -4,6 +4,10 @@
  * Verify button interaction - shows same status panel
  */
 
+import { randomBytes } from 'node:crypto';
+import { providerLabel } from '@yucp/providers';
+import { createLogger } from '@yucp/shared';
+import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -23,15 +27,12 @@ import type {
   ChatInputCommandInteraction,
   ModalSubmitInteraction,
 } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
-import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
-import { E, Emoji } from '../lib/emojis';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
+import { E, Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
-import { createLogger } from '@yucp/shared';
-import { providerLabel } from '@yucp/providers';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -52,13 +53,26 @@ const DEFAULT_SPAWN_BUTTON_TEXT = 'Verify';
 const DEFAULT_SPAWN_COLOR = 0x5865f2; // Discord Blurple
 
 // Semantic colors
-const COLOR_GRAY = 0x4f545c;   // Nothing connected
+const COLOR_GRAY = 0x4f545c; // Nothing connected
 const COLOR_ORANGE = 0xfaa61a; // Connected but no purchases found
-const COLOR_GREEN = 0x57f287;  // Verified
+const COLOR_GREEN = 0x57f287; // Verified
 
 type VerifyState = 'nothing' | 'connected_no_products' | 'verified';
 
 const VERIFIED_PRODUCTS_DISPLAY_LIMIT = 10;
+const VERIFY_PANEL_TTL_MS = 15 * 60 * 1000;
+
+interface ActiveVerifyPanel {
+  guildId: string;
+  messageId: string;
+  panelToken?: string;
+  tenantId: Id<'tenants'>;
+  updatedAt: number;
+  userId: string;
+  webhook: ChatInputCommandInteraction['webhook'];
+}
+
+const activeVerifyPanels = new Map<string, ActiveVerifyPanel>();
 
 interface VerifyData {
   state: VerifyState;
@@ -74,12 +88,134 @@ interface VerifyData {
   hasVrchat: boolean;
 }
 
+function getVerifyPanelKey(userId: string, guildId: string): string {
+  return `${userId}:${guildId}`;
+}
+
+function getActiveVerifyPanel(userId: string, guildId: string): ActiveVerifyPanel | null {
+  const key = getVerifyPanelKey(userId, guildId);
+  const existing = activeVerifyPanels.get(key);
+  if (!existing) return null;
+  if (Date.now() - existing.updatedAt > VERIFY_PANEL_TTL_MS) {
+    activeVerifyPanels.delete(key);
+    return null;
+  }
+  return existing;
+}
+
+function clearActiveVerifyPanel(userId: string, guildId: string): void {
+  activeVerifyPanels.delete(getVerifyPanelKey(userId, guildId));
+}
+
+function createVerifyPanelToken(): string {
+  return randomBytes(24).toString('hex');
+}
+
+export function rememberActiveVerifyPanel(
+  interaction: ButtonInteraction | ChatInputCommandInteraction | ModalSubmitInteraction,
+  tenantId: Id<'tenants'>,
+  guildId: string,
+  messageId: string,
+  options?: {
+    panelToken?: string;
+  }
+): void {
+  const key = getVerifyPanelKey(interaction.user.id, guildId);
+  const existing = activeVerifyPanels.get(key);
+  activeVerifyPanels.set(key, {
+    guildId,
+    messageId,
+    panelToken: options?.panelToken ?? existing?.panelToken,
+    tenantId,
+    updatedAt: Date.now(),
+    userId: interaction.user.id,
+    webhook: interaction.webhook,
+  });
+}
+
+interface VerifyStatusReply {
+  components: [ContainerBuilder];
+  flags: MessageFlags.IsComponentsV2;
+}
+
+async function tryEditActiveVerifyPanel(
+  userId: string,
+  guildId: string,
+  payload: VerifyStatusReply
+): Promise<boolean> {
+  const existing = getActiveVerifyPanel(userId, guildId);
+  if (!existing) return false;
+
+  try {
+    await existing.webhook.editMessage(existing.messageId, payload);
+    existing.updatedAt = Date.now();
+    return true;
+  } catch {
+    try {
+      await existing.webhook.deleteMessage(existing.messageId);
+    } catch {
+      // Best-effort cleanup only.
+    }
+    clearActiveVerifyPanel(userId, guildId);
+    return false;
+  }
+}
+
+function toEphemeralVerifyReply(payload: VerifyStatusReply): {
+  components: [ContainerBuilder];
+  flags: number;
+} {
+  return {
+    components: payload.components,
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+  };
+}
+
+async function bindVerifyPanelToken(
+  apiBaseUrl: string | undefined,
+  apiSecret: string,
+  interaction: ButtonInteraction | ChatInputCommandInteraction | ModalSubmitInteraction,
+  params: {
+    discordUserId: string;
+    guildId: string;
+    messageId: string;
+    panelToken: string;
+    tenantId: Id<'tenants'>;
+  }
+): Promise<void> {
+  if (!apiBaseUrl) return;
+
+  const apiForFetch = getApiUrls().apiInternal ?? apiBaseUrl;
+  try {
+    await fetch(`${apiForFetch}/api/verification/panel/bind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        apiSecret,
+        applicationId: interaction.applicationId,
+        discordUserId: params.discordUserId,
+        guildId: params.guildId,
+        interactionToken: interaction.token,
+        messageId: params.messageId,
+        panelToken: params.panelToken,
+        tenantId: params.tenantId,
+      }),
+    });
+  } catch (err) {
+    logger.warn('Failed to bind verify panel token', {
+      error: err instanceof Error ? err.message : String(err),
+      guildId: params.guildId,
+      userId: params.discordUserId,
+    });
+  }
+}
+
 async function fetchVerifyData(
   userId: string,
   tenantId: Id<'tenants'>,
   guildId: string,
   convex: ConvexHttpClient,
-  apiSecret: string,
+  apiSecret: string
 ): Promise<VerifyData> {
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
     discordUserId: userId,
@@ -113,14 +249,16 @@ async function fetchVerifyData(
       linkedAccounts = accountsResult.externalAccounts;
     }
 
-    const entitlementProductIds = [...new Set((entitlements as Array<{ productId: string }>).map((e) => e.productId))];
+    const entitlementProductIds = [
+      ...new Set((entitlements as Array<{ productId: string }>).map((e) => e.productId)),
+    ];
     productIds = entitlementProductIds;
 
     const guildProductMap = new Map(
       (guildProducts as Array<{ productId: string; displayName: string | null }>).map((p) => [
         p.productId,
         p.displayName ?? p.productId,
-      ]),
+      ])
     );
     const inGuild = entitlementProductIds.filter((id) => guildProductMap.has(id));
     inGuildCount = inGuild.length;
@@ -157,13 +295,12 @@ async function fetchVerifyData(
   };
 }
 
-
 /** Get user-friendly banner message from failed role_sync jobs (role hierarchy, permissions, etc.). */
 async function getRoleSyncBanner(
   tenantId: Id<'tenants'>,
   guildId: string,
   discordUserId: string,
-  convex: ConvexHttpClient,
+  convex: ConvexHttpClient
 ): Promise<string | undefined> {
   const jobs = await convex.query(api.outbox_jobs.getFailedRoleSyncForUser as any, {
     tenantId,
@@ -175,7 +312,11 @@ async function getRoleSyncBanner(
   if (err.includes('Role hierarchy') || err.toLowerCase().includes('role hierarchy')) {
     return `${E.Wrench} **Role setup needed** - The verified role is above the bot's role. Ask a server admin to move the bot's role above the verified role in Server Settings → Roles.`;
   }
-  if (err.includes('50013') || err.includes('Missing Permissions') || err.includes('Manage Roles')) {
+  if (
+    err.includes('50013') ||
+    err.includes('Missing Permissions') ||
+    err.includes('Manage Roles')
+  ) {
     return `${E.Wrench} **Permissions needed** - The bot needs Manage Roles. Re-invite with the updated link in the Creator Portal.`;
   }
   return `${E.Wrench} Could not assign role: ${err.slice(0, 120)}${err.length > 120 ? '…' : ''}`;
@@ -214,9 +355,8 @@ function getConnectedNoProductsPrompt(enabled: EnabledProviders): string {
   if (enabled.vrchat) methods.push('VRChat');
   if (enabled.discord) methods.push('another server');
   if (methods.length === 0) return '';
-  const hint = methods.length === 1
-    ? `try connecting via ${methods[0]}`
-    : 'try another verification method';
+  const hint =
+    methods.length === 1 ? `try connecting via ${methods[0]}` : 'try another verification method';
   return `Your account is connected but we didn't find any matching purchases.\nMake sure you're using the account you bought with, or ${hint}:`;
 }
 
@@ -226,57 +366,77 @@ function buildStatusContainer(
   guildId: string,
   apiBaseUrl: string | undefined,
   enabledProviders: EnabledProviders,
+  panelToken?: string,
   userId?: string,
-  bannerMessage?: string,
+  bannerMessage?: string
 ): ContainerBuilder {
-  const { state, linkedAccounts, guildProductDisplayList, guildProductCount, hasGumroad, hasJinxxy, hasDiscord, hasVrchat } = data;
+  const {
+    state,
+    linkedAccounts,
+    guildProductDisplayList,
+    guildProductCount,
+    hasGumroad,
+    hasJinxxy,
+    hasDiscord,
+    hasVrchat,
+  } = data;
 
   const accentColor =
-    state === 'nothing' ? COLOR_GRAY :
-      state === 'connected_no_products' ? COLOR_ORANGE :
-        COLOR_GREEN;
+    state === 'nothing'
+      ? COLOR_GRAY
+      : state === 'connected_no_products'
+        ? COLOR_ORANGE
+        : COLOR_GREEN;
 
   const container = new ContainerBuilder().setAccentColor(accentColor);
 
   // Optional banner (e.g. success/error) - must use TextDisplay when using MessageFlags.IsComponentsV2
   if (bannerMessage) {
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(bannerMessage),
-    );
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bannerMessage));
     container.addSeparatorComponents(
-      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
     );
   }
 
   // Title
   if (state === 'verified') {
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`## ${E.ClapStars} You're verified!`),
+      new TextDisplayBuilder().setContent(`## ${E.ClapStars} You're verified!`)
     );
   } else {
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`## ${E.PersonKey} Your verification status`),
+      new TextDisplayBuilder().setContent(`## ${E.PersonKey} Your verification status`)
     );
   }
 
   container.addSeparatorComponents(
-    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
   // Connected accounts - filter by enabledProviders (server-relevant only)
   const lines: string[] = [];
-  if (enabledProviders.gumroad) lines.push(`${E.Gumorad} Gumroad - ${hasGumroad ? `${E.Checkmark} Connected` : '- Not connected'}`);
-  if (enabledProviders.jinxxy) lines.push(`${E.Jinxxy} Jinxxy - ${hasJinxxy ? `${E.Checkmark} Connected` : '- Not connected'}`);
-  if (enabledProviders.vrchat) lines.push(`${E.VRC} VRChat - ${hasVrchat ? `${E.Checkmark} Connected` : '- Not connected'}`);
-  if (enabledProviders.discord) lines.push(`${E.Discord} Discord (other server) - ${hasDiscord ? `${E.Checkmark} Connected` : '- Not connected'}`);
+  if (enabledProviders.gumroad)
+    lines.push(
+      `${E.Gumorad} Gumroad - ${hasGumroad ? `${E.Checkmark} Connected` : '- Not connected'}`
+    );
+  if (enabledProviders.jinxxy)
+    lines.push(
+      `${E.Jinxxy} Jinxxy - ${hasJinxxy ? `${E.Checkmark} Connected` : '- Not connected'}`
+    );
+  if (enabledProviders.vrchat)
+    lines.push(`${E.VRC} VRChat - ${hasVrchat ? `${E.Checkmark} Connected` : '- Not connected'}`);
+  if (enabledProviders.discord)
+    lines.push(
+      `${E.Discord} Discord (other server) - ${hasDiscord ? `${E.Checkmark} Connected` : '- Not connected'}`
+    );
   if (lines.length > 0) {
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`**Connected Accounts**\n${lines.join('\n')}`),
+      new TextDisplayBuilder().setContent(`**Connected Accounts**\n${lines.join('\n')}`)
     );
   }
 
   container.addSeparatorComponents(
-    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
   // Verified products (this server only, display names, limited)
@@ -287,23 +447,25 @@ function buildStatusContainer(
         ? `\n_…and ${guildProductCount - VERIFIED_PRODUCTS_DISPLAY_LIMIT} more_`
         : '';
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`**Verified Products**\n${productList}${moreLine}`),
+      new TextDisplayBuilder().setContent(`**Verified Products**\n${productList}${moreLine}`)
     );
   } else {
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent('**Verified Products**\nNone yet'),
+      new TextDisplayBuilder().setContent('**Verified Products**\nNone yet')
     );
   }
 
   container.addSeparatorComponents(
-    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
   // Build OAuth URLs
   const returnTo = `https://discord.com/channels/${guildId}`;
-  const redirectUri = apiBaseUrl
-    ? `${apiBaseUrl}/verify-success?returnTo=${encodeURIComponent(returnTo)}`
-    : '';
+  const successParams = new URLSearchParams({ returnTo });
+  if (panelToken) {
+    successParams.set('panelToken', panelToken);
+  }
+  const redirectUri = apiBaseUrl ? `${apiBaseUrl}/verify-success?${successParams.toString()}` : '';
   // discordUserId MUST be passed so the verification session can link the
   // Gumroad account to this Discord user. Without it, syncUserFromProvider
   // stores it under a synthetic 'gumroad:xxx' subject, not the Discord one.
@@ -327,7 +489,7 @@ function buildStatusContainer(
           .setLabel('Connect Gumroad')
           .setEmoji(Emoji.Gumorad)
           .setStyle(ButtonStyle.Link)
-          .setURL(gumroadUrl),
+          .setURL(gumroadUrl)
       );
     }
 
@@ -337,7 +499,7 @@ function buildStatusContainer(
           .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
           .setLabel('Use License Key')
           .setEmoji(Emoji.KeyCloud)
-          .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Secondary)
       );
     }
 
@@ -350,7 +512,7 @@ function buildStatusContainer(
           .setLabel('Verify with VRChat')
           .setEmoji(Emoji.VRC)
           .setStyle(ButtonStyle.Link)
-          .setURL(vrchatUrl),
+          .setURL(vrchatUrl)
       );
     }
 
@@ -360,33 +522,32 @@ function buildStatusContainer(
           .setLabel('Use Another Server')
           .setEmoji(Emoji.Discord)
           .setStyle(ButtonStyle.Link)
-          .setURL(discordRoleUrl),
+          .setURL(discordRoleUrl)
       );
     }
 
     if (buttons.length > 0) {
       const prompt = getVerifyPrompt(enabledProviders);
       if (prompt) {
-        container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(prompt),
-        );
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(prompt));
       }
       container.addActionRowComponents(
-        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons),
+        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)
       );
     } else {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `${E.Wrench} No products have been added to this server for verification. Contact the server admin to set up Gumroad, Jinxxy, or Discord role products.`,
-        ),
+          `${E.Wrench} No products have been added to this server for verification. Contact the server admin to set up Gumroad, Jinxxy, or Discord role products.`
+        )
       );
     }
   } else if (state === 'connected_no_products') {
     const connectedPrompt = getConnectedNoProductsPrompt(enabledProviders);
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        connectedPrompt || 'Your account is connected but we didn\'t find any matching purchases.\nMake sure you\'re using the account you bought with, or try another method:',
-      ),
+        connectedPrompt ||
+          "Your account is connected but we didn't find any matching purchases.\nMake sure you're using the account you bought with, or try another method:"
+      )
     );
 
     const buttons: ButtonBuilder[] = [];
@@ -397,7 +558,7 @@ function buildStatusContainer(
           .setLabel('Connect Gumroad')
           .setEmoji(Emoji.Gumorad)
           .setStyle(ButtonStyle.Link)
-          .setURL(gumroadUrl),
+          .setURL(gumroadUrl)
       );
     }
 
@@ -407,7 +568,7 @@ function buildStatusContainer(
           .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
           .setLabel('Use License Key')
           .setEmoji(Emoji.Key)
-          .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Secondary)
       );
     }
 
@@ -420,7 +581,7 @@ function buildStatusContainer(
           .setLabel('Verify with VRChat')
           .setEmoji(Emoji.VRC)
           .setStyle(ButtonStyle.Link)
-          .setURL(vrchatUrl),
+          .setURL(vrchatUrl)
       );
     }
 
@@ -430,13 +591,13 @@ function buildStatusContainer(
           .setLabel('Use Another Server')
           .setEmoji(Emoji.Discord)
           .setStyle(ButtonStyle.Link)
-          .setURL(discordRoleUrl),
+          .setURL(discordRoleUrl)
       );
     }
 
     if (buttons.length > 0) {
       container.addActionRowComponents(
-        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(0, 3)),
+        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(0, 3))
       );
     }
 
@@ -454,19 +615,19 @@ function buildStatusContainer(
           .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
           .setLabel(`Disconnect ${providerLabel(a.provider)}`)
           .setEmoji(Emoji.X_)
-          .setStyle(ButtonStyle.Danger),
+          .setStyle(ButtonStyle.Danger)
       );
     if (disconnectButtons.length > 0) {
       container.addActionRowComponents(
-        new ActionRowBuilder<ButtonBuilder>().addComponents(...disconnectButtons.slice(0, 5)),
+        new ActionRowBuilder<ButtonBuilder>().addComponents(...disconnectButtons.slice(0, 5))
       );
     }
   } else {
     // Verified state
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `${E.Home} You have access to this server. Use the buttons below to manage your connection.`,
-      ),
+        `${E.Home} You have access to this server. Use the buttons below to manage your connection.`
+      )
     );
 
     const activeProviders = linkedAccounts.filter((a) => a.status === 'active');
@@ -488,15 +649,60 @@ function buildStatusContainer(
             .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
             .setLabel(`Disconnect ${providerLabel(a.provider)}`)
             .setEmoji(Emoji.X_)
-            .setStyle(ButtonStyle.Danger),
+            .setStyle(ButtonStyle.Danger)
         ),
     ];
     container.addActionRowComponents(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(...primaryButtons.slice(0, 5)),
+      new ActionRowBuilder<ButtonBuilder>().addComponents(...primaryButtons.slice(0, 5))
     );
   }
 
   return container;
+}
+
+export async function buildVerifyStatusReply(
+  userId: string,
+  tenantId: Id<'tenants'>,
+  guildId: string,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  apiBaseUrl: string | undefined,
+  options?: {
+    bannerMessage?: string;
+    panelToken?: string;
+    stateOverride?: VerifyState;
+  }
+): Promise<VerifyStatusReply> {
+  const [data, enabledProviders] = await Promise.all([
+    fetchVerifyData(userId, tenantId, guildId, convex, apiSecret),
+    convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
+      apiSecret,
+      tenantId,
+      guildId,
+    }),
+  ]);
+
+  const bannerMessage =
+    options?.bannerMessage ??
+    (!options?.stateOverride && data.state === 'verified'
+      ? await getRoleSyncBanner(tenantId, guildId, userId, convex)
+      : undefined);
+
+  const container = buildStatusContainer(
+    options?.stateOverride ? { ...data, state: options.stateOverride } : data,
+    tenantId,
+    guildId,
+    apiBaseUrl,
+    enabledProviders,
+    options?.panelToken,
+    userId,
+    bannerMessage
+  );
+
+  return {
+    flags: MessageFlags.IsComponentsV2,
+    components: [container],
+  };
 }
 
 /** /creator slash command - shows state-aware verification status panel */
@@ -505,7 +711,7 @@ export async function handleCreatorCommand(
   convex: ConvexHttpClient,
   apiSecret: string,
   apiBaseUrl: string | undefined,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -517,30 +723,34 @@ export async function handleCreatorCommand(
   });
 
   try {
-    const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex, apiSecret),
-      convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
-        apiSecret,
-        tenantId: ctx.tenantId,
-        guildId: ctx.guildId,
-      }),
-    ]);
-    const bannerMessage =
-      data.state === 'verified'
-        ? await getRoleSyncBanner(ctx.tenantId, ctx.guildId, interaction.user.id, convex)
-        : undefined;
-    const container = buildStatusContainer(
-      data,
+    const panelToken =
+      getActiveVerifyPanel(interaction.user.id, ctx.guildId)?.panelToken ??
+      createVerifyPanelToken();
+    const reply = await buildVerifyStatusReply(
+      interaction.user.id,
       ctx.tenantId,
       ctx.guildId,
+      convex,
+      apiSecret,
       apiBaseUrl,
-      enabledProviders,
-      interaction.user.id,
-      bannerMessage,
+      { panelToken }
     );
-    await interaction.editReply({
-      flags: MessageFlags.IsComponentsV2,
-      components: [container],
+
+    if (await tryEditActiveVerifyPanel(interaction.user.id, ctx.guildId, reply)) {
+      await interaction.deleteReply().catch(() => {});
+      return;
+    }
+
+    const message = await interaction.editReply(reply);
+    rememberActiveVerifyPanel(interaction, ctx.tenantId, ctx.guildId, message.id, {
+      panelToken,
+    });
+    await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
+      discordUserId: interaction.user.id,
+      guildId: ctx.guildId,
+      messageId: message.id,
+      panelToken,
+      tenantId: ctx.tenantId,
     });
   } catch (err) {
     await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
@@ -553,43 +763,62 @@ export async function handleVerifyStartButton(
   convex: ConvexHttpClient,
   apiSecret: string,
   apiBaseUrl: string | undefined,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   track(interaction.user.id, 'spawn_button_clicked', {
     guildId: ctx.guildId,
     userId: interaction.user.id,
   });
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const hadActivePanel = Boolean(getActiveVerifyPanel(interaction.user.id, ctx.guildId));
+  if (hadActivePanel) {
+    await interaction.deferUpdate();
+  } else {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
 
   try {
-    const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex, apiSecret),
-      convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
-        apiSecret,
-        tenantId: ctx.tenantId,
-        guildId: ctx.guildId,
-      }),
-    ]);
-    const bannerMessage =
-      data.state === 'verified'
-        ? await getRoleSyncBanner(ctx.tenantId, ctx.guildId, interaction.user.id, convex)
-        : undefined;
-    const container = buildStatusContainer(
-      data,
+    const panelToken =
+      getActiveVerifyPanel(interaction.user.id, ctx.guildId)?.panelToken ??
+      createVerifyPanelToken();
+    const reply = await buildVerifyStatusReply(
+      interaction.user.id,
       ctx.tenantId,
       ctx.guildId,
+      convex,
+      apiSecret,
       apiBaseUrl,
-      enabledProviders,
-      interaction.user.id,
-      bannerMessage,
+      { panelToken }
     );
-    await interaction.editReply({
-      flags: MessageFlags.IsComponentsV2,
-      components: [container],
+
+    if (await tryEditActiveVerifyPanel(interaction.user.id, ctx.guildId, reply)) {
+      return;
+    }
+
+    const message = hadActivePanel
+      ? await interaction.followUp(toEphemeralVerifyReply(reply))
+      : await interaction.editReply(reply);
+    rememberActiveVerifyPanel(interaction, ctx.tenantId, ctx.guildId, message.id, {
+      panelToken,
+    });
+    await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
+      discordUserId: interaction.user.id,
+      guildId: ctx.guildId,
+      messageId: message.id,
+      panelToken,
+      tenantId: ctx.tenantId,
     });
   } catch (err) {
-    await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
+    if (hadActivePanel) {
+      await interaction
+        .followUp({
+          content: `${E.X_} An error occurred. Please try again.`,
+          flags: MessageFlags.Ephemeral,
+        })
+        .catch(() => {});
+    } else {
+      await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
+    }
   }
 }
 
@@ -599,31 +828,33 @@ export async function handleVerifyAddMore(
   convex: ConvexHttpClient,
   apiSecret: string,
   apiBaseUrl: string | undefined,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   await interaction.deferUpdate();
 
   try {
-    const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, ctx.tenantId, ctx.guildId, convex, apiSecret),
-      convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
-        apiSecret,
-        tenantId: ctx.tenantId,
-        guildId: ctx.guildId,
-      }),
-    ]);
-    // Force 'nothing' state to show all connect options regardless of current state
-    const container = buildStatusContainer(
-      { ...data, state: 'nothing' },
+    const panelToken =
+      getActiveVerifyPanel(interaction.user.id, ctx.guildId)?.panelToken ??
+      createVerifyPanelToken();
+    const reply = await buildVerifyStatusReply(
+      interaction.user.id,
       ctx.tenantId,
       ctx.guildId,
+      convex,
+      apiSecret,
       apiBaseUrl,
-      enabledProviders,
-      interaction.user.id,
+      { panelToken, stateOverride: 'nothing' }
     );
-    await interaction.editReply({
-      flags: MessageFlags.IsComponentsV2,
-      components: [container],
+    const message = await interaction.editReply(reply);
+    rememberActiveVerifyPanel(interaction, ctx.tenantId, ctx.guildId, message.id, {
+      panelToken,
+    });
+    await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
+      discordUserId: interaction.user.id,
+      guildId: ctx.guildId,
+      messageId: message.id,
+      panelToken,
+      tenantId: ctx.tenantId,
     });
   } catch (err) {
     await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
@@ -635,7 +866,7 @@ export async function handleVerifySpawn(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
   _apiBaseUrl: string | undefined,
-  _ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
+  _ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   const title = interaction.options.getString('title') ?? DEFAULT_SPAWN_TITLE;
   const description = interaction.options.getString('description') ?? DEFAULT_SPAWN_DESCRIPTION;
@@ -645,7 +876,7 @@ export async function handleVerifySpawn(
 
   let color = DEFAULT_SPAWN_COLOR;
   if (colorStr && /^#[0-9A-Fa-f]{6}$/.test(colorStr)) {
-    color = parseInt(colorStr.substring(1), 16);
+    color = Number.parseInt(colorStr.substring(1), 16);
   }
 
   const embed = new EmbedBuilder()
@@ -692,8 +923,8 @@ export function buildLicenseModal(tenantId: Id<'tenants'>): ModalBuilder {
           .setPlaceholder('Paste your Gumroad or Jinxxy license key here')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true)
-          .setMaxLength(500),
-      ),
+          .setMaxLength(500)
+      )
     );
 }
 
@@ -701,7 +932,7 @@ export async function handleLicenseModalSubmit(
   interaction: ModalSubmitInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  apiBaseUrl: string | undefined,
+  apiBaseUrl: string | undefined
 ): Promise<void> {
   const customId = interaction.customId;
   if (!customId.startsWith(`${VERIFY_PREFIX}license_modal:`)) return;
@@ -742,7 +973,11 @@ export async function handleLicenseModalSubmit(
     return;
   }
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (interaction.isFromMessage()) {
+    await interaction.deferUpdate();
+  } else {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
 
   const apiForFetch = getApiUrls().apiInternal ?? apiBaseUrl;
   try {
@@ -772,33 +1007,36 @@ export async function handleLicenseModalSubmit(
 
     const guildId = interaction.guildId;
     if (guildId && apiBaseUrl) {
-      const [data, enabledProviders] = await Promise.all([
-        fetchVerifyData(interaction.user.id, tenantId, guildId, convex, apiSecret),
-        convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
-          apiSecret,
-          tenantId,
-          guildId,
-        }),
-      ]);
-      const providerLabel = result.provider === 'gumroad' ? 'Gumroad' : result.provider === 'jinxxy' ? 'Jinxxy' : result.provider ?? 'account';
+      const panelToken =
+        getActiveVerifyPanel(interaction.user.id, guildId)?.panelToken ?? createVerifyPanelToken();
+      const providerLabel =
+        result.provider === 'gumroad'
+          ? 'Gumroad'
+          : result.provider === 'jinxxy'
+            ? 'Jinxxy'
+            : (result.provider ?? 'account');
       const bannerMessage = `${E.ClapStars} **Connected!** Your ${providerLabel} account is linked. Your roles will be updated shortly. ${E.Dance}`;
-      const container = buildStatusContainer(
-        data,
+      const reply = await buildVerifyStatusReply(
+        interaction.user.id,
         tenantId,
         guildId,
+        convex,
+        apiSecret,
         apiBaseUrl,
-        enabledProviders,
-        interaction.user.id,
-        bannerMessage,
+        { bannerMessage, panelToken }
       );
-      await interaction.editReply({
-        flags: MessageFlags.IsComponentsV2,
-        components: [container],
+      const message = await interaction.editReply(reply);
+      rememberActiveVerifyPanel(interaction, tenantId, guildId, message.id, { panelToken });
+      await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
+        discordUserId: interaction.user.id,
+        guildId,
+        messageId: message.id,
+        panelToken,
+        tenantId,
       });
     } else {
       await interaction.editReply({
-        content:
-          `${E.ClapStars} **Verified!** Your roles will be updated shortly.\n\n${E.Dance} Welcome to the community!`,
+        content: `${E.ClapStars} **Verified!** Your roles will be updated shortly.\n\n${E.Dance} Welcome to the community!`,
       });
     }
   } catch (err) {
@@ -818,7 +1056,7 @@ export async function handleVerifyDisconnectButton(
   convex: ConvexHttpClient,
   apiSecret: string,
   apiBaseUrl: string | undefined,
-  provider: string,
+  provider: string
 ): Promise<void> {
   const guildId = interaction.guildId;
   if (!guildId) {
@@ -834,7 +1072,7 @@ export async function handleVerifyDisconnectButton(
     return;
   }
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferUpdate();
 
   try {
     const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
@@ -871,7 +1109,10 @@ export async function handleVerifyDisconnectButton(
 
     if (!result.success) {
       await interaction.editReply({
-        content: sanitizeUserFacingErrorMessage(result.error, 'Couldn’t disconnect this account right now.'),
+        content: sanitizeUserFacingErrorMessage(
+          result.error,
+          'Couldn’t disconnect this account right now.'
+        ),
       });
       return;
     }
@@ -882,26 +1123,28 @@ export async function handleVerifyDisconnectButton(
     });
 
     // Refresh and show the updated panel so user sees products/accounts cleared
-    const [data, enabledProviders] = await Promise.all([
-      fetchVerifyData(interaction.user.id, guildLink.tenantId, guildId, convex, apiSecret),
-      convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
-        apiSecret,
-        tenantId: guildLink.tenantId,
-        guildId,
-      }),
-    ]);
-    const container = buildStatusContainer(
-      data,
+    const panelToken =
+      getActiveVerifyPanel(interaction.user.id, guildId)?.panelToken ?? createVerifyPanelToken();
+    const reply = await buildVerifyStatusReply(
+      interaction.user.id,
       guildLink.tenantId,
       guildId,
+      convex,
+      apiSecret,
       apiBaseUrl,
-      enabledProviders,
-      interaction.user.id,
-      `${E.Checkmark} Disconnected your ${providerLabel(provider)} account. Existing roles may take a moment to be removed.`,
+      {
+        bannerMessage: `${E.Checkmark} Disconnected your ${providerLabel(provider)} account. Existing roles may take a moment to be removed.`,
+        panelToken,
+      }
     );
-    await interaction.editReply({
-      flags: MessageFlags.IsComponentsV2,
-      components: [container],
+    const message = await interaction.editReply(reply);
+    rememberActiveVerifyPanel(interaction, guildLink.tenantId, guildId, message.id, { panelToken });
+    await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
+      discordUserId: interaction.user.id,
+      guildId,
+      messageId: message.id,
+      panelToken,
+      tenantId: guildLink.tenantId,
     });
   } catch (err) {
     logger.error('Disconnect verification failed in bot command', {
@@ -920,7 +1163,7 @@ export async function handleRefreshCommand(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'> },
+  ctx: { tenantId: Id<'tenants'> }
 ): Promise<void> {
   const guildId = interaction.guildId;
   if (!guildId) {
@@ -947,9 +1190,7 @@ export async function handleRefreshCommand(
       return;
     }
 
-    // Refresh data and build updated panel
     const apiBaseUrl = process.env.API_BASE_URL;
-    let container;
 
     if (apiBaseUrl) {
       const [data, enabledProviders] = await Promise.all([
@@ -962,14 +1203,14 @@ export async function handleRefreshCommand(
       ]);
 
       const bannerMessage = `${E.Checkmark} Queued ${result.jobsCreated} role sync jobs! Your roles in this server will be updated momentarily.`;
-      container = buildStatusContainer(
+      const container = buildStatusContainer(
         data,
         ctx.tenantId,
         guildId,
         apiBaseUrl,
         enabledProviders,
         interaction.user.id,
-        bannerMessage,
+        bannerMessage
       );
 
       await interaction.editReply({

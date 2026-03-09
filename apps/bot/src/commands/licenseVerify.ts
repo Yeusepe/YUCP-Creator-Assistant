@@ -21,27 +21,32 @@
  *   Modal:                  creator_verify:lp_modal:{tenantId}:{productRef}:{provider}
  */
 
-import {
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-    MessageFlags,
-    ModalBuilder,
-    StringSelectMenuBuilder,
-    StringSelectMenuOptionBuilder,
-    TextInputBuilder,
-    TextInputStyle,
-    type ButtonInteraction,
-    type ModalSubmitInteraction,
-    type StringSelectMenuInteraction,
-} from 'discord.js';
-import { ConvexHttpClient } from 'convex/browser';
 import { createLogger } from '@yucp/shared';
+import { ConvexHttpClient } from 'convex/browser';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  type ButtonInteraction,
+  ButtonStyle,
+  ContainerBuilder,
+  MessageFlags,
+  ModalBuilder,
+  type ModalSubmitInteraction,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+  StringSelectMenuBuilder,
+  type StringSelectMenuInteraction,
+  StringSelectMenuOptionBuilder,
+  TextDisplayBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+} from 'discord.js';
 import type { Id } from '../../../../convex/_generated/dataModel';
 
+import { PROVIDER_META, providerLabel } from '@yucp/providers';
 import { E, Emoji } from '../lib/emojis';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
-import { providerLabel, PROVIDER_META } from '@yucp/providers';
+import { buildVerifyStatusReply, rememberActiveVerifyPanel } from './verify';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -50,275 +55,308 @@ const PAGE_SIZE = 20; // Leave room for filter/nav rows (max 25 per select menu)
 type Filter = 'all' | 'gumroad' | 'jinxxy';
 
 interface Product {
-    _id: string;
-    productId: string;
-    provider: string;
-    providerProductRef: string;
-    canonicalSlug?: string;
-    displayName?: string;
+  _id: string;
+  productId: string;
+  provider: string;
+  providerProductRef: string;
+  canonicalSlug?: string;
+  displayName?: string;
 }
 
 // ── Helper: build the product picker message ──────────────────────────────────
 
 function buildProductPickerComponents(
-    products: Product[],
-    tenantId: string,
-    filter: Filter,
-    page: number,
+  products: Product[],
+  tenantId: string,
+  filter: Filter,
+  page: number
 ): {
-    components: ActionRowBuilder<any>[];
-    total: number;
-    totalPages: number;
+  components: ActionRowBuilder<any>[];
+  total: number;
+  totalPages: number;
 } {
-    // Filter
-    const filtered = products.filter((p) => {
-        if (filter === 'gumroad') return p.provider === 'gumroad';
-        if (filter === 'jinxxy') return p.provider === 'jinxxy';
-        return true;
-    });
+  // Filter
+  const filtered = products.filter((p) => {
+    if (filter === 'gumroad') return p.provider === 'gumroad';
+    if (filter === 'jinxxy') return p.provider === 'jinxxy';
+    return true;
+  });
 
-    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-    const safePage = Math.min(Math.max(0, page), totalPages - 1);
-    const slice = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, page), totalPages - 1);
+  const slice = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
-    // Row 1 - Filter buttons
-    const filterRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`creator_verify:lp_filter:${tenantId}:all:0`)
-            .setLabel('All')
-            .setStyle(filter === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder()
-            .setCustomId(`creator_verify:lp_filter:${tenantId}:gumroad:0`)
-            .setLabel('Gumroad')
-            .setEmoji(Emoji.Gumorad)
-            .setStyle(filter === 'gumroad' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder()
-            .setCustomId(`creator_verify:lp_filter:${tenantId}:jinxxy:0`)
-            .setLabel('Jinxxy')
-            .setEmoji(Emoji.Jinxxy)
-            .setStyle(filter === 'jinxxy' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+  // Row 1 - Filter buttons
+  const filterRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_verify:lp_filter:${tenantId}:all:0`)
+      .setLabel('All')
+      .setStyle(filter === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`creator_verify:lp_filter:${tenantId}:gumroad:0`)
+      .setLabel('Gumroad')
+      .setEmoji(Emoji.Gumorad)
+      .setStyle(filter === 'gumroad' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`creator_verify:lp_filter:${tenantId}:jinxxy:0`)
+      .setLabel('Jinxxy')
+      .setEmoji(Emoji.Jinxxy)
+      .setStyle(filter === 'jinxxy' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+  );
+
+  const rows: ActionRowBuilder<any>[] = [filterRow];
+
+  if (slice.length === 0) {
+    // No products for this filter - still render but disabled
+    const emptyMenu = new StringSelectMenuBuilder()
+      .setCustomId(`creator_verify:lp_select:${tenantId}:${filter}:${safePage}`)
+      .setPlaceholder('No products found for this filter')
+      .setDisabled(true)
+      .addOptions(new StringSelectMenuOptionBuilder().setLabel('(empty)').setValue('__empty__'));
+    rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(emptyMenu));
+    return { components: rows, total: 0, totalPages };
+  }
+
+  // Row 2 - Product select menu
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId(`creator_verify:lp_select:${tenantId}:${filter}:${safePage}`)
+    .setPlaceholder('Select a product to verify…')
+    .addOptions(
+      slice.map((p) => {
+        const meta = PROVIDER_META[p.provider];
+        const label = p.displayName ?? p.canonicalSlug ?? p.productId;
+        const opt = new StringSelectMenuOptionBuilder()
+          .setLabel(label.slice(0, 100))
+          .setValue(`${p.provider}::${p.providerProductRef}`)
+          .setDescription(meta?.addProductDescription ?? p.provider);
+        if (meta?.emojiKey && Emoji[meta.emojiKey as keyof typeof Emoji]) {
+          opt.setEmoji(Emoji[meta.emojiKey as keyof typeof Emoji]);
+        }
+        return opt;
+      })
     );
 
-    const rows: ActionRowBuilder<any>[] = [filterRow];
+  rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu));
 
-    if (slice.length === 0) {
-        // No products for this filter - still render but disabled
-        const emptyMenu = new StringSelectMenuBuilder()
-            .setCustomId(`creator_verify:lp_select:${tenantId}:${filter}:${safePage}`)
-            .setPlaceholder('No products found for this filter')
-            .setDisabled(true)
-            .addOptions(
-                new StringSelectMenuOptionBuilder().setLabel('(empty)').setValue('__empty__'),
-            );
-        rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(emptyMenu));
-        return { components: rows, total: 0, totalPages };
-    }
+  // Row 3 - Pagination (only if > 1 page)
+  if (totalPages > 1) {
+    const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`creator_verify:lp_page:${tenantId}:${filter}:${safePage - 1}`)
+        .setLabel('◀ Previous')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(safePage === 0),
+      new ButtonBuilder()
+        .setCustomId(`creator_verify:lp_page:${tenantId}:${filter}:${safePage + 1}`)
+        .setLabel('Next ▶')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(safePage >= totalPages - 1)
+    );
+    rows.push(navRow);
+  }
 
-    // Row 2 - Product select menu
-    const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId(`creator_verify:lp_select:${tenantId}:${filter}:${safePage}`)
-        .setPlaceholder('Select a product to verify…')
-        .addOptions(
-            slice.map((p) => {
-                const meta = PROVIDER_META[p.provider];
-                const label = p.displayName ?? p.canonicalSlug ?? p.productId;
-                const opt = new StringSelectMenuOptionBuilder()
-                    .setLabel(label.slice(0, 100))
-                    .setValue(`${p.provider}::${p.providerProductRef}`)
-                    .setDescription(meta?.addProductDescription ?? p.provider);
-                if (meta?.emojiKey && Emoji[meta.emojiKey as keyof typeof Emoji]) {
-                    opt.setEmoji(Emoji[meta.emojiKey as keyof typeof Emoji]);
-                }
-                return opt;
-            }),
-        );
+  return { components: rows, total: filtered.length, totalPages };
+}
 
-    rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu));
+function buildProductPickerReply(
+  products: Product[],
+  tenantId: Id<'tenants'>,
+  filter: Filter,
+  page: number
+): {
+  components: [ContainerBuilder];
+  flags: MessageFlags.IsComponentsV2;
+} {
+  const { components, total, totalPages } = buildProductPickerComponents(
+    products,
+    tenantId,
+    filter,
+    page
+  );
 
-    // Row 3 - Pagination (only if > 1 page)
-    if (totalPages > 1) {
-        const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`creator_verify:lp_page:${tenantId}:${filter}:${safePage - 1}`)
-                .setLabel('◀ Previous')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(safePage === 0),
-            new ButtonBuilder()
-                .setCustomId(`creator_verify:lp_page:${tenantId}:${filter}:${safePage + 1}`)
-                .setLabel('Next ▶')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(safePage >= totalPages - 1),
-        );
-        rows.push(navRow);
-    }
+  const safePage = Math.min(Math.max(0, page), totalPages - 1);
+  const headerParts: string[] = [];
+  if (total > PAGE_SIZE) {
+    headerParts.push(`Page ${safePage + 1}/${totalPages}`);
+  }
+  headerParts.push(`${total} product${total !== 1 ? 's' : ''} available`);
 
-    return { components: rows, total: filtered.length, totalPages };
+  const container = new ContainerBuilder().setAccentColor(0x5865f2);
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      `## ${E.Bag} Choose a Product to Verify\n${headerParts.join(' · ')}`
+    )
+  );
+  container.addSeparatorComponents(
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+  );
+  container.addActionRowComponents(...components);
+
+  return {
+    components: [container],
+    flags: MessageFlags.IsComponentsV2,
+  };
+}
+
+function buildPickerErrorReply(message: string): {
+  components: [ContainerBuilder];
+  flags: MessageFlags.IsComponentsV2;
+} {
+  const container = new ContainerBuilder().setAccentColor(0xed4245);
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.X_} ${message}`));
+  return {
+    components: [container],
+    flags: MessageFlags.IsComponentsV2,
+  };
 }
 
 // ── Public: show the product picker (called from button handler) ───────────────
 
 async function enrichJinxxyDisplayNames(
-    products: Product[],
-    tenantId: string,
-    apiSecret: string,
+  products: Product[],
+  tenantId: string,
+  apiSecret: string
 ): Promise<Product[]> {
-    const needsEnrichment = products.filter((p) => p.provider === 'jinxxy' && !p.displayName);
-    if (needsEnrichment.length === 0) return products;
+  const needsEnrichment = products.filter((p) => p.provider === 'jinxxy' && !p.displayName);
+  if (needsEnrichment.length === 0) return products;
 
-    const apiBase = process.env.API_BASE_URL;
-    if (!apiBase) return products;
+  const apiBase = process.env.API_BASE_URL;
+  if (!apiBase) return products;
 
-    try {
-        const res = await fetch(`${apiBase}/api/jinxxy/products`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ apiSecret, tenantId }),
-        });
-        const data = (await res.json()) as { products?: { id: string; name: string }[] };
-        const apiProducts = data.products ?? [];
-        const nameById = Object.fromEntries(apiProducts.map((p) => [String(p.id), p.name]));
+  try {
+    const res = await fetch(`${apiBase}/api/jinxxy/products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiSecret, tenantId }),
+    });
+    const data = (await res.json()) as { products?: { id: string; name: string }[] };
+    const apiProducts = data.products ?? [];
+    const nameById = Object.fromEntries(apiProducts.map((p) => [String(p.id), p.name]));
 
-        return products.map((p) => {
-            if (p.provider === 'jinxxy' && !p.displayName) {
-                const name = nameById[String(p.providerProductRef)];
-                if (name) return { ...p, displayName: name };
-            }
-            return p;
-        });
-    } catch (err) {
-        logger.warn('Failed to enrich Jinxxy display names', { err });
-        return products;
-    }
+    return products.map((p) => {
+      if (p.provider === 'jinxxy' && !p.displayName) {
+        const name = nameById[String(p.providerProductRef)];
+        if (name) return { ...p, displayName: name };
+      }
+      return p;
+    });
+  } catch (err) {
+    logger.warn('Failed to enrich Jinxxy display names', { err });
+    return products;
+  }
 }
 
 export async function showProductPicker(
-    interaction: ButtonInteraction,
-    convex: ConvexHttpClient,
-    apiSecret: string,
-    tenantId: Id<'tenants'>,
-    filter: Filter = 'all',
-    page = 0,
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  tenantId: Id<'tenants'>,
+  filter: Filter = 'all',
+  page = 0
 ) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferUpdate();
 
-    let products: Product[] = [];
-    try {
-        products = (await convex.query('productResolution:getProductsForTenant' as any, {
-            tenantId,
-        })) as Product[];
-        products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
-    } catch (err) {
-        logger.error('Failed to load products for picker', { err });
-    }
+  let products: Product[] = [];
+  try {
+    products = (await convex.query('productResolution:getProductsForTenant' as any, {
+      tenantId,
+    })) as Product[];
+    products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
+  } catch (err) {
+    logger.error('Failed to load products for picker', { err });
+  }
 
-    if (products.length === 0) {
-        await interaction.editReply({
-            content:
-                `${E.X_} No products are configured for this server yet. Ask the creator to run \`/creator-admin product add\`.`,
-        });
-        return;
-    }
-
-    const { components, total, totalPages } = buildProductPickerComponents(
-        products,
-        tenantId,
-        filter,
-        page,
+  if (products.length === 0) {
+    const message = await interaction.editReply(
+      buildPickerErrorReply(
+        'No products are configured for this server yet. Ask the creator to run `/creator-admin product add`.'
+      )
     );
-
-    const safePage = Math.min(Math.max(0, page), totalPages - 1);
-    const headerParts: string[] = [];
-    if (total > PAGE_SIZE) {
-        headerParts.push(`Page ${safePage + 1}/${totalPages}`);
+    if (interaction.guildId) {
+      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
     }
-    headerParts.push(`${total} product${total !== 1 ? 's' : ''} available`);
+    return;
+  }
 
-    await interaction.editReply({
-        content: `## ${E.Bag} Choose a Product to Verify\n${headerParts.join(' · ')}`,
-        components,
-    });
+  const message = await interaction.editReply(
+    buildProductPickerReply(products, tenantId, filter, page)
+  );
+  if (interaction.guildId) {
+    rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+  }
 }
 
 // ── Public: re-render picker on filter/page button press ─────────────────────
 
 export async function handlePickerNavigation(
-    interaction: ButtonInteraction,
-    convex: ConvexHttpClient,
-    apiSecret: string,
-    tenantId: Id<'tenants'>,
-    filter: Filter,
-    page: number,
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  tenantId: Id<'tenants'>,
+  filter: Filter,
+  page: number
 ) {
-    await interaction.deferUpdate();
+  await interaction.deferUpdate();
 
-    let products: Product[] = [];
-    try {
-        products = (await convex.query('productResolution:getProductsForTenant' as any, {
-            tenantId,
-        })) as Product[];
-        products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
-    } catch (err) {
-        logger.error('Failed to reload products for picker nav', { err });
-    }
+  let products: Product[] = [];
+  try {
+    products = (await convex.query('productResolution:getProductsForTenant' as any, {
+      tenantId,
+    })) as Product[];
+    products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
+  } catch (err) {
+    logger.error('Failed to reload products for picker nav', { err });
+  }
 
-    const { components, total, totalPages } = buildProductPickerComponents(
-        products,
-        tenantId,
-        filter,
-        page,
-    );
-
-    const safePage = Math.min(Math.max(0, page), totalPages - 1);
-    const headerParts: string[] = [];
-    if (total > PAGE_SIZE) {
-        headerParts.push(`Page ${safePage + 1}/${totalPages}`);
-    }
-    headerParts.push(`${total} product${total !== 1 ? 's' : ''} available`);
-
-    await interaction.editReply({
-        content: `## ${E.Bag} Choose a Product to Verify\n${headerParts.join(' · ')}`,
-        components,
-    });
+  const message = await interaction.editReply(
+    buildProductPickerReply(products, tenantId, filter, page)
+  );
+  if (interaction.guildId) {
+    rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+  }
 }
 
 // ── Public: product selected → show license key modal ────────────────────────
 
 export async function handleProductSelected(
-    interaction: StringSelectMenuInteraction,
-    tenantId: Id<'tenants'>,
+  interaction: StringSelectMenuInteraction,
+  tenantId: Id<'tenants'>
 ) {
-    // Value format: "{provider}::{providerProductRef}"
-    const value = interaction.values[0];
-    if (!value || value === '__empty__') {
-        await interaction.reply({ content: 'Please select a valid product.', flags: MessageFlags.Ephemeral });
-        return;
-    }
+  // Value format: "{provider}::{providerProductRef}"
+  const value = interaction.values[0];
+  if (!value || value === '__empty__') {
+    await interaction.reply({
+      content: 'Please select a valid product.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
 
-    const sepIdx = value.indexOf('::');
-    if (sepIdx === -1) {
-        await interaction.reply({ content: 'Invalid selection.', flags: MessageFlags.Ephemeral });
-        return;
-    }
+  const sepIdx = value.indexOf('::');
+  if (sepIdx === -1) {
+    await interaction.reply({ content: 'Invalid selection.', flags: MessageFlags.Ephemeral });
+    return;
+  }
 
-    const provider = value.slice(0, sepIdx);
-    const providerProductRef = value.slice(sepIdx + 2);
-    const isGumroad = provider === 'gumroad';
+  const provider = value.slice(0, sepIdx);
+  const providerProductRef = value.slice(sepIdx + 2);
+  const isGumroad = provider === 'gumroad';
 
-    const modal = new ModalBuilder()
-        .setCustomId(`creator_verify:lp_modal:${tenantId}:${providerProductRef}:${provider}`)
-        .setTitle(isGumroad ? 'Enter Gumroad License Key' : 'Enter Jinxxy License Key');
+  const modal = new ModalBuilder()
+    .setCustomId(`creator_verify:lp_modal:${tenantId}:${providerProductRef}:${provider}`)
+    .setTitle(isGumroad ? 'Enter Gumroad License Key' : 'Enter Jinxxy License Key');
 
-    const keyInput = new TextInputBuilder()
-        .setCustomId('license_key')
-        .setLabel(isGumroad ? 'License Key (XXXX-XXXX-XXXX-XXXX)' : 'License Key')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder(isGumroad ? 'XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX' : 'Enter your license key')
-        .setRequired(true)
-        .setMinLength(8)
-        .setMaxLength(200);
+  const keyInput = new TextInputBuilder()
+    .setCustomId('license_key')
+    .setLabel(isGumroad ? 'License Key (XXXX-XXXX-XXXX-XXXX)' : 'License Key')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder(isGumroad ? 'XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX' : 'Enter your license key')
+    .setRequired(true)
+    .setMinLength(8)
+    .setMaxLength(200);
 
-    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(keyInput));
-    await interaction.showModal(modal);
+  modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(keyInput));
+  await interaction.showModal(modal);
 }
 
 // ── VRChat credentials modal ──────────────────────────────────────────────────
@@ -337,7 +375,7 @@ export function buildVrchatCredentialsModal(tenantId: Id<'tenants'>): ModalBuild
           .setPlaceholder('Your VRChat login')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
-          .setMaxLength(100),
+          .setMaxLength(100)
       ),
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
@@ -346,17 +384,17 @@ export function buildVrchatCredentialsModal(tenantId: Id<'tenants'>): ModalBuild
           .setPlaceholder('Your VRChat password')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
-          .setMaxLength(200),
+          .setMaxLength(200)
       ),
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
           .setCustomId('vrchat_2fa')
           .setLabel('2FA Code (optional)')
-          .setPlaceholder('Leave empty if you don\'t use 2FA')
+          .setPlaceholder("Leave empty if you don't use 2FA")
           .setStyle(TextInputStyle.Short)
           .setRequired(false)
-          .setMaxLength(10),
-      ),
+          .setMaxLength(10)
+      )
     );
 }
 
@@ -364,7 +402,7 @@ export async function handleVrchatCredentialsModal(
   interaction: ModalSubmitInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  apiBaseUrl: string | undefined,
+  apiBaseUrl: string | undefined
 ): Promise<void> {
   const customId = interaction.customId;
   if (!customId.startsWith('creator_verify:vrchat_modal:')) return;
@@ -375,11 +413,17 @@ export async function handleVrchatCredentialsModal(
   const twoFactorCode = interaction.fields.getTextInputValue('vrchat_2fa')?.trim() || undefined;
 
   if (!username) {
-    await interaction.reply({ content: `${E.X_} Please enter your VRChat username.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Please enter your VRChat username.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
   if (!password) {
-    await interaction.reply({ content: `${E.X_} Please enter your VRChat password.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Please enter your VRChat password.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
@@ -398,7 +442,9 @@ export async function handleVrchatCredentialsModal(
     subjectId = ensureResult.subjectId;
   } catch (err) {
     logger.error('Failed to ensure subject for VRChat', { err, discordUserId });
-    await interaction.editReply({ content: `${E.X_} Failed to look up your account. Please try again.` });
+    await interaction.editReply({
+      content: `${E.X_} Failed to look up your account. Please try again.`,
+    });
     return;
   }
 
@@ -424,7 +470,11 @@ export async function handleVrchatCredentialsModal(
       }),
     });
 
-    const data = (await res.json()) as { success: boolean; error?: string; entitlementIds?: string[] };
+    const data = (await res.json()) as {
+      success: boolean;
+      error?: string;
+      entitlementIds?: string[];
+    };
 
     if (!data.success) {
       const msg = sanitizeUserFacingErrorMessage(data.error, 'Verification failed.');
@@ -447,110 +497,202 @@ export async function handleVrchatCredentialsModal(
 // ── Public: license key modal submitted → verify + link ───────────────────────
 
 export async function handleLicenseKeyModal(
-    interaction: ModalSubmitInteraction,
-    convex: ConvexHttpClient,
-    apiSecret: string,
-    apiBaseUrl: string | undefined,
+  interaction: ModalSubmitInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  apiBaseUrl: string | undefined
 ) {
-    // customId: creator_verify:lp_modal:{tenantId}:{providerProductRef}:{provider}
-    const rest = interaction.customId.slice('creator_verify:lp_modal:'.length);
-    // tenantId is first segment, providerProductRef can contain colons in edge cases,
-    // so provider is the final segment, tenantId is the first, middle is providerProductRef
-    const firstColon = rest.indexOf(':');
-    const lastColon = rest.lastIndexOf(':');
-    if (firstColon === -1 || lastColon === firstColon) {
-        await interaction.reply({ content: `${E.X_} Invalid modal state.`, flags: MessageFlags.Ephemeral });
-        return;
+  // customId: creator_verify:lp_modal:{tenantId}:{providerProductRef}:{provider}
+  const rest = interaction.customId.slice('creator_verify:lp_modal:'.length);
+  // tenantId is first segment, providerProductRef can contain colons in edge cases,
+  // so provider is the final segment, tenantId is the first, middle is providerProductRef
+  const firstColon = rest.indexOf(':');
+  const lastColon = rest.lastIndexOf(':');
+  if (firstColon === -1 || lastColon === firstColon) {
+    await interaction.reply({
+      content: `${E.X_} Invalid modal state.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const tenantId = rest.slice(0, firstColon) as Id<'tenants'>;
+  const provider = rest.slice(lastColon + 1);
+  const providerProductRef = rest.slice(firstColon + 1, lastColon);
+  const licenseKey = interaction.fields.getTextInputValue('license_key').trim();
+
+  // DEBUG: log all parsed values so we can see what productId goes to Gumroad
+  logger.info('[licenseVerify] Modal submitted', {
+    rawCustomId: interaction.customId,
+    tenantId: String(tenantId),
+    provider,
+    providerProductRef,
+    licenseKeyPrefix: licenseKey.slice(0, 8),
+    licenseKeyLength: licenseKey.length,
+  });
+
+  if (!licenseKey) {
+    await interaction.reply({
+      content: `${E.X_} Please enter a license key.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const updatesExistingPanel = interaction.isFromMessage() && Boolean(interaction.guildId);
+  if (updatesExistingPanel) {
+    await interaction.deferUpdate();
+  } else {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
+
+  // Find / create the subject for this Discord user
+  const discordUserId = interaction.user.id;
+  let subjectId: string | null = null;
+
+  try {
+    const ensureResult = await convex.mutation('subjects:ensureSubjectForDiscord' as any, {
+      apiSecret,
+      discordUserId,
+      displayName: interaction.user.displayName,
+      avatarUrl: interaction.user.displayAvatarURL(),
+    });
+    subjectId = ensureResult.subjectId;
+  } catch (err) {
+    logger.error('Failed to ensure subject', { err, discordUserId });
+    if (interaction.guildId && apiBaseUrl) {
+      const message = await interaction.editReply(
+        await buildVerifyStatusReply(
+          interaction.user.id,
+          tenantId,
+          interaction.guildId,
+          convex,
+          apiSecret,
+          apiBaseUrl,
+          { bannerMessage: `${E.X_} Failed to look up your account. Please try again.` }
+        )
+      );
+      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+    } else {
+      await interaction.editReply({
+        content: `${E.X_} Failed to look up your account. Please try again.`,
+      });
     }
+    return;
+  }
 
-    const tenantId = rest.slice(0, firstColon) as Id<'tenants'>;
-    const provider = rest.slice(lastColon + 1);
-    const providerProductRef = rest.slice(firstColon + 1, lastColon);
-    const licenseKey = interaction.fields.getTextInputValue('license_key').trim();
+  // Call the API to verify the license key (use internal URL when on Zeabur)
+  const { getApiUrls } = await import('../lib/apiUrls');
+  const { apiInternal, apiPublic } = getApiUrls();
+  const apiForFetch = apiInternal ?? apiPublic ?? apiBaseUrl;
+  if (!apiForFetch) {
+    if (interaction.guildId && apiBaseUrl) {
+      const message = await interaction.editReply(
+        await buildVerifyStatusReply(
+          interaction.user.id,
+          tenantId,
+          interaction.guildId,
+          convex,
+          apiSecret,
+          apiBaseUrl,
+          { bannerMessage: `${E.X_} API not available right now.` }
+        )
+      );
+      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+    } else {
+      await interaction.editReply({ content: `${E.X_} API not available right now.` });
+    }
+    return;
+  }
 
-    // DEBUG: log all parsed values so we can see what productId goes to Gumroad
-    logger.info('[licenseVerify] Modal submitted', {
-        rawCustomId: interaction.customId,
-        tenantId: String(tenantId),
-        provider,
-        providerProductRef,
-        licenseKeyPrefix: licenseKey.slice(0, 8),
-        licenseKeyLength: licenseKey.length,
+  try {
+    const res = await fetch(`${apiForFetch}/api/verification/complete-license`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        apiSecret,
+        licenseKey,
+        productId: providerProductRef,
+        tenantId,
+        subjectId,
+        discordUserId, // so the API can also create the binding
+      }),
     });
 
-    if (!licenseKey) {
-        await interaction.reply({ content: `${E.X_} Please enter a license key.`, flags: MessageFlags.Ephemeral });
-        return;
-    }
+    const data = (await res.json()) as {
+      entitlementIds?: string[];
+      error?: string;
+      provider?: string;
+      success: boolean;
+    };
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    // Find / create the subject for this Discord user
-    const discordUserId = interaction.user.id;
-    let subjectId: string | null = null;
-
-    try {
-        const ensureResult = await convex.mutation('subjects:ensureSubjectForDiscord' as any, {
+    if (!data.success) {
+      const msg = sanitizeUserFacingErrorMessage(data.error, 'Verification failed.');
+      logger.warn('License verification failed', { msg, tenantId, provider });
+      if (interaction.guildId && apiBaseUrl) {
+        const message = await interaction.editReply(
+          await buildVerifyStatusReply(
+            interaction.user.id,
+            tenantId,
+            interaction.guildId,
+            convex,
             apiSecret,
-            discordUserId,
-            displayName: interaction.user.displayName,
-            avatarUrl: interaction.user.displayAvatarURL(),
-        });
-        subjectId = ensureResult.subjectId;
-    } catch (err) {
-        logger.error('Failed to ensure subject', { err, discordUserId });
-        await interaction.editReply({ content: `${E.X_} Failed to look up your account. Please try again.` });
-        return;
+            apiBaseUrl,
+            { bannerMessage: `${E.X_} ${msg}` }
+          )
+        );
+        rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+      } else {
+        await interaction.editReply({ content: `${E.X_} ${msg}` });
+      }
+      return;
     }
 
-    // Call the API to verify the license key (use internal URL when on Zeabur)
-    const { getApiUrls } = await import('../lib/apiUrls');
-    const { apiInternal, apiPublic } = getApiUrls();
-    const apiForFetch = apiInternal ?? apiPublic ?? apiBaseUrl;
-    if (!apiForFetch) {
-        await interaction.editReply({ content: `${E.X_} API not available right now.` });
-        return;
+    // License verified! Now ensure a binding exists so the account shows as connected.
+    // completeLicense already does this internally, but as belt-and-suspenders also
+    // do a direct syncUserFromProvider to ensure the external_account is linked.
+    // (The binding creation is already handled inside completeLicense + sessionManager.)
+
+    const label = providerLabel(provider);
+    const meta = PROVIDER_META[provider];
+    const emoji = meta?.emojiKey ? (E[meta.emojiKey as keyof typeof E] ?? '') : '';
+    if (interaction.guildId && apiBaseUrl) {
+      const message = await interaction.editReply(
+        await buildVerifyStatusReply(
+          interaction.user.id,
+          tenantId,
+          interaction.guildId,
+          convex,
+          apiSecret,
+          apiBaseUrl,
+          {
+            bannerMessage: `${E.ClapStars} ${emoji} **${label} license verified!**\nYour account has been linked. Your roles will be updated shortly.`,
+          }
+        )
+      );
+      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+    } else {
+      await interaction.editReply({
+        content: `${E.ClapStars} ${emoji} **${label} license verified!**\nYour account has been linked. Run \`/creator\` to see your updated verification status.`,
+      });
     }
-
-    try {
-        const res = await fetch(`${apiForFetch}/api/verification/complete-license`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                apiSecret,
-                licenseKey,
-                productId: providerProductRef,
-                tenantId,
-                subjectId,
-                discordUserId,       // so the API can also create the binding
-            }),
-        });
-
-        const data = (await res.json()) as { success: boolean; error?: string };
-
-        if (!data.success) {
-            const msg = sanitizeUserFacingErrorMessage(data.error, 'Verification failed.');
-            logger.warn('License verification failed', { msg, tenantId, provider });
-            await interaction.editReply({ content: `${E.X_} ${msg}` });
-            return;
-        }
-
-        // License verified! Now ensure a binding exists so the account shows as connected.
-        // completeLicense already does this internally, but as belt-and-suspenders also
-        // do a direct syncUserFromProvider to ensure the external_account is linked.
-        // (The binding creation is already handled inside completeLicense + sessionManager.)
-
-        const label = providerLabel(provider);
-        const meta = PROVIDER_META[provider];
-        const emoji = meta?.emojiKey ? (E[meta.emojiKey as keyof typeof E] ?? '') : '';
-
-        await interaction.editReply({
-            content:
-                `${E.ClapStars} ${emoji} **${label} license verified!**\n` +
-                `Your account has been linked. Run \`/creator\` to see your updated verification status.`,
-        });
-    } catch (err) {
-        logger.error('License key verification request failed', { err });
-        await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
+  } catch (err) {
+    logger.error('License key verification request failed', { err });
+    if (interaction.guildId && apiBaseUrl) {
+      const message = await interaction.editReply(
+        await buildVerifyStatusReply(
+          interaction.user.id,
+          tenantId,
+          interaction.guildId,
+          convex,
+          apiSecret,
+          apiBaseUrl,
+          { bannerMessage: `${E.X_} An error occurred. Please try again.` }
+        )
+      );
+      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+    } else {
+      await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
     }
+  }
 }

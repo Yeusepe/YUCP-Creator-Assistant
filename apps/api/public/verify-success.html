@@ -180,10 +180,19 @@
         <script>
             (function () {
                 const params = new URLSearchParams(window.location.search);
+                const panelToken = params.get('panelToken');
                 const returnTo = params.get('returnTo');
                 const btn = document.getElementById('return-btn');
                 const redirectMsg = document.getElementById('redirect-msg');
                 const closeMsg = document.getElementById('close-msg');
+
+                if (panelToken) {
+                    fetch('/api/verification/panel/refresh', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ panelToken }),
+                    }).catch(() => {});
+                }
 
                 function getSafeReturnTo(value) {
                     if (!value) return null;
