@@ -20,6 +20,7 @@ import type * as guildLinks from "../guildLinks.js";
 import type * as guildMemberAdd from "../guildMemberAdd.js";
 import type * as http from "../http.js";
 import type * as identitySync from "../identitySync.js";
+import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
 import type * as lib_providers from "../lib/providers.js";
 import type * as lib_vrchat_client from "../lib/vrchat/client.js";
 import type * as lib_vrchat_cookie from "../lib/vrchat/cookie.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   guildMemberAdd: typeof guildMemberAdd;
   http: typeof http;
   identitySync: typeof identitySync;
+  "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
   "lib/providers": typeof lib_providers;
   "lib/vrchat/client": typeof lib_vrchat_client;
   "lib/vrchat/cookie": typeof lib_vrchat_cookie;

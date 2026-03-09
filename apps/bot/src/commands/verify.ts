@@ -75,9 +75,17 @@ interface ActiveVerifyPanel {
 
 const activeVerifyPanels = new Map<string, ActiveVerifyPanel>();
 
+interface LinkedAccountSummary {
+  _id?: string;
+  provider: string;
+  providerUserId?: string;
+  providerUsername?: string;
+  status: string;
+}
+
 interface VerifyData {
   state: VerifyState;
-  linkedAccounts: Array<{ provider: string; status: string }>;
+  linkedAccounts: LinkedAccountSummary[];
   productIds: string[];
   /** Products verified in this server only, with display names, limited for UI */
   guildProductDisplayList: Array<{ displayName: string }>;
@@ -231,12 +239,27 @@ async function fetchVerifyData(
     discordUserId: userId,
   });
 
-  let linkedAccounts: Array<{ provider: string; status: string }> = [];
+  let linkedAccounts: LinkedAccountSummary[] = [];
   let productIds: string[] = [];
   let guildProductDisplayList: Array<{ displayName: string }> = [];
   let inGuildCount = 0;
 
   if (subjectResult.found) {
+    try {
+      await convex.mutation(api.providerConnections.cleanupDuplicateAccountsForSubject as any, {
+        apiSecret,
+        subjectId: subjectResult.subject._id,
+        tenantId,
+      });
+    } catch (error) {
+      logger.warn('Failed to clean up duplicate linked accounts before rendering verify panel', {
+        discordUserId: userId,
+        error: error instanceof Error ? error.message : String(error),
+        subjectId: subjectResult.subject._id,
+        tenantId,
+      });
+    }
+
     const [accountsResult, entitlements, guildProducts] = await Promise.all([
       convex.query(api.subjects.getSubjectWithAccounts as any, {
         apiSecret,
@@ -370,6 +393,35 @@ function getConnectedNoProductsPrompt(enabled: EnabledProviders): string {
   return `Your account is connected but we didn't find any matching purchases.\nMake sure you're using the account you bought with, or ${hint}:`;
 }
 
+function getUniqueActiveEnabledProviders(
+  linkedAccounts: LinkedAccountSummary[],
+  enabledProviders: EnabledProviders
+): string[] {
+  const seen = new Set<string>();
+  const orderedProviders: string[] = [];
+
+  const providerEnabled = (provider: string) =>
+    (provider === 'gumroad' && enabledProviders.gumroad) ||
+    (provider === 'jinxxy' && enabledProviders.jinxxy) ||
+    (provider === 'discord' && enabledProviders.discord) ||
+    (provider === 'vrchat' && enabledProviders.vrchat);
+
+  for (const account of linkedAccounts) {
+    if (account.status !== 'active') continue;
+    if (!providerEnabled(account.provider)) continue;
+    if (seen.has(account.provider)) continue;
+    seen.add(account.provider);
+    orderedProviders.push(account.provider);
+  }
+
+  return orderedProviders;
+}
+
+function getActiveProviderCount(linkedAccounts: LinkedAccountSummary[], provider: string): number {
+  return linkedAccounts.filter((account) => account.provider === provider && account.status === 'active')
+    .length;
+}
+
 function buildStatusContainer(
   data: VerifyData,
   tenantId: Id<'tenants'>,
@@ -425,20 +477,24 @@ function buildStatusContainer(
 
   // Connected accounts - filter by enabledProviders (server-relevant only)
   const lines: string[] = [];
+  const getConnectionLabel = (provider: string, label: string, emoji: string) => {
+    const activeCount = getActiveProviderCount(linkedAccounts, provider);
+    if (activeCount === 0) {
+      return `${emoji} ${label} - Not connected`;
+    }
+    if (activeCount === 1) {
+      return `${emoji} ${label} - ${E.Checkmark} Connected`;
+    }
+    return `${emoji} ${label} - ${E.Checkmark} ${activeCount} accounts connected`;
+  };
   if (enabledProviders.gumroad)
-    lines.push(
-      `${E.Gumorad} Gumroad - ${hasGumroad ? `${E.Checkmark} Connected` : '- Not connected'}`
-    );
+    lines.push(getConnectionLabel('gumroad', 'Gumroad', E.Gumorad));
   if (enabledProviders.jinxxy)
-    lines.push(
-      `${E.Jinxxy} Jinxxy - ${hasJinxxy ? `${E.Checkmark} Connected` : '- Not connected'}`
-    );
+    lines.push(getConnectionLabel('jinxxy', 'Jinxxy', E.Jinxxy));
   if (enabledProviders.vrchat)
-    lines.push(`${E.VRC} VRChat - ${hasVrchat ? `${E.Checkmark} Connected` : '- Not connected'}`);
+    lines.push(getConnectionLabel('vrchat', 'VRChat', E.VRC));
   if (enabledProviders.discord)
-    lines.push(
-      `${E.Discord} Discord (other server) - ${hasDiscord ? `${E.Checkmark} Connected` : '- Not connected'}`
-    );
+    lines.push(getConnectionLabel('discord', 'Discord (other server)', E.Discord));
   if (lines.length > 0) {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(`**Connected Accounts**\n${lines.join('\n')}`)
@@ -611,19 +667,11 @@ function buildStatusContainer(
       );
     }
 
-    // Disconnect row: show only for providers that are connected AND enabled for this server
-    const activeProviders = linkedAccounts.filter((a) => a.status === 'active');
-    const providerEnabled = (p: string) =>
-      (p === 'gumroad' && enabledProviders.gumroad) ||
-      (p === 'jinxxy' && enabledProviders.jinxxy) ||
-      (p === 'discord' && enabledProviders.discord) ||
-      (p === 'vrchat' && enabledProviders.vrchat);
-    const disconnectButtons = activeProviders
-      .filter((a) => providerEnabled(a.provider))
-      .map((a) =>
+    const disconnectButtons = getUniqueActiveEnabledProviders(linkedAccounts, enabledProviders)
+      .map((provider) =>
         new ButtonBuilder()
-          .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
-          .setLabel(`Disconnect ${providerLabel(a.provider)}`)
+          .setCustomId(`${VERIFY_PREFIX}disconnect:${provider}`)
+          .setLabel(`Disconnect ${providerLabel(provider)}`)
           .setEmoji(Emoji.X_)
           .setStyle(ButtonStyle.Danger)
       );
@@ -640,24 +688,17 @@ function buildStatusContainer(
       )
     );
 
-    const activeProviders = linkedAccounts.filter((a) => a.status === 'active');
-    const providerEnabled = (p: string) =>
-      (p === 'gumroad' && enabledProviders.gumroad) ||
-      (p === 'jinxxy' && enabledProviders.jinxxy) ||
-      (p === 'discord' && enabledProviders.discord) ||
-      (p === 'vrchat' && enabledProviders.vrchat);
     const primaryButtons = [
       new ButtonBuilder()
         .setCustomId(`${VERIFY_PREFIX}add_more:${tenantId}`)
         .setLabel('Add another account')
         .setEmoji(Emoji.Refresh)
         .setStyle(ButtonStyle.Secondary),
-      ...activeProviders
-        .filter((a) => providerEnabled(a.provider))
-        .map((a) =>
+      ...getUniqueActiveEnabledProviders(linkedAccounts, enabledProviders)
+        .map((provider) =>
           new ButtonBuilder()
-            .setCustomId(`${VERIFY_PREFIX}disconnect:${a.provider}`)
-            .setLabel(`Disconnect ${providerLabel(a.provider)}`)
+            .setCustomId(`${VERIFY_PREFIX}disconnect:${provider}`)
+            .setLabel(`Disconnect ${providerLabel(provider)}`)
             .setEmoji(Emoji.X_)
             .setStyle(ButtonStyle.Danger)
         ),
