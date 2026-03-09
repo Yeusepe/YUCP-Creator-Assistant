@@ -1,4 +1,4 @@
-YUCP Creator Assistant
+![YUCP Creator Assistant](https://github.com/user-attachments/assets/592a7c28-0bec-4673-9a43-0656d2a9ca6c)
 
 ---
 
