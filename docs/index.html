@@ -13,7 +13,16 @@
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/rough-notation@0.5.1/lib/rough-notation.iife.js"></script>
     <link rel="stylesheet" href="tokens.css">
+
+    <svg style="display: none" aria-hidden="true">
+        <filter id="lg-dist" x="0%" y="0%" width="100%" height="100%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.008 0.008" numOctaves="2" seed="92" result="noise" />
+            <feGaussianBlur in="noise" stdDeviation="2" result="blurred" />
+            <feDisplacementMap in="SourceGraphic" in2="blurred" scale="45" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+    </svg>
 
     <style>        
         html,
@@ -46,8 +55,9 @@
             height: 650px;
             border-radius: 50%;
             filter: blur(110px);
-            opacity: 0.5;
+            opacity: calc(0.5 * var(--blob-intensity, 1));
             will-change: transform;
+            transition: opacity 0.2s ease;
         }
 
         .blob:nth-child(1) { background: #FF75C3; }
@@ -57,8 +67,49 @@
         .blob:nth-child(5) { background: #70E2FF; }
 
         .blob.latched {
-            opacity: 0.7;
+            opacity: calc(0.7 * var(--blob-intensity, 1));
             filter: blur(110px);
+        }
+
+        .scroll-blur-bg {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .scroll-blur-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            overflow: hidden;
+            isolation: isolate;
+        }
+        .scroll-blur-overlay .lg-filter {
+            position: absolute;
+            inset: 0;
+            -webkit-backdrop-filter: blur(calc(var(--scroll-blur, 0) * 1px)) saturate(160%);
+            backdrop-filter: blur(calc(var(--scroll-blur, 0) * 1px)) saturate(160%);
+            /* filter: url(#lg-dist) removed — displacement caused hero graphic to fade in/out of sharpness */
+            transition: backdrop-filter 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+        }
+        .scroll-blur-overlay .lg-tint {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg,
+                rgba(255, 255, 255, calc(var(--scroll-darken, 0) * 0.12)) 0%,
+                transparent 30%,
+                rgba(0, 0, 0, calc(var(--scroll-darken, 0) * 0.5)) 65%,
+                rgba(0, 0, 0, var(--scroll-darken, 0)) 100%);
+            transition: background 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+        }
+        .scroll-blur-overlay .lg-specular {
+            position: absolute;
+            inset: 0;
+            box-shadow: inset 1px 1px 0 rgba(255, 255, 255, calc(var(--scroll-darken, 0) * 0.35)),
+                inset 0 0 60px rgba(255, 255, 255, calc(var(--scroll-darken, 0) * 0.08));
+            pointer-events: none;
+            transition: box-shadow 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
         }
 
         #bg-canvas-root {
@@ -76,7 +127,8 @@
             top: 0;
             left: 0;
             width: 100%;
-            height: 100vh;
+            height: 100%;
+            min-height: 100vh;
             z-index: 5;
             pointer-events: none;
         }
@@ -189,61 +241,6 @@
             animation: rainbow-move 5s ease infinite;
         }
 
-        /* ── Aurora Text (Magic UI style) ──────────────────────────────────────── */
-        .aurora-text {
-            display: inline-block;
-            background: linear-gradient(135deg, #FF0080, #7928CA, #0070F3, #38bdf8, #FF0080);
-            background-size: 200% auto;
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            animation: aurora-text 8s ease-in-out infinite alternate;
-        }
-
-        @keyframes aurora-text {
-            0% { background-position: 0% 50%; transform: rotate(-5deg) scale(0.9); }
-            25% { background-position: 50% 100%; transform: rotate(5deg) scale(1.1); }
-            50% { background-position: 100% 50%; transform: rotate(-3deg) scale(0.95); }
-            75% { background-position: 50% 0%; transform: rotate(3deg) scale(1.05); }
-            100% { background-position: 0% 50%; transform: rotate(-5deg) scale(0.9); }
-        }
-
-        /* ── Text Reveal (Magic UI style: ghost + scroll reveal) ───────────────── */
-        .text-reveal-wrap {
-            position: relative;
-            display: inline;
-        }
-
-        .text-reveal-ghost {
-            opacity: 0.25;
-            color: inherit;
-        }
-
-        .text-reveal-words {
-            position: absolute;
-            left: 0;
-            top: 0;
-            display: inline;
-            white-space: pre-wrap;
-        }
-
-        .text-reveal-word {
-            display: inline-block;
-            opacity: 0;
-            transition: opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-            margin-right: 0.25em;
-        }
-
-        .text-reveal-wrap.revealed .text-reveal-word {
-            opacity: 1;
-        }
-
-        /* ── Text Highlighter (rough-notation style) ──────────────────────────── */
-        .highlighter-target {
-            position: relative;
-            display: inline;
-        }
-
         @keyframes rainbow-move {
             0% {
                 background-position: 0% 50%;
@@ -256,6 +253,48 @@
             100% {
                 background-position: 0% 50%;
             }
+        }
+
+        /* ── Aurora Text (blob rainbow colors) ───────────────────────────────── */
+        .aurora-text {
+            background: linear-gradient(135deg, #FF75C3, #FFA647, #FFE83F, #9FFF5B, #70E2FF, #FF75C3);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: aurora 8s ease-in-out infinite alternate;
+        }
+        .text-animate.aurora-text {
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        #hero.hero-visible .text-animate.aurora-text {
+            opacity: 1;
+        }
+        @keyframes aurora {
+            0% { background-position: 0% 50%; }
+            25% { background-position: 50% 100%; }
+            50% { background-position: 100% 50%; }
+            75% { background-position: 50% 0%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* ── Text Reveal (scroll-into-view, word stagger) ────────────────────── */
+        .text-reveal-word {
+            display: inline-block;
+            opacity: 0;
+            transform: translateY(8px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+        .text-reveal-visible .text-reveal-word { opacity: 1; transform: translateY(0); }
+        .text-reveal-visible .text-reveal-word:nth-child(1) { transition-delay: 0ms; }
+        .text-reveal-visible .text-reveal-word:nth-child(2) { transition-delay: 80ms; }
+        .text-reveal-visible .text-reveal-word:nth-child(3) { transition-delay: 160ms; }
+
+        /* ── Text Highlighter (rough-notation target) ─────────────────────────── */
+        .highlighter-target {
+            position: relative;
+            display: inline;
         }
 
         .sticker {
@@ -422,6 +461,25 @@
             transform: scale(0.96) !important;
         }
 
+        /* Hero CTA: aurora background on hover (same as Done text) */
+        #hero .btn-primary:hover::before {
+            background: linear-gradient(135deg, #FF75C3, #FFA647, #FFE83F, #9FFF5B, #70E2FF, #FF75C3);
+            background-size: 200% auto;
+            animation: aurora 8s ease-in-out infinite alternate;
+        }
+        #hero .btn-primary:hover {
+            text-shadow: 0 0 16px rgba(0,0,0,0.5), 0 0 28px rgba(0,0,0,0.4), 0 0 40px rgba(0,0,0,0.3);
+        }
+        #hero .btn-primary:hover img,
+        #hero .btn-primary:hover svg {
+            filter: drop-shadow(0 0 12px rgba(0,0,0,0.5)) drop-shadow(0 0 24px rgba(0,0,0,0.4)) drop-shadow(0 0 36px rgba(0,0,0,0.3));
+        }
+        #hero .btn-hero-content {
+            display: inline-flex;
+            transition: transform 0.12s ease-out;
+            will-change: transform;
+        }
+
         /* ── Discord Mockup ──────────────────────────────────────────────────── */
         .discord-mockup {
             background: #2b2d31;
@@ -539,6 +597,107 @@
             height: 32px;
             object-fit: contain;
         }
+        @media (prefers-reduced-motion: no-preference) {
+            .feature-icon-box img {
+                animation: idle-float 4s ease-in-out infinite;
+            }
+        }
+        .feature-icon-box {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .feature-icon-box:hover {
+            transform: scale(1.08) translateY(-2px);
+            box-shadow: 0 12px 32px rgba(14, 165, 233, 0.25);
+        }
+        .feature-icon-box:hover img {
+            animation: icon-float 1.5s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            .int-check-icon {
+                animation: idle-breathe 3.5s ease-in-out infinite;
+            }
+        }
+        @keyframes icon-float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+        }
+        .int-check-icon {
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+        }
+        .int-check-item:hover .int-check-icon {
+            transform: scale(1.12);
+            box-shadow: 0 4px 16px rgba(255, 255, 255, 0.12);
+            animation-play-state: paused;
+        }
+        .mouse-parallax {
+            transition: transform 0.12s ease-out;
+            will-change: transform;
+        }
+        .mouse-parallax-chip {
+            transition: transform 0.15s ease-out;
+            will-change: transform;
+        }
+
+        /* ── Mobile Menu: Blur Fade + staggered reveal (Magic UI inspired) ────── */
+        #mobile-menu {
+            opacity: 0;
+            transform: translateY(-10px);
+            filter: blur(8px);
+            transition: opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+                filter 0.35s ease-out;
+        }
+        #mobile-menu.mobile-menu-open {
+            opacity: 1;
+            transform: translateY(0);
+            filter: blur(0);
+        }
+        #mobile-menu .mobile-menu-item {
+            opacity: 0;
+            transform: translateY(8px);
+            transition: opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+                color 0.2s ease;
+        }
+        #mobile-menu.mobile-menu-open .mobile-menu-item {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        #mobile-menu.mobile-menu-open .mobile-menu-item:nth-child(1) { transition-delay: 0.05s; }
+        #mobile-menu.mobile-menu-open .mobile-menu-item:nth-child(2) { transition-delay: 0.1s; }
+        #mobile-menu.mobile-menu-open .mobile-menu-item:nth-child(3) { transition-delay: 0.15s; }
+        #mobile-menu.mobile-menu-open .mobile-menu-item:nth-child(4) { transition-delay: 0.2s; }
+        @media (prefers-reduced-motion: reduce) {
+            #mobile-menu,
+            #mobile-menu .mobile-menu-item {
+                transition: none;
+            }
+        }
+
+        /* ── Idle animations (respect prefers-reduced-motion) ─────────────────── */
+        @media (prefers-reduced-motion: no-preference) {
+            .idle-float {
+                animation: idle-float 4s ease-in-out infinite;
+            }
+            .idle-breathe {
+                animation: idle-breathe 3.5s ease-in-out infinite;
+            }
+            .idle-glow {
+                animation: idle-glow 2.5s ease-in-out infinite;
+            }
+        }
+        @keyframes idle-float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+        @keyframes idle-breathe {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.04); }
+        }
+        @keyframes idle-glow {
+            0%, 100% { box-shadow: 0 0 0 rgba(14, 165, 233, 0); }
+            50% { box-shadow: 0 0 20px rgba(14, 165, 233, 0.2); }
+        }
 
         /* ── Integration Diagram ────────────────────────────────────────────── */
         .int-diagram {
@@ -588,6 +747,12 @@
             width: 36px; height: 36px; border-radius: 10px; border: 1px solid;
             display: flex; align-items: center; justify-content: center;
             flex-shrink: 0;
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            .int-store-icon { animation: idle-float 5s ease-in-out infinite; }
+            .int-stores-row > .int-store-node:nth-child(1) .int-store-icon { animation-delay: 0s; }
+            .int-stores-row > .int-store-node:nth-child(3) .int-store-icon { animation-delay: 0.8s; }
+            .int-stores-row > .int-store-node:nth-child(5) .int-store-icon { animation-delay: 1.6s; }
         }
         .int-store-icon img { width: 20px; height: 20px; object-fit: contain; }
         .int-store-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -728,11 +893,11 @@
         /* ── Loading overlay fade ──────────────────────────────────────────── */
         #page-loading-overlay {
             transition: opacity 0.35s ease;
+            pointer-events: none;
         }
 
         #page-loading-overlay.is-hiding {
             opacity: 0;
-            pointer-events: none;
         }
 
         #page-content {
@@ -843,6 +1008,16 @@
         /* ── Scrollbar hide ──────────────────────────────────────────────────── */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* ── Mobile responsive enhancements ─────────────────────────────────── */
+        @media (max-width: 1023px) {
+            /* Auto-center feature icon boxes when parent is text-center */
+            .feature-icon-box { margin-left: auto; margin-right: auto; }
+            /* Spec strip stacks on small screens */
+            .spec-strip-inner { flex-direction: column; }
+            /* Mockup max-width on mobile for better proportions */
+            .mobile-mockup-cap { max-width: 480px; margin-left: auto; margin-right: auto; }
+        }
     </style>
 
     <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
@@ -872,8 +1047,10 @@
 
     <div id="page-content" style="display:none;" class="overflow-x-hidden w-full m-0 p-0 relative">
 
+        <!-- Background layer (blur increases on scroll from Philosophy to Integrations) -->
+        <div id="scroll-blur-bg" class="scroll-blur-bg">
         <!-- Blob background (same as docs.html) -->
-        <div class="blobs-container">
+        <div class="blobs-container" id="blobs-container">
             <div class="blob"></div>
             <div class="blob"></div>
             <div class="blob"></div>
@@ -881,22 +1058,32 @@
             <div class="blob"></div>
         </div>
 
-        <!-- Canvas layers -->
+        <!-- Canvas layers (both fixed to span whole page) -->
         <div id="bg-canvas-root" class="w-full"></div>
         <div id="fg-canvas-root" class="w-full"></div>
+        </div>
+
+        <div id="scroll-blur-overlay" class="scroll-blur-overlay">
+            <div class="lg-filter"></div>
+            <div class="lg-tint"></div>
+            <div class="lg-specular"></div>
+        </div>
 
         <!-- Custom cursor -->
         <div class="cursor-dot hidden md:block"></div>
         <div class="cursor-dot-outline hidden md:block"></div>
 
         <!-- ── Floating Pill Nav ─────────────────────────────────────────────────── -->
-        <div class="fixed top-5 inset-x-0 flex justify-center z-50 px-3 sm:px-4 pointer-events-none">
+        <div class="fixed top-5 inset-x-0 flex justify-center z-[100] px-3 sm:px-4" style="pointer-events: auto;">
             <nav
-                class="pill-nav pointer-events-auto flex items-center justify-between w-full max-w-4xl px-2 sm:px-4 py-1.5 sm:py-2 transition-all duration-300 relative box-border overflow-hidden sm:overflow-visible">
+                class="pill-nav flex items-center justify-between w-full max-w-4xl px-2 sm:px-4 py-1.5 sm:py-2 transition-all duration-300 relative box-border overflow-visible">
                 <!-- Mobile Toggle -->
-                <button id="mobile-menu-btn"
-                    class="md:hidden text-white/70 hover:text-white p-1 sm:p-2 flex-shrink-0 clickable"
-                    aria-label="Menu">
+                <button type="button" id="mobile-menu-btn"
+                    class="md:hidden text-white/70 hover:text-white p-1 sm:p-2 flex-shrink-0 clickable touch-manipulation cursor-pointer"
+                    style="pointer-events: auto;"
+                    aria-label="Menu"
+                    aria-expanded="false"
+                    aria-controls="mobile-menu">
                     <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 6h16M4 12h16M4 18h16"></path>
@@ -932,42 +1119,23 @@
 
                 <!-- Mobile Menu Dropdown -->
                 <div id="mobile-menu"
-                    class="absolute top-[calc(100%+10px)] left-0 right-0 p-4 rounded-2xl bg-[#1e1f22]/95 backdrop-blur-xl border border-white/10 shadow-2xl flex-col gap-3 hidden md:hidden">
-                    <a href="#features"
-                        class="nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2"
-                        onclick="document.getElementById('mobile-menu').classList.add('hidden'); document.getElementById('mobile-menu').classList.remove('flex');">Features</a>
-                    <a href="#integrations"
-                        class="nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2"
-                        onclick="document.getElementById('mobile-menu').classList.add('hidden'); document.getElementById('mobile-menu').classList.remove('flex');">Integrations</a>
-                    <a href="#security"
-                        class="nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2"
-                        onclick="document.getElementById('mobile-menu').classList.add('hidden'); document.getElementById('mobile-menu').classList.remove('flex');">Security</a>
-                    <a href="docs.html"
-                        class="nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2"
-                        onclick="document.getElementById('mobile-menu').classList.add('hidden'); document.getElementById('mobile-menu').classList.remove('flex');">Docs</a>
+                    class="absolute top-[calc(100%+10px)] left-0 right-0 p-4 rounded-2xl bg-[#1e1f22]/95 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col gap-3"
+                    style="display:none;z-index:200;">
+                    <a href="#features" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Features</a>
+                    <a href="#integrations" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Integrations</a>
+                    <a href="#security" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Security</a>
+                    <a href="docs.html" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Docs</a>
                 </div>
             </nav>
         </div>
-        <script>
-            document.addEventListener("DOMContentLoaded", () => {
-                const btn = document.getElementById('mobile-menu-btn');
-                const menu = document.getElementById('mobile-menu');
-                if (btn && menu) {
-                    btn.addEventListener('click', function () {
-                        menu.classList.toggle('hidden');
-                        menu.classList.toggle('flex');
-                    });
-                }
-            });
-        </script>
 
         <!-- ── Hero ──────────────────────────────────────────────────────────────── -->
-        <main id="hero" class="content-above-clouds min-h-screen flex items-center px-4 sm:px-6 lg:px-10 relative pt-24 pb-12" data-blob-index="0">
+        <main id="hero" class="content-above-clouds min-h-screen flex items-start lg:items-center px-4 sm:px-6 lg:px-10 relative pt-24 pb-20 lg:pb-12" data-blob-index="0">
 
-            <div class="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-12 xl:gap-20 items-center relative z-10">
+            <div class="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-20 items-center relative z-10">
 
                 <!-- ── Left: Copy ────────────────────────────────────────────── -->
-                <div>
+                <div class="text-center lg:text-left">
                     <!-- Top pill -->
                     <div class="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full mb-8 reveal"
                         style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);">
@@ -986,27 +1154,30 @@
                     <!-- Headline -->
                     <h1 class="text-white mb-5 reveal reveal-delay-1"
                         style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2.4rem,5.5vw,4.25rem);line-height:1.04;letter-spacing:-0.04em;">
-                        <span class="text-reveal-wrap" data-text-reveal="License verified. Role granted. "></span><br>
-                        <span class="aurora-text">Done.</span>
+                        <span class="text-animate">License verified.</span><br>
+                        <span class="text-animate">Role granted.</span><br>
+                        <span class="aurora-text text-animate">Done.</span>
                     </h1>
 
                     <!-- Sub -->
-                    <p class="text-white/50 mb-8 reveal reveal-delay-2"
+                    <p class="text-white/50 mb-8 reveal reveal-delay-2 mx-auto lg:mx-0"
                         style="font-size:clamp(0.95rem,2vw,1.1rem);line-height:1.65;max-width:420px;">
-                        Connect your Gumroad, Jinxxy, or VRChat store to Discord. Buyers verify their purchase and get exclusive roles, <span class="highlighter-target" data-highlight="highlight" data-highlight-color="#ffeb3b">automatically</span>, <span class="highlighter-target" data-highlight="underline" data-highlight-color="#0ea5e9">in seconds</span>.
+                        Connect your Gumroad, Jinxxy, or VRChat store to Discord. Buyers verify their purchase and get exclusive roles, automatically, in seconds.
                     </p>
 
                     <!-- CTAs -->
-                    <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center mb-10 reveal reveal-delay-3">
+                    <div class="flex flex-col sm:flex-row gap-4 items-center justify-center lg:justify-start mb-10 reveal reveal-delay-3">
                         <button
                             class="btn-primary clickable px-7 py-3.5 font-bold text-sm uppercase tracking-widest text-white group flex items-center gap-2.5"
                             onclick="fireConfetti(this);window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')">
-                            <img src="Icons/Discord.png" class="h-4 w-4 object-contain" alt="">
-                            Add to Discord &mdash; Free
-                            <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none"
-                                stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                            </svg>
+                            <span class="btn-hero-content flex items-center gap-2.5">
+                                <img src="Icons/Discord.png" class="h-4 w-4 object-contain" alt="">
+                                Add to Discord &mdash; Free
+                                <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none"
+                                    stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                                </svg>
+                            </span>
                         </button>
                         <a href="docs.html"
                             class="clickable text-sm font-bold uppercase tracking-widest text-white/40 hover:text-white/90 transition-colors flex items-center gap-2">
@@ -1017,13 +1188,14 @@
                         </a>
                     </div>
 
+
                 </div>
 
                 <!-- ── Right: Discord mockup ──────────────────────────────────── -->
-                <div class="section-graphic relative hidden lg:block reveal reveal-delay-2">
+                <div class="section-graphic mouse-parallax mouse-parallax-hero relative block mobile-mockup-cap reveal reveal-delay-2">
 
                     <!-- Floating chip: verified (top-right) -->
-                    <div class="absolute -top-5 -right-6 z-20 flex items-center gap-3 px-4 py-3 rounded-2xl"
+                    <div class="absolute -top-5 -right-6 z-20 hidden md:flex items-center gap-3 px-4 py-3 rounded-2xl mouse-parallax-chip"
                         style="background:rgba(8,10,18,0.92);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.09);box-shadow:0 16px 48px rgba(0,0,0,0.6);">
                         <div class="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
                             style="background:rgba(0,230,118,0.15);border:1px solid rgba(0,230,118,0.2);">
@@ -1036,7 +1208,7 @@
                     </div>
 
                     <!-- Floating chip: protected (bottom-left) -->
-                    <div class="absolute -bottom-5 -left-6 z-20 px-4 py-3 rounded-2xl"
+                    <div class="absolute -bottom-5 -left-6 z-20 hidden md:block px-4 py-3 rounded-2xl mouse-parallax-chip"
                         style="background:rgba(8,10,18,0.92);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.09);box-shadow:0 16px 48px rgba(0,0,0,0.6);">
                         <div class="text-white/30 text-[10px] font-bold uppercase tracking-wider mb-1">Protected from</div>
                         <div class="text-white text-sm font-black flex items-center gap-2">
@@ -1070,7 +1242,7 @@
                         <div class="flex" style="height:310px;">
 
                             <!-- Sidebar -->
-                            <div class="flex flex-col flex-shrink-0 py-3"
+                            <div class="hidden lg:flex flex-col flex-shrink-0 py-3"
                                 style="width:160px;background:#2b2d31;border-right:1px solid rgba(0,0,0,0.4);">
                                 <!-- Server name -->
                                 <div class="px-3 pb-2.5 mb-1" style="border-bottom:1px solid rgba(0,0,0,0.35);">
@@ -1153,7 +1325,7 @@
                                                 <div class="p-3">
                                                     <div class="text-white text-xs font-black mb-1">Verify your purchase</div>
                                                     <p class="text-white/45 text-xs leading-relaxed mb-2.5">Click below to link your purchase and unlock your exclusive roles.</p>
-                                                    <button class="px-3.5 py-1.5 rounded text-white text-xs font-bold"
+                                                    <button id="mockup-verify-btn" class="px-3.5 py-1.5 rounded text-white text-xs font-bold cursor-pointer transition-all"
                                                         style="background:#5865F2;">Verify Purchase</button>
                                                 </div>
                                             </div>
@@ -1161,7 +1333,7 @@
                                     </div>
 
                                     <!-- User types /verify -->
-                                    <div class="flex items-start gap-2.5">
+                                    <div id="mockup-user-verify" class="flex items-start gap-2.5" style="opacity:0;transform:translateY(6px);transition:opacity 0.35s ease,transform 0.35s ease;">
                                         <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-black"
                                             style="background:linear-gradient(135deg,#818cf8,#FF90E8);">M</div>
                                         <div>
@@ -1177,7 +1349,7 @@
                                     </div>
 
                                     <!-- Bot verified response -->
-                                    <div class="flex items-start gap-2.5">
+                                    <div id="mockup-verify-response" class="flex items-start gap-2.5" style="opacity:0;transform:translateY(6px);transition:opacity 0.35s ease,transform 0.35s ease;">
                                         <div class="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden"
                                             style="background:rgba(88,101,242,0.2);border:1px solid rgba(88,101,242,0.3);">
                                             <img src="Icons/Assistant.png" class="w-full h-full object-cover" alt="">
@@ -1213,7 +1385,7 @@
                                     </div>
 
                                     <!-- System line -->
-                                    <div class="flex items-center gap-2">
+                                    <div id="mockup-system-line" class="flex items-center gap-2" style="opacity:0;transition:opacity 0.35s ease;">
                                         <div class="flex-1 h-px" style="background:rgba(255,255,255,0.04);"></div>
                                         <span class="text-[10px] font-semibold whitespace-nowrap" style="color:rgba(255,255,255,0.18);">maya.creates was given @Premium Member</span>
                                         <div class="flex-1 h-px" style="background:rgba(255,255,255,0.04);"></div>
@@ -1222,6 +1394,20 @@
                                 </div>
                             </div>
 
+                        </div>
+                    </div>
+
+                    <!-- Mobile-only badge row (replaces absolute chips) -->
+                    <div class="flex items-center gap-3 mt-4 md:hidden justify-center flex-wrap">
+                        <div class="flex items-center gap-2 px-3 py-2 rounded-xl"
+                            style="background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.2);">
+                            <img src="Icons/Checkmark.png" class="w-3.5 h-3.5 object-contain" alt="">
+                            <span class="text-[11px] font-black" style="color:#00e676;">Purchase Verified</span>
+                        </div>
+                        <div class="flex items-center gap-2 px-3 py-2 rounded-xl"
+                            style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.09);">
+                            <img src="Icons/Key.png" class="w-3.5 h-3.5 object-contain opacity-70" alt="">
+                            <span class="text-[11px] font-black text-white/70">Leaks &amp; Fraud Blocked</span>
                         </div>
                     </div>
                 </div>
@@ -1234,20 +1420,20 @@
         <section class="content-above-clouds py-14 px-4 sm:px-6 overflow-hidden relative z-10"
             id="features" data-blob-index="1">
             <div class="max-w-6xl mx-auto flex flex-col lg:flex-row items-center gap-10 lg:gap-20">
-                <div class="lg:w-5/12 reveal section-graphic">
+                <div class="lg:w-5/12 reveal section-graphic mouse-parallax text-center lg:text-left" data-parallax-speed="0.6">
                     <p class="text-[var(--accent-sky)] font-bold uppercase tracking-[0.25em] text-xs mb-3">The Philosophy</p>
-                    <h2 class="text-3xl sm:text-4xl md:text-5xl text-white leading-[1.1]">
-                        <span class="text-animate">Functionality with</span> <span
-                            class="text-[var(--accent-mustard)] inline-block transform -rotate-2 hover:rotate-2 transition-transform cursor-default">flavor.</span>
+                    <h2 class="text-3xl sm:text-4xl md:text-5xl text-white leading-[1.1] text-reveal">
+                        <span class="text-reveal-word">Functionality</span> <span class="text-reveal-word">with</span> <span
+                            class="text-reveal-word text-[var(--accent-mustard)] inline-block transform -rotate-2 hover:rotate-2 transition-transform cursor-default">flavor.</span>
                     </h2>
                 </div>
                 <div class="lg:w-7/12 text-base sm:text-lg text-white/65 leading-relaxed reveal reveal-delay-1">
                     A seamless bridge between your
                     <span class="blob-text border-[#FF90E8] text-[#FF90E8] hover:bg-[#FF90E8] hover:text-white transition-colors cursor-crosshair sticker">STOREFRONT</span>
                     and your server. Automatically grant
-                    <span class="inline-block relative group mx-1"><span class="relative z-10 text-[var(--accent-mustard)] font-bold">ROLES</span><span class="absolute bottom-0 left-0 w-full h-2 bg-[var(--accent-mustard)]/30 group-hover:h-full transition-all duration-300 -z-10 rounded"></span></span>
+                    <span class="inline-block relative group mx-1"><span id="hl-roles" class="relative z-10 text-[var(--accent-mustard)] font-bold highlighter-target">ROLES</span><span class="absolute bottom-0 left-0 w-full h-2 bg-[var(--accent-mustard)]/30 group-hover:h-full transition-all duration-300 -z-10 rounded"></span></span>
                     based on purchases. Secure your community from
-                    <span class="blob-solid bg-rose-500 text-white sticker shadow-lg">LEAKS</span>
+                    <span class="blob-solid sticker shadow-lg" style="background-color:#f43f5e;color:#fff;">LEAKS</span>
                     without sacrificing the experience.
                 </div>
             </div>
@@ -1259,7 +1445,7 @@
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-14 lg:gap-20">
 
                 <!-- Left: Text -->
-                <div class="flex-1 max-w-xl reveal">
+                <div class="flex-1 max-w-xl reveal text-center lg:text-left">
                     <div class="feature-icon-box sticker mb-5"
                         style="background:rgba(14,165,233,0.15);box-shadow:0 8px 24px rgba(14,165,233,0.2);">
                         <img src="Icons/Link.png" alt="">
@@ -1322,7 +1508,7 @@
                 </div>
 
                 <!-- Right: Integration flow diagram -->
-                <div class="flex-1 w-full min-w-0 mx-auto lg:mx-0 reveal reveal-delay-1 section-graphic">
+                <div class="flex-1 w-full min-w-0 mx-auto lg:mx-0 mobile-mockup-cap reveal reveal-delay-1 section-graphic mouse-parallax" data-parallax-speed="0.85">
                     <div class="int-diagram">
 
                         <!-- Header -->
@@ -1469,7 +1655,7 @@
         <!-- ── Feature: Rules Engine ─────────────────────────────────────────────── -->
         <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="3">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
-                <div class="flex-1 reveal">
+                <div class="flex-1 reveal text-center lg:text-left">
                     <div class="feature-icon-box sticker section-graphic"
                         style="background:rgba(255,235,59,0.15);box-shadow:0 8px 24px rgba(255,235,59,0.15);">
                         <img src="Icons/Wrench.png" alt="">
@@ -1484,7 +1670,7 @@
                         Map any product to any Discord role with one command. The moment a purchase lands, the role
                         appears. When a refund hits, it's revoked. Zero manual work, ever.
                     </p>
-                    <div class="flex flex-wrap gap-3">
+                    <div class="flex flex-wrap gap-3 justify-center lg:justify-start">
                         <div class="tag-pill">
                             <div class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></div>Auto Role Assignment
                         </div>
@@ -1496,8 +1682,8 @@
                         </div>
                     </div>
                 </div>
-                <div class="flex-1 w-full reveal reveal-delay-1">
-                    <div class="discord-mockup p-8">
+                <div class="flex-1 w-full mobile-mockup-cap reveal reveal-delay-1">
+                    <div class="discord-mockup mouse-parallax section-graphic p-8" data-parallax-speed="0.7">
                         <div class="bg-[#1e1f22] rounded-xl border border-white/5 overflow-hidden">
                             <div class="bg-black/20 p-4 border-b border-white/5 flex items-center gap-3">
                                 <div class="w-8 h-8 rounded bg-[#FF90E8]/20 flex items-center justify-center">
@@ -1550,7 +1736,7 @@
         <!-- ── Feature: Liened Downloads ────────────────────────────────────────── -->
         <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="4">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
-                <div class="flex-1 reveal">
+                <div class="flex-1 reveal text-center lg:text-left">
                     <div class="feature-icon-box sticker section-graphic"
                         style="background:rgba(0,230,118,0.12);box-shadow:0 8px 24px rgba(0,230,118,0.15);">
                         <img src="Icons/Library.png" alt="">
@@ -1567,7 +1753,7 @@
                             class="text-white font-bold">Download button</span>. Only verified buyers can access the
                         files, delivered privately via ephemeral message.
                     </p>
-                    <div class="flex flex-wrap gap-3 mb-8">
+                    <div class="flex flex-wrap gap-3 mb-8 justify-center lg:justify-start">
                         <div class="tag-pill">
                             <div class="w-2 h-2 rounded-full bg-emerald-400"></div>FBX &amp; Unity Packages
                         </div>
@@ -1585,8 +1771,8 @@
                     </p>
                 </div>
 
-                <div class="flex-1 w-full reveal reveal-delay-1">
-                    <div class="discord-mockup">
+                <div class="flex-1 w-full mobile-mockup-cap reveal reveal-delay-1">
+                    <div class="discord-mockup mouse-parallax section-graphic" data-parallax-speed="0.75">
                         <div class="mockup-header">
                             <div class="mockup-dot"></div>
                             <div class="mockup-dot"></div>
@@ -1660,7 +1846,7 @@
                                                     Buyer</div>
                                             </div>
                                         </div>
-                                        <div
+                                        <div id="mockup-download-btn"
                                             class="bg-emerald-500 text-white text-xs font-black px-4 py-2 rounded-lg cursor-pointer hover:bg-emerald-400 transition-colors">
                                             Download
                                         </div>
@@ -1676,7 +1862,7 @@
         <!-- ── Feature: Collaborating Creators ──────────────────────────────────── -->
         <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="0">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
-                <div class="flex-1 reveal">
+                <div class="flex-1 reveal text-center lg:text-left">
                     <div class="feature-icon-box sticker section-graphic"
                         style="background:rgba(145,70,255,0.15);box-shadow:0 8px 24px rgba(145,70,255,0.2);">
                         <img src="Icons/PersonKey.png" alt="">
@@ -1693,7 +1879,7 @@
                         manual role granting, no spreadsheets, and no one has to share secrets, API keys, or other
                         credentials.
                     </p>
-                    <div class="flex flex-wrap gap-3 mb-8">
+                    <div class="flex flex-wrap gap-3 mb-8 justify-center lg:justify-start">
                         <div class="tag-pill">
                             <div class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></div>Discord OAuth
                             Verification
@@ -1712,8 +1898,8 @@
                     </p>
                 </div>
 
-                <div class="flex-1 w-full reveal reveal-delay-1">
-                    <div class="discord-mockup p-8">
+                <div class="flex-1 w-full mobile-mockup-cap reveal reveal-delay-1">
+                    <div class="discord-mockup mouse-parallax section-graphic p-8" data-parallax-speed="0.7">
                         <div class="space-y-4">
                             <div class="grid grid-cols-2 gap-3">
                                 <div
@@ -1812,7 +1998,7 @@
                         <h3 class="text-lg font-bold text-white mb-2">Email Flexibility</h3>
                         <p class="text-sm text-white/60 mb-5 leading-relaxed">Discord email doesn't match the purchase
                             email? You decide whether to allow or block mismatches.</p>
-                        <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-3 cursor-pointer select-none" onclick="mockupToggle(this)">
                             <div class="w-11 h-6 bg-emerald-500 rounded-full p-0.5 relative shadow-inner">
                                 <div class="w-5 h-5 rounded-full bg-white absolute right-0.5 top-0.5 shadow"></div>
                             </div>
@@ -1827,7 +2013,7 @@
                         <h3 class="text-lg font-bold text-white mb-2">Auto-Verify on Join</h3>
                         <p class="text-sm text-white/60 mb-5 leading-relaxed">Returning buyers get their role the moment
                             they join. No commands, no waiting, no friction.</p>
-                        <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-3 cursor-pointer select-none" onclick="mockupToggle(this)">
                             <div class="w-11 h-6 bg-emerald-500 rounded-full p-0.5 relative shadow-inner">
                                 <div class="w-5 h-5 rounded-full bg-white absolute right-0.5 top-0.5 shadow"></div>
                             </div>
@@ -1842,7 +2028,7 @@
                         <h3 class="text-lg font-bold text-white mb-2">Cross-Server Trust</h3>
                         <p class="text-sm text-white/60 mb-5 leading-relaxed">Verify once in your main server and
                             sub-servers inherit that trust automatically. One community, one verification.</p>
-                        <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-3 cursor-pointer select-none" onclick="mockupToggle(this)">
                             <div class="w-11 h-6 bg-emerald-500 rounded-full p-0.5 relative shadow-inner">
                                 <div class="w-5 h-5 rounded-full bg-white absolute right-0.5 top-0.5 shadow"></div>
                             </div>
@@ -1859,9 +2045,8 @@
                         <p class="text-sm text-white/60 mb-5 leading-relaxed">Tie verifications to a specific License
                             Key or the entire purchasing Account. Match your product's security requirements.</p>
                         <div class="flex gap-2">
-                            <span class="bento-badge bg-white/10 text-white/70">Account</span>
-                            <span class="bento-badge bg-blue-500/20 text-blue-400 border border-blue-500/30">License
-                                Key</span>
+                            <span class="bento-badge bg-white/10 text-white/70 cursor-pointer" data-badge-group="scope" onclick="mockupBadge(this)">Account</span>
+                            <span class="bento-badge bg-blue-500/20 text-blue-400 border border-blue-500/30 cursor-pointer" data-badge-group="scope" onclick="mockupBadge(this)">License Key</span>
                         </div>
                     </div>
 
@@ -1949,6 +2134,177 @@
     </div><!-- #page-content -->
 
     <script>
+    /* ── Mobile Menu: Blur Fade animation (Magic UI inspired) ───────────────── */
+    (function () {
+        var btn = document.getElementById('mobile-menu-btn');
+        var menu = document.getElementById('mobile-menu');
+        if (!btn || !menu) return;
+        var ANIM_DURATION = 400;
+
+        function closeMenu() {
+            menu.classList.remove('mobile-menu-open');
+            setTimeout(function () {
+                menu.style.display = 'none';
+            }, ANIM_DURATION);
+            btn.setAttribute('aria-expanded', 'false');
+        }
+
+        btn.addEventListener('click', function () {
+            var isOpen = menu.classList.contains('mobile-menu-open');
+            if (isOpen) {
+                closeMenu();
+            } else {
+                menu.style.display = 'flex';
+                btn.setAttribute('aria-expanded', 'true');
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () {
+                        menu.classList.add('mobile-menu-open');
+                    });
+                });
+            }
+        });
+
+        menu.querySelectorAll('.mobile-menu-item').forEach(function (link) {
+            link.addEventListener('click', closeMenu);
+        });
+    })();
+
+    /* ── Mockup Interactivity ───────────────────────────────────────────── */
+
+    // ── Verify Purchase Button ───────────────────────────────────────────────
+    (function () {
+        var btn = document.getElementById('mockup-verify-btn');
+        var userMsg = document.getElementById('mockup-user-verify');
+        var verifyResp = document.getElementById('mockup-verify-response');
+        var sysLine = document.getElementById('mockup-system-line');
+        if (!btn) return;
+
+        function resetAnimated() {
+            [userMsg, verifyResp, sysLine].forEach(function (el) {
+                if (!el) return;
+                el.style.transition = 'none';
+                el.style.opacity = '0';
+                if (el !== sysLine) el.style.transform = 'translateY(6px)';
+            });
+        }
+
+        btn.addEventListener('click', function () {
+            if (btn.dataset.busy) return;
+            btn.dataset.busy = '1';
+            var origText = btn.textContent.trim();
+            btn.textContent = 'Verifying...';
+            btn.style.opacity = '0.65';
+            resetAnimated();
+            setTimeout(function () {
+                if (userMsg) {
+                    userMsg.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                    requestAnimationFrame(function () { userMsg.style.opacity = '1'; userMsg.style.transform = 'translateY(0)'; });
+                }
+                setTimeout(function () {
+                    if (verifyResp) {
+                        verifyResp.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
+                        requestAnimationFrame(function () { verifyResp.style.opacity = '1'; verifyResp.style.transform = 'translateY(0)'; });
+                    }
+                    btn.textContent = 'Verified!';
+                    btn.style.background = '#00e676';
+                    btn.style.color = '#000';
+                    btn.style.opacity = '1';
+                    setTimeout(function () {
+                        if (sysLine) {
+                            sysLine.style.transition = 'opacity 0.3s ease';
+                            requestAnimationFrame(function () { sysLine.style.opacity = '1'; });
+                        }
+                        var mockup = btn.closest ? btn.closest('.discord-mockup') : null;
+                        if (mockup) { var area = mockup.querySelector('.overflow-y-auto'); if (area) area.scrollTop = area.scrollHeight; }
+                        if (window.confetti) {
+                            var r = btn.getBoundingClientRect();
+                            confetti({ particleCount: 55, spread: 45, origin: { x: (r.left + r.width / 2) / window.innerWidth, y: (r.top + r.height / 2) / window.innerHeight }, colors: ['#00e676', '#5865F2', '#fff', '#ffeb3b'], disableForReducedMotion: true, zIndex: 9999 });
+                        }
+                        setTimeout(function () {
+                            btn.textContent = origText;
+                            btn.style.background = '#5865F2';
+                            btn.style.color = '#fff';
+                            delete btn.dataset.busy;
+                        }, 2000);
+                    }, 350);
+                }, 500);
+            }, 850);
+        });
+    })();
+
+    // ── Download Button ───────────────────────────────────────────────────────
+    (function () {
+        var btn = document.getElementById('mockup-download-btn');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+            if (btn.dataset.busy) return;
+            btn.dataset.busy = '1';
+            var orig = btn.textContent.trim();
+            btn.textContent = 'Checking...';
+            btn.style.background = '#6b7280';
+            btn.style.transition = 'background 0.2s ease';
+            setTimeout(function () {
+                btn.textContent = 'Access Granted!';
+                btn.style.background = '#059669';
+                var card = btn.parentElement;
+                if (card) { card.style.transition = 'box-shadow 0.3s ease'; card.style.boxShadow = '0 0 22px rgba(52,211,153,0.45)'; setTimeout(function () { card.style.boxShadow = ''; }, 700); }
+                setTimeout(function () { btn.textContent = orig; btn.style.background = '#10b981'; delete btn.dataset.busy; }, 1600);
+            }, 550);
+        });
+    })();
+
+    // ── Security Toggle Switches ──────────────────────────────────────────────
+    window.mockupToggle = function (wrapper) {
+        var track = wrapper.querySelector('.w-11');
+        var thumb = wrapper.querySelector('.w-5.h-5');
+        var label = wrapper.querySelector('span');
+        if (!track || !thumb) return;
+        var isOn = wrapper.dataset.mockupOn !== 'off';
+        var newOn = !isOn;
+        wrapper.dataset.mockupOn = newOn ? 'on' : 'off';
+        track.style.transition = 'background 0.25s ease';
+        thumb.style.transition = 'left 0.25s ease, right 0.25s ease';
+        if (newOn) {
+            track.style.background = '#10b981';
+            thumb.style.right = '0.125rem';
+            thumb.style.left = 'auto';
+            if (label) { label.style.color = '#34d399'; label.style.transition = 'color 0.2s'; }
+        } else {
+            track.style.background = 'rgba(255,255,255,0.1)';
+            thumb.style.right = 'auto';
+            thumb.style.left = '0.125rem';
+            if (label) { label.style.color = 'rgba(255,255,255,0.25)'; label.style.transition = 'color 0.2s'; }
+        }
+    };
+
+    // ── Bento Badge Pairs ─────────────────────────────────────────────────────
+    window.mockupBadge = function (badge) {
+        var group = badge.dataset.badgeGroup;
+        if (!group) return;
+        document.querySelectorAll('[data-badge-group="' + group + '"]').forEach(function (b) {
+            b.style.transition = 'all 0.15s ease';
+            if (b === badge) {
+                b.style.opacity = '1';
+                b.style.outline = '1.5px solid rgba(255,255,255,0.4)';
+                b.style.transform = 'scale(1.07)';
+                setTimeout(function () { b.style.transform = 'scale(1)'; }, 150);
+            } else {
+                b.style.opacity = '0.35';
+                b.style.outline = '';
+            }
+        });
+    };
+
+    // ── Sidebar Channel Switching ─────────────────────────────────────────────
+    window.mockupSidebarChannel = function (el) {
+        var sidebar = el.parentElement;
+        if (!sidebar) return;
+        sidebar.querySelectorAll('.discord-sidebar-channel').forEach(function (ch) { ch.classList.remove('active'); });
+        el.classList.add('active');
+    };
+    </script>
+
+    <script>
         const cursorDot = document.querySelector('.cursor-dot');
         const cursorOutline = document.querySelector('.cursor-dot-outline');
 
@@ -1958,22 +2314,131 @@
             cursorOutline.animate({ left: `${e.clientX}px`, top: `${e.clientY}px` }, { duration: 300, fill: "forwards", easing: "ease-out" });
         });
 
+        /* Mobile menu: handled by inline onclick on the button */
+
+        /* Mouse parallax: hero gets tilt/rotate; others get translate-only depth; reset when mouse exits zone */
+        (function () {
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            const HERO_PARALLAX = 14;
+            const HERO_CHIP = 7;
+            const OTHER_PARALLAX = 8;
+            const IDLE_FLOAT_AMP = 4;
+            const IDLE_CHIP_AMP = 3;
+            const ZONE_PADDING = 100;
+            const SCALE_HOVER = 1.02;
+
+            let mouseX = -1, mouseY = -1;
+            let t0 = null;
+            const state = new Map();
+
+            function getState(el) {
+                if (!state.has(el)) state.set(el, { cx: 0, cy: 0, cScale: 1 });
+                return state.get(el);
+            }
+
+            function isInZone(el, mx, my) {
+                const zone = el.closest('.section-graphic') || el;
+                const r = zone.getBoundingClientRect();
+                const pad = ZONE_PADDING;
+                return mx >= r.left - pad && mx <= r.right + pad && my >= r.top - pad && my <= r.bottom + pad;
+            }
+
+            document.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+
+            document.addEventListener('mouseleave', () => {
+                mouseX = -9999;
+                mouseY = -9999;
+            });
+
+            function tick(now) {
+                if (t0 == null) t0 = now;
+                const elapsed = (now - t0) * 0.001;
+                const idleY = Math.sin(elapsed * 0.8) * IDLE_FLOAT_AMP;
+                const idleX = Math.cos(elapsed * 0.5) * IDLE_FLOAT_AMP * 0.5;
+                const chipY = Math.sin(elapsed * 0.6 + 0.5) * IDLE_CHIP_AMP;
+
+                const inZone = mouseX >= 0 && mouseY >= 0;
+                const targetMouseX = inZone ? (mouseX / window.innerWidth - 0.5) * 2 : 0;
+                const targetMouseY = inZone ? (mouseY / window.innerHeight - 0.5) * 2 : 0;
+
+                document.querySelectorAll('.mouse-parallax').forEach(el => {
+                    const isHero = el.classList.contains('mouse-parallax-hero');
+                    const speed = parseFloat(el.dataset.parallaxSpeed) || 1;
+                    const s = getState(el);
+                    const over = inZone && isInZone(el, mouseX, mouseY);
+                    const targetX = over ? targetMouseX : 0;
+                    const targetY = over ? targetMouseY : 0;
+                    const targetScale = over ? SCALE_HOVER : 1;
+
+                    s.cx += (targetX - s.cx) * 0.08;
+                    s.cy += (targetY - s.cy) * 0.08;
+                    s.cScale += (targetScale - s.cScale) * 0.1;
+
+                    const rect = el.getBoundingClientRect();
+                    const relX = (rect.left + rect.width / 2) / window.innerWidth - 0.5;
+                    const relY = (rect.top + rect.height / 2) / window.innerHeight - 0.5;
+                    const strength = isHero ? HERO_PARALLAX : OTHER_PARALLAX * speed;
+                    const dx = s.cx * strength + relX * (isHero ? 4 : 2) + idleX;
+                    const dy = s.cy * strength + relY * (isHero ? 4 : 2) + idleY;
+
+                    if (isHero) {
+                        const tiltX = -dy * 0.9;
+                        const tiltY = dx * 0.9;
+                        el.style.transform = `translate(${dx}px, ${dy}px) scale(${s.cScale}) perspective(800px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+                    } else {
+                        el.style.transform = `translate(${dx}px, ${dy}px) scale(${s.cScale})`;
+                    }
+                    el.style.boxShadow = '';
+                });
+
+                document.querySelectorAll('.mouse-parallax-chip').forEach((el, i) => {
+                    const zone = el.closest('.section-graphic');
+                    const over = inZone && zone && isInZone(zone, mouseX, mouseY);
+                    const mult = i === 0 ? 1 : -1;
+                    const targetX = over ? targetMouseX * HERO_CHIP * mult : 0;
+                    const targetY = over ? targetMouseY * HERO_CHIP * mult + chipY * mult : chipY * mult;
+
+                    const s = getState(el);
+                    s.cx += (targetX - s.cx) * 0.08;
+                    s.cy += (targetY - s.cy) * 0.08;
+
+                    el.style.transform = `translate(${s.cx}px, ${s.cy}px)`;
+                });
+                requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+        })();
+
         (function initTextAnimate() {
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-            document.querySelectorAll('.text-animate').forEach(el => {
-                if (el.classList.contains('brand-gradient-text')) return;
-                const text = el.textContent;
-                const words = text.split(/(\s+)/);
-                el.innerHTML = '';
-                words.forEach((word, i) => {
-                    const span = document.createElement('span');
-                    span.className = 'text-animate-word';
-                    span.textContent = word;
-                    span.style.animationDelay = `${i * 0.06}s`;
-                    span.style.whiteSpace = /^\s+$/.test(word) ? 'pre' : 'normal';
-                    el.appendChild(span);
+            const hero = document.getElementById('hero');
+            const heroHeadline = hero && hero.querySelector('h1');
+            if (!heroHeadline) return;
+            const run = () => {
+                hero.classList.add('hero-visible');
+                heroHeadline.querySelectorAll('.text-animate').forEach(el => {
+                    if (el.classList.contains('aurora-text')) return;
+                    if (el.querySelector('.text-animate-word')) return;
+                    const text = el.textContent;
+                    const words = text.split(/(\s+)/);
+                    el.innerHTML = '';
+                    words.forEach((word, i) => {
+                        const span = document.createElement('span');
+                        span.className = 'text-animate-word';
+                        span.textContent = word;
+                        span.style.animationDelay = `${i * 0.06}s`;
+                        span.style.whiteSpace = /^\s+$/.test(word) ? 'pre' : 'normal';
+                        el.appendChild(span);
+                    });
                 });
-            });
+            };
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach(e => { if (e.isIntersecting) { run(); io.disconnect(); } });
+            }, { threshold: 0.1 });
+            io.observe(hero);
         })();
 
         const revealObserver = new IntersectionObserver((entries) => {
@@ -1992,6 +2457,23 @@
             btn.addEventListener('mouseleave', () => { btn.style.transform = ''; });
         });
 
+        /* Hero button: parallax on text/icon so they hover above the button */
+        (function () {
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            const btn = document.querySelector('#hero .btn-primary');
+            const content = btn?.querySelector('.btn-hero-content');
+            if (!btn || !content) return;
+            const LIFT = -3;
+            const PARALLAX = 2;
+            btn.addEventListener('mousemove', (e) => {
+                const rect = btn.getBoundingClientRect();
+                const x = (e.clientX - rect.left) / rect.width - 0.5;
+                const y = (e.clientY - rect.top) / rect.height - 0.5;
+                content.style.transform = `translate(${x * PARALLAX}px, ${LIFT + y * PARALLAX}px)`;
+            });
+            btn.addEventListener('mouseleave', () => { content.style.transform = ''; });
+        })();
+
         function fireConfetti(element) {
             const rect = element.getBoundingClientRect();
             confetti({
@@ -2001,6 +2483,28 @@
                 disableForReducedMotion: true, zIndex: 9999
             });
         }
+
+        /* Failsafe: show page if Babel/React bundle is slow or fails */
+        (function () {
+            function revealPage() {
+                const overlay = document.getElementById('page-loading-overlay');
+                const content = document.getElementById('page-content');
+                if (!content || content.style.display !== 'none') return;
+                content.style.display = '';
+                requestAnimationFrame(function () {
+                    if (overlay) overlay.classList.add('is-hiding');
+                    content.classList.add('is-visible');
+                    window.dispatchEvent(new CustomEvent('page-content-visible'));
+                });
+            }
+            window._revealFallbackTimer = setTimeout(revealPage, 1500);
+            window.addEventListener('page-content-visible', function () {
+                clearTimeout(window._revealFallbackTimer);
+            }, { once: true });
+            window.addEventListener('load', function () {
+                setTimeout(revealPage, 400);
+            });
+        })();
     </script>
 
     <script type="text/babel" data-type="module">
@@ -2091,6 +2595,50 @@
 
         createRoot(document.getElementById('bg-canvas-root')).render(<></>); /* Blob background instead of BackgroundApp */
         createRoot(document.getElementById('fg-canvas-root')).render(<ForegroundApp />);
+
+        /* Blob intensity: slightly reduce when scrolling down */
+        (function () {
+            const container = document.getElementById('blobs-container');
+            if (!container) return;
+            const maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+            function updateBlobIntensity() {
+                const scrollY = window.scrollY || document.documentElement.scrollTop;
+                const t = Math.min(1, scrollY / (maxScroll * 0.6));
+                const intensity = 1 - t * 0.18;
+                container.style.setProperty('--blob-intensity', String(intensity));
+            }
+            updateBlobIntensity();
+            window.addEventListener('scroll', updateBlobIntensity, { passive: true });
+        })();
+
+        /* Scroll blur: 0 at hero (License verified, Role granted, Done), max at Integrations; dark overlay */
+        (function () {
+            const blurBg = document.getElementById('scroll-blur-bg');
+            const overlay = document.getElementById('scroll-blur-overlay');
+            const hero = document.getElementById('hero');
+            const features = document.getElementById('features');
+            const pageContent = document.getElementById('page-content');
+            if (!blurBg || !overlay || !hero || !features) return;
+            const MAX_BLUR = 10;
+            const MAX_DARKEN = 0.22;
+            function updateScrollBlur() {
+                if (pageContent && (pageContent.style.display === 'none' || hero.offsetHeight === 0)) {
+                    overlay.style.setProperty('--scroll-blur', '0');
+                    overlay.style.setProperty('--scroll-darken', '0');
+                    return;
+                }
+                const scrollY = window.scrollY || document.documentElement.scrollTop;
+                const start = Math.max(0, 80);
+                const end = features.offsetTop - window.innerHeight * 0.15;
+                const t = Math.max(0, Math.min(1, (scrollY - start) / Math.max(1, end - start)));
+                overlay.style.setProperty('--scroll-blur', String(t * MAX_BLUR));
+                overlay.style.setProperty('--scroll-darken', String(t * MAX_DARKEN));
+            }
+            overlay.style.setProperty('--scroll-blur', '0');
+            overlay.style.setProperty('--scroll-darken', '0');
+            window.addEventListener('scroll', updateScrollBlur, { passive: true });
+            window.addEventListener('page-content-visible', updateScrollBlur);
+        })();
 
         // Blob background: section-aware — anchor latches onto graphic, others dance around
         (function () {
@@ -2249,7 +2797,35 @@
             requestAnimationFrame(function () {
                 overlay.classList.add('is-hiding');
                 content.classList.add('is-visible');
+                window.dispatchEvent(new CustomEvent('page-content-visible'));
             });
+        })();
+
+        /* Text Reveal: word stagger when Philosophy section enters view */
+        (function () {
+            const el = document.querySelector('#features .text-reveal');
+            if (!el) return;
+            const io = new IntersectionObserver(function (entries) {
+                entries.forEach(function (e) {
+                    if (e.isIntersecting) e.target.classList.add('text-reveal-visible');
+                });
+            }, { threshold: 0.3 });
+            io.observe(el);
+        })();
+
+        /* Text Highlighter: rough-notation on ROLES when in view */
+        (function () {
+            const el = document.getElementById('hl-roles');
+            if (!el || typeof RoughNotation === 'undefined') return;
+            const io = new IntersectionObserver(function (entries) {
+                entries.forEach(function (e) {
+                    if (!e.isIntersecting) return;
+                    const annotation = RoughNotation.annotate(el, { type: 'highlight', color: 'rgba(253,224,71,0.35)', strokeWidth: 2 });
+                    annotation.show();
+                    io.disconnect();
+                });
+            }, { threshold: 0.5 });
+            io.observe(el);
         })();
     </script>
 </body>
