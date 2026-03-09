@@ -767,7 +767,7 @@ const provider_connections = defineTable({
   .index('by_tenant_provider_label', ['tenantId', 'provider', 'label']);
 
 /**
- * Public API Keys - Tenant-scoped server-to-server credentials.
+ * API Keys (Secret Keys) - Tenant-scoped server-to-server credentials.
  * Keys are hashed before storage and are never persisted in plaintext.
  */
 const public_api_keys = defineTable({
@@ -787,6 +787,25 @@ const public_api_keys = defineTable({
   .index('by_tenant', ['tenantId'])
   .index('by_key_hash', ['keyHash'])
   .index('by_tenant_status', ['tenantId', 'status']);
+
+/**
+ * Creator OAuth Apps - tenant mappings for OAuth clients stored by Better Auth.
+ * Better Auth owns the client + secret records; this table maps those clients to tenants.
+ * clientSecretHash is retained as an optional legacy field for older rows.
+ */
+const creator_oauth_apps = defineTable({
+  tenantId: v.id('tenants'),
+  name: v.string(),
+  clientId: v.string(),
+  clientSecretHash: v.optional(v.string()),
+  redirectUris: v.array(v.string()),
+  scopes: v.array(v.string()),
+  createdByAuthUserId: v.string(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_tenant', ['tenantId'])
+  .index('by_client_id', ['clientId']);
 
 // ============================================================================
 // PLATFORM-LEVEL TABLES (no tenantId)
@@ -1109,6 +1128,7 @@ export default defineSchema({
   purchase_facts,
   provider_connections,
   public_api_keys,
+  creator_oauth_apps,
   collaborator_invites,
   collaborator_connections,
 

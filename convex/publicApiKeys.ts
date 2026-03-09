@@ -54,11 +54,12 @@ export const listPublicApiKeys = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    return await ctx.db
+    const keys = await ctx.db
       .query('public_api_keys')
       .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
       .order('desc')
       .collect();
+    return keys.map(({ keyHash: _, ...rest }) => rest);
   },
 });
 

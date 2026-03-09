@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YUCP API Test</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+    label { display: block; font-weight: 600; margin-top: 0.75rem; }
+    input, select, textarea { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-family: monospace; }
+    button { margin-top: 0.75rem; padding: 0.5rem 1rem; cursor: pointer; }
+    pre { background: #1a1a1a; color: #e0e0e0; padding: 1rem; overflow-x: auto; font-size: 12px; }
+    .result { margin-top: 1rem; }
+    .success { color: #22c55e; }
+    .error { color: #ef4444; }
+    .note { font-size: 0.9rem; color: #666; margin-top: 0.25rem; }
+  </style>
+</head>
+<body>
+  <h1>YUCP Public API Test</h1>
+  <p>Test your API key and OAuth flows. Results are shown below—nothing is sent elsewhere.</p>
+
+  <h2>1. API Key Test (verification/verify)</h2>
+  <p class="note">Uses your API key to check if a user has a product. No redirects.</p>
+  <label>Base URL (e.g. http://localhost:3001 or https://xxx.convex.site)</label>
+  <input type="text" id="baseUrl" placeholder="http://localhost:3001" value="">
+  <label>Tenant ID</label>
+  <input type="text" id="tenantId" placeholder="e.g. j57abc123...">
+  <label>Product ID</label>
+  <input type="text" id="productId" placeholder="e.g. prod_abc123">
+  <label>API Key</label>
+  <input type="text" id="apiKey" placeholder="ypsk_..." value="ypsk_78739e4a8e2226f276fe5fcffa3c8692d48c5ffbae6f2740">
+  <label>Identity type</label>
+  <select id="identityType">
+    <option value="discordUserId">discordUserId</option>
+    <option value="subjectId">subjectId</option>
+    <option value="authUserId">authUserId</option>
+    <option value="vrchatUserId">vrchatUserId</option>
+    <option value="gumroadUserId">gumroadUserId</option>
+    <option value="jinxxyEmail">jinxxyEmail</option>
+    <option value="jinxxyUserId">jinxxyUserId</option>
+  </select>
+  <label>Identity value</label>
+  <input type="text" id="identityValue" placeholder="e.g. 123456789 for Discord">
+  <button type="button" id="testApiKey">Test API Key</button>
+  <div id="apiKeyResult" class="result"></div>
+
+  <h2>2. OAuth Test</h2>
+  <p class="note">OAuth requires a redirect to Discord to sign in. After auth, you return here and the code/token is captured below.</p>
+  <label>Client ID (from OAuth app in dashboard or PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON)</label>
+  <input type="text" id="clientId" placeholder="Your OAuth client ID">
+  <label>Client Secret (for token exchange—keep private)</label>
+  <input type="password" id="clientSecret" placeholder="Your OAuth client secret">
+  <label>Redirect URI (must match OAuth app config; use this page URL)</label>
+  <input type="text" id="redirectUri" placeholder="e.g. http://localhost:3001/api-test">
+  <div style="margin-top: 0.5rem;">
+    <button type="button" id="startOAuth">Start OAuth (redirects to Discord)</button>
+    <button type="button" id="exchangeCode" style="margin-left: 0.5rem;">Exchange code for token</button>
+  </div>
+  <div id="oauthResult" class="result"></div>
+
+  <h2>3. Call /me/verification/status (OAuth Bearer)</h2>
+  <p class="note">After getting an access token above, paste it here to test the user endpoint.</p>
+  <label>Access Token</label>
+  <input type="text" id="accessToken" placeholder="Paste token from OAuth exchange">
+  <button type="button" id="testMeStatus">Test /me/verification/status</button>
+  <div id="meStatusResult" class="result"></div>
+
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const hash = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+
+      const baseUrlEl = document.getElementById('baseUrl');
+      if (!baseUrlEl.value) baseUrlEl.value = window.location.origin;
+
+      const redirectUriEl = document.getElementById('redirectUri');
+      if (!redirectUriEl.value) redirectUriEl.value = window.location.origin + window.location.pathname;
+
+      function show(el, html, isError) {
+        el.innerHTML = html;
+        el.className = 'result ' + (isError ? 'error' : 'success');
+      }
+
+      document.getElementById('testApiKey').addEventListener('click', async () => {
+        const base = document.getElementById('baseUrl').value.replace(/\/$/, '');
+        const tenantId = document.getElementById('tenantId').value.trim();
+        const productId = document.getElementById('productId').value.trim();
+        const apiKey = document.getElementById('apiKey').value.trim();
+        const identityType = document.getElementById('identityType').value;
+        const identityValue = document.getElementById('identityValue').value.trim();
+        const resultEl = document.getElementById('apiKeyResult');
+
+        if (!base || !tenantId || !productId || !apiKey || !identityValue) {
+          show(resultEl, 'Fill in Base URL, Tenant ID, Product ID, API Key, and Identity value.', true);
+          return;
+        }
+
+        const body = { tenantId, productId, [identityType]: identityValue };
+        try {
+          const res = await fetch(`${base}/api/public/verification/verify`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+            },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json().catch(() => ({}));
+          const out = `Status: ${res.status}\n\n${JSON.stringify(data, null, 2)}`;
+          show(resultEl, '<pre>' + out.replace(/</g, '&lt;') + '</pre>', !res.ok);
+        } catch (e) {
+          show(resultEl, 'Error: ' + (e.message || String(e)), true);
+        }
+      });
+
+      const code = params.get('code') || hash.get('code');
+      const state = params.get('state') || hash.get('state');
+      if (code) {
+        const oauthResult = document.getElementById('oauthResult');
+        show(oauthResult, '<strong>Code captured from redirect:</strong><pre>code=' + code + (state ? '\nstate=' + state : '') + '</pre>Click "Exchange code for token" to get an access token.', false);
+      }
+
+      document.getElementById('startOAuth').addEventListener('click', () => {
+        const base = document.getElementById('baseUrl').value.replace(/\/$/, '');
+        const clientId = document.getElementById('clientId').value.trim();
+        const redirectUri = document.getElementById('redirectUri').value.trim();
+        if (!clientId || !redirectUri) {
+          alert('Enter Client ID and Redirect URI');
+          return;
+        }
+        const authUrl = `${base}/api/auth/oauth2/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=verification:read&state=test`;
+        window.location.href = authUrl;
+      });
+
+      document.getElementById('exchangeCode').addEventListener('click', async () => {
+        const base = document.getElementById('baseUrl').value.replace(/\/$/, '');
+        const clientId = document.getElementById('clientId').value.trim();
+        const clientSecret = document.getElementById('clientSecret').value.trim();
+        const redirectUri = document.getElementById('redirectUri').value.trim();
+        const c = params.get('code') || hash.get('code') || '';
+        const resultEl = document.getElementById('oauthResult');
+
+        if (!c) {
+          show(resultEl, 'No code in URL. Start OAuth first to get redirected back with a code.', true);
+          return;
+        }
+        if (!clientId || !clientSecret || !redirectUri) {
+          show(resultEl, 'Enter Client ID, Client Secret, and Redirect URI.', true);
+          return;
+        }
+
+        try {
+          const res = await fetch(`${base}/api/auth/oauth2/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              grant_type: 'authorization_code',
+              code: c,
+              client_id: clientId,
+              client_secret: clientSecret,
+              redirect_uri: redirectUri,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          const out = `Status: ${res.status}\n\n${JSON.stringify(data, null, 2)}`;
+          show(resultEl, '<pre>' + out.replace(/</g, '&lt;') + '</pre>', !res.ok);
+          if (data.access_token) {
+            document.getElementById('accessToken').value = data.access_token;
+          }
+        } catch (e) {
+          show(resultEl, 'Error: ' + (e.message || String(e)), true);
+        }
+      });
+
+      document.getElementById('testMeStatus').addEventListener('click', async () => {
+        const base = document.getElementById('baseUrl').value.replace(/\/$/, '');
+        const tenantId = document.getElementById('tenantId').value.trim();
+        const token = document.getElementById('accessToken').value.trim();
+        const resultEl = document.getElementById('meStatusResult');
+
+        if (!tenantId || !token) {
+          show(resultEl, 'Enter Tenant ID and Access Token.', true);
+          return;
+        }
+
+        try {
+          const res = await fetch(`${base}/api/public/me/verification/status?tenantId=${encodeURIComponent(tenantId)}`, {
+            headers: { 'Authorization': 'Bearer ' + token },
+          });
+          const data = await res.json().catch(() => ({}));
+          const out = `Status: ${res.status}\n\n${JSON.stringify(data, null, 2)}`;
+          show(resultEl, '<pre>' + out.replace(/</g, '&lt;') + '</pre>', !res.ok);
+        } catch (e) {
+          show(resultEl, 'Error: ' + (e.message || String(e)), true);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

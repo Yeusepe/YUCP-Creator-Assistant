@@ -24,11 +24,7 @@ import {
 } from '../lib/browserSessions';
 import { getConvexApiSecret, getConvexClient, getConvexClientFromUrl } from '../lib/convex';
 import { encrypt } from '../lib/encrypt';
-import {
-  generatePublicApiKeyValue,
-  getPublicApiKeyPrefix,
-  hashPublicApiKey,
-} from '../lib/publicApiKeys';
+import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
 
@@ -42,6 +38,10 @@ const TOKEN_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const GUMROAD_STATE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const JINXXY_TEST_TTL_MS = 60 * 1000; // 60 seconds
 const ALLOWED_PUBLIC_API_SCOPES = new Set(['verification:read', 'subjects:read']);
+const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
+const PUBLIC_API_KEY_METADATA_KIND = 'public-api';
+const DEFAULT_PUBLIC_API_SCOPES = ['verification:read', 'subjects:read'];
+const DEFAULT_OAUTH_APP_SCOPES = ['verification:read'];
 
 const DISCORD_ROLE_SETUP_PREFIX = 'discord_role_setup:';
 const DISCORD_ROLE_OAUTH_STATE_PREFIX = 'discord_role_oauth:';
@@ -80,6 +80,185 @@ interface DiscordRoleSetupSession {
   sourceRoleIds?: string[];
   requiredRoleMatchMode?: 'any' | 'all';
   completed: boolean;
+}
+
+interface BetterAuthPermissionStatements {
+  [key: string]: string[];
+}
+
+interface BetterAuthApiKey {
+  id: string;
+  name?: string | null;
+  start?: string | null;
+  prefix?: string | null;
+  enabled?: boolean;
+  permissions?: BetterAuthPermissionStatements | null;
+  metadata?: unknown;
+  lastRequest?: unknown;
+  expiresAt?: unknown;
+  createdAt?: unknown;
+}
+
+interface BetterAuthOAuthClient {
+  client_id: string;
+  client_secret?: string;
+  client_name?: string;
+  redirect_uris: string[];
+  scope?: string;
+  client_id_issued_at?: number;
+  token_endpoint_auth_method?: 'client_secret_basic' | 'client_secret_post' | 'none';
+  grant_types?: Array<'authorization_code' | 'refresh_token' | 'client_credentials'>;
+  response_types?: Array<'code'>;
+  disabled?: boolean;
+}
+
+interface OAuthAppMappingRecord {
+  _id: string;
+  _creationTime: number;
+  tenantId: string;
+  name: string;
+  clientId: string;
+  redirectUris: string[];
+  scopes: string[];
+}
+
+function toTimestamp(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      return asNumber;
+    }
+
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  return undefined;
+}
+
+function normalizePublicApiScopes(scopes: unknown): string[] {
+  const values =
+    Array.isArray(scopes) && scopes.length > 0
+      ? scopes.map((scope) => (typeof scope === 'string' ? scope.trim() : '')).filter(Boolean)
+      : [...DEFAULT_PUBLIC_API_SCOPES];
+
+  if (values.some((scope) => !ALLOWED_PUBLIC_API_SCOPES.has(scope))) {
+    throw new Error('Invalid API key scopes');
+  }
+
+  return Array.from(new Set(values));
+}
+
+function parsePublicApiKeyMetadata(value: unknown): { kind?: string; tenantId?: string } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const metadata = value as Record<string, unknown>;
+  return {
+    kind: typeof metadata.kind === 'string' ? metadata.kind : undefined,
+    tenantId: typeof metadata.tenantId === 'string' ? metadata.tenantId : undefined,
+  };
+}
+
+function getPublicApiKeyScopes(
+  permissions: BetterAuthPermissionStatements | null | undefined
+): string[] {
+  if (!permissions || typeof permissions !== 'object') {
+    return [];
+  }
+
+  const scopes = permissions[PUBLIC_API_KEY_PERMISSION_NAMESPACE];
+  return Array.isArray(scopes)
+    ? scopes.filter((scope): scope is string => typeof scope === 'string')
+    : [];
+}
+
+function buildPublicApiPermissions(scopes: string[]): BetterAuthPermissionStatements {
+  return {
+    [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: scopes,
+  };
+}
+
+function getPublicApiKeyExpiresIn(expiresAt: number | null | undefined): number | null | undefined {
+  if (expiresAt === null) {
+    return null;
+  }
+  if (expiresAt === undefined) {
+    return undefined;
+  }
+
+  const expiresIn = Math.floor(expiresAt - Date.now());
+  if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+    throw new Error('expiresAt must be in the future');
+  }
+  return expiresIn;
+}
+
+function normalizeRedirectUris(redirectUris: unknown): string[] {
+  const values = Array.isArray(redirectUris)
+    ? redirectUris.map((value) => (typeof value === 'string' ? value.trim() : '')).filter(Boolean)
+    : [];
+
+  if (values.length === 0) {
+    throw new Error('At least one redirect URI is required');
+  }
+
+  for (const redirectUri of values) {
+    try {
+      new URL(redirectUri);
+    } catch {
+      throw new Error(`Invalid redirect URI: ${redirectUri}`);
+    }
+  }
+
+  return Array.from(new Set(values));
+}
+
+function normalizeOAuthScopes(scopes: unknown): string[] {
+  const values = Array.isArray(scopes)
+    ? scopes.map((scope) => (typeof scope === 'string' ? scope.trim() : '')).filter(Boolean)
+    : [];
+
+  return Array.from(new Set(values.length > 0 ? values : [...DEFAULT_OAUTH_APP_SCOPES]));
+}
+
+function getBetterAuthErrorMessage(value: unknown, fallback: string): string {
+  if (!value || typeof value !== 'object') {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.message === 'string' && record.message.trim()) {
+    return record.message;
+  }
+
+  const error = record.error;
+  if (error && typeof error === 'object') {
+    const errorRecord = error as Record<string, unknown>;
+    if (typeof errorRecord.message === 'string' && errorRecord.message.trim()) {
+      return errorRecord.message;
+    }
+    if (typeof errorRecord.error_description === 'string' && errorRecord.error_description.trim()) {
+      return errorRecord.error_description;
+    }
+  }
+
+  if (typeof record.error_description === 'string' && record.error_description.trim()) {
+    return record.error_description;
+  }
+
+  return fallback;
 }
 
 function generateToken(): string {
@@ -222,6 +401,84 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     return { ok: true, setupSession, authSession, authDiscordUserId };
+  }
+
+  function buildFrontendCallbackUrl(pathname: string, tenantId: string, guildId: string): string {
+    const callbackUrl = new URL(`${config.frontendBaseUrl.replace(/\/$/, '')}${pathname}`);
+    if (tenantId) callbackUrl.searchParams.set('tenant_id', tenantId);
+    if (guildId) callbackUrl.searchParams.set('guild_id', guildId);
+    return callbackUrl.toString();
+  }
+
+  function buildDiscordSignInUrl(callbackUrl: string): string {
+    return `${config.apiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+  }
+
+  async function getDashboardSessionStatus(request: Request): Promise<Response> {
+    const setupSession = await resolveSetupSessionFromRequest(request);
+    if (!setupSession) {
+      return Response.json({ hasSetupSession: false, authenticated: false });
+    }
+
+    const callbackUrl = buildFrontendCallbackUrl(
+      '/dashboard',
+      setupSession.tenantId,
+      setupSession.guildId
+    );
+    const signInUrl = buildDiscordSignInUrl(callbackUrl);
+    const authSession = await auth.getSession(request);
+    if (!authSession) {
+      return Response.json(
+        {
+          hasSetupSession: true,
+          authenticated: false,
+          tenantId: setupSession.tenantId,
+          guildId: setupSession.guildId,
+          signInUrl,
+          callbackUrl,
+          error: 'Authentication required',
+        },
+        { status: 401 }
+      );
+    }
+
+    const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
+    if (!authDiscordUserId) {
+      return Response.json(
+        {
+          hasSetupSession: true,
+          authenticated: false,
+          tenantId: setupSession.tenantId,
+          guildId: setupSession.guildId,
+          signInUrl,
+          callbackUrl,
+          error: 'Discord account required',
+        },
+        { status: 401 }
+      );
+    }
+
+    if (authDiscordUserId !== setupSession.discordUserId) {
+      return Response.json(
+        {
+          hasSetupSession: true,
+          authenticated: false,
+          tenantId: setupSession.tenantId,
+          guildId: setupSession.guildId,
+          error: 'This setup link belongs to a different Discord account',
+        },
+        { status: 403 }
+      );
+    }
+
+    return Response.json({
+      hasSetupSession: true,
+      authenticated: true,
+      tenantId: setupSession.tenantId,
+      guildId: setupSession.guildId,
+      discordUserId: authDiscordUserId,
+      authUserId: authSession.user.id,
+    });
   }
 
   /**
@@ -426,6 +683,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const callbackUrl = `${config.frontendBaseUrl}/connect?${callbackParams}`;
       const filePath = `${import.meta.dir}/../../public/sign-in-redirect.html`;
       let html = await Bun.file(filePath).text();
+      // The Bun app keeps a lightweight sign-in bridge for static pages, but auth itself runs
+      // on Convex and the callback still lands on the frontend callbackURL below.
       const signInUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
       logger.info('Serving connect sign-in redirect', {
         requestUrl: request.url,
@@ -434,6 +693,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         hasSetupToken: hasSetupSession,
         frontendBaseUrl: config.frontendBaseUrl,
         apiBaseUrl: config.apiBaseUrl,
+        authBaseUrl: `${config.convexSiteUrl.replace(/\/$/, '')}/api/auth`,
         callbackUrl,
         callbackProtocol: new URL(callbackUrl).protocol,
       });
@@ -1375,17 +1635,41 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const keys = await convex.query(api.publicApiKeys.listPublicApiKeys, {
-        apiSecret: config.convexApiSecret,
-        tenantId,
+      const { response, data } = await auth.callEndpoint<BetterAuthApiKey[]>('/api-key/list', {
+        request,
       });
+
+      if (!response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(data, 'Failed to list API keys') },
+          { status: response.status || 500 }
+        );
+      }
+
+      const keys = (Array.isArray(data) ? data : [])
+        .filter((key) => {
+          const metadata = parsePublicApiKeyMetadata(key.metadata);
+          return metadata?.kind === PUBLIC_API_KEY_METADATA_KIND && metadata.tenantId === tenantId;
+        })
+        .map((key) => ({
+          _id: key.id,
+          _creationTime: toTimestamp(key.createdAt) ?? Date.now(),
+          tenantId,
+          name: key.name ?? 'Unnamed',
+          prefix: key.start ?? key.prefix ?? PUBLIC_API_KEY_PREFIX,
+          status: key.enabled === false ? ('revoked' as const) : ('active' as const),
+          scopes: getPublicApiKeyScopes(key.permissions),
+          lastUsedAt: toTimestamp(key.lastRequest),
+          expiresAt: toTimestamp(key.expiresAt),
+        }))
+        .sort((left, right) => right._creationTime - left._creationTime);
+
       return Response.json({ keys });
     } catch (err) {
-      logger.error('List public API keys failed', {
+      logger.error('List API keys failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to list public API keys' }, { status: 500 });
+      return Response.json({ error: 'Failed to list API keys' }, { status: 500 });
     }
   }
 
@@ -1413,49 +1697,55 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'name is required' }, { status: 400 });
     }
 
-    const scopes =
-      Array.isArray(body.scopes) && body.scopes.length > 0
-        ? body.scopes.map((scope) => scope.trim()).filter(Boolean)
-        : ['verification:read', 'subjects:read'];
-    if (scopes.some((scope) => !ALLOWED_PUBLIC_API_SCOPES.has(scope))) {
-      return Response.json({ error: 'Invalid public API key scopes' }, { status: 400 });
-    }
-
-    const expiresAt =
-      typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
-        ? body.expiresAt
-        : undefined;
-
     try {
-      const apiKey = generatePublicApiKeyValue();
-      const prefix = getPublicApiKeyPrefix(apiKey);
-      const keyHash = hashPublicApiKey(apiKey);
-      const convex = getConvexClientFromUrl(config.convexUrl);
+      const scopes = normalizePublicApiScopes(body.scopes);
+      const expiresIn = getPublicApiKeyExpiresIn(
+        typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
+          ? body.expiresAt
+          : undefined
+      );
 
-      const keyId = await convex.mutation(api.publicApiKeys.createPublicApiKeyRecord, {
-        apiSecret: config.convexApiSecret,
-        tenantId,
-        name,
-        prefix,
-        keyHash,
-        scopes,
-        createdByAuthUserId: required.session.user.id,
-        expiresAt,
-      });
+      const { response, data } = await auth.callEndpoint<BetterAuthApiKey & { key?: string }>(
+        '/api-key/create',
+        {
+          request,
+          method: 'POST',
+          body: {
+            name,
+            prefix: PUBLIC_API_KEY_PREFIX,
+            expiresIn,
+            metadata: {
+              kind: PUBLIC_API_KEY_METADATA_KIND,
+              tenantId,
+            },
+            permissions: buildPublicApiPermissions(scopes),
+          },
+        }
+      );
+
+      if (!response.ok || !data?.id || !data.key) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(data, 'Failed to create API key') },
+          { status: response.status || 500 }
+        );
+      }
 
       return Response.json({
-        keyId,
-        apiKey,
-        name,
-        prefix,
+        keyId: data.id,
+        apiKey: data.key,
+        name: data.name ?? name,
+        prefix: data.start ?? data.prefix ?? PUBLIC_API_KEY_PREFIX,
         scopes,
-        expiresAt: expiresAt ?? null,
+        expiresAt: toTimestamp(data.expiresAt) ?? null,
       });
     } catch (err) {
-      logger.error('Create public API key failed', {
+      logger.error('Create API key failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to create public API key' }, { status: 500 });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to create API key' },
+        { status: 400 }
+      );
     }
   }
 
@@ -1474,19 +1764,404 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      await convex.mutation(api.publicApiKeys.revokePublicApiKey, {
-        apiSecret: config.convexApiSecret,
-        tenantId,
-        keyId,
-        revokedByAuthUserId: required.session.user.id,
+      const existing = await auth.callEndpoint<BetterAuthApiKey>('/api-key/get', {
+        request,
+        query: { id: keyId },
       });
+
+      if (!existing.response.ok || !existing.data) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(existing.data, 'API key not found') },
+          { status: existing.response.status === 200 ? 404 : existing.response.status || 404 }
+        );
+      }
+
+      const metadata = parsePublicApiKeyMetadata(existing.data.metadata);
+      if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.tenantId !== tenantId) {
+        return Response.json({ error: 'API key not found' }, { status: 404 });
+      }
+
+      const result = await auth.callEndpoint<BetterAuthApiKey>('/api-key/update', {
+        request,
+        method: 'POST',
+        body: {
+          keyId,
+          enabled: false,
+        },
+      });
+
+      if (!result.response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(result.data, 'Failed to revoke API key') },
+          { status: result.response.status || 500 }
+        );
+      }
+
       return Response.json({ success: true });
     } catch (err) {
-      logger.error('Revoke public API key failed', {
+      logger.error('Revoke API key failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to revoke public API key' }, { status: 500 });
+      return Response.json({ error: 'Failed to revoke API key' }, { status: 500 });
+    }
+  }
+
+  async function listOAuthApps(request: Request): Promise<Response> {
+    const tenantId = new URL(request.url).searchParams.get('tenantId') ?? undefined;
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const mappings = (await convex.query(api.oauthApps.listOAuthApps, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+      })) as OAuthAppMappingRecord[];
+      const { response, data } = await auth.callEndpoint<BetterAuthOAuthClient[] | null>(
+        '/oauth2/get-clients',
+        {
+          request,
+        }
+      );
+
+      if (!response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(data, 'Failed to list OAuth apps') },
+          { status: response.status || 500 }
+        );
+      }
+
+      const clientMap = new Map(
+        (Array.isArray(data) ? data : []).map((client) => [client.client_id, client] as const)
+      );
+
+      const apps = mappings.map((mapping) => {
+        const client = clientMap.get(mapping.clientId);
+        const scopes = client?.scope ? client.scope.split(/\s+/).filter(Boolean) : mapping.scopes;
+
+        return {
+          _id: mapping._id,
+          _creationTime: mapping._creationTime,
+          tenantId: mapping.tenantId,
+          name: client?.client_name ?? mapping.name,
+          clientId: mapping.clientId,
+          redirectUris: client?.redirect_uris ?? mapping.redirectUris,
+          scopes,
+          tokenEndpointAuthMethod: client?.token_endpoint_auth_method,
+          grantTypes: client?.grant_types,
+          responseTypes: client?.response_types,
+          disabled: client?.disabled ?? false,
+        };
+      });
+
+      return Response.json({ apps });
+    } catch (err) {
+      logger.error('List OAuth apps failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to list OAuth apps' }, { status: 500 });
+    }
+  }
+
+  async function createOAuthApp(request: Request): Promise<Response> {
+    let body: {
+      tenantId?: string;
+      name?: string;
+      redirectUris?: string[];
+      scopes?: string[];
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    const name = body.name?.trim();
+    if (!name) {
+      return Response.json({ error: 'name is required' }, { status: 400 });
+    }
+
+    try {
+      const redirectUris = normalizeRedirectUris(body.redirectUris);
+      const scopes = normalizeOAuthScopes(body.scopes);
+      const createdClient = await auth.callEndpoint<BetterAuthOAuthClient>(
+        '/oauth2/create-client',
+        {
+          request,
+          method: 'POST',
+          body: {
+            client_name: name,
+            redirect_uris: redirectUris,
+            scope: scopes.join(' '),
+            grant_types: ['authorization_code', 'refresh_token'],
+            response_types: ['code'],
+            token_endpoint_auth_method: 'client_secret_post',
+            type: 'web',
+          },
+        }
+      );
+
+      if (
+        !createdClient.response.ok ||
+        !createdClient.data?.client_id ||
+        !createdClient.data.client_secret
+      ) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(createdClient.data, 'Failed to create OAuth app') },
+          { status: createdClient.response.status || 500 }
+        );
+      }
+
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      try {
+        const result = await convex.mutation(api.oauthApps.createOAuthAppMapping, {
+          apiSecret: config.convexApiSecret,
+          tenantId,
+          name,
+          clientId: createdClient.data.client_id,
+          redirectUris,
+          scopes,
+          createdByAuthUserId: required.session.user.id,
+        });
+
+        return Response.json({
+          appId: result._id,
+          clientId: createdClient.data.client_id,
+          clientSecret: createdClient.data.client_secret,
+          name: result.name,
+          redirectUris: result.redirectUris,
+          scopes: result.scopes,
+        });
+      } catch (mappingError) {
+        await auth.callEndpoint('/oauth2/delete-client', {
+          request,
+          method: 'POST',
+          body: {
+            client_id: createdClient.data.client_id,
+          },
+        });
+        throw mappingError;
+      }
+    } catch (err) {
+      logger.error('Create OAuth app failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to create OAuth app' },
+        { status: 400 }
+      );
+    }
+  }
+
+  async function regenerateOAuthAppSecret(request: Request, appId: string): Promise<Response> {
+    let body: { tenantId?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const mapping = await convex.query(api.oauthApps.getOAuthApp, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+      });
+
+      if (!mapping) {
+        return Response.json({ error: 'OAuth app not found' }, { status: 404 });
+      }
+
+      const result = await auth.callEndpoint<BetterAuthOAuthClient>(
+        '/oauth2/client/rotate-secret',
+        {
+          request,
+          method: 'POST',
+          body: {
+            client_id: mapping.clientId,
+          },
+        }
+      );
+
+      if (!result.response.ok || !result.data?.client_secret) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(result.data, 'Failed to regenerate secret') },
+          { status: result.response.status || 500 }
+        );
+      }
+
+      return Response.json({
+        clientSecret: result.data.client_secret,
+      });
+    } catch (err) {
+      logger.error('Regenerate OAuth app secret failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to regenerate secret' }, { status: 500 });
+    }
+  }
+
+  async function updateOAuthApp(request: Request, appId: string): Promise<Response> {
+    let body: {
+      tenantId?: string;
+      name?: string;
+      redirectUris?: string[];
+      scopes?: string[];
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const mapping = await convex.query(api.oauthApps.getOAuthApp, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+      });
+
+      if (!mapping) {
+        return Response.json({ error: 'OAuth app not found' }, { status: 404 });
+      }
+
+      const nextName =
+        body.name === undefined
+          ? undefined
+          : (() => {
+              const value = body.name?.trim() ?? '';
+              if (!value) {
+                throw new Error('name cannot be empty');
+              }
+              return value;
+            })();
+      const nextRedirectUris =
+        body.redirectUris === undefined ? undefined : normalizeRedirectUris(body.redirectUris);
+      const nextScopes = body.scopes === undefined ? undefined : normalizeOAuthScopes(body.scopes);
+
+      if (nextName === undefined && nextRedirectUris === undefined && nextScopes === undefined) {
+        return Response.json({ error: 'No updates provided' }, { status: 400 });
+      }
+
+      const result = await auth.callEndpoint<BetterAuthOAuthClient>('/oauth2/update-client', {
+        request,
+        method: 'POST',
+        body: {
+          client_id: mapping.clientId,
+          update: {
+            ...(nextName !== undefined ? { client_name: nextName } : {}),
+            ...(nextRedirectUris !== undefined ? { redirect_uris: nextRedirectUris } : {}),
+            ...(nextScopes !== undefined ? { scope: nextScopes.join(' ') } : {}),
+          },
+        },
+      });
+
+      if (!result.response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(result.data, 'Failed to update OAuth app') },
+          { status: result.response.status || 500 }
+        );
+      }
+
+      await convex.mutation(api.oauthApps.updateOAuthAppMapping, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+        name: nextName,
+        redirectUris: nextRedirectUris,
+        scopes: nextScopes,
+      });
+
+      return Response.json({ success: true });
+    } catch (err) {
+      logger.error('Update OAuth app failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to update OAuth app' },
+        { status: 500 }
+      );
+    }
+  }
+
+  async function deleteOAuthApp(request: Request, appId: string): Promise<Response> {
+    let body: { tenantId?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const mapping = await convex.query(api.oauthApps.getOAuthApp, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+      });
+
+      if (!mapping) {
+        return Response.json({ error: 'OAuth app not found' }, { status: 404 });
+      }
+
+      const result = await auth.callEndpoint('/oauth2/delete-client', {
+        request,
+        method: 'POST',
+        body: {
+          client_id: mapping.clientId,
+        },
+      });
+
+      if (!result.response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(result.data, 'Failed to delete OAuth app') },
+          { status: result.response.status || 500 }
+        );
+      }
+
+      await convex.mutation(api.oauthApps.deleteOAuthAppMapping, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+      });
+
+      return Response.json({ success: true });
+    } catch (err) {
+      logger.error('Delete OAuth app failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to delete OAuth app' },
+        { status: 500 }
+      );
     }
   }
 
@@ -1510,68 +2185,92 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const keys = await convex.query(api.publicApiKeys.listPublicApiKeys, {
-        apiSecret: config.convexApiSecret,
-        tenantId,
+      const existing = await auth.callEndpoint<BetterAuthApiKey>('/api-key/get', {
+        request,
+        query: { id: keyId },
       });
-      const existingKey = Array.isArray(keys)
-        ? keys.find((key: { _id: string }) => key._id === keyId)
-        : null;
-      if (!existingKey) {
-        return Response.json({ error: 'Public API key not found' }, { status: 404 });
+
+      if (!existing.response.ok || !existing.data) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(existing.data, 'API key not found') },
+          { status: existing.response.status === 200 ? 404 : existing.response.status || 404 }
+        );
+      }
+
+      const metadata = parsePublicApiKeyMetadata(existing.data.metadata);
+      if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.tenantId !== tenantId) {
+        return Response.json({ error: 'API key not found' }, { status: 404 });
       }
 
       const scopes =
-        Array.isArray(body.scopes) && body.scopes.length > 0
-          ? body.scopes.map((scope) => scope.trim()).filter(Boolean)
-          : existingKey.scopes;
-      if (scopes.some((scope: string) => !ALLOWED_PUBLIC_API_SCOPES.has(scope))) {
-        return Response.json({ error: 'Invalid public API key scopes' }, { status: 400 });
+        body.scopes === undefined
+          ? getPublicApiKeyScopes(existing.data.permissions)
+          : normalizePublicApiScopes(body.scopes);
+      const nextName = body.name?.trim() || existing.data.name || 'Rotated key';
+      const resolvedExpiresAt =
+        body.expiresAt === null
+          ? null
+          : typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
+            ? body.expiresAt
+            : toTimestamp(existing.data.expiresAt);
+      const created = await auth.callEndpoint<BetterAuthApiKey & { key?: string }>(
+        '/api-key/create',
+        {
+          request,
+          method: 'POST',
+          body: {
+            name: nextName,
+            prefix: PUBLIC_API_KEY_PREFIX,
+            expiresIn: getPublicApiKeyExpiresIn(resolvedExpiresAt),
+            metadata: {
+              kind: PUBLIC_API_KEY_METADATA_KIND,
+              tenantId,
+            },
+            permissions: buildPublicApiPermissions(scopes),
+          },
+        }
+      );
+
+      if (!created.response.ok || !created.data?.id || !created.data.key) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(created.data, 'Failed to rotate API key') },
+          { status: created.response.status || 500 }
+        );
       }
 
-      const expiresAt =
-        typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
-          ? body.expiresAt
-          : (existingKey.expiresAt ?? undefined);
-
-      const apiKey = generatePublicApiKeyValue();
-      const prefix = getPublicApiKeyPrefix(apiKey);
-      const keyHash = hashPublicApiKey(apiKey);
-      const nextName = body.name?.trim() || existingKey.name;
-
-      const newKeyId = await convex.mutation(api.publicApiKeys.createPublicApiKeyRecord, {
-        apiSecret: config.convexApiSecret,
-        tenantId,
-        name: nextName,
-        prefix,
-        keyHash,
-        scopes,
-        createdByAuthUserId: required.session.user.id,
-        expiresAt,
+      const disabled = await auth.callEndpoint<BetterAuthApiKey>('/api-key/update', {
+        request,
+        method: 'POST',
+        body: {
+          keyId,
+          enabled: false,
+        },
       });
 
-      await convex.mutation(api.publicApiKeys.revokePublicApiKey, {
-        apiSecret: config.convexApiSecret,
-        tenantId,
-        keyId,
-        revokedByAuthUserId: required.session.user.id,
-      });
+      if (!disabled.response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(disabled.data, 'Failed to revoke previous API key') },
+          { status: disabled.response.status || 500 }
+        );
+      }
 
       return Response.json({
-        keyId: newKeyId,
-        apiKey,
+        keyId: created.data.id,
+        apiKey: created.data.key,
         name: nextName,
-        prefix,
+        prefix: created.data.start ?? created.data.prefix ?? PUBLIC_API_KEY_PREFIX,
         scopes,
-        expiresAt: expiresAt ?? null,
+        expiresAt: toTimestamp(created.data.expiresAt) ?? null,
         rotatedFromKeyId: keyId,
       });
     } catch (err) {
-      logger.error('Rotate public API key failed', {
+      logger.error('Rotate API key failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to rotate public API key' }, { status: 500 });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to rotate API key' },
+        { status: 400 }
+      );
     }
   }
 
@@ -1929,6 +2628,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   return {
     serveConnectPage,
     exchangeConnectBootstrap,
+    getDashboardSessionStatus,
     createSessionEndpoint,
     createTokenEndpoint,
     completeSetup,
@@ -1947,6 +2647,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     createPublicApiKey,
     revokePublicApiKey,
     rotatePublicApiKey,
+    listOAuthApps,
+    createOAuthApp,
+    updateOAuthApp,
+    deleteOAuthApp,
+    regenerateOAuthAppSecret,
     createDiscordRoleSession,
     exchangeDiscordRoleSetupSession,
     discordRoleOAuthBegin,

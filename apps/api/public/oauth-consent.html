@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
+    <title>Authorize Application | Creator Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&family=DM+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="./tokens.css">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100dvh;
+            padding: 1.25rem;
+            margin: 0;
+        }
+
+        .consent-card {
+            background: rgba(0, 0, 0, 0.30);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: 0 24px 72px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            border-radius: 32px;
+            padding: 40px 36px 36px;
+            max-width: 420px;
+            width: 100%;
+            animation: card-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+
+        @keyframes card-in {
+            from { opacity: 0; transform: translateY(18px) scale(0.97); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* ── App connector ───────────────────────────────────────────────── */
+        .app-connector {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            margin-bottom: 28px;
+        }
+
+        .app-icon {
+            width: 54px;
+            height: 54px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .app-icon.client {
+            background: rgba(14, 165, 233, 0.14);
+            border: 1px solid rgba(14, 165, 233, 0.28);
+        }
+        .app-icon.client svg {
+            stroke: #38bdf8;
+        }
+
+        .app-icon.ours {
+            background: rgba(255, 235, 59, 0.1);
+            border: 1px solid rgba(255, 235, 59, 0.22);
+        }
+        .app-icon.ours img {
+            width: 30px;
+            height: 30px;
+            object-fit: contain;
+        }
+
+        .app-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .connector-arrow {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            color: rgba(255, 255, 255, 0.25);
+        }
+        .connector-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+        .connector-line {
+            width: 28px;
+            height: 1.5px;
+            background: linear-gradient(90deg, rgba(255,255,255,0.2), rgba(255,255,255,0.45));
+            border-radius: 1px;
+        }
+
+        /* ── Heading ─────────────────────────────────────────────────────── */
+        h1 {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 800;
+            font-size: 21px;
+            letter-spacing: -0.04em;
+            color: #fff;
+            text-align: center;
+            margin: 0 0 6px;
+        }
+
+        .client-name {
+            text-align: center;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.5);
+            margin: 0 0 28px;
+        }
+
+        .client-name code {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-family: 'DM Mono', monospace;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.78);
+            letter-spacing: 0.01em;
+        }
+
+        /* ── Permissions ─────────────────────────────────────────────────── */
+        .permissions-label {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: rgba(255, 255, 255, 0.35);
+            margin-bottom: 10px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .permissions-list {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .permission-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.055);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            padding: 13px 14px;
+        }
+
+        .permission-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: rgba(14, 165, 233, 0.15);
+            border: 1px solid rgba(14, 165, 233, 0.22);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .permission-icon svg {
+            width: 17px;
+            height: 17px;
+            stroke: #38bdf8;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .permission-text { flex: 1; min-width: 0; }
+
+        .permission-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.92);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .permission-desc {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.42);
+            margin-top: 2px;
+            font-family: 'DM Sans', sans-serif;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .permission-badge {
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 3px 7px;
+            border-radius: 99px;
+            background: rgba(14, 165, 233, 0.15);
+            color: #38bdf8;
+            border: 1px solid rgba(14, 165, 233, 0.25);
+            flex-shrink: 0;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        /* ── Security notice ─────────────────────────────────────────────── */
+        .security-notice {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            background: rgba(34, 197, 94, 0.07);
+            border: 1px solid rgba(34, 197, 94, 0.18);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 24px;
+        }
+
+        .security-notice svg {
+            width: 15px;
+            height: 15px;
+            stroke: #4ade80;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .security-notice p {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.55);
+            margin: 0;
+            line-height: 1.55;
+        }
+
+        /* ── Actions ─────────────────────────────────────────────────────── */
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .allow-btn {
+            width: 100%;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            color: #fff;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            box-shadow: 0 4px 18px rgba(34, 197, 94, 0.32);
+            transition: transform 0.18s, box-shadow 0.18s;
+        }
+
+        .allow-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(34, 197, 94, 0.42);
+        }
+
+        .allow-btn:active {
+            transform: scale(0.98);
+            transition-duration: 0.08s;
+        }
+
+        .deny-btn {
+            width: 100%;
+            padding: 12px 24px;
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.055);
+            color: rgba(255, 255, 255, 0.55);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.18s, color 0.18s;
+        }
+
+        .deny-btn:hover {
+            background: rgba(255, 255, 255, 0.09);
+            color: rgba(255, 255, 255, 0.78);
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <div class="consent-card">
+            <!-- App connector -->
+            <div class="app-connector">
+                <div class="app-icon client">
+                    <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                </div>
+                <div class="connector-arrow">
+                    <div class="connector-dot"></div>
+                    <div class="connector-line"></div>
+                    <div class="connector-dot"></div>
+                </div>
+                <div class="app-icon ours">
+                    <img src="Icons/MainLogo.png" alt="Creator Assistant">
+                </div>
+            </div>
+
+            <h1>Authorize application</h1>
+            <p class="client-name">
+                <code id="client-id-display">__CLIENT_ID__</code>
+                wants access to your account
+            </p>
+
+            <p class="permissions-label">Permissions requested</p>
+            <ul class="permissions-list" id="permissions-list"></ul>
+
+            <div class="security-notice">
+                <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <p>This app will only access the permissions listed above. You can revoke access at any time from your dashboard.</p>
+            </div>
+
+            <form method="post" action="__CONSENT_ACTION__" id="consent-form">
+                <input type="hidden" name="consent_code" value="__CONSENT_CODE__" />
+                <div class="actions">
+                    <button class="allow-btn" type="submit" name="accept" value="true">Allow access</button>
+                    <button class="deny-btn" type="submit" name="accept" value="false">Deny</button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <script>
+        const SCOPE_INFO = {
+            'verification:read': {
+                label: 'Read verification status',
+                desc: 'Check if a user is verified on your server',
+                badge: 'Read',
+                icon: `<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>`,
+            },
+            'subjects:read': {
+                label: 'Read subject data',
+                desc: 'Access verified users and their purchase records',
+                badge: 'Read',
+                icon: `<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>`,
+            },
+        };
+
+        const rawScopes = '__SCOPE__'.trim().split(/\s+/).filter(Boolean);
+        const list = document.getElementById('permissions-list');
+
+        for (const scope of rawScopes) {
+            const info = SCOPE_INFO[scope] || {
+                label: scope,
+                desc: 'Custom permission scope',
+                badge: 'Access',
+                icon: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>`,
+            };
+            const li = document.createElement('li');
+            li.className = 'permission-item';
+            li.innerHTML = `
+                <div class="permission-icon">${info.icon}</div>
+                <div class="permission-text">
+                    <div class="permission-name">${info.label}</div>
+                    <div class="permission-desc">${info.desc}</div>
+                </div>
+                <span class="permission-badge">${info.badge}</span>
+            `;
+            list.appendChild(li);
+        }
+    </script>
+</body>
+
+</html>

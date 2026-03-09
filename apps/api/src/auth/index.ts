@@ -44,6 +44,13 @@ export interface VrchatInternalResponse {
   betterAuthCookieHeader: string;
 }
 
+export interface BetterAuthEndpointResult<T> {
+  data: T | null;
+  response: Response;
+}
+
+type RequestHeadersInit = ConstructorParameters<typeof Headers>[0];
+
 export interface AuthConfig {
   /** Base URL for the Bun API server (e.g. http://localhost:3001) */
   baseUrl: string;
@@ -220,7 +227,73 @@ export function createAuth(config: AuthConfig) {
       .slice(0, 10);
   }
 
+  async function parseEndpointResponse<T>(response: Response): Promise<T | null> {
+    const text = await response.text();
+    if (!text) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text) as T;
+    } catch (error) {
+      logger.warn('Better Auth endpoint returned non-JSON response', {
+        status: response.status,
+        statusText: response.statusText,
+        bodyPreview: text.slice(0, 300),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
   return {
+    async callEndpoint<T>(
+      path: string,
+      init: {
+        method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+        request?: Request;
+        query?: Record<string, string | number | boolean | null | undefined>;
+        body?: unknown;
+        headers?: RequestHeadersInit;
+      } = {}
+    ): Promise<BetterAuthEndpointResult<T>> {
+      const endpointPath = path.startsWith('/') ? path : `/${path}`;
+      const url = new URL(`${convexAuthBase}${endpointPath}`);
+
+      if (init.query) {
+        for (const [key, value] of Object.entries(init.query)) {
+          if (value === undefined || value === null) {
+            continue;
+          }
+          url.searchParams.set(key, String(value));
+        }
+      }
+
+      const headers = new Headers(init.headers);
+      headers.set('origin', config.baseUrl);
+
+      const cookieHeader = init.request?.headers.get('cookie') ?? '';
+      if (cookieHeader) {
+        headers.set('Better-Auth-Cookie', cookieHeader);
+        headers.set('cookie', cookieHeader);
+      }
+
+      let body: string | undefined;
+      if (init.body !== undefined) {
+        headers.set('content-type', 'application/json');
+        body = JSON.stringify(init.body);
+      }
+
+      const response = await fetch(url, {
+        method: init.method ?? (init.body === undefined ? 'GET' : 'POST'),
+        headers,
+        ...(body !== undefined ? { body } : {}),
+      });
+
+      const data = await parseEndpointResponse<T>(response);
+      return { response, data };
+    },
+
     /** Get session by calling Convex get-session directly with the request cookies. */
     async getSession(request: Request): Promise<SessionData | null> {
       const getSessionUrl = `${convexAuthBase}/get-session`;

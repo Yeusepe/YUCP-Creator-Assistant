@@ -692,50 +692,360 @@
             color: #f87171;
         }
 
+        /* ── OAuth Apps ───────────────────────────────────────────────────── */
+        .oauth-app-card {
+            display: flex;
+            flex-direction: column;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            margin-bottom: 8px;
+            overflow: hidden;
+            transition: border-color 0.15s;
+        }
+
+        .oauth-app-card:last-child { margin-bottom: 0; }
+
+        .oauth-app-card:hover {
+            border-color: rgba(255, 255, 255, 0.13);
+        }
+
+        .oauth-app-card-top {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            padding: 14px 14px 14px 16px;
+        }
+
+        .oauth-app-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: rgba(139, 92, 246, 0.14);
+            border: 1px solid rgba(139, 92, 246, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .oauth-app-icon svg {
+            width: 18px;
+            height: 18px;
+            stroke: #a78bfa;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .oauth-app-body { flex: 1; min-width: 0; }
+
+        .oauth-app-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.92);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            margin-bottom: 5px;
+        }
+
+        .oauth-app-meta {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 7px;
+        }
+
+        .oauth-app-client-id {
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.07);
+            padding: 2px 7px;
+            border-radius: 5px;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            user-select: all;
+        }
+
+        .oauth-app-client-id:hover {
+            background: rgba(139, 92, 246, 0.15);
+            color: #c4b5fd;
+        }
+
+        .oauth-app-date {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.3);
+            font-family: 'DM Sans', sans-serif;
+        }
+
+        .oauth-app-scopes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+
+        .oauth-scope-pill {
+            font-size: 9px;
+            font-weight: 700;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 2px 7px;
+            border-radius: 99px;
+            background: rgba(139, 92, 246, 0.12);
+            color: #c4b5fd;
+            border: 1px solid rgba(139, 92, 246, 0.22);
+        }
+
+        .oauth-app-uris {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .oauth-app-uri {
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(255, 255, 255, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-family: 'DM Mono', monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 260px;
+        }
+
+        .oauth-app-actions {
+            display: flex;
+            flex-direction: row;
+            gap: 5px;
+            flex-shrink: 0;
+            align-items: flex-start;
+        }
+
+        .oauth-app-icon-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: transparent;
+            color: rgba(255, 255, 255, 0.38);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.18s;
+            flex-shrink: 0;
+        }
+
+        .oauth-app-icon-btn svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .oauth-app-icon-btn:hover {
+            background: rgba(255, 255, 255, 0.09);
+            border-color: rgba(255, 255, 255, 0.18);
+            color: rgba(255, 255, 255, 0.85);
+        }
+
+        .oauth-app-icon-btn.edit:hover {
+            background: rgba(139, 92, 246, 0.14);
+            border-color: rgba(139, 92, 246, 0.32);
+            color: #c4b5fd;
+        }
+
+        .oauth-app-icon-btn.regen:hover {
+            background: rgba(56, 189, 248, 0.12);
+            border-color: rgba(56, 189, 248, 0.28);
+            color: #7dd3fc;
+        }
+
+        .oauth-app-icon-btn.delete:hover {
+            background: rgba(239, 68, 68, 0.12);
+            border-color: rgba(239, 68, 68, 0.28);
+            color: #f87171;
+        }
+
+        .oauth-edit-body {
+            padding: 16px;
+            border-top: 1px solid rgba(139, 92, 246, 0.14);
+            background: rgba(139, 92, 246, 0.03);
+        }
+
+        .oauth-regen-body,
+        .oauth-delete-body {
+            padding: 13px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .oauth-regen-body {
+            border-top: 1px solid rgba(56, 189, 248, 0.14);
+            background: rgba(56, 189, 248, 0.04);
+        }
+
+        .oauth-delete-body {
+            border-top: 1px solid rgba(239, 68, 68, 0.14);
+            background: rgba(239, 68, 68, 0.04);
+        }
+
         /* ── API Keys ─────────────────────────────────────────────────────── */
         .api-key-row {
             display: flex;
             align-items: center;
             gap: 14px;
-            padding: 14px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            padding: 14px 16px;
+            margin-bottom: 8px;
+            transition: background 0.15s, border-color 0.15s;
         }
 
         .api-key-row:last-child {
-            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        .api-key-row:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .api-key-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: rgba(255, 235, 59, 0.1);
+            border: 1px solid rgba(255, 235, 59, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .api-key-icon svg {
+            width: 16px;
+            height: 16px;
+            stroke: #fde047;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .api-key-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .api-key-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.92);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            margin-bottom: 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .api-key-meta {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
         }
 
         .api-key-prefix {
             font-family: 'DM Mono', monospace;
-            font-size: 12px;
-            color: rgba(255, 255, 255, 0.85);
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.07);
+            padding: 1px 6px;
+            border-radius: 5px;
             letter-spacing: 0.02em;
         }
 
-        .api-key-scopes {
+        .api-key-scope-badge {
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 2px 7px;
+            border-radius: 99px;
+            background: rgba(14, 165, 233, 0.13);
+            color: #38bdf8;
+            border: 1px solid rgba(14, 165, 233, 0.22);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .api-key-date {
             font-size: 10px;
-            color: rgba(255, 255, 255, 0.5);
+            color: rgba(255, 255, 255, 0.3);
             font-family: 'DM Sans', sans-serif;
         }
 
         .api-key-status-revoked {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
             font-size: 10px;
             font-weight: 700;
-            color: rgba(255, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.35);
             text-transform: uppercase;
+            letter-spacing: 0.05em;
+            flex-shrink: 0;
         }
 
         .api-key-status-active {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
             font-size: 10px;
             font-weight: 700;
             color: #4ade80;
             text-transform: uppercase;
+            letter-spacing: 0.05em;
+            flex-shrink: 0;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            flex-shrink: 0;
+        }
+
+        .api-key-status-active .status-dot {
+            box-shadow: 0 0 5px rgba(74, 222, 128, 0.7);
+            animation: status-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes status-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
 
         .api-key-actions {
             display: flex;
-            gap: 8px;
-            margin-left: auto;
+            gap: 6px;
+            margin-left: 4px;
             flex-shrink: 0;
         }
 
@@ -744,22 +1054,23 @@
             font-weight: 700;
             background: transparent;
             border: 1.5px solid rgba(255, 255, 255, 0.12);
-            color: rgba(255, 255, 255, 0.6);
+            color: rgba(255, 255, 255, 0.55);
             border-radius: 8px;
-            padding: 5px 12px;
+            padding: 5px 11px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.18s;
             font-family: 'Plus Jakarta Sans', sans-serif;
         }
 
         .api-key-action-btn:hover {
             background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
             color: #fff;
         }
 
         .api-key-action-btn.revoke:hover {
-            background: rgba(239, 68, 68, 0.15);
-            border-color: rgba(239, 68, 68, 0.4);
+            background: rgba(239, 68, 68, 0.12);
+            border-color: rgba(239, 68, 68, 0.35);
             color: #f87171;
         }
 
@@ -890,124 +1201,447 @@
             opacity: 0.5;
         }
 
-        /* ── Modal (Liquid Glass) ───────────────────────────────────────────── */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.4);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
+        /* ── Inline Panels (replaces modals) ───────────────────────────────── */
+
+        /* Grid-rows trick: smooth height-to-auto animation */
+        .inline-panel {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.4s cubic-bezier(0.34, 1.1, 0.64, 1);
+        }
+        .inline-panel.open {
+            grid-template-rows: 1fr;
+        }
+        .inline-panel > .inline-panel-inner {
+            overflow: hidden;
+            min-height: 0;
+        }
+        .inline-panel-body {
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            border-radius: 20px;
+            background: rgba(0, 0, 0, 0.22);
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            padding: 20px;
+            margin-bottom: 12px;
+            margin-top: 12px;
+        }
+        .inline-panel-title {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 14px;
+            font-weight: 800;
+            color: rgba(255, 255, 255, 0.9);
+            letter-spacing: -0.02em;
+            margin: 0 0 16px;
+        }
+
+        /* Inline confirm row for destructive actions (disconnect, revoke, remove) */
+        .inline-confirm {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.32s cubic-bezier(0.34, 1.1, 0.64, 1);
+        }
+        .inline-confirm.open {
+            grid-template-rows: 1fr;
+        }
+        .inline-confirm > div {
+            overflow: hidden;
+            min-height: 0;
+        }
+        .inline-confirm-body {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0 0;
+            flex-wrap: wrap;
+        }
+        .inline-confirm-label {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.55);
+            font-family: 'DM Sans', sans-serif;
+            flex: 1;
+            min-width: 100px;
+        }
+        .inline-confirm-label strong {
+            color: rgba(255, 255, 255, 0.8);
+        }
+        .inline-confirm-btns {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .inline-cancel-btn {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.5);
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .inline-cancel-btn:hover {
+            background: rgba(255, 255, 255, 0.09);
+            color: rgba(255, 255, 255, 0.8);
+        }
+        .inline-danger-btn {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .inline-danger-btn:hover {
+            background: rgba(239, 68, 68, 0.32);
+            border-color: rgba(239, 68, 68, 0.5);
+            color: #fca5a5;
+        }
+        .inline-danger-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        /* Reveal card — shown inline after creating a key/app */
+        .reveal-card {
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 16px;
+            background: rgba(34, 197, 94, 0.06);
+            padding: 16px;
+            margin-bottom: 8px;
+            animation: reveal-in 0.4s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+        }
+        @keyframes reveal-in {
+            from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .reveal-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .reveal-card-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            background: rgba(34, 197, 94, 0.15);
+            border: 1px solid rgba(34, 197, 94, 0.25);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 100;
-            opacity: 0;
-            visibility: hidden;
-            pointer-events: none;
-            transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-                visibility 0.35s step-end;
+            flex-shrink: 0;
         }
-        .modal-overlay.modal-visible {
-            opacity: 1;
-            visibility: visible;
-            pointer-events: auto;
-            transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                visibility 0s step-start;
+        .reveal-card-icon svg {
+            width: 15px;
+            height: 15px;
+            stroke: #4ade80;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
-        .modal-overlay .modal-box {
-            background: rgba(0, 0, 0, 0.25);
-            backdrop-filter: blur(16px) saturate(160%);
-            -webkit-backdrop-filter: blur(16px) saturate(160%);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 28px;
-            padding: 36px;
-            max-width: 420px;
-            width: calc(100% - 32px);
-            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4), inset 1px 1px 0 rgba(255, 255, 255, 0.1);
-            transform: scale(0.92) translateY(16px);
-            opacity: 0;
-            transition: transform 0.4s cubic-bezier(0.34, 1.2, 0.64, 1),
-                opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        .reveal-card-title {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            color: #4ade80;
+            flex: 1;
         }
-        .modal-overlay.modal-visible .modal-box {
-            transform: scale(1) translateY(0);
-            opacity: 1;
-        }
-
-        .modal-box .btn-primary {
-            background: rgba(255, 255, 255, 0.2);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        }
-        .modal-box .btn-primary:hover {
-            background: rgba(255, 255, 255, 0.3);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-        }
-        .modal-box .btn-danger {
-            background: rgba(255, 255, 255, 0.2);
-        }
-        .modal-box .btn-danger:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        .modal-box h3 {
-            font-size: 20px;
-            font-weight: 800;
-            color: #fff;
-            margin: 0 0 10px;
-        }
-
-        .modal-box p {
-            font-size: 14px;
+        .reveal-card-subtitle {
             font-family: 'DM Sans', sans-serif;
-            color: rgba(255, 255, 255, 0.75);
-            line-height: 1.6;
-            margin: 0 0 24px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.4);
         }
-
-        .modal-btn-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
+        .reveal-warn {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.18);
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 14px;
         }
-
-        .btn-ghost {
-            padding: 12px;
-            border-radius: 14px;
-            border: 1.5px solid rgba(255, 255, 255, 0.12);
-            background: transparent;
-            color: #fff;
+        .reveal-warn svg {
+            width: 13px;
+            height: 13px;
+            stroke: #fbbf24;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+        .reveal-warn p {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.5);
+            margin: 0;
+            line-height: 1.5;
+        }
+        .reveal-warn p strong { color: rgba(255, 255, 255, 0.8); }
+        .reveal-done-btn {
+            width: 100%;
+            margin-top: 14px;
+            padding: 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            background: rgba(34, 197, 94, 0.08);
+            color: #4ade80;
             font-family: 'Plus Jakarta Sans', sans-serif;
             font-weight: 700;
-            font-size: 13px;
+            font-size: 12px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.15s;
+        }
+        .reveal-done-btn:hover {
+            background: rgba(34, 197, 94, 0.14);
+            border-color: rgba(34, 197, 94, 0.35);
         }
 
+        /* ── Form fields (shared across inline panels) ────────────────────── */
+        .modal-field {
+            margin-bottom: 16px;
+        }
+        .modal-field:last-child { margin-bottom: 0; }
+        .modal-label {
+            display: block;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: rgba(255, 255, 255, 0.35);
+            margin-bottom: 7px;
+        }
+        .modal-label span {
+            font-weight: 500;
+            text-transform: none;
+            letter-spacing: 0;
+            color: rgba(255,255,255,0.2);
+        }
+        .modal-input,
+        .modal-textarea {
+            width: 100%;
+            box-sizing: border-box;
+            background: rgba(0, 0, 0, 0.22);
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            border-radius: 12px;
+            padding: 11px 13px;
+            color: rgba(255,255,255,0.9);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            outline: none;
+            transition: border-color 0.18s, box-shadow 0.18s;
+        }
+        .modal-textarea {
+            font-family: 'DM Mono', monospace;
+            font-size: 12px;
+            resize: vertical;
+            line-height: 1.7;
+        }
+        .modal-input::placeholder,
+        .modal-textarea::placeholder { color: rgba(255,255,255,0.2); }
+        .modal-input:focus,
+        .modal-textarea:focus {
+            border-color: rgba(255,255,255,0.22);
+            box-shadow: 0 0 0 3px rgba(255,255,255,0.04);
+        }
+
+        /* ── Scope toggle cards ──────────────────────────────────────────── */
+        .scope-toggles { display: flex; flex-direction: column; gap: 8px; }
+        .scope-toggle { display: block; cursor: pointer; }
+        .scope-toggle input[type="checkbox"] {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+        }
+        .scope-toggle-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 11px 13px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.18);
+            transition: border-color 0.18s, background 0.18s;
+        }
+        .scope-toggle:hover .scope-toggle-card {
+            border-color: rgba(255,255,255,0.16);
+            background: rgba(0,0,0,0.24);
+        }
+        .scope-toggle input:checked + .scope-toggle-card {
+            border-color: rgba(14,165,233,0.38);
+            background: rgba(14,165,233,0.07);
+        }
+        .scope-toggle-check {
+            width: 20px;
+            height: 20px;
+            border-radius: 7px;
+            border: 1.5px solid rgba(255,255,255,0.14);
+            background: rgba(255,255,255,0.04);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.18s;
+        }
+        .scope-toggle-check svg {
+            width: 11px;
+            height: 11px;
+            stroke: transparent;
+            fill: none;
+            stroke-width: 3;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: stroke 0.15s;
+        }
+        .scope-toggle input:checked + .scope-toggle-card .scope-toggle-check {
+            background: #0ea5e9;
+            border-color: #0ea5e9;
+        }
+        .scope-toggle input:checked + .scope-toggle-card .scope-toggle-check svg {
+            stroke: #fff;
+        }
+        .scope-toggle-text { flex: 1; }
+        .scope-toggle-name {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            color: rgba(255,255,255,0.85);
+        }
+        .scope-toggle-desc {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 11px;
+            color: rgba(255,255,255,0.35);
+            margin-top: 2px;
+        }
+
+        /* ── Inline action buttons row ───────────────────────────────────── */
+        .inline-btn-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .btn-ghost {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            background: rgba(0,0,0,0.18);
+            color: rgba(255,255,255,0.55);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.18s, color 0.18s, border-color 0.18s;
+        }
         .btn-ghost:hover {
             background: rgba(255, 255, 255, 0.08);
+            color: rgba(255,255,255,0.85);
+            border-color: rgba(255,255,255,0.18);
         }
-
         .btn-danger {
-            padding: 12px;
-            border-radius: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 12px;
             border: none;
-            background: #0ea5e9;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
             color: #fff;
             font-family: 'Plus Jakarta Sans', sans-serif;
             font-weight: 700;
-            font-size: 13px;
+            font-size: 12px;
             cursor: pointer;
-            transition: all 0.2s;
+            box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
+            transition: transform 0.18s, box-shadow 0.18s;
         }
-
         .btn-danger:hover {
-            background: #0284c7;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(239, 68, 68, 0.4);
+        }
+        .btn-danger:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+        /* ── Credential display boxes ─────────────────────────────────────── */
+        .cred-block { margin-bottom: 12px; }
+        .cred-block:last-child { margin-bottom: 0; }
+        .cred-block-label {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: rgba(255, 255, 255, 0.3);
+            margin-bottom: 6px;
+        }
+        .cred-box {
+            display: flex;
+            align-items: stretch;
+            background: rgba(0,0,0,0.22);
+            border: 1px solid rgba(255,255,255,0.13);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .cred-box--secret { border-color: rgba(139,92,246,0.25); background: rgba(139,92,246,0.07); }
+        .cred-value {
+            flex: 1;
+            padding: 10px 13px;
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            color: rgba(255,255,255,0.75);
+            word-break: break-all;
+            line-height: 1.5;
+        }
+        .cred-box--secret .cred-value { color: #c4b5fd; }
+        .cred-copy {
+            flex-shrink: 0;
+            width: 42px;
+            border: none;
+            border-left: 1px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.04);
+            color: rgba(255,255,255,0.4);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+        .cred-copy:hover {
+            background: rgba(255,255,255,0.09);
+            color: rgba(255,255,255,0.8);
+        }
+        .cred-copy svg {
+            width: 13px;
+            height: 13px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            pointer-events: none;
         }
 
         /* ── Invite URL box ────────────────────────────────────────────────── */
         .invite-url-box {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1.5px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(255,255,255,0.08);
             border-radius: 12px;
             padding: 12px 14px;
             font-family: 'DM Mono', monospace;
@@ -1321,6 +1955,18 @@
                             <button id="gumroad-btn" class="card-action-btn link" onclick="navigateGumroad()">
                                 Link Account
                             </button>
+                            <!-- Inline disconnect confirm -->
+                            <div class="inline-confirm" id="gumroad-disconnect-confirm">
+                                <div>
+                                    <div class="inline-confirm-body">
+                                        <span class="inline-confirm-label">Disconnect <strong>Gumroad®</strong>? This removes all syncing.</span>
+                                        <div class="inline-confirm-btns">
+                                            <button class="inline-cancel-btn" onclick="cancelDisconnect('gumroad')">Cancel</button>
+                                            <button class="inline-danger-btn" id="gumroad-confirm-btn" onclick="confirmDisconnect('gumroad')">Disconnect</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Jinxxy™ -->
@@ -1342,6 +1988,18 @@
                             <button id="jinxxy-btn" class="card-action-btn link" onclick="navigateJinxxy()">
                                 Link Account
                             </button>
+                            <!-- Inline disconnect confirm -->
+                            <div class="inline-confirm" id="jinxxy-disconnect-confirm">
+                                <div>
+                                    <div class="inline-confirm-body">
+                                        <span class="inline-confirm-label">Disconnect <strong>Jinxxy™</strong>? This removes all syncing.</span>
+                                        <div class="inline-confirm-btns">
+                                            <button class="inline-cancel-btn" onclick="cancelDisconnect('jinxxy')">Cancel</button>
+                                            <button class="inline-danger-btn" id="jinxxy-confirm-btn" onclick="confirmDisconnect('jinxxy')">Disconnect</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                     </div>
@@ -1528,6 +2186,36 @@
                         Allow members to verify licenses from other creators' stores.
                     </p>
 
+                    <!-- Inline invite panel -->
+                    <div class="inline-panel" id="invite-panel">
+                        <div class="inline-panel-inner">
+                            <div class="inline-panel-body">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                                    <div style="display:flex;align-items:center;gap:10px;">
+                                        <div style="width:28px;height:28px;border-radius:8px;background:rgba(14,165,233,0.15);border:1px solid rgba(14,165,233,0.25);display:flex;align-items:center;justify-content:center;">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                        </div>
+                                        <div>
+                                            <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:700;color:rgba(255,255,255,0.9);">Invite link</div>
+                                            <div id="invite-expiry" style="font-family:'DM Sans',sans-serif;font-size:11px;color:rgba(255,255,255,0.4);"></div>
+                                        </div>
+                                    </div>
+                                    <button onclick="closeInvitePanel()" style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.4);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.09)';this.style.color='rgba(255,255,255,0.8)'" onmouseout="this.style.background='rgba(255,255,255,0.04)';this.style.color='rgba(255,255,255,0.4)'">×</button>
+                                </div>
+                                <div class="cred-box" style="margin-bottom:12px;">
+                                    <span class="cred-value" id="invite-url-display" style="font-size:11px;"></span>
+                                    <button class="cred-copy" id="copy-invite-btn" onclick="copyInviteUrl()" title="Copy link">
+                                        <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                    </button>
+                                </div>
+                                <button class="btn-primary" onclick="copyInviteUrl()" style="width:100%;justify-content:center;font-size:12px;padding:9px 16px;">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                    Copy invite link
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Collab list -->
                     <div id="collab-list"></div>
 
@@ -1545,25 +2233,140 @@
                     </div>
                 </section>
 
-                <!-- ── Public API Keys ──────────────────────────────────────────────── -->
+                <!-- ── OAuth Apps ────────────────────────────────────────────────────── -->
+                <section class="section-card p-4 sm:p-5 md:p-7 animate-in animate-in-delay-5" id="oauth-apps-section">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-xl flex items-center justify-center"
+                                style="background:rgba(139,92,246,0.14);border:1px solid rgba(139,92,246,0.25);">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            </div>
+                            <div>
+                                <h2 class="text-lg font-black" style="margin:0;line-height:1.2;">OAuth Applications</h2>
+                            </div>
+                        </div>
+                        <button id="create-oauth-app-btn" class="btn-primary" onclick="openCreateOAuthAppPanel()"
+                            style="font-size:12px;padding:8px 16px;background:rgba(139,92,246,0.85);box-shadow:0 4px 12px rgba(139,92,246,0.3);">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            New App
+                        </button>
+                    </div>
+                    <p class="text-xs text-white/50 font-medium mb-5 ml-11" style="font-family:'DM Sans',sans-serif;">
+                        Register apps that use the OAuth 2.0 flow to access user verification data on their behalf.
+                    </p>
+
+                    <!-- Inline create OAuth app form -->
+                    <div class="inline-panel" id="create-oauth-app-panel">
+                        <div class="inline-panel-inner">
+                            <div class="inline-panel-body" style="border-color:rgba(139,92,246,0.2);background:rgba(139,92,246,0.04);">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                                    <p class="inline-panel-title" style="margin:0;">Register OAuth app</p>
+                                    <button onclick="closeCreateOAuthAppPanel()" style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.4);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.09)';this.style.color='rgba(255,255,255,0.8)'" onmouseout="this.style.background='rgba(255,255,255,0.04)';this.style.color='rgba(255,255,255,0.4)'">×</button>
+                                </div>
+                                <div class="modal-field">
+                                    <label class="modal-label" for="oauth-app-name">App name</label>
+                                    <input type="text" id="oauth-app-name" class="modal-input" placeholder="e.g. My Verification Bot" maxlength="64" autocomplete="off">
+                                </div>
+                                <div class="modal-field" style="margin-bottom:0;">
+                                    <label class="modal-label" for="oauth-app-redirect-uris">Redirect URIs <span>(one per line)</span></label>
+                                    <textarea id="oauth-app-redirect-uris" rows="3" class="modal-textarea" placeholder="https://yourapp.com/callback"></textarea>
+                                </div>
+                                <div class="inline-btn-row">
+                                    <button class="btn-primary" id="create-oauth-app-submit" onclick="submitCreateOAuthApp()" style="font-size:12px;padding:9px 18px;background:linear-gradient(135deg,#8b5cf6,#7c3aed);box-shadow:0 4px 12px rgba(139,92,246,0.3);">Register app</button>
+                                    <button class="btn-ghost" onclick="closeCreateOAuthAppPanel()">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="oauth-apps-signin-required" class="hidden text-center py-6 px-4 rounded-xl" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);">
+                        <p class="text-sm text-white/70 font-medium" style="font-family:'DM Sans',sans-serif;">Sign in to manage OAuth applications.</p>
+                    </div>
+
+                    <!-- Apps list -->
+                    <div id="oauth-apps-list"></div>
+
+                    <!-- Empty state -->
+                    <div id="oauth-apps-empty" class="empty-state hidden">
+                        <div style="width:48px;height:48px;border-radius:14px;background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8;"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        </div>
+                        <p class="text-sm text-white/40 font-semibold" style="font-family:'DM Sans',sans-serif;">No OAuth apps yet.<br>Register an app to start using the OAuth 2.0 flow.</p>
+                    </div>
+
+                    <!-- Loading state -->
+                    <div id="oauth-apps-loading" class="text-center py-8">
+                        <div class="inline-block w-5 h-5 border-2 border-white/20 rounded-full"
+                            style="border-top-color:#a78bfa;animation:page-loading-spin 0.8s linear infinite;"></div>
+                    </div>
+                </section>
+
+                <!-- ── API Keys ──────────────────────────────────────────────────────── -->
                 <section class="section-card p-4 sm:p-5 md:p-7 animate-in animate-in-delay-5" id="api-keys-section">
                     <div class="flex items-center justify-between mb-1">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-xl flex items-center justify-center"
-                                style="background: rgba(14,165,233,0.2);">
-                                <img src="__API_BASE__/Icons/ClapStars.png" class="w-4 h-4 object-contain" alt="">
+                                style="background:rgba(255,235,59,0.12);border:1px solid rgba(255,235,59,0.2);">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fde047" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
                             </div>
-                            <h2 class="text-lg font-black">Public API Keys</h2>
+                            <div>
+                                <h2 class="text-lg font-black" style="margin:0;line-height:1.2;">API Keys</h2>
+                            </div>
                         </div>
-                        <button id="create-api-key-btn" class="btn-primary" onclick="openCreateApiKeyModal()"
+                        <button id="create-api-key-btn" class="btn-primary" onclick="openCreateApiKeyPanel()"
                             style="font-size:12px;padding:8px 16px;">
-                            <img src="__API_BASE__/Icons/Link.png" class="w-3.5 h-3.5 object-contain" alt="">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             New API Key
                         </button>
                     </div>
-                    <p class="text-xs text-white/50 font-medium mb-6 ml-11" style="font-family:'DM Sans',sans-serif;">
-                        Use these keys to call the verification API from your integrations. Send as <code class="text-white/60">x-api-key</code> header.
+                    <p class="text-xs text-white/50 font-medium mb-5 ml-11" style="font-family:'DM Sans',sans-serif;">
+                        Call the verification API from your integrations. Pass as <code class="text-white/60" style="background:rgba(255,255,255,0.08);padding:1px 6px;border-radius:5px;font-size:10px;">x-api-key</code> header.
                     </p>
+
+                    <!-- Inline create API key form -->
+                    <div class="inline-panel" id="create-api-key-panel">
+                        <div class="inline-panel-inner">
+                            <div class="inline-panel-body">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                                    <p class="inline-panel-title" style="margin:0;">New API key</p>
+                                    <button onclick="closeCreateApiKeyPanel()" style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.4);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.09)';this.style.color='rgba(255,255,255,0.8)'" onmouseout="this.style.background='rgba(255,255,255,0.04)';this.style.color='rgba(255,255,255,0.4)'">×</button>
+                                </div>
+                                <div class="modal-field">
+                                    <label class="modal-label" for="api-key-name">Key name</label>
+                                    <input type="text" id="api-key-name" class="modal-input" placeholder="e.g. Production integration" maxlength="64" autocomplete="off">
+                                </div>
+                                <div class="modal-field" style="margin-bottom:0;">
+                                    <label class="modal-label">Permissions</label>
+                                    <div class="scope-toggles">
+                                        <label class="scope-toggle">
+                                            <input type="checkbox" id="scope-verification-read" checked>
+                                            <div class="scope-toggle-card">
+                                                <div class="scope-toggle-check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></div>
+                                                <div class="scope-toggle-text">
+                                                    <div class="scope-toggle-name">verification:read</div>
+                                                    <div class="scope-toggle-desc">Check if a user is verified</div>
+                                                </div>
+                                            </div>
+                                        </label>
+                                        <label class="scope-toggle">
+                                            <input type="checkbox" id="scope-subjects-read" checked>
+                                            <div class="scope-toggle-card">
+                                                <div class="scope-toggle-check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></div>
+                                                <div class="scope-toggle-text">
+                                                    <div class="scope-toggle-name">subjects:read</div>
+                                                    <div class="scope-toggle-desc">Read verified users and purchase records</div>
+                                                </div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="inline-btn-row">
+                                    <button class="btn-primary" id="create-api-key-submit" onclick="submitCreateApiKey()" style="font-size:12px;padding:9px 18px;">Create key</button>
+                                    <button class="btn-ghost" onclick="closeCreateApiKeyPanel()">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     <div id="api-keys-signin-required" class="hidden text-center py-6 px-4 rounded-xl" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);">
                         <p class="text-sm text-white/70 font-medium" style="font-family:'DM Sans',sans-serif;">Sign in to manage API keys.</p>
@@ -1574,8 +2377,10 @@
 
                     <!-- Empty state -->
                     <div id="api-keys-empty" class="empty-state hidden">
-                        <img src="__API_BASE__/Icons/World.png" alt="">
-                        <p class="text-sm text-white/50 font-semibold" style="font-family:'DM Sans',sans-serif;">No API keys yet.<br>Create a key to integrate with the verification API.</p>
+                        <div style="width:48px;height:48px;border-radius:14px;background:rgba(255,235,59,0.1);border:1px solid rgba(255,235,59,0.18);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fde047" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.7;"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                        </div>
+                        <p class="text-sm text-white/40 font-semibold" style="font-family:'DM Sans',sans-serif;">No API keys yet.<br>Create a key to integrate with the verification API.</p>
                     </div>
 
                     <!-- Loading state -->
@@ -1588,97 +2393,17 @@
             </div>
         </main>
 
-        <!-- ── Disconnect Modal ────────────────────────────────────────────── -->
-        <div id="disconnectModal" class="modal-overlay">
-            <div class="modal-box">
-                <h3>Confirm Disconnect</h3>
-                <p>Are you sure you want to disconnect your <strong id="platformName"
-                        class="text-white">Platform</strong> account? This will remove all associated syncing.</p>
-                <div class="modal-btn-row">
-                    <button onclick="closeModal()" class="btn-ghost">Cancel</button>
-                    <button id="confirmDisconnectBtn" class="btn-danger">Confirm</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Invite Link Modal ───────────────────────────────────────────── -->
-        <div id="inviteModal" class="modal-overlay">
-            <div class="modal-box">
-                <div class="flex items-center gap-3 mb-5">
-                    <div class="w-9 h-9 rounded-xl flex items-center justify-center"
-                        style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.15);">
-                        <img src="__API_BASE__/Icons/Link.png" class="w-4 h-4 object-contain" alt="">
-                    </div>
-                    <h3 style="margin:0;">Collaborator Invite Link</h3>
-                </div>
-                <p style="margin-bottom:12px;">Share this link with the creator you'd like to invite. <span
-                        id="invite-expiry" class="font-semibold text-white/70"></span></p>
-                <div id="invite-url-display" class="invite-url-box"></div>
-                <div class="flex gap-3">
-                    <button id="copy-invite-btn" class="btn-primary flex-1" onclick="copyInviteUrl()">
-                        <img src="__API_BASE__/Icons/ClapStars.png" class="w-4 h-4 object-contain" alt="">
-                        Copy Link
-                    </button>
-                    <button onclick="closeInviteModal()" class="btn-ghost flex-1">Close</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Create API Key Modal ──────────────────────────────────────────── -->
-        <div id="createApiKeyModal" class="modal-overlay">
-            <div class="modal-box">
-                <h3>Create API Key</h3>
-                <p>Give your key a name to identify it later. You can choose which scopes it has access to.</p>
-                <div class="mb-4">
-                    <label class="block text-xs font-bold text-white/70 mb-2" for="api-key-name">Name</label>
-                    <input type="text" id="api-key-name" class="w-full px-4 py-3 rounded-xl bg-black/30 border border-white/15 text-white placeholder-white/40 font-medium"
-                        placeholder="e.g. Production integration" maxlength="64">
-                </div>
-                <div class="mb-4">
-                    <span class="block text-xs font-bold text-white/70 mb-2">Scopes</span>
-                    <label class="flex items-center gap-2 mb-2 cursor-pointer">
-                        <input type="checkbox" id="scope-verification-read" checked class="rounded">
-                        <span class="text-sm text-white/80">verification:read</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="scope-subjects-read" checked class="rounded">
-                        <span class="text-sm text-white/80">subjects:read</span>
-                    </label>
-                </div>
-                <div class="modal-btn-row">
-                    <button onclick="closeCreateApiKeyModal()" class="btn-ghost">Cancel</button>
-                    <button id="create-api-key-submit" class="btn-primary" onclick="submitCreateApiKey()">Create Key</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Copy API Key Modal (one-time display) ─────────────────────────── -->
-        <div id="copyApiKeyModal" class="modal-overlay">
-            <div class="modal-box">
-                <h3>API Key Created</h3>
-                <p class="text-amber-400/90 font-semibold">Copy now. You won&apos;t see this again.</p>
-                <div id="api-key-value-display" class="invite-url-box font-mono text-sm mb-4"></div>
-                <div class="flex gap-3">
-                    <button id="copy-api-key-btn" class="btn-primary flex-1" onclick="copyApiKeyValue()">
-                        <img src="__API_BASE__/Icons/ClapStars.png" class="w-4 h-4 object-contain" alt="">
-                        Copy Key
-                    </button>
-                    <button onclick="closeCopyApiKeyModal()" class="btn-ghost flex-1">Done</button>
-                </div>
-            </div>
-        </div>
 
     </div><!-- #page-content -->
 
     <script>
         const guildId = '__GUILD_ID__';
         const apiBase = '__API_BASE__';
-        const SETUP_TOKEN_STORAGE_KEY = 'yucp_dashboard_setup_token';
         const serverHasSetupSession = '__HAS_SETUP_SESSION__' === 'true';
         const tenantIdFromServer = '__TENANT_ID__';
         let tenantId = tenantIdFromServer || null;
-        let setupToken = sessionStorage.getItem(SETUP_TOKEN_STORAGE_KEY) || '';
-        let hasSetupSession = serverHasSetupSession || !!setupToken;
+        let setupToken = '';
+        let hasSetupSession = serverHasSetupSession;
         const SETTINGS_TOUCHED_STORAGE_PREFIX = 'yucp_dashboard_settings_touched:';
         const QUICK_START_DISMISS_STORAGE_PREFIX = 'yucp_dashboard_quick_start_dismissed:';
         const SETUP_COMPLETE_STORAGE_PREFIX = 'yucp_dashboard_setup_completed:';
@@ -1688,6 +2413,9 @@
         let pendingDisconnectPlatform = null;
         let collabConnections = [];
         let publicApiKeys = [];
+        let oauthApps = [];
+        let currentOAuthClientId = '';
+        let currentOAuthClientSecret = '';
         let currentInviteUrl = '';
         let currentApiKeyValue = '';
         let quickStartSignature = '';
@@ -1955,12 +2683,6 @@
             const connectToken = hash.get('token');
             if (!setupTokenFromHash && !connectToken) return false;
 
-            if (setupTokenFromHash) {
-                setupToken = setupTokenFromHash;
-                sessionStorage.setItem(SETUP_TOKEN_STORAGE_KEY, setupTokenFromHash);
-                hasSetupSession = true;
-            }
-
             const res = await apiFetch(`${apiBase}/api/connect/bootstrap`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1971,11 +2693,6 @@
             });
 
             if (!res.ok) {
-                if (setupTokenFromHash) {
-                    sessionStorage.removeItem(SETUP_TOKEN_STORAGE_KEY);
-                    setupToken = '';
-                    hasSetupSession = false;
-                }
                 redirectToExpiredLinkError();
                 return true;
             }
@@ -1983,6 +2700,38 @@
             window.history.replaceState({}, '', window.location.pathname + window.location.search);
             window.location.reload();
             return true;
+        }
+
+        async function ensureBoundSetupSession() {
+            if (!serverHasSetupSession) {
+                hasSetupSession = false;
+                return false;
+            }
+
+            const res = await apiFetch(`${apiBase}/api/connect/session-status`);
+            let data = null;
+            try {
+                data = await res.json();
+            } catch {
+                data = null;
+            }
+
+            if (res.status === 401 && data?.signInUrl) {
+                window.location.replace(data.signInUrl);
+                return true;
+            }
+
+            if (res.status === 403) {
+                throw new Error(data?.error || 'This setup link belongs to a different Discord account.');
+            }
+
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+
+            hasSetupSession = Boolean(data?.hasSetupSession && data?.authenticated);
+            if (data?.tenantId) tenantId = data.tenantId;
+            return false;
         }
 
         async function ensureSetupSessionCookie() {
@@ -2037,7 +2786,8 @@
             try {
                 if (await exchangeBootstrapTokens()) return;
 
-                hasSetupSession = serverHasSetupSession || !!setupToken;
+                hasSetupSession = false;
+                if (await ensureBoundSetupSession()) return;
                 loadProgressFlags();
 
                 if (!hasSetupSession && !tenantId && guildId) {
@@ -2053,6 +2803,7 @@
                 await fetchAllData();
                 await fetchCollabConnections();
                 await fetchPublicApiKeys();
+                await fetchOAuthApps();
                 renderQuickStart();
 
             } catch (err) {
@@ -2233,27 +2984,42 @@
 
         function openModal(platform) {
             pendingDisconnectPlatform = platform;
-            document.getElementById('platformName').innerText = platform.charAt(0).toUpperCase() + platform.slice(1);
-            document.getElementById('disconnectModal').classList.add('modal-visible');
+            // Close any other open confirm
+            ['gumroad', 'jinxxy'].forEach(p => {
+                if (p !== platform) {
+                    const el = document.getElementById(`${p}-disconnect-confirm`);
+                    if (el) el.classList.remove('open');
+                }
+            });
+            const el = document.getElementById(`${platform}-disconnect-confirm`);
+            if (el) el.classList.add('open');
         }
 
         function closeModal() {
+            if (pendingDisconnectPlatform) {
+                const el = document.getElementById(`${pendingDisconnectPlatform}-disconnect-confirm`);
+                if (el) el.classList.remove('open');
+            }
             pendingDisconnectPlatform = null;
-            document.getElementById('disconnectModal').classList.remove('modal-visible');
         }
 
-        document.getElementById('confirmDisconnectBtn').addEventListener('click', async () => {
-            if (!pendingDisconnectPlatform || !hasSetupSession) return;
-            const platform = pendingDisconnectPlatform;
-            const conn = connectionsMap.get(platform);
-            if (!conn) { closeModal(); return; }
+        function cancelDisconnect(platform) {
+            const el = document.getElementById(`${platform}-disconnect-confirm`);
+            if (el) el.classList.remove('open');
+            if (pendingDisconnectPlatform === platform) pendingDisconnectPlatform = null;
+        }
 
-            const btn = document.getElementById('confirmDisconnectBtn');
-            btn.textContent = 'Disconnecting...';
+        async function confirmDisconnect(platform) {
+            if (!hasSetupSession) return;
+            const conn = connectionsMap.get(platform);
+            if (!conn) { cancelDisconnect(platform); return; }
+            const btn = document.getElementById(`${platform}-confirm-btn`);
+            if (btn) { btn.disabled = true; btn.textContent = 'Disconnecting…'; }
             try {
                 const res = await apiFetch(`${apiBase}/api/connections?id=${conn.id}`, { method: 'DELETE' });
                 if (res.ok) {
                     connectionsMap.delete(platform);
+                    cancelDisconnect(platform);
                     updatePlatformCards();
                 } else {
                     alert('Failed to disconnect. Please try again.');
@@ -2262,9 +3028,9 @@
                 console.error('Disconnect error:', e);
                 alert('Network error while disconnecting.');
             }
-            btn.textContent = 'Confirm';
-            closeModal();
-        });
+            if (btn) { btn.disabled = false; btn.textContent = 'Disconnect'; }
+            pendingDisconnectPlatform = null;
+        }
 
         // ── Done Button ──────────────────────────────────────────────────────────
 
@@ -2400,9 +3166,15 @@
                     removeCollabConnection(conn.id);
                 });
 
+                const confirmRow = document.createElement('div');
+                confirmRow.className = 'inline-confirm';
+                confirmRow.id = `collab-confirm-${conn.id}`;
+                confirmRow.innerHTML = `<div><div class="inline-confirm-body"><span class="inline-confirm-label">Remove this collaborator?</span><div class="inline-confirm-btns"><button class="inline-cancel-btn" onclick="document.getElementById('collab-confirm-${conn.id}').classList.remove('open')">Cancel</button><button class="inline-danger-btn" onclick="removeCollabConnection('${conn.id}')">Remove</button></div></div></div>`;
+
                 row.appendChild(avatar);
                 row.appendChild(info);
                 row.appendChild(removeButton);
+                row.appendChild(confirmRow);
                 list.appendChild(row);
             }
         }
@@ -2440,19 +3212,19 @@
 
         function showInviteModal(url, expiresAt) {
             currentInviteUrl = url;
-            const maskedUrl = url.length > 36 ? `${url.slice(0, 18)}...${url.slice(-12)}` : url;
+            const maskedUrl = url.length > 36 ? `${url.slice(0, 18)}…${url.slice(-12)}` : url;
             document.getElementById('invite-url-display').textContent = maskedUrl;
             if (expiresAt) {
                 const d = new Date(expiresAt);
-                document.getElementById('invite-expiry').textContent = `Expires ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}.`;
+                document.getElementById('invite-expiry').textContent = `Expires ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
             } else {
-                document.getElementById('invite-expiry').textContent = 'Expires in 7 days.';
+                document.getElementById('invite-expiry').textContent = 'Expires in 7 days';
             }
-            document.getElementById('inviteModal').classList.add('modal-visible');
+            document.getElementById('invite-panel').classList.add('open');
         }
 
-        function closeInviteModal() {
-            document.getElementById('inviteModal').classList.remove('modal-visible');
+        function closeInvitePanel() {
+            document.getElementById('invite-panel').classList.remove('open');
         }
 
         async function copyInviteUrl() {
@@ -2469,24 +3241,34 @@
 
         async function removeCollabConnection(connectionId) {
             if (!hasSetupSession) return;
-            if (!confirm('Remove this collaborator connection? Members will no longer be able to verify their licenses.')) return;
+            const confirmEl = document.getElementById(`collab-confirm-${connectionId}`);
+            if (!confirmEl) return;
+            if (!confirmEl.classList.contains('open')) {
+                confirmEl.classList.add('open');
+                return;
+            }
+            // Second click = confirmed
+            const btn = confirmEl.querySelector('.inline-danger-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
             try {
-                const res = await apiFetch(`${apiBase}/api/collab/connections/${connectionId}`, {
-                    method: 'DELETE'
-                });
+                const res = await apiFetch(`${apiBase}/api/collab/connections/${connectionId}`, { method: 'DELETE' });
                 if (res.ok) {
                     collabConnections = collabConnections.filter(c => c.id !== connectionId);
                     renderCollabSection();
                 } else {
                     alert('Failed to remove connection. Please try again.');
+                    if (btn) { btn.disabled = false; btn.textContent = 'Remove'; }
+                    confirmEl.classList.remove('open');
                 }
             } catch (e) {
                 console.error('Failed to remove collab connection:', e);
                 alert('Network error. Please try again.');
+                if (btn) { btn.disabled = false; btn.textContent = 'Remove'; }
+                confirmEl.classList.remove('open');
             }
         }
 
-        // ── Public API Keys ──────────────────────────────────────────────────────
+        // ── API Keys ─────────────────────────────────────────────────────────────
 
         async function fetchPublicApiKeys() {
             const tid = tenantId || tenantIdFromServer;
@@ -2524,7 +3306,8 @@
             const createBtn = document.getElementById('create-api-key-btn');
 
             loading.classList.add('hidden');
-            if (signinRequired && !signinRequired.classList.contains('hidden')) return;
+            if (signinRequired) signinRequired.classList.add('hidden');
+            if (createBtn) createBtn.classList.remove('hidden');
 
             list.replaceChildren();
             list.classList.remove('hidden');
@@ -2537,33 +3320,71 @@
             }
 
             for (const key of publicApiKeys) {
+                const isActive = key.status === 'active';
+
                 const row = document.createElement('div');
                 row.className = 'api-key-row';
 
-                const info = document.createElement('div');
-                info.style.flex = '1';
-                const nameEl = document.createElement('div');
-                nameEl.className = 'api-key-prefix';
-                nameEl.textContent = key.name || 'Unnamed';
-                const meta = document.createElement('div');
-                meta.className = 'api-key-scopes';
-                const parts = [];
-                if (key.prefix) parts.push(key.prefix);
-                parts.push((key.scopes || []).join(', '));
-                if (key.lastUsedAt) {
-                    parts.push('Last used ' + new Date(key.lastUsedAt).toLocaleDateString());
+                // Icon
+                const iconEl = document.createElement('div');
+                iconEl.className = 'api-key-icon';
+                iconEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>`;
+                if (!isActive) {
+                    iconEl.style.background = 'rgba(255,255,255,0.06)';
+                    iconEl.style.borderColor = 'rgba(255,255,255,0.1)';
+                    iconEl.querySelector('svg').style.stroke = 'rgba(255,255,255,0.3)';
                 }
-                meta.textContent = parts.join(' · ');
-                info.appendChild(nameEl);
-                info.appendChild(meta);
 
+                // Info block
+                const infoEl = document.createElement('div');
+                infoEl.className = 'api-key-info';
+
+                const nameEl = document.createElement('div');
+                nameEl.className = 'api-key-name';
+                nameEl.textContent = key.name || 'Unnamed';
+                if (!isActive) nameEl.style.opacity = '0.5';
+
+                const metaEl = document.createElement('div');
+                metaEl.className = 'api-key-meta';
+
+                if (key.prefix) {
+                    const prefixEl = document.createElement('span');
+                    prefixEl.className = 'api-key-prefix';
+                    prefixEl.textContent = key.prefix + '…';
+                    metaEl.appendChild(prefixEl);
+                }
+
+                for (const scope of (key.scopes || [])) {
+                    const badge = document.createElement('span');
+                    badge.className = 'api-key-scope-badge';
+                    badge.textContent = scope;
+                    metaEl.appendChild(badge);
+                }
+
+                if (key.lastUsedAt) {
+                    const dateEl = document.createElement('span');
+                    dateEl.className = 'api-key-date';
+                    dateEl.textContent = 'Used ' + new Date(key.lastUsedAt).toLocaleDateString();
+                    metaEl.appendChild(dateEl);
+                } else if (key._creationTime) {
+                    const dateEl = document.createElement('span');
+                    dateEl.className = 'api-key-date';
+                    dateEl.textContent = 'Created ' + new Date(key._creationTime).toLocaleDateString();
+                    metaEl.appendChild(dateEl);
+                }
+
+                infoEl.appendChild(nameEl);
+                infoEl.appendChild(metaEl);
+
+                // Status
                 const statusSpan = document.createElement('span');
-                statusSpan.className = key.status === 'active' ? 'api-key-status-active' : 'api-key-status-revoked';
-                statusSpan.textContent = key.status || 'active';
+                statusSpan.className = isActive ? 'api-key-status-active' : 'api-key-status-revoked';
+                statusSpan.innerHTML = `<span class="status-dot"></span>${isActive ? 'Active' : 'Revoked'}`;
 
+                // Actions
                 const actions = document.createElement('div');
                 actions.className = 'api-key-actions';
-                if (key.status === 'active') {
+                if (isActive) {
                     const rotateBtn = document.createElement('button');
                     rotateBtn.className = 'api-key-action-btn';
                     rotateBtn.textContent = 'Rotate';
@@ -2579,47 +3400,38 @@
                     actions.appendChild(revokeBtn);
                 }
 
-                row.appendChild(info);
+                row.appendChild(iconEl);
+                row.appendChild(infoEl);
                 row.appendChild(statusSpan);
                 row.appendChild(actions);
                 list.appendChild(row);
             }
         }
 
-        function openCreateApiKeyModal() {
+        function openCreateApiKeyPanel() {
             document.getElementById('api-key-name').value = '';
             document.getElementById('scope-verification-read').checked = true;
             document.getElementById('scope-subjects-read').checked = true;
-            document.getElementById('createApiKeyModal').classList.add('modal-visible');
+            document.getElementById('create-api-key-panel').classList.add('open');
+            setTimeout(() => document.getElementById('api-key-name').focus(), 420);
         }
 
-        function closeCreateApiKeyModal() {
-            document.getElementById('createApiKeyModal').classList.remove('modal-visible');
+        function closeCreateApiKeyPanel() {
+            document.getElementById('create-api-key-panel').classList.remove('open');
         }
 
         async function submitCreateApiKey() {
             const name = document.getElementById('api-key-name').value?.trim();
-            if (!name) {
-                alert('Please enter a name for the key.');
-                return;
-            }
+            if (!name) { alert('Please enter a name for the key.'); return; }
             const scopes = [];
             if (document.getElementById('scope-verification-read').checked) scopes.push('verification:read');
             if (document.getElementById('scope-subjects-read').checked) scopes.push('subjects:read');
-            if (scopes.length === 0) {
-                alert('Please select at least one scope.');
-                return;
-            }
-
+            if (scopes.length === 0) { alert('Please select at least one scope.'); return; }
             const tid = tenantId || tenantIdFromServer;
-            if (!tid) {
-                alert('Tenant context is required.');
-                return;
-            }
-
+            if (!tid) { alert('Tenant context is required.'); return; }
             const btn = document.getElementById('create-api-key-submit');
             btn.disabled = true;
-            btn.textContent = 'Creating...';
+            btn.textContent = 'Creating…';
             try {
                 const res = await apiFetch(`${apiBase}/api/connect/public-api/keys`, {
                     method: 'POST',
@@ -2631,33 +3443,66 @@
                     throw new Error(err.error || 'Failed to create API key');
                 }
                 const data = await res.json();
-                closeCreateApiKeyModal();
+                closeCreateApiKeyPanel();
                 currentApiKeyValue = data.apiKey || '';
-                document.getElementById('api-key-value-display').textContent = currentApiKeyValue;
-                document.getElementById('copyApiKeyModal').classList.add('modal-visible');
+                document.getElementById('api-keys-loading').classList.remove('hidden');
+                document.getElementById('api-keys-list').classList.add('hidden');
                 await fetchPublicApiKeys();
+                showApiKeyReveal(currentApiKeyValue, name);
             } catch (e) {
                 alert(e.message || 'Failed to create API key. Please try again.');
             } finally {
                 btn.disabled = false;
-                btn.textContent = 'Create Key';
+                btn.textContent = 'Create key';
             }
         }
 
-        function closeCopyApiKeyModal() {
-            currentApiKeyValue = '';
-            document.getElementById('copyApiKeyModal').classList.remove('modal-visible');
-        }
+        function showApiKeyReveal(apiKey, keyName) {
+            const list = document.getElementById('api-keys-list');
+            const existing = document.getElementById('api-key-reveal-card');
+            if (existing) existing.remove();
 
-        async function copyApiKeyValue() {
-            if (!currentApiKeyValue) return;
-            try {
-                await navigator.clipboard.writeText(currentApiKeyValue);
-                const btn = document.getElementById('copy-api-key-btn');
-                const orig = btn.innerHTML;
-                btn.innerHTML = '<span>Copied!</span>';
-                setTimeout(() => { btn.innerHTML = orig; }, 2000);
-            } catch { /* silent */ }
+            const card = document.createElement('div');
+            card.className = 'reveal-card';
+            card.id = 'api-key-reveal-card';
+            card.innerHTML = `
+                <div class="reveal-card-header">
+                    <div class="reveal-card-icon">
+                        <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    </div>
+                    <div style="flex:1;">
+                        <div class="reveal-card-title">Key created — ${keyName || 'New key'}</div>
+                        <div class="reveal-card-subtitle">Copy it now, this is the only time you'll see it</div>
+                    </div>
+                </div>
+                <div class="reveal-warn">
+                    <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <p>This key <strong>cannot be recovered</strong> after closing. Store it in a secure location.</p>
+                </div>
+                <div class="cred-block">
+                    <div class="cred-block-label">API Key</div>
+                    <div class="cred-box">
+                        <span class="cred-value" id="api-key-reveal-value">${apiKey}</span>
+                        <button class="cred-copy" id="api-key-reveal-copy" title="Copy key">
+                            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <button class="reveal-done-btn" id="api-key-reveal-done">Done — I've saved my key</button>
+            `;
+            list.prepend(card);
+            list.classList.remove('hidden');
+            document.getElementById('api-keys-empty')?.classList.add('hidden');
+
+            document.getElementById('api-key-reveal-copy').addEventListener('click', async () => {
+                await copyText(apiKey, document.getElementById('api-key-reveal-copy'));
+            });
+            document.getElementById('api-key-reveal-done').addEventListener('click', () => {
+                card.style.transition = 'opacity 0.3s, transform 0.3s';
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(-8px)';
+                setTimeout(() => { card.remove(); currentApiKeyValue = ''; }, 320);
+            });
         }
 
         async function revokePublicApiKey(keyId) {
@@ -2671,6 +3516,8 @@
                     body: JSON.stringify({ tenantId: tid })
                 });
                 if (res.ok) {
+                    document.getElementById('api-keys-loading').classList.remove('hidden');
+                    document.getElementById('api-keys-list').classList.add('hidden');
                     await fetchPublicApiKeys();
                 } else {
                     const err = await res.json().catch(() => ({}));
@@ -2698,12 +3545,276 @@
                 }
                 const data = await res.json();
                 currentApiKeyValue = data.apiKey || '';
-                document.getElementById('api-key-value-display').textContent = currentApiKeyValue;
-                document.getElementById('copyApiKeyModal').classList.add('modal-visible');
+                document.getElementById('api-keys-loading').classList.remove('hidden');
+                document.getElementById('api-keys-list').classList.add('hidden');
                 await fetchPublicApiKeys();
+                showApiKeyReveal(currentApiKeyValue, 'Rotated key');
             } catch (e) {
                 alert(e.message || 'Failed to rotate key. Please try again.');
             }
+        }
+
+        // ── OAuth Apps ───────────────────────────────────────────────────────────
+
+        async function fetchOAuthApps() {
+            const tid = tenantId || tenantIdFromServer;
+            if (!tid) {
+                document.getElementById('oauth-apps-loading').classList.add('hidden');
+                document.getElementById('oauth-apps-empty').classList.remove('hidden');
+                return;
+            }
+            try {
+                const res = await apiFetch(`${apiBase}/api/connect/oauth-apps?tenantId=${encodeURIComponent(tid)}`);
+                if (res.status === 401 || res.status === 403) {
+                    document.getElementById('oauth-apps-loading').classList.add('hidden');
+                    document.getElementById('oauth-apps-list').classList.add('hidden');
+                    document.getElementById('oauth-apps-empty').classList.add('hidden');
+                    document.getElementById('oauth-apps-signin-required').classList.remove('hidden');
+                    document.getElementById('create-oauth-app-btn').classList.add('hidden');
+                    return;
+                }
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                oauthApps = data.apps ?? [];
+            } catch (e) {
+                console.error('Failed to fetch OAuth apps:', e);
+                oauthApps = [];
+            }
+            renderOAuthAppsSection();
+        }
+
+        function renderOAuthAppsSection() {
+            const loading = document.getElementById('oauth-apps-loading');
+            const list = document.getElementById('oauth-apps-list');
+            const empty = document.getElementById('oauth-apps-empty');
+            const signinRequired = document.getElementById('oauth-apps-signin-required');
+            const createBtn = document.getElementById('create-oauth-app-btn');
+
+            loading.classList.add('hidden');
+            if (signinRequired) signinRequired.classList.add('hidden');
+            if (createBtn) createBtn.classList.remove('hidden');
+
+            list.replaceChildren();
+            list.classList.remove('hidden');
+            empty.classList.add('hidden');
+
+            if (oauthApps.length === 0) {
+                empty.classList.remove('hidden');
+                list.classList.add('hidden');
+                return;
+            }
+
+            for (const app of oauthApps) {
+                const card = document.createElement('div');
+                card.className = 'oauth-app-card';
+
+                // Icon
+                const iconEl = document.createElement('div');
+                iconEl.className = 'oauth-app-icon';
+                iconEl.innerHTML = `<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+
+                // Body
+                const bodyEl = document.createElement('div');
+                bodyEl.className = 'oauth-app-body';
+
+                const nameEl = document.createElement('div');
+                nameEl.className = 'oauth-app-name';
+                nameEl.textContent = app.name || 'Unnamed App';
+
+                const metaEl = document.createElement('div');
+                metaEl.className = 'oauth-app-meta';
+
+                const clientIdEl = document.createElement('span');
+                clientIdEl.className = 'oauth-app-client-id';
+                clientIdEl.title = 'Click to copy Client ID';
+                clientIdEl.textContent = app.clientId;
+                clientIdEl.addEventListener('click', () => copyText(app.clientId, clientIdEl, 'Copied!'));
+                metaEl.appendChild(clientIdEl);
+
+                if (app._creationTime) {
+                    const dateEl = document.createElement('span');
+                    dateEl.className = 'oauth-app-date';
+                    dateEl.textContent = 'Created ' + new Date(app._creationTime).toLocaleDateString();
+                    metaEl.appendChild(dateEl);
+                }
+
+                const urisEl = document.createElement('div');
+                urisEl.className = 'oauth-app-uris';
+                for (const uri of (app.redirectUris || [])) {
+                    const tag = document.createElement('span');
+                    tag.className = 'oauth-app-uri';
+                    tag.textContent = uri;
+                    tag.title = uri;
+                    urisEl.appendChild(tag);
+                }
+
+                bodyEl.appendChild(nameEl);
+                bodyEl.appendChild(metaEl);
+                bodyEl.appendChild(urisEl);
+
+                // Actions
+                const actionsEl = document.createElement('div');
+                actionsEl.className = 'oauth-app-actions';
+
+                const regenBtn = document.createElement('button');
+                regenBtn.className = 'oauth-app-action-btn regen';
+                regenBtn.textContent = 'Regenerate secret';
+                regenBtn.type = 'button';
+                regenBtn.addEventListener('click', () => regenerateOAuthAppSecret(app._id));
+                actionsEl.appendChild(regenBtn);
+
+                card.appendChild(iconEl);
+                card.appendChild(bodyEl);
+                card.appendChild(actionsEl);
+                list.appendChild(card);
+            }
+        }
+
+        function openCreateOAuthAppPanel() {
+            document.getElementById('oauth-app-name').value = '';
+            document.getElementById('oauth-app-redirect-uris').value = '';
+            document.getElementById('create-oauth-app-panel').classList.add('open');
+            setTimeout(() => document.getElementById('oauth-app-name').focus(), 420);
+        }
+
+        function closeCreateOAuthAppPanel() {
+            document.getElementById('create-oauth-app-panel').classList.remove('open');
+        }
+
+        async function submitCreateOAuthApp() {
+            const name = document.getElementById('oauth-app-name').value?.trim();
+            if (!name) { alert('Please enter an app name.'); return; }
+            const rawUris = document.getElementById('oauth-app-redirect-uris').value;
+            const redirectUris = rawUris.split('\n').map(u => u.trim()).filter(Boolean);
+            if (redirectUris.length === 0) { alert('Please enter at least one redirect URI.'); return; }
+            for (const uri of redirectUris) {
+                try { new URL(uri); } catch { alert(`Invalid redirect URI: ${uri}`); return; }
+            }
+            const tid = tenantId || tenantIdFromServer;
+            if (!tid) { alert('Tenant context is required.'); return; }
+            const btn = document.getElementById('create-oauth-app-submit');
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Registering…';
+            try {
+                const res = await apiFetch(`${apiBase}/api/connect/oauth-apps`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tenantId: tid, name, redirectUris })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || 'Failed to create OAuth app');
+                }
+                const data = await res.json();
+                closeCreateOAuthAppPanel();
+                await fetchOAuthApps();
+                showOAuthCredentialsReveal(data.clientId, data.clientSecret, name);
+            } catch (e) {
+                alert(e.message || 'Failed to register app. Please try again.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = origText;
+            }
+        }
+
+        function showOAuthCredentialsReveal(clientId, clientSecret, appName) {
+            const list = document.getElementById('oauth-apps-list');
+            const existing = document.getElementById('oauth-creds-reveal-card');
+            if (existing) existing.remove();
+
+            const card = document.createElement('div');
+            card.className = 'reveal-card';
+            card.id = 'oauth-creds-reveal-card';
+            card.innerHTML = `
+                <div class="reveal-card-header">
+                    <div class="reveal-card-icon">
+                        <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    </div>
+                    <div style="flex:1;">
+                        <div class="reveal-card-title">${appName || 'App'} registered</div>
+                        <div class="reveal-card-subtitle">Copy your credentials — the secret won't appear again</div>
+                    </div>
+                </div>
+                <div class="reveal-warn">
+                    <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <p>The <strong>Client Secret</strong> is shown once only. Save it in a secure location before closing.</p>
+                </div>
+                <div class="cred-block">
+                    <div class="cred-block-label">Client ID</div>
+                    <div class="cred-box">
+                        <span class="cred-value" id="oauth-reveal-client-id">${clientId}</span>
+                        <button class="cred-copy" id="oauth-reveal-copy-id" title="Copy">
+                            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="cred-block">
+                    <div class="cred-block-label">Client Secret</div>
+                    <div class="cred-box cred-box--secret">
+                        <span class="cred-value" id="oauth-reveal-client-secret">${clientSecret}</span>
+                        <button class="cred-copy" id="oauth-reveal-copy-secret" title="Copy">
+                            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <button class="reveal-done-btn" id="oauth-reveal-done">Done — I've saved my credentials</button>
+            `;
+            list.prepend(card);
+            list.classList.remove('hidden');
+            document.getElementById('oauth-apps-empty')?.classList.add('hidden');
+
+            document.getElementById('oauth-reveal-copy-id').addEventListener('click', async () => {
+                await copyText(clientId, document.getElementById('oauth-reveal-copy-id'));
+            });
+            document.getElementById('oauth-reveal-copy-secret').addEventListener('click', async () => {
+                await copyText(clientSecret, document.getElementById('oauth-reveal-copy-secret'));
+            });
+            document.getElementById('oauth-reveal-done').addEventListener('click', () => {
+                card.style.transition = 'opacity 0.3s, transform 0.3s';
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(-8px)';
+                setTimeout(() => card.remove(), 320);
+            });
+        }
+
+        async function regenerateOAuthAppSecret(appId) {
+            if (!confirm('Regenerate the client secret? The old secret will stop working immediately.')) return;
+            const tid = tenantId || tenantIdFromServer;
+            if (!tid) return;
+            try {
+                const res = await apiFetch(`${apiBase}/api/connect/oauth-apps/${encodeURIComponent(appId)}/regenerate-secret`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tenantId: tid })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || 'Failed to regenerate secret');
+                }
+                const data = await res.json();
+                // Find the app's clientId to show alongside the new secret
+                const app = oauthApps.find(a => a._id === appId);
+                showOAuthCredentialsReveal(app?.clientId || '', data.clientSecret, app?.name || 'App');
+            } catch (e) {
+                alert(e.message || 'Failed to regenerate secret. Please try again.');
+            }
+        }
+
+        async function copyText(text, triggerEl, successLabel) {
+            if (!text) return;
+            try {
+                await navigator.clipboard.writeText(text);
+                if (triggerEl) {
+                    const prev = triggerEl.innerHTML;
+                    if (successLabel) {
+                        triggerEl.textContent = successLabel;
+                    } else {
+                        triggerEl.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+                    }
+                    setTimeout(() => { triggerEl.innerHTML = prev; }, 2000);
+                }
+            } catch { /* silent */ }
         }
 
         // ── Boot ─────────────────────────────────────────────────────────────────

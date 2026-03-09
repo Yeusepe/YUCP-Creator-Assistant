@@ -1,7 +1,6 @@
 // API entrypoint
-// This hosts Better Auth for creator authentication
-// Discord bot installation routes
-// Convex functions will be added later
+// Convex hosts Better Auth for creator authentication.
+// This Bun server hosts the app pages, connect flows, and integration routes.
 
 import { createLogger } from '@yucp/shared';
 import { type Auth, createAuth } from './auth';
@@ -39,6 +38,7 @@ let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
 let publicRoutes: ReturnType<typeof createPublicRoutes> | null = null;
 let suiteRoutes: ReturnType<typeof createSuiteRoutes> | null = null;
+let allowedCorsOrigins = new Set<string>();
 
 // Resolved after initializeAuth - used for apiBase injection and CORS
 let resolvedApiBaseUrl = 'http://localhost:3001';
@@ -54,6 +54,23 @@ function escapeForSingleQuotedJsString(value: string): string {
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029')
     .replace(/<\/script/gi, '<\\/script');
+}
+
+function redirectPreservingFragment(targetUrl: string): Response {
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Redirecting...</title></head><body><p>Redirecting...</p><script>window.location.replace(${JSON.stringify(targetUrl)} + window.location.hash);</script></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
+}
+
+function normalizeOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
 }
 
 function getClientAddress(request: Request): string {
@@ -88,23 +105,45 @@ function initializeAuth(webhookBaseUrl?: string) {
     getRequired('INTERNAL_SERVICE_AUTH_SECRET');
     getRequired('VRCHAT_PENDING_STATE_SECRET');
   }
-  const baseUrl = env.BETTER_AUTH_URL ?? 'http://localhost:3001';
-  // Use detected tunnel URL for webhook callbacks; fall back to baseUrl
-  const publicBaseUrl = webhookBaseUrl ?? baseUrl;
-  const frontendUrl = env.FRONTEND_URL ?? baseUrl;
+  const siteUrl = env.SITE_URL ?? 'http://localhost:3001';
+  // Use a tunnel only for externally reachable webhook/install callbacks.
+  const publicBaseUrl = webhookBaseUrl ?? siteUrl;
+  const frontendUrl = siteUrl;
 
   resolvedApiBaseUrl = publicBaseUrl;
   resolvedFrontendOrigin = frontendUrl !== publicBaseUrl ? new URL(frontendUrl).origin : null;
+  allowedCorsOrigins = new Set(
+    [
+      frontendUrl,
+      publicBaseUrl,
+      env.FRONTEND_URL,
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:5173',
+    ]
+      .map(normalizeOrigin)
+      .filter((origin): origin is string => Boolean(origin))
+  );
 
-  const convexUrl = env.CONVEX_URL ?? '';
-  const convexSiteUrl = convexUrl ? convexUrl.replace('.convex.cloud', '.convex.site') : '';
-
+  const convexSiteUrl = env.CONVEX_SITE_URL ?? '';
   if (!convexSiteUrl) {
-    throw new Error('CONVEX_URL must be set for auth (Convex hosts auth)');
+    throw new Error('CONVEX_SITE_URL must be set for auth (Convex hosts auth)');
+  }
+  if (env.BETTER_AUTH_URL && env.BETTER_AUTH_URL !== convexSiteUrl) {
+    logger.warn('Ignoring BETTER_AUTH_URL in favor of CONVEX_SITE_URL', {
+      configuredBetterAuthUrl: env.BETTER_AUTH_URL,
+      convexSiteUrl,
+    });
+  }
+  if (env.FRONTEND_URL && env.FRONTEND_URL !== frontendUrl) {
+    logger.warn('Ignoring FRONTEND_URL in favor of SITE_URL', {
+      configuredFrontendUrl: env.FRONTEND_URL,
+      siteUrl,
+    });
   }
 
   auth = createAuth({
-    baseUrl,
+    baseUrl: siteUrl,
     convexSiteUrl,
   });
 
@@ -175,14 +214,16 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
-    publicApiKeyPepper: env.PUBLIC_API_KEY_PEPPER ?? env.BETTER_AUTH_SECRET ?? '',
   });
 
   logger.info('Better Auth initialized', {
     installRoutes: installRoutes.size,
     verificationRoutes: verificationRoutes.size,
-    baseUrl,
+    siteUrl,
+    publicBaseUrl,
+    authBaseUrl: `${convexSiteUrl}/api/auth`,
     convexSiteUrl,
+    frontendUrl,
     discordEnabled: !!(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET),
     gumroadConfigured: !!(env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY),
   });
@@ -316,14 +357,13 @@ async function routeRequest(request: Request): Promise<Response> {
     }
 
     const env = loadEnv();
-    const convexUrl = env.CONVEX_URL ?? '';
-    const convexSiteUrl = convexUrl ? convexUrl.replace('.convex.cloud', '.convex.site') : '';
+    const convexSiteUrl = env.CONVEX_SITE_URL ?? '';
     if (!convexSiteUrl) {
-      logger.error('Discord sign-in bridge missing CONVEX_URL', {
+      logger.error('Discord sign-in bridge missing CONVEX_SITE_URL', {
         callbackURL,
         requestUrl: request.url,
       });
-      return new Response(JSON.stringify({ error: 'CONVEX_URL must be set' }), {
+      return new Response(JSON.stringify({ error: 'CONVEX_SITE_URL must be set' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -408,9 +448,37 @@ async function routeRequest(request: Request): Promise<Response> {
     return Response.redirect(redirectUrl, 302);
   }
 
-  // Auth is handled directly by Convex (.site URL) - no proxy needed.
-  // The browser talks to Convex for sign-in/callback, and the Bun server
-  // verifies sessions by calling Convex directly.
+  // Proxy other /api/auth/* requests to Convex (OAuth authorize, token, consent, etc.)
+  // Auth lives on Convex .site; when API runs on localhost, proxy so OAuth works.
+  if (pathname.startsWith('/api/auth/')) {
+    const env = loadEnv();
+    const raw = env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '';
+    const cloudUrl = raw.startsWith('http')
+      ? raw
+      : raw
+        ? `https://${raw.includes(':') ? raw.split(':')[1] : raw}.convex.cloud`
+        : '';
+    const convexSiteUrl = (
+      process.env.CONVEX_SITE_URL ||
+      (cloudUrl ? cloudUrl.replace('.convex.cloud', '.convex.site') : '')
+    ).replace(/\/$/, '');
+    if (convexSiteUrl) {
+      const targetUrl = `${convexSiteUrl}${pathname}${url.search}`;
+      const proxyHeaders = new Headers(request.headers);
+      proxyHeaders.delete('host');
+      proxyHeaders.set('host', new URL(convexSiteUrl).host);
+      const proxyRes = await fetch(targetUrl, {
+        method: request.method,
+        headers: proxyHeaders,
+        body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
+      });
+      return new Response(proxyRes.body, {
+        status: proxyRes.status,
+        statusText: proxyRes.statusText,
+        headers: proxyRes.headers,
+      });
+    }
+  }
 
   // Install routes for bot installation
   if (installRoutes?.has(pathname)) {
@@ -478,6 +546,9 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/bootstrap' && connectRoutes) {
     return connectRoutes.exchangeConnectBootstrap(request);
+  }
+  if (pathname === '/api/connect/session-status' && connectRoutes) {
+    return connectRoutes.getDashboardSessionStatus(request);
   }
   if (pathname === '/api/connect/ensure-tenant' && connectRoutes) {
     return connectRoutes.ensureTenant(request);
@@ -577,6 +648,28 @@ async function routeRequest(request: Request): Promise<Response> {
       return connectRoutes.rotatePublicApiKey(request, decodeURIComponent(keyId));
     }
   }
+  if (pathname === '/api/connect/oauth-apps' && connectRoutes) {
+    if (request.method === 'POST') {
+      return connectRoutes.createOAuthApp(request);
+    }
+    return connectRoutes.listOAuthApps(request);
+  }
+  if (
+    pathname.startsWith('/api/connect/oauth-apps/') &&
+    pathname.endsWith('/regenerate-secret') &&
+    connectRoutes &&
+    request.method === 'POST'
+  ) {
+    const appId = pathname
+      .replace(/^\/api\/connect\/oauth-apps\//, '')
+      .replace(/\/regenerate-secret$/, '');
+    return connectRoutes.regenerateOAuthAppSecret(request, decodeURIComponent(appId));
+  }
+  if (pathname.startsWith('/api/connect/oauth-apps/') && connectRoutes) {
+    const appId = decodeURIComponent(pathname.replace(/^\/api\/connect\/oauth-apps\//, ''));
+    if (request.method === 'PUT') return connectRoutes.updateOAuthApp(request, appId);
+    if (request.method === 'DELETE') return connectRoutes.deleteOAuthApp(request, appId);
+  }
 
   // Collab routes
   if (pathname.startsWith('/api/collab/') && collabRoutes) {
@@ -603,7 +696,7 @@ async function routeRequest(request: Request): Promise<Response> {
       "img-src 'self' data: blob: https:; " +
       "font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; " +
       "connect-src 'self' https: wss:; " +
-      "worker-src 'self'; " +
+      "worker-src 'self' blob:; " +
       "child-src 'self'; " +
       "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
     'Referrer-Policy': 'no-referrer',
@@ -618,7 +711,7 @@ async function routeRequest(request: Request): Promise<Response> {
       "img-src 'self' data:; " +
       "font-src 'self' data: https://fonts.gstatic.com https://r2cdn.perplexity.ai; " +
       "connect-src 'self' https:; " +
-      "worker-src 'self'; " +
+      "worker-src 'self' blob:; " +
       "child-src 'self'; " +
       "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
     'Referrer-Policy': 'no-referrer',
@@ -626,14 +719,31 @@ async function routeRequest(request: Request): Promise<Response> {
     'X-Frame-Options': 'DENY',
   };
 
-  if (pathname === '/oauth/login') {
-    const filePath = `${import.meta.dir}/../public/sign-in-redirect.html`;
-    let html = await Bun.file(filePath).text();
-    html = html.replace(
-      '__SIGN_IN_URL__',
-      "JSON.stringify('/api/auth/sign-in/discord?callbackURL=' + encodeURIComponent(window.location.href))"
+  if (pathname === '/api/oauth/session-check' && request.method === 'GET') {
+    if (!auth) {
+      return new Response(JSON.stringify({ session: false }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const session = await auth.getSession(request);
+    return new Response(
+      JSON.stringify({
+        session: !!session,
+        user: session?.user ? { id: session.user.id } : undefined,
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
     );
-    html = html.replace('__CALLBACK_URL__', 'JSON.stringify(window.location.href)');
+  }
+
+  if (pathname === '/oauth/login') {
+    const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+    const filePath = `${import.meta.dir}/../public/oauth-login.html`;
+    let html = await Bun.file(filePath).text();
+    html = html.replace(/__API_BASE__/g, browserApiBase.replace(/\/$/, ''));
     return new Response(html, {
       status: 200,
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
@@ -644,47 +754,24 @@ async function routeRequest(request: Request): Promise<Response> {
     const consentCode = url.searchParams.get('consent_code') ?? '';
     const clientId = url.searchParams.get('client_id') ?? '';
     const scope = url.searchParams.get('scope') ?? '';
-    const escapedClientId = clientId.replace(/[<>&"'`]/g, '');
-    const escapedScope = scope.replace(/[<>&"'`]/g, '');
+    const escapedClientId = (clientId || 'unknown client').replace(/[<>&"'`]/g, '');
+    const escapedScope = (scope || 'openid verification:read').replace(/[<>&"'`]/g, '');
     const escapedConsentCode = consentCode.replace(/[<>&"'`]/g, '');
-    const authBase = `${(process.env.CONVEX_SITE_URL ?? '').replace(/\/$/, '')}/api/auth`;
-    const html = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Authorize Application</title>
-    <style>
-      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; background: #f4f1e8; color: #1e1b18; }
-      main { max-width: 560px; margin: 10vh auto; padding: 32px; background: #fffdf8; border: 1px solid #d8cfc2; border-radius: 20px; box-shadow: 0 20px 60px rgba(30,27,24,.08); }
-      h1 { margin-top: 0; font-size: 28px; }
-      p, li { line-height: 1.5; }
-      code { background: #f1eadb; padding: 2px 6px; border-radius: 6px; }
-      .actions { display: flex; gap: 12px; margin-top: 24px; }
-      button { border: 0; border-radius: 999px; padding: 12px 18px; cursor: pointer; font-weight: 600; }
-      .allow { background: #1d7a51; color: white; }
-      .deny { background: #ede5d7; color: #1e1b18; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Authorize application</h1>
-      <p><strong>Client:</strong> <code>${escapedClientId || 'unknown client'}</code></p>
-      <p><strong>Requested scopes:</strong> <code>${escapedScope || 'openid verification:read'}</code></p>
-      <p>This application is requesting access to your verification status.</p>
-      <form method="post" action="${authBase}/oauth2/consent">
-        <input type="hidden" name="consent_code" value="${escapedConsentCode}" />
-        <div class="actions">
-          <button class="allow" type="submit" name="accept" value="true">Allow</button>
-          <button class="deny" type="submit" name="accept" value="false">Deny</button>
-        </div>
-      </form>
-    </main>
-  </body>
-</html>`;
+    const convexSiteUrl = (process.env.CONVEX_SITE_URL ?? '').replace(/\/$/, '');
+    const consentAction = `${convexSiteUrl}/api/auth/oauth2/consent`;
+    const filePath = `${import.meta.dir}/../public/oauth-consent.html`;
+    let html = await Bun.file(filePath).text();
+    html = html.replace(/__CLIENT_ID__/g, escapedClientId);
+    html = html.replace(/__SCOPE__/g, escapedScope);
+    html = html.replace(/__CONSENT_CODE__/g, escapedConsentCode);
+    html = html.replace(/__CONSENT_ACTION__/g, consentAction);
+    const consentHeaders = {
+      ...HTML_SECURITY_HEADERS,
+      'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; connect-src 'self' https: wss:; worker-src 'self'; child-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self' ${convexSiteUrl ? new URL(convexSiteUrl).origin : ''}`,
+    };
     return new Response(html, {
       status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8', ...HTML_SECURITY_HEADERS },
+      headers: { 'Content-Type': 'text/html; charset=utf-8', ...consentHeaders },
     });
   }
 
@@ -749,7 +836,7 @@ async function routeRequest(request: Request): Promise<Response> {
       const redirectUrl = new URL(request.url);
       redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
       redirectUrl.host = new URL(resolvedFrontendOrigin).host;
-      return Response.redirect(redirectUrl.toString(), 302);
+      return redirectPreservingFragment(redirectUrl.toString());
     }
     const filePath = `${import.meta.dir}/../public/discord-role-setup.html`;
     const file = Bun.file(filePath);
@@ -770,7 +857,7 @@ async function routeRequest(request: Request): Promise<Response> {
       const redirectUrl = new URL(request.url);
       redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
       redirectUrl.host = new URL(resolvedFrontendOrigin).host;
-      return Response.redirect(redirectUrl.toString(), 302);
+      return redirectPreservingFragment(redirectUrl.toString());
     }
     const filePath = `${import.meta.dir}/../public/collab-invite.html`;
     const file = Bun.file(filePath);
@@ -787,7 +874,7 @@ async function routeRequest(request: Request): Promise<Response> {
       const redirectUrl = new URL(request.url);
       redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
       redirectUrl.host = new URL(resolvedFrontendOrigin).host;
-      return Response.redirect(redirectUrl.toString(), 302);
+      return redirectPreservingFragment(redirectUrl.toString());
     }
     const filePath = `${import.meta.dir}/../public/vrchat-verify.html`;
     const file = Bun.file(filePath);
@@ -804,7 +891,7 @@ async function routeRequest(request: Request): Promise<Response> {
       const redirectUrl = new URL(request.url);
       redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
       redirectUrl.host = new URL(resolvedFrontendOrigin).host;
-      return Response.redirect(redirectUrl.toString(), 302);
+      return redirectPreservingFragment(redirectUrl.toString());
     }
     const filePath = `${import.meta.dir}/../public/jinxxy-setup.html`;
     const file = Bun.file(filePath);
@@ -863,12 +950,21 @@ async function routeRequest(request: Request): Promise<Response> {
     });
   }
 
+  if (pathname === '/api-test' || pathname === '/api-test.html') {
+    const filePath = `${import.meta.dir}/../public/api-test.html`;
+    const html = await Bun.file(filePath).text();
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
   if (pathname === '/dashboard' || pathname === '/dashboard.html') {
     if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
       const redirectUrl = new URL(request.url);
       redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
       redirectUrl.host = new URL(resolvedFrontendOrigin).host;
-      return Response.redirect(redirectUrl.toString(), 302);
+      return redirectPreservingFragment(redirectUrl.toString());
     }
     const filePath = `${import.meta.dir}/../public/dashboard.html`;
     const file = Bun.file(filePath);
@@ -999,17 +1095,15 @@ async function routeRequest(request: Request): Promise<Response> {
 async function handleRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
 
-  // Build CORS headers when the request comes from the configured frontend origin.
+  // Build CORS headers for approved browser origins used by the app UI.
   const corsHeaders: Record<string, string> = {};
-  if (resolvedFrontendOrigin) {
-    const origin = request.headers.get('origin');
-    if (origin === resolvedFrontendOrigin) {
-      corsHeaders['Access-Control-Allow-Origin'] = resolvedFrontendOrigin;
-      corsHeaders['Access-Control-Allow-Credentials'] = 'true';
-      corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS';
-      corsHeaders['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
-      corsHeaders.Vary = 'Origin';
-    }
+  const origin = request.headers.get('origin');
+  if (origin && allowedCorsOrigins.has(origin)) {
+    corsHeaders['Access-Control-Allow-Origin'] = origin;
+    corsHeaders['Access-Control-Allow-Credentials'] = 'true';
+    corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS';
+    corsHeaders['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
+    corsHeaders.Vary = 'Origin';
   }
 
   // CORS preflight - respond immediately.
@@ -1049,9 +1143,7 @@ async function main() {
   }
 
   const publicBaseUrl =
-    tunnel.provider !== 'none'
-      ? tunnel.url
-      : (env.BETTER_AUTH_URL ?? process.env.RENDER_EXTERNAL_URL ?? `http://localhost:${port}`);
+    tunnel.provider !== 'none' ? tunnel.url : (env.SITE_URL ?? `http://localhost:${port}`);
 
   // Initialize Better Auth (pass tunnel URL for webhook base if detected)
   auth = initializeAuth(tunnel.provider !== 'none' ? tunnel.url : undefined);
@@ -1069,6 +1161,7 @@ async function main() {
     publicUrl: publicBaseUrl,
     tunnelProvider: tunnel.provider,
     authProvider: 'Convex (direct)',
+    authBaseUrl: `${env.CONVEX_SITE_URL ?? '(missing)'}/api/auth`,
     installRoutes: '/api/install/*',
     healthCheck: '/health',
   });

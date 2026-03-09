@@ -1,6 +1,6 @@
 /* eslint-disable */
 /**
- * Generated `api` utility.
+ * Generated `ComponentApi` utility.
  *
  * THIS CODE IS AUTOMATICALLY GENERATED.
  *
@@ -8,120 +8,21 @@
  * @module
  */
 
-import type * as audit_events from "../audit_events.js";
-import type * as auth from "../auth.js";
-import type * as backgroundSync from "../backgroundSync.js";
-import type * as bindings from "../bindings.js";
-import type * as collaboratorInvites from "../collaboratorInvites.js";
-import type * as crons from "../crons.js";
-import type * as downloads from "../downloads.js";
-import type * as entitlements from "../entitlements.js";
-import type * as guildLinks from "../guildLinks.js";
-import type * as guildMemberAdd from "../guildMemberAdd.js";
-import type * as http from "../http.js";
-import type * as identitySync from "../identitySync.js";
-import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
-import type * as lib_providers from "../lib/providers.js";
-import type * as lib_vrchat_client from "../lib/vrchat/client.js";
-import type * as lib_vrchat_cookie from "../lib/vrchat/cookie.js";
-import type * as lib_vrchat_crypto from "../lib/vrchat/crypto.js";
-import type * as lib_vrchat_guards from "../lib/vrchat/guards.js";
-import type * as lib_vrchat_index from "../lib/vrchat/index.js";
-import type * as lib_vrchat_types from "../lib/vrchat/types.js";
-import type * as licenseVerification from "../licenseVerification.js";
-import type * as manualLicenses from "../manualLicenses.js";
-import type * as oauthApps from "../oauthApps.js";
-import type * as outbox_jobs from "../outbox_jobs.js";
-import type * as plugins_vrchat from "../plugins/vrchat.js";
-import type * as productResolution from "../productResolution.js";
-import type * as providerConnections from "../providerConnections.js";
-import type * as publicApiKeys from "../publicApiKeys.js";
-import type * as purgeOrphans from "../purgeOrphans.js";
-import type * as role_rules from "../role_rules.js";
-import type * as subjects from "../subjects.js";
-import type * as tenantConfig from "../tenantConfig.js";
-import type * as tenantHelpers from "../tenantHelpers.js";
-import type * as tenants from "../tenants.js";
-import type * as verificationSessions from "../verificationSessions.js";
-import type * as webhookCron from "../webhookCron.js";
-import type * as webhookIngestion from "../webhookIngestion.js";
-import type * as webhookProcessing from "../webhookProcessing.js";
-
-import type {
-  ApiFromModules,
-  FilterApi,
-  FunctionReference,
-} from "convex/server";
-
-declare const fullApi: ApiFromModules<{
-  audit_events: typeof audit_events;
-  auth: typeof auth;
-  backgroundSync: typeof backgroundSync;
-  bindings: typeof bindings;
-  collaboratorInvites: typeof collaboratorInvites;
-  crons: typeof crons;
-  downloads: typeof downloads;
-  entitlements: typeof entitlements;
-  guildLinks: typeof guildLinks;
-  guildMemberAdd: typeof guildMemberAdd;
-  http: typeof http;
-  identitySync: typeof identitySync;
-  "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
-  "lib/providers": typeof lib_providers;
-  "lib/vrchat/client": typeof lib_vrchat_client;
-  "lib/vrchat/cookie": typeof lib_vrchat_cookie;
-  "lib/vrchat/crypto": typeof lib_vrchat_crypto;
-  "lib/vrchat/guards": typeof lib_vrchat_guards;
-  "lib/vrchat/index": typeof lib_vrchat_index;
-  "lib/vrchat/types": typeof lib_vrchat_types;
-  licenseVerification: typeof licenseVerification;
-  manualLicenses: typeof manualLicenses;
-  oauthApps: typeof oauthApps;
-  outbox_jobs: typeof outbox_jobs;
-  "plugins/vrchat": typeof plugins_vrchat;
-  productResolution: typeof productResolution;
-  providerConnections: typeof providerConnections;
-  publicApiKeys: typeof publicApiKeys;
-  purgeOrphans: typeof purgeOrphans;
-  role_rules: typeof role_rules;
-  subjects: typeof subjects;
-  tenantConfig: typeof tenantConfig;
-  tenantHelpers: typeof tenantHelpers;
-  tenants: typeof tenants;
-  verificationSessions: typeof verificationSessions;
-  webhookCron: typeof webhookCron;
-  webhookIngestion: typeof webhookIngestion;
-  webhookProcessing: typeof webhookProcessing;
-}>;
+import type { FunctionReference } from "convex/server";
 
 /**
- * A utility for referencing Convex functions in your app's public API.
+ * A utility for referencing a Convex component's exposed API.
  *
+ * Useful when expecting a parameter like `components.myComponent`.
  * Usage:
- * ```js
- * const myFunctionReference = api.myModule.myFunction;
+ * ```ts
+ * async function myFunction(ctx: QueryCtx, component: ComponentApi) {
+ *   return ctx.runQuery(component.someFile.someQuery, { ...args });
+ * }
  * ```
  */
-export declare const api: FilterApi<
-  typeof fullApi,
-  FunctionReference<any, "public">
->;
-
-/**
- * A utility for referencing Convex functions in your app's internal API.
- *
- * Usage:
- * ```js
- * const myFunctionReference = internal.myModule.myFunction;
- * ```
- */
-export declare const internal: FilterApi<
-  typeof fullApi,
-  FunctionReference<any, "internal">
->;
-
-export declare const components: {
-  betterAuth: {
+export type ComponentApi<Name extends string | undefined = string | undefined> =
+  {
     adapter: {
       create: FunctionReference<
         "mutation",
@@ -287,7 +188,8 @@ export declare const components: {
           onCreateHandle?: string;
           select?: Array<string>;
         },
-        any
+        any,
+        Name
       >;
       deleteMany: FunctionReference<
         "mutation",
@@ -680,7 +582,8 @@ export declare const components: {
             numItems: number;
           };
         },
-        any
+        any,
+        Name
       >;
       deleteOne: FunctionReference<
         "mutation",
@@ -1065,7 +968,8 @@ export declare const components: {
               };
           onDeleteHandle?: string;
         },
-        any
+        any,
+        Name
       >;
       findMany: FunctionReference<
         "query",
@@ -1118,7 +1022,8 @@ export declare const components: {
               | null;
           }>;
         },
-        any
+        any,
+        Name
       >;
       findOne: FunctionReference<
         "query",
@@ -1161,7 +1066,8 @@ export declare const components: {
               | null;
           }>;
         },
-        any
+        any,
+        Name
       >;
       updateMany: FunctionReference<
         "mutation",
@@ -1680,7 +1586,8 @@ export declare const components: {
             numItems: number;
           };
         },
-        any
+        any,
+        Name
       >;
       updateOne: FunctionReference<
         "mutation",
@@ -2191,8 +2098,8 @@ export declare const components: {
               };
           onUpdateHandle?: string;
         },
-        any
+        any,
+        Name
       >;
     };
   };
-};

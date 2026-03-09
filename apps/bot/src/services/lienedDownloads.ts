@@ -407,9 +407,7 @@ async function getOrCreateRelayWebhook(client: Client, channel: RelayWebhookChan
     throw new Error('Discord client user is not ready');
   }
   const permissions =
-    typeof channel.permissionsFor === 'function'
-      ? channel.permissionsFor(clientUserId)
-      : null;
+    typeof channel.permissionsFor === 'function' ? channel.permissionsFor(clientUserId) : null;
   if (!permissions?.has(PermissionsBitField.Flags.ManageWebhooks)) {
     throw new Error(`Missing Manage Webhooks permission in channel ${channel.id}`);
   }

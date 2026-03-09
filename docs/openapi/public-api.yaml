@@ -5,9 +5,20 @@ info:
   description: |
     Public verification endpoints for third-party integrations.
 
-    Authentication modes:
-    - OAuth 2.1 bearer tokens from Better Auth OIDC provider for `/api/public/me/*`
-    - Tenant-scoped service API keys via `x-api-key` for `/api/public/verification/*` and `/api/public/subjects/*`
+    **Choosing authentication:**
+    - **OAuth** — For third-party apps that need user resources. Authorize URL: `{convexSite}/api/auth/oauth2/authorize`, Token URL: `{convexSite}/api/auth/oauth2/token`
+    - **API Key** — For your server. Use `x-api-key` header or `Authorization: Bearer <key>` (both supported)
+
+    **Auth topology:**
+    - Better Auth runs on `CONVEX_SITE_URL`
+    - App pages such as login/consent run on `SITE_URL`
+    - Discord social-provider callback must be `{CONVEX_SITE_URL}/api/auth/callback/discord`
+
+    **Flow selection:**
+    | Use case | Auth | Access user resources | Requires secret |
+    |----------|------|------------------------|-----------------|
+    | Third-party app (Discord bot, game server) | OAuth | Yes | Client secret on server |
+    | Your backend, direct verification | API Key | No | API key in env |
 
 servers:
   - url: https://api.example.com
@@ -65,6 +76,65 @@ paths:
       responses:
         '200':
           $ref: '#/components/responses/VerificationStatus'
+  /api/public/verification/verify:
+    post:
+      summary: Simple verification — does this user have product X?
+      description: |
+        Gumroad-style endpoint. Provide exactly one identity field (whichever you have).
+        Supports API key or OAuth Bearer token.
+      security:
+        - apiKey: [verification:read]
+        - oauth2: [verification:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenantId, productId]
+              properties:
+                tenantId:
+                  type: string
+                productId:
+                  type: string
+                subjectId:
+                  type: string
+                  description: Canonical subject ID (if already resolved)
+                authUserId:
+                  type: string
+                  description: Better Auth user ID
+                discordUserId:
+                  type: string
+                  description: Discord user ID
+                vrchatUserId:
+                  type: string
+                  description: VRChat user ID
+                gumroadUserId:
+                  type: string
+                  description: Gumroad customer ID
+                jinxxyEmail:
+                  type: string
+                  format: email
+                  description: Jinxxy email address
+                jinxxyUserId:
+                  type: string
+                  description: Jinxxy user ID
+              description: Provide exactly one identity field (subjectId, authUserId, discordUserId, vrchatUserId, gumroadUserId, jinxxyEmail, or jinxxyUserId)
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
+                  subjectId:
+                    type: string
+                    nullable: true
+                  productId:
+                    type: string
   /api/public/verification/check:
     post:
       summary: Check product verification for an arbitrary subject

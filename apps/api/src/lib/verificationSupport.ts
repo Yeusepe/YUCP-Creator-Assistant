@@ -4,6 +4,35 @@ import {
   getVerificationSupportErrorDetails,
 } from '@yucp/shared';
 
+export interface PublicApiSupportErrorInput {
+  error: unknown;
+  stage: string;
+  tenantId?: string;
+}
+
+/** Creates an encrypted support code for Public API errors. Same format as verification flow. */
+export async function createPublicApiSupportError(
+  logger: StructuredLogger,
+  input: PublicApiSupportErrorInput
+): Promise<{ supportCode: string }> {
+  const errorDetails = getVerificationSupportErrorDetails(input.error);
+  const support = await encodeVerificationSupportToken({
+    surface: 'public_api',
+    stage: input.stage,
+    tenantId: input.tenantId,
+    ...errorDetails,
+  });
+
+  logger.warn('Public API error', {
+    supportCode: support.supportCode,
+    stage: input.stage,
+    tenantId: input.tenantId,
+    error: input.error instanceof Error ? input.error.message : String(input.error),
+  });
+
+  return { supportCode: support.supportCode };
+}
+
 interface ApiVerificationSupportInput {
   discordUserId?: string;
   error: unknown;
