@@ -170,16 +170,6 @@ async function tryEditActiveVerifyPanel(
   }
 }
 
-function toEphemeralVerifyReply(payload: VerifyStatusReply): {
-  components: [ContainerBuilder];
-  flags: number;
-} {
-  return {
-    components: payload.components,
-    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-  };
-}
-
 async function bindVerifyPanelToken(
   apiBaseUrl: string | undefined,
   apiSecret: string,
@@ -830,17 +820,12 @@ export async function handleVerifyStartButton(
     userId: interaction.user.id,
   });
 
-  const hadActivePanel = Boolean(getActiveVerifyPanel(interaction.user.id, ctx.guildId));
-  if (hadActivePanel) {
-    await interaction.deferUpdate();
-  } else {
+  if (!interaction.deferred && !interaction.replied) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   }
 
   try {
-    const panelToken =
-      getActiveVerifyPanel(interaction.user.id, ctx.guildId)?.panelToken ??
-      createVerifyPanelToken();
+    const panelToken = createVerifyPanelToken();
     const reply = await buildVerifyStatusReply(
       interaction.user.id,
       ctx.tenantId,
@@ -851,13 +836,7 @@ export async function handleVerifyStartButton(
       { panelToken }
     );
 
-    if (await tryEditActiveVerifyPanel(interaction.user.id, ctx.guildId, reply)) {
-      return;
-    }
-
-    const message = hadActivePanel
-      ? await interaction.followUp(toEphemeralVerifyReply(reply))
-      : await interaction.editReply(reply);
+    const message = await interaction.editReply(reply);
     rememberActiveVerifyPanel(interaction, ctx.tenantId, ctx.guildId, message.id, {
       panelToken,
     });
@@ -869,34 +848,16 @@ export async function handleVerifyStartButton(
       tenantId: ctx.tenantId,
     });
   } catch (err) {
-    if (hadActivePanel) {
-      await interaction
-        .followUp({
-          content: await buildBotVerificationErrorMessage(logger, {
-            baseMessage: `${E.X_} An error occurred. Please try again.`,
-            discordUserId: interaction.user.id,
-            error: err,
-            guildId: ctx.guildId,
-            hadActivePanel,
-            stage: 'verify_start_button',
-            tenantId: ctx.tenantId,
-          }),
-          flags: MessageFlags.Ephemeral,
-        })
-        .catch(() => {});
-    } else {
-      await interaction.editReply({
-        content: await buildBotVerificationErrorMessage(logger, {
-          baseMessage: `${E.X_} An error occurred. Please try again.`,
-          discordUserId: interaction.user.id,
-          error: err,
-          guildId: ctx.guildId,
-          hadActivePanel,
-          stage: 'verify_start_button',
-          tenantId: ctx.tenantId,
-        }),
-      });
-    }
+    await interaction.editReply({
+      content: await buildBotVerificationErrorMessage(logger, {
+        baseMessage: `${E.X_} An error occurred. Please try again.`,
+        discordUserId: interaction.user.id,
+        error: err,
+        guildId: ctx.guildId,
+        stage: 'verify_start_button',
+        tenantId: ctx.tenantId,
+      }),
+    });
   }
 }
 
