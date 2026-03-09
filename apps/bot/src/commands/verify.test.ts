@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { handleRefreshCommand, handleVerifyStartButton } from './verify';
+import { buildVerifyStatusReply, handleRefreshCommand, handleVerifyStartButton } from './verify';
 
 const originalWarn = console.warn;
 const originalErrorReferenceSecret = process.env.ERROR_REFERENCE_SECRET;
@@ -92,5 +92,80 @@ describe('verification support codes in bot handlers', () => {
       .map((call) => call[1] as Record<string, unknown> | undefined)
       .find((meta) => meta?.supportCode)?.supportCode;
     expect(loggedSupportCode).toBe(supportCode);
+  });
+
+  it('renders safely after duplicate cleanup while preserving distinct same-provider accounts', async () => {
+    const mutation = mock(async () => ({
+      duplicateGroups: 1,
+      removedBindings: 1,
+      removedExternalAccounts: 1,
+    }));
+    const convex = {
+      mutation,
+      query: mock(async (_ref: unknown, args: Record<string, unknown>) => {
+        if ('discordUserId' in args) {
+          return {
+            found: true,
+            subject: { _id: 'subject_123' },
+          };
+        }
+
+        if ('subjectId' in args && 'includeInactive' in args) {
+          return [{ productId: 'product_123' }];
+        }
+
+        if ('subjectId' in args) {
+          return {
+            found: true,
+            externalAccounts: [
+              { _id: 'acct_1', provider: 'gumroad', providerUserId: 'gumroad_1', status: 'active' },
+              { _id: 'acct_2', provider: 'gumroad', providerUserId: 'gumroad_2', status: 'active' },
+              { provider: 'discord', status: 'active' },
+            ],
+          };
+        }
+
+        if ('apiSecret' in args && 'guildId' in args) {
+          return {
+            gumroad: true,
+            jinxxy: false,
+            discord: true,
+            vrchat: false,
+          };
+        }
+
+        return [{ productId: 'product_123', displayName: 'My Product' }];
+      }),
+    };
+
+    const reply = await buildVerifyStatusReply(
+      'user_123',
+      'tenant_123' as any,
+      'guild_123',
+      convex as any,
+      'api-secret',
+      'https://api.example.com'
+    );
+
+    const json = reply.components[0].toJSON() as {
+      components?: Array<{ components?: Array<{ custom_id?: string; content?: string }> }>;
+    };
+    const customIds = (json.components ?? [])
+      .flatMap((component) => component.components ?? [])
+      .map((component) => component.custom_id)
+      .filter((value): value is string => typeof value === 'string');
+    const textContent = JSON.stringify(json);
+
+    expect(customIds.filter((id) => id === 'creator_verify:disconnect:gumroad')).toHaveLength(1);
+    expect(new Set(customIds).size).toBe(customIds.length);
+    expect(textContent).toContain('2 accounts connected');
+    expect(mutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        apiSecret: 'api-secret',
+        subjectId: 'subject_123',
+        tenantId: 'tenant_123',
+      })
+    );
   });
 });

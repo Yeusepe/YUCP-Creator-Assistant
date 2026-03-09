@@ -9,6 +9,7 @@ import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { Doc } from './_generated/dataModel';
+import { selectCanonicalExternalAccountCandidates } from './lib/externalAccountIdentity';
 import { ProviderV } from './lib/providers';
 
 function requireApiSecret(apiSecret: string | undefined): void {
@@ -197,25 +198,38 @@ export const getSubjectWithAccounts = query({
       ? (await bindingsQuery.collect()).filter((b) => b.tenantId === args.tenantId)
       : await bindingsQuery.collect();
 
-    const externalAccounts = [];
+    const externalAccountCandidates = [];
     for (const binding of activeBindings) {
       const account = await ctx.db.get(binding.externalAccountId);
       if (account && account.status === 'active') {
         // Map to validator shape (exclude emailHash, normalizedEmail, etc.)
-        externalAccounts.push({
-          _id: account._id,
-          _creationTime: account._creationTime,
+        externalAccountCandidates.push({
+          bindingCreatedAt: binding.createdAt,
+          bindingId: String(binding._id),
+          externalAccountCreatedAt: account.createdAt,
+          externalAccountCreationTime: account._creationTime,
+          externalAccountId: String(account._id),
           provider: account.provider,
           providerUserId: account.providerUserId,
-          providerUsername: account.providerUsername,
-          providerMetadata: account.providerMetadata,
-          lastValidatedAt: account.lastValidatedAt,
-          status: account.status,
-          createdAt: account.createdAt,
-          updatedAt: account.updatedAt,
+          value: {
+            _id: account._id,
+            _creationTime: account._creationTime,
+            provider: account.provider,
+            providerUserId: account.providerUserId,
+            providerUsername: account.providerUsername,
+            providerMetadata: account.providerMetadata,
+            lastValidatedAt: account.lastValidatedAt,
+            status: account.status,
+            createdAt: account.createdAt,
+            updatedAt: account.updatedAt,
+          },
         });
       }
     }
+
+    const externalAccounts = selectCanonicalExternalAccountCandidates(externalAccountCandidates).map(
+      (candidate) => candidate.value
+    );
 
     return {
       found: true as const,
