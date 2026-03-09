@@ -28,7 +28,6 @@
     "convex": "^1.32.0",
     "holographic-sticker": "^1.0.4",
     "ioredis": "^5.4.1",
-    "jose": "^6.2.0",
     "lucide": "^0.577.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

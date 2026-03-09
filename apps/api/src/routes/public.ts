@@ -2,6 +2,7 @@ import { createLogger } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { createPublicApiSupportError } from '../lib/verificationSupport';
 
@@ -76,18 +77,15 @@ interface BetterAuthPermissionStatements {
 
 interface BetterAuthVerifiedApiKey {
   id: string;
+  name?: string | null;
+  prefix?: string | null;
+  start?: string | null;
   enabled?: boolean;
   createdAt?: unknown;
   expiresAt?: unknown;
   lastRequest?: unknown;
   metadata?: unknown;
   permissions?: BetterAuthPermissionStatements | null;
-}
-
-interface BetterAuthVerifyApiKeyResponse {
-  valid?: boolean;
-  error?: { code?: string; message?: string } | null;
-  key?: BetterAuthVerifiedApiKey | null;
 }
 
 interface VerifiedPublicApiKey {
@@ -285,57 +283,60 @@ async function defaultVerifyAccessToken(
   config: PublicRouteConfig,
   scopes: string[]
 ): Promise<{ sub: string } | null> {
-  try {
-    const { verifyAccessToken } = await import('better-auth/oauth2');
-    const authBase = `${config.convexSiteUrl.replace(/\/$/, '')}/api/auth`;
-    const verified = await verifyAccessToken(token, {
-      verifyOptions: {
-        issuer: authBase,
-        audience: config.oauthAudience ?? 'yucp-public-api',
-      },
-      jwksUrl: `${authBase}/jwks`,
-    });
-
-    const grantedScopes =
-      typeof (verified as { scope?: unknown }).scope === 'string'
-        ? (verified as { scope: string }).scope.split(/\s+/).filter(Boolean)
-        : [];
-    if (!verified || typeof verified.sub !== 'string' || !hasScopes(grantedScopes, scopes)) {
-      return null;
-    }
-
-    return { sub: verified.sub };
-  } catch (error) {
-    logger.warn('Public API OAuth token verification failed', {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
+  const verified = await verifyBetterAuthAccessToken(token, {
+    convexSiteUrl: config.convexSiteUrl,
+    audience: config.oauthAudience ?? 'yucp-public-api',
+    requiredScopes: scopes,
+    logger,
+    logContext: 'Public API OAuth token verification failed',
+  });
+  return verified ? { sub: verified.sub } : null;
 }
 
 async function defaultVerifyApiKey(
   apiKey: string,
   config: PublicRouteConfig
 ): Promise<BetterAuthVerifiedApiKey | null> {
-  const authBase = `${config.convexSiteUrl.replace(/\/$/, '')}/api/auth`;
+  const convex = getConvexClientFromUrl(config.convexUrl);
 
   try {
-    const response = await fetch(`${authBase}/api-key/verify`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ key: apiKey }),
-    });
+    const result = (await convex.mutation(api.betterAuthApiKeys.verifyApiKey, {
+      apiSecret: config.convexApiSecret,
+      key: apiKey,
+    })) as {
+      valid: boolean;
+      error: { code: string; message: string | null } | null;
+      key: {
+        id: string;
+        userId: string;
+        name: string | null;
+        start: string | null;
+        prefix: string | null;
+        enabled: boolean;
+        permissions: BetterAuthPermissionStatements | null;
+        metadata: { kind: string; tenantId: string } | null;
+        lastRequestAt: number | null;
+        expiresAt: number | null;
+        createdAt: number | null;
+      } | null;
+    };
 
-    const payload = (await response
-      .json()
-      .catch(() => null)) as BetterAuthVerifyApiKeyResponse | null;
-    if (!response.ok || !payload?.valid || !payload.key) {
+    if (!result.valid || !result.key) {
       return null;
     }
 
-    return payload.key;
+    return {
+      id: result.key.id,
+      name: result.key.name,
+      start: result.key.start,
+      prefix: result.key.prefix,
+      enabled: result.key.enabled,
+      permissions: result.key.permissions,
+      metadata: result.key.metadata,
+      lastRequest: result.key.lastRequestAt ?? undefined,
+      expiresAt: result.key.expiresAt ?? undefined,
+      createdAt: result.key.createdAt ?? undefined,
+    };
   } catch (error) {
     logger.warn('Public API key verification failed', {
       message: error instanceof Error ? error.message : String(error),

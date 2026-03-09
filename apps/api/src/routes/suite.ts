@@ -6,9 +6,9 @@
  */
 
 import { createLogger } from '@yucp/shared';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -21,9 +21,8 @@ export interface SuiteConfig {
   convexSiteUrl: string;
 }
 
-export interface VerifiedToken {
+interface VerifiedSuiteToken {
   sub: string;
-  scope?: string;
 }
 
 function jsonResponse(body: object, status = 200): Response {
@@ -37,47 +36,52 @@ function errorResponse(error: string, message: string, status: number): Response
   return jsonResponse({ error, message }, status);
 }
 
-/**
- * Verify Bearer token using JWKS from Convex auth.
- * Returns payload with sub (user ID) and scope, or null if invalid.
- */
-async function verifyBearerToken(
-  token: string,
-  convexSiteUrl: string
-): Promise<VerifiedToken | null> {
-  try {
-    const authBase = `${convexSiteUrl.replace(/\/$/, '')}/api/auth`;
-    const jwksUrl = `${authBase}/jwks`;
-    const issuer = authBase;
-
-    const JWKS = createRemoteJWKSet(new URL(jwksUrl));
-    const { payload } = await jwtVerify(token, JWKS, {
-      issuer,
-    });
-
-    const sub = payload.sub as string | undefined;
-    if (!sub) return null;
-
-    const scope = typeof payload.scope === 'string' ? payload.scope : undefined;
-    return { sub, scope };
-  } catch (err) {
-    logger.warn('Suite token verification failed', {
-      message: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
-}
-
-function hasScope(scope: string | undefined, required: string): boolean {
-  if (!scope) return false;
-  const scopes = scope.split(/\s+/).filter(Boolean);
-  return scopes.includes(required);
-}
-
 function extractBearerToken(request: Request): string | null {
   const auth = request.headers.get('authorization');
   if (!auth?.startsWith('Bearer ')) return null;
   return auth.slice(7).trim() || null;
+}
+
+async function authenticateSuiteRequest(
+  request: Request,
+  config: SuiteConfig
+): Promise<VerifiedSuiteToken | Response> {
+  const token = extractBearerToken(request);
+  if (!token) {
+    return errorResponse('unauthorized', 'Missing or invalid Authorization header', 401);
+  }
+
+  const verified = await verifyBetterAuthAccessToken(token, {
+    convexSiteUrl: config.convexSiteUrl,
+    audience: 'yucp-public-api',
+    requiredScopes: [REQUIRED_SCOPE],
+    logger,
+    logContext: 'Suite token verification failed',
+  });
+  if (!verified) {
+    return errorResponse('unauthorized', 'Invalid, expired, or insufficiently scoped token', 401);
+  }
+
+  return { sub: verified.sub };
+}
+
+async function getSubjectIdForTenant(
+  authUserId: string,
+  config: SuiteConfig
+): Promise<{ found: true; subjectId: string } | { found: false }> {
+  const convex = getConvexClientFromUrl(config.convexUrl);
+  const subjectResult = await convex.query(api.subjects.getSubjectByAuthId, {
+    authUserId,
+  });
+
+  if (!subjectResult?.found || !subjectResult.subject) {
+    return { found: false };
+  }
+
+  return {
+    found: true,
+    subjectId: subjectResult.subject._id,
+  };
 }
 
 /**
@@ -87,17 +91,9 @@ export async function getVerificationStatus(
   request: Request,
   config: SuiteConfig
 ): Promise<Response> {
-  const token = extractBearerToken(request);
-  if (!token) {
-    return errorResponse('unauthorized', 'Missing or invalid Authorization header', 401);
-  }
-
-  const verified = await verifyBearerToken(token, config.convexSiteUrl);
-  if (!verified) {
-    return errorResponse('unauthorized', 'Invalid or expired token', 401);
-  }
-  if (!hasScope(verified.scope, REQUIRED_SCOPE)) {
-    return errorResponse('forbidden', 'Insufficient scope: verification:read required', 403);
+  const auth = await authenticateSuiteRequest(request, config);
+  if (auth instanceof Response) {
+    return auth;
   }
 
   const url = new URL(request.url);
@@ -107,19 +103,15 @@ export async function getVerificationStatus(
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const apiSecret = config.convexApiSecret;
-
-  const subjectResult = await convex.query(api.subjects.getSubjectByAuthId, {
-    authUserId: verified.sub,
-  });
-  if (!subjectResult?.found || !subjectResult.subject) {
+  const subjectResult = await getSubjectIdForTenant(auth.sub, config);
+  if (!subjectResult.found) {
     return errorResponse('forbidden', 'Subject not found', 403);
   }
 
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject, {
-    apiSecret,
+    apiSecret: config.convexApiSecret,
     tenantId,
-    subjectId: subjectResult.subject._id,
+    subjectId: subjectResult.subjectId,
     includeInactive: false,
   });
 
@@ -133,7 +125,7 @@ export async function getVerificationStatus(
 
   return jsonResponse({
     verified: true,
-    subjectId: subjectResult.subject._id,
+    subjectId: subjectResult.subjectId,
     products,
   });
 }
@@ -145,17 +137,9 @@ export async function getVerifiedProducts(
   request: Request,
   config: SuiteConfig
 ): Promise<Response> {
-  const token = extractBearerToken(request);
-  if (!token) {
-    return errorResponse('unauthorized', 'Missing or invalid Authorization header', 401);
-  }
-
-  const verified = await verifyBearerToken(token, config.convexSiteUrl);
-  if (!verified) {
-    return errorResponse('unauthorized', 'Invalid or expired token', 401);
-  }
-  if (!hasScope(verified.scope, REQUIRED_SCOPE)) {
-    return errorResponse('forbidden', 'Insufficient scope: verification:read required', 403);
+  const auth = await authenticateSuiteRequest(request, config);
+  if (auth instanceof Response) {
+    return auth;
   }
 
   const url = new URL(request.url);
@@ -165,19 +149,15 @@ export async function getVerifiedProducts(
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const apiSecret = config.convexApiSecret;
-
-  const subjectResult = await convex.query(api.subjects.getSubjectByAuthId, {
-    authUserId: verified.sub,
-  });
-  if (!subjectResult?.found || !subjectResult.subject) {
+  const subjectResult = await getSubjectIdForTenant(auth.sub, config);
+  if (!subjectResult.found) {
     return jsonResponse({ productIds: [] });
   }
 
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject, {
-    apiSecret,
+    apiSecret: config.convexApiSecret,
     tenantId,
-    subjectId: subjectResult.subject._id,
+    subjectId: subjectResult.subjectId,
     includeInactive: false,
   });
 
@@ -192,17 +172,9 @@ export async function getVerifiedProducts(
  * Body: { tenantId: string, productIds: string[] }
  */
 export async function checkVerification(request: Request, config: SuiteConfig): Promise<Response> {
-  const token = extractBearerToken(request);
-  if (!token) {
-    return errorResponse('unauthorized', 'Missing or invalid Authorization header', 401);
-  }
-
-  const verified = await verifyBearerToken(token, config.convexSiteUrl);
-  if (!verified) {
-    return errorResponse('unauthorized', 'Invalid or expired token', 401);
-  }
-  if (!hasScope(verified.scope, REQUIRED_SCOPE)) {
-    return errorResponse('forbidden', 'Insufficient scope: verification:read required', 403);
+  const auth = await authenticateSuiteRequest(request, config);
+  if (auth instanceof Response) {
+    return auth;
   }
 
   let body: { tenantId?: string; productIds?: string[] };
@@ -228,12 +200,8 @@ export async function checkVerification(request: Request, config: SuiteConfig): 
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const apiSecret = config.convexApiSecret;
-
-  const subjectResult = await convex.query(api.subjects.getSubjectByAuthId, {
-    authUserId: verified.sub,
-  });
-  if (!subjectResult?.found || !subjectResult.subject) {
+  const subjectResult = await getSubjectIdForTenant(auth.sub, config);
+  if (!subjectResult.found) {
     return jsonResponse({
       results: productIds.map((productId) => ({ productId, verified: false })),
     });
@@ -242,9 +210,9 @@ export async function checkVerification(request: Request, config: SuiteConfig): 
   const results = await Promise.all(
     productIds.map(async (productId: string) => {
       const verified = await convex.query(api.entitlements.hasActiveEntitlement, {
-        apiSecret,
+        apiSecret: config.convexApiSecret,
         tenantId,
-        subjectId: subjectResult.subject._id,
+        subjectId: subjectResult.subjectId,
         productId,
       });
       return { productId, verified: verified === true };
@@ -262,24 +230,14 @@ export async function getTenantBySlug(
   config: SuiteConfig,
   slug: string
 ): Promise<Response> {
-  const token = extractBearerToken(request);
-  if (!token) {
-    return errorResponse('unauthorized', 'Missing or invalid Authorization header', 401);
-  }
-
-  const verified = await verifyBearerToken(token, config.convexSiteUrl);
-  if (!verified) {
-    return errorResponse('unauthorized', 'Invalid or expired token', 401);
-  }
-  if (!hasScope(verified.scope, REQUIRED_SCOPE)) {
-    return errorResponse('forbidden', 'Insufficient scope: verification:read required', 403);
+  const auth = await authenticateSuiteRequest(request, config);
+  if (auth instanceof Response) {
+    return auth;
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const apiSecret = config.convexApiSecret;
-
   const tenant = await convex.query(api.tenants.getTenantBySlug, {
-    apiSecret,
+    apiSecret: config.convexApiSecret,
     slug,
   });
 

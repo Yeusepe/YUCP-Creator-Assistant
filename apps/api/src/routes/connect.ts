@@ -198,11 +198,78 @@ function getPublicApiKeyExpiresIn(expiresAt: number | null | undefined): number 
     return undefined;
   }
 
-  const expiresIn = Math.floor(expiresAt - Date.now());
+  const expiresIn = Math.floor((expiresAt - Date.now()) / 1000);
   if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
     throw new Error('expiresAt must be in the future');
   }
   return expiresIn;
+}
+
+async function createManagedPublicApiKey(
+  config: ConnectConfig,
+  ownerUserId: string,
+  input: {
+    name: string;
+    scopes: string[];
+    tenantId: string;
+    expiresAt?: number | null;
+  }
+): Promise<{
+  response: Response;
+  data: (BetterAuthApiKey & { key?: string }) | null;
+}> {
+  const convex = getConvexClientFromUrl(config.convexUrl);
+  try {
+    const result = (await convex.mutation(api.betterAuthApiKeys.createApiKey, {
+      apiSecret: config.convexApiSecret,
+      userId: ownerUserId,
+      tenantId: input.tenantId,
+      name: input.name,
+      scopes: input.scopes,
+      expiresIn: getPublicApiKeyExpiresIn(input.expiresAt),
+    })) as {
+      key: string;
+      apiKey: {
+        id: string;
+        name: string | null;
+        start: string | null;
+        prefix: string | null;
+        enabled: boolean;
+        permissions: BetterAuthPermissionStatements | null;
+        metadata: { kind: string; tenantId: string } | null;
+        lastRequestAt: number | null;
+        expiresAt: number | null;
+        createdAt: number | null;
+      };
+    };
+
+    return {
+      response: new Response(null, { status: 200 }),
+      data: {
+        id: result.apiKey.id,
+        key: result.key,
+        name: result.apiKey.name,
+        start: result.apiKey.start,
+        prefix: result.apiKey.prefix,
+        enabled: result.apiKey.enabled,
+        permissions: result.apiKey.permissions,
+        metadata: result.apiKey.metadata,
+        lastRequest: result.apiKey.lastRequestAt ?? undefined,
+        expiresAt: result.apiKey.expiresAt ?? undefined,
+        createdAt: result.apiKey.createdAt ?? undefined,
+      },
+    };
+  } catch (error) {
+    logger.error('Create API key via Convex failed', {
+      tenantId: input.tenantId,
+      userId: ownerUserId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      response: new Response(null, { status: 500 }),
+      data: null,
+    };
+  }
 }
 
 function normalizeRedirectUris(redirectUris: unknown): string[] {
@@ -1691,6 +1758,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if ('response' in required) {
       return required.response;
     }
+    if (!tenantId) {
+      return Response.json({ error: 'tenantId is required' }, { status: 400 });
+    }
 
     const name = body.name?.trim();
     if (!name) {
@@ -1699,31 +1769,25 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     try {
       const scopes = normalizePublicApiScopes(body.scopes);
-      const expiresIn = getPublicApiKeyExpiresIn(
+      const expiresAt =
         typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
           ? body.expiresAt
-          : undefined
-      );
-
-      const { response, data } = await auth.callEndpoint<BetterAuthApiKey & { key?: string }>(
-        '/api-key/create',
-        {
-          request,
-          method: 'POST',
-          body: {
-            name,
-            prefix: PUBLIC_API_KEY_PREFIX,
-            expiresIn,
-            metadata: {
-              kind: PUBLIC_API_KEY_METADATA_KIND,
-              tenantId,
-            },
-            permissions: buildPublicApiPermissions(scopes),
-          },
-        }
-      );
+          : undefined;
+      const { response, data } = await createManagedPublicApiKey(config, required.session.user.id, {
+        name,
+        scopes,
+        tenantId,
+        expiresAt,
+      });
 
       if (!response.ok || !data?.id || !data.key) {
+        logger.warn('Create API key rejected by Better Auth', {
+          tenantId,
+          userId: required.session.user.id,
+          status: response.status,
+          error: getBetterAuthErrorMessage(data, 'Failed to create API key'),
+          data,
+        });
         return Response.json(
           { error: getBetterAuthErrorMessage(data, 'Failed to create API key') },
           { status: response.status || 500 }
@@ -1761,6 +1825,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const required = await requireOwnerSessionForTenant(request, tenantId);
     if ('response' in required) {
       return required.response;
+    }
+    if (!tenantId) {
+      return Response.json({ error: 'tenantId is required' }, { status: 400 });
     }
 
     try {
@@ -1837,24 +1904,35 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         (Array.isArray(data) ? data : []).map((client) => [client.client_id, client] as const)
       );
 
-      const apps = mappings.map((mapping) => {
-        const client = clientMap.get(mapping.clientId);
-        const scopes = client?.scope ? client.scope.split(/\s+/).filter(Boolean) : mapping.scopes;
+      const apps = mappings
+        .map((mapping) => {
+          const client = clientMap.get(mapping.clientId);
+          if (!client) {
+            logger.warn('OAuth app mapping missing Better Auth client', {
+              appId: mapping._id,
+              clientId: mapping.clientId,
+              tenantId,
+            });
+            return null;
+          }
 
-        return {
-          _id: mapping._id,
-          _creationTime: mapping._creationTime,
-          tenantId: mapping.tenantId,
-          name: client?.client_name ?? mapping.name,
-          clientId: mapping.clientId,
-          redirectUris: client?.redirect_uris ?? mapping.redirectUris,
-          scopes,
-          tokenEndpointAuthMethod: client?.token_endpoint_auth_method,
-          grantTypes: client?.grant_types,
-          responseTypes: client?.response_types,
-          disabled: client?.disabled ?? false,
-        };
-      });
+          const scopes = client.scope ? client.scope.split(/\s+/).filter(Boolean) : mapping.scopes;
+
+          return {
+            _id: mapping._id,
+            _creationTime: mapping._creationTime,
+            tenantId: mapping.tenantId,
+            name: client.client_name ?? mapping.name,
+            clientId: mapping.clientId,
+            redirectUris: client.redirect_uris ?? mapping.redirectUris,
+            scopes,
+            tokenEndpointAuthMethod: client.token_endpoint_auth_method,
+            grantTypes: client.grant_types,
+            responseTypes: client.response_types,
+            disabled: client.disabled ?? false,
+          };
+        })
+        .filter((app): app is NonNullable<typeof app> => Boolean(app));
 
       return Response.json({ apps });
     } catch (err) {
@@ -2183,6 +2261,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if ('response' in required) {
       return required.response;
     }
+    if (!tenantId) {
+      return Response.json({ error: 'tenantId is required' }, { status: 400 });
+    }
 
     try {
       const existing = await auth.callEndpoint<BetterAuthApiKey>('/api-key/get', {
@@ -2213,25 +2294,22 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           : typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
             ? body.expiresAt
             : toTimestamp(existing.data.expiresAt);
-      const created = await auth.callEndpoint<BetterAuthApiKey & { key?: string }>(
-        '/api-key/create',
-        {
-          request,
-          method: 'POST',
-          body: {
-            name: nextName,
-            prefix: PUBLIC_API_KEY_PREFIX,
-            expiresIn: getPublicApiKeyExpiresIn(resolvedExpiresAt),
-            metadata: {
-              kind: PUBLIC_API_KEY_METADATA_KIND,
-              tenantId,
-            },
-            permissions: buildPublicApiPermissions(scopes),
-          },
-        }
-      );
+      const created = await createManagedPublicApiKey(config, required.session.user.id, {
+        name: nextName,
+        scopes,
+        tenantId,
+        expiresAt: resolvedExpiresAt,
+      });
 
       if (!created.response.ok || !created.data?.id || !created.data.key) {
+        logger.warn('Rotate API key rejected by Better Auth', {
+          tenantId,
+          keyId,
+          userId: required.session.user.id,
+          status: created.response.status,
+          error: getBetterAuthErrorMessage(created.data, 'Failed to rotate API key'),
+          data: created.data,
+        });
         return Response.json(
           { error: getBetterAuthErrorMessage(created.data, 'Failed to rotate API key') },
           { status: created.response.status || 500 }

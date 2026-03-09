@@ -11,6 +11,7 @@
 import type * as audit_events from "../audit_events.js";
 import type * as auth from "../auth.js";
 import type * as backgroundSync from "../backgroundSync.js";
+import type * as betterAuthApiKeys from "../betterAuthApiKeys.js";
 import type * as bindings from "../bindings.js";
 import type * as collaboratorInvites from "../collaboratorInvites.js";
 import type * as crons from "../crons.js";
@@ -35,7 +36,6 @@ import type * as outbox_jobs from "../outbox_jobs.js";
 import type * as plugins_vrchat from "../plugins/vrchat.js";
 import type * as productResolution from "../productResolution.js";
 import type * as providerConnections from "../providerConnections.js";
-import type * as publicApiKeys from "../publicApiKeys.js";
 import type * as purgeOrphans from "../purgeOrphans.js";
 import type * as role_rules from "../role_rules.js";
 import type * as subjects from "../subjects.js";
@@ -57,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   audit_events: typeof audit_events;
   auth: typeof auth;
   backgroundSync: typeof backgroundSync;
+  betterAuthApiKeys: typeof betterAuthApiKeys;
   bindings: typeof bindings;
   collaboratorInvites: typeof collaboratorInvites;
   crons: typeof crons;
@@ -81,7 +82,6 @@ declare const fullApi: ApiFromModules<{
   "plugins/vrchat": typeof plugins_vrchat;
   productResolution: typeof productResolution;
   providerConnections: typeof providerConnections;
-  publicApiKeys: typeof publicApiKeys;
   purgeOrphans: typeof purgeOrphans;
   role_rules: typeof role_rules;
   subjects: typeof subjects;

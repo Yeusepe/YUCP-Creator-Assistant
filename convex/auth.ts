@@ -27,6 +27,8 @@ import { vrchat } from './plugins/vrchat';
 const PUBLIC_API_AUDIENCE = 'yucp-public-api';
 const PUBLIC_API_KEY_PREFIX = 'ypsk_';
 const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
+let hasLoggedIgnoredBetterAuthUrl = false;
+let hasLoggedBetterAuthConfig = false;
 
 function normalizeOrigin(value: string | undefined): string | null {
   if (!value) return null;
@@ -127,19 +129,23 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
 
   const legacyBetterAuthOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
   const authOrigin = normalizeOrigin(convexSiteUrl);
-  if (legacyBetterAuthOrigin && legacyBetterAuthOrigin !== authOrigin) {
+  if (legacyBetterAuthOrigin && legacyBetterAuthOrigin !== authOrigin && !hasLoggedIgnoredBetterAuthUrl) {
+    hasLoggedIgnoredBetterAuthUrl = true;
     console.warn(
       `BETTER_AUTH_URL (${legacyBetterAuthOrigin}) is ignored; Better Auth runs on ${authOrigin}`
     );
   }
 
-  console.log('Better Auth config', {
-    siteUrl,
-    authBaseUrl: `${convexSiteUrl}/api/auth`,
-    betterAuthUrl: process.env.BETTER_AUTH_URL ?? null,
-    frontendUrl: process.env.FRONTEND_URL ?? null,
-    trustedOrigins,
-  });
+  if (!hasLoggedBetterAuthConfig) {
+    hasLoggedBetterAuthConfig = true;
+    console.log('Better Auth config', {
+      siteUrl,
+      authBaseUrl: `${convexSiteUrl}/api/auth`,
+      betterAuthUrl: process.env.BETTER_AUTH_URL ?? null,
+      frontendUrl: process.env.FRONTEND_URL ?? null,
+      trustedOrigins,
+    });
+  }
 
   const authBaseUrl = `${convexSiteUrl}/api/auth`;
   const cachedTrustedClients = parseCachedTrustedClients(
