@@ -188,7 +188,7 @@ async function bindVerifyPanelToken(
 
   const apiForFetch = getApiUrls().apiInternal ?? apiBaseUrl;
   try {
-    await fetch(`${apiForFetch}/api/verification/panel/bind`, {
+    const res = await fetch(`${apiForFetch}/api/verification/panel/bind`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -202,6 +202,15 @@ async function bindVerifyPanelToken(
         tenantId: params.tenantId,
       }),
     });
+    if (!res.ok) {
+      const result = (await res.json().catch(() => ({}))) as { supportCode?: string };
+      logger.warn('Failed to bind verify panel token', {
+        guildId: params.guildId,
+        status: res.status,
+        supportCode: result.supportCode,
+        userId: params.discordUserId,
+      });
+    }
   } catch (err) {
     logger.warn('Failed to bind verify panel token', {
       error: err instanceof Error ? err.message : String(err),
@@ -1028,13 +1037,17 @@ export async function handleLicenseModalSubmit(
       error?: string;
       entitlementIds?: string[];
       provider?: string;
+      supportCode?: string;
     };
 
     if (!result.success) {
+      const failureMessage =
+        `${E.X_} We couldn’t find a matching purchase. Make sure you’re using the license key from your purchase confirmation.\n\n` +
+        `${sanitizeUserFacingErrorMessage(result.error, 'Verification failed.')}`;
       await interaction.editReply({
-        content:
-          `${E.X_} We couldn’t find a matching purchase. Make sure you’re using the license key from your purchase confirmation.\n\n` +
-          `${sanitizeUserFacingErrorMessage(result.error, 'Verification failed.')}`,
+        content: result.supportCode
+          ? formatVerificationSupportMessage(failureMessage, result.supportCode)
+          : failureMessage,
       });
       track(interaction.user.id, 'verification_failed', { error: result.error, tenantId });
       return;
@@ -1083,7 +1096,6 @@ export async function handleLicenseModalSubmit(
         discordUserId: interaction.user.id,
         error: err,
         guildId: interaction.guildId ?? undefined,
-        provider,
         stage: 'verification_flow',
         tenantId,
       }),

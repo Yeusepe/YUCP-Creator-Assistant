@@ -17,6 +17,7 @@ import { createLogger } from '@yucp/shared';
 import { type VrchatOwnershipPayload, type VrchatSessionTokensPayload, createAuth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { encrypt } from '../lib/encrypt';
+import { createApiVerificationSupportError } from '../lib/verificationSupport';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import {
   clearPendingVrchatState,
@@ -1108,8 +1109,8 @@ export function createVerificationRoutes(config: VerificationConfig) {
    * For mode=vrchat, redirects to /vrchat-verify?token=xxx instead of OAuth.
    */
   async function beginVerification(request: Request): Promise<Response> {
+    let body: (CreateSessionInput & { mode?: string }) | undefined;
     try {
-      let body: CreateSessionInput & { mode?: string };
       if (request.method === 'GET') {
         const url = new URL(request.url);
         body = {
@@ -1165,10 +1166,23 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       return Response.json(result, { status: 200 });
     } catch (err) {
-      logger.error('Begin verification failed', {
-        error: err instanceof Error ? err.message : String(err),
+      const support = await createApiVerificationSupportError(logger, {
+        discordUserId: body?.discordUserId,
+        error: err,
+        provider: body?.mode,
+        stage: 'begin_verification',
+        tenantId: body?.tenantId,
       });
-      return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
+      if (request.method === 'GET') {
+        return Response.redirect(
+          `${config.baseUrl}/verify-error?error=internal_error&supportCode=${encodeURIComponent(support.supportCode)}`,
+          302
+        );
+      }
+      return Response.json(
+        { success: false, error: 'Internal server error', supportCode: support.supportCode },
+        { status: 500 }
+      );
     }
   }
 
@@ -1177,10 +1191,11 @@ export function createVerificationRoutes(config: VerificationConfig) {
    * Handles OAuth callback from providers
    */
   async function handleVerificationCallback(request: Request): Promise<Response> {
+    let mode: string | undefined;
     try {
       const url = new URL(request.url);
       const pathParts = url.pathname.split('/');
-      const mode = pathParts[pathParts.length - 1];
+      mode = pathParts[pathParts.length - 1];
 
       const code = url.searchParams.get('code');
       const state = url.searchParams.get('state');
@@ -1213,10 +1228,15 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       return Response.redirect(result.redirectUri, 302);
     } catch (err) {
-      logger.error('Verification callback failed', {
-        error: err instanceof Error ? err.message : String(err),
+      const support = await createApiVerificationSupportError(logger, {
+        error: err,
+        provider: mode,
+        stage: 'verification_callback',
       });
-      return Response.redirect(`${config.baseUrl}/verify-error?error=internal_error`, 302);
+      return Response.redirect(
+        `${config.baseUrl}/verify-error?error=internal_error&supportCode=${encodeURIComponent(support.supportCode)}`,
+        302
+      );
     }
   }
 
@@ -1225,8 +1245,9 @@ export function createVerificationRoutes(config: VerificationConfig) {
    * Completes a verification session
    */
   async function completeVerification(request: Request): Promise<Response> {
+    let body: CompleteVerificationInput | undefined;
     try {
-      const body = (await request.json()) as CompleteVerificationInput;
+      body = (await request.json()) as CompleteVerificationInput;
 
       if (!body.sessionId || !body.subjectId) {
         return Response.json({ success: false, error: 'Missing required fields' }, { status: 400 });
@@ -1240,10 +1261,14 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       return Response.json(result, { status: 200 });
     } catch (err) {
-      logger.error('Complete verification failed', {
-        error: err instanceof Error ? err.message : String(err),
+      const support = await createApiVerificationSupportError(logger, {
+        error: err,
+        stage: 'complete_verification',
       });
-      return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
+      return Response.json(
+        { success: false, error: 'Internal server error', supportCode: support.supportCode },
+        { status: 500 }
+      );
     }
   }
 
@@ -1264,8 +1289,15 @@ export function createVerificationRoutes(config: VerificationConfig) {
     };
     try {
       body = (await request.json()) as typeof body;
-    } catch {
-      return jsonNoStore({ success: false, error: 'Invalid JSON' }, { status: 400 });
+    } catch (err) {
+      const support = await createApiVerificationSupportError(logger, {
+        error: err,
+        stage: 'bind_verify_panel_parse',
+      });
+      return jsonNoStore(
+        { success: false, error: 'Invalid JSON', supportCode: support.supportCode },
+        { status: 400 }
+      );
     }
 
     if (!body.apiSecret || body.apiSecret !== config.convexApiSecret) {
@@ -1284,22 +1316,35 @@ export function createVerificationRoutes(config: VerificationConfig) {
       return jsonNoStore({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
-    const { getStateStore } = await import('../lib/stateStore');
-    const store = getStateStore();
-    await store.set(
-      `${VERIFY_PANEL_PREFIX}${body.panelToken}`,
-      JSON.stringify({
-        applicationId: body.applicationId,
+    try {
+      const { getStateStore } = await import('../lib/stateStore');
+      const store = getStateStore();
+      await store.set(
+        `${VERIFY_PANEL_PREFIX}${body.panelToken}`,
+        JSON.stringify({
+          applicationId: body.applicationId,
+          discordUserId: body.discordUserId,
+          guildId: body.guildId,
+          interactionToken: body.interactionToken,
+          messageId: body.messageId,
+          tenantId: body.tenantId,
+        } satisfies StoredVerifyPanel),
+        VERIFY_PANEL_TTL_MS
+      );
+      return jsonNoStore({ success: true }, { status: 200 });
+    } catch (err) {
+      const support = await createApiVerificationSupportError(logger, {
         discordUserId: body.discordUserId,
+        error: err,
         guildId: body.guildId,
-        interactionToken: body.interactionToken,
-        messageId: body.messageId,
+        stage: 'bind_verify_panel_store',
         tenantId: body.tenantId,
-      } satisfies StoredVerifyPanel),
-      VERIFY_PANEL_TTL_MS
-    );
-
-    return jsonNoStore({ success: true }, { status: 200 });
+      });
+      return jsonNoStore(
+        { success: false, error: 'Internal server error', supportCode: support.supportCode },
+        { status: 500 }
+      );
+    }
   }
 
   async function refreshVerifyPanel(request: Request): Promise<Response> {
@@ -1349,14 +1394,23 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
     if (!discordResponse.ok) {
       const errorBody = await discordResponse.text().catch(() => '');
+      const support = await createApiVerificationSupportError(logger, {
+        discordUserId: panel.discordUserId,
+        error: new Error(`Discord refresh failed with status ${discordResponse.status}`),
+        guildId: panel.guildId,
+        stage: 'refresh_verify_panel_discord',
+        tenantId: panel.tenantId,
+      });
       logger.warn('Failed to refresh verify panel from success page', {
         bodyPreview: errorBody.slice(0, 300),
         discordStatus: discordResponse.status,
         guildId: panel.guildId,
+        supportCode: support.supportCode,
+        supportCodeMode: support.supportCodeMode,
         userId: panel.discordUserId,
       });
       return jsonNoStore(
-        { success: false, error: 'Failed to update Discord panel' },
+        { success: false, error: 'Failed to update Discord panel', supportCode: support.supportCode },
         { status: 502 }
       );
     }
@@ -1370,14 +1424,18 @@ export function createVerificationRoutes(config: VerificationConfig) {
    * Completes license verification - ties license to subject, grants entitlements
    */
   async function completeLicenseVerification(request: Request): Promise<Response> {
+    let body:
+      | {
+          apiSecret?: string;
+          licenseKey?: string;
+          productId?: string;
+          tenantId?: string;
+          subjectId?: string;
+          discordUserId?: string;
+        }
+      | undefined;
     try {
-      const body = (await request.json()) as {
-        apiSecret?: string;
-        licenseKey?: string;
-        productId?: string;
-        tenantId?: string;
-        subjectId?: string;
-      };
+      body = (await request.json()) as NonNullable<typeof body>;
 
       if (!body.apiSecret || body.apiSecret !== config.convexApiSecret) {
         return Response.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -1397,10 +1455,16 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       return Response.json(result, { status: 200 });
     } catch (err) {
-      logger.error('Complete license verification failed', {
-        error: err instanceof Error ? err.message : String(err),
+      const support = await createApiVerificationSupportError(logger, {
+        discordUserId: body?.discordUserId,
+        error: err,
+        stage: 'complete_license_verification',
+        tenantId: body?.tenantId,
       });
-      return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
+      return Response.json(
+        { success: false, error: 'Internal server error', supportCode: support.supportCode },
+        { status: 500 }
+      );
     }
   }
 
@@ -2083,13 +2147,16 @@ export function createVerificationRoutes(config: VerificationConfig) {
    * Removes a connected external account
    */
   async function disconnectVerification(request: Request): Promise<Response> {
+    let body:
+      | {
+          apiSecret?: string;
+          tenantId?: string;
+          subjectId?: string;
+          provider?: string;
+        }
+      | undefined;
     try {
-      const body = (await request.json()) as {
-        apiSecret?: string;
-        tenantId?: string;
-        subjectId?: string;
-        provider?: string;
-      };
+      body = (await request.json()) as NonNullable<typeof body>;
 
       if (!body.apiSecret || body.apiSecret !== config.convexApiSecret) {
         return Response.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -2183,10 +2250,16 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       return Response.json({ success: true }, { status: 200 });
     } catch (err) {
-      logger.error('Disconnect verification failed', {
-        error: err instanceof Error ? err.message : String(err),
+      const support = await createApiVerificationSupportError(logger, {
+        error: err,
+        provider: body?.provider,
+        stage: 'disconnect_verification',
+        tenantId: body?.tenantId,
       });
-      return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
+      return Response.json(
+        { success: false, error: 'Internal server error', supportCode: support.supportCode },
+        { status: 500 }
+      );
     }
   }
 

@@ -98,11 +98,11 @@ describe('verificationSupport', () => {
 
   it('sanitizes and truncates error summaries', () => {
     const summary = sanitizeVerificationSupportErrorSummary(
-      new Error(`secret=abcd1234 ${'x'.repeat(300)}`)
+      new Error(`secret=abcd1234567890 ${'x'.repeat(300)}`)
     );
 
     expect(summary).toBeDefined();
-    expect(summary?.includes('abcd1234')).toBe(false);
+    expect(summary?.includes('abcd1234567890')).toBe(false);
     expect(summary?.length).toBeLessThanOrEqual(160);
   });
 });
