@@ -185,7 +185,7 @@
 
         .quick-start-step-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: 1fr;
             gap: 14px;
             margin-top: 18px;
         }
@@ -540,7 +540,7 @@
             padding: 8px 32px 8px 12px;
             font-family: 'Plus Jakarta Sans', sans-serif;
             font-weight: 600;
-            font-size: 12px;
+            font-size: 16px; /* Prevents iOS zoom on focus */
             color: #fff;
             cursor: pointer;
             transition: border-color 0.2s, background 0.2s;
@@ -716,10 +716,93 @@
             transform: translateY(-1px);
         }
 
+        .btn-primary:active:not(:disabled) {
+            transform: scale(0.97);
+            transition-duration: 0.1s;
+        }
+
         .btn-primary:disabled {
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
+        }
+
+        /* Done Setup button: full width on mobile, fit-content on desktop */
+        @media (min-width: 768px) {
+            #onboarding-done { width: fit-content; flex-shrink: 0; }
+            #done-btn { width: fit-content; }
+        }
+
+        /* Done Setup: loading & success states */
+        #done-btn { display: inline-flex; align-items: center; justify-content: center; }
+        #done-btn .done-spinner {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: done-spin 0.6s linear infinite;
+        }
+        #done-btn.is-loading .done-spinner { display: inline-block; }
+        #done-btn.is-loading .done-text { margin-left: 8px; }
+        @keyframes done-spin { to { transform: rotate(360deg); } }
+
+        #done-btn.is-success {
+            background: #22c55e;
+            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.35);
+            pointer-events: none;
+            transition: background 0.3s ease, box-shadow 0.3s ease;
+        }
+        #done-btn .done-check {
+            display: none;
+            width: 18px;
+            height: 18px;
+            stroke: white;
+            stroke-width: 2.5;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        #done-btn.is-success .done-check { display: inline-block; }
+        #done-btn.is-success .done-text { margin-left: 6px; }
+
+        /* Done Setup: success pill (replaces button for a clean completion state) */
+        .done-success-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            border-radius: 9999px;
+            box-shadow: 0 4px 14px rgba(34, 197, 94, 0.35);
+            color: white;
+            font-weight: 700;
+            font-size: 0.9375rem;
+            letter-spacing: 0.02em;
+            animation: done-success-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+        .done-success-pill[hidden] { display: none !important; }
+        .done-success-check {
+            width: 20px;
+            height: 20px;
+            stroke: white;
+            stroke-width: 2.5;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .done-success-check path {
+            stroke-dasharray: 1;
+            stroke-dashoffset: 1;
+            animation: done-check-draw 0.5s 0.15s ease-out forwards;
+        }
+        @keyframes done-success-in {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes done-check-draw {
+            to { stroke-dashoffset: 0; }
         }
 
         /* ── Empty State ───────────────────────────────────────────────────── */
@@ -736,27 +819,63 @@
             opacity: 0.5;
         }
 
-        /* ── Modal ─────────────────────────────────────────────────────────── */
+        /* ── Modal (Liquid Glass) ───────────────────────────────────────────── */
         .modal-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(0, 20, 80, 0.55);
-            backdrop-filter: blur(6px);
-            display: none;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: flex;
             align-items: center;
             justify-content: center;
             z-index: 100;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+                visibility 0.35s step-end;
         }
-
-        .modal-box {
-            background: rgba(10, 30, 90, 0.85);
-            backdrop-filter: blur(20px);
+        .modal-overlay.modal-visible {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+            transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                visibility 0s step-start;
+        }
+        .modal-overlay .modal-box {
+            background: rgba(0, 0, 0, 0.25);
+            backdrop-filter: blur(16px) saturate(160%);
+            -webkit-backdrop-filter: blur(16px) saturate(160%);
             border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 28px;
             padding: 36px;
             max-width: 420px;
             width: calc(100% - 32px);
-            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4), inset 1px 1px 0 rgba(255, 255, 255, 0.1);
+            transform: scale(0.92) translateY(16px);
+            opacity: 0;
+            transition: transform 0.4s cubic-bezier(0.34, 1.2, 0.64, 1),
+                opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .modal-overlay.modal-visible .modal-box {
+            transform: scale(1) translateY(0);
+            opacity: 1;
+        }
+
+        .modal-box .btn-primary {
+            background: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        .modal-box .btn-primary:hover {
+            background: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+        }
+        .modal-box .btn-danger {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .modal-box .btn-danger:hover {
+            background: rgba(255, 255, 255, 0.3);
         }
 
         .modal-box h3 {
@@ -950,9 +1069,39 @@
             opacity: 1;
         }
 
-        @media (max-width: 900px) {
+        @media (min-width: 640px) {
             .quick-start-step-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (min-width: 1024px) {
+            .quick-start-step-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 639px) {
+            .section-card {
+                border-radius: 20px;
+            }
+            .modal-box {
+                padding: 24px;
+                border-radius: 20px;
+            }
+            .quick-start-step {
+                min-height: auto;
+            }
+            .collab-row {
+                flex-wrap: wrap;
+            }
+            .setting-row {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .setting-select {
+                min-width: 0;
+                width: 100%;
             }
         }
     </style>
@@ -961,10 +1110,10 @@
     <script type="module" src="/assets/site/site.js"></script>
 </head>
 
-<body class="pb-32">
-    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
+<body class="pb-16 sm:pb-32">
+    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 sm:px-6"
         style="background-color: var(--bg-color);">
-        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4 text-sm font-semibold" style="color: rgba(255,255,255,0.6);">Loading your dashboard...</p>
     </div>
@@ -976,20 +1125,20 @@
             style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
         </div>
 
-        <main class="max-w-5xl mx-auto px-6 mt-12 pb-12">
+        <main class="max-w-5xl mx-auto px-4 sm:px-6 mt-6 sm:mt-12 pb-12">
 
             <!-- Holographic Stickers -->
-            <div id="holo-world-0" class="absolute top-10 right-20 w-28 opacity-70 sticker pointer-events-auto z-0 h-28"
+            <div id="holo-world-0" class="absolute top-10 right-20 w-28 opacity-70 sticker pointer-events-auto z-0 h-28 hidden sm:block"
                 style="animation-delay: -1s;"></div>
             <div id="holo-gumorad-1"
-                class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24"
+                class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24 hidden sm:block"
                 style="animation-delay: -4s;"></div>
             <div id="holo-checkmark-2"
-                class="absolute top-1/2 right-10 w-20 opacity-50 sticker pointer-events-auto z-0 h-20"
+                class="absolute top-1/2 right-10 w-20 opacity-50 sticker pointer-events-auto z-0 h-20 hidden md:block"
                 style="animation-delay: -2s;"></div>
 
             <!-- Header -->
-            <header class="mb-10 animate-in relative z-10">
+            <header class="mb-8 sm:mb-10 animate-in relative z-10">
                 <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
                     <div class="relative">
                         <img src="__API_BASE__/Icons/Assistant.png"
@@ -999,7 +1148,7 @@
                             Server Dashboard
                         </div>
                         <h1
-                            class="text-5xl md:text-6xl tracking-tight mb-2 font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-blue-200">
+                            class="text-3xl sm:text-4xl lg:text-5xl tracking-tight mb-2 font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-blue-200">
                             Setup Dashboard
                         </h1>
                         <p class="text-white/80 font-medium text-base max-w-md"
@@ -1007,10 +1156,16 @@
                             Connect your storefronts, verify webhooks, and tune server behavior without bouncing between separate setup pages.
                         </p>
                     </div>
-                    <div id="onboarding-done" class="hidden">
-                        <button id="done-btn" class="btn-primary text-base px-8 py-3 rounded-2xl shadow-xl">
-                            Done Setup
+                    <div id="onboarding-done" class="hidden w-full md:w-fit md:flex-shrink-0">
+                        <button id="done-btn" class="btn-primary text-base px-8 py-3 rounded-2xl shadow-xl w-full md:w-fit" type="button">
+                            <span class="done-spinner" aria-hidden="true"></span>
+                            <svg class="done-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
+                            <span class="done-text">Done Setup</span>
                         </button>
+                        <div id="done-success-pill" class="done-success-pill" aria-live="polite" hidden>
+                            <svg class="done-success-check" viewBox="0 0 24 24"><path pathLength="1" d="M5 13l4 4L19 7"/></svg>
+                            <span class="done-success-text">Setup complete</span>
+                        </div>
                         <p id="status-text" class="text-center text-xs mt-2 font-bold"></p>
                     </div>
                 </div>
@@ -1018,7 +1173,7 @@
 
             <div class="space-y-6">
 
-                <section id="quick-start-card" class="section-card quick-start-card p-6 animate-in animate-in-delay-1">
+                <section id="quick-start-card" class="section-card quick-start-card p-4 sm:p-5 md:p-6 animate-in animate-in-delay-1">
                     <div class="quick-start-shell">
                         <div class="quick-start-topline">
                             <div id="quick-start-pill" class="quick-start-progress-pill">Setup Flow</div>
@@ -1032,7 +1187,7 @@
                                 <h2 id="quick-start-title" class="text-xl font-black text-white mb-2">Finish setup from this page</h2>
                             </div>
                             <p id="quick-start-summary" class="quick-start-summary">
-                                Link Gumroad or Jinxxy below, review your verification settings, then click <strong class="text-white">Done Setup</strong> when everything looks right.
+                                Link Gumroad® or Jinxxy™ below, review your verification settings, then click <strong class="text-white">Done Setup</strong> when everything looks right.
                             </p>
                             <div class="quick-start-progress-rail">
                                 <div id="quick-start-progress-fill" class="quick-start-progress-fill"></div>
@@ -1043,7 +1198,7 @@
                 </section>
 
                 <!-- ── Connected Platforms ────────────────────────────────────────── -->
-                <section class="section-card p-7 animate-in animate-in-delay-2">
+                <section class="section-card p-4 sm:p-5 md:p-7 animate-in animate-in-delay-2">
                     <div class="flex items-center gap-3 mb-6">
                         <div class="w-8 h-8 rounded-xl flex items-center justify-center"
                             style="background: rgba(255,235,59,0.15);">
@@ -1054,36 +1209,36 @@
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="platforms-grid">
 
-                        <!-- Discord (always connected) -->
+                        <!-- Discord® (always connected) -->
                         <div class="platform-card connected">
                             <div class="flex items-start justify-between">
                                 <div
                                     class="w-10 h-10 bg-[#5865F2] rounded-xl flex items-center justify-center overflow-hidden">
                                     <img src="__API_BASE__/Icons/Discord.png" class="w-6 h-6 object-contain"
-                                        alt="Discord">
+                                        alt="Discord®">
                                 </div>
                                 <span class="status-pill connected">Connected</span>
                             </div>
                             <div>
-                                <h3 class="font-bold text-base mb-0.5">Discord</h3>
+                                <h3 class="font-bold text-base mb-0.5">Discord®</h3>
                                 <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Bot access
                                     active</p>
                             </div>
                         </div>
 
-                        <!-- Gumroad -->
+                        <!-- Gumroad® -->
                         <div id="gumroad-card" class="platform-card disconnected">
                             <div class="flex items-start justify-between">
                                 <div
                                     class="w-10 h-10 bg-black rounded-xl flex items-center justify-center overflow-hidden">
                                     <img class="w-6 h-6 rounded object-cover"
                                         src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
-                                        alt="Gumroad">
+                                        alt="Gumroad®">
                                 </div>
                                 <span id="gumroad-status" class="status-pill disconnected">Not Linked</span>
                             </div>
                             <div>
-                                <h3 class="font-bold text-base mb-0.5">Gumroad</h3>
+                                <h3 class="font-bold text-base mb-0.5">Gumroad®</h3>
                                 <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import sales
                                     &amp; buyers</p>
                             </div>
@@ -1092,19 +1247,19 @@
                             </button>
                         </div>
 
-                        <!-- Jinxxy -->
+                        <!-- Jinxxy™ -->
                         <div id="jinxxy-card" class="platform-card disconnected">
                             <div class="flex items-start justify-between">
                                 <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center"
                                     style="background:#9146FF;">
                                     <img class="w-6 h-6 rounded object-cover"
                                         src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
-                                        alt="Jinxxy">
+                                        alt="Jinxxy™">
                                 </div>
                                 <span id="jinxxy-status" class="status-pill disconnected">Not Linked</span>
                             </div>
                             <div>
-                                <h3 class="font-bold text-base mb-0.5">Jinxxy</h3>
+                                <h3 class="font-bold text-base mb-0.5">Jinxxy™</h3>
                                 <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import sales
                                     &amp; buyers</p>
                             </div>
@@ -1117,7 +1272,7 @@
                 </section>
 
                 <!-- ── Server Settings ─────────────────────────────────────────────── -->
-                <section class="section-card p-7 animate-in animate-in-delay-3">
+                <section class="section-card p-4 sm:p-5 md:p-7 animate-in animate-in-delay-3">
                     <div class="flex items-center gap-3 mb-1">
                         <div class="w-8 h-8 rounded-xl flex items-center justify-center"
                             style="background: rgba(88,101,242,0.2);">
@@ -1151,7 +1306,7 @@
                                                 Emails</span>
                                             <span class="text-xs text-white/55"
                                                 style="font-family:'DM Sans',sans-serif;">Verify with a different email
-                                                than Discord.</span>
+                                                than Discord®.</span>
                                         </div>
                                     </div>
                                     <div id="toggle-allowMismatchedEmails" class="toggle-switch"
@@ -1199,7 +1354,7 @@
                                             <span class="font-bold text-sm text-white block">Cross-Server Role
                                                 Checks</span>
                                             <span class="text-xs text-white/55"
-                                                style="font-family:'DM Sans',sans-serif;">Check roles from other Discord
+                                                style="font-family:'DM Sans',sans-serif;">Check roles from other Discord®
                                                 servers.</span>
                                         </div>
                                     </div>
@@ -1278,7 +1433,7 @@
                 </section>
 
                 <!-- ── Collaborating Creators ──────────────────────────────────────── -->
-                <section class="section-card p-7 animate-in animate-in-delay-4" id="collab-section">
+                <section class="section-card p-4 sm:p-5 md:p-7 animate-in animate-in-delay-4" id="collab-section">
                     <div class="flex items-center justify-between mb-1">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-xl flex items-center justify-center"
@@ -1335,7 +1490,7 @@
             <div class="modal-box">
                 <div class="flex items-center gap-3 mb-5">
                     <div class="w-9 h-9 rounded-xl flex items-center justify-center"
-                        style="background:rgba(145,70,255,0.25);">
+                        style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.15);">
                         <img src="__API_BASE__/Icons/Link.png" class="w-4 h-4 object-contain" alt="">
                     </div>
                     <h3 style="margin:0;">Collaborator Invite Link</h3>
@@ -1916,12 +2071,12 @@
         function openModal(platform) {
             pendingDisconnectPlatform = platform;
             document.getElementById('platformName').innerText = platform.charAt(0).toUpperCase() + platform.slice(1);
-            document.getElementById('disconnectModal').style.display = 'flex';
+            document.getElementById('disconnectModal').classList.add('modal-visible');
         }
 
         function closeModal() {
             pendingDisconnectPlatform = null;
-            document.getElementById('disconnectModal').style.display = 'none';
+            document.getElementById('disconnectModal').classList.remove('modal-visible');
         }
 
         document.getElementById('confirmDisconnectBtn').addEventListener('click', async () => {
@@ -1953,8 +2108,10 @@
         document.getElementById('done-btn')?.addEventListener('click', async () => {
             const btn = document.getElementById('done-btn');
             const status = document.getElementById('status-text');
+            const textEl = btn?.querySelector('.done-text');
             btn.disabled = true;
-            btn.textContent = 'Completing Setup...';
+            btn.classList.add('is-loading');
+            if (textEl) textEl.textContent = 'Completing Setup...';
             status.textContent = '';
 
             try {
@@ -1968,25 +2125,37 @@
                     if (!res.ok || !data.success) throw new Error('Could not finish setup right now.');
                 }
 
-                status.textContent = 'Setup complete! You can close this window.';
-                status.className = 'text-center text-xs mt-2 font-bold text-green-400';
+                btn.classList.remove('is-loading');
+                btn.hidden = true;
+                const successPill = document.getElementById('done-success-pill');
+                if (successPill) {
+                    successPill.hidden = false;
+                }
+                status.textContent = '';
+                status.className = 'text-center text-xs mt-2 font-bold';
                 persistSetupCompleted();
                 renderQuickStart();
 
-                const end = Date.now() + 1500;
-                (function frame() {
-                    confetti({ particleCount: 4, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#0ea5e9', '#ffffff', '#ffeb3b'] });
-                    confetti({ particleCount: 4, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#0ea5e9', '#ffffff', '#ffeb3b'] });
-                    if (Date.now() < end) requestAnimationFrame(frame);
-                }());
-
-                setTimeout(() => window.close(), 2500);
+                /* Single tasteful confetti burst */
+                if (typeof confetti === 'function') {
+                    confetti({
+                        particleCount: 50,
+                        spread: 60,
+                        origin: { y: 0.55 },
+                        colors: ['#22c55e', '#0ea5e9', '#ffffff'],
+                        ticks: 100,
+                    });
+                }
 
             } catch (err) {
+                btn.classList.remove('is-loading');
+                btn.hidden = false;
+                const successPill = document.getElementById('done-success-pill');
+                if (successPill) successPill.hidden = true;
                 status.textContent = 'Could not finish setup right now. Try again in a moment.';
                 status.className = 'text-center text-xs mt-2 font-bold text-red-400';
                 btn.disabled = false;
-                btn.textContent = 'Done Setup';
+                if (textEl) textEl.textContent = 'Done Setup';
                 renderQuickStart();
             }
         });
@@ -2116,11 +2285,11 @@
             } else {
                 document.getElementById('invite-expiry').textContent = 'Expires in 7 days.';
             }
-            document.getElementById('inviteModal').style.display = 'flex';
+            document.getElementById('inviteModal').classList.add('modal-visible');
         }
 
         function closeInviteModal() {
-            document.getElementById('inviteModal').style.display = 'none';
+            document.getElementById('inviteModal').classList.remove('modal-visible');
         }
 
         async function copyInviteUrl() {

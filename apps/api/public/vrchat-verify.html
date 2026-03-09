@@ -14,23 +14,80 @@
     <link rel="stylesheet" href="./tokens.css">
 
     <style>
-        html, body {
-            overflow: hidden;
+        html {
+            height: 100%;
+            overflow: hidden; /* prevents the page from scrolling so world-names stay fixed */
         }
 
         body {
             background: linear-gradient(to bottom, #0a3d9e, #0ea5e9);
             color: white;
             font-family: 'DM Sans', sans-serif;
-            min-height: 100vh;
-            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
             margin: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 1.5rem;
+            padding: 1rem;
+            box-sizing: border-box;
             position: relative;
+        }
+
+        @media (min-width: 375px) {
+            body { padding: 1.5rem; }
+        }
+
+        @media (min-width: 480px) {
+            body { padding: 2rem; }
+        }
+
+        @media (min-width: 640px) {
+            body { padding: 2.5rem; }
+        }
+
+        /* Corner logo: in bottom bar, right side, only visible on compact */
+        .logo-corner {
+            display: none;
+        }
+        .logo-corner img {
+            display: block;
+            width: 200px;
+            height: auto;
+            object-fit: contain;
+        }
+
+        /* Compact viewport: logo bottom-right, condensed layout (e.g. 375x667) */
+        @media (max-width: 480px) {
+            body { padding: 1rem 1rem 5rem; justify-content: flex-start; min-height: 0; overflow-y: auto; align-items: center; }
+            .logo { display: none !important; }
+            .logo-corner { display: flex !important; align-items: center; }
+            .logo-corner img { width: 200px; }
+            .vrchat-card {
+                padding: 1rem;
+                border-radius: 1rem;
+                flex: 0 0 auto;
+                align-self: center;
+                width: 100%;
+                max-width: 28rem;
+            }
+            .vrchat-card h1 { font-size: 1.2rem; }
+            .vrchat-heading-icon { width: 1.35rem; height: 1.35rem; }
+            .vrchat-card .subtitle { font-size: 0.8rem; margin-bottom: 0.75rem; }
+            .disclaimer { padding: 0.6rem 0.75rem; margin-bottom: 0.75rem; font-size: 0.75rem; }
+            .form-group { margin-bottom: 0.6rem; }
+            .form-group label { font-size: 0.8rem; }
+            .form-group input { padding: 0.5rem 0.75rem; }
+            .btn-verify { padding: 0.6rem 1rem; font-size: 0.9rem; }
+            .vrchat-card .trademark { font-size: 10px !important; margin-top: 0.5rem !important; }
+        }
+
+        /* Smallest configuration: center the sign-in card vertically too */
+        @media (max-width: 400px) {
+            body { justify-content: center; }
         }
 
         .bg-slideshow {
@@ -76,10 +133,32 @@
             z-index: 1;
         }
 
-        .world-name {
+        /* Bottom bar: world name (left) + logo (right on compact), vertically centered */
+        .bottom-bar {
+            display: flex;
             position: fixed;
             bottom: 1rem;
-            left: 1rem;
+            left: 0;
+            right: 0;
+            padding: 0 1rem;
+            z-index: 9999;
+            pointer-events: none;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .world-name-container {
+            position: relative;
+            min-height: 2.25rem;
+            max-width: 12rem;
+            min-width: 0;
+        }
+
+        .world-name {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
             z-index: 2;
             pointer-events: none;
             font-family: 'Plus Jakarta Sans', sans-serif;
@@ -93,6 +172,16 @@
             backdrop-filter: blur(4px);
             opacity: 0;
             animation: world-fade 96s infinite;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 12rem;
+            display: block;
+        }
+
+        /* On larger screens, world name uses fixed positioning for original placement */
+        @media (min-width: 481px) {
+            .world-name { position: fixed; top: auto; left: 1rem; bottom: 1rem; transform: none; }
         }
 
         @keyframes world-fade {
@@ -120,10 +209,15 @@
             -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 1.5rem;
-            padding: 2rem;
+            padding: 1.5rem;
             max-width: 28rem;
             width: 100%;
+            box-sizing: border-box;
             box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+        }
+
+        @media (min-width: 480px) {
+            .vrchat-card { padding: 2rem; }
         }
 
         .vrchat-card h1 {
@@ -161,6 +255,15 @@
             color: white;
         }
 
+        .disclaimer-short {
+            display: none;
+        }
+
+        @media (max-width: 480px) {
+            .disclaimer-long { display: none; }
+            .disclaimer-short { display: inline; }
+        }
+
         .form-group {
             margin-bottom: 1rem;
         }
@@ -181,6 +284,7 @@
             background: rgba(255, 255, 255, 0.1);
             color: white;
             font-family: 'DM Sans', sans-serif;
+            font-size: 16px; /* Prevents iOS zoom on focus */
             box-sizing: border-box;
         }
 
@@ -234,16 +338,43 @@
         }
 
         .logo {
-            margin-bottom: 1.5rem;
+            margin: 0 auto 1.5rem;
+            text-align: center;
+            width: 100%;
+            flex-shrink: 0;
         }
 
         .logo img {
-            height: 2.5rem;
+            display: block;
+            margin: 0 auto;
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            min-width: 260px;
+            object-fit: contain;
+            object-position: center;
+        }
+
+        @media (min-width: 375px) {
+            .logo img { min-width: 300px; max-width: 340px; }
+        }
+
+        @media (min-width: 480px) {
+            .logo img { min-width: 340px; max-width: 380px; }
+        }
+
+        @media (min-width: 640px) {
+            .logo { margin-bottom: 2rem; }
+            .logo img { min-width: 360px; max-width: 420px; }
         }
 
         .no-token {
             text-align: center;
             color: rgba(255, 255, 255, 0.9);
+        }
+
+        @media (max-width: 480px) {
+            .no-token { font-size: 0.85rem; }
         }
 
         .success-msg {
@@ -262,10 +393,17 @@
         <div class="bg-slide" style="background-image: url('https://dtuitjyhwcl5y.cloudfront.net/5ac33cecd162656c-1980w.jpg');"></div>
     </div>
     <div class="bg-overlay" aria-hidden="true"></div>
-    <span class="world-name" aria-hidden="true">The Great Pug</span>
-    <span class="world-name" aria-hidden="true">Midnight Rooftop</span>
-    <span class="world-name" aria-hidden="true">Silent Horizon</span>
-    <span class="world-name" aria-hidden="true">Sky Lounge</span>
+    <div class="bottom-bar">
+        <div class="world-name-container">
+            <span class="world-name" aria-hidden="true">The Great Pug</span>
+            <span class="world-name" aria-hidden="true">Midnight Rooftop</span>
+            <span class="world-name" aria-hidden="true">Silent Horizon</span>
+            <span class="world-name" aria-hidden="true">Sky Lounge</span>
+        </div>
+        <div class="logo-corner" aria-hidden="true">
+            <img src="Icons/MainLogo.png" alt="" />
+        </div>
+    </div>
 
     <div class="logo">
         <img src="Icons/MainLogo.png" alt="Creator Assistant" />
@@ -273,25 +411,26 @@
 
     <main class="vrchat-card" role="main" aria-label="VRChat verification">
         <div id="no-token-view" class="no-token" style="display: none;" aria-hidden="true">
-            <p>This page requires a valid verification link. Please use the <strong>Verify with VRChat</strong> button in Discord to get started.</p>
+            <p>This page requires a valid verification link. Please use the <strong>Verify with VRChat®</strong> button in Discord® to get started.</p>
         </div>
 
         <div id="form-view">
-            <h1 id="form-heading"><img src="Icons/VRC.png" alt="" class="vrchat-heading-icon" aria-hidden="true"> Sign in with VRChat</h1>
+            <h1 id="form-heading"><img src="Icons/VRC.png" alt="" class="vrchat-heading-icon" aria-hidden="true"> Sign in with VRChat®</h1>
             <p class="subtitle" id="form-subtitle">Verify your avatar ownership to unlock your roles</p>
 
             <div class="disclaimer">
-                <strong>Your sign-in is used only to verify your avatars.</strong> We send your credentials directly to VRChat and never save your password or 2FA code. To avoid asking you to sign in again, we keep an encrypted session (like a "remember me" token) until VRChat expires it.
+                <span class="disclaimer-long"><strong>Your sign-in is used only to verify your VRChat® Marketplace purchases.</strong> We send your credentials directly to VRChat® and never save your password or 2FA code. To avoid asking you to sign in again, we keep an encrypted session (like a "remember me" token) until VRChat® expires it.</span>
+                <span class="disclaimer-short"><strong>Sign-in verifies your VRChat® Marketplace purchases.</strong> We never save your password or 2FA code.</span>
             </div>
 
             <form id="vrchat-form" aria-labelledby="form-heading" aria-describedby="form-subtitle error-msg" novalidate>
                 <div class="form-group" id="username-group">
-                    <label for="username">VRChat Username</label>
-                    <input type="text" id="username" name="username" required placeholder="Your VRChat username" autocomplete="username" aria-invalid="false" aria-describedby="error-msg">
+                    <label for="username">VRChat® Username</label>
+                    <input type="text" id="username" name="username" required placeholder="Your VRChat® username" autocomplete="username" aria-invalid="false" aria-describedby="error-msg">
                 </div>
                 <div class="form-group" id="password-group">
-                    <label for="password">VRChat Password</label>
-                    <input type="password" id="password" name="password" required placeholder="Your VRChat password" autocomplete="current-password" aria-invalid="false" aria-describedby="error-msg">
+                    <label for="password">VRChat® Password</label>
+                    <input type="password" id="password" name="password" required placeholder="Your VRChat® password" autocomplete="current-password" aria-invalid="false" aria-describedby="error-msg">
                 </div>
                 <div class="form-group" id="two-factor-group" style="display: none;" aria-hidden="true">
                     <label for="twoFactorCode">2FA Code</label>
@@ -301,7 +440,8 @@
                 <button type="submit" class="btn-verify" id="submit-btn" aria-busy="false">Continue</button>
             </form>
 
-            <p id="success-msg" class="success-msg" style="display: none;" tabindex="-1">Verification successful! You can close this window and return to Discord.</p>
+            <p id="success-msg" class="success-msg" style="display: none;" tabindex="-1">Verification successful! You can close this window and return to Discord®.</p>
+            <p class="text-center text-white/40 text-xs mt-6 trademark" style="font-size:11px;">VRChat® is a trademark of VRChat Inc. Creator Assistant is not affiliated with, endorsed by, or sponsored by VRChat Inc.</p>
         </div>
     </main>
 

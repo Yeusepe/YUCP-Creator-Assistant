@@ -173,6 +173,12 @@
             }
         }
 
+        @media (max-width: 639px) {
+            .privacy-card.rounded-2xl {
+                padding: 1.25rem;
+            }
+        }
+
         /* ── Flash fix ─────────────────────────────────────────────────────── */
         #page-loading-overlay {
             transition: opacity 0.35s ease;
@@ -200,7 +206,7 @@
 <body class="min-h-screen selection:bg-yellow-200">
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
         style="background-color: var(--bg-color);">
-        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
     </div>
@@ -208,25 +214,25 @@
         <div id="bg-canvas-root"
             style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
         </div>
-        <main class="max-w-3xl mx-auto px-6 py-20 pb-20">
-            <header class="mb-16">
+        <main class="max-w-3xl mx-auto px-4 sm:px-6 py-10 sm:py-16 md:py-20 pb-10 sm:pb-16 md:pb-20">
+            <header class="mb-10 sm:mb-16">
                 <p class="text-[#0ea5e9] font-bold uppercase tracking-[0.3em] text-xs mb-4">Legal &amp; Compliance</p>
-                <h1 class="text-5xl md:text-6xl mb-6 flex flex-wrap items-center justify-center gap-3"><img
+                <h1 class="text-4xl sm:text-5xl lg:text-6xl mb-6 flex flex-wrap items-center justify-center gap-3"><img
                         src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant logo" role="img"
-                        class="h-12 md:h-14" />Privacy Policy</h1>
-                <p class="text-xl opacity-70 leading-relaxed font-medium">
+                        class="h-10 sm:h-12 md:h-14 max-w-full w-auto object-contain object-center flex-shrink-0" />Privacy Policy</h1>
+                <p class="text-base sm:text-xl opacity-70 leading-relaxed font-medium">
                     <strong>Effective date:</strong> March 6, 2026 &nbsp;|&nbsp; <strong>Last updated:</strong> March 6,
                     2026
                 </p>
             </header>
 
             <div class="space-y-6 custom-scrollbar">
-                <div id="intro" class="privacy-card rounded-2xl p-8">
+                <div id="intro" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <p class="leading-relaxed mb-4">
                         This Privacy Policy explains how <strong>Creator Assistant</strong> ("we", "us", or "our")
                         collects, uses, discloses, stores, and protects personal data when you use the Creator Assistant
                         Assistant services, including our websites, setup pages, dashboards, APIs, webhook endpoints,
-                        Discord bot, verification flows, Liened Downloads, collaborator sharing flows, Unity runtime
+                        Discord® bot, verification flows, Liened Downloads, collaborator sharing flows, Unity® runtime
                         integration, and related features (collectively, the "Service").
                     </p>
                     <h4 class="mt-6">Who is responsible for your data</h4>
@@ -246,9 +252,12 @@
                         This Privacy Policy should be read together with our Terms of Service. If you do not agree with
                         this Privacy Policy, do not use the Service.
                     </p>
+                    <p class="leading-relaxed mt-4 p-4 rounded-xl" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);">
+                        <strong>Third-Party Disclaimer:</strong> Gumroad®; Discord®; VRChat®; Unity®; Jinxxy™; PostHog®; and other product or company names mentioned herein are trademarks or registered trademarks of their respective owners. Creator Assistant is not connected with, endorsed by, sponsored by, collaborating with, or otherwise associated with any of these companies.
+                    </p>
                 </div>
 
-                <div id="section-01" class="privacy-card rounded-2xl p-8">
+                <div id="section-01" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10 text-white">Section 01</span>
                         <h2 class="text-2xl">Who This Policy Covers</h2>
@@ -257,10 +266,10 @@
                     <ul>
                         <li>creators, sellers, studios, collaborators, moderators, and community operators who install
                             or configure the Service</li>
-                        <li>Discord server owners, administrators, and staff members who manage verification, downloads,
+                        <li>Discord® server owners, administrators, and staff members who manage verification, downloads,
                             settings, moderation, or analytics</li>
-                        <li>end users who link accounts, submit license keys, verify purchases, receive Discord roles,
-                            or access protected downloads</li>
+                        <li>end users who link accounts, submit license keys, verify purchases, receive Discord® roles,
+                            or access liened downloads</li>
                         <li>developers or operators who access our APIs, setup pages, or webhook endpoints</li>
                     </ul>
                     <p>
@@ -271,7 +280,7 @@
                     </p>
                 </div>
 
-                <div id="section-02" class="privacy-card rounded-2xl p-8">
+                <div id="section-02" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 02</span>
                         <h2 class="text-2xl">The Data We Collect</h2>
@@ -288,11 +297,11 @@
                     </ul>
                     <h4>2.2 Data we receive from connected providers</h4>
                     <ul>
-                        <li>Discord data such as user IDs, guild IDs, role IDs, channel IDs, usernames, display names,
+                        <li>Discord® data such as user IDs, guild IDs, role IDs, channel IDs, usernames, display names,
                             and profile metadata</li>
-                        <li>Gumroad data such as product IDs, order IDs, sale identifiers, customer identifiers,
+                        <li>Gumroad® data such as product IDs, order IDs, sale identifiers, customer identifiers,
                             timestamps, refund status, and related purchase records</li>
-                        <li>Jinxxy data such as store identifiers, product identifiers, sale records, license
+                        <li>Jinxxy™ data such as store identifiers, product identifiers, sale records, license
                             references, and webhook payload data</li>
                     </ul>
                     <h4>2.3 Data generated through use of the Service</h4>
@@ -303,27 +312,27 @@
                         <li>analytics and operational metrics such as command usage, setup progress, and workflow
                             outcomes</li>
                         <li>download route and download artifact metadata for Liened Downloads</li>
-                        <li>Unity runtime assertion and installation-related records when that feature is enabled</li>
+                        <li>Unity® runtime assertion and installation-related records when that feature is enabled</li>
                     </ul>
                 </div>
 
-                <div id="section-03" class="privacy-card rounded-2xl p-8">
+                <div id="section-03" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 03</span>
                         <h2 class="text-2xl">How We Collect Data</h2>
                     </div>
                     <ul>
                         <li>when you install, connect, configure, or use the Service</li>
-                        <li>when you authenticate with Discord, Gumroad, or Jinxxy</li>
+                        <li>when you authenticate with Discord®, Gumroad®, or Jinxxy™</li>
                         <li>when providers send us webhooks or API responses</li>
                         <li>when Creators trigger manual sync, backfill, moderation, or download management actions</li>
                         <li>when end users run verification commands, complete connect flows, or request protected
                             downloads</li>
-                        <li>when Unity installations request runtime assertions or related validation data</li>
+                        <li>when Unity® installations request runtime assertions or related validation data</li>
                     </ul>
                 </div>
 
-                <div id="section-04" class="privacy-card rounded-2xl p-8">
+                <div id="section-04" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 04</span>
                         <h2 class="text-2xl">How We Use Data</h2>
@@ -333,10 +342,10 @@
                     <ul>
                         <li>install, authenticate, and maintain provider connections</li>
                         <li>complete verification flows and purchase or license matching</li>
-                        <li>create, update, revoke, or sync entitlements and Discord roles</li>
+                        <li>create, update, revoke, or sync entitlements and Discord® roles</li>
                         <li>deliver and protect Liened Downloads</li>
                         <li>support collaborator sharing flows and shared-store verification</li>
-                        <li>issue Unity runtime assertions and validate Unity integrations</li>
+                        <li>issue Unity® runtime assertions and validate Unity® integrations</li>
                         <li>maintain audit trails, detect abuse, investigate suspicious activity, and enforce Service
                             policies</li>
                         <li>measure reliability, debug errors, and improve features</li>
@@ -344,22 +353,22 @@
                     </ul>
                 </div>
 
-                <div id="section-05" class="privacy-card rounded-2xl p-8">
+                <div id="section-05" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10 text-white">Section 05</span>
                         <h2 class="text-2xl">Liened Downloads</h2>
                     </div>
                     <p>
-                        Liened Downloads is designed to protect qualifying attachments in Discord while keeping creators
+                        Liened Downloads is designed to protect qualifying attachments in Discord® while keeping creators
                         in
                         control of their own communities.
                     </p>
                     <ul>
                         <li>we may process source message metadata, author IDs, channel IDs, role requirements, and file
                             metadata</li>
-                        <li>we may create private forwarded delivery or review records inside Discord to support
+                        <li>we may create private forwarded delivery or review records inside Discord® to support
                             protected delivery workflows</li>
-                        <li>we store file metadata and Discord message references needed to operate the feature</li>
+                        <li>we store file metadata and Discord® message references needed to operate the feature</li>
                         <li>we do not intentionally store protected file contents in our own external storage as part of
                             the standard Liened Downloads flow</li>
                         <li>download access is checked against the role requirements configured by the Creator</li>
@@ -371,7 +380,7 @@
                     </p>
                 </div>
 
-                <div id="section-06" class="privacy-card rounded-2xl p-8">
+                <div id="section-06" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 06</span>
                         <h2 class="text-2xl">Credentials and Sensitive Data</h2>
@@ -390,7 +399,7 @@
                     </p>
                 </div>
 
-                <div id="section-07" class="privacy-card rounded-2xl p-8">
+                <div id="section-07" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 07</span>
                         <h2 class="text-2xl">Collaborator Sharing and Shared Stores</h2>
@@ -407,13 +416,13 @@
                     </p>
                 </div>
 
-                <div id="section-08" class="privacy-card rounded-2xl p-8">
+                <div id="section-08" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 08</span>
-                        <h2 class="text-2xl">Manual Licenses and Unity Integration</h2>
+                        <h2 class="text-2xl">Manual Licenses and Unity® Integration</h2>
                     </div>
                     <p>
-                        If a Creator enables manual licenses or Unity runtime assertions, we may process hashed license
+                        If a Creator enables manual licenses or Unity® runtime assertions, we may process hashed license
                         keys, entitlement records, device or installation-related identifiers, assertion records, and
                         related validation metadata.
                     </p>
@@ -423,7 +432,7 @@
                     </p>
                 </div>
 
-                <div id="section-09" class="privacy-card rounded-2xl p-8">
+                <div id="section-09" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10 text-white">Section 09</span>
                         <h2 class="text-2xl">Cookies, Browser Storage, and Similar Technologies</h2>
@@ -457,14 +466,14 @@
                     </p>
                 </div>
 
-                <div id="section-10" class="privacy-card rounded-2xl p-8">
+                <div id="section-10" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 10</span>
                         <h2 class="text-2xl">When We Share Data</h2>
                     </div>
                     <p>We may share or disclose data in the following circumstances:</p>
                     <ul>
-                        <li>with Connected Providers (Discord, Gumroad, Jinxxy) when needed to complete the feature you
+                        <li>with Connected Providers (Discord®, Gumroad®, Jinxxy™) when needed to complete the feature you
                             requested</li>
                         <li>with service providers that help us operate the Service, including: cloud hosting and
                             database providers (e.g., Convex), authentication providers, infrastructure and CDN
@@ -481,7 +490,7 @@
                     </p>
                 </div>
 
-                <div id="section-11" class="privacy-card rounded-2xl p-8">
+                <div id="section-11" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 11</span>
                         <h2 class="text-2xl">Legal Bases</h2>
@@ -497,7 +506,7 @@
                     </ul>
                 </div>
 
-                <div id="section-12" class="privacy-card rounded-2xl p-8">
+                <div id="section-12" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 12</span>
                         <h2 class="text-2xl">International Transfers</h2>
@@ -518,7 +527,7 @@
                     </p>
                 </div>
 
-                <div id="section-13" class="privacy-card rounded-2xl p-8">
+                <div id="section-13" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10 text-white">Section 13</span>
                         <h2 class="text-2xl">Data Retention</h2>
@@ -556,7 +565,7 @@
                     </ul>
                 </div>
 
-                <div id="section-14" class="privacy-card rounded-2xl p-8">
+                <div id="section-14" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 14</span>
                         <h2 class="text-2xl">Security</h2>
@@ -580,7 +589,7 @@
                     </p>
                 </div>
 
-                <div id="section-15" class="privacy-card rounded-2xl p-8">
+                <div id="section-15" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 15</span>
                         <h2 class="text-2xl">Your Choices and Rights</h2>
@@ -600,11 +609,11 @@
                     <p>
                         Send your request to <a href="mailto:contact@yucp.club">contact@yucp.club</a> with the subject
                         line
-                        "Privacy Request." Include your Discord user ID, the server or tenant involved (if applicable),
+                        "Privacy Request." Include your Discord® user ID, the server or tenant involved (if applicable),
                         and a
                         clear description of the right you wish to exercise. For access or portability requests, we may
                         ask
-                        you to verify your identity (e.g., by confirming control of the linked Discord account or
+                        you to verify your identity (e.g., by confirming control of the linked Discord® account or
                         providing
                         additional information we can match to our records). We typically respond within 30 days. If we
                         need
@@ -639,7 +648,7 @@
                     </p>
                 </div>
 
-                <div id="section-16" class="privacy-card rounded-2xl p-8">
+                <div id="section-16" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 16</span>
                         <h2 class="text-2xl">Children</h2>
@@ -652,14 +661,14 @@
                     </p>
                 </div>
 
-                <div id="section-17" class="privacy-card rounded-2xl p-8">
+                <div id="section-17" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10 text-white">Section 17</span>
                         <h2 class="text-2xl">Third-Party Services</h2>
                     </div>
                     <p>
-                        The Service depends on third-party platforms and providers, including Discord, Gumroad, Jinxxy,
-                        Unity, infrastructure providers, hosting providers, and analytics or support tools. Their
+                        The Service depends on third-party platforms and providers, including Discord®, Gumroad®, Jinxxy™,
+                        Unity®, infrastructure providers, hosting providers, and analytics or support tools. Their
                         privacy
                         practices are governed by their own terms and policies.
                     </p>
@@ -668,7 +677,7 @@
                     </p>
                 </div>
 
-                <div id="section-18" class="privacy-card rounded-2xl p-8">
+                <div id="section-18" class="privacy-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 18</span>
                         <h2 class="text-2xl">Changes to This Policy</h2>
@@ -682,7 +691,7 @@
                     </p>
                 </div>
 
-                <div id="contact" class="privacy-card rounded-2xl p-8 border-l-4 border-[#0ea5e9]">
+                <div id="contact" class="privacy-card rounded-2xl p-5 sm:p-8 border-l-4 border-[#0ea5e9]">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Contact</span>
                         <h2 class="text-2xl">How to Contact Us</h2>

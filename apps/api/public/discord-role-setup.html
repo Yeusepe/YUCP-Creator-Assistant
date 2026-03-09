@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
-    <title>Discord Role Setup | Creator Assistant</title>
+    <title>Discord® Role Setup | Creator Assistant</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -39,7 +39,11 @@
             border: 1px solid rgba(255, 255, 255, 0.13);
             border-radius: 28px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-            padding: 36px;
+            padding: 24px;
+        }
+
+        @media (min-width: 640px) {
+            .card { padding: 36px; }
         }
 
         /* ── Steps ──────────────────────────────────────────────────────────── */
@@ -159,6 +163,12 @@
         }
 
         select,
+        input[type="text"],
+        textarea {
+            font-size: 16px; /* Prevents iOS zoom on focus */
+        }
+
+        select,
         input[type="text"] {
             width: 100%;
             background: rgba(255, 255, 255, 0.06);
@@ -166,7 +176,7 @@
             border-radius: 12px;
             padding: 12px 16px;
             font-family: 'DM Sans', sans-serif;
-            font-size: 14px;
+            font-size: 16px; /* Prevents iOS zoom on focus */
             color: #fff;
             outline: none;
             transition: border-color 0.2s, background 0.2s;
@@ -315,8 +325,12 @@
         /* ── Option Pills (Verification rule) ─────────────────────────────────── */
         .option-pill-group {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 10px;
+        }
+
+        @media (min-width: 400px) {
+            .option-pill-group { grid-template-columns: 1fr 1fr; }
         }
 
         .option-pill {
@@ -381,12 +395,12 @@
     <script type="module" src="/assets/site/site.js"></script>
 </head>
 
-<body class="flex items-center justify-center p-6" style="min-height:100vh;">
+<body class="flex items-start sm:items-center justify-center p-4 sm:p-6" style="min-height:100dvh;padding-top:max(2rem,env(safe-area-inset-top));padding-bottom:max(2rem,env(safe-area-inset-bottom));">
 
     <!-- Loading overlay -->
-    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
+    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 sm:px-6"
         style="background-color: var(--bg-color);">
-        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8">
+        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8">
         <div class="page-loading-spinner"></div>
         <p class="mt-4 text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Loading...</p>
     </div>
@@ -397,23 +411,23 @@
         <div id="bg-canvas-root"
             style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:-20;pointer-events:none;"></div>
 
-        <div class="w-full max-w-md animate-in">
+        <div class="w-full max-w-md animate-in" style="width:100%;">
 
             <!-- Header -->
             <div class="text-center mb-8">
-                <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-8 mx-auto mb-5 opacity-90">
+                <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mx-auto mb-5 opacity-90">
                 <div
                     class="inline-flex items-center gap-2.5 bg-[#5865F2]/20 border border-[#5865F2]/30 rounded-full px-4 py-1.5 mb-4">
                     <svg class="w-4 h-4 text-[#7289da]" fill="currentColor" viewBox="0 0 24 24">
                         <path
                             d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.032.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z" />
                     </svg>
-                    <span class="font-heading text-[11px] font-black uppercase tracking-widest text-[#a5b4fc]">Discord
+                    <span class="font-heading text-[11px] font-black uppercase tracking-widest text-[#a5b4fc]">Discord®
                         Role Setup</span>
                 </div>
                 <h1 class="text-3xl font-black text-white mb-2">Pick a server &amp; role</h1>
                 <p class="text-sm text-white/60" style="font-family:'DM Sans',sans-serif;">
-                    Set which Discord role grants verification access.
+                    Set which Discord® role grants verification access.
                 </p>
             </div>
 
@@ -423,7 +437,7 @@
                 <div class="step-dot" id="dot-2"></div>
             </div>
 
-            <!-- Step 1: Sign in with Discord -->
+            <!-- Step 1: Sign in with Discord® -->
             <div id="step-signin" class="step card">
                 <div class="flex items-center gap-3 mb-5">
                     <div class="w-9 h-9 rounded-xl bg-[#5865F2]/20 flex items-center justify-center flex-shrink-0">
@@ -433,14 +447,14 @@
                         </svg>
                     </div>
                     <div>
-                        <h2 class="font-heading text-lg text-white" style="letter-spacing:-0.02em;">Sign in with Discord
+                        <h2 class="font-heading text-lg text-white" style="letter-spacing:-0.02em;">Sign in with Discord®
                         </h2>
                         <p class="text-xs text-white/50" style="font-family:'DM Sans',sans-serif;">Step 1 of 2</p>
                     </div>
                 </div>
 
                 <p class="text-sm text-white/65 mb-6 leading-relaxed" style="font-family:'DM Sans',sans-serif;">
-                    We need to see which Discord servers you're in so you can pick one - no typing server IDs required.
+                    We need to see which Discord® servers you're in so you can pick one - no typing server IDs required.
                     We only read your server list, nothing else.
                 </p>
 
@@ -451,7 +465,7 @@
 
                 <a id="discord-oauth-link" href="#" class="btn-discord">
                     <img src="Icons/Discord.png" width="20" height="20" alt="">
-                    Continue with Discord
+                    Continue with Discord®
                 </a>
 
                 <p class="text-center text-xs text-white/30 mt-4" style="font-family:'DM Sans',sans-serif;">
@@ -487,13 +501,13 @@
                     <label class="form-label">Required Role(s)</label>
                     <textarea id="role-ids-input" rows="3"
                         placeholder="One role ID per line, e.g.:&#10;123456789012345678&#10;987654321098765432"
-                        class="w-full rounded-xl border border-white/15 bg-black/20 px-4 py-3 text-white placeholder-white/30 focus:border-[#5865F2] focus:outline-none focus:ring-1 focus:ring-[#5865F2] font-mono text-sm"></textarea>
+                        class="w-full rounded-xl border border-white/15 bg-black/20 px-4 py-3 text-white placeholder-white/30 focus:border-[#5865F2] focus:outline-none focus:ring-1 focus:ring-[#5865F2] font-mono text-sm" style="font-size:16px;"></textarea>
                     <p class="text-xs text-white/50 mt-1" style="font-family:'DM Sans',sans-serif;">Users must have
                         these roles in the source server. Add one or more.</p>
                     <div class="helper-box mt-2">
                         <div class="helper-step">
                             <div class="helper-num">1</div>
-                            <span>Open the target server in Discord</span>
+                            <span>Open the target server in Discord®</span>
                         </div>
                         <div class="helper-step">
                             <div class="helper-num">2</div>
@@ -542,7 +556,7 @@
                 </div>
                 <h2 class="font-heading text-2xl text-white mb-2">Selection saved!</h2>
                 <p class="text-sm text-white/60 mb-5 leading-relaxed" style="font-family:'DM Sans',sans-serif;">
-                    Your Discord role requirement has been configured.
+                    Your Discord® role requirement has been configured.
                 </p>
 
                 <div class="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6 text-left space-y-3">
@@ -569,7 +583,7 @@
                             d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.032.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z" />
                     </svg>
                     <p class="text-sm text-white/70" style="font-family:'DM Sans',sans-serif;">
-                        Go back to Discord and click <strong class="text-white">"Done, I've selected it"</strong> to
+                        Go back to Discord® and click <strong class="text-white">"Done, I've selected it"</strong> to
                         finish setup.
                     </p>
                 </div>
@@ -583,7 +597,7 @@
                 <h2 class="font-heading text-xl text-white mb-2">Invalid or expired link</h2>
                 <p class="text-sm text-white/60 leading-relaxed" style="font-family:'DM Sans',sans-serif;">
                     This setup link has expired or is invalid.<br>
-                    Go back to Discord and run <code>/creator-admin product add</code> again to get a new one.
+                    Go back to Discord® and run <code>/creator-admin product add</code> again to get a new one.
                 </p>
             </div>
 
@@ -617,10 +631,10 @@
             const msgs = {
                 missing_parameters: 'Authorization was cancelled or failed. Please try again.',
                 invalid_state: 'Session mismatch. Please try signing in again.',
-                token_exchange_failed: 'Failed to exchange Discord authorization. Please try again.',
-                no_token: 'No authorization token received from Discord. Please try again.',
-                guilds_fetch_failed: 'Failed to fetch your server list from Discord. Please try again.',
-                session_expired: 'Your setup session has expired. Please go back to Discord and start over.',
+                token_exchange_failed: 'Failed to exchange Discord® authorization. Please try again.',
+                no_token: 'No authorization token received from Discord®. Please try again.',
+                guilds_fetch_failed: 'Failed to fetch your server list from Discord®. Please try again.',
+                session_expired: 'Your setup session has expired. Please go back to Discord® and start over.',
                 internal_error: 'An unexpected error occurred. Please try again.',
             };
             return msgs[code] || `Error: ${code}`;

@@ -84,14 +84,14 @@ const CREATOR_ADMIN_COMMAND = new SlashCommandBuilder()
   .addSubcommandGroup((downloads) =>
     downloads
       .setName('downloads')
-      .setDescription('Manage protected downloads')
+      .setDescription('Manage liened downloads')
       .addSubcommand((s) =>
         s
           .setName('setup')
-          .setDescription('Set up protected downloads for a channel or forum'),
+          .setDescription('Set up liened downloads for a channel or forum'),
       )
       .addSubcommand((s) =>
-        s.setName('manage').setDescription('View and manage protected download routes'),
+        s.setName('manage').setDescription('View and manage liened download routes'),
       ),
   )
   .addSubcommand((s) =>

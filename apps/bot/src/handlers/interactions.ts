@@ -532,7 +532,7 @@ async function handleUserCommand(
       const embed = new EmbedBuilder()
         .setTitle('Creator Assistant Documentation')
         .setURL(docsUrl)
-        .setDescription('Full guide covering setup, commands, product types, collaborators, protected downloads, and more.')
+        .setDescription('Full guide covering setup, commands, product types, collaborators, liened downloads, and more.')
         .setThumbnail('https://creators.yucp.club/Icons/Library.png')
         .setColor(0x0ea5e9);
       await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });

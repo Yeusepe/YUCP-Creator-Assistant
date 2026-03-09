@@ -179,6 +179,12 @@
             }
         }
 
+        @media (max-width: 639px) {
+            .tos-card.rounded-2xl {
+                padding: 1.25rem;
+            }
+        }
+
         /* ── Flash fix ─────────────────────────────────────────────────────── */
         #page-loading-overlay {
             transition: opacity 0.35s ease;
@@ -206,7 +212,7 @@
 <body class="min-h-screen selection:bg-yellow-200">
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
         style="background-color: var(--bg-color);">
-        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
     </div>
@@ -214,25 +220,25 @@
         <div id="bg-canvas-root"
             style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
         </div>
-        <main class="max-w-3xl mx-auto px-6 py-20 pb-20">
-            <header class="mb-16">
+        <main class="max-w-3xl mx-auto px-4 sm:px-6 py-10 sm:py-16 md:py-20 pb-10 sm:pb-16 md:pb-20">
+            <header class="mb-10 sm:mb-16">
                 <p class="text-[#0ea5e9] font-bold uppercase tracking-[0.3em] text-xs mb-4">Legal &amp; Compliance</p>
-                <h1 class="text-5xl md:text-6xl mb-6 flex flex-wrap items-center justify-center gap-3"><img
+                <h1 class="text-4xl sm:text-5xl lg:text-6xl mb-6 flex flex-wrap items-center justify-center gap-3"><img
                         src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant logo" role="img"
-                        class="h-12 md:h-14" />Terms of Service</h1>
-                <p class="text-xl opacity-70 leading-relaxed font-medium">
+                        class="h-10 sm:h-12 md:h-14 max-w-full w-auto object-contain object-center flex-shrink-0" />Terms of Service</h1>
+                <p class="text-base sm:text-xl opacity-70 leading-relaxed font-medium">
                     <strong>Effective date:</strong> March 4, 2026 &nbsp;|&nbsp; <strong>Last updated:</strong> March 6,
                     2026
                 </p>
             </header>
 
             <div class="space-y-6 custom-scrollbar">
-                <div id="intro" class="tos-card rounded-2xl p-8">
+                <div id="intro" class="tos-card rounded-2xl p-5 sm:p-8">
                     <p class="leading-relaxed mb-4">
                         These Terms of Service (the "Terms") govern access to and use of the Creator Assistant services,
-                        including our websites, setup pages, dashboards, APIs, webhook endpoints, Discord bot (slash
+                        including our websites, setup pages, dashboards, APIs, webhook endpoints, Discord® bot (slash
                         commands,
-                        verification flows, Liened Downloads, collaborator sharing), Unity runtime integration, and any
+                        verification flows, Liened Downloads, collaborator sharing), Unity® runtime integration, and any
                         related
                         software, features, and content that link to these Terms (collectively, the "Service"). The
                         Service
@@ -243,10 +249,13 @@
                         Terms. If
                         you do not agree, you must not use the Service.
                     </p>
+                    <p class="leading-relaxed mt-4 p-4 rounded-xl" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);">
+                        <strong>Third-Party Disclaimer:</strong> Gumroad®; Discord®; VRChat®; Unity®; Jinxxy™; PostHog®; and other product or company names mentioned herein are trademarks or registered trademarks of their respective owners. Creator Assistant is not connected with, endorsed by, sponsored by, collaborating with, or otherwise associated with any of these companies. All such marks are used solely for identification and reference purposes.
+                    </p>
                 </div>
 
                 <!-- Section 1 -->
-                <div id="section-01" class="tos-card rounded-2xl p-8">
+                <div id="section-01" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 01</span>
                         <h2 class="text-2xl">Scope and Structure</h2>
@@ -254,13 +263,13 @@
                     <p>These Terms apply to all users of the Service, including:</p>
                     <ul>
                         <li>creators, sellers, studios, moderators, and community operators who install or configure the
-                            Service (including Liened Downloads, collaborator sharing, and Unity integration)</li>
-                        <li>Discord server owners, administrators, and staff members who manage settings, roles,
+                            Service (including Liened Downloads, collaborator sharing, and Unity® integration)</li>
+                        <li>Discord® server owners, administrators, and staff members who manage settings, roles,
                             verification
-                            flows, and protected downloads</li>
-                        <li>collaborators who share their Jinxxy store or API key with another creator's Server</li>
+                            flows, and liened downloads</li>
+                        <li>collaborators who share their Jinxxy™ store or API key with another creator's Server</li>
                         <li>end users who connect accounts, submit verification information (including license keys), or
-                            receive entitlements, Discord roles, or access to Liened Download archives</li>
+                            receive entitlements, Discord® roles, or access to Liened Download archives</li>
                         <li>developers or operators who access our APIs, setup pages, or webhook endpoints</li>
                     </ul>
                     <p>Additional terms, policies, feature specific rules, or order terms may apply to certain features.
@@ -269,7 +278,7 @@
                 </div>
 
                 <!-- Section 2 -->
-                <div id="section-02" class="tos-card rounded-2xl p-8">
+                <div id="section-02" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 02</span>
                         <h2 class="text-2xl">Definitions</h2>
@@ -278,10 +287,10 @@
                     <ul>
                         <li><strong>"Admin"</strong> means a person authorized to configure the Service for a Creator or
                             a
-                            Discord server.</li>
+                            Discord® server.</li>
                         <li><strong>"Connected Provider"</strong> means a third party platform or service connected to
                             the
-                            Service: Discord, Gumroad, or Jinxxy.</li>
+                            Service: Discord®, Gumroad®, or Jinxxy™.</li>
                         <li><strong>"Connected Provider Data"</strong> means data received from or sent to a Connected
                             Provider, including account identifiers, product references, order or sale references,
                             webhook
@@ -293,7 +302,7 @@
                         </li>
                         <li><strong>"Creator"</strong> means a person or entity using the Service to manage product
                             verification, role assignment, entitlements, or community access.</li>
-                        <li><strong>"Discord Data"</strong> means Discord user IDs, guild or server IDs, role IDs,
+                        <li><strong>"Discord® Data"</strong> means Discord® user IDs, guild or server IDs, role IDs,
                             channel
                             IDs, profile information, and related metadata used by the Service.</li>
                         <li><strong>"Entitlement"</strong> means a verification outcome, product recognition, license
@@ -308,10 +317,10 @@
                             provider order IDs, provider customer identifiers, payment state, refund state, dispute
                             state,
                             purchase timestamps, and related fields.</li>
-                        <li><strong>"Server"</strong> means a Discord server or guild.</li>
+                        <li><strong>"Server"</strong> means a Discord® server or guild.</li>
                         <li><strong>"Liened Downloads"</strong> means the feature that routes qualifying attachments
                             from
-                            source channels into role-gated archive channels. Archived files remain in Discord (archive
+                            source channels into role-gated archive channels. Archived files remain in Discord® (archive
                             channel); the Service does not store file contents externally. The feature supports backfill
                             and autofix of existing messages.</li>
                         <li><strong>"Download Route"</strong> means a Creator-configured mapping from a source channel
@@ -320,12 +329,12 @@
                             extensions.</li>
                         <li><strong>"Download Artifact"</strong> means a record of a file archived for Liened Downloads,
                             including source and archive message references and file metadata.</li>
-                        <li><strong>"Collaborator"</strong> means a creator who shares their Jinxxy store or API key
+                        <li><strong>"Collaborator"</strong> means a creator who shares their Jinxxy™ store or API key
                             with
                             another creator's server for verification, via an invite flow.</li>
                         <li><strong>"Collaborator Invite"</strong> means a single-use token (with limited validity) used
                             to
-                            invite a Collaborator to share their Jinxxy credentials with a Creator's tenant.</li>
+                            invite a Collaborator to share their Jinxxy™ credentials with a Creator's tenant.</li>
                         <li><strong>"Manual License"</strong> means a Creator-generated license key validated by the
                             Service;
                             keys are stored only as cryptographic hashes, never in plaintext.</li>
@@ -348,9 +357,9 @@
                         <li><strong>"Binding"</strong> means a link between a Subject and an external account (e.g.,
                             ownership,
                             verification, or manual override).</li>
-                        <li><strong>"Unity Installation"</strong> means a device or client that has integrated with the
+                        <li><strong>"Unity® Installation"</strong> means a device or client that has integrated with the
                             Service
-                            for runtime assertion (license validation) in Unity applications.</li>
+                            for runtime assertion (license validation) in Unity® applications.</li>
                         <li><strong>"User"</strong> means any person or entity who accesses or uses the Service.</li>
                         <li><strong>"Verification Data"</strong> means data used to complete a verification flow,
                             including
@@ -361,7 +370,7 @@
                 </div>
 
                 <!-- Section 3 -->
-                <div id="section-03" class="tos-card rounded-2xl p-8">
+                <div id="section-03" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 03</span>
                         <h2 class="text-2xl">Eligibility</h2>
@@ -370,43 +379,43 @@
                         jurisdiction. If you are under the age of majority where you live, you may use the Service only
                         with
                         permission from a parent or legal guardian.</p>
-                    <p>You must also satisfy the eligibility rules of each Connected Provider you use. If Discord,
-                        Gumroad,
-                        or Jinxxy suspends or restricts your account, your ability to use related parts of the Service
+                    <p>You must also satisfy the eligibility rules of each Connected Provider you use. If Discord®,
+                        Gumroad®,
+                        or Jinxxy™ suspends or restricts your account, your ability to use related parts of the Service
                         may
                         be limited or terminated.</p>
                 </div>
 
                 <!-- Section 4 -->
-                <div id="section-04" class="tos-card rounded-2xl p-8">
+                <div id="section-04" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 04</span>
                         <h2 class="text-2xl">The Service</h2>
                     </div>
                     <p>The Service is designed to help Creators and communities manage verification, linked accounts,
-                        entitlements, Discord role access, protected downloads, and Unity runtime validation. Depending
+                        entitlements, Discord® role access, liened downloads, and Unity® runtime validation. Depending
                         on
                         the feature set enabled by a Creator, the Service may:</p>
                     <ul>
-                        <li>install and operate a Discord bot in one or more Servers via OAuth (bot and
+                        <li>install and operate a Discord® bot in one or more Servers via OAuth (bot and
                             applications.commands scopes)</li>
-                        <li>provide a setup wizard (/creator-admin setup start or restart) and Connect flow for Gumroad
-                            OAuth, Jinxxy, and Discord account linking</li>
+                        <li>provide a setup wizard (/creator-admin setup start or restart) and Connect flow for Gumroad®
+                            OAuth, Jinxxy™, and Discord® account linking</li>
                         <li>expose slash commands: /creator (status, verify, refresh) and /creator-admin (setup,
                             product, downloads, settings, moderation, collab, stats, analytics, spawn-verify)</li>
-                        <li>let Creators connect Gumroad or Jinxxy and store Provider Credentials in encrypted form</li>
-                        <li>receive and process provider webhooks (sale, refund, payment, product events) from Gumroad,
-                            Jinxxy, and Collaborator Jinxxy webhooks</li>
+                        <li>let Creators connect Gumroad® or Jinxxy™ and store Provider Credentials in encrypted form</li>
+                        <li>receive and process provider webhooks (sale, refund, payment, product events) from Gumroad®,
+                            Jinxxy™, and Collaborator Jinxxy™ webhooks</li>
                         <li>perform historical sync or backfill of sales or orders for connected products</li>
-                        <li>maintain a product catalog with products from Gumroad, Jinxxy, Discord role (cross-server),
+                        <li>maintain a product catalog with products from Gumroad®, Jinxxy™, Discord® role (cross-server),
                             and manual sources</li>
                         <li>create or update subject records, external accounts, bindings, entitlements, and provider
                             customer records</li>
                         <li>match purchases to users through account identifiers, hashed email matching, license-key
-                            verification (Gumroad/Jinxxy API or manual licenses), or auto-discovery for remembered
+                            verification (Gumroad®/Jinxxy™ API or manual licenses), or auto-discovery for remembered
                             purchasers</li>
                         <li>project, grant, update, suspend, revoke, or remove Entitlements</li>
-                        <li>assign, sync, or remove Discord roles based on verification results, role rules, or Creator
+                        <li>assign, sync, or remove Discord® roles based on verification results, role rules, or Creator
                             configuration; optionally auto-verify on guild member join</li>
                         <li>support cross-server verification (user must have a required role in an approved source
                             Server)</li>
@@ -416,7 +425,7 @@
                         <li>support Collaborator sharing: Creators may invite other Creators via single-use invite
                             links; Collaborators may share API key only or full account (API key plus webhook);
                             Collaborator webhooks route to the owner tenant</li>
-                        <li>issue Unity runtime assertions (JWTs) for license validation in Unity applications (when
+                        <li>issue Unity® runtime assertions (JWTs) for license validation in Unity® applications (when
                             enabled)</li>
                         <li>support manual licenses (Creator-generated keys stored as hashes), suspicious account
                             marking (quarantine, notify, revoke), and moderation actions (unverify)</li>
@@ -426,13 +435,13 @@
                 </div>
 
                 <!-- Section 5 -->
-                <div id="section-05" class="tos-card rounded-2xl p-8">
+                <div id="section-05" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 05</span>
                         <h2 class="text-2xl">Accounts, Installation, and Authority</h2>
                     </div>
-                    <h4>5.1 Discord account and installation authority</h4>
-                    <p>To use Discord bot features, you must have a valid Discord account and sufficient authority to
+                    <h4>5.1 Discord® account and installation authority</h4>
+                    <p>To use Discord® bot features, you must have a valid Discord® account and sufficient authority to
                         install, configure, or manage the bot in the relevant Server.</p>
                     <p>By installing or configuring the bot, you represent and warrant that:</p>
                     <ul>
@@ -442,7 +451,7 @@
                         </li>
                     </ul>
                     <h4>5.2 Connected Provider authority</h4>
-                    <p>If you connect Gumroad or Jinxxy, you represent and warrant that:</p>
+                    <p>If you connect Gumroad® or Jinxxy™, you represent and warrant that:</p>
                     <ul>
                         <li>you are the lawful owner of that provider account or are authorized to connect it on behalf
                             of
@@ -458,13 +467,13 @@
                 </div>
 
                 <!-- Section 6 -->
-                <div id="section-06" class="tos-card rounded-2xl p-8">
+                <div id="section-06" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 06</span>
                         <h2 class="text-2xl">Connected Providers and Data Sync</h2>
                     </div>
                     <h4>6.1 Provider connections</h4>
-                    <p>The Service integrates with Connected Providers: Discord, Gumroad, and Jinxxy. By connecting a
+                    <p>The Service integrates with Connected Providers: Discord®, Gumroad®, and Jinxxy™. By connecting a
                         provider,
                         you instruct us to communicate with that provider as needed to:
                     </p>
@@ -477,8 +486,8 @@
                         <li>verify purchases, licenses, product ownership, account status, or role eligibility</li>
                         <li>maintain, refresh, or disconnect the provider connection</li>
                     </ul>
-                    <h4>6.2 Gumroad and Jinxxy commerce sync</h4>
-                    <p>If a Creator connects Gumroad or Jinxxy, the Service may ingest or process information such as:
+                    <h4>6.2 Gumroad® and Jinxxy™ commerce sync</h4>
+                    <p>If a Creator connects Gumroad® or Jinxxy™, the Service may ingest or process information such as:
                     </p>
                     <ul>
                         <li>provider user IDs and connected account metadata</li>
@@ -495,11 +504,11 @@
                         products
                         where that feature is enabled.</p>
                     <h4>6.3 Webhooks and provider events</h4>
-                    <p>The Service receives webhooks from Gumroad (per-tenant), Jinxxy (per-tenant), and Collaborator
-                        Jinxxy
+                    <p>The Service receives webhooks from Gumroad® (per-tenant), Jinxxy™ (per-tenant), and Collaborator
+                        Jinxxy™
                         (per owner-tenant and invite). Webhook payloads are verified using HMAC-SHA256 signatures where
                         a
-                        secret is configured; Gumroad may fall back to API verification when no secret is set. Provider
+                        secret is configured; Gumroad® may fall back to API verification when no secret is set. Provider
                         events
                         are stored with metadata such as provider, event type, raw payload, signature validation state,
                         tenant or creator association, processing status, error state, and timestamps. Events are
@@ -521,14 +530,14 @@
                 </div>
 
                 <!-- Section 7 -->
-                <div id="section-07" class="tos-card rounded-2xl p-8">
+                <div id="section-07" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 07</span>
                         <h2 class="text-2xl">Verification, Linking, and Entitlements</h2>
                     </div>
                     <h4>7.1 Verification methods</h4>
-                    <p>The Service supports verification methods including: Gumroad OAuth (account linking; one linked
-                        account may verify all products), Jinxxy account linking or API-key verification, Discord role
+                    <p>The Service supports verification methods including: Gumroad® OAuth (account linking; one linked
+                        account may verify all products), Jinxxy™ account linking or API-key verification, Discord® role
                         based verification (cross-server; user must have a required role in an approved source Server),
                         and manual license keys (Creator-generated keys entered by the user; validated against hashed
                         records). Verification may be triggered by: provider webhooks (sale, refund, purchase events),
@@ -536,17 +545,17 @@
                         auto-verify on join is enabled). OAuth flows use PKCE and short-lived session tokens.</p>
                     <h4>7.2 Linked identities and subject records</h4>
                     <p>To operate the Service, we may create records that associate one or more external accounts with a
-                        single internal subject, profile, or verification record. This may include Discord accounts,
+                        single internal subject, profile, or verification record. This may include Discord® accounts,
                         provider accounts, email based matching, or Creator configured license records.</p>
                     <h4>7.3 Entitlement projection</h4>
                     <p>The Service transforms verification or purchase information into Entitlements. An Entitlement may
-                        represent a verified product, a verified purchase, a verified license, a Discord role grant,
+                        represent a verified product, a verified purchase, a verified license, a Discord® role grant,
                         access to
-                        Liened Download archives, or a Unity runtime assertion.</p>
+                        Liened Download archives, or a Unity® runtime assertion.</p>
                     <h4>7.4 Role assignment and removal</h4>
-                    <p>If enabled by a Creator, the Service may assign, sync, maintain, or remove Discord roles based on
+                    <p>If enabled by a Creator, the Service may assign, sync, maintain, or remove Discord® roles based on
                         active Entitlements, provider events, configuration changes, revocations, refunds, disputes,
-                        security flags, or moderation actions (e.g., unverify). Role rules map products to Discord roles
+                        security flags, or moderation actions (e.g., unverify). Role rules map products to Discord® roles
                         per guild; Creators may configure priority, remove-on-revoke, and cross-server source guild and
                         required role.</p>
                     <h4>7.5 Cross server verification</h4>
@@ -554,9 +563,9 @@
                         Server
                         as part of a verification or role decision. Cross-server verification is distinct from
                         store-based
-                        verification (Gumroad, Jinxxy, manual). The Service issues a signed verification stamp from our
+                        verification (Gumroad®, Jinxxy™, manual). The Service issues a signed verification stamp from our
                         backend with a bounded validity window, audience and guild binding rules, and does not treat
-                        Discord
+                        Discord®
                         roles as a long-term source of truth. Creators configure allowed source guilds and required
                         roles.</p>
                     <h4>7.6 Errors and reversals</h4>
@@ -581,14 +590,14 @@
                 </div>
 
                 <!-- Section 8 -->
-                <div id="section-08" class="tos-card rounded-2xl p-8">
+                <div id="section-08" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 08</span>
                         <h2 class="text-2xl">Data We Process and Store for Service Operation</h2>
                     </div>
                     <p>To operate the Service, we may process and store information such as:</p>
                     <ul>
-                        <li>Discord account, guild, channel, role, and interaction metadata</li>
+                        <li>Discord® account, guild, channel, role, and interaction metadata</li>
                         <li>Creator and Admin setup data, tenant policy configuration, and guild links</li>
                         <li>Connected Provider account identifiers and profile metadata</li>
                         <li>Provider Credentials (OAuth tokens, API keys, webhook secrets), stored in encrypted form
@@ -603,7 +612,7 @@
                         <li>internal subject, external account, binding, license claim, role rule, guild link, product
                             catalog,
                             purchase fact, provider customer, entitlement, provider connection, download route, download
-                            artifact, Unity installation, runtime assertion, collaborator invite, and collaborator
+                            artifact, Unity® installation, runtime assertion, collaborator invite, and collaborator
                             connection records</li>
                         <li>webhook payloads, webhook event records (with signature status), webhook processing records,
                             and
@@ -624,7 +633,7 @@
                 </div>
 
                 <!-- Section 9 -->
-                <div id="section-09" class="tos-card rounded-2xl p-8">
+                <div id="section-09" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 09</span>
                         <h2 class="text-2xl">Security, Credentials, and Sensitive Inputs</h2>
@@ -665,7 +674,7 @@
                 </div>
 
                 <!-- Section 10 -->
-                <div id="section-10" class="tos-card rounded-2xl p-8">
+                <div id="section-10" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 10</span>
                         <h2 class="text-2xl">Creator and Admin Responsibilities</h2>
@@ -703,7 +712,7 @@
                 </div>
 
                 <!-- Section 11 -->
-                <div id="section-11" class="tos-card rounded-2xl p-8">
+                <div id="section-11" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 11</span>
                         <h2 class="text-2xl">End User Responsibilities</h2>
@@ -718,7 +727,7 @@
                         <li>understanding that a Creator's own product, refund, moderation, and community rules may
                             separately apply to you</li>
                     </ul>
-                    <p>Your transaction for a product may be with the Creator, Gumroad, or Jinxxy, not with us. Except
+                    <p>Your transaction for a product may be with the Creator, Gumroad®, or Jinxxy™, not with us. Except
                         where
                         expressly stated, we are not the merchant of record, seller, reseller, licensor, or payment
                         processor
@@ -726,7 +735,7 @@
                 </div>
 
                 <!-- Section 12 -->
-                <div id="section-12" class="tos-card rounded-2xl p-8">
+                <div id="section-12" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 12</span>
                         <h2 class="text-2xl">Acceptable Use</h2>
@@ -758,7 +767,7 @@
                 </div>
 
                 <!-- Section 13 -->
-                <div id="section-13" class="tos-card rounded-2xl p-8">
+                <div id="section-13" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 13</span>
                         <h2 class="text-2xl">Content and Intellectual Property</h2>
@@ -782,7 +791,7 @@
                 </div>
 
                 <!-- Section 14 -->
-                <div id="section-14" class="tos-card rounded-2xl p-8">
+                <div id="section-14" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 14</span>
                         <h2 class="text-2xl">Privacy and Data Handling</h2>
@@ -797,7 +806,7 @@
                 </div>
 
                 <!-- Section 15 -->
-                <div id="section-15" class="tos-card rounded-2xl p-8">
+                <div id="section-15" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 15</span>
                         <h2 class="text-2xl">Analytics, Logging, and Monitoring</h2>
@@ -813,7 +822,7 @@
                 </div>
 
                 <!-- Section 16 -->
-                <div id="section-16" class="tos-card rounded-2xl p-8">
+                <div id="section-16" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 16</span>
                         <h2 class="text-2xl">Suspension, Security Review, and Enforcement</h2>
@@ -834,7 +843,7 @@
                 </div>
 
                 <!-- Section 17 -->
-                <div id="section-17" class="tos-card rounded-2xl p-8">
+                <div id="section-17" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 17</span>
                         <h2 class="text-2xl">Service Availability, Beta Features, and Changes</h2>
@@ -845,16 +854,16 @@
                         Such
                         features may be incomplete, unstable, or changed without notice.</p>
                     <p>We do not guarantee that the Service or any feature will remain available or compatible with any
-                        specific platform, provider API, browser, server setup, or Discord permission model.</p>
+                        specific platform, provider API, browser, server setup, or Discord® permission model.</p>
                     <h4>17.1 Support</h4>
-                    <p>We provide support through documentation, Discord, and email (contact@yucp.club). We do not
+                    <p>We provide support through documentation, Discord®, and email (contact@yucp.club). We do not
                         commit
                         to specific response times or service level agreements unless expressly agreed in a separate
                         written agreement for paid plans. Support is provided on a best-effort basis.</p>
                 </div>
 
                 <!-- Section 18 -->
-                <div id="section-18" class="tos-card rounded-2xl p-8">
+                <div id="section-18" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 18</span>
                         <h2 class="text-2xl">Fees, Billing, and Paid Features</h2>
@@ -882,13 +891,13 @@
                 </div>
 
                 <!-- Section 19 -->
-                <div id="section-19" class="tos-card rounded-2xl p-8">
+                <div id="section-19" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 19</span>
                         <h2 class="text-2xl">Third Party Services</h2>
                     </div>
                     <p>Your use of Connected Providers and other third party services is governed by their own terms and
-                        policies. This includes Discord, Gumroad, Jinxxy, Unity, analytics providers, cloud providers,
+                        policies. This includes Discord®, Gumroad®, Jinxxy™, Unity®, analytics providers, cloud providers,
                         hosting providers, and any marketplace or identity service connected to the Service.</p>
                     <p>We are not responsible for third party services or third party content, including their:</p>
                     <ul>
@@ -906,7 +915,7 @@
                 </div>
 
                 <!-- Section 20 -->
-                <div id="section-20" class="tos-card rounded-2xl p-8">
+                <div id="section-20" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 20</span>
                         <h2 class="text-2xl">Disclaimers</h2>
@@ -927,7 +936,7 @@
                 </div>
 
                 <!-- Section 21 -->
-                <div id="section-21" class="tos-card rounded-2xl p-8">
+                <div id="section-21" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 21</span>
                         <h2 class="text-2xl">Limitation of Liability</h2>
@@ -954,7 +963,7 @@
                 </div>
 
                 <!-- Section 22 -->
-                <div id="section-22" class="tos-card rounded-2xl p-8">
+                <div id="section-22" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 22</span>
                         <h2 class="text-2xl">Indemnification</h2>
@@ -973,7 +982,7 @@
                 </div>
 
                 <!-- Section 23 -->
-                <div id="section-23" class="tos-card rounded-2xl p-8">
+                <div id="section-23" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 23</span>
                         <h2 class="text-2xl">Termination</h2>
@@ -990,7 +999,7 @@
                 </div>
 
                 <!-- Section 24 -->
-                <div id="section-24" class="tos-card rounded-2xl p-8">
+                <div id="section-24" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 24</span>
                         <h2 class="text-2xl">Data Retention and Export After Termination</h2>
@@ -1010,7 +1019,7 @@
                 </div>
 
                 <!-- Section 25 -->
-                <div id="section-25" class="tos-card rounded-2xl p-8">
+                <div id="section-25" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 25</span>
                         <h2 class="text-2xl">Export, Sanctions, and Restricted Use</h2>
@@ -1022,7 +1031,7 @@
                 </div>
 
                 <!-- Section 26 -->
-                <div id="section-26" class="tos-card rounded-2xl p-8">
+                <div id="section-26" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 26</span>
                         <h2 class="text-2xl">Copyright Complaints</h2>
@@ -1047,7 +1056,7 @@
                 </div>
 
                 <!-- Section 27 -->
-                <div id="section-27" class="tos-card rounded-2xl p-8">
+                <div id="section-27" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Section 27</span>
                         <h2 class="text-2xl">Governing Law and Dispute Resolution</h2>
@@ -1071,7 +1080,7 @@
                 </div>
 
                 <!-- Section 28 -->
-                <div id="section-28" class="tos-card rounded-2xl p-8">
+                <div id="section-28" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 28</span>
                         <h2 class="text-2xl">Changes to These Terms</h2>
@@ -1085,7 +1094,7 @@
                 </div>
 
                 <!-- Section 29 -->
-                <div id="section-29" class="tos-card rounded-2xl p-8">
+                <div id="section-29" class="tos-card rounded-2xl p-5 sm:p-8">
                     <div class="section-header">
                         <span class="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">Section 29</span>
                         <h2 class="text-2xl">Miscellaneous</h2>
@@ -1111,7 +1120,7 @@
                 </div>
 
                 <!-- Appendix A -->
-                <div id="appendix-a" class="tos-card rounded-2xl p-8 border-l-4 border-[#0ea5e9]">
+                <div id="appendix-a" class="tos-card rounded-2xl p-5 sm:p-8 border-l-4 border-[#0ea5e9]">
                     <div class="section-header">
                         <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Appendix A</span>
                         <h2 class="text-2xl">Creator Specific Terms</h2>
@@ -1125,7 +1134,7 @@
                         <li>You must review your own local law obligations, including privacy notices, consumer law, and
                             moderation or community management obligations.</li>
                         <li>If you ask the Service to process provider data, linked accounts, purchase matching, role
-                            gating, Liened Downloads, or Unity assertions for your community, you instruct us to do so
+                            gating, Liened Downloads, or Unity® assertions for your community, you instruct us to do so
                             on
                             your behalf for Service operation.</li>
                         <li>You must promptly disconnect provider accounts and rotate credentials you no longer
@@ -1134,14 +1143,14 @@
                             configuration (source channel, archive channel, required roles, role logic, allowed
                             extensions),
                             cross-server settings, tenant policy, and provider sync results in your own Server.</li>
-                        <li>If you invite Collaborators to share their Jinxxy store or API key, you are responsible for
+                        <li>If you invite Collaborators to share their Jinxxy™ store or API key, you are responsible for
                             the
                             relationship and any data shared through that connection. Collaborator invites are
                             single-use
                             and time-limited; Collaborators may share API key only or full account (API key plus
                             webhook).
                             Collaborator webhooks route to your tenant.</li>
-                        <li>If you use Unity runtime assertions, you are responsible for how your Unity application uses
+                        <li>If you use Unity® runtime assertions, you are responsible for how your Unity® application uses
                             them and for any device-binding or installation limits you configure.</li>
                         <li>If you use manual licenses, you are responsible for generating and distributing keys; the
                             Service stores only hashed values and validates against them. License Claims enforce reuse
@@ -1156,29 +1165,29 @@
                 </div>
 
                 <!-- Appendix B -->
-                <div id="appendix-b" class="tos-card rounded-2xl p-8 border-l-4 border-[#00e676]">
+                <div id="appendix-b" class="tos-card rounded-2xl p-5 sm:p-8 border-l-4 border-[#00e676]">
                     <div class="section-header">
                         <span class="section-tag bg-[#00e676]/10 text-[#00e676]">Appendix B</span>
                         <h2 class="text-2xl">End User Verification Terms</h2>
                     </div>
                     <p>If you use the Service only to verify a purchase, link an account, access Liened Download
                         archives,
-                        or use Unity runtime assertions:</p>
+                        or use Unity® runtime assertions:</p>
                     <ol class="list-decimal pl-6 space-y-2 mt-4">
                         <li>You authorize the Service to receive the minimum provider data needed to complete the
                             selected
-                            verification flow (e.g., Discord OAuth, Gumroad OAuth, Jinxxy linking, or license key
+                            verification flow (e.g., Discord® OAuth, Gumroad® OAuth, Jinxxy™ linking, or license key
                             submission).</li>
                         <li>You understand that verification may be triggered by your actions (/creator verify, /creator
                             refresh,
                             Connect flows), provider webhooks, or guild member join (when auto-verify is enabled).</li>
                         <li>You understand that a Creator may configure the Service to grant or remove roles, download
-                            access, or Unity assertions based on provider events, refunds, disputes, account changes,
+                            access, or Unity® assertions based on provider events, refunds, disputes, account changes,
                             cross server status, or moderation actions (e.g., unverify).</li>
                         <li>You understand that successful verification does not transfer ownership of any product or
                             license beyond the rights granted by the Creator or the underlying seller.</li>
                         <li>If you believe a verification result is wrong, your remedy may involve the Creator, the
-                            underlying commerce platform (Gumroad or Jinxxy), or both, depending on the issue.</li>
+                            underlying commerce platform (Gumroad® or Jinxxy™), or both, depending on the issue.</li>
                     </ol>
                 </div>
             </div>

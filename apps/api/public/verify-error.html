@@ -20,12 +20,21 @@
             background-color: var(--bg-color);
             color: var(--text-primary);
             font-family: 'DM Sans', sans-serif;
-            overflow: hidden;
+            overflow-x: hidden;
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
+            min-height: 100dvh;
             position: relative;
+            padding: 1.25rem 1rem;
+            box-sizing: border-box;
+        }
+
+        @media (min-width: 640px) {
+            body { padding: 2rem 1.5rem; }
+        }
+        @media (min-width: 1024px) {
+            body { padding: 3rem 2rem; }
         }
 
         h1 {
@@ -115,13 +124,13 @@
         </div>
         <!-- Playful Background Stickers -->
         <div id="holo-world-0"
-            class="absolute top-20 left-10 w-24 opacity-40 sticker pointer-events-auto z-0 grayscale h-24"
+            class="absolute top-20 left-10 w-24 opacity-40 sticker pointer-events-auto z-0 grayscale h-24 hidden sm:block"
             style="animation-delay: -2s;"></div>
         <div id="holo-discord-1"
-            class="absolute bottom-40 right-10 w-20 opacity-40 sticker pointer-events-auto z-0 grayscale h-20"
+            class="absolute bottom-40 right-10 w-20 opacity-40 sticker pointer-events-auto z-0 grayscale h-20 hidden sm:block"
             style="animation-delay: -5s;"></div>
 
-        <main class="text-center max-w-2xl px-6 relative z-10">
+        <main class="text-center max-w-2xl w-full px-4 sm:px-6 relative z-10">
             <div class="mb-8 fade-up" style="animation-delay: 0.2s">
                 <svg class="w-24 h-24 mx-auto text-[#c53030]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -129,17 +138,17 @@
                     </path>
                 </svg>
             </div>
-            <h1 class="text-5xl md:text-6xl text-[#ffffff] mb-6 fade-up" style="animation-delay: 0.3s">
+            <h1 class="text-4xl sm:text-5xl lg:text-6xl text-[#ffffff] mb-6 fade-up" style="animation-delay: 0.3s">
                 Something went wrong
             </h1>
-            <p id="error-msg" class="text-xl md:text-2xl text-[rgba(255,255,255,0.85)] mb-12 leading-relaxed fade-up"
+            <p id="error-msg" class="text-lg sm:text-xl md:text-2xl text-[rgba(255,255,255,0.85)] mb-10 leading-relaxed fade-up"
                 style="animation-delay: 0.5s">
                 Verification could not be completed.
             </p>
             <div class="fade-up" style="animation-delay: 0.7s">
                 <a id="return-btn" href="#"
-                    class="action-btn inline-block px-12 py-5 rounded-full text-xl font-black uppercase tracking-widest no-underline">
-                    Return to Discord
+                    class="action-btn inline-block w-full sm:w-auto px-8 py-4 sm:px-12 sm:py-5 rounded-full text-lg sm:text-xl font-black uppercase tracking-widest no-underline">
+                    Return to Discord®
                 </a>
             </div>
         </main>
@@ -182,7 +191,7 @@
 
                 if (safeReturnTo) {
                     btn.href = safeReturnTo;
-                    btn.textContent = 'Return to Discord';
+                    btn.textContent = 'Return to Discord®';
                 } else {
                     btn.href = '#';
                     btn.textContent = 'Try Again';
