@@ -20,12 +20,21 @@
             background-color: var(--bg-color);
             color: var(--text-primary);
             font-family: 'DM Sans', sans-serif;
-            overflow: hidden;
+            overflow-x: hidden;
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
+            min-height: 100dvh;
             position: relative;
+            padding: 1.25rem 1rem;
+            box-sizing: border-box;
+        }
+
+        @media (min-width: 640px) {
+            body { padding: 2rem 1.5rem; }
+        }
+        @media (min-width: 1024px) {
+            body { padding: 3rem 2rem; }
         }
 
         h1 {
@@ -129,9 +138,9 @@
 </head>
 
 <body>
-    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
+    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 sm:px-6"
         style="background-color: var(--bg-color);">
-        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
     </div>
@@ -140,12 +149,12 @@
             style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
         </div>
         <!-- Playful Background Stickers -->
-        <div id="holo-clapstars-0" class="absolute top-20 right-20 w-32 opacity-80 sticker pointer-events-auto z-0 h-32"
+        <div id="holo-clapstars-0" class="absolute top-20 right-20 w-32 opacity-80 sticker pointer-events-auto z-0 h-32 hidden sm:block"
             style="animation-delay: -2s;"></div>
-        <div id="holo-world-1" class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24"
+        <div id="holo-world-1" class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24 hidden sm:block"
             style="animation-delay: -5s;"></div>
 
-        <main class="text-center max-w-2xl px-6 relative z-10">
+        <main class="text-center max-w-2xl w-full px-4 sm:px-6 relative z-10">
             <div class="success-checkmark">
                 <svg viewBox="0 0 100 100">
                     <circle class="circle-path" cx="50" cy="50" r="45" stroke="#00e676" stroke-width="6" fill="none">
@@ -154,18 +163,18 @@
                         stroke-linecap="round" stroke-linejoin="round"></path>
                 </svg>
             </div>
-            <h1 class="text-5xl md:text-6xl text-[#ffffff] mb-6 fade-up" style="animation-delay: 0.3s">
+            <h1 class="text-4xl sm:text-6xl lg:text-7xl text-[#ffffff] mb-6 fade-up" style="animation-delay: 0.3s">
                 You're verified!
             </h1>
-            <p class="text-xl md:text-2xl text-[rgba(255,255,255,0.85)] mb-12 leading-relaxed fade-up"
+            <p class="text-lg sm:text-xl md:text-2xl text-[rgba(255,255,255,0.85)] mb-10 leading-relaxed fade-up"
                 style="animation-delay: 0.5s">
-                Your Discord account has been verified. Your roles will be updated shortly. You can return to Discord
+                Your Discord® account has been verified. Your roles will be updated shortly. You can return to Discord®
                 now.
             </p>
             <div class="fade-up" style="animation-delay: 0.7s">
                 <a id="return-btn" href="#"
-                    class="action-btn inline-block px-12 py-5 rounded-full text-xl font-black uppercase tracking-widest no-underline">
-                    Return to Discord
+                    class="action-btn inline-block w-full sm:w-auto px-8 py-4 sm:px-12 sm:py-5 rounded-full text-lg sm:text-xl font-black uppercase tracking-widest no-underline">
+                    Return to Discord®
                 </a>
             </div>
             <div id="redirect-msg" class="mt-12 text-sm font-bold uppercase tracking-widest opacity-40 fade-up"
@@ -216,7 +225,7 @@
 
                 if (safeReturnTo) {
                     btn.href = safeReturnTo;
-                    btn.textContent = 'Return to Discord';
+                    btn.textContent = 'Return to Discord®';
                     let count = 5;
                     const interval = setInterval(function () {
                         count--;

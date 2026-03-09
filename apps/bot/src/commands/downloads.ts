@@ -1218,7 +1218,7 @@ export async function handleDownloadsManageRemovePrompt(
       `${E.X_} Remove this route?\n` +
       `Uploads: <#${route.sourceChannelId}>\n` +
       `Archive: <#${route.archiveChannelId}>\n\n` +
-      `Members will stop getting protected download links from this route.`,
+      `Members will stop getting liened download links from this route.`,
     embeds: [],
     components: buildManageRemoveConfirmComponents(panelToken),
   });
@@ -1278,7 +1278,7 @@ export async function handleDownloadsManageRemoveConfirm(
   if (routes.length === 0) {
     managePanels.delete(panelToken);
     await interaction.update({
-      content: `${E.Checkmark} Route removed. No protected download routes are left in this server.`,
+      content: `${E.Checkmark} Route removed. No liened download routes are left in this server.`,
       embeds: [],
       components: [],
     });

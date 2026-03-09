@@ -22,10 +22,15 @@
             background-color: var(--bg-color);
             color: var(--text-primary);
             font-family: 'DM Sans', sans-serif;
-            overflow: hidden;
+            overflow-x: hidden;
             cursor: none;
             width: 100%;
-            height: 100vh;
+            min-height: 100dvh;
+        }
+
+        @media (max-width: 640px) {
+            body { cursor: auto; }
+            .cursor-dot, .cursor-dot-outline { display: none; }
         }
 
         h1,
@@ -167,6 +172,92 @@
         #page-content.is-visible {
             opacity: 1;
         }
+
+        /* ── Liquid Glass Modals ────────────────────────────────────────────── */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 9998;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+                visibility 0.35s step-end;
+            cursor: default;
+        }
+        .modal-backdrop.is-visible {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+            transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                visibility 0s step-start;
+        }
+        .modal-panel {
+            background: rgba(0, 0, 0, 0.25);
+            backdrop-filter: blur(16px) saturate(160%);
+            -webkit-backdrop-filter: blur(16px) saturate(160%);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 24px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3),
+                inset 1px 1px 0 rgba(255, 255, 255, 0.1);
+            max-width: 420px;
+            width: 100%;
+            padding: 1.5rem 1.75rem;
+            transform: scale(0.92) translateY(16px);
+            opacity: 0;
+            transition: transform 0.4s cubic-bezier(0.34, 1.2, 0.64, 1),
+                opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .modal-backdrop.is-visible .modal-panel {
+            transform: scale(1) translateY(0);
+            opacity: 1;
+        }
+        .modal-panel .modal-message {
+            color: rgba(255, 255, 255, 0.95);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.9375rem;
+            line-height: 1.5;
+            margin-bottom: 1.25rem;
+        }
+        .modal-panel .modal-actions {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+        .modal-panel .modal-btn {
+            padding: 0.5rem 1.25rem;
+            border-radius: 12px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 0.8125rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .modal-panel .modal-btn-primary {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+        .modal-panel .modal-btn-primary:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .modal-panel .modal-btn-secondary {
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.9);
+        }
+        .modal-panel .modal-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
     </style>
     <link rel="stylesheet" href="/assets/site/site.css">
     <script type="module" src="/assets/site/site.js"></script>
@@ -174,12 +265,20 @@
 
 <body
     class="min-h-screen flex flex-col selection:bg-yellow-200 bg-gradient-to-b from-[#0a3d9e] to-[#0ea5e9] text-white">
-    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
+    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 sm:px-6"
         style="background-color: var(--bg-color);">
-        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
+        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
     </div>
+    <!-- Liquid glass modal (alert/confirm) -->
+    <div id="modal-backdrop" class="modal-backdrop" aria-hidden="true">
+        <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-message">
+            <p id="modal-message" class="modal-message"></p>
+            <div class="modal-actions" id="modal-actions"></div>
+        </div>
+    </div>
+
     <div id="page-content" style="display: none;">
         <div id="bg-canvas-root"
             style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
@@ -188,26 +287,26 @@
         <div class="cursor-dot"></div>
         <div class="cursor-dot-outline"></div>
 
-        <main class="flex-grow flex flex-col items-center justify-center px-4 pt-8 relative h-full">
+        <main class="flex-grow flex flex-col items-center justify-center px-4 py-8 relative min-h-screen">
 
             <!-- Playful Background Stickers -->
-            <div id="holo-world-0" class="absolute top-20 left-10 w-24 opacity-60 sticker pointer-events-auto h-24"
+            <div id="holo-world-0" class="absolute top-20 left-10 w-24 opacity-60 sticker pointer-events-auto h-24 hidden sm:block"
                 style="animation-delay: -2s;"></div>
-            <div id="holo-link-1" class="absolute bottom-10 right-20 w-32 opacity-80 sticker pointer-events-auto h-32"
+            <div id="holo-link-1" class="absolute bottom-10 right-20 w-32 opacity-80 sticker pointer-events-auto h-32 hidden sm:block"
                 style="animation-delay: -5s;"></div>
             <div id="holo-assistant-2"
-                class="absolute top-40 right-10 w-20 opacity-40 sticker pointer-events-auto z-0 h-20"
+                class="absolute top-40 right-10 w-20 opacity-40 sticker pointer-events-auto z-0 h-20 hidden md:block"
                 style="animation-delay: -1s;"></div>
 
             <div
-                class="max-w-xl w-full connect-card glass-card rounded-[32px] p-8 md:p-10 relative z-10 reveal text-white shadow-2xl">
+                class="max-w-xl w-full connect-card glass-card rounded-[32px] p-5 sm:p-7 md:p-10 relative z-10 reveal text-white shadow-2xl">
                 <div class="flex flex-col items-center text-center mb-8 relative">
                     <div
                         class="inline-flex items-center gap-2 px-4 py-1.5 bg-[#ffffff]/10 text-[#ffffff] rounded-full text-[10px] font-black uppercase tracking-widest mb-4 backdrop-blur-md border border-white/20 shadow-sm">
                         <span class="w-2 h-2 rounded-full bg-[#0ea5e9] animate-pulse"></span>
                         Sync Progress
                     </div>
-                    <h1 class="text-4xl md:text-5xl font-black text-[#ffffff] mb-3 relative tracking-tight leading-tight"
+                    <h1 class="text-3xl sm:text-4xl md:text-5xl font-black text-[#ffffff] mb-3 relative tracking-tight leading-tight"
                         style="font-family: 'Plus Jakarta Sans', sans-serif;">
                         Connect Your<br>
                         <span
@@ -230,11 +329,11 @@
                     <button type="button"
                         class="w-full flex items-center justify-between p-4 rounded-3xl bg-[rgba(88,101,242,0.9)] backdrop-blur-md text-white shadow-xl shadow-[#5865F2]/30 opacity-95 cursor-default border border-white/20 transition-transform hover:scale-[1.02]"
                         data-platform="discord">
-                        <div class="flex items-center gap-5">
-                            <img class="w-12 h-12 sticker drop-shadow-lg" src="Icons/Discord.png" alt="Discord">
+                        <div class="flex items-center gap-3 sm:gap-5">
+                            <img class="w-10 h-10 sm:w-12 sm:h-12 sticker drop-shadow-lg" src="Icons/Discord®.png" alt="Discord®">
                             <div class="text-left flex flex-col justify-center">
                                 <span class="font-bold tracking-tight text-xl block text-white"
-                                    style="font-family: 'Plus Jakarta Sans', sans-serif;">Discord</span>
+                                    style="font-family: 'Plus Jakarta Sans', sans-serif;">Discord®</span>
                                 <span class="text-sm opacity-80 text-white leading-none"
                                     style="font-family: 'DM Sans', sans-serif;">Identity Provider</span>
                             </div>
@@ -249,11 +348,11 @@
                     <button type="button"
                         class="platform-btn w-full flex items-center justify-between p-4 rounded-3xl bg-[rgba(255,144,232,0.9)] backdrop-blur-md text-white shadow-xl shadow-[#ff90e8]/30 group border border-white/20"
                         data-platform="gumroad">
-                        <div class="flex items-center gap-5">
-                            <img class="w-12 h-12 sticker drop-shadow-lg" src="./Icons/Gumorad.png" alt="Gumroad">
+                        <div class="flex items-center gap-3 sm:gap-5">
+                            <img class="w-10 h-10 sm:w-12 sm:h-12 sticker drop-shadow-lg" src="./Icons/Gumorad.png" alt="Gumroad®">
                             <div class="text-left text-white flex flex-col justify-center">
                                 <span class="font-bold tracking-tight text-xl block text-white"
-                                    style="font-family: 'Plus Jakarta Sans', sans-serif;">Gumroad</span>
+                                    style="font-family: 'Plus Jakarta Sans', sans-serif;">Gumroad®</span>
                                 <span class="text-sm opacity-80 font-medium text-white leading-none"
                                     style="font-family: 'DM Sans', sans-serif;">Creator Store</span>
                             </div>
@@ -273,11 +372,11 @@
                     <button type="button"
                         class="platform-btn w-full flex items-center justify-between p-4 rounded-3xl bg-[rgba(145,70,255,0.9)] backdrop-blur-md text-white shadow-xl shadow-[#9146FF]/30 group border border-white/20"
                         data-platform="jinxxy">
-                        <div class="flex items-center gap-5">
-                            <img class="w-12 h-12 sticker drop-shadow-lg" src="./Icons/Jinxxy.png" alt="Jinxxy">
+                        <div class="flex items-center gap-3 sm:gap-5">
+                            <img class="w-10 h-10 sm:w-12 sm:h-12 sticker drop-shadow-lg" src="./Icons/Jinxxy™.png" alt="Jinxxy™">
                             <div class="text-left flex flex-col justify-center">
                                 <span class="font-bold tracking-tight text-xl block text-white"
-                                    style="font-family: 'Plus Jakarta Sans', sans-serif;">Jinxxy</span>
+                                    style="font-family: 'Plus Jakarta Sans', sans-serif;">Jinxxy™</span>
                                 <span class="text-sm opacity-80 font-medium text-white leading-none"
                                     style="font-family: 'DM Sans', sans-serif;">Marketplace</span>
                             </div>
@@ -319,7 +418,7 @@
                 <div id="done-section" class="mt-6 pt-5 border-t border-[rgba(255,255,255,0.1)]/60 flex flex-col gap-3 relative z-10">
                     <button id="done-btn"
                         class="w-full py-4 rounded-full bg-white/20 text-white font-black text-lg uppercase tracking-widest shadow-xl shadow-white/10 hover:bg-white/30 backdrop-blur-md transition-all platform-btn flex justify-center items-center gap-3 group border border-white/20">
-                        <span>Continue in Discord</span>
+                        <span>Continue in Discord®</span>
                         <svg class="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none"
                             stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
@@ -328,9 +427,9 @@
                     <p id="status" class="text-center text-sm text-[#7a7a9f] font-bold hidden"></p>
                     <div id="post-setup-buttons" class="flex flex-col gap-3 mt-2 hidden">
                         <p id="first-time-hint" class="text-center text-sm font-bold text-amber-400 hidden"></p>
-                        <div class="flex gap-3">
+                        <div class="flex flex-col sm:flex-row gap-3">
                             <a id="open-dashboard-btn" href="#" class="flex-1 py-3 rounded-full bg-white/20 text-white font-bold text-center uppercase tracking-widest hover:bg-white/30 transition-all border border-white/20">Open Dashboard</a>
-                            <button id="return-discord-btn" type="button" class="flex-1 py-3 rounded-full bg-white/20 text-white font-bold uppercase tracking-widest hover:bg-white/30 transition-all border border-white/20">Return to Discord</button>
+                            <button id="return-discord-btn" type="button" class="flex-1 py-3 rounded-full bg-white/20 text-white font-bold uppercase tracking-widest hover:bg-white/30 transition-all border border-white/20">Return to Discord®</button>
                         </div>
                     </div>
                 </div>
@@ -340,6 +439,52 @@
 
         <script>
             const guildId = '__GUILD_ID__';
+
+            function showAlert(message) {
+                return new Promise((resolve) => {
+                    const backdrop = document.getElementById('modal-backdrop');
+                    const messageEl = document.getElementById('modal-message');
+                    const actionsEl = document.getElementById('modal-actions');
+                    messageEl.textContent = message;
+                    actionsEl.innerHTML = '<button type="button" class="modal-btn modal-btn-primary" id="modal-ok">OK</button>';
+                    backdrop.setAttribute('aria-hidden', 'false');
+                    backdrop.classList.add('is-visible');
+                    document.getElementById('modal-ok').focus();
+                    const close = () => {
+                        backdrop.classList.remove('is-visible');
+                        backdrop.setAttribute('aria-hidden', 'true');
+                        document.removeEventListener('keydown', onKey);
+                        resolve();
+                    };
+                    const onKey = (e) => { if (e.key === 'Escape') close(); };
+                    document.getElementById('modal-ok').addEventListener('click', close, { once: true });
+                    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); }, { once: true });
+                    document.addEventListener('keydown', onKey);
+                });
+            }
+            function showConfirm(message) {
+                return new Promise((resolve) => {
+                    const backdrop = document.getElementById('modal-backdrop');
+                    const messageEl = document.getElementById('modal-message');
+                    const actionsEl = document.getElementById('modal-actions');
+                    messageEl.textContent = message;
+                    actionsEl.innerHTML = '<button type="button" class="modal-btn modal-btn-secondary" id="modal-cancel">Cancel</button><button type="button" class="modal-btn modal-btn-primary" id="modal-confirm">Confirm</button>';
+                    backdrop.setAttribute('aria-hidden', 'false');
+                    backdrop.classList.add('is-visible');
+                    document.getElementById('modal-cancel').focus();
+                    const close = (result) => {
+                        backdrop.classList.remove('is-visible');
+                        backdrop.setAttribute('aria-hidden', 'true');
+                        document.removeEventListener('keydown', onKey);
+                        resolve(result);
+                    };
+                    const onKey = (e) => { if (e.key === 'Escape') close(false); };
+                    document.getElementById('modal-cancel').addEventListener('click', () => close(false), { once: true });
+                    document.getElementById('modal-confirm').addEventListener('click', () => close(true), { once: true });
+                    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(false); }, { once: true });
+                    document.addEventListener('keydown', onKey);
+                });
+            }
             const apiBase = '__API_BASE__';
             const hasSetupSession = '__HAS_SETUP_SESSION__' === 'true';
             const tenantIdFromServer = '__TENANT_ID__';
@@ -457,7 +602,7 @@
                                 toggle.checked = !!statusData.allowMismatchedEmails;
                                 toggle.addEventListener('change', async function () {
                                     if (!hasSetupSession) {
-                                        alert('Settings can only be changed when using a secure setup link. Please restart the /creator setup command.');
+                                        await showAlert('Settings can only be changed when using a secure setup link. Please restart the /creator setup command.');
                                         this.checked = !this.checked; // Revert
                                         return;
                                     }
@@ -474,7 +619,7 @@
                                         });
                                         if (!res.ok) throw new Error('Failed to update setting');
                                     } catch (e) {
-                                        alert('Could not save that setting right now. Please try again.');
+                                        await showAlert('Could not save that setting right now. Please try again.');
                                         this.checked = !this.checked; // Revert
                                     }
                                 });
@@ -620,7 +765,7 @@
                     const data = await res.json();
 
                     if (res.ok && data.success) {
-                        status.textContent = 'Setup complete! You can close this window and continue in Discord.';
+                        status.textContent = 'Setup complete! You can close this window and continue in Discord®.';
                         status.className = 'text-center text-sm font-bold text-green-600';
 
                         const end = Date.now() + 1500;
@@ -647,10 +792,10 @@
                         const postSetup = document.getElementById('post-setup-buttons');
                         const firstTimeHint = document.getElementById('first-time-hint');
                         const openDashboardBtn = document.getElementById('open-dashboard-btn');
-                        const returnDiscordBtn = document.getElementById('return-discord-btn');
+                        const returnDiscord®Btn = document.getElementById('return-discord-btn');
 
                         if (data.isFirstTime) {
-                            firstTimeHint.textContent = 'Next step: Run /creator-admin autosetup in Discord to create roles and the verify button.';
+                            firstTimeHint.textContent = 'Next step: Run /creator-admin autosetup in Discord® to create roles and the verify button.';
                             firstTimeHint.classList.remove('hidden');
                         }
 
@@ -659,20 +804,20 @@
                         if (guildId) dashboardUrl.searchParams.set('guild_id', guildId);
                         openDashboardBtn.href = dashboardUrl.toString();
 
-                        returnDiscordBtn.addEventListener('click', () => window.close(), { once: true });
+                        returnDiscord®Btn.addEventListener('click', () => window.close(), { once: true });
                         postSetup.classList.remove('hidden');
 
                     } else {
                         status.textContent = data.error || 'Something went wrong.';
                         status.className = 'text-center text-sm font-bold text-red-600';
                         btn.disabled = false;
-                        btn.innerHTML = 'Done - Continue Setup in Discord';
+                        btn.innerHTML = 'Done - Continue Setup in Discord®';
                     }
                 } catch (err) {
                     status.textContent = 'Network error. Please try again.';
                     status.className = 'text-center text-sm font-bold text-red-600';
                     btn.disabled = false;
-                    btn.innerHTML = 'Done - Continue Setup in Discord';
+                    btn.innerHTML = 'Done - Continue Setup in Discord®';
                 }
             });
 
@@ -680,24 +825,23 @@
                 btn.addEventListener('click', async function (e) {
                     const platform = this.dataset.platform;
 
-                    // Discord is display-only
+                    // Discord® is display-only
                     if (platform === 'discord') return;
 
                     if (!tenantId && !hasSetupSession) {
-                        alert('Please wait for the page to load.');
+                        await showAlert('Please wait for the page to load.');
                         return;
                     }
 
                     // Disconnect flow
                     if (this.dataset.connected === "true") {
                         if (!hasSetupSession) {
-                            alert('Connections can only be removed when using a secure setup link. Please restart the /creator setup command in Discord.');
+                            await showAlert('Connections can only be removed when using a secure setup link. Please restart the /creator setup command in Discord®.');
                             return;
                         }
 
-                        if (!confirm(`Are you sure you want to disconnect ${platform === 'gumroad' ? 'Gumroad' : 'Jinxxy'}?`)) {
-                            return;
-                        }
+                        const confirmed = await showConfirm(`Are you sure you want to disconnect ${platform === 'gumroad' ? 'Gumroad®' : 'Jinxxy™'}?`);
+                        if (!confirmed) return;
 
                         const conn = connectionsMap.get(platform);
                         if (!conn) return;
@@ -713,10 +857,10 @@
                                 updateConnectButton(platform, false);
                             } else {
                                 const data = await res.json();
-                                alert(data.error || 'Failed to disconnect');
+                                await showAlert(data.error || 'Failed to disconnect');
                             }
                         } catch (err) {
-                            alert('Could not disconnect that account right now. Please try again.');
+                            await showAlert('Could not disconnect that account right now. Please try again.');
                         }
                         return;
                     }

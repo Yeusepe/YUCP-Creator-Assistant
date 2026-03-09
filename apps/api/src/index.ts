@@ -549,7 +549,7 @@ const COLLAB_HTML_SECURITY_HEADERS: Record<string, string> = {
       "script-src 'self' 'unsafe-inline'; " +
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
       "img-src 'self' data:; " +
-      "font-src 'self' data: https://fonts.gstatic.com; " +
+      "font-src 'self' data: https://fonts.gstatic.com https://r2cdn.perplexity.ai; " +
       "connect-src 'self' https:; " +
       "worker-src 'self'; " +
       "child-src 'self'; " +

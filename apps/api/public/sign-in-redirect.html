@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
-    <title>Signing in with Discord | Creator Assistant</title>
+    <title>Signing in with Discord® | Creator Assistant</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -23,7 +23,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
+            min-height: 100dvh;
+            padding: 1rem;
+            box-sizing: border-box;
         }
 
         h1 {
@@ -129,21 +131,21 @@
             style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
         </div>
         <!-- Playful Background Stickers -->
-        <div id="holo-world-0" class="absolute top-32 right-1/4 w-32 opacity-80 sticker pointer-events-auto z-0 h-32"
+        <div id="holo-world-0" class="absolute top-32 right-1/4 w-32 opacity-80 sticker pointer-events-auto z-0 h-32 hidden sm:block"
             style="animation-delay: -1s;"></div>
         <div id="holo-assistant-1"
-            class="absolute bottom-32 left-1/4 w-24 opacity-60 sticker pointer-events-auto z-0 h-24"
+            class="absolute bottom-32 left-1/4 w-24 opacity-60 sticker pointer-events-auto z-0 h-24 hidden sm:block"
             style="animation-delay: -4s;"></div>
 
-        <main class="text-center max-w-md px-6">
-            <div class="connect-card rounded-[32px] p-12">
+        <main class="text-center max-w-md w-full px-4 sm:px-6">
+            <div class="connect-card rounded-[32px] p-8 sm:p-12">
                 <div id="loading-state">
                     <div class="spinner mx-auto mb-6"></div>
                     <h1 class="text-2xl md:text-3xl text-[#ffffff] mb-3 fade-up">
-                        Signing in with Discord
+                        Signing in with Discord®
                     </h1>
                     <p class="text-[rgba(255,255,255,0.8)] fade-up">
-                        Redirecting you to Discord to authorize...
+                        Redirecting you to Discord® to authorize...
                     </p>
                 </div>
                 <div id="error-state" class="hidden">
@@ -156,7 +158,7 @@
                     <h1 class="text-xl text-[#ffffff] mb-3">Sign-in failed</h1>
                     <p class="text-[rgba(255,255,255,0.8)] mb-6">Something went wrong. Please try again.</p>
                     <a id="retry-btn" href="#"
-                        class="brand-gradient-btn inline-block px-8 py-4 rounded-full text-[#1a6bff] font-bold uppercase tracking-wider no-underline">
+                        class="brand-gradient-btn inline-block w-full sm:w-auto px-8 py-4 rounded-full text-[#1a6bff] font-bold uppercase tracking-wider no-underline text-center">
                         Try again
                     </a>
                 </div>

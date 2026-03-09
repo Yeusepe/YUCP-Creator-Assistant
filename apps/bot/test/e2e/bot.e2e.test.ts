@@ -329,7 +329,7 @@ describe('discord bot real-infrastructure e2e', () => {
       requiredRoleIds: [accessRoleId],
       roleLogic: 'any',
       allowedExtensions: ['txt'],
-      messageTitle: 'Protected Download',
+      messageTitle: 'Liened Download',
       messageBody: 'Only entitled members can download this file.',
     });
     await harness.recordResource({
