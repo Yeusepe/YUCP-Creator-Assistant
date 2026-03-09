@@ -1,0 +1,111 @@
+name: Bot E2E
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bot-e2e:
+    name: Discord Bot E2E
+    runs-on: ubuntu-latest
+    environment: discord-bot-e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Validate required bot E2E secrets
+        shell: bash
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
+          CONVEX_URL: ${{ secrets.CONVEX_URL }}
+          CONVEX_API_SECRET: ${{ secrets.CONVEX_API_SECRET }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          API_INTERNAL_URL: ${{ secrets.API_INTERNAL_URL }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BOT_E2E_TARGET_GUILD_ID: ${{ secrets.BOT_E2E_TARGET_GUILD_ID }}
+          BOT_E2E_SOURCE_GUILD_ID: ${{ secrets.BOT_E2E_SOURCE_GUILD_ID }}
+          BOT_E2E_TENANT_ID: ${{ secrets.BOT_E2E_TENANT_ID }}
+          BOT_E2E_GUILD_LINK_ID: ${{ secrets.BOT_E2E_GUILD_LINK_ID }}
+          BOT_E2E_ADMIN_USER_ID: ${{ secrets.BOT_E2E_ADMIN_USER_ID }}
+          BOT_E2E_MEMBER_USER_ID: ${{ secrets.BOT_E2E_MEMBER_USER_ID }}
+          BOT_E2E_ADMIN_STORAGE_STATE_B64: ${{ secrets.BOT_E2E_ADMIN_STORAGE_STATE_B64 }}
+          BOT_E2E_MEMBER_STORAGE_STATE_B64: ${{ secrets.BOT_E2E_MEMBER_STORAGE_STATE_B64 }}
+          BOT_E2E_GUMROAD_PRODUCT_URL: ${{ secrets.BOT_E2E_GUMROAD_PRODUCT_URL }}
+          BOT_E2E_GUMROAD_TEST_PURCHASER: ${{ secrets.BOT_E2E_GUMROAD_TEST_PURCHASER }}
+          BOT_E2E_JINXXY_PRODUCT_ID: ${{ secrets.BOT_E2E_JINXXY_PRODUCT_ID }}
+          BOT_E2E_JINXXY_LICENSE_KEY: ${{ secrets.BOT_E2E_JINXXY_LICENSE_KEY }}
+          BOT_E2E_COLLAB_JINXXY_API_KEY: ${{ secrets.BOT_E2E_COLLAB_JINXXY_API_KEY }}
+        run: |
+          required=(
+            DISCORD_BOT_TOKEN
+            DISCORD_CLIENT_ID
+            DISCORD_CLIENT_SECRET
+            CONVEX_URL
+            CONVEX_API_SECRET
+            API_BASE_URL
+            API_INTERNAL_URL
+            FRONTEND_URL
+            BETTER_AUTH_SECRET
+            BOT_E2E_TARGET_GUILD_ID
+            BOT_E2E_SOURCE_GUILD_ID
+            BOT_E2E_TENANT_ID
+            BOT_E2E_GUILD_LINK_ID
+            BOT_E2E_ADMIN_USER_ID
+            BOT_E2E_MEMBER_USER_ID
+            BOT_E2E_ADMIN_STORAGE_STATE_B64
+            BOT_E2E_MEMBER_STORAGE_STATE_B64
+            BOT_E2E_GUMROAD_PRODUCT_URL
+            BOT_E2E_GUMROAD_TEST_PURCHASER
+            BOT_E2E_JINXXY_PRODUCT_ID
+            BOT_E2E_JINXXY_LICENSE_KEY
+            BOT_E2E_COLLAB_JINXXY_API_KEY
+          )
+
+          missing=()
+          for key in "${required[@]}"; do
+            if [ -z "${!key}" ]; then
+              missing+=("$key")
+            fi
+          done
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "Missing required bot E2E secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Run Discord bot E2E suite
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
+          CONVEX_URL: ${{ secrets.CONVEX_URL }}
+          CONVEX_API_SECRET: ${{ secrets.CONVEX_API_SECRET }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          API_INTERNAL_URL: ${{ secrets.API_INTERNAL_URL }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BOT_E2E_TARGET_GUILD_ID: ${{ secrets.BOT_E2E_TARGET_GUILD_ID }}
+          BOT_E2E_SOURCE_GUILD_ID: ${{ secrets.BOT_E2E_SOURCE_GUILD_ID }}
+          BOT_E2E_TENANT_ID: ${{ secrets.BOT_E2E_TENANT_ID }}
+          BOT_E2E_GUILD_LINK_ID: ${{ secrets.BOT_E2E_GUILD_LINK_ID }}
+          BOT_E2E_ADMIN_USER_ID: ${{ secrets.BOT_E2E_ADMIN_USER_ID }}
+          BOT_E2E_MEMBER_USER_ID: ${{ secrets.BOT_E2E_MEMBER_USER_ID }}
+          BOT_E2E_ADMIN_STORAGE_STATE_B64: ${{ secrets.BOT_E2E_ADMIN_STORAGE_STATE_B64 }}
+          BOT_E2E_MEMBER_STORAGE_STATE_B64: ${{ secrets.BOT_E2E_MEMBER_STORAGE_STATE_B64 }}
+          BOT_E2E_GUMROAD_PRODUCT_URL: ${{ secrets.BOT_E2E_GUMROAD_PRODUCT_URL }}
+          BOT_E2E_GUMROAD_TEST_PURCHASER: ${{ secrets.BOT_E2E_GUMROAD_TEST_PURCHASER }}
+          BOT_E2E_JINXXY_PRODUCT_ID: ${{ secrets.BOT_E2E_JINXXY_PRODUCT_ID }}
+          BOT_E2E_JINXXY_LICENSE_KEY: ${{ secrets.BOT_E2E_JINXXY_LICENSE_KEY }}
+          BOT_E2E_COLLAB_JINXXY_API_KEY: ${{ secrets.BOT_E2E_COLLAB_JINXXY_API_KEY }}
+        run: bun run test:bot:e2e:ci

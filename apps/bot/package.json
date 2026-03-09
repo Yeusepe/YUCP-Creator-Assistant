@@ -10,8 +10,9 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "test:ci": "bun test --coverage"
+    "test": "bun run test:e2e",
+    "test:e2e": "bun test ./test/e2e --timeout 300000",
+    "test:e2e:ci": "bun test ./test/e2e --timeout 300000"
   },
   "dependencies": {
     "@yucp/providers": "workspace:*",
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@infisical/sdk": "^4.0.6",
     "@types/bun": "^1.1.0",
-    "bun-types": "^1.1.0"
+    "bun-types": "^1.1.0",
+    "playwright": "^1.53.0"
   }
 }

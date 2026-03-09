@@ -9,9 +9,14 @@
   "scripts": {
     "lint": "bun run --filter '*' lint",
     "typecheck": "bun run --filter '*' typecheck",
-    "test": "bun run --filter '*' test",
+    "test": "bun run test:fast",
+    "test:fast": "bun run --filter '@yucp/api' test && bun run --filter '@yucp/policy' test && bun run --filter '@yucp/providers' test && bun run --filter '@yucp/shared' test",
     "test:infisical": "bun run --env-file=.env.infisical test",
-    "test:ci": "bun run --filter '*' test:ci",
+    "test:ci": "bun run test:fast:ci",
+    "test:fast:ci": "bun run --filter '@yucp/api' test:ci && bun run --filter '@yucp/policy' test:ci && bun run --filter '@yucp/providers' test:ci && bun run --filter '@yucp/shared' test:ci",
+    "test:bot:e2e": "bun run --filter '@yucp/bot' test:e2e",
+    "test:bot:e2e:ci": "bun run --filter '@yucp/bot' test:e2e:ci",
+    "capture:discord-storage": "tsx ops/capture-discord-storage-state.ts",
     "build": "bun run --filter '*' build",
     "dev": "concurrently -n convex,api,bot,tunnel -c blue,magenta,green,cyan \"npx convex dev\" \"bun run dev:api\" \"bun run dev:bot\" \"tailscale funnel 3001\"",
     "dev:infisical": "bun run sync:convex:env && concurrently -n convex,api,bot,tunnel -c blue,magenta,green,cyan \"npx convex dev\" \"bun run dev:api:infisical\" \"bun run dev:bot:infisical\" \"tailscale funnel 3001\"",
@@ -34,6 +39,8 @@
     "cross-env": "^7.0.3",
     "@infisical/sdk": "^4.0.6",
     "bun-types": "^1.1.0",
+    "playwright": "^1.53.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.3.0"
   },
   "engines": {

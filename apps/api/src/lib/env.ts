@@ -16,6 +16,7 @@ export interface LocalEnv {
   CONVEX_API_SECRET?: string;
   // Auth
   BETTER_AUTH_SECRET?: string;
+  ERROR_REFERENCE_SECRET?: string;
   BETTER_AUTH_URL?: string;
   FRONTEND_URL?: string;
   INTERNAL_SERVICE_AUTH_SECRET?: string;
@@ -72,6 +73,7 @@ function loadFromEnv(): LocalEnv {
     CONVEX_URL: process.env.CONVEX_URL,
     CONVEX_API_SECRET: process.env.CONVEX_API_SECRET,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+    ERROR_REFERENCE_SECRET: process.env.ERROR_REFERENCE_SECRET,
     BETTER_AUTH_URL:
       process.env.BETTER_AUTH_URL ??
       process.env.RENDER_EXTERNAL_URL,

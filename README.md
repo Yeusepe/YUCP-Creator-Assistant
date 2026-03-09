@@ -1,6 +1,7 @@
-![YUCP Creator Assistant](https://github.com/user-attachments/assets/ae39c943-3fa2-40ec-b91c-88fea1daf69a)
+YUCP Creator Assistant
 
 ---
+
 **YUCP Creator Assistant** gives creators who sell on Gumroad, Jinxxy, VRChat, or other storefronts a simple way to gate Discord access (or other benefits) for paying customers. Customers sign in once with Gumroad, Discord, or a single license verification for Gumroad or Jinxxy; the system then verifies all past and future purchases automatically. No repeated license entry. Discord-based verification can also confirm that a user is already verified in another server, so you can reuse that trust for avatar edits, distribution, or cross-server perks.
 
 **What problem it solves**
@@ -38,14 +39,16 @@ Use this repo as a reference for architecture, integration patterns, and impleme
 
 ## Architecture overview
 
-| Component | Location | Notes |
-|-----------|----------|--------|
-| **Bot** | `apps/bot` | Entry: `apps/bot/src/index.ts`. Slash commands: `apps/bot/src/commands/index.ts`. RoleSyncService, LienedDownloadsService. |
-| **API** | `apps/api` | Entry: `apps/api/src/index.ts`. Install, webhooks, connect, Better Auth, collaborator invite flow (`/api/collab/*`). |
-| **Providers** | `packages/providers` | Adapters: Gumroad, Jinxxy, VRChat, Discord (placeholder), manual. |
-| **Policy** | `packages/policy` | Engine: `packages/policy/src/engine.ts`. Allow/deny, remediation, auto-verification and revocation timing. |
-| **Convex** | `convex/` | Schema, entitlements, downloads, collaboratorInvites, webhooks. |
-| **Secrets** | `ops/infisical` | Secret layout and rotation; see `ops/infisical/README.md`. |
+
+| Component     | Location             | Notes                                                                                                                      |
+| ------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Bot**       | `apps/bot`           | Entry: `apps/bot/src/index.ts`. Slash commands: `apps/bot/src/commands/index.ts`. RoleSyncService, LienedDownloadsService. |
+| **API**       | `apps/api`           | Entry: `apps/api/src/index.ts`. Install, webhooks, connect, Better Auth, collaborator invite flow (`/api/collab/`*).       |
+| **Providers** | `packages/providers` | Adapters: Gumroad, Jinxxy, VRChat, Discord (placeholder), manual.                                                          |
+| **Policy**    | `packages/policy`    | Engine: `packages/policy/src/engine.ts`. Allow/deny, remediation, auto-verification and revocation timing.                 |
+| **Convex**    | `convex/`            | Schema, entitlements, downloads, collaboratorInvites, webhooks.                                                            |
+| **Secrets**   | `ops/infisical`      | Secret layout and rotation; see `ops/infisical/README.md`.                                                                 |
+
 
 **Tech stack:** Node / discord.js (bot), Bun HTTP server (API), Convex (data and server-side functions), Better Auth, TypeScript.
 
@@ -96,32 +99,36 @@ ops/           infisical (secret docs and templates)
 
 ## Environment variables (reference)
 
-| Variable | Used by | Purpose |
-|----------|---------|---------|
-| `DISCORD_BOT_TOKEN` | bot | Bot connection |
-| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | api, bot | OAuth and installation |
-| `CONVEX_URL`, `CONVEX_API_SECRET` | bot, api | Convex deployment and server API |
-| `BETTER_AUTH_SECRET` | api | Better Auth session encryption |
-| `GUMROAD_CLIENT_ID`, `GUMROAD_CLIENT_SECRET` | api | Gumroad OAuth and connect |
-| `JINXXY_API_KEY` | api | Jinxxy integration |
-| `INFISICAL_URL` | all | Infisical endpoint (optional) |
+
+| Variable                                     | Used by  | Purpose                          |
+| -------------------------------------------- | -------- | -------------------------------- |
+| `DISCORD_BOT_TOKEN`                          | bot      | Bot connection                   |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | api, bot | OAuth and installation           |
+| `CONVEX_URL`, `CONVEX_API_SECRET`            | bot, api | Convex deployment and server API |
+| `BETTER_AUTH_SECRET`                         | api      | Better Auth session encryption   |
+| `GUMROAD_CLIENT_ID`, `GUMROAD_CLIENT_SECRET` | api      | Gumroad OAuth and connect        |
+| `JINXXY_API_KEY`                             | api      | Jinxxy integration               |
+| `INFISICAL_URL`                              | all      | Infisical endpoint (optional)    |
+
 
 Do not commit real values; use env files or a secret store (all env files are gitignored).
 
 ## Discord `/creator` commands (reference)
 
-| Group | Subcommand | Notes |
-|-------|------------|--------|
-| setup | start, restart | Onboarding wizard |
-| product | add, list, remove | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy, vrchat |
-| downloads | setup, manage | **Liened Downloads**: protected file routes; setup creates routes, manage toggles/edits/removes |
-| collab | invite, list | **Collaborators**: invite creators to share Jinxxy store; list active connections |
-| stats | - | Verification statistics |
-| (root) | spawn-verify | Spawn verify button (admin) |
-| settings | cross-server | Cross-server role verification |
-| analytics | - | Dashboard and metrics |
-| moderation | mark, list, clear, unverify | Suspicious account handling; unverify removes product from user |
-| (root) | link, status, verify, refresh | User linking, status panel, license verification, role refresh |
+
+| Group      | Subcommand                    | Notes                                                                                           |
+| ---------- | ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| setup      | start, restart                | Onboarding wizard                                                                               |
+| product    | add, list, remove             | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy, vrchat              |
+| downloads  | setup, manage                 | **Liened Downloads**: protected file routes; setup creates routes, manage toggles/edits/removes |
+| collab     | invite, list                  | **Collaborators**: invite creators to share Jinxxy store; list active connections               |
+| stats      | -                             | Verification statistics                                                                         |
+| (root)     | spawn-verify                  | Spawn verify button (admin)                                                                     |
+| settings   | cross-server                  | Cross-server role verification                                                                  |
+| analytics  | -                             | Dashboard and metrics                                                                           |
+| moderation | mark, list, clear, unverify   | Suspicious account handling; unverify removes product from user                                 |
+| (root)     | link, status, verify, refresh | User linking, status panel, license verification, role refresh                                  |
+
 
 Full options and catalog: `apps/bot/src/commands/index.ts`.
 
@@ -145,7 +152,7 @@ This repository is provided **for reference and educational use only**. The auth
 
 - Commercial purposes  
 - Monetization or resale  
-- Offering a competing product or service based on this code  
+- Offering a competing product or service based on this code
 
 Permitted use is limited to reading, learning, and reference. Any other use requires explicit permission from the author.
 

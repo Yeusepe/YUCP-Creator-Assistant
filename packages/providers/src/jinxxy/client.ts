@@ -22,6 +22,7 @@ import type {
   JinxxyCustomersResponse,
   JinxxyCustomerResponse,
   JinxxyLicense,
+  JinxxyLicenseListResult,
   JinxxyLicensesResponse,
   JinxxyLicenseListResponse,
   JinxxyLicenseRaw,
@@ -350,7 +351,22 @@ export class JinxxyApiClient {
       short_key: params?.short_key,
     });
 
-    const licenses = response.results ?? response.licenses ?? [];
+    const rawLicenses = response.results ?? response.licenses ?? [];
+    const licenses =
+      rawLicenses.length === 0
+        ? []
+        : (
+            await Promise.all(
+              rawLicenses.map(async (license) => {
+                if (this.isFullLicense(license)) {
+                  return license;
+                }
+
+                return this.getLicense(license.id);
+              })
+            )
+          ).filter((license): license is JinxxyLicense => license !== null);
+
     return {
       licenses,
       pagination: response.pagination ?? this.getDefaultPagination(),
@@ -374,6 +390,12 @@ export class JinxxyApiClient {
       max_activations: 0,
       order_id: inv?.order?.id,
     };
+  }
+
+  private isFullLicense(
+    license: JinxxyLicense | JinxxyLicenseListResult
+  ): license is JinxxyLicense {
+    return 'key' in license && 'product_id' in license && 'status' in license;
   }
 
   /**
