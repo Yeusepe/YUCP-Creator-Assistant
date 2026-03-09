@@ -80,6 +80,7 @@ Each service has its own machine identity with least-privilege access:
 | Secret Key | Description | Rotation |
 |------------|-------------|----------|
 | `BETTER_AUTH_SECRET` | Session encryption key | On compromise / 180 days |
+| `ERROR_REFERENCE_SECRET` | Optional dedicated key for verification support-code encryption | On compromise / 180 days |
 | `DATABASE_URL` | PostgreSQL connection string | On credential change |
 
 ### Infrastructure (`/infra/`)
@@ -97,6 +98,7 @@ Each service has its own machine identity with least-privilege access:
 ```bash
 # Auth
 BETTER_AUTH_SECRET=/api/auth/BETTER_AUTH_SECRET
+ERROR_REFERENCE_SECRET=/api/auth/ERROR_REFERENCE_SECRET
 DATABASE_URL=/api/database/DATABASE_URL
 
 # Discord OAuth
@@ -243,3 +245,13 @@ infisical run --env=$ENVIRONMENT --path=/api -- ./deploy.sh
 
 - `secrets.template.yaml` - Template showing all required secrets with placeholder values
 - `access-policy.yaml` - Access control policy definitions for service identities
+
+## Decoding Verification Support Codes
+
+When a user reports a verification support code, decode it locally with:
+
+```bash
+bun ops/decode-support-token.ts <support-code>
+```
+
+The script uses `ERROR_REFERENCE_SECRET` when present and falls back to `BETTER_AUTH_SECRET`. If those env vars are not already loaded, it will make a best-effort Infisical fetch first.
