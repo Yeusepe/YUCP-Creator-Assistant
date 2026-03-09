@@ -1,0 +1,1 @@
+This is a real file used by the Discord bot E2E suite.

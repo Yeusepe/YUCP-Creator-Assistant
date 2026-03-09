@@ -16,16 +16,10 @@
     <link rel="stylesheet" href="tokens.css">
 
     <style>
-        :root {
-            --bg-color-solid: transparent;
-            --bg-color: transparent;
-            /* override blue from tokens.css */
-        }
-
+        /* Use tokens.css --bg-color (#0a3d9e) for initial paint to avoid white flash */
         html,
         body {
-            background-color: transparent !important;
-            background: transparent !important;
+            background-color: var(--bg-color);
         }
 
         body {
@@ -41,7 +35,7 @@
             left: 0;
             width: 100%;
             height: 100vh;
-            z-index: -20;
+            z-index: 0;
             pointer-events: none;
         }
 
@@ -440,44 +434,62 @@
             background: rgba(0,0,0,0.38);
             backdrop-filter: blur(24px);
             border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 24px;
-            padding: 22px;
+            border-radius: 20px;
+            padding: 18px;
             box-shadow: 0 40px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.07);
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 12px;
         }
         .int-diagram-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding-bottom: 14px;
+            padding-bottom: 12px;
             border-bottom: 1px solid rgba(255,255,255,0.06);
         }
         .int-stores-row {
-            display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            align-items: center;
-            gap: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
             background: rgba(255,255,255,0.03);
             border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 16px;
-            padding: 16px;
+            border-radius: 14px;
+            overflow: hidden;
         }
-        .int-stores-divider { width: 1px; height: 52px; background: rgba(255,255,255,0.08); }
-        .int-store-node { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .int-stores-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+            flex-shrink: 0;
+        }
+        .int-store-node {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            transition: background 0.2s ease;
+        }
+        .int-store-node:hover { background: rgba(255,255,255,0.04); }
+        .int-store-node:first-child { padding-top: 12px; }
+        .int-store-node:last-child { padding-bottom: 12px; }
         .int-store-icon {
-            width: 44px; height: 44px; border-radius: 12px; border: 1px solid;
+            width: 36px; height: 36px; border-radius: 10px; border: 1px solid;
             display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
         }
-        .int-store-icon img { width: 24px; height: 24px; object-fit: contain; }
-        .int-store-label { font-size: 12px; font-weight: 800; color: rgba(255,255,255,0.85); }
+        .int-store-icon img { width: 20px; height: 20px; object-fit: contain; }
+        .int-store-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .int-store-label { font-size: 13px; font-weight: 800; color: rgba(255,255,255,0.9); letter-spacing: -0.02em; }
         .int-store-method {
-            font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
-            color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.05);
-            padding: 2px 8px; border-radius: 999px;
+            font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+            color: rgba(255,255,255,0.45); background: rgba(255,255,255,0.06);
+            padding: 2px 6px; border-radius: 6px; align-self: flex-start;
         }
-        .int-store-status { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #34d399; font-weight: 700; }
+        .int-store-status {
+            display: flex; align-items: center; gap: 5px; font-size: 10px; color: #34d399;
+            font-weight: 700; flex-shrink: 0;
+        }
         .int-arrow-down { display: flex; flex-direction: column; align-items: center; gap: 4px; }
         .int-arrow-line {
             width: 1px; height: 28px;
@@ -598,6 +610,35 @@
             }
         }
 
+        /* ── Loading overlay fade ──────────────────────────────────────────── */
+        #page-loading-overlay {
+            transition: opacity 0.35s ease;
+        }
+
+        #page-loading-overlay.is-hiding {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #page-content {
+            opacity: 0;
+            transition: opacity 0.3s ease 0.05s;
+        }
+
+        #page-content.is-visible {
+            opacity: 1;
+        }
+
+        .page-loading-logo {
+            width: auto;
+            height: auto;
+            max-width: min(180px, 85vw);
+            max-height: 2.5rem;
+            object-fit: contain;
+            object-position: center;
+            flex-shrink: 0;
+        }
+
         /* ── Section BG ─────────────────────────────────────────────────────── */
         .section-bg,
         .section-bg-alt {
@@ -709,7 +750,7 @@
     <!-- Loading overlay -->
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
         style="background-color: var(--bg-color);">
-        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8">
+        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="page-loading-logo mb-8">
         <div class="page-loading-spinner"></div>
         <p class="mt-4 text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Loading...</p>
     </div>
@@ -821,16 +862,16 @@
                     <!-- Headline -->
                     <h1 class="text-white mb-5 reveal reveal-delay-1"
                         style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2.4rem,5.5vw,4.25rem);line-height:1.04;letter-spacing:-0.04em;">
-                        Sell once.<br>
-                        Gate forever.<br>
+                        License verified.<br>
+                        Role granted.<br>
                         <span
-                            style="background:linear-gradient(100deg,#38bdf8 0%,#818cf8 45%,#FF90E8 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">Effortlessly.</span>
+                            style="background:linear-gradient(100deg,#38bdf8 0%,#818cf8 45%,#FF90E8 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">Done.</span>
                     </h1>
 
                     <!-- Sub -->
                     <p class="text-white/50 mb-8 reveal reveal-delay-2"
                         style="font-size:clamp(0.95rem,2vw,1.1rem);line-height:1.65;max-width:420px;">
-                        Connect your Gumroad, Jinxxy, or VRChat store to Discord. Buyers verify their purchase and get exclusive roles — automatically, in seconds.
+                        Connect your Gumroad, Jinxxy, or VRChat store to Discord. Buyers verify their purchase and get exclusive roles, automatically, in seconds.
                     </p>
 
                     <!-- CTAs -->
@@ -1124,7 +1165,7 @@
                         <span class="grad-text" style="background-image:linear-gradient(90deg,#38bdf8,#2dd4bf);">united.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-10">
-                        Connect <span class="font-bold text-[#FF90E8]">Gumroad</span>, <span class="font-bold text-[#9146FF]">Jinxxy</span>, <span class="font-bold text-[#00e676]">VRChat</span>, and <span class="font-bold text-[#5865F2]">Discord</span> in minutes. Customers verify once — the Assistant handles every purchase, past and future, automatically.
+                        Connect <span class="font-bold text-[#FF90E8]">Gumroad</span>, <span class="font-bold text-[#9146FF]">Jinxxy</span>, <span class="font-bold text-[#00e676]">VRChat</span>, and <span class="font-bold text-[#5865F2]">Discord</span> in minutes. Customers verify once, the Assistant handles every purchase, past and future, automatically.
                     </p>
 
                     <!-- Feature checklist -->
@@ -1192,16 +1233,18 @@
                             </div>
                         </div>
 
-                        <!-- Stores row -->
+                        <!-- Stores stack -->
                         <div class="int-stores-row">
                             <div class="int-store-node">
                                 <div class="int-store-icon" style="background:rgba(255,144,232,0.12);border-color:rgba(255,144,232,0.22);">
                                     <img src="Icons/Gumorad.png" alt="Gumroad">
                                 </div>
-                                <div class="int-store-label">Gumroad</div>
-                                <div class="int-store-method">OAuth2</div>
+                                <div class="int-store-meta">
+                                    <span class="int-store-label">Gumroad</span>
+                                    <span class="int-store-method">OAuth2</span>
+                                </div>
                                 <div class="int-store-status">
-                                    <div class="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                                    <span style="width:6px;height:6px;border-radius:50%;background:#34d399;flex-shrink:0;"></span>
                                     Connected
                                 </div>
                             </div>
@@ -1210,10 +1253,12 @@
                                 <div class="int-store-icon" style="background:rgba(145,70,255,0.12);border-color:rgba(145,70,255,0.22);">
                                     <img src="Icons/Jinxxy.png" alt="Jinxxy">
                                 </div>
-                                <div class="int-store-label">Jinxxy</div>
-                                <div class="int-store-method">Webhook</div>
+                                <div class="int-store-meta">
+                                    <span class="int-store-label">Jinxxy</span>
+                                    <span class="int-store-method">Webhook</span>
+                                </div>
                                 <div class="int-store-status">
-                                    <div class="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                                    <span style="width:6px;height:6px;border-radius:50%;background:#34d399;flex-shrink:0;"></span>
                                     Connected
                                 </div>
                             </div>
@@ -1222,10 +1267,12 @@
                                 <div class="int-store-icon" style="background:rgba(0,230,118,0.12);border-color:rgba(0,230,118,0.22);">
                                     <img src="Icons/VRC.png" alt="VRChat">
                                 </div>
-                                <div class="int-store-label">VRChat</div>
-                                <div class="int-store-method">Credential</div>
+                                <div class="int-store-meta">
+                                    <span class="int-store-label">VRChat</span>
+                                    <span class="int-store-method">Credential</span>
+                                </div>
                                 <div class="int-store-status">
-                                    <div class="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                                    <span style="width:6px;height:6px;border-radius:50%;background:#34d399;flex-shrink:0;"></span>
                                     Connected
                                 </div>
                             </div>
@@ -1539,7 +1586,7 @@
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
                         Expand your community's reach. Invite other Jinxxy creators to share their store and buyers from
                         <span class="text-white font-bold">both stores</span> verify in your Discord automatically. No
-                        manual role granting, no spreadsheets-and no one has to share secrets, API keys, or other
+                        manual role granting, no spreadsheets, and no one has to share secrets, API keys, or other
                         credentials.
                     </p>
                     <div class="flex flex-wrap gap-3 mb-8">
@@ -1923,8 +1970,13 @@
         createRoot(document.getElementById('fg-canvas-root')).render(<ForegroundApp />);
 
         (function hideLoading() {
-            document.getElementById('page-loading-overlay').style.display = 'none';
-            document.getElementById('page-content').style.display = '';
+            const overlay = document.getElementById('page-loading-overlay');
+            const content = document.getElementById('page-content');
+            content.style.display = '';
+            requestAnimationFrame(function () {
+                overlay.classList.add('is-hiding');
+                content.classList.add('is-visible');
+            });
         })();
     </script>
 </body>

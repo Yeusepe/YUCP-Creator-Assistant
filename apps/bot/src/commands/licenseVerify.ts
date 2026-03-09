@@ -21,7 +21,7 @@
  *   Modal:                  creator_verify:lp_modal:{tenantId}:{productRef}:{provider}
  */
 
-import { createLogger } from '@yucp/shared';
+import { createLogger, formatVerificationSupportMessage } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
@@ -46,6 +46,7 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 import { PROVIDER_META, providerLabel } from '@yucp/providers';
 import { E, Emoji } from '../lib/emojis';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
+import { buildBotVerificationErrorMessage } from '../lib/verificationSupport';
 import { buildVerifyStatusReply, rememberActiveVerifyPanel } from './verify';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -474,11 +475,16 @@ export async function handleVrchatCredentialsModal(
       success: boolean;
       error?: string;
       entitlementIds?: string[];
+      supportCode?: string;
     };
 
     if (!data.success) {
       const msg = sanitizeUserFacingErrorMessage(data.error, 'Verification failed.');
-      await interaction.editReply({ content: `${E.X_} ${msg}` });
+      await interaction.editReply({
+        content: data.supportCode
+          ? formatVerificationSupportMessage(`${E.X_} ${msg}`, data.supportCode)
+          : `${E.X_} ${msg}`,
+      });
       return;
     }
 
@@ -489,8 +495,17 @@ export async function handleVrchatCredentialsModal(
         `Your account has been linked. ${count > 0 ? `Verified ${count} product${count !== 1 ? 's' : ''}. ` : ''}Run \`/creator\` to see your status.`,
     });
   } catch (err) {
-    logger.error('VRChat verification request failed', { err });
-    await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
+    await interaction.editReply({
+      content: await buildBotVerificationErrorMessage(logger, {
+        baseMessage: `${E.X_} An error occurred. Please try again.`,
+        discordUserId: interaction.user.id,
+        error: err,
+        guildId: interaction.guildId ?? undefined,
+        provider: 'vrchat',
+        stage: 'vrchat_verify_request',
+        tenantId,
+      }),
+    });
   }
 }
 
@@ -623,11 +638,15 @@ export async function handleLicenseKeyModal(
       entitlementIds?: string[];
       error?: string;
       provider?: string;
+      supportCode?: string;
       success: boolean;
     };
 
     if (!data.success) {
       const msg = sanitizeUserFacingErrorMessage(data.error, 'Verification failed.');
+      const bannerMessage = data.supportCode
+        ? formatVerificationSupportMessage(`${E.X_} ${msg}`, data.supportCode)
+        : `${E.X_} ${msg}`;
       logger.warn('License verification failed', { msg, tenantId, provider });
       if (interaction.guildId && apiBaseUrl) {
         const message = await interaction.editReply(
@@ -638,12 +657,12 @@ export async function handleLicenseKeyModal(
             convex,
             apiSecret,
             apiBaseUrl,
-            { bannerMessage: `${E.X_} ${msg}` }
+            { bannerMessage }
           )
         );
         rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
       } else {
-        await interaction.editReply({ content: `${E.X_} ${msg}` });
+        await interaction.editReply({ content: bannerMessage });
       }
       return;
     }
@@ -677,7 +696,6 @@ export async function handleLicenseKeyModal(
       });
     }
   } catch (err) {
-    logger.error('License key verification request failed', { err });
     if (interaction.guildId && apiBaseUrl) {
       const message = await interaction.editReply(
         await buildVerifyStatusReply(
@@ -687,12 +705,32 @@ export async function handleLicenseKeyModal(
           convex,
           apiSecret,
           apiBaseUrl,
-          { bannerMessage: `${E.X_} An error occurred. Please try again.` }
+          {
+            bannerMessage: await buildBotVerificationErrorMessage(logger, {
+              baseMessage: `${E.X_} An error occurred. Please try again.`,
+              discordUserId: interaction.user.id,
+              error: err,
+              guildId: interaction.guildId,
+              provider,
+              stage: 'license_key_verify_request',
+              tenantId,
+            }),
+          }
         )
       );
       rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
     } else {
-      await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
+      await interaction.editReply({
+        content: await buildBotVerificationErrorMessage(logger, {
+          baseMessage: `${E.X_} An error occurred. Please try again.`,
+          discordUserId: interaction.user.id,
+          error: err,
+          guildId: interaction.guildId ?? undefined,
+          provider,
+          stage: 'license_key_verify_request',
+          tenantId,
+        }),
+      });
     }
   }
 }

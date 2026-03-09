@@ -6,7 +6,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { providerLabel } from '@yucp/providers';
-import { createLogger } from '@yucp/shared';
+import { createLogger, formatVerificationSupportMessage } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
@@ -33,6 +33,7 @@ import { getApiUrls } from '../lib/apiUrls';
 import { E, Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
+import { buildBotVerificationErrorMessage } from '../lib/verificationSupport';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -753,7 +754,16 @@ export async function handleCreatorCommand(
       tenantId: ctx.tenantId,
     });
   } catch (err) {
-    await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
+    await interaction.editReply({
+      content: await buildBotVerificationErrorMessage(logger, {
+        baseMessage: `${E.X_} An error occurred. Please try again.`,
+        discordUserId: interaction.user.id,
+        error: err,
+        guildId: ctx.guildId,
+        stage: 'creator_command_panel',
+        tenantId: ctx.tenantId,
+      }),
+    });
   }
 }
 
@@ -812,12 +822,30 @@ export async function handleVerifyStartButton(
     if (hadActivePanel) {
       await interaction
         .followUp({
-          content: `${E.X_} An error occurred. Please try again.`,
+          content: await buildBotVerificationErrorMessage(logger, {
+            baseMessage: `${E.X_} An error occurred. Please try again.`,
+            discordUserId: interaction.user.id,
+            error: err,
+            guildId: ctx.guildId,
+            hadActivePanel,
+            stage: 'verify_start_button',
+            tenantId: ctx.tenantId,
+          }),
           flags: MessageFlags.Ephemeral,
         })
         .catch(() => {});
     } else {
-      await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
+      await interaction.editReply({
+        content: await buildBotVerificationErrorMessage(logger, {
+          baseMessage: `${E.X_} An error occurred. Please try again.`,
+          discordUserId: interaction.user.id,
+          error: err,
+          guildId: ctx.guildId,
+          hadActivePanel,
+          stage: 'verify_start_button',
+          tenantId: ctx.tenantId,
+        }),
+      });
     }
   }
 }
@@ -857,7 +885,16 @@ export async function handleVerifyAddMore(
       tenantId: ctx.tenantId,
     });
   } catch (err) {
-    await interaction.editReply({ content: `${E.X_} An error occurred. Please try again.` });
+    await interaction.editReply({
+      content: await buildBotVerificationErrorMessage(logger, {
+        baseMessage: `${E.X_} An error occurred. Please try again.`,
+        discordUserId: interaction.user.id,
+        error: err,
+        guildId: ctx.guildId,
+        stage: 'verify_add_more',
+        tenantId: ctx.tenantId,
+      }),
+    });
   }
 }
 
@@ -1040,13 +1077,16 @@ export async function handleLicenseModalSubmit(
       });
     }
   } catch (err) {
-    logger.error('Verification flow failed', {
-      error: err instanceof Error ? err.message : String(err),
-      tenantId,
-      userId: interaction.user.id,
-    });
     await interaction.editReply({
-      content: `${E.X_} Verification didn’t finish. Try again in a moment.`,
+      content: await buildBotVerificationErrorMessage(logger, {
+        baseMessage: `${E.X_} Verification didn’t finish. Try again in a moment.`,
+        discordUserId: interaction.user.id,
+        error: err,
+        guildId: interaction.guildId ?? undefined,
+        provider,
+        stage: 'verification_flow',
+        tenantId,
+      }),
     });
   }
 }
@@ -1059,6 +1099,7 @@ export async function handleVerifyDisconnectButton(
   provider: string
 ): Promise<void> {
   const guildId = interaction.guildId;
+  let tenantIdForError: string | undefined;
   if (!guildId) {
     await interaction.reply({ content: 'Use this in a server.', flags: MessageFlags.Ephemeral });
     return;
@@ -1093,6 +1134,7 @@ export async function handleVerifyDisconnectButton(
       await interaction.editReply({ content: 'Server not configured.' });
       return;
     }
+    tenantIdForError = String(guildLink.tenantId);
 
     const res = await fetch(`${apiBaseUrl}/api/verification/disconnect`, {
       method: 'POST',
@@ -1105,14 +1147,22 @@ export async function handleVerifyDisconnectButton(
       }),
     });
 
-    const result = (await res.json()) as { success?: boolean; error?: string };
+    const result = (await res.json()) as { success?: boolean; error?: string; supportCode?: string };
 
     if (!result.success) {
       await interaction.editReply({
-        content: sanitizeUserFacingErrorMessage(
-          result.error,
-          'Couldn’t disconnect this account right now.'
-        ),
+        content: result.supportCode
+          ? formatVerificationSupportMessage(
+              sanitizeUserFacingErrorMessage(
+                result.error,
+                'Couldn’t disconnect this account right now.'
+              ),
+              result.supportCode
+            )
+          : sanitizeUserFacingErrorMessage(
+              result.error,
+              'Couldn’t disconnect this account right now.'
+            ),
       });
       return;
     }
@@ -1147,14 +1197,17 @@ export async function handleVerifyDisconnectButton(
       tenantId: guildLink.tenantId,
     });
   } catch (err) {
-    logger.error('Disconnect verification failed in bot command', {
-      error: err instanceof Error ? err.message : String(err),
-      provider,
-      userId: interaction.user.id,
-    });
     // Error path: use plain content (no IsComponentsV2) - legacy content is allowed
     await interaction.editReply({
-      content: `${E.X_} Couldn’t disconnect this account right now. Try again in a moment.`,
+      content: await buildBotVerificationErrorMessage(logger, {
+        baseMessage: `${E.X_} Couldn’t disconnect this account right now. Try again in a moment.`,
+        discordUserId: interaction.user.id,
+        error: err,
+        guildId,
+        provider,
+        stage: 'verify_disconnect',
+        tenantId: tenantIdForError,
+      }),
     });
   }
 }
@@ -1223,13 +1276,15 @@ export async function handleRefreshCommand(
       });
     }
   } catch (err) {
-    logger.error('Refresh verification command failed', {
-      error: err instanceof Error ? err.message : String(err),
-      tenantId: ctx.tenantId,
-      userId: interaction.user.id,
-    });
     await interaction.editReply({
-      content: `${E.X_} Couldn’t refresh your verification status right now. Try again in a moment.`,
+      content: await buildBotVerificationErrorMessage(logger, {
+        baseMessage: `${E.X_} Couldn’t refresh your verification status right now. Try again in a moment.`,
+        discordUserId: interaction.user.id,
+        error: err,
+        guildId,
+        stage: 'verify_refresh',
+        tenantId: ctx.tenantId,
+      }),
     });
   }
 }

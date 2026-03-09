@@ -43,6 +43,7 @@ export {
 export * from './logging/correlation';
 export * from './logging/redaction';
 export * from './logging/audit';
+export * from './verificationSupport';
 
 // Crypto module exports
 export * from './crypto';

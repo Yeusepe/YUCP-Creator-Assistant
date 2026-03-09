@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./*": "./src/*.ts",
+    "./test/loadBotE2ESecrets": "./test/loadBotE2ESecrets.ts",
     "./test/loadTestSecrets": "./test/loadTestSecrets.ts"
   },
   "scripts": {
@@ -13,8 +14,8 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "test:ci": "bun test --coverage"
+    "test": "bun test ./src ./test",
+    "test:ci": "bun test ./src ./test --coverage"
   },
   "dependencies": {},
   "devDependencies": {
