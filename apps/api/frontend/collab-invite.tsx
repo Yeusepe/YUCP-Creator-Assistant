@@ -13,11 +13,12 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  // Use the standard React instance lifecycle to avoid conflicts with differing
+  // React type definitions across environments.
+  override componentDidCatch(_error: unknown) {
+    this.setState({ hasError: true });
   }
-
-  render() {
+  override render() {
     if (this.state.hasError) return null;
     return this.props.children;
   }
@@ -54,7 +55,7 @@ function MovingCloud({
   segments,
   concentrate,
 }: MovingCloudProps) {
-  const ref = useRef<THREE.Group | null>(null);
+  const ref = useRef<any>(null);
 
   useFrame((state) => {
     if (!ref.current) return;
@@ -183,8 +184,8 @@ function bootBackground() {
 }
 
 function bootIcons() {
-  for (const node of document.querySelectorAll('[data-lucide]')) {
-    node.classList.add('lucide-icon');
+  for (const node of Array.from(document.querySelectorAll('[data-lucide]'))) {
+    (node as Element).classList.add('lucide-icon');
   }
 }
 

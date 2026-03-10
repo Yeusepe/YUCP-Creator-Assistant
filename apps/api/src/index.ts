@@ -448,9 +448,10 @@ async function routeRequest(request: Request): Promise<Response> {
     return Response.redirect(redirectUrl, 302);
   }
 
-  // Proxy other /api/auth/* requests to Convex (OAuth authorize, token, consent, etc.)
-  // Auth lives on Convex .site; when API runs on localhost, proxy so OAuth works.
-  if (pathname.startsWith('/api/auth/')) {
+  // Proxy /api/auth/* and /api/yucp/* requests to Convex
+  // Auth and YUCP certificate/OAuth routes live on Convex .site;
+  // when API runs on localhost, proxy so both work from a single origin.
+  if (pathname.startsWith('/api/auth/') || pathname.startsWith('/api/yucp/')) {
     const env = loadEnv();
     const raw = env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '';
     const cloudUrl = raw.startsWith('http')
@@ -467,11 +468,32 @@ async function routeRequest(request: Request): Promise<Response> {
       const proxyHeaders = new Headers(request.headers);
       proxyHeaders.delete('host');
       proxyHeaders.set('host', new URL(convexSiteUrl).host);
+      // Use 'manual' so 3xx responses are passed directly to the browser.
+      // 'follow' (the default) would silently consume redirects server-side,
+      // which breaks OAuth flows that depend on the browser seeing the Location header.
       const proxyRes = await fetch(targetUrl, {
         method: request.method,
         headers: proxyHeaders,
         body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
+        redirect: 'manual',
       });
+      // For redirect responses pass them through — but differently per method:
+      // - GET 3xx: pass Location header as-is so the browser navigates natively
+      // - POST 3xx: browsers can't read Location from a cross-origin opaque redirect,
+      //   so return JSON { redirectTo } instead; the client JS reads it and navigates.
+      if (proxyRes.status >= 300 && proxyRes.status < 400) {
+        const location = proxyRes.headers.get('location') ?? '';
+        if (request.method === 'POST') {
+          return Response.json(
+            { redirectTo: location },
+            { headers: { 'cache-control': 'no-store' } },
+          );
+        }
+        return new Response(null, {
+          status: proxyRes.status,
+          headers: { location, 'cache-control': 'no-store' },
+        });
+      }
       return new Response(proxyRes.body, {
         status: proxyRes.status,
         statusText: proxyRes.statusText,
@@ -549,9 +571,6 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/session-status' && connectRoutes) {
     return connectRoutes.getDashboardSessionStatus(request);
-  }
-  if (pathname === '/api/connect/contexts' && request.method === 'GET' && connectRoutes) {
-    return connectRoutes.getListContexts(request);
   }
   if (pathname === '/api/connect/ensure-tenant' && connectRoutes) {
     return connectRoutes.ensureTenant(request);
@@ -761,7 +780,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const escapedScope = (scope || 'openid verification:read').replace(/[<>&"'`]/g, '');
     const escapedConsentCode = consentCode.replace(/[<>&"'`]/g, '');
     const convexSiteUrl = (process.env.CONVEX_SITE_URL ?? '').replace(/\/$/, '');
-    const consentAction = `${convexSiteUrl}/api/auth/oauth2/consent`;
+    const consentAction = `/api/auth/oauth2/consent`;
     const filePath = `${import.meta.dir}/../public/oauth-consent.html`;
     let html = await Bun.file(filePath).text();
     html = html.replace(/__CLIENT_ID__/g, escapedClientId);
@@ -963,11 +982,8 @@ async function routeRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/dashboard.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    const urlContext = url.searchParams.get('context');
-    const urlTenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
-    const urlGuildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
-    let tenantId = urlTenantId;
-    let guildId = urlGuildId;
+    let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
     const ott = url.searchParams.get('ott');
     const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
 
@@ -988,13 +1004,10 @@ async function routeRequest(request: Request): Promise<Response> {
       });
     }
 
-    if (urlContext === 'personal' || (!urlTenantId && !urlGuildId)) {
-      tenantId = '';
-      guildId = '';
-    } else if (setupCookieToken) {
+    if (setupCookieToken) {
       const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
       const session = await resolveSetupSession(setupCookieToken, encryptionSecret);
-      if (session && !urlTenantId && !urlGuildId) {
+      if (session) {
         tenantId = session.tenantId;
         guildId = session.guildId;
       }

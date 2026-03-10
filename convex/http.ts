@@ -128,6 +128,100 @@ async function verifyOAuthToken(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RFC 8252 loopback proxy — wildcard port support for Unity Editor OAuth
+//
+// Better Auth's oauthProvider does not yet support wildcard loopback ports
+// (https://github.com/better-auth/better-auth/issues/8426). This proxy:
+//   1. Accepts redirect_uri=http://127.0.0.1:PORT/callback (any ephemeral port)
+//   2. Stores {state → originalRedirectUri} server-side (10-min TTL)
+//   3. Forwards to Better Auth with redirect_uri normalised to our fixed callback
+//   4. On callback, looks up stored URI and redirects to the original port
+//
+// Unity sends to:  GET /api/yucp/oauth/authorize  (not /api/auth/oauth2/authorize)
+// After auth:      GET /api/yucp/oauth/callback   (receives code, restores port)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function isLoopback(uri: string): boolean {
+  try { return LOOPBACK_HOSTS.has(new URL(uri).hostname); } catch { return false; }
+}
+
+http.route({
+  method: 'GET',
+  path: '/api/yucp/oauth/authorize',
+  handler: httpAction(async (ctx, request) => {
+    const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '');
+    if (!siteUrl) return errorResponse('Service not configured', 503);
+
+    const incoming = new URL(request.url);
+    const redirectUri = incoming.searchParams.get('redirect_uri');
+    const state = incoming.searchParams.get('state');
+
+    if (!redirectUri || !state) {
+      return errorResponse('redirect_uri and state are required', 400);
+    }
+
+    if (!isLoopback(redirectUri)) {
+      // Non-loopback clients go directly — no port proxy needed
+      incoming.pathname = '/api/auth/oauth2/authorize';
+      return Response.redirect(incoming.toString(), 302);
+    }
+
+    // Store the original loopback URI server-side keyed by state
+    await ctx.runMutation(internal.oauthLoopback.storeSession, {
+      oauthState: state,
+      originalRedirectUri: redirectUri,
+    });
+
+    // Replace redirect_uri with our fixed callback endpoint
+    incoming.pathname = '/api/auth/oauth2/authorize';
+    incoming.searchParams.set('redirect_uri', `${siteUrl}/api/yucp/oauth/callback`);
+    return Response.redirect(incoming.toString(), 302);
+  }),
+});
+
+http.route({
+  method: 'GET',
+  path: '/api/yucp/oauth/callback',
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const state = url.searchParams.get('state');
+    const code = url.searchParams.get('code');
+    const error = url.searchParams.get('error');
+
+    if (!state) return errorResponse('Missing state parameter', 400);
+
+    // Look up the original loopback redirect URI
+    const session = await ctx.runQuery(internal.oauthLoopback.getSession, {
+      oauthState: state,
+    });
+
+    if (!session) {
+      return new Response(
+        '<html><body><p>OAuth session expired or not found. Please try again in Unity.</p></body></html>',
+        { status: 400, headers: { 'Content-Type': 'text/html' } },
+      );
+    }
+
+    // Clean up the session record
+    await ctx.runMutation(internal.oauthLoopback.deleteSession, { oauthState: state });
+
+    // Build the redirect back to the Unity local server
+    const target = new URL(session.originalRedirectUri);
+    if (code) target.searchParams.set('code', code);
+    if (state) target.searchParams.set('state', state);
+    if (error) target.searchParams.set('error', error);
+
+    const errorDesc = url.searchParams.get('error_description');
+    if (errorDesc) target.searchParams.set('error_description', errorDesc);
+
+    return Response.redirect(target.toString(), 302);
+  }),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/yucp/certificates/issue — Issue cert via YUCP OAuth token
 // ─────────────────────────────────────────────────────────────────────────────
 

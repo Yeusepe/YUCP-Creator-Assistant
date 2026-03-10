@@ -52,8 +52,17 @@ describe('Key utilities', () => {
       const dek = await generateDEK();
       const plaintext = new TextEncoder().encode('secret-data');
       const iv = generateIV();
-      const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, dek, plaintext);
-      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, dek, ciphertext);
+      // Ensure we pass concrete ArrayBuffers for iv/plaintext to satisfy strict BufferSource typing
+      const ciphertext = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: iv.slice().buffer as ArrayBuffer },
+        dek,
+        new Uint8Array(plaintext).slice().buffer as ArrayBuffer
+      );
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv.slice().buffer as ArrayBuffer },
+        dek,
+        ciphertext
+      );
       expect(new Uint8Array(decrypted)).toEqual(plaintext);
     });
 
@@ -161,7 +170,7 @@ describe('Key wrapping', () => {
 });
 
 describe('Envelope encryption', () => {
-  let kekBytes: Uint8Array<ArrayBuffer>;
+  let kekBytes: Uint8Array;
   const aad: EncryptionAAD = {
     tenantId: 'tenant-123',
     provider: 'gumroad',
@@ -170,7 +179,7 @@ describe('Envelope encryption', () => {
   const encryptOptions: {
     keyId: string;
     keyVersion: number;
-    kekBytes: Uint8Array<ArrayBuffer>;
+    kekBytes: Uint8Array;
     aad: EncryptionAAD;
   } = {
     keyId: 'kek-v1',
@@ -180,7 +189,7 @@ describe('Envelope encryption', () => {
   };
 
   beforeEach(() => {
-    kekBytes = crypto.getRandomValues(new Uint8Array(32)) as Uint8Array<ArrayBuffer>;
+    kekBytes = crypto.getRandomValues(new Uint8Array(32));
     encryptOptions.kekBytes = kekBytes;
   });
 

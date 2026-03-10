@@ -1,10 +1,10 @@
 import './site.css';
 import { Center, Cloud, Clouds, Sky as SkyImpl, Text3D, useTexture } from '@react-three/drei';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Suspense } from 'react';
 import confetti from 'canvas-confetti';
 import HolographicSticker from 'holographic-sticker';
 import { createIcons, icons } from 'lucide';
+import { Suspense } from 'react';
 import React, { Component, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as THREE from 'three';
@@ -57,11 +57,10 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  override componentDidCatch(_error: unknown) {
+    this.setState({ hasError: true });
   }
-
-  render() {
+  override render() {
     if (this.state.hasError) return null;
     return this.props.children;
   }
@@ -276,7 +275,14 @@ function Cloud404Text() {
   const cloudTexture = useTexture(cloudTextureUrl);
   return (
     <Center position={[0, 0, 5]}>
-      <Text3D font={fontUrl} size={13} height={0.7} bevelEnabled bevelSize={0.04} bevelThickness={0.04}>
+      <Text3D
+        font={fontUrl}
+        size={13}
+        height={0.7}
+        bevelEnabled
+        bevelSize={0.04}
+        bevelThickness={0.04}
+      >
         404
         <meshBasicMaterial map={cloudTexture} color="#ffffff" transparent opacity={0.98} />
       </Text3D>
@@ -377,7 +383,7 @@ function HoloWrapper({ src, alt }: { src: string; alt: string }) {
 }
 
 function bootHolographicStickers() {
-  const nodes = document.querySelectorAll<HTMLElement>('[id^="holo-"]');
+  const nodes = Array.from(document.querySelectorAll<HTMLElement>('[id^="holo-"]'));
   for (const node of nodes) {
     const key = extractHoloAssetKey(node.id);
     if (!key) continue;

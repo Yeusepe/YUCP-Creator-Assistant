@@ -391,6 +391,8 @@ const guild_links = defineTable({
   tenantId: v.id('tenants'),
   // Discord guild ID
   discordGuildId: v.string(),
+  // Human-readable guild name (optional — populated when bot installs)
+  discordGuildName: v.optional(v.string()),
   // Who installed the bot
   installedByAuthUserId: v.string(),
   // Whether the bot is present in the guild
@@ -1191,6 +1193,22 @@ const cert_issuance_log = defineTable({
   .index('by_yucp_user_id', ['yucpUserId'])
   .index('by_issued_at', ['issuedAt']);
 
+/**
+ * Short-lived session store for the RFC 8252 loopback OAuth proxy.
+ * Maps an OAuth `state` parameter to the original loopback redirect_uri
+ * so the callback can forward the code back to the Unity editor process.
+ */
+const oauth_loopback_sessions = defineTable({
+  /** The `state` parameter sent by the Unity client — used as the lookup key */
+  oauthState: v.string(),
+  /** The original loopback redirect_uri (e.g. http://127.0.0.1:PORT/callback) */
+  originalRedirectUri: v.string(),
+  /** Unix ms — records when the session was created so TTL can be enforced */
+  createdAt: v.number(),
+})
+  .index('by_oauth_state', ['oauthState'])
+  .index('by_created_at', ['createdAt']);
+
 export default defineSchema({
   // Tenant-scoped tables
   tenants,
@@ -1226,4 +1244,5 @@ export default defineSchema({
   package_registry,
   signing_log,
   cert_issuance_log,
+  oauth_loopback_sessions,
 });
