@@ -257,49 +257,99 @@
         // Server-injected values
         const apiBase = __API_BASE__;
 
+        // The cross-domain plugin stores the session under this localStorage key.
+        // Key format: `${storagePrefix}_cookie` — prefix defaults to "better-auth".
+        const STORAGE_KEY = 'better-auth_cookie';
+
         const loadingEl = document.getElementById('loading-state');
         const errorEl = document.getElementById('error-state');
         const retryBtn = document.getElementById('retry-btn');
 
-        function getReturnTo() {
-            const params = new URLSearchParams(window.location.search);
-            return params.get('returnTo') || params.get('callbackURL') || params.get('redirect_uri') || params.get('redirect') || null;
-        }
-
         function showError() {
             loadingEl.classList.add('hidden');
             errorEl.classList.remove('hidden');
-            const returnTo = getReturnTo();
-            retryBtn.href = returnTo || window.location.pathname;
+            retryBtn.href = window.location.pathname;
         }
 
+        /**
+         * Check whether the user has a valid session, using the cross-domain
+         * plugin's localStorage token if present (falls back to browser cookie).
+         */
         async function checkSession() {
+            const storedCookie = localStorage.getItem(STORAGE_KEY) || '';
+            const headers = storedCookie ? { 'Better-Auth-Cookie': storedCookie } : {};
             try {
-                const res = await fetch(`${apiBase}/api/oauth/session-check`, { credentials: 'include' });
+                const res = await fetch(`${apiBase}/api/auth/get-session`, {
+                    credentials: 'include',
+                    headers,
+                });
                 if (!res.ok) return null;
                 const data = await res.json();
-                return data.session ? data : null;
+                return data.user ? data : null;
             } catch {
                 return null;
             }
         }
 
-        async function runOAuthLoginFlow() {
-            const returnTo = getReturnTo();
+        /**
+         * After Discord OAuth, Better Auth's cross-domain plugin appends
+         * `?ott=<token>` to the callbackURL.  Exchange the one-time token for a
+         * session and store it in localStorage so the consent page can send it.
+         * Returns true if an OTT was found and exchanged (successfully or not).
+         */
+        async function exchangeOneTimeToken() {
+            const params = new URLSearchParams(window.location.search);
+            const ott = params.get('ott');
+            if (!ott) return false;
 
-            // If we have a session and a return URL, redirect back to continue the OAuth flow
-            const sessionData = await checkSession();
-            if (sessionData?.session && returnTo) {
-                try {
-                    const target = new URL(returnTo, window.location.origin);
-                    window.location.replace(target.toString());
-                    return;
-                } catch {
-                    // Invalid returnTo URL, fall through to sign-in
+            try {
+                const res = await fetch(`${apiBase}/api/auth/cross-domain/one-time-token/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ token: ott }),
+                });
+                if (res.ok) {
+                    // The cross-domain plugin sends the session as a custom header so
+                    // it can be stored in localStorage (bypassing cookie restrictions).
+                    const setCookie = res.headers.get('set-better-auth-cookie');
+                    if (setCookie) {
+                        localStorage.setItem(STORAGE_KEY, setCookie);
+                    }
                 }
+            } catch (e) {
+                console.error('[oauth-login] OTT exchange failed:', e);
             }
 
-            // Not logged in: redirect to Discord sign-in with current URL as callback (preserves query params)
+            // Strip the ott token from the URL so it can't be replayed or leaked.
+            params.delete('ott');
+            const newSearch = params.toString();
+            window.history.replaceState(
+                {},
+                '',
+                window.location.pathname + (newSearch ? '?' + newSearch : '')
+            );
+            return true;
+        }
+
+        async function runOAuthLoginFlow() {
+            // Step 1 — if returning from Discord OAuth, exchange OTT for session.
+            await exchangeOneTimeToken();
+
+            // Step 2 — check whether we now have a session.
+            const sessionData = await checkSession();
+            if (sessionData?.user) {
+                // Signed in: redirect back to the consent page using the signed OAuth
+                // params that Better Auth placed on this page's query string.
+                // The signed params for loginPage and consentPage are identical, so we
+                // can navigate directly without hitting the authorize endpoint again.
+                const consentUrl = `${apiBase}/oauth/consent${window.location.search}`;
+                window.location.replace(consentUrl);
+                return;
+            }
+
+            // Step 3 — not signed in: send user to Discord with this page as callback
+            // (current URL already carries the signed OAuth params; OTT is stripped).
             const callbackUrl = window.location.href;
             const signInUrl = `${apiBase}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
             window.location.href = signInUrl;

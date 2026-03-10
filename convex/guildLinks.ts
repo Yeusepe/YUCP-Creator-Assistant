@@ -154,3 +154,39 @@ export const getGuildLinkForUninstall = query({
     };
   },
 });
+
+/**
+ * Get all active guild links for a user (servers they manage)
+ */
+export const getUserGuilds = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const tenants = await ctx.db
+      .query('tenants')
+      .withIndex('by_owner_auth', (q) => q.eq('ownerAuthUserId', args.authUserId))
+      .collect();
+      
+    const guilds = [];
+    for (const tenant of tenants) {
+      const links = await ctx.db
+        .query('guild_links')
+        .withIndex('by_tenant', (q) => q.eq('tenantId', tenant._id))
+        .filter((q) => q.eq(q.field('status'), 'active'))
+        .collect();
+        
+      for (const link of links) {
+        guilds.push({
+          tenantId: tenant._id,
+          guildId: link.discordGuildId,
+          name: link.discordGuildName || tenant.name,
+          icon: null
+        });
+      }
+    }
+    return guilds;
+  },
+});

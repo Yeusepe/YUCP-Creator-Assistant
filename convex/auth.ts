@@ -173,6 +173,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         },
       }),
       jwt({
+        jwks: {
+          keyPairConfig: { alg: 'ES256' },
+        },
         jwt: {
           issuer: authBaseUrl,
           audience: PUBLIC_API_AUDIENCE,
@@ -191,6 +194,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         customAccessTokenClaims: async ({ user, scopes }) => ({
           scope: scopes.join(' '),
           auth_user_id: user?.id,
+          // Include stable profile data so clients can read identity from
+          // the token itself — no extra /v1/me round-trip needed.
+          // Industry standard: Auth0, Okta, etc. all embed name/email in
+          // first-party access tokens via custom claims.
+          name: user?.name ?? null,
+          email: user?.email ?? null,
         }),
       }),
       vrchat(),

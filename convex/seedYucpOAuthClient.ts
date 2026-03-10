@@ -74,3 +74,21 @@ export const seedUnityOAuthClient = internalMutation({
     return { created: true, result };
   },
 });
+
+/**
+ * Purge all stored JWKS keys so they are regenerated with the current algorithm.
+ *
+ * Run once after changing the JWT plugin keyPairConfig (e.g. EdDSA → ES256):
+ *   npx convex run seedYucpOAuthClient:purgeJwks
+ */
+export const purgeJwks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+      input: { model: 'jwks' },
+      paginationOpts: { cursor: null, numItems: 1000 },
+    } as any);
+    console.log('Purged all JWKS keys — they will be regenerated as ES256 on next request.');
+    return { purged: true };
+  },
+});

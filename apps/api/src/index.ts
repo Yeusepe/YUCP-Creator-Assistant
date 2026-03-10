@@ -448,10 +448,14 @@ async function routeRequest(request: Request): Promise<Response> {
     return Response.redirect(redirectUrl, 302);
   }
 
-  // Proxy /api/auth/* and /api/yucp/* requests to Convex
-  // Auth and YUCP certificate/OAuth routes live on Convex .site;
-  // when API runs on localhost, proxy so both work from a single origin.
-  if (pathname.startsWith('/api/auth/') || pathname.startsWith('/api/yucp/')) {
+  // Proxy /api/auth/*, /api/yucp/*, and /v1/* requests to Convex.
+  // Auth, YUCP OAuth, and the versioned public API (/v1/) all live on Convex .site.
+  // When the API runs on localhost, proxy so everything works from a single origin.
+  if (
+    pathname.startsWith('/api/auth/') ||
+    pathname.startsWith('/api/yucp/') ||
+    pathname.startsWith('/v1/')
+  ) {
     const env = loadEnv();
     const raw = env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '';
     const cloudUrl = raw.startsWith('http')
@@ -468,13 +472,56 @@ async function routeRequest(request: Request): Promise<Response> {
       const proxyHeaders = new Headers(request.headers);
       proxyHeaders.delete('host');
       proxyHeaders.set('host', new URL(convexSiteUrl).host);
+
+      // ── RFC 8252 loopback redirect_uri rewrite for token exchange ──────────
+      // During authorize, /api/yucp/oauth/authorize already replaced the
+      // loopback redirect_uri with the fixed Convex callback URL so that
+      // Better Auth can validate it.  During token exchange the client sends
+      // the original loopback URI again (as required by RFC 6749 §4.1.3), but
+      // Better Auth will reject it because it no longer matches what was stored.
+      // Solution: when we see a loopback (127.0.0.1 or ::1) redirect_uri in the
+      // token exchange body we silently rewrite it to the same fixed URL.
+      let proxyBody: BodyInit | undefined =
+        request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined;
+
+      if (
+        pathname === '/api/auth/oauth2/token' &&
+        request.method === 'POST' &&
+        (request.headers.get('content-type') ?? '').includes('x-www-form-urlencoded')
+      ) {
+        const text = await request.text();
+        const params = new URLSearchParams(text);
+        const redir = params.get('redirect_uri') ?? '';
+        const hadResource = params.has('resource');
+        if (/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(redir)) {
+          params.set('redirect_uri', `${convexSiteUrl}/api/yucp/oauth/callback`);
+        }
+        // Always inject the resource parameter so the oauth-provider issues a
+        // JWT access token (audience-bound) rather than an opaque token.
+        // Without `resource`, isJwtAccessToken is false and verifyAccessToken
+        // later fails with "no token payload".
+        if (!hadResource) {
+          params.set('resource', 'yucp-public-api');
+        }
+        const rewritten = params.toString();
+        logger.info('Token exchange rewrite', {
+          grant_type: params.get('grant_type'),
+          redirect_uri_rewritten: redir ? redir.substring(0, 40) : '(none)',
+          resource_was_present: hadResource,
+          resource_now: params.get('resource'),
+        });
+        proxyBody = rewritten;
+        proxyHeaders.set('content-type', 'application/x-www-form-urlencoded');
+        proxyHeaders.set('content-length', String(Buffer.byteLength(rewritten)));
+      }
+
       // Use 'manual' so 3xx responses are passed directly to the browser.
       // 'follow' (the default) would silently consume redirects server-side,
       // which breaks OAuth flows that depend on the browser seeing the Location header.
       const proxyRes = await fetch(targetUrl, {
         method: request.method,
         headers: proxyHeaders,
-        body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
+        body: proxyBody,
         redirect: 'manual',
       });
       // For redirect responses pass them through — but differently per method:
@@ -574,6 +621,9 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/ensure-tenant' && connectRoutes) {
     return connectRoutes.ensureTenant(request);
+  }
+  if (pathname === '/api/connect/user/guilds' && connectRoutes) {
+    return connectRoutes.getUserGuilds(request);
   }
   if (pathname === '/api/connect/gumroad/begin' && connectRoutes) {
     return connectRoutes.gumroadBegin(request);
@@ -769,6 +819,15 @@ async function routeRequest(request: Request): Promise<Response> {
     return new Response(html, {
       status: 200,
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
+  if (pathname === '/oauth/error') {
+    const filePath = `${import.meta.dir}/../public/oauth-error.html`;
+    const html = await Bun.file(filePath).text();
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', ...HTML_SECURITY_HEADERS },
     });
   }
 

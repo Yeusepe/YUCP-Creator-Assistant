@@ -883,18 +883,19 @@
             top: calc(100% + 8px);
             left: 0;
             width: 260px;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(20, 20, 25, 0.65);
+            backdrop-filter: blur(40px) saturate(180%);
+            -webkit-backdrop-filter: blur(40px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 16px;
-            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
             display: flex;
             flex-direction: column;
             opacity: 0;
             visibility: hidden;
             transform: translateY(-10px);
             transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.2s;
-            z-index: 100;
+            z-index: 9999;
             overflow: hidden;
         }
 
@@ -2520,120 +2521,162 @@
             color: rgba(255, 255, 255, 0.8);
         }
 
-        /* Grid-rows trick: smooth height-to-auto animation */
+        /* Transform inline panels to true Glassmorphism Modals */
         .inline-panel {
-            display: grid;
-            grid-template-rows: 0fr;
-            transition: grid-template-rows 0.4s cubic-bezier(0.34, 1.1, 0.64, 1);
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(6px);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s;
         }
 
         .inline-panel.open {
-            grid-template-rows: 1fr;
+            opacity: 1;
+            visibility: visible;
         }
 
         .inline-panel>.inline-panel-inner {
-            overflow: hidden;
-            min-height: 0;
+            width: 100%;
+            max-width: 480px;
+            transform: scale(0.95);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            margin: 0 20px;
         }
 
-        .inline-panel-body {
-            border: 1px solid rgba(255, 255, 255, 0.12);
+        .inline-panel.open>.inline-panel-inner {
+            transform: scale(1);
+        }
+
+        .inline-panel-body,
+        .oauth-edit-body {
+            border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 20px;
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(12px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            padding: 20px;
-            margin-bottom: 12px;
-            margin-top: 12px;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(24px);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            padding: 24px;
         }
 
         .inline-panel-title {
             font-family: 'Plus Jakarta Sans', sans-serif;
-            font-size: 14px;
+            font-size: 16px;
             font-weight: 800;
-            color: var(--text-primary);
+            color: #ffffff;
             letter-spacing: -0.02em;
             margin: 0 0 16px;
         }
 
-        /* Inline confirm row for destructive actions (disconnect, revoke, remove) */
+        /* Inline confirm row for destructive actions (disconnect, revoke, remove) -> Modal */
         .inline-confirm {
-            display: grid;
-            grid-template-rows: 0fr;
-            transition: grid-template-rows 0.32s cubic-bezier(0.34, 1.1, 0.64, 1);
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(6px);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.25s, visibility 0.25s;
         }
 
         .inline-confirm.open {
-            grid-template-rows: 1fr;
+            opacity: 1;
+            visibility: visible;
         }
 
         .inline-confirm>div {
-            overflow: hidden;
-            min-height: 0;
+            width: 100%;
+            max-width: 420px;
+            margin: 0 20px;
+            transform: translateY(10px);
+            transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
 
-        .inline-confirm-body {
+        .inline-confirm.open>div {
+            transform: translateY(0);
+        }
+
+        .inline-confirm-body,
+        .oauth-regen-body,
+        .oauth-delete-body {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 10px;
-            padding: 10px 0 0;
-            flex-wrap: wrap;
+            gap: 16px;
+            padding: 28px 24px;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 20px;
+            backdrop-filter: blur(24px);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+            text-align: center;
         }
 
         .inline-confirm-label {
-            font-size: 12px;
-            color: var(--text-secondary);
+            font-size: 14px;
+            color: #e2e8f0;
             font-family: 'DM Sans', sans-serif;
-            flex: 1;
-            min-width: 100px;
+            line-height: 1.5;
         }
 
         .inline-confirm-label strong {
-            color: var(--text-primary);
+            color: #ffffff;
+            font-weight: 700;
         }
 
         .inline-confirm-btns {
             display: flex;
-            gap: 6px;
-            flex-shrink: 0;
+            gap: 12px;
+            width: 100%;
+            margin-top: 8px;
         }
 
         .inline-cancel-btn {
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 700;
-            padding: 6px 12px;
-            border-radius: 8px;
+            padding: 10px 16px;
+            border-radius: 10px;
             border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.07);
-            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+            color: #94a3b8;
             cursor: pointer;
             transition: all 0.15s;
             font-family: 'Plus Jakarta Sans', sans-serif;
+            flex: 1;
         }
 
         .inline-cancel-btn:hover {
             background: rgba(255, 255, 255, 0.1);
             border-color: rgba(255, 255, 255, 0.2);
-            color: var(--text-primary);
+            color: #fff;
         }
 
         .inline-danger-btn {
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 700;
-            padding: 6px 12px;
-            border-radius: 8px;
+            padding: 10px 16px;
+            border-radius: 10px;
             border: 1px solid rgba(248, 113, 113, 0.4);
             background: rgba(239, 68, 68, 0.15);
-            color: var(--accent-red);
+            color: #f87171;
             cursor: pointer;
             transition: all 0.15s;
             font-family: 'Plus Jakarta Sans', sans-serif;
+            flex: 1;
         }
 
         .inline-danger-btn:hover {
-            background: #FEE2E2;
-            border-color: #FCA5A5;
-            color: #DC2626;
+            background: rgba(239, 68, 68, 0.25);
+            border-color: #fca5a5;
+            color: #fca5a5;
         }
 
         .inline-danger-btn:disabled {
@@ -2642,11 +2685,11 @@
         }
 
         .inline-confirm-btn {
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 700;
-            padding: 6px 12px;
-            border-radius: 8px;
-            background: #E0F2FE;
+            padding: 10px 16px;
+            border-radius: 10px;
+            background: #e0f2fe;
             color: #0284C7;
             border: 1px solid #BAE6FD;
             cursor: pointer;
@@ -4063,44 +4106,90 @@
 
             <div class="sidebar-scroll">
                 <nav class="sidebar-nav" aria-label="Dashboard sections">
-                    <div class="sidebar-nav-group">
-                        <span class="sidebar-nav-label">Main</span>
-                        <button class="sidebar-nav-btn is-active" data-tab="setup" aria-controls="tab-panel-setup"
-                            role="tab" aria-selected="true">
-                            <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path
-                                    d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                            </svg>
-                            Setup
-                        </button>
+
+                    <!-- Global Config Sidebar -->
+                    <div class="personal-only">
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Global Config</span>
+                            <button class="sidebar-nav-btn is-active" data-tab="setup" aria-controls="tab-panel-setup"
+                                role="tab" aria-selected="true">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path
+                                        d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                </svg>
+                                Setup
+                            </button>
+                        </div>
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Developer</span>
+                            <button class="sidebar-nav-btn" data-tab="integrations"
+                                aria-controls="tab-panel-integrations" role="tab" aria-selected="false">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" />
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                </svg>
+                                Developer Integrations
+                            </button>
+                        </div>
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Collaboration</span>
+                            <button class="sidebar-nav-btn" data-tab="collaboration"
+                                aria-controls="tab-panel-collaboration" role="tab" aria-selected="false">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                </svg>
+                                Collaborating Creators
+                            </button>
+                        </div>
                     </div>
-                    <div class="sidebar-nav-group">
-                        <span class="sidebar-nav-label">Integrations</span>
-                        <button class="sidebar-nav-btn" data-tab="integrations" aria-controls="tab-panel-integrations"
-                            role="tab" aria-selected="false">
-                            <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="11" width="18" height="11" rx="2" />
-                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                            </svg>
-                            OAuth & API Keys
-                        </button>
+
+                    <!-- Server Config Sidebar -->
+                    <div class="server-only">
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Configuration</span>
+                            <button class="sidebar-nav-btn is-active" data-tab="setup" aria-controls="tab-panel-setup"
+                                role="tab" aria-selected="true">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                    <path
+                                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                                    </path>
+                                </svg>
+                                General Settings
+                            </button>
+                        </div>
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Moderation</span>
+                            <button class="sidebar-nav-btn" data-tab="server-rules"
+                                aria-controls="tab-panel-server-rules" role="tab" aria-selected="false">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                </svg>
+                                Server Rules
+                            </button>
+                            <button class="sidebar-nav-btn" data-tab="audit-logs" aria-controls="tab-panel-audit-logs"
+                                role="tab" aria-selected="false">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                    <polyline points="10 9 9 9 8 9"></polyline>
+                                </svg>
+                                Audit Logs
+                            </button>
+                        </div>
                     </div>
-                    <div class="sidebar-nav-group">
-                        <span class="sidebar-nav-label">Collaboration</span>
-                        <button class="sidebar-nav-btn" data-tab="collaboration" aria-controls="tab-panel-collaboration"
-                            role="tab" aria-selected="false">
-                            <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                                <circle cx="9" cy="7" r="4" />
-                                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                            </svg>
-                            Collaborating Creators
-                        </button>
-                    </div>
+
                 </nav>
             </div>
 
@@ -4170,34 +4259,7 @@
                 aria-labelledby="tab-btn-setup">
                 <div class="bento-grid">
 
-                    <section id="quick-start-card"
-                        class="section-card bento-col-12 quick-start-card p-4 sm:p-5 md:p-6 animate-in animate-in-delay-1">
-                        <div class="quick-start-shell">
-                            <div class="quick-start-topline">
-                                <div id="quick-start-pill" class="quick-start-progress-pill">Setup Flow</div>
-                                <button id="quick-start-dismiss" class="quick-start-dismiss" type="button"
-                                    aria-label="Dismiss quick start">
-                                    ×
-                                </button>
-                            </div>
-                            <div class="quick-start-heading">
-                                <div>
-                                    <span class="section-label">Quick Start</span>
-                                    <h2 id="quick-start-title" class="text-xl font-black text-white mb-2">Finish setup
-                                        from
-                                        this page</h2>
-                                </div>
-                                <p id="quick-start-summary" class="quick-start-summary">
-                                    Link Gumroad® or Jinxxy™ below, review your verification settings, then click
-                                    <strong class="text-white">Done Setup</strong> when everything looks right.
-                                </p>
-                                <div class="quick-start-progress-rail">
-                                    <div id="quick-start-progress-fill" class="quick-start-progress-fill"></div>
-                                </div>
-                            </div>
-                            <div id="quick-start-steps" class="quick-start-step-grid"></div>
-                        </div>
-                    </section>
+
 
                     <section id="collab-servers-section"
                         class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1 personal-only"
@@ -4223,7 +4285,8 @@
                     </section>
 
                     <!-- ── Connected Platforms ────────────────────────────────────────── -->
-                    <section class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-2">
+                    <section id="connected-platforms-section"
+                        class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-2 personal-only">
                         <div class="flex items-center gap-3 mb-6">
                             <div class="w-8 h-8 rounded-xl flex items-center justify-center"
                                 style="background: rgba(255,235,59,0.15);">
@@ -4342,6 +4405,50 @@
                                 </svg>
                                 Saved
                             </span>
+                        </div>
+
+                        <div class="settings-subsection" id="server-store-integrations-section">
+                            <div class="settings-subsection-title">Store Integrations</div>
+                            <div class="settings-subsection-body">
+                                <article class="svr-cfg-tile" id="server-tile-gumroad" style="display: none;">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img
+                                                src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
+                                                alt="" style="border-radius:4px;">
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Enable Gumroad® for this Server</span>
+                                            <span class="svr-cfg-tile-hint">Allow users to verify Gumroad purchases in
+                                                this Discord server.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <div id="toggle-serverEnableGumroad" class="svr-cfg-switch active" role="switch"
+                                            onclick="this.classList.toggle('active')" aria-label="Enable Gumroad"></div>
+                                    </div>
+                                </article>
+                                <article class="svr-cfg-tile" id="server-tile-jinxxy" style="display: none;">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img
+                                                src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
+                                                alt="" style="border-radius:4px;">
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Enable Jinxxy™ for this Server</span>
+                                            <span class="svr-cfg-tile-hint">Allow users to verify Jinxxy purchases in
+                                                this Discord server.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <div id="toggle-serverEnableJinxxy" class="svr-cfg-switch active" role="switch"
+                                            onclick="this.classList.toggle('active')" aria-label="Enable Jinxxy"></div>
+                                    </div>
+                                </article>
+                                <div id="server-integrations-empty"
+                                    class="p-4 bg-white/5 border border-white/10 rounded-xl text-center text-sm text-[rgba(255,255,255,0.6)]">
+                                    No global store platforms linked yet. Link them in your Personal Dashboard first.
+                                </div>
+                            </div>
                         </div>
 
                         <div class="settings-subsection">
@@ -4768,52 +4875,76 @@
                     </p>
 
                     <div class="inline-panel" id="invite-panel">
-                        <div class="inline-panel-inner">
-                            <div class="inline-panel-body">
+                        <div class="inline-panel-inner" style="max-width: 500px;">
+                            <div class="inline-panel-body" style="padding: 32px; text-align: center;">
+                                <div style="display:flex; justify-content:flex-end; margin-bottom: -24px;">
+                                    <button onclick="closeInvitePanel()" class="panel-close-btn" aria-label="Close"
+                                        style="z-index: 10;">×</button>
+                                </div>
+                                <div class="intg-icon"
+                                    style="margin: 0 auto 16px; width: 48px; height: 48px; background: rgba(14, 165, 233, 0.15); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3);">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                    </svg>
+                                </div>
+                                <h3
+                                    style="font-size: 22px; font-weight: 800; font-family: 'Plus Jakarta Sans', sans-serif; color: #fff; margin: 0 0 8px;">
+                                    Invite a Creator</h3>
+                                <p
+                                    style="font-size: 14px; color: rgba(255,255,255,0.7); margin: 0 0 24px; line-height: 1.5;">
+                                    Share this link with a trusted creator to allow them to link their stores and
+                                    products to your server.</p>
+
                                 <div
-                                    style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-                                    <div style="display:flex;align-items:center;gap:10px;">
-                                        <div class="intg-icon" style="width:32px;height:32px;">
+                                    style="text-align: left; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+                                    <label
+                                        style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Unique
+                                        Share Link</label>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span id="invite-url-display"
+                                            style="font-family:'DM Mono',monospace; font-size:14px; color:#fff; word-break:break-all; flex:1;">Loading...</span>
+                                        <button class="cred-copy" id="copy-invite-btn" onclick="copyInviteUrl()"
+                                            title="Copy link"
+                                            style="background:rgba(255,255,255,0.1); border:none; width:40px; height:40px; border-radius:8px; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s; flex-shrink:0;">
+                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                stroke-linejoin="round">
+                                                <rect x="9" y="9" width="13" height="13" rx="2" />
+                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <div id="invite-expiry"
+                                        style="margin-top: 10px; font-size: 13px; font-weight: 500; color: #38bdf8;">
+                                        Expires in 7 days</div>
+                                </div>
+
+                                <div
+                                    style="text-align: left; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+                                    <label
+                                        style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Message
+                                        Template</label>
+                                    <textarea id="invite-message-template" readonly
+                                        style="width: 100%; height: 80px; background: transparent; border: none; color: rgba(255,255,255,0.9); font-size: 14px; font-family: 'DM Sans', sans-serif; resize: none; outline: none; line-height: 1.5;"></textarea>
+                                    <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+                                        <button onclick="copyInviteMessage(this)"
+                                            style="background: none; border: none; color: #0ea5e9; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; transition: background 0.15s;">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                                 stroke-linejoin="round">
-                                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                                                <path
-                                                    d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                                <rect x="9" y="9" width="13" height="13" rx="2" />
+                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                                             </svg>
-                                        </div>
-                                        <div>
-                                            <div class="inline-panel-title" style="margin:0;font-size:13px;">Invite link
-                                            </div>
-                                            <div id="invite-expiry"
-                                                style="font-family:'DM Sans',sans-serif;font-size:11px;color:#64748b;">
-                                            </div>
-                                        </div>
+                                            Copy template
+                                        </button>
                                     </div>
-                                    <button onclick="closeInvitePanel()" class="panel-close-btn">×</button>
                                 </div>
-                                <div class="intg-cred-box"
-                                    style="margin-bottom:14px;display:flex;align-items:stretch;background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
-                                    <span class="cred-value" id="invite-url-display"
-                                        style="font-size:11px;flex:1;padding:10px 13px;font-family:'DM Mono',monospace;color:#0f172a;word-break:break-all;line-height:1.5;"></span>
-                                    <button class="cred-copy" id="copy-invite-btn" onclick="copyInviteUrl()"
-                                        title="Copy link"
-                                        style="flex-shrink:0;width:42px;border:none;border-left:1px solid #e2e8f0;background:#f8fafc;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;">
-                                        <svg viewBox="0 0 24 24" width="13" height="13"
-                                            style="stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
-                                            <rect x="9" y="9" width="13" height="13" rx="2" />
-                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                        </svg>
-                                    </button>
-                                </div>
+
                                 <button class="btn-primary" onclick="copyInviteUrl()"
-                                    style="width:100%;justify-content:center;font-size:12px;padding:9px 16px;background:#0ea5e9;border-color:#0ea5e9;color:#fff;">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect x="9" y="9" width="13" height="13" rx="2" />
-                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                    </svg>
-                                    Copy invite link
+                                    style="width: 100%; justify-content: center; font-size: 15px; font-weight: 700; padding: 12px 24px; background: #0ea5e9; color: #fff; border-radius: 12px; border: none;">
+                                    Copy Invite Link
                                 </button>
                             </div>
                         </div>
@@ -4853,8 +4984,44 @@
                 </section>
             </div>
 
-        </main>
+            <div id="tab-panel-server-rules" class="dashboard-tab-panel server-only" role="tabpanel"
+                aria-labelledby="tab-btn-server-rules">
+                <section class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1">
+                    <div class="flex flex-col items-center justify-center py-12 text-center">
+                        <div class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center mb-4">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white/60">
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-bold text-white mb-2">Server Rules coming soon</h3>
+                        <p class="text-white/50 text-sm max-w-sm" style="font-family:'DM Sans',sans-serif;">Define
+                            product-to-role mappings directly from your dashboard.</p>
+                    </div>
+                </section>
+            </div>
 
+            <div id="tab-panel-audit-logs" class="dashboard-tab-panel server-only" role="tabpanel"
+                aria-labelledby="tab-btn-audit-logs">
+                <section class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1">
+                    <div class="flex flex-col items-center justify-center py-12 text-center">
+                        <div class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center mb-4">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white/60">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-bold text-white mb-2">Audit Logs coming soon</h3>
+                        <p class="text-white/50 text-sm max-w-sm" style="font-family:'DM Sans',sans-serif;">View your
+                            verification history and member role assignments.</p>
+                    </div>
+                </section>
+            </div>
+
+    </div>
+
+    </main>
 
     </div><!-- #page-content -->
 
@@ -4895,6 +5062,7 @@
 
             tabBtns.forEach((t) => t.addEventListener('click', () => switchTo(t.getAttribute('data-tab'))));
             sidebarBtns.forEach((t) => t.addEventListener('click', () => switchTo(t.getAttribute('data-tab'))));
+            window.switchToTab = switchTo;
         })();
 
         document.addEventListener('click', (ev) => {
@@ -4907,7 +5075,6 @@
             }
         });
 
-        const guildId = '__GUILD_ID__';
         const apiBase = '__API_BASE__';
         const serverHasSetupSession = '__HAS_SETUP_SESSION__' === 'true';
         const tenantIdFromServer = '__TENANT_ID__';
@@ -4915,12 +5082,71 @@
         let setupToken = '';
         let hasSetupSession = serverHasSetupSession;
 
+        let guildId = '__GUILD_ID__';
+
         // --- View State Toggle ---
-        if (guildId && guildId !== '') {
-            document.body.classList.add('state-server-selected');
-        } else {
-            document.body.classList.remove('state-server-selected');
+        function applyContextState() {
+            if (guildId && guildId !== '') {
+                document.body.classList.add('state-server-selected');
+            } else {
+                document.body.classList.remove('state-server-selected');
+            }
         }
+
+        applyContextState();
+
+        async function switchDashboardContext(newGuildId) {
+            if (newGuildId === guildId) return;
+            if (window.switchToTab) window.switchToTab('setup');
+
+            // Update URL securely using History API
+            const urlParams = new URLSearchParams(window.location.search);
+            if (newGuildId) {
+                urlParams.set('guild_id', newGuildId);
+            } else {
+                urlParams.delete('guild_id');
+            }
+            if (!urlParams.has('tenant_id') && tenantId) {
+                urlParams.set('tenant_id', tenantId);
+            }
+            const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+            window.history.pushState({ guildId: newGuildId }, '', newUrl);
+
+            // Update local state
+            guildId = newGuildId;
+            applyContextState();
+
+            // Visually Update Sidebar Context
+            if (guildId && userServers) {
+                const currentServer = userServers.find(s => (s.id || s.guildId) === guildId);
+                if (currentServer) {
+                    document.getElementById('sidebar-selected-name').textContent = currentServer.name;
+                    if (currentServer.iconUrl) {
+                        document.getElementById('sidebar-selected-icon').innerHTML = `<img src="${currentServer.iconUrl}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+                    } else {
+                        const initials = currentServer.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase() || '?';
+                        document.getElementById('sidebar-selected-icon').innerHTML = `<div class="fallback-icon">${initials}</div>`;
+                    }
+                }
+            } else {
+                document.getElementById('sidebar-selected-name').textContent = "Personal Dashboard";
+                document.getElementById('sidebar-selected-icon').innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+            }
+
+            // Sync Dropdown Active State
+            if (filteredServers) renderServerList(filteredServers);
+
+            // Update visible platform/integration states
+            updatePlatformCards();
+        }
+
+        window.addEventListener('popstate', (e) => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const stateGuildId = urlParams.get('guild_id') || '';
+            if (stateGuildId !== guildId) {
+                switchDashboardContext(stateGuildId);
+            }
+        });
         const SETTINGS_TOUCHED_STORAGE_PREFIX = 'yucp_dashboard_settings_touched:';
         const QUICK_START_DISMISS_STORAGE_PREFIX = 'yucp_dashboard_quick_start_dismissed:';
         const SETUP_COMPLETE_STORAGE_PREFIX = 'yucp_dashboard_setup_completed:';
@@ -5092,13 +5318,17 @@
         }
 
         function dismissQuickStart() {
-            const state = getQuickStartState();
-            quickStartSignature = state.signature;
-            document.getElementById('quick-start-card')?.classList.add('is-hidden');
             try {
-                localStorage.setItem(getTenantStorageKey(QUICK_START_DISMISS_STORAGE_PREFIX), state.signature);
+                localStorage.setItem(getTenantStorageKey(QUICK_START_DISMISS_STORAGE_PREFIX), 'dismissed');
             } catch { }
+            const modal = document.getElementById('onboarding-wizard-modal');
+            if (modal) {
+                modal.classList.remove('open');
+                setTimeout(() => modal.remove(), 300);
+            }
         }
+
+        window.dismissQuickStart = dismissQuickStart;
 
         function scrollToSection(sectionId) {
             const target = document.getElementById(sectionId);
@@ -5109,15 +5339,12 @@
         }
 
         function renderQuickStart() {
-            const card = document.getElementById('quick-start-card');
-            const pill = document.getElementById('quick-start-pill');
-            const title = document.getElementById('quick-start-title');
-            const summary = document.getElementById('quick-start-summary');
-            const fill = document.getElementById('quick-start-progress-fill');
-            const stepsEl = document.getElementById('quick-start-steps');
-            if (!card || !pill || !title || !summary || !fill || !stepsEl) return;
-
             const state = getQuickStartState();
+
+            // Check newly completed milestones to show confetti even if wizard is gone
+            const newlyCompletedMilestones = getNewlyCompletedMilestones(state);
+            newlyCompletedMilestones.forEach(milestoneId => celebrateMilestone(milestoneId));
+
             const dismissedSignature = (() => {
                 try {
                     return localStorage.getItem(getTenantStorageKey(QUICK_START_DISMISS_STORAGE_PREFIX)) || '';
@@ -5126,58 +5353,49 @@
                 }
             })();
 
-            if (dismissedSignature === state.signature) {
-                card.classList.add('is-hidden');
-            } else {
-                card.classList.remove('is-hidden');
+            if (state.done || dismissedSignature === 'dismissed' || state.storesDone) {
+                const existing = document.getElementById('onboarding-wizard-modal');
+                if (existing) existing.remove();
+                return;
             }
 
-            if (quickStartSignature && quickStartSignature !== state.signature) {
-                card.classList.remove('is-hidden');
-            }
+            if (!document.getElementById('onboarding-wizard-modal')) {
+                const modal = document.createElement('div');
+                modal.className = 'inline-panel open';
+                modal.id = 'onboarding-wizard-modal';
 
-            quickStartSignature = state.signature;
-            const newlyCompletedMilestones = getNewlyCompletedMilestones(state);
-            pill.innerHTML = `${state.completedCount} of 3 complete <strong>${state.progressPercent}%</strong>`;
-            title.textContent = state.title;
-            summary.textContent = state.summary;
-            fill.style.width = `${state.progressPercent}%`;
-
-            stepsEl.replaceChildren();
-            state.steps.forEach((step) => {
-                const item = document.createElement('article');
-                item.className = `quick-start-step is-${step.state}`;
-                item.dataset.stepId = step.id;
-
-                item.innerHTML = `
-                    <div class="quick-start-step-header">
-                        <div class="quick-start-step-number">${step.number}</div>
-                        <div class="quick-start-step-state">${step.label}</div>
-                    </div>
-                    <div class="quick-start-step-title">${step.title}</div>
-                    <div class="quick-start-step-body">${step.body}</div>
-                    <div class="quick-start-step-footer">
-                        <div class="quick-start-step-meta">${step.meta}</div>
-                        <button class="quick-start-jump ${step.state === 'complete' || step.state === 'active' ? 'is-ready' : ''}" type="button">
-                            ${step.action}
-                        </button>
+                modal.innerHTML = `
+                    <div class="inline-panel-inner" style="max-width: 480px; text-align: center;">
+                        <div class="inline-panel-body" style="padding: 32px 24px;">
+                            <div style="margin: 0 auto 20px; width: 56px; height: 56px; border-radius: 16px; background: rgba(14,165,233,0.1); color: #0ea5e9; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 20px rgba(14,165,233,0.2);">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M5 12h14M12 5l7 7-7 7" />
+                                </svg>
+                            </div>
+                            <h2 style="font-size: 24px; font-weight: 800; font-family: 'Plus Jakarta Sans', sans-serif; margin: 0 0 12px; color: white;">Welcome to Creator Assistant</h2>
+                            <p style="font-size: 15px; color: rgba(255,255,255,0.7); font-family: 'DM Sans', sans-serif; line-height: 1.6; margin-bottom: 32px; padding: 0 10px;">
+                                Let's get your dashboard set up. First, connect the storefront you sell through so we can automatically verify your buyers and assign them roles in Discord.
+                            </p>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
+                                <button onclick="navigateGumroad()" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+                                    <img src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460" style="width: 20px; border-radius: 4px;" alt="">
+                                    Connect Gumroad
+                                </button>
+                                <button onclick="navigateJinxxy()" style="background: rgba(145,70,255,0.1); border: 1px solid rgba(145,70,255,0.3); color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(145,70,255,0.2)'" onmouseout="this.style.background='rgba(145,70,255,0.1)'">
+                                    <img src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483" style="width: 20px; border-radius: 4px;" alt="">
+                                    Connect Jinxxy
+                                </button>
+                            </div>
+                            
+                            <button onclick="dismissQuickStart()" style="background: transparent; color: rgba(255,255,255,0.4); border: none; font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 4px;">
+                                I'll set this up later
+                            </button>
+                        </div>
                     </div>
                 `;
-
-                item.querySelector('.quick-start-jump')?.addEventListener('click', () => {
-                    scrollToSection(step.sectionId);
-                });
-                stepsEl.appendChild(item);
-            });
-
-            newlyCompletedMilestones.forEach((milestoneId) => {
-                celebrateMilestone(milestoneId);
-                const stepEl = stepsEl.querySelector(`[data-step-id="${milestoneId}"]`);
-                if (stepEl) {
-                    stepEl.classList.add('pop');
-                    setTimeout(() => stepEl.classList.remove('pop'), 720);
-                }
-            });
+                document.body.appendChild(modal);
+            }
         }
 
         function redirectToExpiredLinkError() {
@@ -5386,13 +5604,7 @@
             const btn = document.getElementById(`${platform}-btn`);
             if (!card || !status || !btn) return;
 
-            // In Server View, hide unconfigured platforms
-            if (guildId && !isLinked) {
-                card.style.display = 'none';
-                return;
-            } else {
-                card.style.display = 'flex'; // Reset to flex to match bento grid items
-            }
+            card.style.display = 'flex'; // Always show in personal view
 
             if (isLinked) {
                 card.classList.remove('disconnected');
@@ -5400,25 +5612,10 @@
                 status.className = 'status-pill connected';
                 status.innerText = 'Connected';
 
-                // In Server view, show "Enable for Store" toggle. In Personal view, show "Disconnect"
-                if (guildId) {
-                    btn.className = 'card-action-btn store-toggle';
-                    // We mock the state here. In reality, it would read from a server-integration store.
-                    const isEnabled = card.dataset.storeEnabled === 'true';
-                    btn.innerText = isEnabled ? 'Disable for Store' : 'Enable for Store';
-                    btn.style.backgroundColor = isEnabled ? 'rgba(255, 255, 255, 0.1)' : 'var(--accent-sky)';
-                    btn.style.color = 'white';
-                    btn.onclick = () => {
-                        card.dataset.storeEnabled = !isEnabled;
-                        updateCard(platform, isLinked); // re-render
-                    };
-                } else {
-                    btn.className = 'card-action-btn disconnect';
-                    btn.innerText = 'Disconnect';
-                    btn.style = ''; // reset inline styles
-                    btn.onclick = () => openModal(platform);
-                }
-
+                btn.className = 'card-action-btn disconnect';
+                btn.innerText = 'Disconnect';
+                btn.style = ''; // reset inline styles
+                btn.onclick = () => openModal(platform);
             } else {
                 card.classList.add('disconnected');
                 card.classList.remove('connected');
@@ -5431,6 +5628,18 @@
                     if (platform === 'gumroad') navigateGumroad();
                     else if (platform === 'jinxxy') navigateJinxxy();
                 };
+            }
+
+            // Sync server toggles dynamically
+            const tGumroad = document.getElementById('server-tile-gumroad');
+            const tJinxxy = document.getElementById('server-tile-jinxxy');
+            const sEmpty = document.getElementById('server-integrations-empty');
+            if (tGumroad && tJinxxy && sEmpty) {
+                const hasGumroad = connectionsMap.has('gumroad');
+                const hasJinxxy = connectionsMap.has('jinxxy');
+                tGumroad.style.display = hasGumroad ? 'flex' : 'none';
+                tJinxxy.style.display = hasJinxxy ? 'flex' : 'none';
+                sEmpty.style.display = (hasGumroad || hasJinxxy) ? 'none' : 'block';
             }
         }
 
@@ -5759,8 +5968,13 @@
 
         function showInviteModal(url, expiresAt) {
             currentInviteUrl = url;
-            const maskedUrl = url.length > 36 ? `${url.slice(0, 18)}…${url.slice(-12)}` : url;
-            document.getElementById('invite-url-display').textContent = maskedUrl;
+            document.getElementById('invite-url-display').textContent = url;
+
+            const msgTemplate = document.getElementById('invite-message-template');
+            if (msgTemplate) {
+                msgTemplate.value = `Hey! Join as a creator to link your storefront and grant automatic roles to your customers on the server. Here is your unique invite:\n${url}`;
+            }
+
             if (expiresAt) {
                 const d = new Date(expiresAt);
                 document.getElementById('invite-expiry').textContent = `Expires ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
@@ -5774,6 +5988,19 @@
             document.getElementById('invite-panel').classList.remove('open');
         }
 
+        async function copyInviteMessage(btnEle) {
+            const templateText = document.getElementById('invite-message-template')?.value;
+            if (!templateText) return;
+            try {
+                await navigator.clipboard.writeText(templateText);
+                if (btnEle) {
+                    const origHtml = btnEle.innerHTML;
+                    btnEle.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied!`;
+                    setTimeout(() => { btnEle.innerHTML = origHtml; }, 2000);
+                }
+            } catch { /* silent */ }
+        }
+
         async function copyInviteUrl() {
             const url = currentInviteUrl;
             if (!url) return;
@@ -5781,8 +6008,8 @@
                 await navigator.clipboard.writeText(url);
                 const btn = document.getElementById('copy-invite-btn');
                 const orig = btn.innerHTML;
-                btn.textContent = 'Copied!';
-                setTimeout(() => { btn.innerHTML = orig; }, 2000);
+                btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                setTimeout(() => { btn.innerHTML = orig; }, 2200);
             } catch { /* silent */ }
         }
 
@@ -6018,49 +6245,70 @@
 
         function showApiKeyReveal(apiKey, keyName) {
             const list = document.getElementById('api-keys-list');
-            const existing = document.getElementById('api-key-reveal-card');
+            const existing = document.getElementById('api-key-reveal-panel');
             if (existing) existing.remove();
 
-            const card = document.createElement('div');
-            card.className = 'reveal-card';
-            card.id = 'api-key-reveal-card';
-            card.innerHTML = `
-                <div class="reveal-card-header">
-                    <div class="reveal-card-icon">
-                        <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    </div>
-                    <div style="flex:1;">
-                        <div class="reveal-card-title">Key created — ${keyName || 'New key'}</div>
-                        <div class="reveal-card-subtitle">Copy it now, this is the only time you'll see it</div>
+            const panel = document.createElement('div');
+            panel.className = 'inline-panel open';
+            panel.id = 'api-key-reveal-panel';
+            panel.innerHTML = `
+                <div class="inline-panel-inner">
+                    <div class="inline-panel-body" style="text-align:center;">
+                        <div style="margin-bottom:20px;">
+                            <div class="intg-icon" style="margin:0 auto 16px;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                                </svg>
+                            </div>
+                            <h3 style="font-size:20px; font-weight:800; font-family:'Plus Jakarta Sans',sans-serif; margin:0 0 8px; color:white;">Key created — ${escHtml(keyName || 'New key')}</h3>
+                            <p style="font-size:14px; color:rgba(255,255,255,0.7); margin:0;">Copy it now, this is the only time you'll see it</p>
+                        </div>
+                        <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:12px; padding:12px; margin-bottom:20px; text-align:left; display:flex; gap:12px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                            <p style="font-size:13px; color:#fca5a5; margin:0;">This key <strong>cannot be recovered</strong> after closing. Store it in a secure location.</p>
+                        </div>
+                        <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px; margin-bottom:24px; text-align:left;">
+                            <div style="font-size:12px; color:rgba(255,255,255,0.5); font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">API Key</div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span id="api-key-reveal-value" style="font-family:'DM Mono',monospace; font-size:14px; color:#fff; word-break:break-all; flex:1;">${escHtml(apiKey)}</span>
+                                <button id="api-key-reveal-copy" style="background:rgba(255,255,255,0.1); border:none; width:36px; height:36px; border-radius:8px; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s;" title="Copy key">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:12px; margin-bottom:24px; text-align:left; background:rgba(255,255,255,0.03); border-radius:12px; padding:12px 16px;">
+                            <input type="checkbox" id="api-key-copied-check" style="width:18px; height:18px; accent-color:#0ea5e9; cursor:pointer;" aria-label="Confirm copy">
+                            <label for="api-key-copied-check" style="font-size:14px; color:#e2e8f0; cursor:pointer; user-select:none; font-family:'DM Sans',sans-serif; margin:0;">I have securely copied this secret key</label>
+                        </div>
+                        <button id="api-key-reveal-done" style="width:100%; justify-content:center; background:#0ea5e9; color:#fff; border:none; padding:12px 24px; font-size:15px; font-weight:700; border-radius:12px; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; transition:all 0.2s; opacity:0.5; pointer-events:none; display:flex; align-items:center;">Done — Close window</button>
                     </div>
                 </div>
-                <div class="reveal-warn">
-                    <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <p>This key <strong>cannot be recovered</strong> after closing. Store it in a secure location.</p>
-                </div>
-                <div class="cred-block">
-                    <div class="cred-block-label">API Key</div>
-                    <div class="cred-box">
-                        <span class="cred-value" id="api-key-reveal-value">${apiKey}</span>
-                        <button class="cred-copy" id="api-key-reveal-copy" title="Copy key">
-                            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                        </button>
-                    </div>
-                </div>
-                <button class="reveal-done-btn" id="api-key-reveal-done">Done — I've saved my key</button>
             `;
-            list.prepend(card);
+            document.body.appendChild(panel);
             list.classList.remove('hidden');
             document.getElementById('api-keys-empty')?.classList.add('hidden');
 
-            document.getElementById('api-key-reveal-copy').addEventListener('click', async () => {
-                await copyText(apiKey, document.getElementById('api-key-reveal-copy'));
+            const checkbox = document.getElementById('api-key-copied-check');
+            const doneBtn = document.getElementById('api-key-reveal-done');
+
+            checkbox.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    doneBtn.style.opacity = '1';
+                    doneBtn.style.pointerEvents = 'auto';
+                } else {
+                    doneBtn.style.opacity = '0.5';
+                    doneBtn.style.pointerEvents = 'none';
+                }
             });
-            document.getElementById('api-key-reveal-done').addEventListener('click', () => {
-                card.style.transition = 'opacity 0.3s, transform 0.3s';
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(-8px)';
-                setTimeout(() => { card.remove(); currentApiKeyValue = ''; }, 320);
+
+            document.getElementById('api-key-reveal-copy').addEventListener('click', async () => {
+                await copyText(apiKey, document.getElementById('api-key-reveal-copy'), 'Copied!');
+            });
+            doneBtn.addEventListener('click', () => {
+                panel.classList.remove('open');
+                setTimeout(() => { panel.remove(); currentApiKeyValue = ''; }, 320);
             });
         }
 
@@ -6491,49 +6739,75 @@
 
         function showOAuthCredentialsReveal(clientId, clientSecret, appName) {
             const list = document.getElementById('oauth-apps-list');
-            const existing = document.getElementById('oauth-creds-reveal-card');
+            const existing = document.getElementById('oauth-creds-reveal-panel');
             if (existing) existing.remove();
 
-            const card = document.createElement('div');
-            card.className = 'reveal-card';
-            card.id = 'oauth-creds-reveal-card';
-            card.innerHTML = `
-                <div class="reveal-card-header">
-                    <div class="reveal-card-icon">
-                        <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    </div>
-                    <div style="flex:1;">
-                        <div class="reveal-card-title">${escHtml(appName || 'App')} credentials</div>
-                        <div class="reveal-card-subtitle">Copy your credentials — the secret won't appear again</div>
+            const panel = document.createElement('div');
+            panel.className = 'inline-panel open';
+            panel.id = 'oauth-creds-reveal-panel';
+            panel.innerHTML = `
+                <div class="inline-panel-inner">
+                    <div class="inline-panel-body" style="text-align:center;">
+                        <div style="margin-bottom:20px;">
+                            <div class="intg-icon" style="margin:0 auto 16px;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                </svg>
+                            </div>
+                            <h3 style="font-size:20px; font-weight:800; font-family:'Plus Jakarta Sans',sans-serif; margin:0 0 8px; color:white;">${escHtml(appName || 'App')} credentials</h3>
+                            <p style="font-size:14px; color:rgba(255,255,255,0.7); margin:0;">Copy your credentials — the secret won't appear again</p>
+                        </div>
+                        <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:12px; padding:12px; margin-bottom:20px; text-align:left; display:flex; gap:12px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                            <p style="font-size:13px; color:#fca5a5; margin:0;">The <strong>Client Secret</strong> is shown once only. Save it in a secure location before closing.</p>
+                        </div>
+                        
+                        <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px; margin-bottom:12px; text-align:left;">
+                            <div style="font-size:12px; color:rgba(255,255,255,0.5); font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">Client ID</div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-family:'DM Mono',monospace; font-size:14px; color:#fff; word-break:break-all; flex:1;">${escHtml(clientId)}</span>
+                                <button id="oauth-reveal-copy-id" style="background:rgba(255,255,255,0.1); border:none; width:36px; height:36px; border-radius:8px; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s;" title="Copy ID">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px; margin-bottom:24px; text-align:left;">
+                            <div style="font-size:12px; color:rgba(255,255,255,0.5); font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">Client Secret</div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-family:'DM Mono',monospace; font-size:14px; color:#fff; word-break:break-all; flex:1;">${escHtml(clientSecret)}</span>
+                                <button id="oauth-reveal-copy-secret" style="background:rgba(255,255,255,0.1); border:none; width:36px; height:36px; border-radius:8px; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s;" title="Copy Secret">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:12px; margin-bottom:24px; text-align:left; background:rgba(255,255,255,0.03); border-radius:12px; padding:12px 16px;">
+                            <input type="checkbox" id="oauth-copied-check" style="width:18px; height:18px; accent-color:#0ea5e9; cursor:pointer;" aria-label="Confirm copy">
+                            <label for="oauth-copied-check" style="font-size:14px; color:#e2e8f0; cursor:pointer; user-select:none; font-family:'DM Sans',sans-serif; margin:0;">I have securely copied this secret</label>
+                        </div>
+                        <button id="oauth-reveal-done" style="width:100%; justify-content:center; background:#0ea5e9; color:#fff; border:none; padding:12px 24px; font-size:15px; font-weight:700; border-radius:12px; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; transition:all 0.2s; opacity:0.5; pointer-events:none; display:flex; align-items:center;">Done — Close window</button>
                     </div>
                 </div>
-                <div class="reveal-warn">
-                    <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <p>The <strong>Client Secret</strong> is shown once only. Save it in a secure location before closing.</p>
-                </div>
-                <div class="cred-block">
-                    <div class="cred-block-label">Client ID</div>
-                    <div class="cred-box">
-                        <span class="cred-value" id="oauth-reveal-client-id">${escHtml(clientId)}</span>
-                        <button class="cred-copy" id="oauth-reveal-copy-id" title="Copy">
-                            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                        </button>
-                    </div>
-                </div>
-                <div class="cred-block">
-                    <div class="cred-block-label">Client Secret</div>
-                    <div class="cred-box cred-box--secret">
-                        <span class="cred-value" id="oauth-reveal-client-secret">${escHtml(clientSecret)}</span>
-                        <button class="cred-copy" id="oauth-reveal-copy-secret" title="Copy">
-                            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                        </button>
-                    </div>
-                </div>
-                <button class="reveal-done-btn" id="oauth-reveal-done">Done — I've saved my credentials</button>
             `;
-            list.prepend(card);
+            document.body.appendChild(panel);
             list.classList.remove('hidden');
             document.getElementById('oauth-apps-empty')?.classList.add('hidden');
+
+            const checkbox = document.getElementById('oauth-copied-check');
+            const doneBtn = document.getElementById('oauth-reveal-done');
+
+            checkbox.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    doneBtn.style.opacity = '1';
+                    doneBtn.style.pointerEvents = 'auto';
+                } else {
+                    doneBtn.style.opacity = '0.5';
+                    doneBtn.style.pointerEvents = 'none';
+                }
+            });
 
             document.getElementById('oauth-reveal-copy-id').addEventListener('click', () => {
                 copyText(clientId, document.getElementById('oauth-reveal-copy-id'));
@@ -6541,11 +6815,9 @@
             document.getElementById('oauth-reveal-copy-secret').addEventListener('click', () => {
                 copyText(clientSecret, document.getElementById('oauth-reveal-copy-secret'));
             });
-            document.getElementById('oauth-reveal-done').addEventListener('click', () => {
-                card.style.transition = 'opacity 0.3s, transform 0.3s';
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(-8px)';
-                setTimeout(() => card.remove(), 320);
+            doneBtn.addEventListener('click', () => {
+                panel.classList.remove('open');
+                setTimeout(() => { panel.remove(); }, 320);
             });
         }
 
@@ -6693,9 +6965,7 @@
             personalBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 menu.classList.remove('open');
-                const cleanParams = new URLSearchParams(window.location.search);
-                cleanParams.delete('guild_id');
-                window.location.href = `${window.location.pathname}?${cleanParams.toString()}`;
+                switchDashboardContext('');
             });
 
             // Set initial selected visual text
@@ -6735,20 +7005,18 @@
                             throw new Error('Endpoint not found, mocked data for preview');
                         }
                     } catch (e) {
-                        console.warn("Server fetch failed, inserting placeholder data for schema visualization", e);
-                        userServers = [
-                            { id: '1458860898234929315', name: 'Creator Community', iconUrl: '' },
-                            { id: '123456789012345678', name: 'Support Server', iconUrl: '' }
-                        ];
+                        console.warn("Server fetch failed", e);
+                        userServers = [];
                     }
                 }
 
                 filteredServers = [...userServers];
                 renderServerList(filteredServers);
+                renderParticipatingServers(filteredServers);
 
                 // Update selected name if guildId is present
                 if (guildId && userServers.length > 0) {
-                    const currentServer = userServers.find(s => s.id === guildId);
+                    const currentServer = userServers.find(s => (s.id || s.guildId) === guildId);
                     if (currentServer) {
                         document.getElementById('sidebar-selected-name').textContent = currentServer.name;
                         if (currentServer.iconUrl) {
@@ -6795,20 +7063,79 @@
                 item.addEventListener('click', (e) => {
                     e.stopPropagation();
                     document.getElementById('server-dropdown-menu').classList.remove('open');
-
-                    if (server.id !== guildId) {
-                        const urlParams = new URLSearchParams(window.location.search);
-                        urlParams.set('guild_id', server.id);
-                        if (!urlParams.has('tenant_id') && tenantId) urlParams.set('tenant_id', tenantId);
-
-                        window.location.href = `${window.location.pathname}?${urlParams.toString()}`;
-                    }
+                    switchDashboardContext(server.id);
                 });
 
                 frag.appendChild(item);
             });
 
             listEl.appendChild(frag);
+        }
+
+        function renderParticipatingServers(servers) {
+            const section = document.getElementById('collab-servers-section');
+            if (!section) return;
+
+            let container = document.getElementById('participating-servers-list');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'participating-servers-list';
+                container.className = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4';
+                section.appendChild(container);
+            }
+
+            container.innerHTML = '';
+
+            if (!servers || servers.length === 0) {
+                container.innerHTML = `
+                    <div class="bento-col-12 empty-state" style="margin: 0; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05);">
+                        <div class="intg-icon" style="margin: 0 auto 16px; width: 40px; height: 40px; background: rgba(14,165,233,0.1); color: #0ea5e9;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M5 12h14M12 5l7 7-7 7" />
+                            </svg>
+                        </div>
+                        <p class="text-sm font-bold text-white mb-2" style="font-family:'Plus Jakarta Sans',sans-serif; font-size: 16px;">No participating servers</p>
+                        <p class="text-white/50 max-w-sm mx-auto mb-6" style="font-family:'DM Sans',sans-serif; font-size: 13px; line-height:1.5;">You aren't managing any servers yet. Install the Assistant to your server to connect your storefront data.</p>
+                        <button class="btn-primary" onclick="window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')" style="margin: 0 auto; background: #0ea5e9; color: #fff; border: none; padding: 10px 20px; font-weight: 700; border-radius: 8px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+                                <path d="M12 5v14M5 12h14"/>
+                            </svg>
+                            Add Assistant to Server
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            servers.forEach(server => {
+                const sId = server.id || server.guildId;
+                const sIcon = server.iconUrl || server.icon;
+                const card = document.createElement('div');
+                card.className = 'platform-card connected flex items-center gap-3 cursor-pointer hover:bg-white/5 transition-colors';
+                card.style.padding = '12px 16px';
+
+                let iconHtml = '';
+                if (sIcon) {
+                    iconHtml = `<img src="${sIcon}" class="w-10 h-10 rounded-full object-cover">`;
+                } else {
+                    const initials = (server.name || '?').split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase() || '?';
+                    iconHtml = `<div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center font-bold text-white/70">${initials}</div>`;
+                }
+
+                card.innerHTML = `
+                    ${iconHtml}
+                    <div style="flex:1;min-width:0;">
+                        <div class="font-bold text-base text-white truncate">${escHtml(server.name || 'Unnamed')}</div>
+                        <div class="text-xs text-white/50">Manage Settings ➔</div>
+                    </div>
+                `;
+
+                card.addEventListener('click', () => {
+                    switchDashboardContext(sId);
+                });
+
+                container.appendChild(card);
+            });
         }
 
         const params = new URLSearchParams(window.location.search);
@@ -6921,6 +7248,9 @@
         if (fgRoot) createRoot(fgRoot).render(<ForegroundApp />);
     </script>
 
+</body>
+
+</html>
 </body>
 
 </html>

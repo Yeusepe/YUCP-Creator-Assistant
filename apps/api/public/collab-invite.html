@@ -12,8 +12,6 @@
     <link rel="stylesheet" href="./tokens.css">
     <link rel="stylesheet" href="/assets/collab-invite/collab-invite.css">
     <style>
-        
-
         :root {
             --text-primary: #ffffff;
             --text-secondary: rgba(255, 255, 255, 0.8);
@@ -112,7 +110,8 @@
             border-radius: 8px;
             color: white;
             padding: 12px 16px;
-            font-size: 16px; /* Prevents iOS zoom on focus */
+            font-size: 16px;
+            /* Prevents iOS zoom on focus */
             width: 100%;
             font-family: 'DM Sans', sans-serif;
             transition: border-color 0.2s;
@@ -284,11 +283,37 @@
 <body class="flex flex-col items-center justify-center min-h-screen p-4 py-8">
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
         style="background-color: var(--bg-color);">
-        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8" />
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant"
+            class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
     </div>
     <div id="page-content" style="display: none;">
+        <a id="back-to-dashboard-btn" href="#"
+            class="fixed top-6 left-6 z-[100] inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-[rgba(255,255,255,0.8)] hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
+            style="display:none; text-decoration: none;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Back to Dashboard
+        </a>
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const urlParams = new URLSearchParams(window.location.search);
+                const tId = urlParams.get('tenant_id') || urlParams.get('tenantId') || (typeof TENANT_ID !== 'undefined' ? TENANT_ID : '');
+                const gId = urlParams.get('guild_id') || urlParams.get('guildId') || (typeof GUILD_ID !== 'undefined' ? GUILD_ID : '');
+                if (tId && tId !== '__TENANT_ID__') {
+                    const btn = document.getElementById('back-to-dashboard-btn');
+                    btn.style.display = 'inline-flex';
+                    const apiBaseUrl = (typeof API_BASE !== 'undefined' && API_BASE !== '__API_BASE__') ? API_BASE : '';
+                    const dashboardUrl = new URL(apiBaseUrl + '/dashboard', window.location.origin);
+                    dashboardUrl.searchParams.set('tenant_id', tId);
+                    if (gId && gId !== '__GUILD_ID__') dashboardUrl.searchParams.set('guild_id', gId);
+                    btn.href = dashboardUrl.toString();
+                }
+            });
+        </script>
         <div id="bg-canvas-root"
             style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
         </div>
@@ -507,7 +532,8 @@
                         <h2 class="text-xl font-heading font-bold mb-2">Add a new webhook</h2>
                         <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.6;">Click
                             <strong style="color:white;">New Webhook</strong> in Jinxxy™, paste the callback URL, then
-                            create your own signing secret and paste the same value here.</p>
+                            create your own signing secret and paste the same value here.
+                        </p>
                         <div class="space-y-3 mb-5">
                             <div>
                                 <label class="block text-xs font-bold mb-1.5"
@@ -656,8 +682,8 @@
                         </div>
                         <h2 class="text-xl font-heading font-bold mb-2">Create and paste your API key</h2>
                         <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.7;">
-                            In Jinxxy™, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong
-                                style="color:white;">New API Key</strong>. Enable these scopes: <code
+                            In Jinxxy™, go to <strong style="color:white;">Settings → API Keys</strong> and click
+                            <strong style="color:white;">New API Key</strong>. Enable these scopes: <code
                                 style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code>
                             <code
                                 style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code>
@@ -739,7 +765,8 @@
                     <div id="api-form-reuse-notice" class="hidden mb-3">
                         <p class="text-sm" style="color:rgba(67,181,129,0.9);display:flex;align-items:center;gap:6px;">
                             <img src="__API_BASE__/Icons/Checkmark.png" width="14" height="14" alt=""> Using your
-                            previously saved API key - no need to re-enter it.</p>
+                            previously saved API key - no need to re-enter it.
+                        </p>
                     </div>
 
                     <div id="api-form-key-group" class="mb-3">

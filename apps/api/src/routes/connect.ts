@@ -420,11 +420,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function requireBoundSetupSession(request: Request): Promise<
     | {
-        ok: true;
-        setupSession: { tenantId: string; guildId: string; discordUserId: string };
-        authSession: NonNullable<Awaited<ReturnType<typeof auth.getSession>>>;
-        authDiscordUserId: string;
-      }
+      ok: true;
+      setupSession: { tenantId: string; guildId: string; discordUserId: string };
+      authSession: NonNullable<Awaited<ReturnType<typeof auth.getSession>>>;
+      authDiscordUserId: string;
+    }
     | { ok: false; response: Response }
   > {
     const setupSession = await resolveSetupSessionFromRequest(request);
@@ -2129,12 +2129,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         body.name === undefined
           ? undefined
           : (() => {
-              const value = body.name?.trim() ?? '';
-              if (!value) {
-                throw new Error('name cannot be empty');
-              }
-              return value;
-            })();
+            const value = body.name?.trim() ?? '';
+            if (!value) {
+              throw new Error('name cannot be empty');
+            }
+            return value;
+          })();
       const nextRedirectUris =
         body.redirectUris === undefined ? undefined : normalizeRedirectUris(body.redirectUris);
       const nextScopes = body.scopes === undefined ? undefined : normalizeOAuthScopes(body.scopes);
@@ -2641,6 +2641,32 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
+   * GET /api/connect/user/guilds
+   * Returns a list of servers the user is an admin of
+   */
+  async function getUserGuilds(request: Request): Promise<Response> {
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const userGuilds = await convex.query(api.guildLinks.getUserGuilds, {
+        apiSecret: config.convexApiSecret,
+        authUserId: session.user.id,
+      });
+
+      return Response.json({ guilds: userGuilds });
+    } catch (err) {
+      logger.error('Failed to get user guilds', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to fetch user guilds' }, { status: 500 });
+    }
+  }
+
+  /**
    * GET /api/setup/discord-role-result
    * Called by the bot's "Done" button handler. Returns the saved selection if complete.
    */
@@ -2737,6 +2763,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     getDiscordRoleGuilds,
     saveDiscordRoleSelection,
     getDiscordRoleResult,
+    getUserGuilds,
   };
 }
 

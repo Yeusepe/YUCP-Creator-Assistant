@@ -1,40 +1,50 @@
 /**
  * YUCP Certificate Authority — HTTP routes (Convex HTTP router).
  *
- * Routes:
+ * Public API routes follow Spotify/GitHub/Stripe conventions: versioned (/v1/),
+ * noun-based resources, and /v1/me for the authenticated current user.
  *
- *   POST /api/yucp/certificates/issue
- *        Issue a certificate for a YUCP creator. Auth uses the YUCP OAuth
- *        provider (PKCE flow from Unity Editor). The cert is anchored to the
- *        creator's Better Auth user ID (yucpUserId), not to any single storefront.
- *        Auth: Authorization: Bearer <oauth_access_token>
- *        Required scope: cert:issue   Audience: yucp-public-api
+ * Public API (Authorization: Bearer <oauth_access_token>):
+ *
+ *   GET  /v1/me
+ *        Returns the authenticated creator's profile (sub, name, email).
+ *        Like Spotify GET /v1/me — token identifies "me".
+ *
+ *   POST /v1/certificates
+ *        Issue a signing certificate for the authenticated creator.
+ *        Scope: cert:issue   Audience: yucp-public-api
  *        Body: { devPublicKey (base64 Ed25519), publisherName }
  *        Returns: { success, certificate: CertEnvelope }
  *
- *   GET  /api/yucp/packages/by-hash/:hash
- *        Consumer verification (Layer 3): Unity client calls this before loading a package.
+ *   GET  /v1/packages/:hash
+ *        Consumer verification: look up a package by its content SHA-256.
  *        Returns { known, status, publisherId, packageId, certData?, ownershipConflict, ... }
  *
- *   POST /api/yucp/sign-manifest
- *        Transparency log registration (Layer 2).
+ *   POST /v1/signatures
+ *        Transparency log: register a signed package manifest (Layer 2).
  *        Auth: Authorization: Bearer <base64(JSON cert envelope)>
  *        Body: { packageId, contentHash, packageVersion? }
  *
- *   POST /api/yucp/certificates/revoke
- *        Admin: revoke a certificate by nonce.
- *        Auth: Authorization: Bearer <CONVEX_API_SECRET>
+ * Admin routes (Authorization: Bearer <CONVEX_API_SECRET>):
+ *
+ *   POST /v1/certificates/revoke
+ *        Revoke a certificate by nonce.
  *        Body: { certNonce, reason }
  *
- * OAuth references:
+ * OAuth infrastructure (not public API — these are part of the PKCE flow):
+ *   GET  /api/yucp/oauth/authorize  — loopback port proxy (RFC 8252)
+ *   GET  /api/yucp/oauth/callback   — restores original loopback port
+ *
+ * References:
  *   PKCE flow          https://www.rfc-editor.org/rfc/rfc7636
  *   RFC 9700 best prac https://www.ietf.org/rfc/rfc9700.html
  *   Sigstore design    https://docs.sigstore.dev/about/overview/
+ *   Spotify /v1/me     https://developer.spotify.com/documentation/web-api/reference/get-current-users-profile
  */
 
 import { httpRouter } from 'convex/server';
 import { httpAction } from './_generated/server';
-import { internal, api } from './_generated/api';
+import { internal, api, components } from './_generated/api';
 import { authComponent, createAuth } from './auth';
 import {
   verifyCertEnvelope,
@@ -86,20 +96,29 @@ async function parseBearerCert(
 }
 
 /**
- * Verify a YUCP OAuth Bearer access token and return the authenticated user ID.
+ * Verify a YUCP OAuth Bearer access token and return the authenticated user ID
+ * plus any profile claims embedded in the token (name, email).
  *
- * Uses Better Auth's JWKS endpoint (same approach as apps/api/src/lib/oauthAccessToken.ts).
- * The token must have audience "yucp-public-api" and scope "cert:issue".
+ * The token is a JWT issued by Better Auth's oauth-provider plugin.
+ * Profile claims (name, email) are embedded via customAccessTokenClaims so
+ * that callers never need a secondary DB lookup — the token is the source of truth.
  *
  * Reference: https://www.rfc-editor.org/rfc/rfc9700.html (OAuth 2.0 Security BCP)
  */
 async function verifyOAuthToken(
   token: string,
   siteUrl: string,
-): Promise<{ ok: true; yucpUserId: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; yucpUserId: string; name: string | null; email: string | null } | { ok: false; error: string }> {
   try {
     const { verifyAccessToken } = await import('better-auth/oauth2');
     const authBase = `${siteUrl.replace(/\/$/, '')}/api/auth`;
+
+    // Detect token type for diagnostics: JWTs are 3 dot-separated base64 segments
+    const isJwtShape = (token.match(/\./g) ?? []).length === 2;
+    console.log('[verifyOAuthToken] token_type=' + (isJwtShape ? 'jwt' : 'opaque')
+      + ' length=' + token.length
+      + ' issuer=' + authBase);
+
     const verified = await verifyAccessToken(token, {
       verifyOptions: {
         issuer: authBase,
@@ -109,20 +128,28 @@ async function verifyOAuthToken(
     });
 
     // Require cert:issue scope (or verification:read as fallback for legacy tokens)
-    const scope: string = ((verified as Record<string, unknown>).scope as string) ?? '';
+    const claims = verified as Record<string, unknown>;
+    const scope: string = (claims.scope as string) ?? '';
     const scopes = scope.split(' ');
+    console.log('[verifyOAuthToken] verified ok, scopes=' + scope);
     if (!scopes.includes('cert:issue') && !scopes.includes('verification:read')) {
       return { ok: false, error: 'Token missing required scope: cert:issue' };
     }
 
     // Better Auth puts the user ID in auth_user_id (custom claim) and sub
-    const userId =
-      ((verified as Record<string, unknown>).auth_user_id as string) ?? (verified as { sub?: string }).sub;
+    const userId = (claims.auth_user_id as string) ?? (claims.sub as string);
     if (!userId) return { ok: false, error: 'No user identity in token' };
 
-    return { ok: true, yucpUserId: userId };
+    // Read stable profile claims embedded by customAccessTokenClaims on the server.
+    // This avoids a DB lookup — the JWT is the source of truth for name/email.
+    const name = (claims.name as string) ?? null;
+    const email = (claims.email as string) ?? null;
+
+    return { ok: true, yucpUserId: userId, name, email };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Token verification failed';
+    const errName = err instanceof Error ? err.name : 'unknown';
+    console.log('[verifyOAuthToken] FAILED err=' + errName + ' msg=' + msg);
     return { ok: false, error: msg };
   }
 }
@@ -222,12 +249,52 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/yucp/certificates/issue — Issue cert via YUCP OAuth token
+// GET /v1/me — Current authenticated creator (like Spotify GET /v1/me)
+//
+// Validates the Bearer token, then fetches fresh user data from DB using the
+// `sub` claim (which is the user's stable primary key in Better Auth).
+// Pattern: validate → extract sub → db.get(sub) → return {sub, name, email}
+// ─────────────────────────────────────────────────────────────────────────────
+
+http.route({
+  method: 'GET',
+  path: '/v1/me',
+  handler: httpAction(async (ctx, request) => {
+    const siteUrl = process.env.CONVEX_SITE_URL;
+    if (!siteUrl) return errorResponse('Service not configured', 503);
+
+    const authHeader = request.headers.get('Authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
+
+    const tokenResult = await verifyOAuthToken(token, siteUrl);
+    if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
+
+    // Look up fresh user data from Better Auth's user table.
+    // sub = the user's stable primary key (_id in the betterAuth component).
+    const user = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'user',
+      where: [{ field: 'id', value: tokenResult.yucpUserId }],
+      select: ['id', 'name', 'email'],
+    }) as { id?: string; name?: string; email?: string } | null;
+
+    if (!user) return errorResponse('User not found', 404);
+
+    return jsonResponse({
+      sub: tokenResult.yucpUserId,
+      name: user.name ?? tokenResult.name,
+      email: user.email ?? tokenResult.email,
+    });
+  }),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /v1/certificates — Issue cert via YUCP OAuth token (was /api/yucp/certificates/issue)
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
   method: 'POST',
-  path: '/api/yucp/certificates/issue',
+  path: '/v1/certificates',
   handler: httpAction(async (ctx, request) => {
     const siteUrl = process.env.CONVEX_SITE_URL;
     if (!siteUrl) return errorResponse('Service not configured', 503);
@@ -252,6 +319,9 @@ http.route({
     } catch {
       return errorResponse('Invalid JSON body', 400);
     }
+    console.log('[cert/issue] body keys=' + Object.keys(body ?? {}).join(',')
+      + ' devPublicKey_len=' + (body?.devPublicKey?.length ?? 'null')
+      + ' publisherName=' + (body?.publisherName ?? 'null'));
     if (!body.devPublicKey || !body.publisherName) {
       return errorResponse('devPublicKey and publisherName are required', 400);
     }
@@ -274,8 +344,19 @@ http.route({
         discordUserId,
       })) as CertEnvelope;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Certificate issuance failed';
-      return errorResponse(message, 409);
+      const raw = err instanceof Error ? err.message : '';
+      // Sanitize Convex-wrapped errors — never expose stack traces or internal paths.
+      // Map known failure modes to appropriate HTTP status codes.
+      if (raw.includes('not configured') || raw.includes('not set')) {
+        return errorResponse('Certificate service is not available', 503);
+      }
+      if (raw.includes('Rate limit')) {
+        return errorResponse(raw.replace(/Uncaught Error: /g, '').split('\n')[0], 429);
+      }
+      if (raw.includes('already has an active certificate')) {
+        return errorResponse('An active certificate already exists for this key', 409);
+      }
+      return errorResponse('Certificate issuance failed', 500);
     }
 
     return jsonResponse({ success: true, certificate: envelope });
@@ -283,15 +364,15 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/yucp/packages/by-hash/:hash — Consumer verification (Layer 3)
+// GET /v1/packages/:hash — Consumer verification (was /api/yucp/packages/by-hash/:hash)
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
   method: 'GET',
-  pathPrefix: '/api/yucp/packages/by-hash/',
+  pathPrefix: '/v1/packages/',
   handler: httpAction(async (ctx, request) => {
     const url = new URL(request.url);
-    const hash = url.pathname.replace('/api/yucp/packages/by-hash/', '').split('?')[0];
+    const hash = url.pathname.replace('/v1/packages/', '').split('?')[0];
     if (!hash) return errorResponse('Missing content hash', 400);
 
     const logEntries = await ctx.runQuery(internal.signingLog.getEntriesByContentHash, {
@@ -331,12 +412,12 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/yucp/sign-manifest — Register in transparency log (Layer 2)
+// POST /v1/signatures — Register in transparency log (was /api/yucp/sign-manifest)
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
   method: 'POST',
-  path: '/api/yucp/sign-manifest',
+  path: '/v1/signatures',
   handler: httpAction(async (ctx, request) => {
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
     if (!rootPrivateKey) return errorResponse('Service not configured', 503);
@@ -407,12 +488,12 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/yucp/certificates/revoke — Admin revocation
+// POST /v1/certificates/revoke — Admin revocation (was /api/yucp/certificates/revoke)
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
   method: 'POST',
-  path: '/api/yucp/certificates/revoke',
+  path: '/v1/certificates/revoke',
   handler: httpAction(async (ctx, request) => {
     const apiSecret = process.env.CONVEX_API_SECRET;
     const auth = request.headers.get('Authorization');
