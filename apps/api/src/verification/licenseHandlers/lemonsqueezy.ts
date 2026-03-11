@@ -42,7 +42,7 @@ function resolveCatalogMatch(
     const catalog = catalogProducts.find((c) => c.providerProductRef === ref);
     if (catalog) return { catalogProductId: catalog._id, productId: catalog.productId };
   }
-  return { catalogProductId: undefined, productId: refs[0] };
+  return { catalogProductId: undefined, productId: undefined };
 }
 
 export const lemonSqueezyHandler: LicenseVerificationHandler = {

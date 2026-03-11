@@ -354,6 +354,7 @@ export const resolveCatalogProduct = internalQuery({
     const catalog = await ctx.db
       .query('product_catalog')
       .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('provider'), args.provider))
       .filter((q) => q.eq(q.field('providerProductRef'), args.providerProductId))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .first();

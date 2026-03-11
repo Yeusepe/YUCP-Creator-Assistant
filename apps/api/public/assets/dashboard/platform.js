@@ -619,7 +619,7 @@ export async function fetchAllData() {
         connectionsMap.clear();
         if (statusData.connections) {
           statusData.connections.forEach((c) => {
-            if (c.status === 'active') connectionsMap.set(c.provider, c);
+            if (c.status === 'active') connectionsMap.set(c.providerKey || c.provider, c);
           });
         }
         updatePlatformCards();

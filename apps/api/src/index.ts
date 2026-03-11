@@ -1120,12 +1120,13 @@ async function routeRequest(request: Request): Promise<Response> {
       });
     }
 
+    let resolvedSetupSession: Awaited<ReturnType<typeof resolveSetupSession>> = null;
     if (setupCookieToken) {
       const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
-      const session = await resolveSetupSession(setupCookieToken, encryptionSecret);
-      if (session) {
-        tenantId = session.tenantId;
-        guildId = session.guildId;
+      resolvedSetupSession = await resolveSetupSession(setupCookieToken, encryptionSecret);
+      if (resolvedSetupSession) {
+        tenantId = resolvedSetupSession.tenantId;
+        guildId = resolvedSetupSession.guildId;
       }
     }
 
@@ -1145,13 +1146,7 @@ async function routeRequest(request: Request): Promise<Response> {
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', '');
-    html = html.replaceAll('__HAS_SETUP_SESSION__', setupCookieToken ? 'true' : 'false');
-    return new Response(html, {
-      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
-    });
-  }
-
-  if (pathname === '/dashboard' || pathname === '/dashboard.html') {
+    html = html.replaceAll('__HAS_SETUP_SESSION__', resolvedSetupSession ? 'true' : 'false');
     if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
       const redirectUrl = new URL(request.url);
       redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;

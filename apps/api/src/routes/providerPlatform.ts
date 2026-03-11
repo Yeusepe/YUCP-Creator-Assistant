@@ -293,7 +293,7 @@ function resolveCatalogMatch(
     const catalog = catalogProducts.find((entry) => entry.providerProductRef === ref);
     if (catalog) return { catalogProductId: catalog._id, productId: catalog.productId };
   }
-  return { catalogProductId: undefined, productId: refs[0] };
+  return { catalogProductId: undefined, productId: undefined };
 }
 
 async function buildLemonClientForConnection(

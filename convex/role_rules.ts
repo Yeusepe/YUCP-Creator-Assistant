@@ -699,6 +699,12 @@ export const addProductFromLemonSqueezy = mutation({
       if (args.displayName && existing.displayName !== args.displayName) {
         await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
       }
+      await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
+        tenantId: args.tenantId,
+        productId: args.productId,
+        provider: 'lemonsqueezy',
+        providerProductRef: args.providerProductRef,
+      });
       return { productId: existing.productId, catalogProductId: existing._id };
     }
 
@@ -729,6 +735,13 @@ export const addProductFromLemonSqueezy = mutation({
       submittedByTenantId: args.tenantId,
       createdAt: now,
       updatedAt: now,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
+      tenantId: args.tenantId,
+      productId: args.productId,
+      provider: 'lemonsqueezy',
+      providerProductRef: args.providerProductRef,
     });
 
     return { productId: args.productId, catalogProductId: catalogId };

@@ -41,11 +41,13 @@ async function sha256Hex(input: string): Promise<string> {
     .join('');
 }
 
+export type BackfillProvider = 'gumroad' | 'jinxxy' | 'lemonsqueezy';
+
 export interface BackfillRequest {
   apiSecret: string;
   tenantId: string;
   productId: string;
-  provider: string;
+  provider: BackfillProvider;
   providerProductRef: string;
 }
 

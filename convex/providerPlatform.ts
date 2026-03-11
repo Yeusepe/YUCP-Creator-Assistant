@@ -380,6 +380,7 @@ export const upsertEntitlementEvidence = mutation({
       .withIndex('by_source_reference', (q) =>
         q.eq('providerKey', args.providerKey).eq('sourceReference', args.sourceReference)
       )
+      .filter((q) => q.eq(q.field('tenantId'), args.tenantId))
       .first();
 
     if (existing) {
