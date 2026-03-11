@@ -13,6 +13,7 @@ import { escHtml } from './utils.js';
 
 let userServers = null;
 let filteredServers = null;
+let _setDropdownOpen = null;
 
 export function getServerIconUrl(server) {
   if (server.iconUrl) return server.iconUrl;
@@ -108,9 +109,7 @@ function renderServerList(servers) {
 
     item.addEventListener('click', (e) => {
       e.stopPropagation();
-      document.body.classList.remove('server-dropdown-open');
-      document.getElementById('server-dropdown-menu')?.classList.remove('open');
-      document.getElementById('server-dropdown-backdrop')?.classList.remove('open');
+      _setDropdownOpen?.(false);
       switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards });
     });
 
@@ -159,8 +158,9 @@ function renderParticipatingServers(servers) {
     const sId = server.id || server.guildId;
     const sIconUrl = getServerIconUrl(server);
     const card = document.createElement('div');
-    card.className = 'platform-card connected flex items-center gap-3 cursor-pointer hover:bg-white/5 transition-colors';
+    card.className = 'platform-card connected participating-server-card';
     card.style.padding = '12px 16px';
+    card.style.position = 'relative';
 
     let iconHtml = '';
     if (sIconUrl) {
@@ -171,14 +171,173 @@ function renderParticipatingServers(servers) {
     }
 
     card.innerHTML = `
-      ${iconHtml}
-      <div style="flex:1;min-width:0;">
-        <div class="participating-server-name font-bold text-base truncate">${escHtml(server.name || 'Unnamed')}</div>
-        <div class="participating-server-hint text-xs">Manage Settings →</div>
+      <div class="server-card-main flex items-center gap-3 cursor-pointer" style="flex:1;min-width:0;">
+        ${iconHtml}
+        <div style="flex:1;min-width:0;">
+          <div class="participating-server-name font-bold text-base truncate">${escHtml(server.name || 'Unnamed')}</div>
+          <div class="participating-server-hint text-xs">Manage Settings →</div>
+        </div>
+        <button class="server-remove-btn" title="Remove server" aria-label="Remove server" style="
+          background: transparent; border: none; color: rgba(255,255,255,0.3); cursor: pointer;
+          padding: 6px; border-radius: 8px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+        ">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Step 1: Warning -->
+      <div class="server-remove-step" data-step="1" style="display:none; padding: 14px 0 0; border-top: 1px solid rgba(255,165,0,0.2); margin-top: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <span style="font-size: 18px;">⚠️</span>
+          <span style="font-size: 14px; font-weight: 700; color: #ffa500; font-family: 'Plus Jakarta Sans', sans-serif;">Warning: Disconnect Server</span>
+        </div>
+        <p style="font-size: 13px; color: rgba(255,255,255,0.7); margin: 0 0 12px; font-family: 'DM Sans', sans-serif; line-height: 1.5;">
+          You are about to disconnect <strong style="color:#fff;">${escHtml(server.name || 'this server')}</strong> from your Creator Assistant account. This will completely stop role verification.
+        </p>
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+          <button class="server-step-cancel" style="
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
+            padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+            font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s;
+          ">Cancel</button>
+          <button class="server-step-next" style="
+            background: rgba(255,165,0,0.15); border: 1px solid rgba(255,165,0,0.3); color: #ffa500;
+            padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+            font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s;
+          ">I understand, continue</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Danger -->
+      <div class="server-remove-step" data-step="2" style="display:none; padding: 14px 0 0; border-top: 1px solid rgba(255,69,0,0.2); margin-top: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <span style="font-size: 18px;">🚨</span>
+          <span style="font-size: 14px; font-weight: 700; color: #ff4500; font-family: 'Plus Jakarta Sans', sans-serif;">Danger: Data Deletion</span>
+        </div>
+        <p style="font-size: 13px; color: rgba(255,255,255,0.7); margin: 0 0 12px; font-family: 'DM Sans', sans-serif; line-height: 1.5;">
+          Disconnecting will <strong style="color: #ff4500;">PERMANENTLY DELETE</strong> all verification rules, download routes, and verification history for this server. Users will not lose their roles, but they will not be updated anymore.
+        </p>
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+          <button class="server-step-cancel" style="
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
+            padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+            font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s;
+          ">Cancel</button>
+          <button class="server-step-next" style="
+            background: rgba(255,69,0,0.15); border: 1px solid rgba(255,69,0,0.3); color: #ff4500;
+            padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+            font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s;
+          ">Yes, I am sure</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Final Confirmation -->
+      <div class="server-remove-step" data-step="3" style="display:none; padding: 14px 0 0; border-top: 1px solid rgba(255,0,0,0.2); margin-top: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <span style="font-size: 18px;">🛑</span>
+          <span style="font-size: 14px; font-weight: 700; color: #ef4444; font-family: 'Plus Jakarta Sans', sans-serif;">FINAL CONFIRMATION</span>
+        </div>
+        <p style="font-size: 13px; color: rgba(255,255,255,0.7); margin: 0 0 12px; font-family: 'DM Sans', sans-serif; line-height: 1.5;">
+          This action <strong style="color: #ef4444;">CANNOT</strong> be undone. Are you absolutely sure you want to completely disconnect and destroy all data for <strong style="color:#fff;">${escHtml(server.name || 'this server')}</strong>?
+        </p>
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+          <button class="server-step-cancel" style="
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
+            padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+            font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s;
+          ">Cancel</button>
+          <button class="server-remove-confirm-btn" style="
+            background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #ef4444;
+            padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+            font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s;
+          ">Confirm Disconnect</button>
+        </div>
       </div>
     `;
 
-    card.addEventListener('click', () => switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards }));
+    // Main card click → switch to server
+    const mainArea = card.querySelector('.server-card-main');
+    mainArea.addEventListener('click', (e) => {
+      if (e.target.closest('.server-remove-btn')) return;
+      switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards });
+    });
+
+    // Step management
+    const steps = card.querySelectorAll('.server-remove-step');
+    function showStep(n) {
+      steps.forEach((s) => { s.style.display = 'none'; });
+      const target = card.querySelector(`.server-remove-step[data-step="${n}"]`);
+      if (target) target.style.display = 'block';
+    }
+    function hideAll() {
+      steps.forEach((s) => { s.style.display = 'none'; });
+    }
+
+    // Trash icon → show step 1
+    const removeBtn = card.querySelector('.server-remove-btn');
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Close any other open flows
+      container.querySelectorAll('.server-remove-step').forEach((p) => { p.style.display = 'none'; });
+      showStep(1);
+    });
+
+    // Cancel buttons → close all steps
+    card.querySelectorAll('.server-step-cancel').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideAll();
+      });
+    });
+
+    // "Next" buttons → advance to next step
+    const nextBtns = card.querySelectorAll('.server-step-next');
+    nextBtns[0]?.addEventListener('click', (e) => { e.stopPropagation(); showStep(2); });
+    nextBtns[1]?.addEventListener('click', (e) => { e.stopPropagation(); showStep(3); });
+
+    // Final confirm → call API
+    card.querySelector('.server-remove-confirm-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const confirmBtn = e.currentTarget;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Disconnecting…';
+      try {
+        const res = await apiFetch(`${getApiBase()}/api/install/uninstall/${encodeURIComponent(sId)}`, { method: 'POST' });
+        if (res.ok) {
+          userServers = userServers.filter((s) => (s.id || s.guildId) !== sId);
+          filteredServers = filteredServers ? filteredServers.filter((s) => (s.id || s.guildId) !== sId) : null;
+          const tenantId = getTenantId();
+          const cacheKey = `ca_servers_${tenantId || 'global'}_V1`;
+          sessionStorage.removeItem(cacheKey);
+          if (getGuildId() === sId) {
+            switchDashboardContext('', { renderServerList, updatePlatformCards: window.__updatePlatformCards });
+          }
+          renderServerList(filteredServers || userServers);
+          renderParticipatingServers(filteredServers || userServers);
+        } else {
+          const data = await res.json().catch(() => ({}));
+          alert(data.error || 'Failed to disconnect server. Please try again.');
+        }
+      } catch (err) {
+        console.error('Server disconnect error:', err);
+        alert('Network error while disconnecting server.');
+      }
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Confirm Disconnect';
+    });
+
+    // Hover effects for remove button
+    removeBtn.addEventListener('mouseenter', () => {
+      removeBtn.style.color = '#ef4444';
+      removeBtn.style.background = 'rgba(239,68,68,0.1)';
+    });
+    removeBtn.addEventListener('mouseleave', () => {
+      removeBtn.style.color = 'rgba(255,255,255,0.3)';
+      removeBtn.style.background = 'transparent';
+    });
 
     container.appendChild(card);
   });
@@ -253,35 +412,54 @@ export function initServerContext(deps) {
 
   if (!selector || !menu) return;
 
-  function setDropdownOpen(open) {
+  const logoArea = selector.parentElement;
+
+  _setDropdownOpen = function setDropdownOpen(open) {
     if (open) {
-      menu.classList.add('open');
+      const rect = selector.getBoundingClientRect();
+      document.body.appendChild(selector);
+      selector.classList.add('server-selector-portal');
+      selector.style.setProperty('--selector-top', `${rect.top}px`);
+      selector.style.setProperty('--selector-left', `${rect.left}px`);
+      selector.style.setProperty('--selector-width', `${rect.width}px`);
+      menu.classList.add('open', 'server-dropdown-menu-portal');
+      menu.style.setProperty('--dropdown-top', `${rect.bottom + 8}px`);
+      menu.style.setProperty('--dropdown-left', `${rect.left}px`);
+      menu.style.setProperty('--dropdown-width', `${rect.width}px`);
       backdrop?.classList.add('open');
       document.body.classList.add('server-dropdown-open');
     } else {
-      menu.classList.remove('open');
+      selector.classList.remove('server-selector-portal');
+      selector.style.removeProperty('--selector-top');
+      selector.style.removeProperty('--selector-left');
+      selector.style.removeProperty('--selector-width');
+      logoArea?.appendChild(selector);
+      menu.classList.remove('open', 'server-dropdown-menu-portal');
+      menu.style.removeProperty('--dropdown-top');
+      menu.style.removeProperty('--dropdown-left');
+      menu.style.removeProperty('--dropdown-width');
       backdrop?.classList.remove('open');
       document.body.classList.remove('server-dropdown-open');
     }
-  }
+  };
 
   selector.addEventListener('click', async (e) => {
     if (menu.contains(e.target) && !e.target.closest('.server-dropdown-item') && e.target !== personalBtn) return;
     const isOpen = menu.classList.contains('open');
     if (isOpen) {
-      setDropdownOpen(false);
+      _setDropdownOpen(false);
     } else {
       document.querySelectorAll('.dropdown-menu.open, .custom-select-wrapper.open').forEach((w) => w.classList.remove('open'));
-      setDropdownOpen(true);
+      _setDropdownOpen(true);
       searchInput?.focus();
       if (!userServers) await loadUserServers(deps?.updatePlatformCards);
     }
   });
 
-  backdrop?.addEventListener('click', () => setDropdownOpen(false));
+  backdrop?.addEventListener('click', () => _setDropdownOpen(false));
 
   document.addEventListener('click', (e) => {
-    if (!selector.contains(e.target) && !backdrop?.contains(e.target)) setDropdownOpen(false);
+    if (!selector.contains(e.target) && !backdrop?.contains(e.target) && !menu.contains(e.target)) _setDropdownOpen(false);
   });
 
   searchInput?.addEventListener('input', (e) => {
@@ -293,7 +471,7 @@ export function initServerContext(deps) {
 
   personalBtn?.addEventListener('click', (e) => {
     e.stopPropagation();
-    setDropdownOpen(false);
+    _setDropdownOpen(false);
     switchDashboardContext('', deps);
   });
 
@@ -305,4 +483,116 @@ export function initServerContext(deps) {
   }
 
   loadUserServers(deps?.updatePlatformCards);
+
+  // Server config "Disconnect" button (Danger Zone)
+  const disconnectBtn = document.getElementById('server-disconnect-btn');
+  const stepsContainer = document.getElementById('server-disconnect-steps');
+  if (disconnectBtn && stepsContainer) {
+    let currentStep = 0;
+
+    function getServerName() {
+      const nameEl = document.getElementById('sidebar-selected-name');
+      return nameEl?.textContent || 'this server';
+    }
+
+    function renderStep(step) {
+      currentStep = step;
+      if (step === 0) {
+        stepsContainer.style.display = 'none';
+        stepsContainer.innerHTML = '';
+        return;
+      }
+      stepsContainer.style.display = 'block';
+
+      const steps = [
+        {
+          emoji: '⚠️', title: 'Warning: Disconnect Server', color: '#ffa500',
+          borderColor: 'rgba(255,165,0,0.2)', bgColor: 'rgba(255,165,0,0.15)', borderBtn: 'rgba(255,165,0,0.3)',
+          text: () => `You are about to disconnect <strong style="color:#fff;">${escHtml(getServerName())}</strong> from your Creator Assistant account. This will completely stop role verification.`,
+          btn: 'I understand, continue',
+        },
+        {
+          emoji: '🚨', title: 'Danger: Data Deletion', color: '#ff4500',
+          borderColor: 'rgba(255,69,0,0.2)', bgColor: 'rgba(255,69,0,0.15)', borderBtn: 'rgba(255,69,0,0.3)',
+          text: () => `Disconnecting will <strong style="color: #ff4500;">PERMANENTLY DELETE</strong> all verification rules, download routes, and verification history for this server. Users will not lose their roles, but they will not be updated anymore.`,
+          btn: 'Yes, I am sure',
+        },
+        {
+          emoji: '🛑', title: 'FINAL CONFIRMATION', color: '#ef4444',
+          borderColor: 'rgba(255,0,0,0.2)', bgColor: 'rgba(239,68,68,0.15)', borderBtn: 'rgba(239,68,68,0.3)',
+          text: () => `This action <strong style="color: #ef4444;">CANNOT</strong> be undone. Are you absolutely sure you want to completely disconnect and destroy all data for <strong style="color:#fff;">${escHtml(getServerName())}</strong>?`,
+          btn: 'Confirm Disconnect',
+        },
+      ];
+
+      const s = steps[step - 1];
+      stepsContainer.innerHTML = `
+        <div style="margin-top: 12px; padding: 16px; border-radius: 12px; border: 1px solid ${s.borderColor}; background: rgba(0,0,0,0.2);">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <span style="font-size: 18px;">${s.emoji}</span>
+            <span style="font-size: 14px; font-weight: 700; color: ${s.color}; font-family: 'Plus Jakarta Sans', sans-serif;">${s.title}</span>
+          </div>
+          <p style="font-size: 13px; color: rgba(255,255,255,0.7); margin: 0 0 14px; font-family: 'DM Sans', sans-serif; line-height: 1.5;">
+            ${s.text()}
+          </p>
+          <div style="display: flex; gap: 8px; justify-content: flex-end;">
+            <button id="dc-step-cancel" style="
+              background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
+              padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+              font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s;
+            ">Cancel</button>
+            <button id="dc-step-next" style="
+              background: ${s.bgColor}; border: 1px solid ${s.borderBtn}; color: ${s.color};
+              padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+              font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s;
+            ">${s.btn}</button>
+          </div>
+        </div>
+      `;
+
+      stepsContainer.querySelector('#dc-step-cancel').addEventListener('click', () => renderStep(0));
+
+      const nextBtn = stepsContainer.querySelector('#dc-step-next');
+      if (step < 3) {
+        nextBtn.addEventListener('click', () => renderStep(step + 1));
+      } else {
+        // Final step → call API
+        nextBtn.addEventListener('click', async () => {
+          nextBtn.disabled = true;
+          nextBtn.textContent = 'Disconnecting…';
+          const gid = getGuildId();
+          try {
+            const res = await apiFetch(`${getApiBase()}/api/install/uninstall/${encodeURIComponent(gid)}`, { method: 'POST' });
+            if (res.ok) {
+              userServers = userServers ? userServers.filter((s) => (s.id || s.guildId) !== gid) : null;
+              filteredServers = filteredServers ? filteredServers.filter((s) => (s.id || s.guildId) !== gid) : null;
+              const tenantId = getTenantId();
+              const cacheKey = `ca_servers_${tenantId || 'global'}_V1`;
+              sessionStorage.removeItem(cacheKey);
+              renderStep(0);
+              switchDashboardContext('', { renderServerList, updatePlatformCards: window.__updatePlatformCards });
+              if (filteredServers) {
+                renderServerList(filteredServers);
+                renderParticipatingServers(filteredServers);
+              }
+            } else {
+              const data = await res.json().catch(() => ({}));
+              alert(data.error || 'Failed to disconnect server. Please try again.');
+              nextBtn.disabled = false;
+              nextBtn.textContent = 'Confirm Disconnect';
+            }
+          } catch (err) {
+            console.error('Server disconnect error:', err);
+            alert('Network error while disconnecting server.');
+            nextBtn.disabled = false;
+            nextBtn.textContent = 'Confirm Disconnect';
+          }
+        });
+      }
+    }
+
+    disconnectBtn.addEventListener('click', () => {
+      renderStep(currentStep === 0 ? 1 : 0);
+    });
+  }
 }

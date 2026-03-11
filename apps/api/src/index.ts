@@ -793,7 +793,7 @@ async function routeRequest(request: Request): Promise<Response> {
   const DASHBOARD_HTML_SECURITY_HEADERS: Record<string, string> = {
     'Content-Security-Policy':
       "default-src 'self'; " +
-      "script-src 'self' 'unsafe-inline' https://ga.jspm.io https://unpkg.com https://esm.sh; " +
+      "script-src 'self' 'unsafe-inline' blob: https://ga.jspm.io https://unpkg.com https://esm.sh; " +
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
       "img-src 'self' data: blob: https:; " +
       "font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; " +
