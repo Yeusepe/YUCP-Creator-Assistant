@@ -17,7 +17,7 @@ body {
             overscroll-behavior: none;
         }
 
-/* â”€â”€ Blob Background (behind content; do not overlay) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Blob Background (behind content; do not overlay) */
 
 .blobs-container {
             position: fixed;
@@ -27,7 +27,7 @@ body {
             overflow: hidden;
         }
 
-/* â”€â”€ Clouds (same as docs) â€“ full viewport, scales with window â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Clouds (same as docs) full viewport, scales with window */
 
 #bg-canvas-root,
         #fg-canvas-root {
@@ -108,11 +108,11 @@ h1,
             letter-spacing: -0.04em;
         }
 
-/* â”€â”€ Section Cards (Magic UI: gradient border + Bento depth) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Section Cards (Magic UI: gradient border + Bento depth) */
 
 /* Gradient border (Magic Card style) via pseudo-element */
 
-/* â”€â”€ State Visibility Toggles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  State Visibility Toggles */
 
 body.state-server-selected .personal-only {
             display: none !important;
@@ -192,15 +192,15 @@ body:not(.state-server-selected) .server-only {
 
 /* Shine animation (Magic UI Shine Border style) */
 
-/* â”€â”€ Platform Cards (Light Grid + gradient border on hover) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Platform Cards (Light Grid + gradient border on hover) */
 
-/* â”€â”€ Status Pills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Status Pills  */
 
-/* â”€â”€ Action Buttons on Cards (Ghost Pill) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Action Buttons on Cards (Ghost Pill)  */
 
-/* â”€â”€ Toggle Switch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Toggle Switch */
 
-/* â”€â”€ Setting Rows (Brand-aligned) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Setting Rows (Brand-aligned) */
 
 .setting-row {
             display: flex;
@@ -287,7 +287,7 @@ body:not(.state-server-selected) .server-only {
             object-fit: contain;
         }
 
-/* â”€â”€ Custom Select (Replaces setting-select) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Custom Select (Replaces setting-select) */
 
 .custom-select-wrapper {
             position: relative;
@@ -354,7 +354,7 @@ body:not(.state-server-selected) .server-only {
             transform: translateY(0);
         }
 
-/* â”€â”€ Server Selector Dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Server Selector Dropdown  */
 
 .sidebar-server-pill {
             position: relative;
@@ -430,7 +430,7 @@ body:not(.state-server-selected) .server-only {
             display: none !important;
         }
 
-/* â”€â”€ Save Indicator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Save Indicator  */
 
 .save-indicator {
             display: inline-flex;
@@ -486,7 +486,7 @@ body:not(.state-server-selected) .server-only {
             display: none !important;
         }
 
-/* â”€â”€ Server Config (built from scratch) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/*  Server Config (built from scratch) ”€
            Paradigm: tile grid. Each setting = standalone tile. No rows, no sections. */
 
 .svr-cfg {
@@ -687,7 +687,7 @@ body:not(.state-server-selected) .server-only {
             border-color: #0ea5e9;
         }
 
-/* â”€â”€ Integrations Cards (OAuth, API Keys) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Integrations Cards (OAuth, API Keys) */
 
 /* Integrations inline panel (light, matches card) */
 
@@ -695,7 +695,7 @@ body:not(.state-server-selected) .server-only {
             max-width: 672px;
         }
 
-/* â”€â”€ Section Label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Section Label */
 
 .section-label {
             font-size: 10px;
@@ -710,7 +710,7 @@ body:not(.state-server-selected) .server-only {
             display: block;
         }
 
-/* â”€â”€ Collab Rows (Brand-aligned) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Collab Rows (Brand-aligned) */
 
 .collab-meta {
             display: flex;
@@ -781,7 +781,7 @@ body:not(.state-server-selected) .server-only {
             color: var(--accent-red);
         }
 
-/* â”€â”€ OAuth Apps (Glass Grid Style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  OAuth Apps (Glass Grid Style)  */
 
 .oauth-scope-pill {
             font-size: 9px;
@@ -823,7 +823,7 @@ body:not(.state-server-selected) .server-only {
             background: rgba(239, 68, 68, 0.1);
         }
 
-/* â”€â”€ API Keys (Glass Grid Style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  API Keys (Glass Grid Style) */
 
 .api-key-info {
             flex: 1;
@@ -886,7 +886,7 @@ body:not(.state-server-selected) .server-only {
             animation: status-pulse 2s ease-in-out infinite;
         }
 
-/* â”€â”€ Primary Button (Brand Glass + Aurora) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Primary Button (Brand Glass + Aurora) */
 
 /* Done Setup: aurora gradient on hover (same as docs hero) */
 
@@ -981,9 +981,9 @@ body:not(.state-server-selected) .server-only {
             animation: done-check-draw 0.5s 0.15s ease-out forwards;
         }
 
-/* â”€â”€ Empty State (Glass Style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Empty State (Glass Style) */
 
-/* â”€â”€ Inline Panels (replaces modals) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Inline Panels (replaces modals) */
 
 /* Transform inline panels to true Glassmorphism Modals */
 
@@ -1124,7 +1124,7 @@ body:not(.state-server-selected) .server-only {
             cursor: not-allowed;
         }
 
-/* Reveal card â€” shown inline after creating a key/app */
+/* Reveal card €” shown inline after creating a key/app */
 
 .reveal-warn {
             display: flex;
@@ -1181,9 +1181,9 @@ body:not(.state-server-selected) .server-only {
             border-color: rgba(34, 197, 94, 0.5);
         }
 
-/* â”€â”€ Form fields (shared across inline panels) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Form fields (shared across inline panels)  */
 
-/* â”€â”€ Scope toggle cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Scope toggle cards  */
 
 .scope-toggles {
             display: flex;
@@ -1191,11 +1191,11 @@ body:not(.state-server-selected) .server-only {
             gap: 8px;
         }
 
-/* â”€â”€ Inline action buttons row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Inline action buttons row */
 
-/* â”€â”€ Credential display boxes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Credential display boxes */
 
-/* â”€â”€ Invite URL box â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Invite URL box  */
 
 .invite-url-box {
             background: rgba(255, 255, 255, 0.07);
@@ -1213,7 +1213,7 @@ body:not(.state-server-selected) .server-only {
             box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
         }
 
-/* â”€â”€ Page loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Page loading  */
 
 .page-loading-spinner {
             width: 40px;
@@ -1230,7 +1230,7 @@ body:not(.state-server-selected) .server-only {
             }
         }
 
-/* â”€â”€ Animations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Animations */
 
 @keyframes fadeInUp {
             from {
@@ -1245,35 +1245,44 @@ body:not(.state-server-selected) .server-only {
         }
 
 .animate-in {
-            animation: fadeInUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            animation: fadeInUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
         }
 
 .animate-in-delay-1 {
             animation-delay: 0.08s;
-            opacity: 0;
         }
 
 .animate-in-delay-2 {
             animation-delay: 0.16s;
-            opacity: 0;
         }
 
 .animate-in-delay-3 {
             animation-delay: 0.24s;
-            opacity: 0;
         }
 
 .animate-in-delay-4 {
             animation-delay: 0.32s;
-            opacity: 0;
         }
 
 .animate-in-delay-5 {
             animation-delay: 0.4s;
-            opacity: 0;
         }
 
-/* â”€â”€ Flash fix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ensure content is visible when animation doesn't run (reduced motion, etc.) */
+@media (prefers-reduced-motion: reduce) {
+
+            .animate-in,
+            .animate-in-delay-1,
+            .animate-in-delay-2,
+            .animate-in-delay-3,
+            .animate-in-delay-4,
+            .animate-in-delay-5 {
+                animation: none;
+                opacity: 1;
+            }
+        }
+
+/*  Flash fix */
 
 #page-loading-overlay {
             transition: opacity 0.35s ease;
@@ -1300,12 +1309,13 @@ body:not(.state-server-selected) .server-only {
             display: none !important;
         }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* 
            APP SHELL & SIDEBAR (Liquid Glass Left / Solid Right)
-        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+         */
 
 .app-shell {
             display: flex;
+            width: 100%;
             height: 100vh;
             min-height: 100vh;
             flex-direction: column;
@@ -1320,7 +1330,7 @@ body:not(.state-server-selected) .server-only {
             }
         }
 
-/* Liquid glass sidebar â€“ no curved corners; goes under content (lower z) */
+/* Liquid glass sidebar no curved corners; goes under content (lower z) */
 
 .sidebar {
             z-index: 50;
@@ -1620,13 +1630,14 @@ body:not(.state-server-selected) .server-only {
             flex-shrink: 0;
         }
 
-/* â”€â”€ Content Area (fills right of sidebar; scrolls internally) â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Content Area (fills right of sidebar; scrolls internally) */
 
 .content-area {
             --text-primary: #0f172a;
             --text-secondary: #475569;
             --border-color: #e2e8f0;
-            flex: 1;
+            flex: 1 1 0%;
+            width: 100%;
             min-width: 0;
             min-height: 0;
             overflow-x: hidden;
@@ -1679,7 +1690,7 @@ body:not(.state-server-selected) .server-only {
             color: #94a3b8 !important;
         }
 
-/* Content area header (gradient pill â€“ Magic UI style) */
+/* Content area header (gradient pill Magic UI style) */
 
 /* Matches docs: accent-sky (#0ea5e9) and accent-mustard (#ffeb3b) from tokens.css */
 
@@ -1754,6 +1765,7 @@ body:not(.state-server-selected) .server-only {
 /* Header + tabs grouped (stratified layout) */
 
 .content-area-header {
+            flex-shrink: 0;
             margin-bottom: 24px;
             position: relative;
             z-index: 0;
@@ -1769,7 +1781,7 @@ body:not(.state-server-selected) .server-only {
             margin-bottom: 28px;
         }
 
-/* â”€â”€ Tab Navigation (segmented control) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Tab Navigation (segmented control) */
 
 .dashboard-tabs {
             display: flex;
@@ -1812,6 +1824,8 @@ body:not(.state-server-selected) .server-only {
 
 .dashboard-tab-panel.is-active {
             display: block;
+            flex: 1 1 auto;
+            min-height: 0;
         }
 
 .integrations-grid {
@@ -1851,9 +1865,9 @@ body:not(.state-server-selected) .server-only {
             }
         }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* 
            BENTO GRID (do not override responsive grid from earlier block)
-        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+         */
 
 .bento-grid>* {
             margin-bottom: 0 !important;
@@ -1889,7 +1903,7 @@ body:not(.state-server-selected) .server-only {
             grid-column: span 3;
         }
 
-/* â”€â”€ Bento Section Divider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Bento Section Divider  */
 
 .bento-divider {
             display: flex;
@@ -1924,7 +1938,7 @@ body:not(.state-server-selected) .server-only {
             background: rgba(255, 255, 255, 0.07);
         }
 
-/* â”€â”€ Settings Tile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Settings Tile  */
 
 .settings-tile {
             padding: 24px;
@@ -1954,7 +1968,7 @@ body:not(.state-server-selected) .server-only {
             margin: 0;
         }
 
-/* â”€â”€ Entrance animation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Entrance animation */
 
 @keyframes bentoIn {
             from {
@@ -2032,7 +2046,7 @@ body:not(.state-server-selected) .server-only {
             animation-delay: 0.40s;
         }
 
-/* â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/*  Responsive */
 
 @media (max-width: 1100px) {
             .content-area {
@@ -2074,9 +2088,9 @@ body:not(.state-server-selected) .server-only {
             }
         }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* 
            CUSTOM SCROLLBAR
-        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+         */
 
 ::-webkit-scrollbar {
             width: 8px;
@@ -2104,9 +2118,9 @@ body:not(.state-server-selected) .server-only {
             background: rgba(255, 255, 255, 0.3);
         }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* 
            BACKGROUND CANVAS STYLING
-        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+         */
 
 #bg-canvas-root,
         #fg-canvas-root {
@@ -2120,9 +2134,9 @@ body:not(.state-server-selected) .server-only {
             filter: invert(0.9) hue-rotate(180deg) brightness(1.2) contrast(1.1);
         }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* 
            DARK MODE STYLES
-        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+         */
 
 .dark .content-area {
             --text-primary: #f8fafc;

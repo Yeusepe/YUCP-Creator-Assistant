@@ -33,11 +33,6 @@ async function init() {
       if (data.tenantId) setTenantId(data.tenantId);
     }
 
-    const onboardingDone = document.getElementById('onboarding-done');
-    if (getHasSetupSession() && onboardingDone) {
-      onboardingDone.classList.remove('hidden');
-    }
-
     await fetchAllData();
     await fetchCollabConnections();
     await fetchPublicApiKeys();
@@ -45,6 +40,9 @@ async function init() {
     renderQuickStart();
   } catch (err) {
     console.error('Initialization error:', err);
+  } finally {
+    const overlay = document.getElementById('page-loading-overlay');
+    if (overlay) overlay.style.display = 'none';
   }
 }
 

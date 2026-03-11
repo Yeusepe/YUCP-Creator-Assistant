@@ -97,7 +97,7 @@ function getQuickStartState() {
     steps: [
       { id: 'stores', sectionId: 'platforms-grid', state: storesDone ? 'complete' : 'active', number: '01', label: storesDone ? 'Complete' : 'Current', title: storesDone ? `${connectedProviders} store${connectedProviders > 1 ? 's' : ''} linked` : 'Connect Gumroad or Jinxxy', body: storesDone ? 'Your storefront credentials are connected. You can add another store or move on.' : 'Use the platform cards below to connect the storefronts you actually sell through.', meta: storesDone ? `Connected: ${Array.from(connectionsMap.keys()).filter((k) => k === 'gumroad' || k === 'jinxxy').join(' + ')}` : 'Start with the platform cards', action: storesDone ? 'Review platforms' : 'Go to platforms' },
       { id: 'settings', sectionId: 'server-settings-card', state: settingsDone ? 'complete' : storesDone ? 'active' : 'locked', number: '02', label: settingsDone ? 'Complete' : storesDone ? 'Next' : 'Locked', title: settingsDone ? 'Settings dialed in' : 'Review server settings', body: settingsDone ? 'You already saved verification preferences for this tenant.' : 'Decide how verification, duplicate checks, and cross-server behavior should work.', meta: settingsDone ? 'Saved on this tenant' : 'Toggle or select a setting to mark this done', action: settingsDone ? 'Adjust settings' : 'Open settings' },
-      { id: 'finish', sectionId: 'done-btn', state: done ? 'complete' : finalReady ? 'active' : 'locked', number: '03', label: done ? 'Complete' : finalReady ? 'Ready' : 'Waiting', title: done ? 'Back to Discord' : 'Finish in Discord', body: done ? 'Setup was completed from this dashboard already.' : finalReady ? 'Everything is ready. Confirm the setup and close this page when you are done.' : 'Finish becomes available after you connect a store and save your preferences.', meta: done ? 'All set' : finalReady ? 'Done Setup is ready' : 'Waiting on earlier steps', action: done ? 'Review finish' : finalReady ? 'Jump to finish' : 'See requirements' },
+      { id: 'finish', sectionId: 'server-settings-card', state: done ? 'complete' : finalReady ? 'active' : 'locked', number: '03', label: done ? 'Complete' : finalReady ? 'Ready' : 'Waiting', title: done ? 'Back to Discord' : 'Finish in Discord', body: done ? 'Setup was completed from this dashboard already.' : finalReady ? 'Everything is ready. Confirm the setup and close this page when you are done.' : 'Finish becomes available after you connect a store and save your preferences.', meta: done ? 'All set' : finalReady ? 'Done Setup is ready' : 'Waiting on earlier steps', action: done ? 'Review finish' : finalReady ? 'Jump to finish' : 'See requirements' },
     ],
   };
 }
@@ -583,42 +583,6 @@ export function initPlatforms() {
   document.querySelectorAll('[data-cancel-disconnect]').forEach((el) => {
     const platform = el.getAttribute('data-cancel-disconnect');
     el.addEventListener('click', () => document.getElementById(`${platform}-disconnect-confirm`)?.classList.remove('open'));
-  });
-
-  document.getElementById('done-btn')?.addEventListener('click', async () => {
-    const btn = document.getElementById('done-btn');
-    const status = document.getElementById('status-text');
-    const textEl = btn?.querySelector('.done-text');
-    btn.disabled = true;
-    btn.classList.add('is-loading');
-    if (textEl) textEl.textContent = 'Completing Setup...';
-    status.textContent = '';
-    try {
-      const gid = getGuildId();
-      if (gid) {
-        const res = await apiFetch(`${getApiBase()}/api/connect/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guildId: gid }) });
-        const data = await res.json();
-        if (!res.ok || !data.success) throw new Error('Could not finish setup right now.');
-      }
-      btn.classList.remove('is-loading');
-      btn.hidden = true;
-      const successPill = document.getElementById('done-success-pill');
-      if (successPill) successPill.hidden = false;
-      status.textContent = '';
-      status.className = 'text-center text-xs mt-2 font-bold';
-      persistSetupCompleted();
-      renderQuickStart();
-    } catch (err) {
-      btn.classList.remove('is-loading');
-      btn.hidden = false;
-      const successPill = document.getElementById('done-success-pill');
-      if (successPill) successPill.hidden = true;
-      status.textContent = 'Could not finish setup right now. Try again in a moment.';
-      status.className = 'text-center text-xs mt-2 font-bold text-red-400';
-      btn.disabled = false;
-      if (textEl) textEl.textContent = 'Done Setup';
-      renderQuickStart();
-    }
   });
 
   document.getElementById('quick-start-dismiss')?.addEventListener('click', dismissQuickStart);

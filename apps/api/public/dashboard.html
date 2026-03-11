@@ -317,24 +317,6 @@
                                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
                             </svg>
                         </button>
-                        <div id="onboarding-done" class="hidden w-full md:w-fit md:flex-shrink-0">
-                            <button id="done-btn"
-                                class="btn-primary text-base px-8 py-3 rounded-2xl shadow-xl w-full md:w-fit"
-                                type="button">
-                                <span class="done-spinner" aria-hidden="true"></span>
-                                <svg class="done-check" viewBox="0 0 24 24" aria-hidden="true">
-                                    <path d="M5 13l4 4L19 7" />
-                                </svg>
-                                <span class="done-text">Done Setup</span>
-                            </button>
-                            <div id="done-success-pill" class="done-success-pill" aria-live="polite" hidden>
-                                <svg class="done-success-check" viewBox="0 0 24 24">
-                                    <path pathLength="1" d="M5 13l4 4L19 7" />
-                                </svg>
-                                <span class="done-success-text">Setup complete</span>
-                            </div>
-                            <p id="status-text" class="text-center text-xs mt-2 font-bold"></p>
-                        </div>
                     </div>
             </header>
 
@@ -743,6 +725,7 @@
 
                     </div>
                 </div>
+            </div>
 
                 <div id="tab-panel-integrations" class="dashboard-tab-panel" role="tabpanel"
                     aria-labelledby="tab-btn-integrations">
@@ -1208,8 +1191,6 @@
                     </section>
                 </div>
 
-            </div>
-
         </main>
 
     </div><!-- #page-content -->
@@ -1250,8 +1231,8 @@
                 }
             });
             observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
-            // Fallback: dismiss if site.js fails to load or call hideLoading()
-            setTimeout(dismissOverlay, 10000);
+            // Fallback: dismiss if dashboard init never completes
+            setTimeout(dismissOverlay, 5000);
         })();
     </script>
 
