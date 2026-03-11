@@ -1472,16 +1472,18 @@ body:not(.state-server-selected) .server-only {
 .sidebar-brand {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   margin-bottom: 12px;
   flex-shrink: 0;
+  padding: 0 4px;
 }
 
 .sidebar-brand img,
 .sidebar-logo-img {
-  height: 32px;
+  height: 36px;
   width: auto;
-  max-width: 100%;
+  max-width: 220px;
   object-fit: contain;
   flex-shrink: 0;
 }

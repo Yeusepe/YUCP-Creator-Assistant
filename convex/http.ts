@@ -623,6 +623,15 @@ http.route({
     if (!certResult.ok) return errorResponse(certResult.error, 401);
     const { envelope } = certResult;
 
+    // Reject revoked certificates — revocation via /v1/certificates/revoke must
+    // be enforced here; parseBearerCert only checks signature validity and expiry.
+    const certRecord = await ctx.runQuery(internal.yucpCertificates.getCertByNonce, {
+      certNonce: envelope.cert.nonce,
+    });
+    if (!certRecord || certRecord.status !== 'active') {
+      return errorResponse('Certificate has been revoked', 401);
+    }
+
     let body: { packageId: string; contentHash: string; packageVersion?: string };
     try {
       body = (await request.json()) as typeof body;
@@ -864,6 +873,18 @@ http.route({
     if (!hasEntitlement) {
       return errorResponse(
         'No active entitlement. Purchase or verify via the creator\'s Discord server first.',
+        403,
+      );
+    }
+
+    // Verify packageId is registered to the creator so the JWT package_id
+    // claim cannot be forged by a buyer supplying an arbitrary package name.
+    const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId,
+    });
+    if (!packageReg || packageReg.yucpUserId !== creatorAuthUserId) {
+      return errorResponse(
+        'Package not found or not owned by the specified creator',
         403,
       );
     }
