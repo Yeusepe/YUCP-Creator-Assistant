@@ -144,6 +144,7 @@ async function parseBearerCert(
 async function verifyOAuthToken(
   token: string,
   siteUrl: string,
+  requiredScope: string,
 ): Promise<{ ok: true; yucpUserId: string; name: string | null; email: string | null } | { ok: false; error: string }> {
   try {
     const { verifyAccessToken } = await import('better-auth/oauth2');
@@ -163,13 +164,13 @@ async function verifyOAuthToken(
       jwksUrl: `${authBase}/jwks`,
     });
 
-    // Require cert:issue scope (or verification:read as fallback for legacy tokens)
+    // Require the exact scope this endpoint needs
     const claims = verified as Record<string, unknown>;
     const scope: string = (claims.scope as string) ?? '';
     const scopes = scope.split(' ');
     console.log('[verifyOAuthToken] verified ok, scopes=' + scope);
-    if (!scopes.includes('cert:issue') && !scopes.includes('verification:read')) {
-      return { ok: false, error: 'Token missing required scope: cert:issue' };
+    if (!scopes.includes(requiredScope)) {
+      return { ok: false, error: `Token missing required scope: ${requiredScope}` };
     }
 
     // Better Auth puts the user ID in auth_user_id (custom claim) and sub
@@ -303,7 +304,7 @@ http.route({
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
 
-    const tokenResult = await verifyOAuthToken(token, siteUrl);
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
     // Look up fresh user data from Better Auth's user table.
@@ -343,7 +344,7 @@ http.route({
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
 
-    const tokenResult = await verifyOAuthToken(token, siteUrl);
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
     const tenant = await ctx.runQuery(internal.yucpLicenses.getTenantByAuthUser, {
@@ -465,7 +466,7 @@ http.route({
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
 
-    const tokenResult = await verifyOAuthToken(token, siteUrl);
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
     const devPublicKey = request.headers.get('X-Dev-Public-Key');
@@ -498,7 +499,7 @@ http.route({
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
 
-    const tokenResult = await verifyOAuthToken(token, siteUrl);
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
     const { yucpUserId } = tokenResult;
 
@@ -793,7 +794,7 @@ http.route({
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return errorResponse('Authorization: Bearer <oauth_access_token> required', 401);
 
-    const tokenResult = await verifyOAuthToken(token, siteUrl);
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'verification:read');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
     let body: {

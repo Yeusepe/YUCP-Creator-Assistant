@@ -241,7 +241,7 @@ export const getSubjectByDiscordUser = internalQuery({
     const subject = await ctx.db
       .query('subjects')
       .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
-      .filter((q) => q.neq(q.field('status'), 'banned'))
+      .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
     if (!subject) return null;
     return { _id: subject._id };
