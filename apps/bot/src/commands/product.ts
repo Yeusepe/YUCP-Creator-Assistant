@@ -43,7 +43,7 @@ interface ProductSession {
   tenantId: Id<'tenants'>;
   guildLinkId: Id<'guild_links'>;
   guildId: string;
-  type?: 'gumroad' | 'jinxxy' | 'license' | 'discord_role' | 'vrchat';
+  type?: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'license' | 'discord_role' | 'vrchat';
   urlOrId?: string;
   sourceGuildId?: string;
   sourceRoleId?: string;
@@ -56,6 +56,8 @@ interface ProductSession {
   jinxxyProductNames?: Record<string, string>;
   /** Jinxxy product id -> collaborator display name (undefined = owner's own store) */
   jinxxyProductSources?: Record<string, string>;
+  /** Lemon Squeezy product id -> name map (for display when adding) */
+  lsProductNames?: Record<string, string>;
   removeProductIds?: string[];
   expiresAt: number;
 }
@@ -112,6 +114,11 @@ export async function handleProductAddInteractive(
         .setDescription('Sold on jinxxy.com or jinxxy.app')
         .setValue('jinxxy')
         .setEmoji(Emoji.Jinxxy),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Lemon Squeezy Product')
+        .setDescription('Sold on lemonsqueezy.com')
+        .setValue('lemonsqueezy')
+        .setEmoji(Emoji.LemonSqueezy),
       new StringSelectMenuOptionBuilder()
         .setLabel('License Key Only')
         .setDescription('Manual license codes (Gumroad or Jinxxy)')
@@ -344,6 +351,89 @@ export async function handleProductTypeSelect(
     return;
   }
 
+  // Lemon Squeezy: fetch products from API and show select
+  if (selectedType === 'lemonsqueezy') {
+    const { apiInternal, apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
+    const apiBase = apiPublic ?? apiInternal;
+    const apiForFetch = apiInternal ?? apiBase;
+    const apiSecret = process.env.CONVEX_API_SECRET;
+
+    if (!apiBase || !apiSecret) {
+      await interaction.update({
+        content: `${E.X_} API not configured. Set API_BASE_URL and CONVEX_API_SECRET for Lemon Squeezy product selection.`,
+        components: [],
+      });
+      return;
+    }
+
+    await interaction.deferUpdate();
+    try {
+      const res = await fetch(`${apiForFetch}/api/lemonsqueezy/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiSecret, tenantId }),
+      });
+      const data = (await res.json()) as {
+        products?: { id: string; name: string }[];
+        error?: string;
+      };
+
+      if (data.error && (!data.products || data.products.length === 0)) {
+        await interaction.editReply({
+          content: `${E.X_} ${sanitizeUserFacingErrorMessage(data.error, "Couldn't load Lemon Squeezy products right now.")}\n\nRun \`/creator-admin product add\` again in a moment.`,
+          components: [],
+        });
+        return;
+      }
+
+      const products = data.products ?? [];
+      if (products.length === 0) {
+        await interaction.editReply({
+          content: `${E.X_} No Lemon Squeezy products found. Add products in your Lemon Squeezy store first, then try again.`,
+          components: [],
+        });
+        return;
+      }
+
+      session.lsProductNames = Object.fromEntries(products.map((p) => [p.id, p.name]));
+
+      const MAX_OPTIONS = 25;
+      const toShow = products.slice(0, MAX_OPTIONS);
+      const select = new StringSelectMenuBuilder()
+        .setCustomId(`creator_product:ls_product_select:${interaction.user.id}:${tenantId}`)
+        .setPlaceholder('Select a Lemon Squeezy product...')
+        .addOptions(
+          toShow.map((p) => {
+            const label = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
+            return new StringSelectMenuOptionBuilder()
+              .setLabel(label)
+              .setValue(p.id)
+              .setDescription(`Product ID: ${p.id}`);
+          })
+        );
+
+      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+      const moreNote =
+        products.length > MAX_OPTIONS
+          ? `\n\n*(Showing first ${MAX_OPTIONS} of ${products.length} products.)*`
+          : '';
+      await interaction.editReply({
+        content: `**Step 2 of 3:** Select a Lemon Squeezy product from your store.${moreNote}`,
+        components: [row],
+      });
+    } catch (err) {
+      logger.error('Failed to load Lemon Squeezy products for product setup', {
+        error: err instanceof Error ? err.message : String(err),
+        tenantId,
+      });
+      await interaction.editReply({
+        content: `${E.X_} Couldn't load Lemon Squeezy products right now. Run \`/creator-admin product add\` again in a moment.`,
+        components: [],
+      });
+    }
+    return;
+  }
+
   // gumroad, license, vrchat - URL modal
   const labels: Record<string, string> = {
     gumroad: 'Gumroad Product URL or ID',
@@ -375,6 +465,42 @@ export async function handleProductTypeSelect(
 
 /** Step 2b (Jinxxy): Product selected from API - show role select */
 export async function handleProductJinxxySelect(
+  interaction: StringSelectMenuInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>
+): Promise<void> {
+  const productId = interaction.values[0];
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.reply({
+      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  session.urlOrId = productId;
+
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+    .setMinValues(1)
+    .setMaxValues(25)
+    .setPlaceholder('Select role(s) to assign when verified (1–25)');
+
+  const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+
+  await interaction.reply({
+    content:
+      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/** Step 2b (Lemon Squeezy): Product selected from API - show role select */
+export async function handleProductLemonSqueezySelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
   tenantId: Id<'tenants'>
@@ -658,10 +784,12 @@ export async function handleProductRoleSelect(
       `**Source Role(s):** ${srcIds.map((id) => `<@&${id}>`).join(', ')} (${matchMode})`
     );
   } else if (session.urlOrId) {
-    const productLabel =
-      session.type === 'jinxxy' && session.jinxxyProductNames?.[session.urlOrId]
-        ? session.jinxxyProductNames[session.urlOrId]
-        : session.urlOrId;
+    let productLabel = session.urlOrId;
+    if (session.type === 'jinxxy' && session.jinxxyProductNames?.[session.urlOrId]) {
+      productLabel = session.jinxxyProductNames[session.urlOrId];
+    } else if (session.type === 'lemonsqueezy' && session.lsProductNames?.[session.urlOrId]) {
+      productLabel = session.lsProductNames[session.urlOrId];
+    }
     detailLines.push(`**Product:** ${productLabel}`);
   }
 
@@ -835,6 +963,19 @@ export async function handleProductConfirmAdd(
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
+    } else if (type === 'lemonsqueezy') {
+      const productIdFromApi = urlOrId?.trim();
+      if (!productIdFromApi) throw new Error('No Lemon Squeezy product selected');
+      const displayName = session.lsProductNames?.[productIdFromApi];
+      const result = await convex.mutation(api.role_rules.addProductFromLemonSqueezy, {
+        apiSecret,
+        tenantId,
+        productId: productIdFromApi,
+        providerProductRef: productIdFromApi,
+        displayName,
+      });
+      productId = result.productId;
+      catalogProductId = result.catalogProductId;
     } else if (type === 'license') {
       const parsed = urlOrId?.trim() ?? 'license';
       const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
@@ -908,6 +1049,8 @@ export async function handleProductConfirmAdd(
       const name = session.jinxxyProductNames[productId];
       const src = session.jinxxyProductSources?.[productId];
       finalProductLabel = src ? `${name} (via ${src})` : name;
+    } else if (session.type === 'lemonsqueezy' && session.lsProductNames?.[productId]) {
+      finalProductLabel = session.lsProductNames[productId];
     }
     const rolesMsg = verifiedRoleIds.map((id) => `<@&${id}>`).join(', ');
     await interaction.editReply({

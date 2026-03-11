@@ -634,6 +634,12 @@ async function routeRequest(request: Request): Promise<Response> {
     return handleGumroadProducts(request);
   }
 
+  // Lemon Squeezy products (for product add flow - fetches from LS API using tenant API token)
+  if (pathname === '/api/lemonsqueezy/products' && request.method === 'POST') {
+    const { handleLemonSqueezyProducts } = await import('./routes/lemonsqueezyProducts');
+    return handleLemonSqueezyProducts(request);
+  }
+
   // Webhook routes (Gumroad, Jinxxy)
   if (pathname.startsWith('/webhooks/') && webhookHandler) {
     return webhookHandler(request);

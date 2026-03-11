@@ -684,6 +684,69 @@ export const addProductFromJinxxy = mutation({
   },
 });
 
+export const addProductFromLemonSqueezy = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    productId: v.string(),
+    providerProductRef: v.string(),
+    displayName: v.optional(v.string()),
+  },
+  returns: v.object({
+    productId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const now = Date.now();
+    const existing = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_provider_ref', (q) =>
+        q.eq('provider', 'lemonsqueezy').eq('providerProductRef', args.providerProductRef),
+      )
+      .first();
+
+    if (existing) {
+      if (args.displayName && existing.displayName !== args.displayName) {
+        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+      }
+      return { productId: existing.productId, catalogProductId: existing._id };
+    }
+
+    const catalogId = await ctx.db.insert('product_catalog', {
+      tenantId: args.tenantId,
+      productId: args.productId,
+      provider: 'lemonsqueezy',
+      providerProductRef: args.providerProductRef,
+      displayName: args.displayName,
+      status: 'active',
+      supportsAutoDiscovery: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const url = `https://app.lemonsqueezy.com/products/${args.providerProductRef}`;
+    const normalized = url.toLowerCase().trim();
+    const urlHash = await sha256Hex(normalized);
+
+    await ctx.db.insert('catalog_product_links', {
+      catalogProductId: catalogId,
+      provider: 'lemonsqueezy',
+      originalUrl: url,
+      normalizedUrl: normalized,
+      urlHash,
+      linkKind: 'direct_product',
+      status: 'active',
+      submittedByTenantId: args.tenantId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { productId: args.productId, catalogProductId: catalogId };
+  },
+});
+
+
 /**
  * Extract VRChat avatar ID from URL or raw ID.
  * Matches avtr_[a-f0-9-]{36} or extracts from vrchat.com/home/avatar/avtr_xxx

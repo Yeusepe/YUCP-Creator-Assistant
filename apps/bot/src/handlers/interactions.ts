@@ -1408,6 +1408,17 @@ async function handleSelectMenu(
     return;
   }
 
+  // Product Lemon Squeezy product select: creator_product:ls_product_select:{userId}:{tenantId}
+  if (customId.startsWith('creator_product:ls_product_select:')) {
+    const rest = customId.slice('creator_product:ls_product_select:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleProductLemonSqueezySelect } = await import('../commands/product');
+    await handleProductLemonSqueezySelect(interaction, userId, tenantId);
+    return;
+  }
+
   // Product remove select: creator_product:remove_select:{tenantId}
   if (customId.startsWith('creator_product:remove_select:')) {
     const tenantId = customId.slice('creator_product:remove_select:'.length) as Id<'tenants'>;
