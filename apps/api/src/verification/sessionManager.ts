@@ -321,6 +321,12 @@ export interface VerificationConfig {
    */
   providerClientIds?: Record<string, string>;
   /**
+   * Generic OAuth client secrets for additional providers.
+   * Keys are verification modes; values are client secrets.
+   * Add new OAuth providers here without changing the interface.
+   */
+  providerClientSecrets?: Record<string, string>;
+  /**
    * Extra OAuth query params per mode (e.g. { discord_role: { prompt: 'consent' } }).
    */
   providerExtraOAuthParams?: Record<string, Record<string, string>>;
