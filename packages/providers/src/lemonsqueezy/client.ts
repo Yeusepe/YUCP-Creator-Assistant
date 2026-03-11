@@ -117,6 +117,7 @@ export class LemonSqueezyApiClient {
         throw new LemonSqueezyApiError(message, response.status, error);
       }
 
+      if (response.status === 204) return undefined as unknown as T;
       return (await response.json()) as T;
     } catch (error) {
       clearTimeout(timeoutId);
@@ -565,6 +566,38 @@ export class LemonSqueezyApiClient {
       licenseKeys: response.data.map((resource) => this.mapLicenseKey(resource as JsonApiResource)),
       pagination: this.mapPagination(response),
     };
+  }
+
+  async deleteWebhook(webhookId: string): Promise<void> {
+    await this.request<null>('DELETE', `/webhooks/${webhookId}`);
+  }
+
+  async updateWebhook(
+    webhookId: string,
+    updates: Partial<{ url: string; events: string[]; secret: string }>
+  ): Promise<LemonSqueezyWebhook> {
+    const response = await this.request<{
+      data: JsonApiResource<{
+        store_id?: number;
+        url?: string;
+        events?: string[];
+        secret?: string | null;
+        test_mode?: boolean;
+        created_at?: string;
+        updated_at?: string;
+      }>;
+    }>('PATCH', `/webhooks/${webhookId}`, undefined, {
+      data: {
+        type: 'webhooks',
+        id: webhookId,
+        attributes: {
+          ...(updates.url !== undefined ? { url: updates.url } : {}),
+          ...(updates.events !== undefined ? { events: updates.events } : {}),
+          ...(updates.secret !== undefined ? { secret: updates.secret } : {}),
+        },
+      },
+    });
+    return this.mapWebhook(response.data);
   }
 
   async createWebhook(input: LemonSqueezyWebhookCreateInput): Promise<LemonSqueezyWebhook> {

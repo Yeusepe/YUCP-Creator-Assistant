@@ -108,14 +108,13 @@ export const getProductsForTenant = query({
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
 
-    return products
-      .map((p) => ({
-        _id: p._id,
-        productId: p.productId,
-        provider: p.provider,
-        providerProductRef: p.providerProductRef,
-        canonicalSlug: p.canonicalSlug,
-        displayName: p.displayName,
-      }));
+    return products.map((p) => ({
+      _id: p._id,
+      productId: p.productId,
+      provider: p.provider,
+      providerProductRef: p.providerProductRef,
+      canonicalSlug: p.canonicalSlug,
+      displayName: p.displayName,
+    }));
   },
 });

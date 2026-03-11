@@ -4,8 +4,8 @@
  * Routes interactions to command handlers. Admin subcommands require Administrator permission.
  */
 
-import { createLogger } from '@yucp/shared';
 import { PROVIDER_META } from '@yucp/providers';
+import { createLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,

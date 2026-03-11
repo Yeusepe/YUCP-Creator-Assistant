@@ -402,7 +402,10 @@ export function createVerificationSessionManager(
 
       const clientId = clientIds[input.mode];
       if (!clientId) {
-        return { success: false, error: `${input.mode} client ID not configured` };
+        return {
+          success: false,
+          error: `${input.mode.charAt(0).toUpperCase() + input.mode.slice(1)} client ID not configured`,
+        };
       }
       authUrl.searchParams.set('client_id', clientId);
       authUrl.searchParams.set('scope', modeConfig.scopes.join(' '));
@@ -557,23 +560,23 @@ export function createVerificationSessionManager(
         code_verifier: codeVerifier,
       });
 
-      let clientId: string | undefined;
-      let clientSecret: string | undefined;
-      const clientIdLookup: Record<string, string | undefined> = {
-        gumroad: config.gumroadClientId,
-        discord: config.discordClientId,
-        discord_role: config.discordClientId,
-        jinxxy: config.jinxxyClientId,
-        ...config.providerClientIds,
-      };
-      const clientSecretLookup: Record<string, string | undefined> = {
-        gumroad: config.gumroadClientSecret,
-        discord: config.discordClientSecret,
-        discord_role: config.discordClientSecret,
-        jinxxy: config.jinxxyClientSecret,
-      };
-      clientId = clientIdLookup[mode];
-      clientSecret = clientSecretLookup[mode];
+      const clientId = (
+        {
+          gumroad: config.gumroadClientId,
+          discord: config.discordClientId,
+          discord_role: config.discordClientId,
+          jinxxy: config.jinxxyClientId,
+          ...config.providerClientIds,
+        } as Record<string, string | undefined>
+      )[mode];
+      const clientSecret = (
+        {
+          gumroad: config.gumroadClientSecret,
+          discord: config.discordClientSecret,
+          discord_role: config.discordClientSecret,
+          jinxxy: config.jinxxyClientSecret,
+        } as Record<string, string | undefined>
+      )[mode];
 
       if (clientId) tokenParams.set('client_id', clientId);
       if (clientSecret) tokenParams.set('client_secret', clientSecret);

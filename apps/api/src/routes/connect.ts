@@ -1669,6 +1669,22 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         providerKey: 'lemonsqueezy',
       });
 
+      // Delete any previously registered webhook to avoid duplicate-signing issues.
+      const existingConnection = await convex.query(
+        api.providerPlatform.getProviderConnectionAdmin,
+        { apiSecret: config.convexApiSecret, providerConnectionId: connectionId }
+      );
+      if (existingConnection?.remoteWebhookId) {
+        try {
+          await client.deleteWebhook(existingConnection.remoteWebhookId);
+        } catch (err) {
+          logger.warn('Could not delete old LS webhook (ignoring)', {
+            webhookId: existingConnection.remoteWebhookId,
+            err: String(err),
+          });
+        }
+      }
+
       const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/v1/webhooks/lemonsqueezy/${connectionId}`;
       const webhookSecretPlain = crypto.randomUUID().replace(/-/g, '');
       const webhook = await client.createWebhook({

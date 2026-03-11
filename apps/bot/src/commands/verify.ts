@@ -359,9 +359,7 @@ function getVerifyPrompt(enabledSet: Set<string>): string {
       return `${E.Touch} Verify your role from another server:`;
     }
     const nonDiscord = [...enabledSet].find((p) => p !== 'discord');
-    const meta = nonDiscord
-      ? PROVIDER_META[nonDiscord as keyof typeof PROVIDER_META]
-      : undefined;
+    const meta = nonDiscord ? PROVIDER_META[nonDiscord as keyof typeof PROVIDER_META] : undefined;
     const name = meta?.label ?? nonDiscord ?? 'store';
     return `${E.Touch} Choose how to verify your ${name} purchase:`;
   }
@@ -417,13 +415,8 @@ function buildStatusContainer(
   userId?: string,
   bannerMessage?: string
 ): ContainerBuilder {
-  const {
-    state,
-    linkedAccounts,
-    guildProductDisplayList,
-    guildProductCount,
-    connectedProviders,
-  } = data;
+  const { state, linkedAccounts, guildProductDisplayList, guildProductCount, connectedProviders } =
+    data;
 
   const accentColor =
     state === 'nothing'
@@ -735,9 +728,7 @@ export async function buildVerifyStatusReply(
       guildId,
     }),
   ]);
-  const enabledSet = new Set<string>(
-    (providersResult as { providers: string[] }).providers
-  );
+  const enabledSet = new Set<string>((providersResult as { providers: string[] }).providers);
 
   const bannerMessage =
     options?.bannerMessage ??
@@ -1288,9 +1279,7 @@ export async function handleRefreshCommand(
           guildId,
         }),
       ]);
-      const enabledSet = new Set<string>(
-        (providersResult as { providers: string[] }).providers
-      );
+      const enabledSet = new Set<string>((providersResult as { providers: string[] }).providers);
 
       const bannerMessage = `${E.Checkmark} Queued ${result.jobsCreated} role sync jobs! Your roles in this server will be updated momentarily.`;
       const container = buildStatusContainer(

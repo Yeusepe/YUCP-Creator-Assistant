@@ -1042,7 +1042,14 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     const signature = request.headers.get('x-signature')?.trim() ?? '';
     const expected = await hmacSha256(webhookSecret, rawBody);
     if (!signature || !timingSafeEqual(expected, signature)) {
-      logger.warn('Lemon webhook rejected', { connectionId, tenantId: connection.tenantId });
+      logger.warn('Lemon webhook rejected', {
+        connectionId,
+        tenantId: connection.tenantId,
+        hasSignature: !!signature,
+        signatureLength: signature.length,
+        expectedLength: expected.length,
+        secretSource: connection.remoteWebhookSecretRef ? 'remoteWebhookSecretRef' : 'credential',
+      });
       return jsonResponse({ error: 'Forbidden' }, requestId, 403);
     }
 

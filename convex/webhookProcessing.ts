@@ -99,7 +99,12 @@ export const processWebhookEvent = internalMutation({
     const EVENT_PROCESSORS: Record<
       string,
       // biome-ignore lint/suspicious/noExplicitAny: processor functions use any for ctx/event
-      (ctx: any, tenantId: Id<'tenants'>, event: any, payload: Record<string, unknown>) => Promise<void>
+      (
+        ctx: any,
+        tenantId: Id<'tenants'>,
+        event: any,
+        payload: Record<string, unknown>
+      ) => Promise<void>
     > = {
       gumroad: processGumroadEvent,
       jinxxy: processJinxxyEvent,
