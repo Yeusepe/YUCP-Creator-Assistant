@@ -63,7 +63,7 @@ export interface CertData {
 }
 
 export interface CertSignature {
-  algorithm: 'ed25519';
+  algorithm: 'Ed25519';
   keyId: string;
   value: string; // base64
 }
@@ -114,12 +114,12 @@ export async function signCertData(
   const messageBytes = new TextEncoder().encode(canonical);
   const privateKeyBytes = base64ToBytes(privateKeyBase64);
 
-  const signatureBytes = await ed.sign(messageBytes, privateKeyBytes);
+  const signatureBytes = await ed.signAsync(messageBytes, privateKeyBytes);
 
   return {
     cert: certData,
     signature: {
-      algorithm: 'ed25519',
+      algorithm: 'Ed25519',
       keyId,
       value: bytesToBase64(signatureBytes),
     },
@@ -139,19 +139,18 @@ export async function verifyCertEnvelope(
     const messageBytes = new TextEncoder().encode(canonical);
     const publicKeyBytes = base64ToBytes(publicKeyBase64);
     const signatureBytes = base64ToBytes(envelope.signature.value);
-    return await ed.verify(signatureBytes, messageBytes, publicKeyBytes);
+    return await ed.verifyAsync(signatureBytes, messageBytes, publicKeyBytes);
   } catch {
     return false;
   }
 }
 
 /**
- * Derive the Ed25519 public key from a private key (synchronous).
- * Used at startup to cache the root public key.
+ * Derive the Ed25519 public key from a private key (async).
  */
-export function getPublicKeyFromPrivate(privateKeyBase64: string): string {
+export async function getPublicKeyFromPrivate(privateKeyBase64: string): Promise<string> {
   const privateKeyBytes = base64ToBytes(privateKeyBase64);
-  const publicKeyBytes = ed.getPublicKey(privateKeyBytes);
+  const publicKeyBytes = await ed.getPublicKeyAsync(privateKeyBytes);
   return bytesToBase64(publicKeyBytes);
 }
 

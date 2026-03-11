@@ -25,6 +25,7 @@ import { signCertData, type CertData, type CertEnvelope } from './lib/yucpCrypto
 
 const CERT_TTL_DAYS = 90;
 const RATE_LIMIT_DAYS = 30;
+const NEW_KEY_RATE_LIMIT = 5; // max new machine keys per 30 days per account
 const ISSUER = 'YUCP Certificate Authority';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -117,15 +118,39 @@ export const recordIssuance = internalMutation({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const checkRateLimit = internalQuery({
-  args: { yucpUserId: v.string() },
+  args: { yucpUserId: v.string(), devPublicKey: v.string() },
   handler: async (ctx, args) => {
+    // Same-key re-request (same machine, new project or cert refresh): always allowed.
+    // The key is already registered — this is not a new key registration.
+    const existingForKey = await ctx.db
+      .query('yucp_certificates')
+      .withIndex('by_dev_public_key', (q) => q.eq('devPublicKey', args.devPublicKey))
+      .first();
+    if (existingForKey?.yucpUserId === args.yucpUserId) {
+      return { exceeded: false, isRenewal: true };
+    }
+
+    // New key: count how many distinct new keys this account registered in the last 30 days.
     const cutoff = Date.now() - RATE_LIMIT_DAYS * 24 * 60 * 60 * 1000;
-    const recent = await ctx.db
+    const recentIssuances = await ctx.db
       .query('cert_issuance_log')
       .withIndex('by_yucp_user_id', (q) => q.eq('yucpUserId', args.yucpUserId))
       .filter((q) => q.gte(q.field('issuedAt'), cutoff))
-      .first();
-    return { exceeded: recent !== null, lastIssuedAt: recent?.issuedAt };
+      .collect();
+
+    // Count distinct new keys (exclude the current key if somehow already in log)
+    const distinctNewKeys = new Set(
+      recentIssuances
+        .filter((r) => r.devPublicKey !== args.devPublicKey)
+        .map((r) => r.devPublicKey),
+    );
+
+    return {
+      exceeded: distinctNewKeys.size >= NEW_KEY_RATE_LIMIT,
+      isRenewal: false,
+      newKeysUsed: distinctNewKeys.size,
+      newKeysLimit: NEW_KEY_RATE_LIMIT,
+    };
   },
 });
 
@@ -160,6 +185,22 @@ export const getCertByNonce = internalQuery({
   },
 });
 
+export const getActiveCertForUser = internalQuery({
+  args: { yucpUserId: v.string(), devPublicKey: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query('yucp_certificates')
+      .withIndex('by_dev_public_key', (q) => q.eq('devPublicKey', args.devPublicKey))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('yucpUserId'), args.yucpUserId),
+          q.eq(q.field('status'), 'active'),
+        ),
+      )
+      .first();
+  },
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Certificate issuance action
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,12 +228,16 @@ export const issueCertificate = internalAction({
     const keyId = process.env.YUCP_KEY_ID ?? 'yucp-root-2025';
     if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
 
-    // Rate limit: 1 cert per YUCP account per 30 days
+    // Rate limit: same-key renewals (same machine) are always free.
+    // New key registrations (new machine) are limited to 5 per 30 days.
     const rateLimit = await ctx.runQuery(internal.yucpCertificates.checkRateLimit, {
       yucpUserId: args.yucpUserId,
+      devPublicKey: args.devPublicKey,
     });
     if (rateLimit.exceeded) {
-      throw new Error(`Rate limit: 1 certificate per ${RATE_LIMIT_DAYS} days per account`);
+      throw new Error(
+        `Rate limit: you have registered ${rateLimit.newKeysUsed} new machines in the last ${RATE_LIMIT_DAYS} days (limit ${rateLimit.newKeysLimit}). Please wait before adding another machine.`,
+      );
     }
 
     // Reuse publisherId for the same devPublicKey (key rotation keeps identity stable)

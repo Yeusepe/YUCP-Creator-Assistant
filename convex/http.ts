@@ -6,6 +6,10 @@
  *
  * Public API (Authorization: Bearer <oauth_access_token>):
  *
+ *   GET  /v1/keys
+ *        CA trust anchor — returns the root public key as a JWK Set (no auth).
+ *        Clients fetch this once and cache it; eliminates hardcoded keys.
+ *
  *   GET  /v1/me
  *        Returns the authenticated creator's profile (sub, name, email).
  *        Like Spotify GET /v1/me — token identifies "me".
@@ -289,6 +293,74 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /v1/keys — YUCP CA root public key (JWK Set format, no auth required)
+//
+// Returns the trust anchor used to verify all YUCP certificates.
+// Clients (Unity) fetch this once and cache it in settings — no hardcoding.
+// ─────────────────────────────────────────────────────────────────────────────
+
+http.route({
+  method: 'GET',
+  path: '/v1/keys',
+  handler: httpAction(async (_ctx, _request) => {
+    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
+    const keyId = process.env.YUCP_KEY_ID ?? 'yucp-root-2025';
+    if (!rootPrivateKey) return errorResponse('Service not configured', 503);
+
+    const publicKeyBase64 = await getPublicKeyFromPrivate(rootPrivateKey);
+
+    return jsonResponse({
+      keys: [{
+        kty: 'OKP',
+        crv: 'Ed25519',
+        kid: keyId,
+        x: publicKeyBase64,
+      }],
+    });
+  }),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /v1/certificates/me — Restore active cert for this machine's key
+//
+// Called by new Unity projects that are already signed in but have no local
+// SigningSettings asset yet. Returns the active cert for the authenticated
+// user + the devPublicKey from the request header, so the project can
+// bootstrap without issuing a new cert (no rate limit consumed).
+//
+// Header: Authorization: Bearer <access_token>
+// Header: X-Dev-Public-Key: <base64 devPublicKey>
+// ─────────────────────────────────────────────────────────────────────────────
+
+http.route({
+  method: 'GET',
+  path: '/v1/certificates/me',
+  handler: httpAction(async (ctx, request) => {
+    const siteUrl = process.env.CONVEX_SITE_URL;
+    if (!siteUrl) return errorResponse('Service not configured', 503);
+
+    const authHeader = request.headers.get('Authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
+
+    const tokenResult = await verifyOAuthToken(token, siteUrl);
+    if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
+
+    const devPublicKey = request.headers.get('X-Dev-Public-Key');
+    if (!devPublicKey) return errorResponse('X-Dev-Public-Key header required', 400);
+
+    const cert = await ctx.runQuery(internal.yucpCertificates.getActiveCertForUser, {
+      yucpUserId: tokenResult.yucpUserId,
+      devPublicKey,
+    });
+
+    if (!cert) return errorResponse('No active certificate found for this machine', 404);
+
+    return jsonResponse({ certificate: JSON.parse(cert.certData) });
+  }),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /v1/certificates — Issue cert via YUCP OAuth token (was /api/yucp/certificates/issue)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -422,7 +494,7 @@ http.route({
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
     if (!rootPrivateKey) return errorResponse('Service not configured', 503);
 
-    const rootPublicKey = getPublicKeyFromPrivate(rootPrivateKey);
+    const rootPublicKey = await getPublicKeyFromPrivate(rootPrivateKey);
 
     const certResult = await parseBearerCert(request, rootPublicKey);
     if (!certResult.ok) return errorResponse(certResult.error, 401);
