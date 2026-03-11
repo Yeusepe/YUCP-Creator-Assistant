@@ -1,10 +1,10 @@
 import './collab-invite.css';
+import { Cloud, Clouds, Sky as SkyImpl } from '@react-three/drei';
+import { Canvas, useFrame } from '@react-three/fiber';
+import confetti from 'canvas-confetti';
 import React, { Component, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as THREE from 'three';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { Cloud, Clouds, Sky as SkyImpl } from '@react-three/drei';
-import confetti from 'canvas-confetti';
 import cloudTextureUrl from './assets/cloud.png';
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
@@ -13,11 +13,12 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  // Use the standard React instance lifecycle to avoid conflicts with differing
+  // React type definitions across environments.
+  override componentDidCatch(_error: unknown) {
+    this.setState({ hasError: true });
   }
-
-  render() {
+  override render() {
     if (this.state.hasError) return null;
     return this.props.children;
   }
@@ -61,7 +62,7 @@ function MovingCloud({
     const elapsed = state.clock.getElapsedTime();
     const range = 240;
     let currentX = startX - elapsed * speed;
-    currentX = ((currentX + 120) % range + range) % range - 120;
+    currentX = ((((currentX + 120) % range) + range) % range) - 120;
     ref.current.position.x = currentX;
   });
 
@@ -87,11 +88,70 @@ function BackgroundSky() {
   return (
     <>
       <SkyImpl sunPosition={[100, 20, 100]} turbidity={1.2} rayleigh={0.6} />
-      <Clouds material={THREE.MeshLambertMaterial} texture={cloudTextureUrl} limit={4000} range={20}>
-        <MovingCloud startX={0} speed={1.5} bounds={[25, 6, 15]} color="#8fa3c9" volume={15} opacity={0.45} seed={1} y={0} z={-10} growth={4} fade={10} segments={20} />
-        <MovingCloud startX={30} speed={2.2} bounds={[10, 4, 10]} color="#7a8fb8" volume={6} opacity={0.35} seed={2} y={8} z={-20} growth={8} fade={20} segments={10} />
-        <MovingCloud startX={-20} speed={0.5} bounds={[60, 5, 40]} color="#6b82a8" volume={40} opacity={0.55} seed={3} y={-5} z={-35} growth={2} fade={30} segments={40} concentrate="outside" />
-        <MovingCloud startX={-45} speed={1.0} bounds={[30, 20, 30]} color="#9aa8c4" volume={35} opacity={0.5} seed={5} y={5} z={-25} growth={6} fade={15} segments={35} concentrate="random" />
+      <Clouds
+        material={THREE.MeshLambertMaterial}
+        texture={cloudTextureUrl}
+        limit={4000}
+        range={20}
+      >
+        <MovingCloud
+          startX={0}
+          speed={1.5}
+          bounds={[25, 6, 15]}
+          color="#8fa3c9"
+          volume={15}
+          opacity={0.45}
+          seed={1}
+          y={0}
+          z={-10}
+          growth={4}
+          fade={10}
+          segments={20}
+        />
+        <MovingCloud
+          startX={30}
+          speed={2.2}
+          bounds={[10, 4, 10]}
+          color="#7a8fb8"
+          volume={6}
+          opacity={0.35}
+          seed={2}
+          y={8}
+          z={-20}
+          growth={8}
+          fade={20}
+          segments={10}
+        />
+        <MovingCloud
+          startX={-20}
+          speed={0.5}
+          bounds={[60, 5, 40]}
+          color="#6b82a8"
+          volume={40}
+          opacity={0.55}
+          seed={3}
+          y={-5}
+          z={-35}
+          growth={2}
+          fade={30}
+          segments={40}
+          concentrate="outside"
+        />
+        <MovingCloud
+          startX={-45}
+          speed={1.0}
+          bounds={[30, 20, 30]}
+          color="#9aa8c4"
+          volume={35}
+          opacity={0.5}
+          seed={5}
+          y={5}
+          z={-25}
+          growth={6}
+          fade={15}
+          segments={35}
+          concentrate="random"
+        />
       </Clouds>
     </>
   );
@@ -104,7 +164,14 @@ function BackgroundApp() {
         <BackgroundSky />
         <ambientLight intensity={Math.PI / 1.5} />
         <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
-        <spotLight position={[-20, 0, 10]} color="#ffdddd" angle={0.8} decay={0} penumbra={1} intensity={10} />
+        <spotLight
+          position={[-20, 0, 10]}
+          color="#ffdddd"
+          angle={0.8}
+          decay={0}
+          penumbra={1}
+          intensity={10}
+        />
       </Canvas>
     </ErrorBoundary>
   );
@@ -117,9 +184,9 @@ function bootBackground() {
 }
 
 function bootIcons() {
-  document.querySelectorAll('[data-lucide]').forEach((node) => {
-    node.classList.add('lucide-icon');
-  });
+  for (const node of Array.from(document.querySelectorAll('[data-lucide]'))) {
+    (node as Element).classList.add('lucide-icon');
+  }
 }
 
 function exposeConfetti() {

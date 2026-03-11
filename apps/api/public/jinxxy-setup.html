@@ -16,7 +16,7 @@
             --text-secondary: rgba(255, 255, 255, 0.8);
         }
 
-        
+
 
         html,
         body {
@@ -34,28 +34,32 @@
         }
 
         /* Prevent iOS zoom on input focus */
-        input, textarea, select {
+        input,
+        textarea,
+        select {
             font-size: 16px;
         }
 
         /* Hide decorative UI mockups on screens narrower than 1024px
            so step instructions have full width and are readable */
         @media (max-width: 1023px) {
-            .step-content > div:first-child {
+            .step-content>div:first-child {
                 display: none !important;
             }
-            .step-content > div:last-child {
+
+            .step-content>div:last-child {
                 grid-column: 1 / -1;
             }
         }
 
         /* On small screens tighten card padding and reduce radius */
         @media (max-width: 479px) {
-            #page-content > main > .max-w-6xl {
+            #page-content>main>.max-w-6xl {
                 padding: 1.25rem !important;
                 border-radius: 24px !important;
             }
-            #page-content > main > .max-w-6xl > div:first-child {
+
+            #page-content>main>.max-w-6xl>div:first-child {
                 margin-bottom: 1rem !important;
             }
         }
@@ -207,6 +211,31 @@
     </div>
     <div id="page-content" class="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
         style="display: none;">
+        <a id="back-to-dashboard-btn" href="#"
+            class="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
+            style="display:none; text-decoration: none;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Back to Dashboard
+        </a>
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const urlParams = new URLSearchParams(window.location.search);
+                const tId = urlParams.get('tenant_id') || urlParams.get('tenantId') || (typeof TENANT_ID !== 'undefined' ? TENANT_ID : '');
+                const gId = urlParams.get('guild_id') || urlParams.get('guildId') || (typeof GUILD_ID !== 'undefined' ? GUILD_ID : '');
+                if (tId && tId !== '__TENANT_ID__') {
+                    const btn = document.getElementById('back-to-dashboard-btn');
+                    btn.style.display = 'inline-flex';
+                    const apiBaseUrl = (typeof API_BASE !== 'undefined' && API_BASE !== '__API_BASE__') ? API_BASE : '';
+                    const dashboardUrl = new URL(apiBaseUrl + '/dashboard', window.location.origin);
+                    dashboardUrl.searchParams.set('tenant_id', tId);
+                    if (gId && gId !== '__GUILD_ID__') dashboardUrl.searchParams.set('guild_id', gId);
+                    btn.href = dashboardUrl.toString();
+                }
+            });
+        </script>
         <div id="bg-canvas-root"
             style="position: absolute; inset: 0; width: 100%; height: 100%; z-index: -20; pointer-events: none;">
         </div>
@@ -399,7 +428,8 @@
                                 </p>
                                 <p class="text-sm text-amber-400/90">
                                     <strong>Reconnecting?</strong> Delete any existing Creator Assistant webhook in
-                                    Jinxxy™ first, then create this new one. Old webhooks use a different secret and will
+                                    Jinxxy™ first, then create this new one. Old webhooks use a different secret and
+                                    will
                                     be rejected.
                                 </p>
                             </div>
@@ -752,7 +782,8 @@
                     </div>
                 </div>
 
-                <div class="mt-auto pt-8 flex flex-col-reverse sm:flex-row justify-between items-stretch sm:items-center gap-3 flex-shrink-0 relative z-20">
+                <div
+                    class="mt-auto pt-8 flex flex-col-reverse sm:flex-row justify-between items-stretch sm:items-center gap-3 flex-shrink-0 relative z-20">
                     <button id="prev-btn"
                         class="px-6 py-3 rounded-xl font-bold text-[rgba(255,255,255,0.8)] hover:text-[#ffffff] hover:bg-white/5 disabled:opacity-30 disabled:hover:text-[rgba(255,255,255,0.8)] disabled:hover:bg-transparent transition-colors flex items-center justify-center gap-2 min-h-[44px]">
                         <i data-lucide="arrow-left" class="w-4 h-4"></i> Back

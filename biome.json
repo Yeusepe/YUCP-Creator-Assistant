@@ -1,5 +1,13 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
+  "files": {
+    "ignore": [
+      "**/dist",
+      "**/convex/_generated",
+      "**/*.tsbuildinfo",
+      "**/public/assets/**"
+    ]
+  },
   "organizeImports": {
     "enabled": true
   },

@@ -64,7 +64,7 @@ describe('verificationSupport', () => {
   });
 
   it('uses BETTER_AUTH_SECRET as a fallback secret', async () => {
-    delete process.env.ERROR_REFERENCE_SECRET;
+    process.env.ERROR_REFERENCE_SECRET = undefined;
     process.env.BETTER_AUTH_SECRET = 'fallback-secret';
 
     const encoded = await encodeVerificationSupportToken({
@@ -78,8 +78,8 @@ describe('verificationSupport', () => {
   });
 
   it('falls back to a plain support code when no secret exists', async () => {
-    delete process.env.ERROR_REFERENCE_SECRET;
-    delete process.env.BETTER_AUTH_SECRET;
+    process.env.ERROR_REFERENCE_SECRET = '';
+    process.env.BETTER_AUTH_SECRET = '';
 
     const encoded = await encodeVerificationSupportToken({
       surface: 'bot',

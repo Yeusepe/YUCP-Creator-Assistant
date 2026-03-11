@@ -40,10 +40,7 @@ export const E = {
 } as const;
 
 /** Shape accepted by discord.js setEmoji() for custom emojis. */
-const customEmoji = (
-  id: string,
-  name: string,
-): ComponentEmojiResolvable => ({ id, name });
+const customEmoji = (id: string, name: string): ComponentEmojiResolvable => ({ id, name });
 
 /** Emoji objects for discord.js components. Use with .setEmoji(Emoji.Bag), etc. */
 export const Emoji = {

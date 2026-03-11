@@ -7,6 +7,7 @@
  */
 
 import { createLogger } from '@yucp/shared';
+import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import type { VerificationConfig } from './sessionManager';
@@ -38,13 +39,7 @@ export async function handleCompleteVrchat(
   config: VerificationConfig,
   input: CompleteVrchatInput
 ): Promise<CompleteVrchatResult> {
-  const {
-    tenantId,
-    subjectId,
-    vrchatUserId,
-    displayName,
-    ownedAvatarIds,
-  } = input;
+  const { tenantId, subjectId, vrchatUserId, displayName, ownedAvatarIds } = input;
 
   if (!tenantId) return { success: false, error: 'Missing tenant ID' };
   if (!subjectId) return { success: false, error: 'Missing subject ID' };
@@ -60,27 +55,26 @@ export async function handleCompleteVrchat(
 
   try {
     const convex = getConvexClientFromUrl(config.convexUrl);
-    const matches = await convex.query(
-      'role_rules:getVrchatCatalogProductsMatchingAvatars' as any,
-      {
-        apiSecret: config.convexApiSecret,
-        tenantId,
-        ownedAvatarIds,
-      }
-    );
+    const matches = await convex.query(api.role_rules.getVrchatCatalogProductsMatchingAvatars, {
+      apiSecret: config.convexApiSecret,
+      tenantId,
+      ownedAvatarIds,
+    });
 
-    const productsToGrant = (matches as Array<{
-      productId: string;
-      catalogProductId: string;
-      providerProductRef: string;
-    }>).map((m) => ({
+    const productsToGrant = (
+      matches as Array<{
+        productId: string;
+        catalogProductId: string;
+        providerProductRef: string;
+      }>
+    ).map((m) => ({
       productId: m.productId,
       sourceReference: `vrchat:avatar:${m.providerProductRef}`,
       catalogProductId: m.catalogProductId,
     }));
 
     const mutationResult = await convex.mutation(
-      'licenseVerification:completeLicenseVerification' as any,
+      api.licenseVerification.completeLicenseVerification,
       {
         apiSecret: config.convexApiSecret,
         tenantId,
@@ -120,10 +114,7 @@ export async function handleCompleteVrchat(
       success: mutationResult.success,
       provider: 'vrchat',
       entitlementIds: mutationResult.entitlementIds,
-      error: sanitizePublicErrorMessage(
-        mutationResult.error,
-        GENERIC_ERROR
-      ),
+      error: sanitizePublicErrorMessage(mutationResult.error, GENERIC_ERROR),
     };
   } catch (err) {
     logger.error('Complete VRChat verification failed', {

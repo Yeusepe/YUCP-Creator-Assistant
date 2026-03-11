@@ -4,11 +4,11 @@
  * Single command combining link and summary.
  */
 
+import type { ConvexHttpClient } from 'convex/browser';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
-import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { E } from '../lib/emojis';
 
 const POSTHOG_DASHBOARD_URL = 'https://us.posthog.com';
@@ -18,11 +18,11 @@ export async function handleAnalytics(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const stats = await convex.query(api.entitlements.getStatsOverview as any, {
+  const stats = await convex.query(api.entitlements.getStatsOverview, {
     apiSecret,
     tenantId: ctx.tenantId,
   });
@@ -31,12 +31,12 @@ export async function handleAnalytics(
     .setTitle(`${E.Library} Analytics`)
     .setColor(0x5865f2)
     .setDescription(
-      `[View full analytics in PostHog ↗](${POSTHOG_DASHBOARD_URL})\n\nEvents tracked: \`command_used\`, \`verification_started\`, \`verification_completed\`, \`verification_failed\`, \`spawn_button_clicked\`, \`product_added\`, \`suspicious_marked\``,
+      `[View full analytics in PostHog ↗](${POSTHOG_DASHBOARD_URL})\n\nEvents tracked: \`command_used\`, \`verification_started\`, \`verification_completed\`, \`verification_failed\`, \`spawn_button_clicked\`, \`product_added\`, \`suspicious_marked\``
     )
     .addFields(
       { name: 'Verified Users', value: String(stats.totalVerified), inline: true },
       { name: 'Products', value: String(stats.totalProducts ?? '-'), inline: true },
-      { name: 'Verified (24h)', value: String(stats.recentGrantsCount), inline: true },
+      { name: 'Verified (24h)', value: String(stats.recentGrantsCount), inline: true }
     );
 
   await interaction.editReply({ embeds: [embed] });
@@ -45,13 +45,13 @@ export async function handleAnalytics(
 export async function handleAnalyticsLink(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
-  _ctx: { tenantId: Id<'tenants'>; guildId: string },
+  _ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   const embed = new EmbedBuilder()
     .setTitle('Analytics')
     .setColor(0x5865f2)
     .setDescription(
-      `View full analytics in PostHog:\n${POSTHOG_DASHBOARD_URL}\n\nEvents tracked: command_used, verification_started, verification_completed, verification_failed, spawn_button_clicked, product_added, suspicious_marked`,
+      `View full analytics in PostHog:\n${POSTHOG_DASHBOARD_URL}\n\nEvents tracked: command_used, verification_started, verification_completed, verification_failed, spawn_button_clicked, product_added, suspicious_marked`
     );
 
   await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -61,11 +61,11 @@ export async function handleAnalyticsSummary(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const stats = await convex.query(api.entitlements.getStatsOverview as any, {
+  const stats = await convex.query(api.entitlements.getStatsOverview, {
     apiSecret,
     tenantId: ctx.tenantId,
   });
@@ -76,7 +76,7 @@ export async function handleAnalyticsSummary(
     .addFields(
       { name: 'Verified users', value: String(stats.totalVerified), inline: true },
       { name: 'Products', value: String(stats.totalProducts), inline: true },
-      { name: 'Verifications (24h)', value: String(stats.recentGrantsCount), inline: true },
+      { name: 'Verifications (24h)', value: String(stats.recentGrantsCount), inline: true }
     )
     .setFooter({ text: 'Full analytics in PostHog dashboard' });
 

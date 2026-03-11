@@ -21,7 +21,9 @@ describe('providers', () => {
     });
 
     it('should throw for Jinxxy without apiKey (use JinxxyAdapter directly with apiKey)', () => {
-      expect(() => createProviderAdapter('jinxxy', {})).toThrow('Use JinxxyAdapter directly with apiKey config');
+      expect(() => createProviderAdapter('jinxxy', {})).toThrow(
+        'Use JinxxyAdapter directly with apiKey config'
+      );
     });
 
     it('should create a Jinxxy adapter when apiKey provided', () => {

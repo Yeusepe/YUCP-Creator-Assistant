@@ -44,13 +44,15 @@ describe('VrchatWebClient', () => {
 
       const responseHeaders = new Headers();
       responseHeaders.append('set-cookie', 'auth=auth-token; Path=/; HttpOnly');
-      return new Response(
-        JSON.stringify({ id: 'usr_123', displayName: 'Display' }),
-        { status: 200, headers: responseHeaders }
-      );
+      return new Response(JSON.stringify({ id: 'usr_123', displayName: 'Display' }), {
+        status: 200,
+        headers: responseHeaders,
+      });
     });
 
-    globalThis.fetch = fetchMock as typeof fetch;
+    // Some test mocks don't have all properties of the real `fetch` function (like `preconnect`).
+    // Cast through unknown to satisfy TypeScript, while preserving runtime behavior.
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const client = new VrchatWebClient();
     const result = await client.login('user@example.com', 'p@ss word');
@@ -85,7 +87,7 @@ describe('VrchatWebClient', () => {
       return new Response(JSON.stringify([{ id: 'avtr_100' }]), { status: 200 });
     });
 
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const client = new VrchatWebClient();
     const ownership = await client.getOwnershipFromSession({

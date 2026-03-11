@@ -20,6 +20,8 @@ const CONVEX_ENV_VARS = [
   'FRONTEND_URL',
   'SITE_URL',
   'BACKFILL_API_URL',
+  'YUCP_ROOT_PRIVATE_KEY',
+  'YUCP_KEY_ID',
 ] as const;
 
 const isProd = process.argv.includes('--prod');

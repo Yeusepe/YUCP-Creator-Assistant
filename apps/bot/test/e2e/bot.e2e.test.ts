@@ -59,7 +59,7 @@ describe('discord bot real-infrastructure e2e', () => {
       const memberPage = await member.openChannel(harness.secrets.targetGuildId, channelId);
       await harness.ensureSubjectForDiscord(
         harness.secrets.memberUserId,
-        `bot-e2e-member-${harness.runId}`,
+        `bot-e2e-member-${harness.runId}`
       );
 
       await member.runSlashCommand(memberPage, '/creator status');
@@ -74,7 +74,11 @@ describe('discord bot real-infrastructure e2e', () => {
       await member.runSlashCommand(memberPage, '/creator docs', 'Creator Assistant Documentation');
 
       const adminPage = await admin.openChannel(harness.secrets.targetGuildId, channelId);
-      await admin.runSlashCommand(adminPage, '/creator-admin spawn-verify', 'Verify message posted');
+      await admin.runSlashCommand(
+        adminPage,
+        '/creator-admin spawn-verify',
+        'Verify message posted'
+      );
       await member.waitForText(memberPage, 'Verify');
       await member.clickButton(memberPage, 'Verify');
       await member.waitForAnyText(memberPage, [
@@ -108,7 +112,11 @@ describe('discord bot real-infrastructure e2e', () => {
     try {
       const page = await admin.openChannel(harness.secrets.targetGuildId, channelId);
 
-      await admin.runSlashCommand(page, '/creator-admin settings cross-server', 'Cross-Server Role Verification');
+      await admin.runSlashCommand(
+        page,
+        '/creator-admin settings cross-server',
+        'Cross-Server Role Verification'
+      );
       await admin.waitForText(page, 'Allowed Source Servers');
 
       if (originalEnabled) {
@@ -149,7 +157,7 @@ describe('discord bot real-infrastructure e2e', () => {
     const productId = `${harness.runId}:${scenario}:manual-product`;
     const subjectId = await harness.ensureSubjectForDiscord(
       harness.secrets.memberUserId,
-      `bot-e2e-member-${harness.runId}`,
+      `bot-e2e-member-${harness.runId}`
     );
     await harness.recordResource({
       scenario,
@@ -177,15 +185,17 @@ describe('discord bot real-infrastructure e2e', () => {
     const member = await harness.openMemberSession();
 
     try {
-      await harness.removeRoleFromMember(
-        harness.secrets.targetGuildId,
-        harness.secrets.memberUserId,
-        verifiedRoleId,
-      ).catch(() => {});
+      await harness
+        .removeRoleFromMember(
+          harness.secrets.targetGuildId,
+          harness.secrets.memberUserId,
+          verifiedRoleId
+        )
+        .catch(() => {});
       await harness.grantManualEntitlement(
         subjectId,
         productId,
-        `${harness.runId}:${scenario}:grant`,
+        `${harness.runId}:${scenario}:grant`
       );
 
       const page = await member.openChannel(harness.secrets.targetGuildId, interactionChannelId);
@@ -193,12 +203,12 @@ describe('discord bot real-infrastructure e2e', () => {
       await harness.waitForMemberRole(
         harness.secrets.targetGuildId,
         harness.secrets.memberUserId,
-        verifiedRoleId,
+        verifiedRoleId
       );
 
       const refreshedMember = await harness.fetchMember(
         harness.secrets.targetGuildId,
-        harness.secrets.memberUserId,
+        harness.secrets.memberUserId
       );
       expect(refreshedMember.roles.includes(verifiedRoleId)).toBe(true);
 
@@ -206,7 +216,7 @@ describe('discord bot real-infrastructure e2e', () => {
       await harness.waitForMemberRoleRemoval(
         harness.secrets.targetGuildId,
         harness.secrets.memberUserId,
-        verifiedRoleId,
+        verifiedRoleId
       );
       await member.close();
     } finally {
@@ -266,16 +276,23 @@ describe('discord bot real-infrastructure e2e', () => {
 
       await harness.ensureSubjectForDiscord(
         harness.secrets.memberUserId,
-        `bot-e2e-member-${harness.runId}`,
+        `bot-e2e-member-${harness.runId}`
       );
       await harness.addRoleToMember(
         harness.secrets.sourceGuildId,
         harness.secrets.memberUserId,
-        sourceRoleId,
+        sourceRoleId
       );
 
-      const adminPage = await admin.openChannel(harness.secrets.targetGuildId, interactionChannelId);
-      await admin.runSlashCommand(adminPage, '/creator-admin product list', 'Product-Role Mappings');
+      const adminPage = await admin.openChannel(
+        harness.secrets.targetGuildId,
+        interactionChannelId
+      );
+      await admin.runSlashCommand(
+        adminPage,
+        '/creator-admin product list',
+        'Product-Role Mappings'
+      );
       await admin.waitForText(adminPage, targetRoleName);
 
       const page = await member.openChannel(harness.secrets.targetGuildId, interactionChannelId);
@@ -283,19 +300,19 @@ describe('discord bot real-infrastructure e2e', () => {
       await harness.waitForMemberRole(
         harness.secrets.targetGuildId,
         harness.secrets.memberUserId,
-        targetRoleId,
+        targetRoleId
       );
 
       await harness.removeRoleFromMember(
         harness.secrets.sourceGuildId,
         harness.secrets.memberUserId,
-        sourceRoleId,
+        sourceRoleId
       );
       await member.runSlashCommand(page, '/creator refresh', 'Queued');
       await harness.waitForMemberRoleRemoval(
         harness.secrets.targetGuildId,
         harness.secrets.memberUserId,
-        targetRoleId,
+        targetRoleId
       );
 
       await admin.close();
@@ -306,11 +323,13 @@ describe('discord bot real-infrastructure e2e', () => {
           enableDiscordRoleFromOtherServers: originalEnabled,
           allowedSourceGuildIds: originalAllowed,
         });
-        await harness.removeRoleFromMember(
-          harness.secrets.sourceGuildId,
-          harness.secrets.memberUserId,
-          sourceRoleId,
-        ).catch(() => {});
+        await harness
+          .removeRoleFromMember(
+            harness.secrets.sourceGuildId,
+            harness.secrets.memberUserId,
+            sourceRoleId
+          )
+          .catch(() => {});
         await admin.close().catch(() => {});
         await member.close().catch(() => {});
         await harness.cleanupScenario(scenario);
@@ -340,13 +359,21 @@ describe('discord bot real-infrastructure e2e', () => {
 
     const member = await harness.openMemberSession();
     const admin = await harness.openAdminSession();
-    const fixturePath = join(cwd(), 'apps', 'bot', 'test', 'e2e', 'fixtures', 'sample-download.txt');
+    const fixturePath = join(
+      cwd(),
+      'apps',
+      'bot',
+      'test',
+      'e2e',
+      'fixtures',
+      'sample-download.txt'
+    );
 
     try {
       await harness.addRoleToMember(
         harness.secrets.targetGuildId,
         harness.secrets.memberUserId,
-        accessRoleId,
+        accessRoleId
       );
 
       const memberPage = await member.openChannel(harness.secrets.targetGuildId, sourceChannelId);
@@ -368,11 +395,13 @@ describe('discord bot real-infrastructure e2e', () => {
       await safeCleanup(harness, scenario, async () => {
         await admin.close().catch(() => {});
         await member.close().catch(() => {});
-        await harness.removeRoleFromMember(
-          harness.secrets.targetGuildId,
-          harness.secrets.memberUserId,
-          accessRoleId,
-        ).catch(() => {});
+        await harness
+          .removeRoleFromMember(
+            harness.secrets.targetGuildId,
+            harness.secrets.memberUserId,
+            accessRoleId
+          )
+          .catch(() => {});
         await harness.cleanupScenario(scenario);
       });
     }
@@ -402,7 +431,11 @@ describe('discord bot real-infrastructure e2e', () => {
 
     try {
       const page = await admin.openChannel(harness.secrets.targetGuildId, sourceChannelId);
-      await admin.runSlashCommand(page, '/creator-admin downloads manage', 'Manage Liened Downloads');
+      await admin.runSlashCommand(
+        page,
+        '/creator-admin downloads manage',
+        'Manage Liened Downloads'
+      );
       await admin.waitForText(page, 'Route On');
 
       await admin.clickButton(page, 'Turn Off', 'Route is now');
@@ -440,12 +473,20 @@ describe('discord bot real-infrastructure e2e', () => {
 
     try {
       const page = await admin.openChannel(harness.secrets.targetGuildId, channelId);
-      await admin.runSlashCommand(page, '/creator-admin collab invite', 'Collaborator invite link:');
+      await admin.runSlashCommand(
+        page,
+        '/creator-admin collab invite',
+        'Collaborator invite link:'
+      );
       await admin.waitForText(page, 'collab-invite');
 
       await admin.runSlashCommand(page, '/creator-admin collab list', 'Collaborator Connections');
       await admin.waitForText(page, added.displayName);
-      await admin.clickButton(page, `Remove ${added.displayName}`, 'Collaborator connection removed.');
+      await admin.clickButton(
+        page,
+        `Remove ${added.displayName}`,
+        'Collaborator connection removed.'
+      );
 
       const remaining = await harness.listCollaboratorConnections();
       expect(remaining.some((connection) => connection.id === added.connectionId)).toBe(false);
@@ -464,7 +505,7 @@ describe('discord bot real-infrastructure e2e', () => {
     const channelId = await harness.createScenarioChannel(scenario, 'moderation');
     const subjectId = await harness.ensureSubjectForDiscord(
       harness.secrets.memberUserId,
-      `bot-e2e-member-${harness.runId}`,
+      `bot-e2e-member-${harness.runId}`
     );
     await harness.markSubjectSuspicious(subjectId, 'piracy');
 
@@ -480,8 +521,8 @@ describe('discord bot real-infrastructure e2e', () => {
         suspiciousSubjects.some(
           (subject) =>
             subject.subjectId === subjectId &&
-            subject.discordUserId === harness.secrets.memberUserId,
-        ),
+            subject.discordUserId === harness.secrets.memberUserId
+        )
       ).toBe(true);
 
       await admin.close();

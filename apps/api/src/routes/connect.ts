@@ -10,21 +10,23 @@
  */
 
 import { createLogger } from '@yucp/shared';
+import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
-import { getConvexClient, getConvexApiSecret, getConvexClientFromUrl } from '../lib/convex';
-import { getStateStore } from '../lib/stateStore';
-import { encrypt } from '../lib/encrypt';
-import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import {
-  buildCookie,
-  clearCookie,
   CONNECT_TOKEN_COOKIE,
   DISCORD_ROLE_SETUP_COOKIE,
-  getCookieValue,
   JINXXY_PENDING_WEBHOOK_PREFIX,
   JINXXY_PENDING_WEBHOOK_TTL_MS,
   SETUP_SESSION_COOKIE,
+  buildCookie,
+  clearCookie,
+  getCookieValue,
 } from '../lib/browserSessions';
+import { getConvexApiSecret, getConvexClient, getConvexClientFromUrl } from '../lib/convex';
+import { encrypt } from '../lib/encrypt';
+import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
+import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
+import { getStateStore } from '../lib/stateStore';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -35,6 +37,11 @@ const JINXXY_TEST_PREFIX = 'jinxxy_test:';
 const TOKEN_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const GUMROAD_STATE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const JINXXY_TEST_TTL_MS = 60 * 1000; // 60 seconds
+const ALLOWED_PUBLIC_API_SCOPES = new Set(['verification:read', 'subjects:read']);
+const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
+const PUBLIC_API_KEY_METADATA_KIND = 'public-api';
+const DEFAULT_PUBLIC_API_SCOPES = ['verification:read', 'subjects:read'];
+const DEFAULT_OAUTH_APP_SCOPES = ['verification:read'];
 
 const DISCORD_ROLE_SETUP_PREFIX = 'discord_role_setup:';
 const DISCORD_ROLE_OAUTH_STATE_PREFIX = 'discord_role_oauth:';
@@ -60,13 +67,265 @@ interface DiscordRoleSetupSession {
   tenantId: string;
   guildId: string;
   adminDiscordUserId: string;
-  guilds?: Array<{ id: string; name: string; icon: string | null; owner: boolean; permissions: string }>;
+  guilds?: Array<{
+    id: string;
+    name: string;
+    icon: string | null;
+    owner: boolean;
+    permissions: string;
+  }>;
   sourceGuildId?: string;
   sourceGuildName?: string;
   sourceRoleId?: string;
   sourceRoleIds?: string[];
   requiredRoleMatchMode?: 'any' | 'all';
   completed: boolean;
+}
+
+interface BetterAuthPermissionStatements {
+  [key: string]: string[];
+}
+
+interface BetterAuthApiKey {
+  id: string;
+  name?: string | null;
+  start?: string | null;
+  prefix?: string | null;
+  enabled?: boolean;
+  permissions?: BetterAuthPermissionStatements | null;
+  metadata?: unknown;
+  lastRequest?: unknown;
+  expiresAt?: unknown;
+  createdAt?: unknown;
+}
+
+interface BetterAuthOAuthClient {
+  client_id: string;
+  client_secret?: string;
+  client_name?: string;
+  redirect_uris: string[];
+  scope?: string;
+  client_id_issued_at?: number;
+  token_endpoint_auth_method?: 'client_secret_basic' | 'client_secret_post' | 'none';
+  grant_types?: Array<'authorization_code' | 'refresh_token' | 'client_credentials'>;
+  response_types?: Array<'code'>;
+  disabled?: boolean;
+}
+
+interface OAuthAppMappingRecord {
+  _id: string;
+  _creationTime: number;
+  tenantId: string;
+  name: string;
+  clientId: string;
+  redirectUris: string[];
+  scopes: string[];
+}
+
+function toTimestamp(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      return asNumber;
+    }
+
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  return undefined;
+}
+
+function normalizePublicApiScopes(scopes: unknown): string[] {
+  const values =
+    Array.isArray(scopes) && scopes.length > 0
+      ? scopes.map((scope) => (typeof scope === 'string' ? scope.trim() : '')).filter(Boolean)
+      : [...DEFAULT_PUBLIC_API_SCOPES];
+
+  if (values.some((scope) => !ALLOWED_PUBLIC_API_SCOPES.has(scope))) {
+    throw new Error('Invalid API key scopes');
+  }
+
+  return Array.from(new Set(values));
+}
+
+function parsePublicApiKeyMetadata(value: unknown): { kind?: string; tenantId?: string } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const metadata = value as Record<string, unknown>;
+  return {
+    kind: typeof metadata.kind === 'string' ? metadata.kind : undefined,
+    tenantId: typeof metadata.tenantId === 'string' ? metadata.tenantId : undefined,
+  };
+}
+
+function getPublicApiKeyScopes(
+  permissions: BetterAuthPermissionStatements | null | undefined
+): string[] {
+  if (!permissions || typeof permissions !== 'object') {
+    return [];
+  }
+
+  const scopes = permissions[PUBLIC_API_KEY_PERMISSION_NAMESPACE];
+  return Array.isArray(scopes)
+    ? scopes.filter((scope): scope is string => typeof scope === 'string')
+    : [];
+}
+
+function buildPublicApiPermissions(scopes: string[]): BetterAuthPermissionStatements {
+  return {
+    [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: scopes,
+  };
+}
+
+function getPublicApiKeyExpiresIn(expiresAt: number | null | undefined): number | null | undefined {
+  if (expiresAt === null) {
+    return null;
+  }
+  if (expiresAt === undefined) {
+    return undefined;
+  }
+
+  const expiresIn = Math.floor((expiresAt - Date.now()) / 1000);
+  if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+    throw new Error('expiresAt must be in the future');
+  }
+  return expiresIn;
+}
+
+async function createManagedPublicApiKey(
+  config: ConnectConfig,
+  ownerUserId: string,
+  input: {
+    name: string;
+    scopes: string[];
+    tenantId: string;
+    expiresAt?: number | null;
+  }
+): Promise<{
+  response: Response;
+  data: (BetterAuthApiKey & { key?: string }) | null;
+}> {
+  const convex = getConvexClientFromUrl(config.convexUrl);
+  try {
+    const result = (await convex.mutation(api.betterAuthApiKeys.createApiKey, {
+      apiSecret: config.convexApiSecret,
+      userId: ownerUserId,
+      tenantId: input.tenantId,
+      name: input.name,
+      scopes: input.scopes,
+      expiresIn: getPublicApiKeyExpiresIn(input.expiresAt),
+    })) as {
+      key: string;
+      apiKey: {
+        id: string;
+        name: string | null;
+        start: string | null;
+        prefix: string | null;
+        enabled: boolean;
+        permissions: BetterAuthPermissionStatements | null;
+        metadata: { kind: string; tenantId: string } | null;
+        lastRequestAt: number | null;
+        expiresAt: number | null;
+        createdAt: number | null;
+      };
+    };
+
+    return {
+      response: new Response(null, { status: 200 }),
+      data: {
+        id: result.apiKey.id,
+        key: result.key,
+        name: result.apiKey.name,
+        start: result.apiKey.start,
+        prefix: result.apiKey.prefix,
+        enabled: result.apiKey.enabled,
+        permissions: result.apiKey.permissions,
+        metadata: result.apiKey.metadata,
+        lastRequest: result.apiKey.lastRequestAt ?? undefined,
+        expiresAt: result.apiKey.expiresAt ?? undefined,
+        createdAt: result.apiKey.createdAt ?? undefined,
+      },
+    };
+  } catch (error) {
+    logger.error('Create API key via Convex failed', {
+      tenantId: input.tenantId,
+      userId: ownerUserId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      response: new Response(null, { status: 500 }),
+      data: null,
+    };
+  }
+}
+
+function normalizeRedirectUris(redirectUris: unknown): string[] {
+  const values = Array.isArray(redirectUris)
+    ? redirectUris.map((value) => (typeof value === 'string' ? value.trim() : '')).filter(Boolean)
+    : [];
+
+  if (values.length === 0) {
+    throw new Error('At least one redirect URI is required');
+  }
+
+  for (const redirectUri of values) {
+    try {
+      new URL(redirectUri);
+    } catch {
+      throw new Error(`Invalid redirect URI: ${redirectUri}`);
+    }
+  }
+
+  return Array.from(new Set(values));
+}
+
+function normalizeOAuthScopes(scopes: unknown): string[] {
+  const values = Array.isArray(scopes)
+    ? scopes.map((scope) => (typeof scope === 'string' ? scope.trim() : '')).filter(Boolean)
+    : [];
+
+  return Array.from(new Set(values.length > 0 ? values : [...DEFAULT_OAUTH_APP_SCOPES]));
+}
+
+function getBetterAuthErrorMessage(value: unknown, fallback: string): string {
+  if (!value || typeof value !== 'object') {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.message === 'string' && record.message.trim()) {
+    return record.message;
+  }
+
+  const error = record.error;
+  if (error && typeof error === 'object') {
+    const errorRecord = error as Record<string, unknown>;
+    if (typeof errorRecord.message === 'string' && errorRecord.message.trim()) {
+      return errorRecord.message;
+    }
+    if (typeof errorRecord.error_description === 'string' && errorRecord.error_description.trim()) {
+      return errorRecord.error_description;
+    }
+  }
+
+  if (typeof record.error_description === 'string' && record.error_description.trim()) {
+    return record.error_description;
+  }
+
+  return fallback;
 }
 
 function generateToken(): string {
@@ -103,6 +362,8 @@ export interface ConnectConfig {
   convexSiteUrl: string;
   discordClientId: string;
   discordClientSecret: string;
+  /** Discord bot token for fetching guild info (name, icon) */
+  discordBotToken?: string;
   convexApiSecret: string;
   convexUrl: string;
   gumroadClientId?: string;
@@ -120,6 +381,35 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     'duplicateVerificationBehavior',
     'suspiciousAccountBehavior',
   ]);
+
+  /**
+   * Fetches guild name/icon from Discord's API using the bot token.
+   * Returns an object suitable for spreading into the upsertGuildLink call.
+   * Never throws — returns empty object on failure so the flow is unaffected.
+   */
+  async function fetchGuildMeta(
+    guildId: string
+  ): Promise<{ discordGuildName?: string; discordGuildIcon?: string }> {
+    if (!config.discordBotToken) return {};
+    try {
+      const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}`, {
+        headers: { Authorization: `Bot ${config.discordBotToken}` },
+      });
+      if (res.ok) {
+        const guild = (await res.json()) as { name?: string; icon?: string | null };
+        return {
+          ...(guild.name ? { discordGuildName: guild.name } : {}),
+          ...(guild.icon ? { discordGuildIcon: guild.icon } : {}),
+        };
+      }
+    } catch (e) {
+      logger.warn('Failed to fetch guild meta', {
+        guildId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+    return {};
+  }
 
   async function getAuthenticatedDiscordUserId(request: Request): Promise<string | null> {
     return auth.getDiscordUserId(request);
@@ -140,9 +430,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     return bearerToken ?? cookieToken;
   }
 
-  async function resolveConnectDiscordUserId(
-    request: Request
-  ): Promise<string | null> {
+  async function resolveConnectDiscordUserId(request: Request): Promise<string | null> {
     const token = getCookieValue(request, CONNECT_TOKEN_COOKIE);
     if (!token) return null;
     const store = getStateStore();
@@ -155,13 +443,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   /**
    * Helper: resolve a setup token from Authorization header (preferred) or URL ?s= (fallback).
    */
-  async function resolveToken(request: Request): Promise<{ tenantId: string; guildId: string; discordUserId: string } | null> {
+  async function resolveToken(
+    request: Request
+  ): Promise<{ tenantId: string; guildId: string; discordUserId: string } | null> {
     return resolveSetupSessionFromRequest(request);
   }
 
-  async function requireBoundSetupSession(
-    request: Request
-  ): Promise<
+  async function requireBoundSetupSession(request: Request): Promise<
     | {
         ok: true;
         setupSession: { tenantId: string; guildId: string; discordUserId: string };
@@ -172,17 +460,26 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   > {
     const setupSession = await resolveSetupSessionFromRequest(request);
     if (!setupSession) {
-      return { ok: false, response: Response.json({ error: 'Valid setup session required' }, { status: 401 }) };
+      return {
+        ok: false,
+        response: Response.json({ error: 'Valid setup session required' }, { status: 401 }),
+      };
     }
 
     const authSession = await auth.getSession(request);
     if (!authSession) {
-      return { ok: false, response: Response.json({ error: 'Authentication required' }, { status: 401 }) };
+      return {
+        ok: false,
+        response: Response.json({ error: 'Authentication required' }, { status: 401 }),
+      };
     }
 
     const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
     if (!authDiscordUserId) {
-      return { ok: false, response: Response.json({ error: 'Discord account required' }, { status: 401 }) };
+      return {
+        ok: false,
+        response: Response.json({ error: 'Discord account required' }, { status: 401 }),
+      };
     }
 
     if (authDiscordUserId !== setupSession.discordUserId) {
@@ -192,10 +489,94 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         guildId: setupSession.guildId,
         tenantId: setupSession.tenantId,
       });
-      return { ok: false, response: Response.json({ error: 'This setup link belongs to a different Discord account' }, { status: 403 }) };
+      return {
+        ok: false,
+        response: Response.json(
+          { error: 'This setup link belongs to a different Discord account' },
+          { status: 403 }
+        ),
+      };
     }
 
     return { ok: true, setupSession, authSession, authDiscordUserId };
+  }
+
+  function buildFrontendCallbackUrl(pathname: string, tenantId: string, guildId: string): string {
+    const callbackUrl = new URL(`${config.frontendBaseUrl.replace(/\/$/, '')}${pathname}`);
+    if (tenantId) callbackUrl.searchParams.set('tenant_id', tenantId);
+    if (guildId) callbackUrl.searchParams.set('guild_id', guildId);
+    return callbackUrl.toString();
+  }
+
+  function buildDiscordSignInUrl(callbackUrl: string): string {
+    return `${config.apiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+  }
+
+  async function getDashboardSessionStatus(request: Request): Promise<Response> {
+    const setupSession = await resolveSetupSessionFromRequest(request);
+    if (!setupSession) {
+      return Response.json({ hasSetupSession: false, authenticated: false });
+    }
+
+    const callbackUrl = buildFrontendCallbackUrl(
+      '/dashboard',
+      setupSession.tenantId,
+      setupSession.guildId
+    );
+    const signInUrl = buildDiscordSignInUrl(callbackUrl);
+    const authSession = await auth.getSession(request);
+    if (!authSession) {
+      return Response.json(
+        {
+          hasSetupSession: true,
+          authenticated: false,
+          tenantId: setupSession.tenantId,
+          guildId: setupSession.guildId,
+          signInUrl,
+          callbackUrl,
+          error: 'Authentication required',
+        },
+        { status: 401 }
+      );
+    }
+
+    const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
+    if (!authDiscordUserId) {
+      return Response.json(
+        {
+          hasSetupSession: true,
+          authenticated: false,
+          tenantId: setupSession.tenantId,
+          guildId: setupSession.guildId,
+          signInUrl,
+          callbackUrl,
+          error: 'Discord account required',
+        },
+        { status: 401 }
+      );
+    }
+
+    if (authDiscordUserId !== setupSession.discordUserId) {
+      return Response.json(
+        {
+          hasSetupSession: true,
+          authenticated: false,
+          tenantId: setupSession.tenantId,
+          guildId: setupSession.guildId,
+          error: 'This setup link belongs to a different Discord account',
+        },
+        { status: 403 }
+      );
+    }
+
+    return Response.json({
+      hasSetupSession: true,
+      authenticated: true,
+      tenantId: setupSession.tenantId,
+      guildId: setupSession.guildId,
+      discordUserId: authDiscordUserId,
+      authUserId: authSession.user.id,
+    });
   }
 
   /**
@@ -210,26 +591,65 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   > {
     const token = getCookieValue(request, DISCORD_ROLE_SETUP_COOKIE);
     if (!token) {
-      return { ok: false, response: Response.json({ error: 'Valid setup session required' }, { status: 401 }) };
+      return {
+        ok: false,
+        response: Response.json({ error: 'Valid setup session required' }, { status: 401 }),
+      };
     }
 
     const store = getStateStore();
     const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${token}`);
     if (!raw) {
-      return { ok: false, response: Response.json({ error: 'Invalid or expired session' }, { status: 401 }) };
+      return {
+        ok: false,
+        response: Response.json({ error: 'Invalid or expired session' }, { status: 401 }),
+      };
     }
 
     const roleSession = JSON.parse(raw) as DiscordRoleSetupSession;
     return { ok: true, sessionToken: token, roleSession };
   }
 
-  async function isTenantOwnedBySessionUser(authUserId: string, tenantId: string): Promise<boolean> {
+  async function isTenantOwnedBySessionUser(
+    authUserId: string,
+    tenantId: string
+  ): Promise<boolean> {
     const convex = getConvexClientFromUrl(config.convexUrl);
-    const tenant = await convex.query('tenants:getTenant' as any, {
+    const tenant = (await convex.query(api.tenants.getTenant, {
       apiSecret: config.convexApiSecret,
       tenantId,
-    }) as { ownerAuthUserId?: string } | null;
+    })) as { ownerAuthUserId?: string } | null;
     return tenant?.ownerAuthUserId === authUserId;
+  }
+
+  async function requireOwnerSessionForTenant(
+    request: Request,
+    tenantId: string | undefined
+  ): Promise<
+    | { ok: true; session: NonNullable<Awaited<ReturnType<Auth['getSession']>>> }
+    | { ok: false; response: Response }
+  > {
+    if (!tenantId) {
+      return {
+        ok: false,
+        response: Response.json({ error: 'tenantId is required' }, { status: 400 }),
+      };
+    }
+
+    const session = await auth.getSession(request);
+    if (!session) {
+      return {
+        ok: false,
+        response: Response.json({ error: 'Authentication required' }, { status: 401 }),
+      };
+    }
+
+    const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
+    if (!tenantOwned) {
+      return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
+    }
+
+    return { ok: true, session };
   }
 
   /**
@@ -251,10 +671,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
     if (!body.tenantId || !body.guildId || !body.discordUserId) {
-      return Response.json({ error: 'tenantId, guildId, and discordUserId are required' }, { status: 400 });
+      return Response.json(
+        { error: 'tenantId, guildId, and discordUserId are required' },
+        { status: 400 }
+      );
     }
     const token = await createSetupSession(
-      body.tenantId, body.guildId, body.discordUserId, config.encryptionSecret,
+      body.tenantId,
+      body.guildId,
+      body.discordUserId,
+      config.encryptionSecret
     );
     return Response.json({ token });
   }
@@ -342,17 +768,21 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const session = await auth.getSession(request);
     if (hasSetupSession && session) {
       const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
-      if (!authDiscordUserId || authDiscordUserId !== setupSession!.discordUserId) {
-        return new Response('This setup link belongs to a different Discord account.', { status: 403 });
+      if (!authDiscordUserId || authDiscordUserId !== setupSession?.discordUserId) {
+        return new Response('This setup link belongs to a different Discord account.', {
+          status: 403,
+        });
       }
     }
 
     if (!session) {
       // Build callback URL preserving the setup token
-      const callbackParams = `guild_id=${encodeURIComponent(resolvedGuildId)}${resolvedTenantId ? '&tenant_id=' + encodeURIComponent(resolvedTenantId) : ''}`;
+      const callbackParams = `guild_id=${encodeURIComponent(resolvedGuildId)}${resolvedTenantId ? `&tenant_id=${encodeURIComponent(resolvedTenantId)}` : ''}`;
       const callbackUrl = `${config.frontendBaseUrl}/connect?${callbackParams}`;
       const filePath = `${import.meta.dir}/../../public/sign-in-redirect.html`;
       let html = await Bun.file(filePath).text();
+      // The Bun app keeps a lightweight sign-in bridge for static pages, but auth itself runs
+      // on Convex and the callback still lands on the frontend callbackURL below.
       const signInUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
       logger.info('Serving connect sign-in redirect', {
         requestUrl: request.url,
@@ -361,6 +791,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         hasSetupToken: hasSetupSession,
         frontendBaseUrl: config.frontendBaseUrl,
         apiBaseUrl: config.apiBaseUrl,
+        authBaseUrl: `${config.convexSiteUrl.replace(/\/$/, '')}/api/auth`,
         callbackUrl,
         callbackProtocol: new URL(callbackUrl).protocol,
       });
@@ -380,12 +811,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const file = Bun.file(filePath);
     let html = await file.text();
     const templateValues: Record<string, string> = {
-      '__GUILD_ID__': resolvedGuildId,
-      '__TOKEN__': '',
-      '__API_BASE__': apiBase,
-      '__SETUP_TOKEN__': '',
-      '__HAS_SETUP_SESSION__': hasSetupSession ? 'true' : 'false',
-      '__TENANT_ID__': resolvedTenantId,
+      __GUILD_ID__: resolvedGuildId,
+      __TOKEN__: '',
+      __API_BASE__: apiBase,
+      __SETUP_TOKEN__: '',
+      __HAS_SETUP_SESSION__: hasSetupSession ? 'true' : 'false',
+      __TENANT_ID__: resolvedTenantId,
     };
     for (const [placeholder, rawValue] of Object.entries(templateValues)) {
       html = html.replaceAll(placeholder, escapeForSingleQuotedJsString(rawValue));
@@ -433,10 +864,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
               SETUP_SESSION_COOKIE,
               setupToken,
               request,
-              toCookieAge(60 * 60 * 1000),
+              toCookieAge(60 * 60 * 1000)
             ),
           },
-        },
+        }
       );
     }
 
@@ -444,11 +875,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const raw = await store.get(`${CONNECT_TOKEN_PREFIX}${connectToken}`);
     if (!raw) {
       logger.warn('Connect token not found or expired', {
-        tokenPrefix: connectToken?.slice(0, 8) + '...',
+        tokenPrefix: `${connectToken?.slice(0, 8)}...`,
         hint: 'Ensure DRAGONFLY_URI/REDIS_URL is set so token storage is shared across instances',
       });
       return Response.json({ error: 'Invalid or expired connect token' }, { status: 401 });
     }
+
+    if (!connectToken) {
+      return Response.json({ error: 'Connect token is required' }, { status: 400 });
+    }
+    const activeConnectToken = connectToken;
 
     return Response.json(
       { success: true },
@@ -456,12 +892,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         headers: {
           'Set-Cookie': buildCookie(
             CONNECT_TOKEN_COOKIE,
-            connectToken!,
+            activeConnectToken,
             request,
-            toCookieAge(TOKEN_EXPIRY_MS),
+            toCookieAge(TOKEN_EXPIRY_MS)
           ),
         },
-      },
+      }
     );
   }
 
@@ -493,20 +929,27 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const connectDiscordUserId = await resolveConnectDiscordUserId(request);
     const sessionDiscordUserId = await getAuthenticatedDiscordUserId(request);
-    if (connectDiscordUserId && sessionDiscordUserId && connectDiscordUserId !== sessionDiscordUserId) {
+    if (
+      connectDiscordUserId &&
+      sessionDiscordUserId &&
+      connectDiscordUserId !== sessionDiscordUserId
+    ) {
       logger.warn('Connect token Discord identity mismatch', {
         expectedDiscordUserId: connectDiscordUserId,
         actualDiscordUserId: sessionDiscordUserId,
         guildId,
       });
-      return Response.json({ error: 'This setup link belongs to a different Discord account' }, { status: 403 });
+      return Response.json(
+        { error: 'This setup link belongs to a different Discord account' },
+        { status: 403 }
+      );
     }
 
-    let discordUserId: string | null = connectDiscordUserId ?? sessionDiscordUserId;
+    const discordUserId: string | null = connectDiscordUserId ?? sessionDiscordUserId;
 
     const convex = getConvexClient();
     const apiSecret = getConvexApiSecret();
-    const existing = await convex.query('tenants:getTenantByOwnerAuth' as any, {
+    const existing = await convex.query(api.tenants.getTenantByOwnerAuth, {
       apiSecret,
       ownerAuthUserId: session.user.id,
     });
@@ -522,20 +965,27 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       let tenantId: string;
 
       if (!existing) {
-        tenantId = await convex.mutation('tenants:createTenant' as any, {
+        if (!discordUserId) {
+          return Response.json(
+            { error: 'Session expired. Please sign in again from Discord.' },
+            { status: 400 }
+          );
+        }
+        tenantId = await convex.mutation(api.tenants.createTenant, {
           apiSecret,
-          name: `Creator ${discordUserId!.slice(0, 8)}`,
-          ownerDiscordUserId: discordUserId!,
+          name: `Creator ${discordUserId.slice(0, 8)}`,
+          ownerDiscordUserId: discordUserId,
           ownerAuthUserId: session.user.id,
         });
       } else {
         tenantId = existing._id;
       }
 
-      await convex.mutation('guildLinks:upsertGuildLink' as any, {
+      await convex.mutation(api.guildLinks.upsertGuildLink, {
         apiSecret,
         tenantId,
         discordGuildId: guildId,
+        ...(await fetchGuildMeta(guildId)),
         installedByAuthUserId: session.user.id,
         botPresent: true,
         status: 'active',
@@ -547,20 +997,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         authUserId: session.user.id,
       });
 
-      const headers = new Headers();
-      headers.append('Set-Cookie', clearCookie(CONNECT_TOKEN_COOKIE, request));
+      const clearedCookie = clearCookie(CONNECT_TOKEN_COOKIE, request);
       return new Response(JSON.stringify({ success: true, tenantId, isFirstTime: !existing }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', 'Set-Cookie': headers.get('Set-Cookie')! },
+        headers: { 'Content-Type': 'application/json', 'Set-Cookie': clearedCookie },
       });
     } catch (err) {
       logger.error('Connect complete failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json(
-        { error: 'Failed to complete setup' },
-        { status: 500 }
-      );
+      return Response.json({ error: 'Failed to complete setup' }, { status: 500 });
     }
   }
 
@@ -595,49 +1041,69 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const connectDiscordUserId = await resolveConnectDiscordUserId(request);
     const sessionDiscordUserId = await getAuthenticatedDiscordUserId(request);
-    if (connectDiscordUserId && sessionDiscordUserId && connectDiscordUserId !== sessionDiscordUserId) {
+    if (
+      connectDiscordUserId &&
+      sessionDiscordUserId &&
+      connectDiscordUserId !== sessionDiscordUserId
+    ) {
       logger.warn('Ensure tenant connect token Discord identity mismatch', {
         expectedDiscordUserId: connectDiscordUserId,
         actualDiscordUserId: sessionDiscordUserId,
         guildId,
       });
-      return Response.json({ error: 'This setup link belongs to a different Discord account' }, { status: 403 });
+      return Response.json(
+        { error: 'This setup link belongs to a different Discord account' },
+        { status: 403 }
+      );
     }
 
-    let discordUserId: string | null = connectDiscordUserId ?? sessionDiscordUserId;
+    const discordUserId: string | null = connectDiscordUserId ?? sessionDiscordUserId;
 
     const apiSecret = getConvexApiSecret();
-    const existing = await convex.query('tenants:getTenantByOwnerAuth' as any, {
+    const existing = await convex.query(api.tenants.getTenantByOwnerAuth, {
       apiSecret,
       ownerAuthUserId: session.user.id,
     });
 
     // 4. If we STILL don't have a discordUserId and no existing tenant, we can't create one
     if (!existing && !discordUserId) {
-      return Response.json({
-        error: 'Session expired or Discord link lost. Please sign in again from Discord.',
-        details: 'Cannot create tenant: missing Discord ID'
-      }, { status: 400 });
+      return Response.json(
+        {
+          error: 'Session expired or Discord link lost. Please sign in again from Discord.',
+          details: 'Cannot create tenant: missing Discord ID',
+        },
+        { status: 400 }
+      );
     }
 
     try {
       let tenantId: string;
 
       if (!existing) {
-        tenantId = await convex.mutation('tenants:createTenant' as any, {
+        if (!discordUserId) {
+          return Response.json(
+            {
+              error: 'Session expired or Discord link lost. Please sign in again from Discord.',
+              details: 'Cannot create tenant: missing Discord ID',
+            },
+            { status: 400 }
+          );
+        }
+        tenantId = await convex.mutation(api.tenants.createTenant, {
           apiSecret,
-          name: `Creator ${discordUserId!.slice(0, 8)}`,
-          ownerDiscordUserId: discordUserId!,
+          name: `Creator ${discordUserId.slice(0, 8)}`,
+          ownerDiscordUserId: discordUserId,
           ownerAuthUserId: session.user.id,
         });
       } else {
         tenantId = existing._id;
       }
 
-      await convex.mutation('guildLinks:upsertGuildLink' as any, {
+      await convex.mutation(api.guildLinks.upsertGuildLink, {
         apiSecret,
         tenantId,
         discordGuildId: guildId,
+        ...(await fetchGuildMeta(guildId)),
         installedByAuthUserId: session.user.id,
         botPresent: true,
         status: 'active',
@@ -648,10 +1114,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       logger.error('Ensure tenant failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json(
-        { error: 'Failed to ensure tenant' },
-        { status: 500 }
-      );
+      return Response.json({ error: 'Failed to ensure tenant' }, { status: 500 });
     }
   }
 
@@ -699,7 +1162,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const store = getStateStore();
     await store.set(
       `${GUMROAD_STATE_PREFIX}${state}`,
-      JSON.stringify({ tenantId, guildId, setupToken: getSetupSessionTokenFromRequest(request) ?? '' }),
+      JSON.stringify({
+        tenantId,
+        guildId,
+        setupToken: getSetupSessionTokenFromRequest(request) ?? '',
+      }),
       GUMROAD_STATE_EXPIRY_MS
     );
 
@@ -718,7 +1185,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Exchanges code for tokens, stores in provider_connections.
    */
   async function gumroadCallback(request: Request): Promise<Response> {
-    const buildDashboardRedirect = (params: Record<string, string | undefined>, setupToken?: string): string => {
+    const buildDashboardRedirect = (
+      params: Record<string, string | undefined>,
+      setupToken?: string
+    ): string => {
       const redirectUrl = new URL(`${config.frontendBaseUrl.replace(/\/$/, '')}/dashboard`);
       for (const [key, value] of Object.entries(params)) {
         if (value) redirectUrl.searchParams.set(key, value);
@@ -750,15 +1220,31 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
     await store.delete(`${GUMROAD_STATE_PREFIX}${state}`);
 
-    const { tenantId, guildId, setupToken: storedSetupToken } = JSON.parse(raw) as { tenantId: string; guildId: string; setupToken?: string };
+    const {
+      tenantId,
+      guildId,
+      setupToken: storedSetupToken,
+    } = JSON.parse(raw) as { tenantId: string; guildId: string; setupToken?: string };
+    const gumroadClientId = config.gumroadClientId;
+    const gumroadClientSecret = config.gumroadClientSecret;
 
     try {
+      if (!gumroadClientId || !gumroadClientSecret) {
+        return Response.redirect(
+          buildDashboardRedirect(
+            { tenant_id: tenantId, guild_id: guildId, error: 'gumroad_not_configured' },
+            storedSetupToken
+          ),
+          302
+        );
+      }
+
       const tokenRes = await fetch('https://api.gumroad.com/oauth/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          client_id: config.gumroadClientId!,
-          client_secret: config.gumroadClientSecret!,
+          client_id: gumroadClientId,
+          client_secret: gumroadClientSecret,
           code,
           redirect_uri: `${config.apiBaseUrl}/api/connect/gumroad/callback`,
           grant_type: 'authorization_code',
@@ -769,7 +1255,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         const errText = await tokenRes.text();
         logger.error('Gumroad token exchange failed', { status: tokenRes.status, body: errText });
         return Response.redirect(
-          buildDashboardRedirect({ tenant_id: tenantId, guild_id: guildId, error: 'token_exchange_failed' }, storedSetupToken),
+          buildDashboardRedirect(
+            { tenant_id: tenantId, guild_id: guildId, error: 'token_exchange_failed' },
+            storedSetupToken
+          ),
           302
         );
       }
@@ -782,19 +1271,30 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const refreshToken = tokens.refresh_token;
       if (!accessToken) {
         return Response.redirect(
-          buildDashboardRedirect({ tenant_id: tenantId, guild_id: guildId, error: 'no_access_token' }, storedSetupToken),
+          buildDashboardRedirect(
+            { tenant_id: tenantId, guild_id: guildId, error: 'no_access_token' },
+            storedSetupToken
+          ),
           302
         );
       }
 
-      const meRes = await fetch(`https://api.gumroad.com/v2/user?access_token=${encodeURIComponent(accessToken)}`);
+      const meRes = await fetch(
+        `https://api.gumroad.com/v2/user?access_token=${encodeURIComponent(accessToken)}`
+      );
       if (!meRes.ok) {
         return Response.redirect(
-          buildDashboardRedirect({ tenant_id: tenantId, guild_id: guildId, error: 'failed_to_fetch_user' }, storedSetupToken),
+          buildDashboardRedirect(
+            { tenant_id: tenantId, guild_id: guildId, error: 'failed_to_fetch_user' },
+            storedSetupToken
+          ),
           302
         );
       }
-      const me = (await meRes.json()) as { success?: boolean; user?: { user_id?: string; name?: string; email?: string } };
+      const me = (await meRes.json()) as {
+        success?: boolean;
+        user?: { user_id?: string; name?: string; email?: string };
+      };
       const gumroadUserId = me.user?.user_id ?? '';
 
       const accessEncrypted = await encrypt(accessToken, config.encryptionSecret);
@@ -803,7 +1303,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         : undefined;
 
       const convex = getConvexClientFromUrl(config.convexUrl);
-      await convex.mutation('providerConnections:upsertGumroadConnection' as any, {
+      await convex.mutation(api.providerConnections.upsertGumroadConnection, {
         apiSecret: config.convexApiSecret,
         tenantId,
         gumroadAccessTokenEncrypted: accessEncrypted,
@@ -847,10 +1347,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       redirectParams.set('tenant_id', tenantId);
       redirectParams.set('gumroad', 'connected');
       return Response.redirect(
-        buildDashboardRedirect(
-          Object.fromEntries(redirectParams.entries()),
-          storedSetupToken
-        ),
+        buildDashboardRedirect(Object.fromEntries(redirectParams.entries()), storedSetupToken),
         302
       );
     } catch (err) {
@@ -858,7 +1355,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         error: err instanceof Error ? err.message : String(err),
       });
       return Response.redirect(
-        buildDashboardRedirect({ tenant_id: tenantId, guild_id: guildId, error: 'internal_error' }, storedSetupToken),
+        buildDashboardRedirect(
+          { tenant_id: tenantId, guild_id: guildId, error: 'internal_error' },
+          storedSetupToken
+        ),
         302
       );
     }
@@ -887,7 +1387,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const status = await convex.query('providerConnections:getConnectionStatus' as any, {
+      const status = await convex.query(api.providerConnections.getConnectionStatus, {
         apiSecret: config.convexApiSecret,
         tenantId,
       });
@@ -947,10 +1447,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       const webhookSecret = body.webhookSecret?.trim();
       if (!webhookSecret || webhookSecret.length < 16) {
-        return Response.json({ error: 'Webhook secret must be at least 16 characters' }, { status: 400 });
+        return Response.json(
+          { error: 'Webhook secret must be at least 16 characters' },
+          { status: 400 }
+        );
       }
       if (webhookSecret.length > 40) {
-        return Response.json({ error: 'Jinxxy limits the signing secret to 40 characters' }, { status: 400 });
+        return Response.json(
+          { error: 'Jinxxy limits the signing secret to 40 characters' },
+          { status: 400 }
+        );
       }
 
       const store = getStateStore();
@@ -967,10 +1473,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       logger.error('Jinxxy webhook config failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json(
-        { error: 'Failed to get webhook config' },
-        { status: 500 }
-      );
+      return Response.json({ error: 'Failed to get webhook config' }, { status: 500 });
     }
   }
 
@@ -1054,7 +1557,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       let webhookSecretRef: string | undefined;
       let webhookEndpoint: string | undefined;
       if (pendingWebhookRaw) {
-        const pendingWebhook = JSON.parse(pendingWebhookRaw) as { callbackUrl: string; signingSecretEncrypted: string };
+        const pendingWebhook = JSON.parse(pendingWebhookRaw) as {
+          callbackUrl: string;
+          signingSecretEncrypted: string;
+        };
         webhookSecretRef = pendingWebhook.signingSecretEncrypted;
         webhookEndpoint = pendingWebhook.callbackUrl;
       } else {
@@ -1069,7 +1575,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         webhookEndpoint = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${tenantId}`;
       }
       const convex = getConvexClientFromUrl(config.convexUrl);
-      await convex.mutation('providerConnections:upsertJinxxyConnection' as any, {
+      await convex.mutation(api.providerConnections.upsertJinxxyConnection, {
         apiSecret: config.convexApiSecret,
         tenantId,
         jinxxyApiKeyEncrypted: apiKeyEncrypted,
@@ -1084,10 +1590,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       logger.error('Jinxxy store failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json(
-        { error: 'Failed to store Jinxxy connection' },
-        { status: 500 }
-      );
+      return Response.json({ error: 'Failed to store Jinxxy connection' }, { status: 500 });
     }
   }
 
@@ -1106,13 +1609,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const session = setupBinding.setupSession;
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const result = await convex.query('providerConnections:listConnections' as any, {
+      const result = (await convex.query(api.providerConnections.listConnections, {
         apiSecret: config.convexApiSecret,
         tenantId: session.tenantId,
-      }) as { allowMismatchedEmails: boolean, connections: any[] };
+      })) as { allowMismatchedEmails: boolean; connections: unknown[] };
       return Response.json(result);
     } catch (err) {
-      logger.error('List connections failed', { error: err instanceof Error ? err.message : String(err) });
+      logger.error('List connections failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       return Response.json({ error: 'Failed to list connections' }, { status: 500 });
     }
   }
@@ -1137,14 +1642,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      await convex.mutation('providerConnections:disconnectConnection' as any, {
+      await convex.mutation(api.providerConnections.disconnectConnection, {
         apiSecret: config.convexApiSecret,
         connectionId,
         tenantId: session.tenantId,
       });
       return Response.json({ success: true });
     } catch (err) {
-      logger.error('Disconnect connection failed', { error: err instanceof Error ? err.message : String(err) });
+      logger.error('Disconnect connection failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       return Response.json({ error: 'Failed to disconnect' }, { status: 500 });
     }
   }
@@ -1161,20 +1668,22 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const session = setupBinding.setupSession;
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const tenant = await convex.query('tenants:getTenant' as any, {
+      const tenant = (await convex.query(api.tenants.getTenant, {
         apiSecret: config.convexApiSecret,
         tenantId: session.tenantId,
-      }) as { policy?: any };
+      })) as { policy?: Record<string, unknown> };
       return Response.json({ policy: tenant?.policy ?? {} });
     } catch (err) {
-      logger.error('Get settings failed', { error: err instanceof Error ? err.message : String(err) });
+      logger.error('Get settings failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       return Response.json({ error: 'Failed to get settings' }, { status: 500 });
     }
   }
 
   /**
    * POST /api/connect/settings?s=TOKEN
-   * Body: { key: string, value: any }
+   * Body: { key: string, value: unknown }
    */
   async function updateSettingHandler(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
@@ -1186,7 +1695,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
     const session = setupBinding.setupSession;
 
-    let body: { key: string; value: any };
+    let body: { key: string; value: unknown };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -1203,7 +1712,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      await convex.mutation('providerConnections:updateTenantSetting' as any, {
+      await convex.mutation(api.providerConnections.updateTenantSetting, {
         apiSecret: config.convexApiSecret,
         tenantId: session.tenantId,
         key: body.key,
@@ -1211,8 +1720,668 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
       return Response.json({ success: true });
     } catch (err) {
-      logger.error('Update setting failed', { error: err instanceof Error ? err.message : String(err) });
+      logger.error('Update setting failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       return Response.json({ error: 'Failed to update setting' }, { status: 500 });
+    }
+  }
+
+  async function listPublicApiKeys(request: Request): Promise<Response> {
+    const tenantId = new URL(request.url).searchParams.get('tenantId') ?? undefined;
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    try {
+      const { response, data } = await auth.callEndpoint<BetterAuthApiKey[]>('/api-key/list', {
+        request,
+      });
+
+      if (!response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(data, 'Failed to list API keys') },
+          { status: response.status || 500 }
+        );
+      }
+
+      const keys = (Array.isArray(data) ? data : [])
+        .filter((key) => {
+          const metadata = parsePublicApiKeyMetadata(key.metadata);
+          return metadata?.kind === PUBLIC_API_KEY_METADATA_KIND && metadata.tenantId === tenantId;
+        })
+        .map((key) => ({
+          _id: key.id,
+          _creationTime: toTimestamp(key.createdAt) ?? Date.now(),
+          tenantId,
+          name: key.name ?? 'Unnamed',
+          prefix: key.start ?? key.prefix ?? PUBLIC_API_KEY_PREFIX,
+          status: key.enabled === false ? ('revoked' as const) : ('active' as const),
+          scopes: getPublicApiKeyScopes(key.permissions),
+          lastUsedAt: toTimestamp(key.lastRequest),
+          expiresAt: toTimestamp(key.expiresAt),
+        }))
+        .sort((left, right) => right._creationTime - left._creationTime);
+
+      return Response.json({ keys });
+    } catch (err) {
+      logger.error('List API keys failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to list API keys' }, { status: 500 });
+    }
+  }
+
+  async function createPublicApiKey(request: Request): Promise<Response> {
+    let body: {
+      tenantId?: string;
+      name?: string;
+      scopes?: string[];
+      expiresAt?: number | null;
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+    if (!tenantId) {
+      return Response.json({ error: 'tenantId is required' }, { status: 400 });
+    }
+
+    const name = body.name?.trim();
+    if (!name) {
+      return Response.json({ error: 'name is required' }, { status: 400 });
+    }
+
+    try {
+      const scopes = normalizePublicApiScopes(body.scopes);
+      const expiresAt =
+        typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
+          ? body.expiresAt
+          : undefined;
+      const { response, data } = await createManagedPublicApiKey(config, required.session.user.id, {
+        name,
+        scopes,
+        tenantId,
+        expiresAt,
+      });
+
+      if (!response.ok || !data?.id || !data.key) {
+        logger.warn('Create API key rejected by Better Auth', {
+          tenantId,
+          userId: required.session.user.id,
+          status: response.status,
+          error: getBetterAuthErrorMessage(data, 'Failed to create API key'),
+          data,
+        });
+        return Response.json(
+          { error: getBetterAuthErrorMessage(data, 'Failed to create API key') },
+          { status: response.status || 500 }
+        );
+      }
+
+      return Response.json({
+        keyId: data.id,
+        apiKey: data.key,
+        name: data.name ?? name,
+        prefix: data.start ?? data.prefix ?? PUBLIC_API_KEY_PREFIX,
+        scopes,
+        expiresAt: toTimestamp(data.expiresAt) ?? null,
+      });
+    } catch (err) {
+      logger.error('Create API key failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to create API key' },
+        { status: 400 }
+      );
+    }
+  }
+
+  async function revokePublicApiKey(request: Request, keyId: string): Promise<Response> {
+    let body: { tenantId?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+    if (!tenantId) {
+      return Response.json({ error: 'tenantId is required' }, { status: 400 });
+    }
+
+    try {
+      const existing = await auth.callEndpoint<BetterAuthApiKey>('/api-key/get', {
+        request,
+        query: { id: keyId },
+      });
+
+      if (!existing.response.ok || !existing.data) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(existing.data, 'API key not found') },
+          { status: existing.response.status === 200 ? 404 : existing.response.status || 404 }
+        );
+      }
+
+      const metadata = parsePublicApiKeyMetadata(existing.data.metadata);
+      if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.tenantId !== tenantId) {
+        return Response.json({ error: 'API key not found' }, { status: 404 });
+      }
+
+      const result = await auth.callEndpoint<BetterAuthApiKey>('/api-key/update', {
+        request,
+        method: 'POST',
+        body: {
+          keyId,
+          enabled: false,
+        },
+      });
+
+      if (!result.response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(result.data, 'Failed to revoke API key') },
+          { status: result.response.status || 500 }
+        );
+      }
+
+      return Response.json({ success: true });
+    } catch (err) {
+      logger.error('Revoke API key failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to revoke API key' }, { status: 500 });
+    }
+  }
+
+  async function listOAuthApps(request: Request): Promise<Response> {
+    const tenantId = new URL(request.url).searchParams.get('tenantId') ?? undefined;
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const mappings = (await convex.query(api.oauthApps.listOAuthApps, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+      })) as OAuthAppMappingRecord[];
+      const { response, data } = await auth.callEndpoint<BetterAuthOAuthClient[] | null>(
+        '/oauth2/get-clients',
+        {
+          request,
+        }
+      );
+
+      if (!response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(data, 'Failed to list OAuth apps') },
+          { status: response.status || 500 }
+        );
+      }
+
+      const clientMap = new Map(
+        (Array.isArray(data) ? data : []).map((client) => [client.client_id, client] as const)
+      );
+
+      const apps = mappings
+        .map((mapping) => {
+          const client = clientMap.get(mapping.clientId);
+          if (!client) {
+            logger.warn('OAuth app mapping missing Better Auth client', {
+              appId: mapping._id,
+              clientId: mapping.clientId,
+              tenantId,
+            });
+            return null;
+          }
+
+          const scopes = client.scope ? client.scope.split(/\s+/).filter(Boolean) : mapping.scopes;
+
+          return {
+            _id: mapping._id,
+            _creationTime: mapping._creationTime,
+            tenantId: mapping.tenantId,
+            name: client.client_name ?? mapping.name,
+            clientId: mapping.clientId,
+            redirectUris: client.redirect_uris ?? mapping.redirectUris,
+            scopes,
+            tokenEndpointAuthMethod: client.token_endpoint_auth_method,
+            grantTypes: client.grant_types,
+            responseTypes: client.response_types,
+            disabled: client.disabled ?? false,
+          };
+        })
+        .filter((app): app is NonNullable<typeof app> => Boolean(app));
+
+      return Response.json({ apps });
+    } catch (err) {
+      logger.error('List OAuth apps failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to list OAuth apps' }, { status: 500 });
+    }
+  }
+
+  async function createOAuthApp(request: Request): Promise<Response> {
+    let body: {
+      tenantId?: string;
+      name?: string;
+      redirectUris?: string[];
+      scopes?: string[];
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    const name = body.name?.trim();
+    if (!name) {
+      return Response.json({ error: 'name is required' }, { status: 400 });
+    }
+
+    try {
+      const redirectUris = normalizeRedirectUris(body.redirectUris);
+      const scopes = normalizeOAuthScopes(body.scopes);
+      const createdClient = await auth.callEndpoint<BetterAuthOAuthClient>(
+        '/oauth2/create-client',
+        {
+          request,
+          method: 'POST',
+          body: {
+            client_name: name,
+            redirect_uris: redirectUris,
+            scope: scopes.join(' '),
+            grant_types: ['authorization_code', 'refresh_token'],
+            response_types: ['code'],
+            token_endpoint_auth_method: 'client_secret_post',
+            type: 'web',
+          },
+        }
+      );
+
+      if (
+        !createdClient.response.ok ||
+        !createdClient.data?.client_id ||
+        !createdClient.data.client_secret
+      ) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(createdClient.data, 'Failed to create OAuth app') },
+          { status: createdClient.response.status || 500 }
+        );
+      }
+
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      try {
+        const result = await convex.mutation(api.oauthApps.createOAuthAppMapping, {
+          apiSecret: config.convexApiSecret,
+          tenantId,
+          name,
+          clientId: createdClient.data.client_id,
+          redirectUris,
+          scopes,
+          createdByAuthUserId: required.session.user.id,
+        });
+
+        return Response.json({
+          appId: result._id,
+          clientId: createdClient.data.client_id,
+          clientSecret: createdClient.data.client_secret,
+          name: result.name,
+          redirectUris: result.redirectUris,
+          scopes: result.scopes,
+        });
+      } catch (mappingError) {
+        await auth.callEndpoint('/oauth2/delete-client', {
+          request,
+          method: 'POST',
+          body: {
+            client_id: createdClient.data.client_id,
+          },
+        });
+        throw mappingError;
+      }
+    } catch (err) {
+      logger.error('Create OAuth app failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to create OAuth app' },
+        { status: 400 }
+      );
+    }
+  }
+
+  async function regenerateOAuthAppSecret(request: Request, appId: string): Promise<Response> {
+    let body: { tenantId?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const mapping = await convex.query(api.oauthApps.getOAuthApp, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+      });
+
+      if (!mapping) {
+        return Response.json({ error: 'OAuth app not found' }, { status: 404 });
+      }
+
+      const result = await auth.callEndpoint<BetterAuthOAuthClient>(
+        '/oauth2/client/rotate-secret',
+        {
+          request,
+          method: 'POST',
+          body: {
+            client_id: mapping.clientId,
+          },
+        }
+      );
+
+      if (!result.response.ok || !result.data?.client_secret) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(result.data, 'Failed to regenerate secret') },
+          { status: result.response.status || 500 }
+        );
+      }
+
+      return Response.json({
+        clientSecret: result.data.client_secret,
+      });
+    } catch (err) {
+      logger.error('Regenerate OAuth app secret failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to regenerate secret' }, { status: 500 });
+    }
+  }
+
+  async function updateOAuthApp(request: Request, appId: string): Promise<Response> {
+    let body: {
+      tenantId?: string;
+      name?: string;
+      redirectUris?: string[];
+      scopes?: string[];
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const mapping = await convex.query(api.oauthApps.getOAuthApp, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+      });
+
+      if (!mapping) {
+        return Response.json({ error: 'OAuth app not found' }, { status: 404 });
+      }
+
+      const nextName =
+        body.name === undefined
+          ? undefined
+          : (() => {
+              const value = body.name?.trim() ?? '';
+              if (!value) {
+                throw new Error('name cannot be empty');
+              }
+              return value;
+            })();
+      const nextRedirectUris =
+        body.redirectUris === undefined ? undefined : normalizeRedirectUris(body.redirectUris);
+      const nextScopes = body.scopes === undefined ? undefined : normalizeOAuthScopes(body.scopes);
+
+      if (nextName === undefined && nextRedirectUris === undefined && nextScopes === undefined) {
+        return Response.json({ error: 'No updates provided' }, { status: 400 });
+      }
+
+      const result = await auth.callEndpoint<BetterAuthOAuthClient>('/oauth2/update-client', {
+        request,
+        method: 'POST',
+        body: {
+          client_id: mapping.clientId,
+          update: {
+            ...(nextName !== undefined ? { client_name: nextName } : {}),
+            ...(nextRedirectUris !== undefined ? { redirect_uris: nextRedirectUris } : {}),
+            ...(nextScopes !== undefined ? { scope: nextScopes.join(' ') } : {}),
+          },
+        },
+      });
+
+      if (!result.response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(result.data, 'Failed to update OAuth app') },
+          { status: result.response.status || 500 }
+        );
+      }
+
+      await convex.mutation(api.oauthApps.updateOAuthAppMapping, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+        name: nextName,
+        redirectUris: nextRedirectUris,
+        scopes: nextScopes,
+      });
+
+      return Response.json({ success: true });
+    } catch (err) {
+      logger.error('Update OAuth app failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to update OAuth app' },
+        { status: 500 }
+      );
+    }
+  }
+
+  async function deleteOAuthApp(request: Request, appId: string): Promise<Response> {
+    let body: { tenantId?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const mapping = await convex.query(api.oauthApps.getOAuthApp, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+      });
+
+      if (!mapping) {
+        return Response.json({ error: 'OAuth app not found' }, { status: 404 });
+      }
+
+      const result = await auth.callEndpoint('/oauth2/delete-client', {
+        request,
+        method: 'POST',
+        body: {
+          client_id: mapping.clientId,
+        },
+      });
+
+      if (!result.response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(result.data, 'Failed to delete OAuth app') },
+          { status: result.response.status || 500 }
+        );
+      }
+
+      await convex.mutation(api.oauthApps.deleteOAuthAppMapping, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        appId,
+      });
+
+      return Response.json({ success: true });
+    } catch (err) {
+      logger.error('Delete OAuth app failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to delete OAuth app' },
+        { status: 500 }
+      );
+    }
+  }
+
+  async function rotatePublicApiKey(request: Request, keyId: string): Promise<Response> {
+    let body: {
+      tenantId?: string;
+      name?: string;
+      scopes?: string[];
+      expiresAt?: number | null;
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = body.tenantId?.trim();
+    const required = await requireOwnerSessionForTenant(request, tenantId);
+    if ('response' in required) {
+      return required.response;
+    }
+    if (!tenantId) {
+      return Response.json({ error: 'tenantId is required' }, { status: 400 });
+    }
+
+    try {
+      const existing = await auth.callEndpoint<BetterAuthApiKey>('/api-key/get', {
+        request,
+        query: { id: keyId },
+      });
+
+      if (!existing.response.ok || !existing.data) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(existing.data, 'API key not found') },
+          { status: existing.response.status === 200 ? 404 : existing.response.status || 404 }
+        );
+      }
+
+      const metadata = parsePublicApiKeyMetadata(existing.data.metadata);
+      if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.tenantId !== tenantId) {
+        return Response.json({ error: 'API key not found' }, { status: 404 });
+      }
+
+      const scopes =
+        body.scopes === undefined
+          ? getPublicApiKeyScopes(existing.data.permissions)
+          : normalizePublicApiScopes(body.scopes);
+      const nextName = body.name?.trim() || existing.data.name || 'Rotated key';
+      const resolvedExpiresAt =
+        body.expiresAt === null
+          ? null
+          : typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
+            ? body.expiresAt
+            : toTimestamp(existing.data.expiresAt);
+      const created = await createManagedPublicApiKey(config, required.session.user.id, {
+        name: nextName,
+        scopes,
+        tenantId,
+        expiresAt: resolvedExpiresAt,
+      });
+
+      if (!created.response.ok || !created.data?.id || !created.data.key) {
+        logger.warn('Rotate API key rejected by Better Auth', {
+          tenantId,
+          keyId,
+          userId: required.session.user.id,
+          status: created.response.status,
+          error: getBetterAuthErrorMessage(created.data, 'Failed to rotate API key'),
+          data: created.data,
+        });
+        return Response.json(
+          { error: getBetterAuthErrorMessage(created.data, 'Failed to rotate API key') },
+          { status: created.response.status || 500 }
+        );
+      }
+
+      const disabled = await auth.callEndpoint<BetterAuthApiKey>('/api-key/update', {
+        request,
+        method: 'POST',
+        body: {
+          keyId,
+          enabled: false,
+        },
+      });
+
+      if (!disabled.response.ok) {
+        return Response.json(
+          { error: getBetterAuthErrorMessage(disabled.data, 'Failed to revoke previous API key') },
+          { status: disabled.response.status || 500 }
+        );
+      }
+
+      return Response.json({
+        keyId: created.data.id,
+        apiKey: created.data.key,
+        name: nextName,
+        prefix: created.data.start ?? created.data.prefix ?? PUBLIC_API_KEY_PREFIX,
+        scopes,
+        expiresAt: toTimestamp(created.data.expiresAt) ?? null,
+        rotatedFromKeyId: keyId,
+      });
+    } catch (err) {
+      logger.error('Rotate API key failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: err instanceof Error ? err.message : 'Failed to rotate API key' },
+        { status: 400 }
+      );
     }
   }
 
@@ -1235,7 +2404,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
     if (!body.tenantId || !body.guildId || !body.adminDiscordUserId) {
-      return Response.json({ error: 'tenantId, guildId, and adminDiscordUserId are required' }, { status: 400 });
+      return Response.json(
+        { error: 'tenantId, guildId, and adminDiscordUserId are required' },
+        { status: 400 }
+      );
     }
 
     const token = generateToken();
@@ -1246,7 +2418,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       completed: false,
     };
     const store = getStateStore();
-    await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${token}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
+    await store.set(
+      `${DISCORD_ROLE_SETUP_PREFIX}${token}`,
+      JSON.stringify(session),
+      DISCORD_ROLE_SETUP_TTL_MS
+    );
     return Response.json({ token });
   }
 
@@ -1266,7 +2442,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const authUrl = new URL('https://discord.com/api/oauth2/authorize');
     authUrl.searchParams.set('client_id', config.discordClientId);
-    authUrl.searchParams.set('redirect_uri', `${config.apiBaseUrl}/api/setup/discord-role-oauth/callback`);
+    authUrl.searchParams.set(
+      'redirect_uri',
+      `${config.apiBaseUrl}/api/setup/discord-role-oauth/callback`
+    );
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('scope', 'identify guilds');
     authUrl.searchParams.set('state', state);
@@ -1284,22 +2463,34 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const error = url.searchParams.get('error');
 
     if (error) {
-      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=${encodeURIComponent(error)}`, 302);
+      return Response.redirect(
+        `${config.frontendBaseUrl}/discord-role-setup?error=${encodeURIComponent(error)}`,
+        302
+      );
     }
     if (!code || !state) {
-      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=missing_parameters`, 302);
+      return Response.redirect(
+        `${config.frontendBaseUrl}/discord-role-setup?error=missing_parameters`,
+        302
+      );
     }
 
     const store = getStateStore();
     const setupToken = await store.get(`${DISCORD_ROLE_OAUTH_STATE_PREFIX}${state}`);
     if (!setupToken) {
-      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=invalid_state`, 302);
+      return Response.redirect(
+        `${config.frontendBaseUrl}/discord-role-setup?error=invalid_state`,
+        302
+      );
     }
     await store.delete(`${DISCORD_ROLE_OAUTH_STATE_PREFIX}${state}`);
 
     const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${setupToken}`);
     if (!raw) {
-      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=session_expired`, 302);
+      return Response.redirect(
+        `${config.frontendBaseUrl}/discord-role-setup?error=session_expired`,
+        302
+      );
     }
 
     try {
@@ -1317,12 +2508,18 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       if (!tokenRes.ok) {
         logger.error('Discord role OAuth token exchange failed', { status: tokenRes.status });
-        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=token_exchange_failed`, 302);
+        return Response.redirect(
+          `${config.frontendBaseUrl}/discord-role-setup?error=token_exchange_failed`,
+          302
+        );
       }
 
       const tokens = (await tokenRes.json()) as { access_token?: string };
       if (!tokens.access_token) {
-        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=no_token`, 302);
+        return Response.redirect(
+          `${config.frontendBaseUrl}/discord-role-setup?error=no_token`,
+          302
+        );
       }
 
       const accessToken = tokens.access_token;
@@ -1333,7 +2530,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
       if (!userRes.ok) {
         logger.error('Discord role OAuth user fetch failed', { status: userRes.status });
-        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=guilds_fetch_failed`, 302);
+        return Response.redirect(
+          `${config.frontendBaseUrl}/discord-role-setup?error=guilds_fetch_failed`,
+          302
+        );
       }
       const discordUser = (await userRes.json()) as { id?: string };
       const oauthDiscordUserId = discordUser.id;
@@ -1343,10 +2543,19 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
 
       if (!guildsRes.ok) {
-        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=guilds_fetch_failed`, 302);
+        return Response.redirect(
+          `${config.frontendBaseUrl}/discord-role-setup?error=guilds_fetch_failed`,
+          302
+        );
       }
 
-      const guilds = (await guildsRes.json()) as Array<{ id: string; name: string; icon: string | null; owner: boolean; permissions: string }>;
+      const guilds = (await guildsRes.json()) as Array<{
+        id: string;
+        name: string;
+        icon: string | null;
+        owner: boolean;
+        permissions: string;
+      }>;
 
       const session = JSON.parse(raw) as DiscordRoleSetupSession;
       if (!oauthDiscordUserId || oauthDiscordUserId !== session.adminDiscordUserId) {
@@ -1356,15 +2565,27 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           guildId: session.guildId,
           tenantId: session.tenantId,
         });
-        return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=account_mismatch`, 302);
+        return Response.redirect(
+          `${config.frontendBaseUrl}/discord-role-setup?error=account_mismatch`,
+          302
+        );
       }
       session.guilds = guilds.sort((a, b) => a.name.localeCompare(b.name));
-      await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${setupToken}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
+      await store.set(
+        `${DISCORD_ROLE_SETUP_PREFIX}${setupToken}`,
+        JSON.stringify(session),
+        DISCORD_ROLE_SETUP_TTL_MS
+      );
 
       return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup`, 302);
     } catch (err) {
-      logger.error('Discord role OAuth callback failed', { error: err instanceof Error ? err.message : String(err) });
-      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup?error=internal_error`, 302);
+      logger.error('Discord role OAuth callback failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.redirect(
+        `${config.frontendBaseUrl}/discord-role-setup?error=internal_error`,
+        302
+      );
     }
   }
 
@@ -1409,18 +2630,25 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
-    const { sourceGuildId, sourceGuildName, sourceRoleId, sourceRoleIds, requiredRoleMatchMode } = body;
+    const { sourceGuildId, sourceGuildName, sourceRoleId, sourceRoleIds, requiredRoleMatchMode } =
+      body;
     if (!sourceGuildId) {
       return Response.json({ error: 'sourceGuildId is required' }, { status: 400 });
     }
     const roleIds = sourceRoleIds ?? (sourceRoleId ? [sourceRoleId] : []);
     if (roleIds.length === 0) {
-      return Response.json({ error: 'At least one role ID is required (sourceRoleId or sourceRoleIds)' }, { status: 400 });
+      return Response.json(
+        { error: 'At least one role ID is required (sourceRoleId or sourceRoleIds)' },
+        { status: 400 }
+      );
     }
     const validId = /^\d{17,20}$/;
     for (const id of roleIds) {
       if (!validId.test(id)) {
-        return Response.json({ error: `Invalid role ID: ${id}. Must be 17–20 digits.` }, { status: 400 });
+        return Response.json(
+          { error: `Invalid role ID: ${id}. Must be 17–20 digits.` },
+          { status: 400 }
+        );
       }
     }
 
@@ -1433,11 +2661,80 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     session.sourceGuildName = sourceGuildName;
     session.sourceRoleId = roleIds.length === 1 ? roleIds[0] : undefined;
     session.sourceRoleIds = roleIds.length > 1 ? roleIds : undefined;
-    session.requiredRoleMatchMode = roleIds.length > 1 ? (requiredRoleMatchMode ?? 'any') : undefined;
+    session.requiredRoleMatchMode =
+      roleIds.length > 1 ? (requiredRoleMatchMode ?? 'any') : undefined;
     session.completed = true;
-    await store.set(`${DISCORD_ROLE_SETUP_PREFIX}${binding.sessionToken}`, JSON.stringify(session), DISCORD_ROLE_SETUP_TTL_MS);
+    await store.set(
+      `${DISCORD_ROLE_SETUP_PREFIX}${binding.sessionToken}`,
+      JSON.stringify(session),
+      DISCORD_ROLE_SETUP_TTL_MS
+    );
 
     return Response.json({ success: true });
+  }
+
+  /**
+   * GET /api/connect/user/guilds
+   * Returns a list of servers the user is an admin of
+   */
+  async function getUserGuilds(request: Request): Promise<Response> {
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const userGuilds = await convex.query(api.guildLinks.getUserGuilds, {
+        apiSecret: config.convexApiSecret,
+        authUserId: session.user.id,
+      });
+
+      // Backfill missing guild names from Discord
+      if (config.discordBotToken) {
+        const guilds = userGuilds as Array<{ guildId: string; name: string; icon?: string | null }>;
+        const missing = guilds.filter((g) => !g.name || g.name.startsWith('Creator '));
+
+        if (missing.length > 0) {
+          const results = await Promise.allSettled(
+            missing.map(async (g) => {
+              const meta = await fetchGuildMeta(g.guildId);
+              if (meta.discordGuildName) {
+                g.name = meta.discordGuildName;
+                if (meta.discordGuildIcon) g.icon = meta.discordGuildIcon;
+                // Persist to DB in background so future loads are instant
+                convex
+                  .mutation(api.guildLinks.updateGuildLinkStatus, {
+                    apiSecret: config.convexApiSecret,
+                    discordGuildId: g.guildId,
+                    status: 'active' as const,
+                    botPresent: true,
+                    discordGuildName: meta.discordGuildName,
+                    ...(meta.discordGuildIcon ? { discordGuildIcon: meta.discordGuildIcon } : {}),
+                  })
+                  .catch((err) => {
+                    logger.warn('Failed to persist backfilled guild name', {
+                      guildId: g.guildId,
+                      error: err instanceof Error ? err.message : String(err),
+                    });
+                  });
+              }
+            })
+          );
+          const failures = results.filter((r) => r.status === 'rejected');
+          if (failures.length > 0) {
+            logger.warn('Some guild name backfills failed', { count: failures.length });
+          }
+        }
+      }
+
+      return Response.json({ guilds: userGuilds });
+    } catch (err) {
+      logger.error('Failed to get user guilds', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to fetch user guilds' }, { status: 500 });
+    }
   }
 
   /**
@@ -1499,13 +2796,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         headers: {
           'Set-Cookie': buildCookie(DISCORD_ROLE_SETUP_COOKIE, token, request, 30 * 60),
         },
-      },
+      }
     );
   }
 
   return {
     serveConnectPage,
     exchangeConnectBootstrap,
+    getDashboardSessionStatus,
     createSessionEndpoint,
     createTokenEndpoint,
     completeSetup,
@@ -1520,6 +2818,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     disconnectConnectionHandler,
     getSettingsHandler,
     updateSettingHandler,
+    listPublicApiKeys,
+    createPublicApiKey,
+    revokePublicApiKey,
+    rotatePublicApiKey,
+    listOAuthApps,
+    createOAuthApp,
+    updateOAuthApp,
+    deleteOAuthApp,
+    regenerateOAuthAppSecret,
     createDiscordRoleSession,
     exchangeDiscordRoleSetupSession,
     discordRoleOAuthBegin,
@@ -1527,6 +2834,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     getDiscordRoleGuilds,
     saveDiscordRoleSelection,
     getDiscordRoleResult,
+    getUserGuilds,
   };
 }
 

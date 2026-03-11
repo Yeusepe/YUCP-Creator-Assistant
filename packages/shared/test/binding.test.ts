@@ -4,65 +4,65 @@
  * Tests for binding activation, revocation, transfer, quarantine, and lookup operations.
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import {
-  isTransferAllowed,
+  type BindingPolicy,
+  type BindingStatus,
+  DEFAULT_BINDING_POLICY,
   calculateRemainingCooldown,
-  isBindingActive,
   canModifyBinding,
   canTransferBinding,
   getEffectivePolicy,
-  isValidBindingType,
+  isBindingActive,
+  isTransferAllowed,
   isValidBindingStatus,
+  isValidBindingType,
   validateActivateInput,
+  validateQuarantineInput,
   validateRevokeInput,
   validateTransferInput,
-  validateQuarantineInput,
-  DEFAULT_BINDING_POLICY,
-  type BindingPolicy,
-  type BindingStatus,
 } from '../src/binding';
 
 describe('Binding Service', () => {
   describe('isTransferAllowed', () => {
     it('should return true when cooldown has elapsed', () => {
-      const lastTransferTime = Date.now() - (25 * 60 * 60 * 1000); // 25 hours ago
+      const lastTransferTime = Date.now() - 25 * 60 * 60 * 1000; // 25 hours ago
       expect(isTransferAllowed(lastTransferTime, 24)).toBe(true);
     });
 
     it('should return false when cooldown has not elapsed', () => {
-      const lastTransferTime = Date.now() - (23 * 60 * 60 * 1000); // 23 hours ago
+      const lastTransferTime = Date.now() - 23 * 60 * 60 * 1000; // 23 hours ago
       expect(isTransferAllowed(lastTransferTime, 24)).toBe(false);
     });
 
     it('should return true when exactly at cooldown boundary', () => {
-      const lastTransferTime = Date.now() - (24 * 60 * 60 * 1000); // 24 hours ago
+      const lastTransferTime = Date.now() - 24 * 60 * 60 * 1000; // 24 hours ago
       expect(isTransferAllowed(lastTransferTime, 24)).toBe(true);
     });
 
     it('should use default cooldown when not specified', () => {
-      const lastTransferTime = Date.now() - (25 * 60 * 60 * 1000); // 25 hours ago
+      const lastTransferTime = Date.now() - 25 * 60 * 60 * 1000; // 25 hours ago
       expect(isTransferAllowed(lastTransferTime)).toBe(true);
     });
   });
 
   describe('calculateRemainingCooldown', () => {
     it('should return remaining cooldown in milliseconds', () => {
-      const lastTransferTime = Date.now() - (23 * 60 * 60 * 1000); // 23 hours ago
+      const lastTransferTime = Date.now() - 23 * 60 * 60 * 1000; // 23 hours ago
       const remaining = calculateRemainingCooldown(lastTransferTime, 24);
-      
+
       // Should be approximately 1 hour remaining
       expect(remaining).toBeGreaterThan(59 * 60 * 1000);
       expect(remaining).toBeLessThan(61 * 60 * 1000);
     });
 
     it('should return 0 when cooldown has elapsed', () => {
-      const lastTransferTime = Date.now() - (25 * 60 * 60 * 1000); // 25 hours ago
+      const lastTransferTime = Date.now() - 25 * 60 * 60 * 1000; // 25 hours ago
       expect(calculateRemainingCooldown(lastTransferTime, 24)).toBe(0);
     });
 
     it('should return 0 when exactly at boundary', () => {
-      const lastTransferTime = Date.now() - (24 * 60 * 60 * 1000); // 24 hours ago
+      const lastTransferTime = Date.now() - 24 * 60 * 60 * 1000; // 24 hours ago
       expect(calculateRemainingCooldown(lastTransferTime, 24)).toBe(0);
     });
   });
@@ -129,7 +129,7 @@ describe('Binding Service', () => {
         maxBindingsPerProduct: 5,
       };
       const effective = getEffectivePolicy(partialPolicy);
-      
+
       expect(effective.maxBindingsPerProduct).toBe(5);
       expect(effective.allowTransfer).toBe(DEFAULT_BINDING_POLICY.allowTransfer);
       expect(effective.transferCooldownHours).toBe(DEFAULT_BINDING_POLICY.transferCooldownHours);
@@ -144,7 +144,7 @@ describe('Binding Service', () => {
         allowSharedUse: true,
       };
       const effective = getEffectivePolicy(fullPolicy);
-      
+
       expect(effective).toEqual(fullPolicy as Required<BindingPolicy>);
     });
   });
@@ -195,10 +195,10 @@ describe('Binding Service', () => {
         tenantId: '',
         subjectId: '',
         externalAccountId: '',
-        bindingType: 'invalid' as any,
+        bindingType: 'invalid' as never,
       };
       const errors = validateActivateInput(input);
-      
+
       expect(errors.length).toBeGreaterThan(0);
       expect(errors).toContain('tenantId is required');
       expect(errors).toContain('subjectId is required');
@@ -259,7 +259,7 @@ describe('Binding Service', () => {
         newSubjectId: '',
       };
       const errors = validateTransferInput(input);
-      
+
       expect(errors).toContain('bindingId is required');
       expect(errors).toContain('newSubjectId is required');
     });

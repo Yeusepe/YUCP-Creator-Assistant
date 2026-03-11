@@ -26,7 +26,10 @@ describe('VRChat BetterAuth proxy helpers', () => {
       expect(headers.get('x-yucp-internal-auth-sig')).toBeTruthy();
 
       const responseHeaders = new Headers();
-      responseHeaders.append('set-better-auth-cookie', '__Secure-yucp.session_token=session; Path=/; HttpOnly');
+      responseHeaders.append(
+        'set-better-auth-cookie',
+        '__Secure-yucp.session_token=session; Path=/; HttpOnly'
+      );
 
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,

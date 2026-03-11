@@ -115,30 +115,38 @@ export function getMissingBotE2ESecretKeys(raw: RawSecretMap): string[] {
   return REQUIRED_KEYS.filter((key) => !raw[key]);
 }
 
+function requireRawSecret(raw: RawSecretMap, key: (typeof REQUIRED_KEYS)[number]): string {
+  const value = raw[key];
+  if (!value) {
+    throw new Error(`Missing required bot E2E secret: ${key}`);
+  }
+  return value;
+}
+
 function normalizeBotE2ESecrets(raw: RawSecretMap): BotE2ESecrets {
   return {
-    discordBotToken: raw.DISCORD_BOT_TOKEN!,
-    discordClientId: raw.DISCORD_CLIENT_ID!,
-    discordClientSecret: raw.DISCORD_CLIENT_SECRET!,
-    convexUrl: raw.CONVEX_URL!,
-    convexApiSecret: raw.CONVEX_API_SECRET!,
-    apiBaseUrl: raw.API_BASE_URL!,
-    apiInternalUrl: raw.API_INTERNAL_URL!,
-    frontendUrl: raw.FRONTEND_URL!,
-    betterAuthSecret: raw.BETTER_AUTH_SECRET!,
-    targetGuildId: raw.BOT_E2E_TARGET_GUILD_ID!,
-    sourceGuildId: raw.BOT_E2E_SOURCE_GUILD_ID!,
-    tenantId: raw.BOT_E2E_TENANT_ID!,
-    guildLinkId: raw.BOT_E2E_GUILD_LINK_ID!,
-    adminUserId: raw.BOT_E2E_ADMIN_USER_ID!,
-    memberUserId: raw.BOT_E2E_MEMBER_USER_ID!,
-    adminStorageStateB64: raw.BOT_E2E_ADMIN_STORAGE_STATE_B64!,
-    memberStorageStateB64: raw.BOT_E2E_MEMBER_STORAGE_STATE_B64!,
-    gumroadProductUrl: raw.BOT_E2E_GUMROAD_PRODUCT_URL!,
-    gumroadTestPurchaser: raw.BOT_E2E_GUMROAD_TEST_PURCHASER!,
-    jinxxyProductId: raw.BOT_E2E_JINXXY_PRODUCT_ID!,
-    jinxxyLicenseKey: raw.BOT_E2E_JINXXY_LICENSE_KEY!,
-    collabJinxxyApiKey: raw.BOT_E2E_COLLAB_JINXXY_API_KEY!,
+    discordBotToken: requireRawSecret(raw, 'DISCORD_BOT_TOKEN'),
+    discordClientId: requireRawSecret(raw, 'DISCORD_CLIENT_ID'),
+    discordClientSecret: requireRawSecret(raw, 'DISCORD_CLIENT_SECRET'),
+    convexUrl: requireRawSecret(raw, 'CONVEX_URL'),
+    convexApiSecret: requireRawSecret(raw, 'CONVEX_API_SECRET'),
+    apiBaseUrl: requireRawSecret(raw, 'API_BASE_URL'),
+    apiInternalUrl: requireRawSecret(raw, 'API_INTERNAL_URL'),
+    frontendUrl: requireRawSecret(raw, 'FRONTEND_URL'),
+    betterAuthSecret: requireRawSecret(raw, 'BETTER_AUTH_SECRET'),
+    targetGuildId: requireRawSecret(raw, 'BOT_E2E_TARGET_GUILD_ID'),
+    sourceGuildId: requireRawSecret(raw, 'BOT_E2E_SOURCE_GUILD_ID'),
+    tenantId: requireRawSecret(raw, 'BOT_E2E_TENANT_ID'),
+    guildLinkId: requireRawSecret(raw, 'BOT_E2E_GUILD_LINK_ID'),
+    adminUserId: requireRawSecret(raw, 'BOT_E2E_ADMIN_USER_ID'),
+    memberUserId: requireRawSecret(raw, 'BOT_E2E_MEMBER_USER_ID'),
+    adminStorageStateB64: requireRawSecret(raw, 'BOT_E2E_ADMIN_STORAGE_STATE_B64'),
+    memberStorageStateB64: requireRawSecret(raw, 'BOT_E2E_MEMBER_STORAGE_STATE_B64'),
+    gumroadProductUrl: requireRawSecret(raw, 'BOT_E2E_GUMROAD_PRODUCT_URL'),
+    gumroadTestPurchaser: requireRawSecret(raw, 'BOT_E2E_GUMROAD_TEST_PURCHASER'),
+    jinxxyProductId: requireRawSecret(raw, 'BOT_E2E_JINXXY_PRODUCT_ID'),
+    jinxxyLicenseKey: requireRawSecret(raw, 'BOT_E2E_JINXXY_LICENSE_KEY'),
+    collabJinxxyApiKey: requireRawSecret(raw, 'BOT_E2E_COLLAB_JINXXY_API_KEY'),
   };
 }
 
@@ -161,9 +169,7 @@ export async function loadBotE2ESecrets(): Promise<{
 export async function requireBotE2ESecrets(): Promise<BotE2ESecrets> {
   const loaded = await loadBotE2ESecrets();
   if (loaded.missing.length > 0) {
-    throw new Error(
-      `Missing required bot E2E secrets: ${loaded.missing.join(', ')}`,
-    );
+    throw new Error(`Missing required bot E2E secrets: ${loaded.missing.join(', ')}`);
   }
   return normalizeBotE2ESecrets(loaded.raw);
 }

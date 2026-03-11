@@ -111,9 +111,11 @@ export function sanitizeVerificationSupportErrorSummary(error: unknown): string 
 }
 
 export function resolveVerificationSupportSecret(secret?: string | null): string | undefined {
-  return normalizeField(secret) ??
+  return (
+    normalizeField(secret) ??
     normalizeField(process.env.ERROR_REFERENCE_SECRET) ??
-    normalizeField(process.env.BETTER_AUTH_SECRET);
+    normalizeField(process.env.BETTER_AUTH_SECRET)
+  );
 }
 
 export function buildVerificationSupportPayload(
@@ -219,7 +221,9 @@ export async function decodeVerificationSupportToken(
 
   const secret = resolveVerificationSupportSecret(options?.secret);
   if (!secret) {
-    throw new Error('ERROR_REFERENCE_SECRET or BETTER_AUTH_SECRET is required to decode this token.');
+    throw new Error(
+      'ERROR_REFERENCE_SECRET or BETTER_AUTH_SECRET is required to decode this token.'
+    );
   }
 
   const key = await deriveKey(secret);
@@ -259,8 +263,7 @@ export function getVerificationSupportErrorDetails(error: unknown): {
   errorName?: string;
   errorSummary?: string;
 } {
-  const errorName =
-    error instanceof Error ? normalizeField(error.name) : undefined;
+  const errorName = error instanceof Error ? normalizeField(error.name) : undefined;
 
   return {
     errorName,

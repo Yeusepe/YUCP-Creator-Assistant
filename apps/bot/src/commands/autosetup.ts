@@ -5,6 +5,8 @@
  * then the bot walks them through each step using Discord.js v14 UI components.
  */
 
+import { createLogger } from '@yucp/shared';
+import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -25,20 +27,18 @@ import {
 } from 'discord.js';
 import type {
   ButtonInteraction,
-  ChatInputCommandInteraction,
   ChannelSelectMenuInteraction,
+  ChatInputCommandInteraction,
   ModalSubmitInteraction,
   RoleSelectMenuInteraction,
   StringSelectMenuInteraction,
 } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
-import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
-import { E, Emoji } from '../lib/emojis';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
-import { canBotManageRole } from '../lib/roleHierarchy';
+import { E, Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
-import { createLogger } from '@yucp/shared';
+import { canBotManageRole } from '../lib/roleHierarchy';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -80,6 +80,8 @@ interface AutosetupSession {
   expiresAt: number;
 }
 
+type ContainerActionRow = Parameters<ContainerBuilder['addActionRowComponents']>[0];
+
 const autosetupSessions = new Map<string, AutosetupSession>();
 
 function getSessionKey(userId: string, tenantId: string): string {
@@ -93,9 +95,7 @@ function productKey(p: AutosetupProduct): string {
 /** Build error container for ComponentsV2 - use instead of content in editReply */
 function errorContainer(message: string): ContainerBuilder {
   const container = new ContainerBuilder().setAccentColor(0xed4245);
-  container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`## ${E.X_} ${message}`),
-  );
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.X_} ${message}`));
   return container;
 }
 
@@ -103,7 +103,7 @@ function errorContainer(message: string): ContainerBuilder {
 function loadingContainer(message: string): ContainerBuilder {
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`## ${E.Timer} ${message}`),
+    new TextDisplayBuilder().setContent(`## ${E.Timer} ${message}`)
   );
   return container;
 }
@@ -112,7 +112,7 @@ function buildMigrateConfirmationUI(
   session: AutosetupSession,
   userId: string,
   tenantId: string,
-  justMapped?: { roleName: string; productName: string },
+  justMapped?: { roleName: string; productName: string }
 ): { container: ContainerBuilder; hasUnmapped: boolean } {
   const mappedCount = session.migrateMappedProductKeys?.length ?? 0;
   const total = session.products?.length ?? 0;
@@ -121,12 +121,15 @@ function buildMigrateConfirmationUI(
   const header = justMapped
     ? `## ${E.Checkmark} Mapped!\n\n**${justMapped.roleName}** → **${justMapped.productName}**`
     : `## ${E.Checkmark} Migration progress`;
-  const progress = total > 0 ? `\n\n${E.Checkmark} **${mappedCount}** of **${total}** products mapped` : '';
-  const footer = hasUnmapped ? '\n\nWhat would you like to do next?' : '\n\nAll products are mapped!';
+  const progress =
+    total > 0 ? `\n\n${E.Checkmark} **${mappedCount}** of **${total}** products mapped` : '';
+  const footer = hasUnmapped
+    ? '\n\nWhat would you like to do next?'
+    : '\n\nAll products are mapped!';
 
   const container = new ContainerBuilder().setAccentColor(0x57f287);
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(header + progress + footer),
+    new TextDisplayBuilder().setContent(header + progress + footer)
   );
 
   const doneBtn = new ButtonBuilder()
@@ -152,11 +155,7 @@ function buildMigrateConfirmationUI(
   }
 
   container.addActionRowComponents(
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      doneBtn,
-      mapAnotherBtn,
-      mapAllBtn,
-    ),
+    new ActionRowBuilder<ButtonBuilder>().addComponents(doneBtn, mapAnotherBtn, mapAllBtn)
   );
 
   return { container, hasUnmapped };
@@ -170,16 +169,18 @@ function cleanExpiredSessions(): void {
 }
 
 function sanitizeRoleName(name: string): string {
-  return name
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 100) || 'Verified';
+  return (
+    name
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 100) || 'Verified'
+  );
 }
 
 function formatRoleName(
   name: string,
-  session: Pick<AutosetupSession, 'roleFormat' | 'roleEmoji' | 'rolePrefix' | 'roleSuffix'>,
+  session: Pick<AutosetupSession, 'roleFormat' | 'roleEmoji' | 'rolePrefix' | 'roleSuffix'>
 ): string {
   let base = sanitizeRoleName(name);
   const format = session.roleFormat ?? 'full';
@@ -199,10 +200,7 @@ function formatRoleName(
   return result || 'Verified';
 }
 
-async function fetchAllProducts(
-  tenantId: string,
-  apiSecret: string,
-): Promise<AutosetupProduct[]> {
+async function fetchAllProducts(tenantId: string, apiSecret: string): Promise<AutosetupProduct[]> {
   const { apiInternal, apiPublic } = getApiUrls();
   const apiForFetch = apiInternal ?? apiPublic;
   if (!apiForFetch) return [];
@@ -246,7 +244,7 @@ export async function handleAutosetupStart(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   cleanExpiredSessions();
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -275,20 +273,18 @@ export async function handleAutosetupStart(
 
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`## ${E.Wrench} Autosetup`),
+    new TextDisplayBuilder().setContent(`## ${E.Wrench} Autosetup`)
   );
   container.addSeparatorComponents(
-    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      'Choose what you need. Each option guides you through the setup step by step.\n\n' +
-        (hasManageRoles ? '' : `${E.Wrench} **Note:** The bot needs **Manage Roles** for role creation.\n`) +
-        (hasManageChannels ? '' : `${E.Wrench} **Note:** The bot needs **Manage Channels** for channel creation.\n`),
-    ),
+      `Choose what you need. Each option guides you through the setup step by step.\n\n${hasManageRoles ? '' : `${E.Wrench} **Note:** The bot needs **Manage Roles** for role creation.\n`}${hasManageChannels ? '' : `${E.Wrench} **Note:** The bot needs **Manage Channels** for channel creation.\n`}`
+    )
   );
   container.addSeparatorComponents(
-    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
   const select = new StringSelectMenuBuilder()
@@ -314,11 +310,11 @@ export async function handleAutosetupStart(
         .setLabel('Migrate from another bot')
         .setDescription('Map your existing roles to products')
         .setValue('migrate')
-        .setEmoji(Emoji.Refresh),
+        .setEmoji(Emoji.Refresh)
     );
 
   container.addActionRowComponents(
-    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)
   );
 
   await interaction.editReply({
@@ -334,7 +330,7 @@ export async function handleAutosetupModeSelect(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const mode = interaction.values[0] as AutosetupSession['mode'];
   const sessionKey = getSessionKey(interaction.user.id, tenantId);
@@ -389,14 +385,14 @@ function buildRoleCustomizationPreview(session: AutosetupSession): string {
     if (session.roleSuffix) dec.push(`suffix: "${session.roleSuffix}"`);
     parts.push(`**Current decoration:** ${dec.join(', ')}`);
   }
-  return parts.length > 0 ? '\n\n' + parts.join('\n') : '';
+  return parts.length > 0 ? `\n\n${parts.join('\n')}` : '';
 }
 
 async function showRoleCustomizationStep(
   interaction: StringSelectMenuInteraction | ButtonInteraction | ModalSubmitInteraction,
   session: AutosetupSession,
   userId: string,
-  tenantId: string,
+  tenantId: string
 ): Promise<void> {
   const currentFormat = session.roleFormat ?? 'full';
   const formatOptions = [
@@ -415,8 +411,8 @@ async function showRoleCustomizationStep(
           .setLabel(o.label)
           .setValue(o.value)
           .setDescription(o.desc)
-          .setDefault(o.value === currentFormat),
-      ),
+          .setDefault(o.value === currentFormat)
+      )
     );
 
   const preview = buildRoleCustomizationPreview(session);
@@ -424,14 +420,12 @@ async function showRoleCustomizationStep(
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.PersonKey} Customize role names\n\n` +
-        '**Format:** How much of the product name to use.\n' +
-        '**Decoration:** Add prefix, suffix, or emoji via the button below.' +
-        preview,
-    ),
+      `## ${E.PersonKey} Customize role names\n\n**Format:** How much of the product name to use.\n**Decoration:** Add prefix, suffix, or emoji via the button below.${preview}`
+    )
   );
   const hasDecoration = !!(session.roleEmoji || session.rolePrefix || session.roleSuffix);
   container.addActionRowComponents(
+    // biome-ignore lint/suspicious/noExplicitAny: Discord container row typing is narrower than the runtime builder support here.
     new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(formatSelect) as any,
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -442,8 +436,8 @@ async function showRoleCustomizationStep(
         .setCustomId(`${AUTOSETUP_PREFIX}role_custom_done:${userId}:${tenantId}`)
         .setLabel('Continue')
         .setStyle(ButtonStyle.Success)
-        .setEmoji(Emoji.Checkmark),
-    ),
+        .setEmoji(Emoji.Checkmark)
+    )
   );
 
   await interaction.editReply({
@@ -495,7 +489,7 @@ function buildRoleCustomModal(userId: string, tenantId: Id<'tenants'>): ModalBui
   modal.addComponents(
     new ActionRowBuilder<typeof prefixInput>().addComponents(prefixInput),
     new ActionRowBuilder<typeof suffixInput>().addComponents(suffixInput),
-    new ActionRowBuilder<typeof emojiInput>().addComponents(emojiInput),
+    new ActionRowBuilder<typeof emojiInput>().addComponents(emojiInput)
   );
 
   return modal;
@@ -505,7 +499,7 @@ function buildRoleCustomModal(userId: string, tenantId: Id<'tenants'>): ModalBui
 export async function handleAutosetupRoleCustomModal(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const modal = buildRoleCustomModal(userId, tenantId);
   await interaction.showModal(modal);
@@ -515,7 +509,7 @@ export async function handleAutosetupRoleCustomModal(
 export async function handleAutosetupRoleModalSubmit(
   interaction: ModalSubmitInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const prefix = interaction.fields.getTextInputValue('prefix')?.trim() ?? '';
   const suffix = interaction.fields.getTextInputValue('suffix')?.trim() ?? '';
@@ -544,7 +538,7 @@ async function showProductSelectStep(
   convex: ConvexHttpClient,
   apiSecret: string,
   session: AutosetupSession,
-  userId: string,
+  userId: string
 ): Promise<void> {
   await interaction.editReply({
     flags: MessageFlags.IsComponentsV2,
@@ -552,7 +546,7 @@ async function showProductSelectStep(
   });
 
   const products = session.products ?? [];
-  const existingRules = (await convex.query(api.role_rules.getByGuildWithProductNames as any, {
+  const existingRules = (await convex.query(api.role_rules.getByGuildWithProductNames, {
     tenantId: session.tenantId,
     guildId: session.guildId,
   })) as Array<{ productId: string }>;
@@ -568,16 +562,18 @@ async function showProductSelectStep(
       list.push(p);
       byName.set(key, list);
     }
-    toShow = Array.from(byName.entries()).slice(0, 25).map(([name, list]) => {
-      const value = list.map((p) => productKey(p)).join(',');
-      const label = list[0].name.length > 100 ? list[0].name.slice(0, 97) + '...' : list[0].name;
-      const providers = [...new Set(list.map((p) => p.provider))].join(' + ');
-      return { value, label, desc: `${list.length} product(s) from ${providers}` };
-    });
+    toShow = Array.from(byName.entries())
+      .slice(0, 25)
+      .map(([name, list]) => {
+        const value = list.map((p) => productKey(p)).join(',');
+        const label = list[0].name.length > 100 ? `${list[0].name.slice(0, 97)}...` : list[0].name;
+        const providers = [...new Set(list.map((p) => p.provider))].join(' + ');
+        return { value, label, desc: `${list.length} product(s) from ${providers}` };
+      });
   } else {
     toShow = products.slice(0, 25).map((p) => {
       const value = productKey(p);
-      const label = p.name.length > 100 ? p.name.slice(0, 97) + '...' : p.name;
+      const label = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
       const desc = `${p.provider === 'gumroad' ? E.Gumorad : E.Jinxxy} ${p.name}`.slice(0, 100);
       return { value, label, desc };
     });
@@ -590,24 +586,25 @@ async function showProductSelectStep(
     .setMaxValues(Math.min(toShow.length, 25))
     .addOptions(
       toShow.map((o) =>
-        new StringSelectMenuOptionBuilder().setLabel(o.label).setValue(o.value).setDescription(o.desc),
-      ),
+        new StringSelectMenuOptionBuilder()
+          .setLabel(o.label)
+          .setValue(o.value)
+          .setDescription(o.desc)
+      )
     );
 
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.PersonKey} Select products\n\n` +
-        (hasExisting
+      `## ${E.PersonKey} Select products\n\n${
+        hasExisting
           ? `${E.Wrench} **Warning:** Some products already have roles. Creating new roles will add additional mappings.\n\n`
-          : '') +
-        (combineDuplicates ? '*(Products with the same name are combined into one role.)*\n\n' : '') +
-        'Choose which products should get new roles:\n\n' +
-        (products.length > 25 ? `*(Showing first 25 of ${products.length})*` : ''),
-    ),
+          : ''
+      }${combineDuplicates ? '*(Products with the same name are combined into one role.)*\n\n' : ''}Choose which products should get new roles:\n\n${products.length > 25 ? `*(Showing first 25 of ${products.length})*` : ''}`
+    )
   );
   container.addActionRowComponents(
-    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)
   );
 
   await interaction.editReply({
@@ -620,7 +617,7 @@ async function handleRolesFlowStart(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  session: AutosetupSession,
+  session: AutosetupSession
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -633,16 +630,16 @@ async function handleRolesFlowStart(
 
   if (products.length === 0) {
     const { apiPublic } = getApiUrls();
-    const setupUrl = apiPublic ? `${apiPublic}/connect` : null;
+    const setupUrl = apiPublic ? `${apiPublic}/dashboard` : null;
     const container = new ContainerBuilder().setAccentColor(0xfaa61a);
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `## ${E.Wrench} No products found\n\n` +
-          'Connect your Gumroad or Jinxxy account first to see your products.\n\n' +
-          (setupUrl
+        `## ${E.Wrench} No products found\n\nConnect your Gumroad or Jinxxy account first to see your products.\n\n${
+          setupUrl
             ? `Use \`/creator-admin setup start\` to get the link, or visit ${setupUrl}`
-            : 'Use `/creator-admin setup start` to connect your accounts.'),
-      ),
+            : 'Use `/creator-admin setup start` to connect your accounts.'
+        }`
+      )
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
@@ -659,7 +656,7 @@ async function handleRolesFlowStart(
 export async function handleAutosetupRoleFormatSelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -675,7 +672,7 @@ export async function handleAutosetupRoleCustomDone(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -690,12 +687,8 @@ export async function handleAutosetupRoleCustomDone(
     const container = new ContainerBuilder().setAccentColor(0xfaa61a);
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `## ${E.Refresh} Same name products?\n\n` +
-          `Some products have the same name across stores (e.g. "${dupNames}").\n\n` +
-          'Combine them into one role?\n\n' +
-          '**Yes** - One role for all products with the same name\n' +
-          '**No** - Separate roles for each product',
-      ),
+        `## ${E.Refresh} Same name products?\n\nSome products have the same name across stores (e.g. "${dupNames}").\n\nCombine them into one role?\n\n**Yes** - One role for all products with the same name\n**No** - Separate roles for each product`
+      )
     );
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -706,8 +699,8 @@ export async function handleAutosetupRoleCustomDone(
         new ButtonBuilder()
           .setCustomId(`${AUTOSETUP_PREFIX}combine_no:${userId}:${tenantId}`)
           .setLabel('No, separate')
-          .setStyle(ButtonStyle.Secondary),
-      ),
+          .setStyle(ButtonStyle.Secondary)
+      )
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
@@ -725,7 +718,7 @@ export async function handleAutosetupCombineChoice(
   apiSecret: string,
   userId: string,
   tenantId: Id<'tenants'>,
-  combine: boolean,
+  combine: boolean
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -741,7 +734,7 @@ export async function handleAutosetupProductsSelect(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -780,7 +773,10 @@ export async function handleAutosetupProductsSelect(
   let failed = 0;
 
   for (const value of session.selectedProductIds ?? []) {
-    const productKeys = value.split(',').map((k) => k.trim()).filter(Boolean);
+    const productKeys = value
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean);
     const products = productKeys
       .map((k) => productMap.get(k))
       .filter((p): p is AutosetupProduct => p != null);
@@ -806,13 +802,13 @@ export async function handleAutosetupProductsSelect(
 
       for (const product of products) {
         if (product.provider === 'gumroad') {
-          const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
+          const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
             apiSecret,
             tenantId,
             productId: product.id,
             providerProductRef: product.id,
           });
-          await convex.mutation(api.role_rules.createRoleRule as any, {
+          await convex.mutation(api.role_rules.createRoleRule, {
             apiSecret,
             tenantId,
             guildId: session.guildId,
@@ -822,14 +818,14 @@ export async function handleAutosetupProductsSelect(
             verifiedRoleId: role.id,
           });
         } else {
-          const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
+          const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
             apiSecret,
             tenantId,
             productId: product.id,
             providerProductRef: product.id,
             displayName: product.name,
           });
-          await convex.mutation(api.role_rules.createRoleRule as any, {
+          await convex.mutation(api.role_rules.createRoleRule, {
             apiSecret,
             tenantId,
             guildId: session.guildId,
@@ -859,13 +855,12 @@ export async function handleAutosetupProductsSelect(
   const container = new ContainerBuilder().setAccentColor(created > 0 ? 0x57f287 : 0xfaa61a);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.Checkmark} Roles created\n\n` +
-        `Created **${created}** role(s) and mapped them to your products.\n` +
-        (failed > 0 ? `\n${failed} failed (check role hierarchy).` : '') +
-        (session.mode === 'full'
-          ? '\n\nNext: we\'ll set up the verify channel and spawn the verify button.'
-          : ''),
-    ),
+      `## ${E.Checkmark} Roles created\n\nCreated **${created}** role(s) and mapped them to your products.\n${failed > 0 ? `\n${failed} failed (check role hierarchy).` : ''}${
+        session.mode === 'full'
+          ? "\n\nNext: we'll set up the verify channel and spawn the verify button."
+          : ''
+      }`
+    )
   );
 
   if (session.mode === 'full') {
@@ -874,7 +869,7 @@ export async function handleAutosetupProductsSelect(
         .setCustomId(`${AUTOSETUP_PREFIX}channels_next:${userId}:${tenantId}`)
         .setLabel('Continue to channels')
         .setEmoji(Emoji.Checkmark)
-        .setStyle(ButtonStyle.Success),
+        .setStyle(ButtonStyle.Success)
     );
     container.addActionRowComponents(row);
   }
@@ -895,16 +890,15 @@ async function handleChannelsFlowStart(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  session: AutosetupSession,
+  session: AutosetupSession
 ): Promise<void> {
   await interaction.deferUpdate();
 
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.Library} Verify channel\n\n` +
-        'Should we create a **#verify** channel and post the verify button there?',
-    ),
+      `## ${E.Library} Verify channel\n\nShould we create a **#verify** channel and post the verify button there?`
+    )
   );
   container.addActionRowComponents(
     new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -920,8 +914,8 @@ async function handleChannelsFlowStart(
       new ButtonBuilder()
         .setCustomId(`${AUTOSETUP_PREFIX}channels_skip:${interaction.user.id}:${session.tenantId}`)
         .setLabel('Skip')
-        .setStyle(ButtonStyle.Secondary),
-    ),
+        .setStyle(ButtonStyle.Secondary)
+    )
   );
 
   await interaction.editReply({
@@ -936,7 +930,7 @@ export async function handleAutosetupCreateVerify(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -988,7 +982,7 @@ export async function handleAutosetupCreateVerify(
           `${(await import('../lib/emojis')).E.KeyCloud} **License key** - Using Jinxxy or Gumroad license? Enter one key once. We link your account and sync all past and future purchases.`,
           '',
           'Connections are secure and used only for verification.',
-        ].join('\n'),
+        ].join('\n')
       )
       .setColor(0x5865f2)
       .setFooter({ text: 'Creator Assistant · Secure verification' });
@@ -1008,8 +1002,8 @@ export async function handleAutosetupCreateVerify(
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         `## ${E.Checkmark} Done!\n\n` +
-          `Created <#${channel.id}> and posted the verify button. Your members can now verify their purchases there.`,
-      ),
+          `Created <#${channel.id}> and posted the verify button. Your members can now verify their purchases there.`
+      )
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
@@ -1029,7 +1023,9 @@ export async function handleAutosetupCreateVerify(
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
       components: [
-        errorContainer('Could not create the verify channel. Check that the bot has **Manage Channels** permission.'),
+        errorContainer(
+          'Could not create the verify channel. Check that the bot has **Manage Channels** permission.'
+        ),
       ],
     });
   }
@@ -1041,7 +1037,7 @@ export async function handleAutosetupSpawnHere(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -1079,7 +1075,7 @@ export async function handleAutosetupSpawnHere(
         `${Em.KeyCloud} **License key** - Enter your license key to verify.`,
         '',
         'Connections are secure and used only for verification.',
-      ].join('\n'),
+      ].join('\n')
     )
     .setColor(0x5865f2)
     .setFooter({ text: 'Creator Assistant · Secure verification' });
@@ -1098,8 +1094,8 @@ export async function handleAutosetupSpawnHere(
   const container = new ContainerBuilder().setAccentColor(0x57f287);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.Checkmark} Done!\n\nPosted the verify button in this channel.`,
-    ),
+      `## ${E.Checkmark} Done!\n\nPosted the verify button in this channel.`
+    )
   );
   await interaction.editReply({
     flags: MessageFlags.IsComponentsV2,
@@ -1111,7 +1107,7 @@ export async function handleAutosetupSpawnHere(
 export async function handleAutosetupChannelsSkip(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -1136,7 +1132,7 @@ export async function handleAutosetupChannelsNext(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -1153,7 +1149,7 @@ export async function handleAutosetupChannelsNext(
     interaction as unknown as StringSelectMenuInteraction,
     convex,
     apiSecret,
-    session,
+    session
   );
 }
 
@@ -1161,7 +1157,7 @@ async function handleMigrateFlowStart(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  session: AutosetupSession,
+  session: AutosetupSession
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -1171,9 +1167,8 @@ async function handleMigrateFlowStart(
     const container = new ContainerBuilder().setAccentColor(0xfaa61a);
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `## ${E.Wrench} No products found\n\n` +
-          'Connect Gumroad or Jinxxy first. Use `/creator-admin setup start`.',
-      ),
+        `## ${E.Wrench} No products found\n\nConnect Gumroad or Jinxxy first. Use \`/creator-admin setup start\`.`
+      )
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
@@ -1205,9 +1200,8 @@ async function handleMigrateFlowStart(
     const container = new ContainerBuilder().setAccentColor(0xfaa61a);
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `## ${E.Wrench} No roles to map\n\n` +
-          'This server has no roles besides @everyone and bot roles. Create roles first, then run autosetup migrate.',
-      ),
+        `## ${E.Wrench} No roles to map\n\nThis server has no roles besides @everyone and bot roles. Create roles first, then run autosetup migrate.`
+      )
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
@@ -1223,12 +1217,11 @@ async function handleMigrateFlowStart(
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.Refresh} Migrate: map role to product\n\n` +
-        'Select a role from your server. Next, we\'ll ask which product it corresponds to.',
-    ),
+      `## ${E.Refresh} Migrate: map role to product\n\nSelect a role from your server. Next, we\'ll ask which product it corresponds to.`
+    )
   );
   container.addActionRowComponents(
-    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select),
+    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select)
   );
 
   await interaction.editReply({
@@ -1243,7 +1236,7 @@ export async function handleAutosetupMigrateRoleSelect(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const roleId = interaction.values[0];
   const sessionKey = getSessionKey(userId, tenantId);
@@ -1252,7 +1245,9 @@ export async function handleAutosetupMigrateRoleSelect(
   if (!session || Date.now() > session.expiresAt) {
     const container = new ContainerBuilder().setAccentColor(0xfaa61a);
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`## ${E.Timer} Session expired\n\nRun \`/creator-admin autosetup\` again.`),
+      new TextDisplayBuilder().setContent(
+        `## ${E.Timer} Session expired\n\nRun \`/creator-admin autosetup\` again.`
+      )
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
@@ -1284,25 +1279,23 @@ export async function handleAutosetupMigrateRoleSelect(
     .addOptions(
       toShow.map((p) => {
         const value = `${p.provider}::${p.id}`;
-        const label = p.name.length > 100 ? p.name.slice(0, 97) + '...' : p.name;
+        const label = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
         return new StringSelectMenuOptionBuilder()
           .setLabel(label)
           .setValue(value)
           .setDescription(`${p.provider}`);
-      }),
+      })
     );
 
   const role = interaction.guild?.roles.cache.get(roleId);
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## Map role to product\n\n` +
-        `Role: **${role?.name ?? 'Unknown'}**\n\n` +
-        'Select the product this role should grant access to:',
-    ),
+      `## Map role to product\n\nRole: **${role?.name ?? 'Unknown'}**\n\nSelect the product this role should grant access to:`
+    )
   );
   container.addActionRowComponents(
-    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)
   );
 
   await interaction.editReply({
@@ -1317,7 +1310,7 @@ export async function handleAutosetupMigrateProductSelect(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -1332,9 +1325,7 @@ export async function handleAutosetupMigrateProductSelect(
 
   const value = interaction.values[0];
   const [provider, productId] = value.split('::');
-  const product = session.products?.find(
-    (p) => p.id === productId && p.provider === provider,
-  );
+  const product = session.products?.find((p) => p.id === productId && p.provider === provider);
 
   if (!product) {
     await interaction.update({ content: 'Product not found.' });
@@ -1353,13 +1344,13 @@ export async function handleAutosetupMigrateProductSelect(
 
   try {
     if (product.provider === 'gumroad') {
-      const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
+      const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
         apiSecret,
         tenantId,
         productId: product.id,
         providerProductRef: product.id,
       });
-      await convex.mutation(api.role_rules.createRoleRule as any, {
+      await convex.mutation(api.role_rules.createRoleRule, {
         apiSecret,
         tenantId,
         guildId: session.guildId,
@@ -1369,14 +1360,14 @@ export async function handleAutosetupMigrateProductSelect(
         verifiedRoleId: roleId,
       });
     } else {
-      const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
+      const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
         apiSecret,
         tenantId,
         productId: product.id,
         providerProductRef: product.id,
         displayName: product.name,
       });
-      await convex.mutation(api.role_rules.createRoleRule as any, {
+      await convex.mutation(api.role_rules.createRoleRule, {
         apiSecret,
         tenantId,
         guildId: session.guildId,
@@ -1423,7 +1414,7 @@ export async function handleAutosetupMigrateProductSelect(
 export async function handleAutosetupMigrateDone(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -1443,8 +1434,8 @@ export async function handleAutosetupMigrateDone(
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
       `## ${E.ThumbsUp} Done!\n\n` +
-        `Mapped **${mapped}** product${mapped === 1 ? '' : 's'} to roles. You're all set.`,
-    ),
+        `Mapped **${mapped}** product${mapped === 1 ? '' : 's'} to roles. You're all set.`
+    )
   );
   await interaction.editReply({
     flags: MessageFlags.IsComponentsV2,
@@ -1458,7 +1449,7 @@ export async function handleAutosetupMigrateMapAnother(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -1480,12 +1471,11 @@ export async function handleAutosetupMigrateMapAnother(
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.Refresh} Map another role\n\n` +
-        'Select a role from your server. Next, we\'ll ask which product it corresponds to.',
-    ),
+      `## ${E.Refresh} Map another role\n\nSelect a role from your server. Next, we\'ll ask which product it corresponds to.`
+    )
   );
   container.addActionRowComponents(
-    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select),
+    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select)
   );
 
   await interaction.editReply({
@@ -1500,7 +1490,7 @@ export async function handleAutosetupMigrateMapAll(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = autosetupSessions.get(sessionKey);
@@ -1538,13 +1528,11 @@ export async function handleAutosetupMigrateMapAll(
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.ClapStars} Map all\n\n` +
-        `**${firstUnmapped.name}** (${firstUnmapped.provider})\n\n` +
-        'Select the role that grants access to this product:',
-    ),
+      `## ${E.ClapStars} Map all\n\n**${firstUnmapped.name}** (${firstUnmapped.provider})\n\nSelect the role that grants access to this product:`
+    )
   );
   container.addActionRowComponents(
-    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select),
+    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select)
   );
 
   await interaction.editReply({
@@ -1559,7 +1547,7 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const roleId = interaction.values[0];
   const sessionKey = getSessionKey(userId, tenantId);
@@ -1568,7 +1556,9 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
   if (!session || Date.now() > session.expiresAt) {
     const container = new ContainerBuilder().setAccentColor(0xfaa61a);
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`## ${E.Timer} Session expired\n\nRun \`/creator-admin autosetup\` again.`),
+      new TextDisplayBuilder().setContent(
+        `## ${E.Timer} Session expired\n\nRun \`/creator-admin autosetup\` again.`
+      )
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
@@ -1581,7 +1571,9 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
   if (!productSpec) {
     const container = new ContainerBuilder().setAccentColor(0xfaa61a);
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`## ${E.Timer} Session state lost\n\nRun \`/creator-admin autosetup\` again.`),
+      new TextDisplayBuilder().setContent(
+        `## ${E.Timer} Session state lost\n\nRun \`/creator-admin autosetup\` again.`
+      )
     );
     await interaction.editReply({
       flags: MessageFlags.IsComponentsV2,
@@ -1591,7 +1583,7 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
   }
 
   const product = session.products?.find(
-    (p) => p.provider === productSpec.provider && p.id === productSpec.id,
+    (p) => p.provider === productSpec.provider && p.id === productSpec.id
   );
   if (!product) {
     await interaction.editReply({
@@ -1603,13 +1595,13 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
 
   try {
     if (product.provider === 'gumroad') {
-      const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
+      const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
         apiSecret,
         tenantId,
         productId: product.id,
         providerProductRef: product.id,
       });
-      await convex.mutation(api.role_rules.createRoleRule as any, {
+      await convex.mutation(api.role_rules.createRoleRule, {
         apiSecret,
         tenantId,
         guildId: session.guildId,
@@ -1619,14 +1611,14 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
         verifiedRoleId: roleId,
       });
     } else {
-      const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
+      const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
         apiSecret,
         tenantId,
         productId: product.id,
         providerProductRef: product.id,
         displayName: product.name,
       });
-      await convex.mutation(api.role_rules.createRoleRule as any, {
+      await convex.mutation(api.role_rules.createRoleRule, {
         apiSecret,
         tenantId,
         guildId: session.guildId,
@@ -1656,13 +1648,11 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
       const container = new ContainerBuilder().setAccentColor(0x57f287);
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `## ${E.Checkmark} **${role?.name ?? 'Role'}** → **${product.name}**\n\n` +
-            `Next: **${nextUnmapped.name}**\n\n` +
-            'Select the role for this product:',
-        ),
+          `## ${E.Checkmark} **${role?.name ?? 'Role'}** → **${product.name}**\n\nNext: **${nextUnmapped.name}**\n\nSelect the role for this product:`
+        )
       );
       container.addActionRowComponents(
-        new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select),
+        new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select)
       );
       await interaction.editReply({
         flags: MessageFlags.IsComponentsV2,

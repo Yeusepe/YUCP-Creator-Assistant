@@ -13,7 +13,7 @@ const INTERNAL_ERROR_PATTERNS = [
 
 export function sanitizeUserFacingErrorMessage(
   rawMessage: string | null | undefined,
-  fallback: string,
+  fallback: string
 ): string {
   const trimmed = rawMessage?.trim();
   if (!trimmed) return fallback;

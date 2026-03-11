@@ -37,6 +37,7 @@ export {
   createLogger,
   createStructuredLogger,
   type StructuredLogger,
+  type StructuredLogger as Logger,
   type LogEntry,
   type LoggerConfig,
 } from './logging';
@@ -47,7 +48,6 @@ export * from './verificationSupport';
 
 // Crypto module exports
 export * from './crypto';
-
 
 // Entitlement module exports
 export * from './entitlement';

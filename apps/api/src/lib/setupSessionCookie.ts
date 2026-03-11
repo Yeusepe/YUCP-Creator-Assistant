@@ -16,7 +16,7 @@ export function readSetupSessionCookie(request: Request): string | null {
 export function buildSetupSessionCookie(
   request: Request,
   value: string,
-  maxAgeSeconds = 60 * 60,
+  maxAgeSeconds = 60 * 60
 ): string {
   const isSecure = new URL(request.url).protocol === 'https:';
   const parts = [
@@ -44,4 +44,3 @@ export function stripSetupParams(url: URL): URL {
   redirectUrl.searchParams.delete('guildId');
   return redirectUrl;
 }
-

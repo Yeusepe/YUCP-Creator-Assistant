@@ -102,9 +102,11 @@ ops/           infisical (secret docs and templates)
 
 | Variable                                     | Used by  | Purpose                          |
 | -------------------------------------------- | -------- | -------------------------------- |
+| `SITE_URL`                                   | api      | Public app/frontend origin       |
 | `DISCORD_BOT_TOKEN`                          | bot      | Bot connection                   |
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | api, bot | OAuth and installation           |
 | `CONVEX_URL`, `CONVEX_API_SECRET`            | bot, api | Convex deployment and server API |
+| `CONVEX_SITE_URL`                            | api      | Better Auth host on Convex       |
 | `BETTER_AUTH_SECRET`                         | api      | Better Auth session encryption   |
 | `GUMROAD_CLIENT_ID`, `GUMROAD_CLIENT_SECRET` | api      | Gumroad OAuth and connect        |
 | `JINXXY_API_KEY`                             | api      | Jinxxy integration               |
@@ -112,6 +114,14 @@ ops/           infisical (secret docs and templates)
 
 
 Do not commit real values; use env files or a secret store (all env files are gitignored).
+
+### Auth URL model
+
+- Better Auth runs on Convex at `${CONVEX_SITE_URL}/api/auth`.
+- The app/frontend runs on `SITE_URL`.
+- Discord social login callback must be `${CONVEX_SITE_URL}/api/auth/callback/discord`.
+- OAuth clients that use your provider must register their own `redirect_uri` values on the client side. Those are separate from the Discord callback above.
+- `FRONTEND_URL` remains a legacy alias for `SITE_URL`, and `BETTER_AUTH_URL` remains a legacy alias for the auth host. New config should use `SITE_URL` and `CONVEX_SITE_URL`.
 
 ## Discord `/creator` commands (reference)
 
@@ -121,14 +131,14 @@ Do not commit real values; use env files or a secret store (all env files are gi
 | setup      | start                         | Get links to connect Gumroad/Jinxxy and configure (opens in browser)                            |
 | autosetup  | -                             | Guided setup in Discord: create roles, channels, verify button, or migrate from another bot     |
 | product    | add, list, remove             | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy, vrchat              |
-| downloads  | setup, manage                 | **Liened Downloads**: protected file routes; setup creates routes, manage toggles/edits/removes |
+| downloads  | setup, manage                 | **Liened Downloads**: liened file routes; setup creates routes, manage toggles/edits/removes |
 | collab     | invite, list                  | **Collaborators**: invite creators to share Jinxxy store; list active connections               |
 | stats      | -                             | Verification statistics                                                                         |
 | (root)     | spawn-verify                  | Spawn verify button (admin)                                                                     |
 | settings   | cross-server                  | Cross-server role verification                                                                  |
 | analytics  | -                             | Dashboard and metrics                                                                           |
 | moderation | mark, list, clear, unverify   | Suspicious account handling; unverify removes product from user                                 |
-| (root)     | link, status, verify, refresh | User linking, status panel, license verification, role refresh                                  |
+| (root)     | status, verify, refresh, docs | User verification status, license verification, role refresh, documentation link                 |
 
 
 Full options and catalog: `apps/bot/src/commands/index.ts`.

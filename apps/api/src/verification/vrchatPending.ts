@@ -1,6 +1,6 @@
+import type { TwoFactorAuthType } from '@yucp/providers';
 import { decrypt, encrypt } from '../lib/encrypt';
 import type { StateStore } from '../lib/stateStore';
-import type { TwoFactorAuthType } from '@yucp/providers';
 
 const PENDING_COOKIE_NAME = 'yucp_vrchat_pending';
 const PENDING_STATE_PREFIX = 'vrchat_pending:';
@@ -91,19 +91,19 @@ export async function readPendingVrchatState(
     const state = JSON.parse(decrypted) as Partial<VrchatPendingState>;
     const validTypes = Array.isArray(state.types)
       ? state.types.filter(
-        (type): type is TwoFactorAuthType =>
-          type === 'totp' || type === 'emailOtp' || type === 'otp'
-      )
+          (type): type is TwoFactorAuthType =>
+            type === 'totp' || type === 'emailOtp' || type === 'otp'
+        )
       : [];
 
     if (
-      typeof state.pendingState !== 'string'
-      || typeof state.verificationToken !== 'string'
-      || state.verificationToken !== verificationToken
-      || typeof state.createdAt !== 'number'
-      || typeof state.expiresAt !== 'number'
-      || state.expiresAt < Date.now()
-      || validTypes.length === 0
+      typeof state.pendingState !== 'string' ||
+      typeof state.verificationToken !== 'string' ||
+      state.verificationToken !== verificationToken ||
+      typeof state.createdAt !== 'number' ||
+      typeof state.expiresAt !== 'number' ||
+      state.expiresAt < Date.now() ||
+      validTypes.length === 0
     ) {
       return null;
     }

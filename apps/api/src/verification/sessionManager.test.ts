@@ -6,18 +6,18 @@
 
 import { describe, expect, it } from 'bun:test';
 import {
-  generateState,
-  generateCodeVerifier,
-  computeCodeChallenge,
-  hashVerifier,
-  getVerificationConfig,
-  GUMROAD_CONFIG,
   DISCORD_ROLE_CONFIG,
+  GUMROAD_CONFIG,
   JINXXY_CONFIG,
   SESSION_EXPIRY_MS,
-  createVerificationSessionManager,
-  createVerificationRoutes,
   type VerificationConfig,
+  computeCodeChallenge,
+  createVerificationRoutes,
+  createVerificationSessionManager,
+  generateCodeVerifier,
+  generateState,
+  getVerificationConfig,
+  hashVerifier,
 } from './sessionManager';
 
 // ============================================================================
@@ -287,11 +287,15 @@ describe('VerificationSessionManager', () => {
         redirectUri: 'http://localhost:3000/callback',
       });
       expect(result.success).toBe(true);
-      const url = new URL(result.authUrl!);
+      const authUrl = result.authUrl;
+      expect(authUrl).toBeDefined();
+      if (!authUrl) {
+        throw new Error('Expected authUrl to be defined');
+      }
+      const url = new URL(authUrl);
       expect(url.searchParams.get('code_challenge')).toBe(result.codeChallenge ?? null);
       expect(url.searchParams.get('code_challenge_method')).toBe('S256');
       expect(url.searchParams.get('state')).toBe(result.state ?? null);
-
     });
   });
 

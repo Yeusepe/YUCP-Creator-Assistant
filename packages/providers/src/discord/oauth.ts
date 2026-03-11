@@ -18,10 +18,10 @@
 
 import { type EncryptedPayload, createAAD, decrypt, encrypt } from '@yucp/shared';
 import {
-  type DiscordBeginVerificationResult,
-  type DiscordCompleteVerificationResult,
   DEFAULT_SCOPES,
   type DiscordAPIError,
+  type DiscordBeginVerificationResult,
+  type DiscordCompleteVerificationResult,
   type DiscordGuildMember,
   type DiscordOAuthConfig,
   type DiscordOAuthScope,

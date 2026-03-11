@@ -37,9 +37,7 @@ export function CollabKeyAddedEmail({
         <Body className="bg-gray-100 font-sans">
           <Container className="mx-auto my-0 max-w-[600px] rounded-lg bg-white p-8 shadow-sm">
             <Section className="mb-6">
-              <Text className="m-0 text-2xl font-bold text-gray-900">
-                Creator Assistant
-              </Text>
+              <Text className="m-0 text-2xl font-bold text-gray-900">Creator Assistant</Text>
             </Section>
 
             <Section className="mb-6">
@@ -47,8 +45,7 @@ export function CollabKeyAddedEmail({
                 Hello {collaboratorDisplayName},
               </Text>
               <Text className="m-0 mb-4 text-base leading-6 text-gray-700">
-                Your Jinxxy API key was added to a Discord server for license
-                verification.
+                Your Jinxxy API key was added to a Discord server for license verification.
               </Text>
               <Text className="m-0 mb-4 text-base leading-6 text-gray-700">
                 <strong>Server:</strong> {serverName}
@@ -62,8 +59,8 @@ export function CollabKeyAddedEmail({
                 If this wasn&apos;t you
               </Text>
               <Text className="m-0 text-sm leading-5 text-amber-900">
-                Revoke your API key in Jinxxy to stop this server from verifying
-                licenses with your store.
+                Revoke your API key in Jinxxy to stop this server from verifying licenses with your
+                store.
               </Text>
             </Section>
 

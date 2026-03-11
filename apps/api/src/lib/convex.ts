@@ -5,24 +5,33 @@
 
 import { ConvexHttpClient } from 'convex/browser';
 
-let client: ConvexHttpClient | null = null;
+type ConvexServerClient = {
+  // biome-ignore lint/suspicious/noExplicitAny: Convex server wrappers are intentionally dynamic at this boundary.
+  query: (functionReference: unknown, args?: unknown) => Promise<any>;
+  // biome-ignore lint/suspicious/noExplicitAny: Convex server wrappers are intentionally dynamic at this boundary.
+  mutation: (functionReference: unknown, args?: unknown) => Promise<any>;
+  // biome-ignore lint/suspicious/noExplicitAny: Convex server wrappers are intentionally dynamic at this boundary.
+  action: (functionReference: unknown, args?: unknown) => Promise<any>;
+};
+
+let client: ConvexServerClient | null = null;
 
 /**
  * Create a Convex HTTP client from a URL.
  * Use when URL comes from config (e.g. verification routes).
  */
-export function getConvexClientFromUrl(url: string): ConvexHttpClient {
+export function getConvexClientFromUrl(url: string): ConvexServerClient {
   const convexUrl = url.startsWith('http')
     ? url
     : `https://${url.includes(':') ? url.split(':')[1] : url}.convex.cloud`;
-  return new ConvexHttpClient(convexUrl);
+  return new ConvexHttpClient(convexUrl) as unknown as ConvexServerClient;
 }
 
 /**
  * Get or create the Convex HTTP client.
  * Uses CONVEX_URL and requires CONVEX_API_SECRET for authenticated calls.
  */
-export function getConvexClient(): ConvexHttpClient {
+export function getConvexClient(): ConvexServerClient {
   if (!client) {
     const url = process.env.CONVEX_URL ?? process.env.CONVEX_DEPLOYMENT;
     if (!url) {
@@ -33,7 +42,7 @@ export function getConvexClient(): ConvexHttpClient {
     const convexUrl = url.startsWith('http')
       ? url
       : `https://${url.includes(':') ? url.split(':')[1] : url}.convex.cloud`;
-    client = new ConvexHttpClient(convexUrl);
+    client = new ConvexHttpClient(convexUrl) as unknown as ConvexServerClient;
   }
   return client;
 }

@@ -20,9 +20,9 @@ export type BindingType = 'ownership' | 'verification' | 'manual_override';
 
 /** Binding status lifecycle */
 export type BindingStatus =
-  | 'pending'   // Created but not yet active
-  | 'active'    // Currently valid and in use
-  | 'revoked'   // Soft-deleted with reason
+  | 'pending' // Created but not yet active
+  | 'active' // Currently valid and in use
+  | 'revoked' // Soft-deleted with reason
   | 'transferred' // Moved to new subject
   | 'quarantined'; // Marked for review, blocked
 
@@ -207,10 +207,7 @@ export function canModifyBinding(status: BindingStatus): boolean {
 /**
  * Check if binding can be transferred
  */
-export function canTransferBinding(
-  status: BindingStatus,
-  policy: BindingPolicy
-): boolean {
+export function canTransferBinding(status: BindingStatus, policy: BindingPolicy): boolean {
   if (!isBindingActive(status)) {
     return false;
   }

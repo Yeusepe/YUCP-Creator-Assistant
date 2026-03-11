@@ -32,6 +32,7 @@ import {
   unwrapDEK,
   wrapDEK,
 } from './keys';
+import { toBufferSource } from './toBufferSource';
 
 /**
  * Options for envelope encryption.
@@ -82,9 +83,10 @@ export async function encrypt(
 ): Promise<EncryptedPayload> {
   const { keyId, keyVersion, kekBytes, aad } = options;
 
-  // 1. Convert plaintext to bytes if needed
-  const plaintextBytes =
+  // 1. Convert plaintext to bytes and ensure data is copied into an ArrayBuffer-backed Uint8Array
+  const inputBytes =
     typeof plaintext === 'string' ? new TextEncoder().encode(plaintext) : plaintext;
+  const plaintextBytes = new Uint8Array(inputBytes);
 
   // 2. Generate a fresh DEK for this encryption
   const dek = await generateDEK();
@@ -99,12 +101,12 @@ export async function encrypt(
   const ciphertextBuffer = await crypto.subtle.encrypt(
     {
       name: 'AES-GCM',
-      iv: dataIv,
-      additionalData: aadBytes,
+      iv: toBufferSource(dataIv),
+      additionalData: toBufferSource(aadBytes),
       tagLength: 128, // 16-byte auth tag
     },
     dek,
-    plaintextBytes
+    toBufferSource(new Uint8Array(plaintextBytes))
   );
   const ciphertext = new Uint8Array(ciphertextBuffer);
 
@@ -192,21 +194,19 @@ export async function decrypt(options: DecryptOptions): Promise<string> {
     const plaintextBuffer = await crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv,
-        additionalData: aadBytes,
+        iv: toBufferSource(iv),
+        additionalData: toBufferSource(aadBytes),
         tagLength: 128,
       },
       dek,
-      ciphertext
+      toBufferSource(ciphertext)
     );
 
     // 7. Convert to string and return
     return new TextDecoder().decode(plaintextBuffer);
   } catch (error) {
     throw new Error(
-      'Decryption failed. This may indicate: ' +
-        '1) Wrong KEK, 2) AAD mismatch, 3) Corrupted ciphertext, or 4) Tampered data. ' +
-        `Original error: ${error instanceof Error ? error.message : String(error)}`
+      `Decryption failed. This may indicate: 1) Wrong KEK, 2) AAD mismatch, 3) Corrupted ciphertext, or 4) Tampered data. Original error: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }

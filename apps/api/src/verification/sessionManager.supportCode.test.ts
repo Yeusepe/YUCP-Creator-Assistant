@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { createVerificationRoutes, type VerificationConfig } from './sessionManager';
+import { type VerificationConfig, createVerificationRoutes } from './sessionManager';
 
 const originalFetch = globalThis.fetch;
 const originalWarn = console.warn;
@@ -28,7 +28,9 @@ describe('verification support codes in api routes', () => {
   it('returns and logs a support code when verify panel refresh fails at Discord', async () => {
     const warnMock = mock(() => {});
     console.warn = warnMock as typeof console.warn;
-    globalThis.fetch = mock(async () => new Response('discord failed', { status: 502 })) as unknown as typeof fetch;
+    globalThis.fetch = mock(
+      async () => new Response('discord failed', { status: 502 })
+    ) as unknown as typeof fetch;
 
     const routes = createVerificationRoutes(testConfig);
 
@@ -69,7 +71,9 @@ describe('verification support codes in api routes', () => {
     expect(data.success).toBe(false);
     expect(data.supportCode).toMatch(/^VFY1-/);
 
-    const loggedSupportCode = ((warnMock.mock.calls as unknown) as Array<[string, Record<string, unknown>?]>)
+    const loggedSupportCode = (
+      warnMock.mock.calls as unknown as Array<[string, Record<string, unknown>?]>
+    )
       .map((call) => call[1] as Record<string, unknown> | undefined)
       .find((meta) => meta?.supportCode)?.supportCode;
     expect(loggedSupportCode).toBe(data.supportCode);

@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "lib": ["ES2022"],
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "allowJs": true,
@@ -33,18 +33,20 @@
     "noPropertyAccessFromIndexSignature": false,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
+    "typeRoots": ["./node_modules/@types", "./types"],
+
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
-    "types": ["bun-types"],
-"paths": {
-"@yucp/shared": ["./packages/shared/src"],
-"@yucp/shared/*": ["./packages/shared/src/*"],
-"@yucp/providers": ["./packages/providers/src"],
+
+    "paths": {
+      "@yucp/shared": ["./packages/shared/src"],
+      "@yucp/shared/*": ["./packages/shared/src/*"],
+      "@yucp/providers": ["./packages/providers/src"],
       "@yucp/providers/*": ["./packages/providers/src/*"],
       "@yucp/policy": ["./packages/policy/src"],
       "@yucp/policy/*": ["./packages/policy/src/*"]
-}
+    }
   },
   "exclude": ["node_modules", "dist", ".convex"]
 }

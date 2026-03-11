@@ -67,7 +67,12 @@
  */
 
 // Core manager class
-export { ManualLicenseManager, hashLicenseKey, generateLicenseKey, normalizeLicenseKey } from './manager';
+export {
+  ManualLicenseManager,
+  hashLicenseKey,
+  generateLicenseKey,
+  normalizeLicenseKey,
+} from './manager';
 
 // Types
 export type {
@@ -130,8 +135,8 @@ export function parseBulkImportCSV(
     }
 
     if (maxUsesIndex >= 0 && values[maxUsesIndex]) {
-      const parsed = parseInt(values[maxUsesIndex], 10);
-      if (!isNaN(parsed)) {
+      const parsed = Number.parseInt(values[maxUsesIndex], 10);
+      if (!Number.isNaN(parsed)) {
         entry.maxUses = parsed;
       }
     }
@@ -139,14 +144,14 @@ export function parseBulkImportCSV(
     if (expiresAtIndex >= 0 && values[expiresAtIndex]) {
       // Support ISO date format or Unix timestamp
       const val = values[expiresAtIndex];
-      const parsed = parseInt(val, 10);
-      if (!isNaN(parsed)) {
+      const parsed = Number.parseInt(val, 10);
+      if (!Number.isNaN(parsed)) {
         // If it looks like a Unix timestamp (seconds or ms)
         entry.expiresAt = parsed < 1e12 ? parsed * 1000 : parsed;
       } else {
         // Try parsing as ISO date
         const date = new Date(val);
-        if (!isNaN(date.getTime())) {
+        if (!Number.isNaN(date.getTime())) {
           entry.expiresAt = date.getTime();
         }
       }

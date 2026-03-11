@@ -22,9 +22,9 @@ export interface LocalEnv {
   LOG_LEVEL?: string;
   // PostHog analytics
   POSTHOG_API_KEY?: string;
-  POSTHOG_HOST?: string;  
-  API_BASE_URL?: string;  
-  API_INTERNAL_URL?: string;  
+  POSTHOG_HOST?: string;
+  API_BASE_URL?: string;
+  API_INTERNAL_URL?: string;
   BETTER_AUTH_SECRET?: string;
   ERROR_REFERENCE_SECRET?: string;
 }

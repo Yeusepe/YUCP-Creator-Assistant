@@ -41,6 +41,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
+import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 
 import { PROVIDER_META, providerLabel } from '@yucp/providers';
@@ -54,6 +55,8 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const PAGE_SIZE = 20; // Leave room for filter/nav rows (max 25 per select menu)
 
 type Filter = 'all' | 'gumroad' | 'jinxxy';
+// biome-ignore lint/suspicious/noExplicitAny: Discord container rows mix button and select builders here.
+type ProductPickerRow = ActionRowBuilder<any>;
 
 interface Product {
   _id: string;
@@ -72,7 +75,7 @@ function buildProductPickerComponents(
   filter: Filter,
   page: number
 ): {
-  components: ActionRowBuilder<any>[];
+  components: ProductPickerRow[];
   total: number;
   totalPages: number;
 } {
@@ -105,7 +108,7 @@ function buildProductPickerComponents(
       .setStyle(filter === 'jinxxy' ? ButtonStyle.Primary : ButtonStyle.Secondary)
   );
 
-  const rows: ActionRowBuilder<any>[] = [filterRow];
+  const rows: ProductPickerRow[] = [filterRow];
 
   if (slice.length === 0) {
     // No products for this filter - still render but disabled
@@ -259,7 +262,7 @@ export async function showProductPicker(
 
   let products: Product[] = [];
   try {
-    products = (await convex.query('productResolution:getProductsForTenant' as any, {
+    products = (await convex.query(api.productResolution.getProductsForTenant, {
       tenantId,
     })) as Product[];
     products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
@@ -301,7 +304,7 @@ export async function handlePickerNavigation(
 
   let products: Product[] = [];
   try {
-    products = (await convex.query('productResolution:getProductsForTenant' as any, {
+    products = (await convex.query(api.productResolution.getProductsForTenant, {
       tenantId,
     })) as Product[];
     products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
@@ -434,7 +437,7 @@ export async function handleVrchatCredentialsModal(
   let subjectId: string | null = null;
 
   try {
-    const ensureResult = await convex.mutation('subjects:ensureSubjectForDiscord' as any, {
+    const ensureResult = await convex.mutation(api.subjects.ensureSubjectForDiscord, {
       apiSecret,
       discordUserId,
       displayName: interaction.user.displayName,
@@ -566,7 +569,7 @@ export async function handleLicenseKeyModal(
   let subjectId: string | null = null;
 
   try {
-    const ensureResult = await convex.mutation('subjects:ensureSubjectForDiscord' as any, {
+    const ensureResult = await convex.mutation(api.subjects.ensureSubjectForDiscord, {
       apiSecret,
       discordUserId,
       displayName: interaction.user.displayName,

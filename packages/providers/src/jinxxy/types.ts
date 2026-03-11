@@ -38,7 +38,7 @@ export class JinxxyApiError extends Error {
  */
 export class JinxxyRateLimitError extends JinxxyApiError {
   constructor(
-    message: string = 'Rate limit exceeded',
+    message = 'Rate limit exceeded',
     public readonly retryAfter?: number
   ) {
     super(message, 429, 'rate_limit_exceeded');
@@ -415,7 +415,9 @@ export interface JinxxyAdapterConfig {
 /**
  * Get the effective status of an order
  */
-export function getOrderStatus(order: JinxxyOrder): 'completed' | 'refunded' | 'disputed' | 'pending' | 'cancelled' {
+export function getOrderStatus(
+  order: JinxxyOrder
+): 'completed' | 'refunded' | 'disputed' | 'pending' | 'cancelled' {
   return order.status;
 }
 

@@ -84,7 +84,9 @@ function loadFromEnv(): TestSecrets {
   return secrets;
 }
 
-function secretsFromInfisicalList(secrets: Array<{ secretKey: string; secretValue: string }>): TestSecrets {
+function secretsFromInfisicalList(
+  secrets: Array<{ secretKey: string; secretValue: string }>
+): TestSecrets {
   const map = new Map(secrets.map((s) => [s.secretKey, s.secretValue]));
   const result: TestSecrets = {};
 

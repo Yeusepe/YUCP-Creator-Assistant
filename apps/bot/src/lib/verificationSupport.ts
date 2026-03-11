@@ -1,8 +1,8 @@
 import {
+  type StructuredLogger,
   encodeVerificationSupportToken,
   formatVerificationSupportMessage,
   getVerificationSupportErrorDetails,
-  type StructuredLogger,
 } from '@yucp/shared';
 
 interface BotVerificationSupportInput {

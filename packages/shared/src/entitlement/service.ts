@@ -22,12 +22,7 @@ export type Provider = 'discord' | 'gumroad' | 'jinxxy' | 'manual';
 export type CommerceProvider = 'gumroad' | 'jinxxy' | 'manual';
 
 /** Entitlement status values */
-export type EntitlementStatus =
-  | 'active'
-  | 'revoked'
-  | 'expired'
-  | 'refunded'
-  | 'disputed';
+export type EntitlementStatus = 'active' | 'revoked' | 'expired' | 'refunded' | 'disputed';
 
 /** Terminal entitlement statuses (cannot be reactivated without new evidence) */
 export const TERMINAL_STATUSES: EntitlementStatus[] = ['refunded', 'disputed'];
@@ -180,9 +175,7 @@ export function canReactivate(status: EntitlementStatus): boolean {
 /**
  * Map revocation reason to entitlement status.
  */
-export function mapReasonToStatus(
-  reason: RevocationReason,
-): EntitlementStatus {
+export function mapReasonToStatus(reason: RevocationReason): EntitlementStatus {
   switch (reason) {
     case 'refund':
       return 'refunded';
@@ -235,7 +228,7 @@ export function generateRoleSyncIdempotencyKey(
   tenantId: string,
   subjectId: string,
   entitlementId: string,
-  timestamp?: number,
+  timestamp?: number
 ): string {
   return `role_sync:${tenantId}:${subjectId}:${entitlementId}:${timestamp ?? Date.now()}`;
 }
@@ -248,7 +241,7 @@ export function generateRoleRemovalIdempotencyKey(
   subjectId: string,
   guildId: string,
   productId: string,
-  timestamp?: number,
+  timestamp?: number
 ): string {
   return `role_removal:${tenantId}:${subjectId}:${guildId}:${productId}:${timestamp ?? Date.now()}`;
 }
@@ -259,7 +252,7 @@ export function generateRoleRemovalIdempotencyKey(
 export function generateGrantIdempotencyKey(
   tenantId: string,
   subjectId: string,
-  sourceReference: string,
+  sourceReference: string
 ): string {
   return `grant:${tenantId}:${subjectId}:${sourceReference}`;
 }
@@ -314,7 +307,7 @@ export function isAutoDiscoveryEnabled(policy?: EntitlementPolicy): boolean {
  */
 export function calculateGracePeriodEnd(
   revokedAt: number,
-  gracePeriodHours?: number,
+  gracePeriodHours?: number
 ): number | null {
   if (!gracePeriodHours) {
     return null;
@@ -325,10 +318,7 @@ export function calculateGracePeriodEnd(
 /**
  * Check if an entitlement is within grace period.
  */
-export function isWithinGracePeriod(
-  revokedAt: number,
-  gracePeriodHours?: number,
-): boolean {
+export function isWithinGracePeriod(revokedAt: number, gracePeriodHours?: number): boolean {
   const gracePeriodEnd = calculateGracePeriodEnd(revokedAt, gracePeriodHours);
   if (!gracePeriodEnd) {
     return false;
@@ -379,16 +369,13 @@ export type GumroadEventType =
   | 'subscription_updated';
 
 /** Jinxxy webhook event types */
-export type JinxxyEventType =
-  | 'purchase'
-  | 'refund'
-  | 'transfer';
+export type JinxxyEventType = 'purchase' | 'refund' | 'transfer';
 
 /**
  * Map Gumroad event type to entitlement action.
  */
 export function mapGumroadEventToAction(
-  eventType: GumroadEventType,
+  eventType: GumroadEventType
 ): 'grant' | 'revoke' | 'update' | 'none' {
   switch (eventType) {
     case 'sale':
@@ -407,7 +394,7 @@ export function mapGumroadEventToAction(
  * Map Jinxxy event type to entitlement action.
  */
 export function mapJinxxyEventToAction(
-  eventType: JinxxyEventType,
+  eventType: JinxxyEventType
 ): 'grant' | 'revoke' | 'update' | 'none' {
   switch (eventType) {
     case 'purchase':
@@ -424,9 +411,7 @@ export function mapJinxxyEventToAction(
 /**
  * Determine revocation reason from Gumroad event.
  */
-export function getGumroadRevocationReason(
-  eventType: GumroadEventType,
-): RevocationReason | null {
+export function getGumroadRevocationReason(eventType: GumroadEventType): RevocationReason | null {
   switch (eventType) {
     case 'refund':
       return 'refund';

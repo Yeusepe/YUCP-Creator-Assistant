@@ -169,7 +169,9 @@ export interface GenerateKeyOptions {
 /** Storage interface for manual licenses (to be implemented by Convex) */
 export interface ManualLicenseStorage {
   /** Create a new license */
-  create(input: Omit<CreateLicenseInput, 'licenseKey'> & { licenseKeyHash: string }): Promise<ManualLicense>;
+  create(
+    input: Omit<CreateLicenseInput, 'licenseKey'> & { licenseKeyHash: string }
+  ): Promise<ManualLicense>;
   /** Find license by key hash */
   findByKeyHash(licenseKeyHash: string): Promise<ManualLicense | null>;
   /** Find license by ID */
@@ -177,9 +179,15 @@ export interface ManualLicenseStorage {
   /** Update license usage count */
   incrementUsage(licenseId: string): Promise<ManualLicense>;
   /** Update license status */
-  updateStatus(licenseId: string, status: ManualLicenseStatus, reason?: string): Promise<ManualLicense>;
+  updateStatus(
+    licenseId: string,
+    status: ManualLicenseStatus,
+    reason?: string
+  ): Promise<ManualLicense>;
   /** List licenses for a tenant/product */
   list(tenantId: string, productId?: string): Promise<ManualLicense[]>;
   /** Bulk create licenses */
-  bulkCreate(licenses: Array<Omit<CreateLicenseInput, 'licenseKey'> & { licenseKeyHash: string }>): Promise<ManualLicense[]>;
+  bulkCreate(
+    licenses: Array<Omit<CreateLicenseInput, 'licenseKey'> & { licenseKeyHash: string }>
+  ): Promise<ManualLicense[]>;
 }

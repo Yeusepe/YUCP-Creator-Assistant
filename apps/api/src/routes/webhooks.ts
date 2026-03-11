@@ -11,8 +11,9 @@
  * We verify by calling Gumroad API GET /sales?id={saleId} with the creator's OAuth token.
  */
 
-import { createLogger } from '@yucp/shared';
 import { GumroadAdapter } from '@yucp/providers';
+import { createLogger } from '@yucp/shared';
+import { api } from '../../../../convex/_generated/api';
 import { JINXXY_PENDING_WEBHOOK_PREFIX } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt } from '../lib/encrypt';
@@ -57,16 +58,11 @@ async function hmacSha256(secret: string, body: string): Promise<string> {
     false,
     ['sign']
   );
-  const signature = await crypto.subtle.sign(
-    'HMAC',
-    key,
-    encoder.encode(body)
-  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
   return Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
-
 
 /**
  * Create webhook route handlers.
@@ -83,10 +79,10 @@ export function createWebhookRoutes(config: WebhookConfig) {
 
   async function getJinxxyWebhookSecret(tenantId: string): Promise<string | null> {
     try {
-      const secretRef = await convex.query(
-        'providerConnections:getJinxxyWebhookSecret' as any,
-        { apiSecret, tenantId }
-      );
+      const secretRef = await convex.query(api.providerConnections.getJinxxyWebhookSecret, {
+        apiSecret,
+        tenantId,
+      });
       if (!secretRef) return null;
       try {
         return await decrypt(secretRef, encryptionSecret);
@@ -112,10 +108,10 @@ export function createWebhookRoutes(config: WebhookConfig) {
 
   async function getGumroadWebhookSecret(tenantId: string): Promise<string | null> {
     try {
-      return await convex.query(
-        'providerConnections:getGumroadWebhookSecret' as any,
-        { apiSecret, tenantId }
-      );
+      return await convex.query(api.providerConnections.getGumroadWebhookSecret, {
+        apiSecret,
+        tenantId,
+      });
     } catch {
       return null;
     }
@@ -123,10 +119,10 @@ export function createWebhookRoutes(config: WebhookConfig) {
 
   async function getCollabWebhookSecret(inviteId: string): Promise<string | null> {
     try {
-      const encryptedSecret = await convex.query(
-        'collaboratorInvites:getCollabWebhookSecret' as any,
-        { apiSecret, inviteId }
-      );
+      const encryptedSecret = await convex.query(api.collaboratorInvites.getCollabWebhookSecret, {
+        apiSecret,
+        inviteId,
+      });
       if (!encryptedSecret) return null;
       return await decrypt(encryptedSecret, encryptionSecret);
     } catch {
@@ -185,18 +181,15 @@ export function createWebhookRoutes(config: WebhookConfig) {
         return new Response('Forbidden', { status: 403 });
       }
 
-      const result = await convex.mutation(
-        'webhookIngestion:insertWebhookEvent' as any,
-        {
-          apiSecret,
-          tenantId: ownerTenantId,
-          provider: 'jinxxy',
-          providerEventId: eventId,
-          eventType,
-          rawPayload: payload,
-          signatureValid,
-        }
-      );
+      const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+        apiSecret,
+        tenantId: ownerTenantId,
+        provider: 'jinxxy',
+        providerEventId: eventId,
+        eventType,
+        rawPayload: payload,
+        signatureValid,
+      });
 
       if (result.duplicate) {
         logger.debug('Collab webhook: duplicate event', { eventId, ownerTenantId, inviteId });
@@ -221,10 +214,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
     }
   }
 
-  async function handleGumroadWebhook(
-    request: Request,
-    tenantId: string
-  ): Promise<Response> {
+  async function handleGumroadWebhook(request: Request, tenantId: string): Promise<Response> {
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
@@ -278,15 +268,13 @@ export function createWebhookRoutes(config: WebhookConfig) {
       // Verify sale exists via Gumroad API when signature is not valid.
       if (!signatureValid && encryptionSecret) {
         try {
-          const conn = await convex.query(
-            'providerConnections:getConnectionForBackfill' as any,
-            { apiSecret, tenantId, provider: 'gumroad' }
-          );
+          const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
+            apiSecret,
+            tenantId,
+            provider: 'gumroad',
+          });
           if (conn?.gumroadAccessTokenEncrypted) {
-            const accessToken = await decrypt(
-              conn.gumroadAccessTokenEncrypted,
-              encryptionSecret
-            );
+            const accessToken = await decrypt(conn.gumroadAccessTokenEncrypted, encryptionSecret);
             const sale = await gumroadAdapter.getSale(accessToken, saleId);
             if (sale) {
               // Sanity check: refunded status should match
@@ -320,18 +308,15 @@ export function createWebhookRoutes(config: WebhookConfig) {
 
       const payload = Object.fromEntries(params.entries());
 
-      const result = await convex.mutation(
-        'webhookIngestion:insertWebhookEvent' as any,
-        {
-          apiSecret,
-          tenantId,
-          provider: 'gumroad',
-          providerEventId,
-          eventType,
-          rawPayload: payload,
-          signatureValid,
-        }
-      );
+      const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+        apiSecret,
+        tenantId,
+        provider: 'gumroad',
+        providerEventId,
+        eventType,
+        rawPayload: payload,
+        signatureValid,
+      });
 
       if (result.duplicate) {
         logger.debug('Gumroad webhook: duplicate event', { saleId, tenantId });
@@ -347,10 +332,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
     }
   }
 
-  async function handleJinxxyWebhook(
-    request: Request,
-    tenantId: string
-  ): Promise<Response> {
+  async function handleJinxxyWebhook(request: Request, tenantId: string): Promise<Response> {
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
@@ -409,18 +391,15 @@ export function createWebhookRoutes(config: WebhookConfig) {
         return new Response('Forbidden', { status: 403 });
       }
 
-      const result = await convex.mutation(
-        'webhookIngestion:insertWebhookEvent' as any,
-        {
-          apiSecret,
-          tenantId,
-          provider: 'jinxxy',
-          providerEventId: eventId,
-          eventType,
-          rawPayload: payload,
-          signatureValid,
-        }
-      );
+      const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+        apiSecret,
+        tenantId,
+        provider: 'jinxxy',
+        providerEventId: eventId,
+        eventType,
+        rawPayload: payload,
+        signatureValid,
+      });
 
       if (result.duplicate) {
         logger.debug('Jinxxy webhook: duplicate event', {
@@ -458,7 +437,9 @@ export function createWebhookRoutes(config: WebhookConfig) {
  * Mount webhook routes. Returns a single handler for /webhooks/* paths.
  * Path format: /webhooks/gumroad/:tenantId, /webhooks/jinxxy/:tenantId
  */
-export function createWebhookHandler(config: WebhookConfig): (request: Request) => Promise<Response> {
+export function createWebhookHandler(
+  config: WebhookConfig
+): (request: Request) => Promise<Response> {
   const routes = createWebhookRoutes(config);
 
   return async (request: Request): Promise<Response> => {

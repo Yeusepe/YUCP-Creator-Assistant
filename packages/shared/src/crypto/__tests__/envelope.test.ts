@@ -52,13 +52,14 @@ describe('Key utilities', () => {
       const dek = await generateDEK();
       const plaintext = new TextEncoder().encode('secret-data');
       const iv = generateIV();
+      // Ensure we pass concrete ArrayBuffers for iv/plaintext to satisfy strict BufferSource typing
       const ciphertext = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv },
+        { name: 'AES-GCM', iv: iv.slice().buffer as ArrayBuffer },
         dek,
-        plaintext
+        new Uint8Array(plaintext).slice().buffer as ArrayBuffer
       );
       const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv },
+        { name: 'AES-GCM', iv: iv.slice().buffer as ArrayBuffer },
         dek,
         ciphertext
       );
@@ -169,13 +170,18 @@ describe('Key wrapping', () => {
 });
 
 describe('Envelope encryption', () => {
-  let kekBytes: Uint8Array<ArrayBuffer>;
+  let kekBytes: Uint8Array;
   const aad: EncryptionAAD = {
     tenantId: 'tenant-123',
     provider: 'gumroad',
     tokenType: 'access',
   };
-  const encryptOptions: { keyId: string; keyVersion: number; kekBytes: Uint8Array<ArrayBuffer>; aad: EncryptionAAD } = {
+  const encryptOptions: {
+    keyId: string;
+    keyVersion: number;
+    kekBytes: Uint8Array;
+    aad: EncryptionAAD;
+  } = {
     keyId: 'kek-v1',
     keyVersion: 1,
     kekBytes: new Uint8Array(32),
@@ -183,7 +189,7 @@ describe('Envelope encryption', () => {
   };
 
   beforeEach(() => {
-    kekBytes = crypto.getRandomValues(new Uint8Array(32)) as Uint8Array<ArrayBuffer>;
+    kekBytes = crypto.getRandomValues(new Uint8Array(32));
     encryptOptions.kekBytes = kekBytes;
   });
 
@@ -347,7 +353,7 @@ describe('Envelope encryption', () => {
       // Tamper with ciphertext
       const tamperedPayload: EncryptedPayload = {
         ...payload,
-        ciphertext: payload.ciphertext.slice(0, -5) + 'XXXXX',
+        ciphertext: `${payload.ciphertext.slice(0, -5)}XXXXX`,
       };
 
       await expect(
@@ -364,7 +370,7 @@ describe('Envelope encryption', () => {
 
       const invalidPayload: EncryptedPayload = {
         ...payload,
-        algorithm: 'AES-128-CBC' as any,
+        algorithm: 'AES-128-CBC' as EncryptedPayload['algorithm'],
       };
 
       await expect(
@@ -469,7 +475,7 @@ describe('Payload utilities', () => {
       expect(
         validatePayload({
           ...validPayload,
-          wrappedDek: { ...validPayload.wrappedDek, keyId: undefined as any },
+          wrappedDek: { ...validPayload.wrappedDek, keyId: undefined },
         })
       ).toBe(false);
     });

@@ -5,7 +5,7 @@
  * Integration tests use real Jinxxy API when JINXXY_API_KEY is configured (Infisical or env).
  */
 
-import { describe, expect, it, beforeEach } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import {
   JinxxyAdapter,
   JinxxyApiClient,
@@ -13,17 +13,17 @@ import {
   JinxxyRateLimitError,
 } from '../../src/jinxxy/index';
 import type {
-  JinxxyLicense,
-  JinxxyOrder,
   JinxxyCustomer,
   JinxxyEvidence,
+  JinxxyLicense,
+  JinxxyOrder,
   JinxxyPagination,
 } from '../../src/jinxxy/types';
 import {
-  normalizeLicenseToEvidence,
-  normalizeOrderToEvidence,
   isLicenseValid,
   isOrderValid,
+  normalizeLicenseToEvidence,
+  normalizeOrderToEvidence,
 } from '../../src/jinxxy/types';
 
 // Test configuration
@@ -48,7 +48,7 @@ describe('JinxxyApiClient', () => {
 
     it('should throw error when API key is missing in fromEnv', () => {
       const originalEnv = process.env.JINXXY_API_KEY;
-      delete process.env.JINXXY_API_KEY;
+      process.env.JINXXY_API_KEY = '';
 
       expect(() => JinxxyApiClient.fromEnv()).toThrow('JINXXY_API_KEY');
 
@@ -84,14 +84,17 @@ describe('JinxxyAdapter', () => {
     });
 
     it('should throw error when API key is undefined', () => {
-      expect(() => new JinxxyAdapter({} as any)).toThrow('API key is required');
+      const invalidConfig = { apiKey: undefined } as unknown as ConstructorParameters<
+        typeof JinxxyAdapter
+      >[0];
+      expect(() => new JinxxyAdapter(invalidConfig)).toThrow('API key is required');
     });
   });
 
   describe('fromEnv', () => {
     it('should throw error when environment variable is missing', () => {
       const originalEnv = process.env.JINXXY_API_KEY;
-      delete process.env.JINXXY_API_KEY;
+      process.env.JINXXY_API_KEY = '';
 
       expect(() => JinxxyAdapter.fromEnv()).toThrow('JINXXY_API_KEY');
 

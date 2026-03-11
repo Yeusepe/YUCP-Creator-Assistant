@@ -146,7 +146,13 @@ describe('Sync Result Validator', () => {
   });
 
   it('should accept sync result without optional externalAccountId', () => {
-    const validResult = {
+    const validResult: {
+      success: boolean;
+      subjectId: string;
+      isNewSubject: boolean;
+      isNewExternalAccount: boolean;
+      externalAccountId?: string;
+    } = {
       success: true,
       subjectId: 'subj_123' as const,
       isNewSubject: true,
@@ -242,7 +248,12 @@ describe('Identity Sync Scenarios', () => {
   it('SyncResult has success, subjectId, isNewSubject, isNewExternalAccount', async () => {
     const { SyncResult } = await import('./identitySync');
     expect(SyncResult).toBeDefined();
-    const result = { success: true, subjectId: 'subj_1', isNewSubject: true, isNewExternalAccount: true };
+    const result = {
+      success: true,
+      subjectId: 'subj_1',
+      isNewSubject: true,
+      isNewExternalAccount: true,
+    };
     expect(result.success).toBe(true);
     expect(result.isNewSubject).toBe(true);
   });

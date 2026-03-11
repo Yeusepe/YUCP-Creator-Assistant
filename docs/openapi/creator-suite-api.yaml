@@ -10,6 +10,7 @@ info:
     - Authorize: `GET /api/auth/oauth2/authorize`
     - Token: `POST /api/auth/oauth2/token`
     - Well-known: `GET /api/auth/.well-known/openid-configuration`, `GET /api/auth/.well-known/oauth-authorization-server`
+    - Discord social-provider callback: `{CONVEX_SITE_URL}/api/auth/callback/discord`
 
     **Required scope:** `verification:read`
   version: 0.1.0

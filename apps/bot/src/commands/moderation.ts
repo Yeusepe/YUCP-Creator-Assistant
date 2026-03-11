@@ -6,6 +6,8 @@
  * clear: Clear flag (shows confirmation first)
  */
 
+import { createLogger } from '@yucp/shared';
+import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -20,12 +22,10 @@ import type {
   ChatInputCommandInteraction,
   StringSelectMenuInteraction,
 } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
-import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
-import { createLogger } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -34,13 +34,13 @@ export async function handleModerationMark(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
   _apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
 
   const select = new StringSelectMenuBuilder()
     .setCustomId(
-      `creator_moderation:reason_select:${interaction.user.id}:${ctx.tenantId}:${targetUser.id}`,
+      `creator_moderation:reason_select:${interaction.user.id}:${ctx.tenantId}:${targetUser.id}`
     )
     .setPlaceholder('Select a reason...')
     .addOptions(
@@ -63,7 +63,7 @@ export async function handleModerationMark(
         .setLabel('Other')
         .setDescription('Other reason (add details in audit log)')
         .setValue('Other')
-        .setEmoji(Emoji.Wrench),
+        .setEmoji(Emoji.Wrench)
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
@@ -82,12 +82,12 @@ export async function handleModerationReasonSelect(
   apiSecret: string,
   actorId: string,
   tenantId: Id<'tenants'>,
-  targetUserId: string,
+  targetUserId: string
 ): Promise<void> {
   const reason = interaction.values[0];
   await interaction.deferUpdate();
 
-  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
     discordUserId: targetUserId,
   });
 
@@ -99,7 +99,7 @@ export async function handleModerationReasonSelect(
     return;
   }
 
-  const result = await convex.mutation(api.identitySync.markSubjectSuspicious as any, {
+  const result = await convex.mutation(api.identitySync.markSubjectSuspicious, {
     apiSecret,
     subjectId: subjectResult.subject._id,
     reason,
@@ -121,7 +121,7 @@ export async function handleModerationReasonSelect(
     .setTitle('User Flagged')
     .setColor(0xed4245)
     .setDescription(
-      `<@${targetUserId}> has been flagged as suspicious${alreadyFlagged ? ' (was already flagged)' : ''}.\n**Reason:** ${reason}`,
+      `<@${targetUserId}> has been flagged as suspicious${alreadyFlagged ? ' (was already flagged)' : ''}.\n**Reason:** ${reason}`
     );
 
   await interaction.editReply({ embeds: [embed], components: [] });
@@ -132,11 +132,11 @@ export async function handleModerationList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const list = await convex.query(api.identitySync.listSuspiciousSubjects as any, {
+  const list = await convex.query(api.identitySync.listSuspiciousSubjects, {
     apiSecret,
     tenantId: ctx.tenantId,
     limit: 25,
@@ -149,18 +149,16 @@ export async function handleModerationList(
 
   const lines = list.map(
     (s: { discordUserId: string; reason?: string; _creationTime?: number }) => {
-      const date = s._creationTime
-        ? `<t:${Math.floor(s._creationTime / 1000)}:d>`
-        : '';
+      const date = s._creationTime ? `<t:${Math.floor(s._creationTime / 1000)}:d>` : '';
       return `<@${s.discordUserId}> - **${s.reason ?? 'No reason'}** ${date}`;
-    },
+    }
   );
 
   const embed = new EmbedBuilder()
     .setTitle('Flagged Accounts')
     .setColor(0xed4245)
     .setDescription(lines.join('\n'))
-    .setFooter({ text: `Showing up to 25 accounts` });
+    .setFooter({ text: 'Showing up to 25 accounts' });
 
   await interaction.editReply({ embeds: [embed] });
 }
@@ -170,7 +168,7 @@ export async function handleModerationClear(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
   _apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
 
@@ -178,20 +176,20 @@ export async function handleModerationClear(
     .setTitle('Clear Suspicious Flag?')
     .setColor(0xfaa61a)
     .setDescription(
-      `Are you sure you want to clear the suspicious flag for <@${targetUser.id}>?\nThis will allow them to use the server normally again.`,
+      `Are you sure you want to clear the suspicious flag for <@${targetUser.id}>?\nThis will allow them to use the server normally again.`
     );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(
-        `creator_moderation:confirm_clear:${targetUser.id}:${ctx.tenantId}:${interaction.user.id}`,
+        `creator_moderation:confirm_clear:${targetUser.id}:${ctx.tenantId}:${interaction.user.id}`
       )
       .setLabel('Yes, Clear Flag')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('creator_moderation:cancel_clear')
       .setLabel('Cancel')
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
   );
 
   await interaction.reply({
@@ -208,11 +206,11 @@ export async function handleModerationConfirmClear(
   apiSecret: string,
   targetUserId: string,
   tenantId: Id<'tenants'>,
-  actorId: string,
+  actorId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
-  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
     discordUserId: targetUserId,
   });
 
@@ -225,7 +223,7 @@ export async function handleModerationConfirmClear(
     return;
   }
 
-  await convex.mutation(api.identitySync.clearSubjectSuspicious as any, {
+  await convex.mutation(api.identitySync.clearSubjectSuspicious, {
     apiSecret,
     subjectId: subjectResult.subject._id,
     actorId,
@@ -247,7 +245,7 @@ export async function handleModerationUnverify(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
   const productId = interaction.options.getString('product_id', true);
@@ -255,20 +253,21 @@ export async function handleModerationUnverify(
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
-    const result = await convex.mutation(api.entitlements.revokeEntitlementsByProduct as any, {
+    const result = await convex.mutation(api.entitlements.revokeEntitlementsByProduct, {
       apiSecret,
       tenantId: ctx.tenantId,
       discordUserId: targetUser.id,
       productId,
     });
 
-    const productsWithNames = await convex.query(api.role_rules.getByGuildWithProductNames as any, {
+    const productsWithNames = await convex.query(api.role_rules.getByGuildWithProductNames, {
       tenantId: ctx.tenantId,
       guildId: ctx.guildId,
     });
     const productDisplayName =
-      productsWithNames.find((p: { productId: string; displayName: string | null }) => p.productId === productId)
-        ?.displayName ?? productId;
+      productsWithNames.find(
+        (p: { productId: string; displayName: string | null }) => p.productId === productId
+      )?.displayName ?? productId;
 
     if (!result.success) {
       const reasonMap: Record<string, string> = {
@@ -290,7 +289,7 @@ export async function handleModerationUnverify(
       .setTitle('Verification Removed')
       .setColor(0xed4245)
       .setDescription(
-        `Successfully removed **${productDisplayName}** verification from <@${targetUser.id}>.\nAny associated Discord roles are being automatically removed in the background.`,
+        `Successfully removed **${productDisplayName}** verification from <@${targetUser.id}>.\nAny associated Discord roles are being automatically removed in the background.`
       );
 
     await interaction.editReply({ embeds: [embed] });
@@ -315,14 +314,13 @@ export async function handleModerationUnverify(
   }
 }
 
-
 // ─── Backward-compat exports (used by old suspicious group routing in interactions.ts) ───
 
 export async function handleSuspiciousMark(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   return handleModerationMark(interaction, convex, apiSecret, ctx);
 }
@@ -331,7 +329,7 @@ export async function handleSuspiciousList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   return handleModerationList(interaction, convex, apiSecret, ctx);
 }
@@ -340,7 +338,7 @@ export async function handleSuspiciousClear(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   return handleModerationClear(interaction, convex, apiSecret, ctx);
 }

@@ -17,16 +17,19 @@ export function getCookieValue(request: Request, name: string): string | null {
 function isSecureRequest(request: Request): boolean {
   const url = new URL(request.url);
   const forwardedProto = request.headers.get('x-forwarded-proto');
-  return url.protocol === 'https:' || forwardedProto?.split(',').some((value) => value.trim() === 'https') === true;
+  return (
+    url.protocol === 'https:' ||
+    forwardedProto?.split(',').some((value) => value.trim() === 'https') === true
+  );
 }
 
-export function buildCookie(name: string, value: string, request: Request, maxAgeSeconds?: number): string {
-  const parts = [
-    `${name}=${value}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Lax',
-  ];
+export function buildCookie(
+  name: string,
+  value: string,
+  request: Request,
+  maxAgeSeconds?: number
+): string {
+  const parts = [`${name}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax'];
   if (isSecureRequest(request)) parts.push('Secure');
   if (typeof maxAgeSeconds === 'number') parts.push(`Max-Age=${maxAgeSeconds}`);
   return parts.join('; ');

@@ -85,9 +85,11 @@ function buildCookieHeader(tokens: VrchatSessionTokens): string {
 }
 
 function isTwoFactorRequired(data: unknown): data is RequiresTwoFactorAuth {
-  return !!data
-    && typeof data === 'object'
-    && Array.isArray((data as RequiresTwoFactorAuth).requiresTwoFactorAuth);
+  return (
+    !!data &&
+    typeof data === 'object' &&
+    Array.isArray((data as RequiresTwoFactorAuth).requiresTwoFactorAuth)
+  );
 }
 
 function isCurrentUser(data: unknown): data is VrchatCurrentUser {
@@ -108,10 +110,10 @@ function serializePendingState(state: VrchatPendingLoginState): string {
 function parsePendingState(pendingState: string): VrchatPendingLoginState {
   const parsed = JSON.parse(pendingState) as Partial<VrchatPendingLoginState>;
   if (
-    !parsed
-    || typeof parsed !== 'object'
-    || typeof parsed.authToken !== 'string'
-    || !Array.isArray(parsed.requiresTwoFactorAuth)
+    !parsed ||
+    typeof parsed !== 'object' ||
+    typeof parsed.authToken !== 'string' ||
+    !Array.isArray(parsed.requiresTwoFactorAuth)
   ) {
     throw new Error('Invalid pending VRChat login state');
   }
@@ -160,10 +162,7 @@ function isVerifiedResponse(data: unknown): data is { verified?: boolean } {
   return !!data && typeof data === 'object' && 'verified' in data;
 }
 
-function getVerifiedFactorSession(
-  headers: Headers,
-  authToken: string
-): VrchatSessionTokens {
+function getVerifiedFactorSession(headers: Headers, authToken: string): VrchatSessionTokens {
   return {
     authToken: extractCookieValue(headers, AUTH_COOKIE) ?? authToken,
     twoFactorAuthToken: extractCookieValue(headers, TWO_FACTOR_AUTH_COOKIE),
@@ -178,9 +177,7 @@ export function extractVrchatAvatarId(urlOrId: string): string | null {
   const trimmed = urlOrId?.trim() ?? '';
   const directMatch = trimmed.match(/avtr_[a-f0-9-]{36}/i);
   if (directMatch) return directMatch[0];
-  const urlMatch = trimmed.match(
-    /vrchat\.com\/home\/avatar\/(avtr_[a-f0-9-]{36})/i
-  );
+  const urlMatch = trimmed.match(/vrchat\.com\/home\/avatar\/(avtr_[a-f0-9-]{36})/i);
   return urlMatch ? urlMatch[1] : null;
 }
 
@@ -188,10 +185,7 @@ export function extractVrchatAvatarId(urlOrId: string): string | null {
  * VRChat API Client - direct HTTP login, 2FA, and licensed avatar retrieval.
  */
 export class VrchatApiClient {
-  async beginLogin(
-    username: string,
-    password: string
-  ): Promise<VrchatBeginLoginResult> {
+  async beginLogin(username: string, password: string): Promise<VrchatBeginLoginResult> {
     const { response, data } = await request('/auth/user', {
       method: 'GET',
       headers: {
@@ -276,7 +270,9 @@ export class VrchatApiClient {
         status: response.status,
         verified: isVerifiedResponse(data) ? Boolean(data.verified) : false,
         hasAuthCookie: Boolean(extractCookieValue(response.headers, AUTH_COOKIE)),
-        hasTwoFactorAuthCookie: Boolean(extractCookieValue(response.headers, TWO_FACTOR_AUTH_COOKIE)),
+        hasTwoFactorAuthCookie: Boolean(
+          extractCookieValue(response.headers, TWO_FACTOR_AUTH_COOKIE)
+        ),
       });
 
       if (!isVerifiedResponse(data) || !data.verified) {
@@ -292,10 +288,7 @@ export class VrchatApiClient {
       throw new Error('Verification failed');
     }
 
-    const user = await this.getCurrentUser(
-      session.authToken,
-      session.twoFactorAuthToken
-    );
+    const user = await this.getCurrentUser(session.authToken, session.twoFactorAuthToken);
     console.log('VRChat client completePendingLogin current user', {
       hasTwoFactorAuthToken: Boolean(session.twoFactorAuthToken),
       isCurrentUser: Boolean(user),
@@ -374,17 +367,16 @@ export class VrchatApiClient {
 
     return data.filter(
       (entry): entry is VrchatLicensedAvatar =>
-        !!entry && typeof entry === 'object' && typeof (entry as VrchatLicensedAvatar).id === 'string'
+        !!entry &&
+        typeof entry === 'object' &&
+        typeof (entry as VrchatLicensedAvatar).id === 'string'
     );
   }
 
   async getOwnershipFromSession(
     session: VrchatSessionTokens
   ): Promise<VrchatVerifyOwnershipResult | null> {
-    const user = await this.getCurrentUser(
-      session.authToken,
-      session.twoFactorAuthToken
-    );
+    const user = await this.getCurrentUser(session.authToken, session.twoFactorAuthToken);
     if (!user) {
       return null;
     }
@@ -424,5 +416,24 @@ export class VrchatApiClient {
     }
 
     return ownership;
+  }
+
+  /**
+   * Look up a single avatar by ID. Returns `{ id, name }` or null if not found / inaccessible.
+   * Requires an active session (any authenticated VRChat account).
+   */
+  async getAvatarById(
+    session: VrchatSessionTokens,
+    avatarId: string
+  ): Promise<{ id: string; name: string } | null> {
+    const { response, data } = await request(`/avatars/${encodeURIComponent(avatarId)}`, {
+      method: 'GET',
+      headers: { cookie: buildCookieHeader(session) },
+    });
+
+    if (!response.ok || !data || typeof data !== 'object') return null;
+    const avatar = data as Record<string, unknown>;
+    if (typeof avatar.id !== 'string' || typeof avatar.name !== 'string') return null;
+    return { id: avatar.id, name: avatar.name };
   }
 }

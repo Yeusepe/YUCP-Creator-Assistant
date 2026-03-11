@@ -13,12 +13,18 @@ export interface LocalEnv {
   // Convex (auth runs on Convex)
   CONVEX_DEPLOYMENT?: string;
   CONVEX_URL?: string;
+  CONVEX_SITE_URL?: string;
   CONVEX_API_SECRET?: string;
   // Auth
+  SITE_URL?: string;
   BETTER_AUTH_SECRET?: string;
   ERROR_REFERENCE_SECRET?: string;
+  /** Legacy alias for CONVEX_SITE_URL. Avoid using for new config. */
   BETTER_AUTH_URL?: string;
+  /** Legacy alias for SITE_URL. Avoid using for new config. */
   FRONTEND_URL?: string;
+  PUBLIC_API_KEY_PEPPER?: string;
+  PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON?: string;
   INTERNAL_SERVICE_AUTH_SECRET?: string;
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
@@ -64,20 +70,54 @@ async function fetchFromInfisical(): Promise<Record<string, string>> {
 }
 
 // Load from process.env
+function normalizeUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.replace(/\/$/, '');
+}
+
+export function resolveConvexSiteUrl(
+  env: Record<string, string | undefined> = process.env
+): string | undefined {
+  const explicit = normalizeUrl(env.CONVEX_SITE_URL);
+  if (explicit) {
+    return explicit;
+  }
+
+  const convexUrl = normalizeUrl(env.CONVEX_URL);
+  if (!convexUrl) {
+    return undefined;
+  }
+
+  return convexUrl.replace('.convex.cloud', '.convex.site');
+}
+
+export function resolveSiteUrl(
+  env: Record<string, string | undefined> = process.env
+): string | undefined {
+  return normalizeUrl(
+    env.SITE_URL ?? env.FRONTEND_URL ?? env.RENDER_EXTERNAL_URL ?? env.BETTER_AUTH_URL
+  );
+}
+
 function loadFromEnv(): LocalEnv {
+  const convexSiteUrl = resolveConvexSiteUrl();
+  const siteUrl = resolveSiteUrl();
+
   return {
     NODE_ENV: (process.env.NODE_ENV as EnvConfig['NODE_ENV']) || 'development',
     INFISICAL_URL: process.env.INFISICAL_URL,
     INFISICAL_TOKEN: process.env.INFISICAL_TOKEN,
     CONVEX_DEPLOYMENT: process.env.CONVEX_DEPLOYMENT,
     CONVEX_URL: process.env.CONVEX_URL,
+    CONVEX_SITE_URL: convexSiteUrl,
     CONVEX_API_SECRET: process.env.CONVEX_API_SECRET,
+    SITE_URL: siteUrl,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     ERROR_REFERENCE_SECRET: process.env.ERROR_REFERENCE_SECRET,
-    BETTER_AUTH_URL:
-      process.env.BETTER_AUTH_URL ??
-      process.env.RENDER_EXTERNAL_URL,
+    BETTER_AUTH_URL: normalizeUrl(process.env.BETTER_AUTH_URL),
     FRONTEND_URL: process.env.FRONTEND_URL,
+    PUBLIC_API_KEY_PEPPER: process.env.PUBLIC_API_KEY_PEPPER,
+    PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON: process.env.PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON,
     INTERNAL_SERVICE_AUTH_SECRET: process.env.INTERNAL_SERVICE_AUTH_SECRET,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,

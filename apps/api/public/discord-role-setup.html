@@ -14,8 +14,6 @@
     <link rel="stylesheet" href="./tokens.css">
 
     <style>
-        
-
         body {
             background-color: var(--bg-color);
             font-family: 'DM Sans', sans-serif;
@@ -43,7 +41,9 @@
         }
 
         @media (min-width: 640px) {
-            .card { padding: 36px; }
+            .card {
+                padding: 36px;
+            }
         }
 
         /* ── Steps ──────────────────────────────────────────────────────────── */
@@ -165,7 +165,8 @@
         select,
         input[type="text"],
         textarea {
-            font-size: 16px; /* Prevents iOS zoom on focus */
+            font-size: 16px;
+            /* Prevents iOS zoom on focus */
         }
 
         select,
@@ -176,7 +177,8 @@
             border-radius: 12px;
             padding: 12px 16px;
             font-family: 'DM Sans', sans-serif;
-            font-size: 16px; /* Prevents iOS zoom on focus */
+            font-size: 16px;
+            /* Prevents iOS zoom on focus */
             color: #fff;
             outline: none;
             transition: border-color 0.2s, background 0.2s;
@@ -330,7 +332,9 @@
         }
 
         @media (min-width: 400px) {
-            .option-pill-group { grid-template-columns: 1fr 1fr; }
+            .option-pill-group {
+                grid-template-columns: 1fr 1fr;
+            }
         }
 
         .option-pill {
@@ -395,18 +399,45 @@
     <script type="module" src="/assets/site/site.js"></script>
 </head>
 
-<body class="flex items-start sm:items-center justify-center p-4 sm:p-6" style="min-height:100dvh;padding-top:max(2rem,env(safe-area-inset-top));padding-bottom:max(2rem,env(safe-area-inset-bottom));">
+<body class="flex items-start sm:items-center justify-center p-4 sm:p-6"
+    style="min-height:100dvh;padding-top:max(2rem,env(safe-area-inset-top));padding-bottom:max(2rem,env(safe-area-inset-bottom));">
 
     <!-- Loading overlay -->
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 sm:px-6"
         style="background-color: var(--bg-color);">
-        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8">
+        <img src="Icons/MainLogo.png" alt="Creator Assistant"
+            class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8">
         <div class="page-loading-spinner"></div>
         <p class="mt-4 text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Loading...</p>
     </div>
 
     <div id="page-content" style="display:none;">
 
+        <a id="back-to-dashboard-btn" href="#"
+            class="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
+            style="display:none; text-decoration: none;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Back to Dashboard
+        </a>
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const urlParams = new URLSearchParams(window.location.search);
+                const tId = urlParams.get('tenant_id') || urlParams.get('tenantId') || (typeof TENANT_ID !== 'undefined' ? TENANT_ID : '');
+                const gId = urlParams.get('guild_id') || urlParams.get('guildId') || (typeof GUILD_ID !== 'undefined' ? GUILD_ID : '');
+                if (tId && tId !== '__TENANT_ID__') {
+                    const btn = document.getElementById('back-to-dashboard-btn');
+                    btn.style.display = 'inline-flex';
+                    const apiBaseUrl = (typeof API_BASE !== 'undefined' && API_BASE !== '__API_BASE__') ? API_BASE : '';
+                    const dashboardUrl = new URL(apiBaseUrl + '/dashboard', window.location.origin);
+                    dashboardUrl.searchParams.set('tenant_id', tId);
+                    if (gId && gId !== '__GUILD_ID__') dashboardUrl.searchParams.set('guild_id', gId);
+                    btn.href = dashboardUrl.toString();
+                }
+            });
+        </script>
         <!-- Background -->
         <div id="bg-canvas-root"
             style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:-20;pointer-events:none;"></div>
@@ -415,7 +446,8 @@
 
             <!-- Header -->
             <div class="text-center mb-8">
-                <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mx-auto mb-5 opacity-90">
+                <img src="Icons/MainLogo.png" alt="Creator Assistant"
+                    class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mx-auto mb-5 opacity-90">
                 <div
                     class="inline-flex items-center gap-2.5 bg-[#5865F2]/20 border border-[#5865F2]/30 rounded-full px-4 py-1.5 mb-4">
                     <svg class="w-4 h-4 text-[#7289da]" fill="currentColor" viewBox="0 0 24 24">
@@ -447,7 +479,8 @@
                         </svg>
                     </div>
                     <div>
-                        <h2 class="font-heading text-lg text-white" style="letter-spacing:-0.02em;">Sign in with Discord®
+                        <h2 class="font-heading text-lg text-white" style="letter-spacing:-0.02em;">Sign in with
+                            Discord®
                         </h2>
                         <p class="text-xs text-white/50" style="font-family:'DM Sans',sans-serif;">Step 1 of 2</p>
                     </div>
@@ -501,7 +534,8 @@
                     <label class="form-label">Required Role(s)</label>
                     <textarea id="role-ids-input" rows="3"
                         placeholder="One role ID per line, e.g.:&#10;123456789012345678&#10;987654321098765432"
-                        class="w-full rounded-xl border border-white/15 bg-black/20 px-4 py-3 text-white placeholder-white/30 focus:border-[#5865F2] focus:outline-none focus:ring-1 focus:ring-[#5865F2] font-mono text-sm" style="font-size:16px;"></textarea>
+                        class="w-full rounded-xl border border-white/15 bg-black/20 px-4 py-3 text-white placeholder-white/30 focus:border-[#5865F2] focus:outline-none focus:ring-1 focus:ring-[#5865F2] font-mono text-sm"
+                        style="font-size:16px;"></textarea>
                     <p class="text-xs text-white/50 mt-1" style="font-family:'DM Sans',sans-serif;">Users must have
                         these roles in the source server. Add one or more.</p>
                     <div class="helper-box mt-2">
@@ -826,14 +860,14 @@
             var observer = new MutationObserver(function () {
                 if (overlay.style.display === 'none') {
                     overlay.style.display = '';
-                    setTimeout(function() {
+                    setTimeout(function () {
                         overlay.classList.add('is-hiding');
                         if (content) {
-                        requestAnimationFrame(function () {
-                            requestAnimationFrame(function () { content.classList.add('is-visible'); });
-                        });
-                    }
-                    setTimeout(function () { overlay.style.display = 'none'; }, 370);
+                            requestAnimationFrame(function () {
+                                requestAnimationFrame(function () { content.classList.add('is-visible'); });
+                            });
+                        }
+                        setTimeout(function () { overlay.style.display = 'none'; }, 370);
                     }, 500);
                     observer.disconnect();
                 }

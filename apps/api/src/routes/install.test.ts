@@ -6,15 +6,15 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { createAuth } from '../auth';
 import {
   BOT_PERMISSIONS,
+  type InstallConfig,
+  createInstallRoutes,
   generateState,
   storeInstallState,
   validateInstallState,
-  createInstallRoutes,
-  type InstallConfig,
 } from './install';
-import { createAuth } from '../auth';
 
 const testConfig: InstallConfig = {
   discordClientId: 'test-discord-client-id',
@@ -59,8 +59,8 @@ describe('Install State Management', () => {
       const retrieved = await validateInstallState(state);
 
       expect(retrieved).not.toBeNull();
-      expect(retrieved!.tenantId).toBe(tenantId);
-      expect(retrieved!.authUserId).toBe(authUserId);
+      expect(retrieved?.tenantId).toBe(tenantId);
+      expect(retrieved?.authUserId).toBe(authUserId);
     });
 
     it('returns null for invalid state', async () => {

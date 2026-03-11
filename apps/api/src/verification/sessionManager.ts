@@ -14,11 +14,13 @@
 import { type TwoFactorAuthType, VrchatApiClient, type VrchatCurrentUser } from '@yucp/providers';
 import type { VrchatSessionTokens } from '@yucp/providers/vrchat';
 import { createLogger } from '@yucp/shared';
+import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { type VrchatOwnershipPayload, type VrchatSessionTokensPayload, createAuth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { encrypt } from '../lib/encrypt';
-import { createApiVerificationSupportError } from '../lib/verificationSupport';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
+import { createApiVerificationSupportError } from '../lib/verificationSupport';
 import {
   clearPendingVrchatState,
   createPendingVrchatState,
@@ -419,23 +421,20 @@ export function createVerificationSessionManager(
           const convex = getConvexClientFromUrl(config.convexUrl);
           // redirectUri = user's destination after verification (e.g. /verify-success?returnTo=...)
           // OAuth redirect_uri for token exchange is always baseUrl + callbackPath
-          const result = await convex.mutation(
-            'verificationSessions:createVerificationSession' as any,
-            {
-              apiSecret: config.convexApiSecret,
-              tenantId: input.tenantId,
-              mode: input.mode,
-              state,
-              pkceVerifierHash: verifierHash,
-              pkceVerifier: codeVerifier,
-              redirectUri: input.redirectUri,
-              successRedirectUri: input.redirectUri,
-              discordUserId: input.discordUserId,
-              nonce: input.nonce,
-              productId: input.productId,
-              installationHint: input.installationHint,
-            }
-          );
+          const result = await convex.mutation(api.verificationSessions.createVerificationSession, {
+            apiSecret: config.convexApiSecret,
+            tenantId: input.tenantId,
+            mode: input.mode,
+            state,
+            pkceVerifierHash: verifierHash,
+            pkceVerifier: codeVerifier,
+            redirectUri: input.redirectUri,
+            successRedirectUri: input.redirectUri,
+            discordUserId: input.discordUserId,
+            nonce: input.nonce,
+            productId: input.productId,
+            installationHint: input.installationHint,
+          });
           return {
             success: true,
             sessionId: result.sessionId,
@@ -526,7 +525,7 @@ export function createVerificationSessionManager(
 
       // Look up session
       const sessionResult = await convex.query(
-        'verificationSessions:getVerificationSessionByState' as any,
+        api.verificationSessions.getVerificationSessionByState,
         { apiSecret, tenantId, state }
       );
 
@@ -682,7 +681,7 @@ export function createVerificationSessionManager(
         sessionId: String(session._id),
       });
 
-      const syncResult = await convex.mutation('identitySync:syncUserFromProvider' as any, {
+      const syncResult = await convex.mutation(api.identitySync.syncUserFromProvider, {
         apiSecret,
         provider,
         providerUserId,
@@ -713,7 +712,7 @@ export function createVerificationSessionManager(
             const tokenEncrypted = await encrypt(accessToken, encryptionSecret);
             // Discord access tokens expire after ~7 days
             const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-            await convex.mutation('identitySync:storeDiscordToken' as any, {
+            await convex.mutation(api.identitySync.storeDiscordToken, {
               apiSecret,
               externalAccountId: syncResult.externalAccountId,
               discordAccessTokenEncrypted: tokenEncrypted,
@@ -731,7 +730,7 @@ export function createVerificationSessionManager(
         }
 
         // Now check if the user has any matching roles for current rules
-        const tenant = await convex.query('tenants:getTenant' as any, {
+        const tenant = await convex.query(api.tenants.getTenant, {
           apiSecret,
           tenantId,
         });
@@ -747,7 +746,7 @@ export function createVerificationSessionManager(
             '[verification] Discord role from other servers not enabled, but token stored'
           );
         } else {
-          const rules = await convex.query('role_rules:getDiscordRoleRulesByTenant' as any, {
+          const rules = await convex.query(api.role_rules.getDiscordRoleRulesByTenant, {
             apiSecret,
             tenantId,
             sourceGuildIds: allowedGuildIds,
@@ -795,7 +794,7 @@ export function createVerificationSessionManager(
             if (hasRole) {
               const sourceReference =
                 productId ?? `discord_role:${sourceGuildId}:${requiredIds[0]}`;
-              await convex.mutation('entitlements:grantEntitlement' as any, {
+              await convex.mutation(api.entitlements.grantEntitlement, {
                 apiSecret,
                 tenantId,
                 subjectId: syncResult.subjectId,
@@ -820,7 +819,7 @@ export function createVerificationSessionManager(
       // For discord_role: the binding is always created (Discord account linked),
       // and entitlements are granted for matching roles.
       try {
-        const bindingResult = await convex.mutation('bindings:activateBinding' as any, {
+        const bindingResult = await convex.mutation(api.bindings.activateBinding, {
           apiSecret,
           tenantId,
           subjectId: syncResult.subjectId,
@@ -851,7 +850,7 @@ export function createVerificationSessionManager(
         const normalizedEmail = email.trim().toLowerCase();
         const emailHash = await sha256Hex(normalizedEmail);
         try {
-          await convex.mutation('backgroundSync:scheduleBackfillThenSyncForGumroadBuyer' as any, {
+          await convex.mutation(api.backgroundSync.scheduleBackfillThenSyncForGumroadBuyer, {
             apiSecret,
             tenantId,
             subjectId: syncResult.subjectId,
@@ -867,7 +866,7 @@ export function createVerificationSessionManager(
 
       // Complete verification session
       const completeResult = await convex.mutation(
-        'verificationSessions:completeVerificationSession' as any,
+        api.verificationSessions.completeVerificationSession,
         {
           apiSecret,
           sessionId: session._id,
@@ -919,14 +918,11 @@ export function createVerificationSessionManager(
       }
 
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const result = await convex.mutation(
-        'verificationSessions:completeVerificationSession' as any,
-        {
-          apiSecret: config.convexApiSecret,
-          sessionId: input.sessionId,
-          subjectId: input.subjectId,
-        }
-      );
+      const result = await convex.mutation(api.verificationSessions.completeVerificationSession, {
+        apiSecret: config.convexApiSecret,
+        sessionId: input.sessionId,
+        subjectId: input.subjectId,
+      });
 
       if (result.alreadyCompleted) {
         return {
@@ -978,8 +974,23 @@ function getRequestIp(request: Request): string {
   return request.headers.get('x-real-ip') ?? 'unknown';
 }
 
-function withNoStore(headers?: any): Headers {
-  const result = new Headers(headers);
+function withNoStore(headers?: unknown): Headers {
+  const result = new Headers();
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      result.set(key, value);
+    });
+  } else if (Array.isArray(headers)) {
+    for (const [key, value] of headers) {
+      result.set(key, value);
+    }
+  } else if (headers && typeof headers === 'object') {
+    for (const [key, value] of Object.entries(headers)) {
+      if (typeof value === 'string') {
+        result.set(key, value);
+      }
+    }
+  }
   result.set('Cache-Control', 'no-store');
   return result;
 }
@@ -1410,7 +1421,11 @@ export function createVerificationRoutes(config: VerificationConfig) {
         userId: panel.discordUserId,
       });
       return jsonNoStore(
-        { success: false, error: 'Failed to update Discord panel', supportCode: support.supportCode },
+        {
+          success: false,
+          error: 'Failed to update Discord panel',
+          supportCode: support.supportCode,
+        },
         { status: 502 }
       );
     }
@@ -1669,7 +1684,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
   async function ensureVrchatSubjectId(tenantId: string, discordUserId: string): Promise<string> {
     const convex = getConvexClientFromUrl(config.convexUrl);
-    const ensureResult = await convex.mutation('subjects:ensureSubjectForDiscord' as any, {
+    const ensureResult = await convex.mutation(api.subjects.ensureSubjectForDiscord, {
       apiSecret: config.convexApiSecret,
       discordUserId,
       displayName: undefined,
@@ -2167,20 +2182,21 @@ export function createVerificationRoutes(config: VerificationConfig) {
       }
 
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const { api } = await import('../../../../convex/_generated/api');
       const betterAuth = createAuth({
         baseUrl: config.baseUrl,
         convexSiteUrl: config.convexUrl
           ? config.convexUrl.replace('.convex.cloud', '.convex.site')
           : '',
       });
+      const tenantId = body.tenantId as Id<'tenants'>;
+      const subjectId = body.subjectId as Id<'subjects'>;
 
       let vrchatUserIdToClear: string | undefined;
       if (body.provider === 'vrchat') {
-        const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts as any, {
+        const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts, {
           apiSecret: config.convexApiSecret,
-          subjectId: body.subjectId,
-          tenantId: body.tenantId,
+          subjectId,
+          tenantId,
         });
         const vrchatAccount = accountsResult.found
           ? accountsResult.externalAccounts?.find(
@@ -2193,22 +2209,19 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       // Revoke entitlements from this provider and emit role_removal jobs first.
       // Without this, roles would never be removed when disconnecting.
-      await convex.mutation(api.entitlements.revokeEntitlementsForProviderDisconnect as any, {
+      await convex.mutation(api.entitlements.revokeEntitlementsForProviderDisconnect, {
         apiSecret: config.convexApiSecret,
-        tenantId: body.tenantId,
-        subjectId: body.subjectId,
+        tenantId,
+        subjectId,
         provider: body.provider,
       });
 
-      const disconnected = await convex.mutation(
-        api.providerConnections.removeAccountForSubject as any,
-        {
-          apiSecret: config.convexApiSecret,
-          tenantId: body.tenantId,
-          subjectId: body.subjectId,
-          provider: body.provider,
-        }
-      );
+      const disconnected = await convex.mutation(api.providerConnections.removeAccountForSubject, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        subjectId,
+        provider: body.provider,
+      });
 
       if (!disconnected) {
         return Response.json(
@@ -2233,18 +2246,18 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       // If this was the last account, revoke any remaining entitlements
       // (e.g. from manual grants or sourceProvider mismatch)
-      const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts as any, {
+      const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts, {
         apiSecret: config.convexApiSecret,
-        subjectId: body.subjectId,
-        tenantId: body.tenantId,
+        subjectId,
+        tenantId,
       });
       const hasRemainingAccounts =
         accountsResult.found && accountsResult.externalAccounts?.length > 0;
       if (!hasRemainingAccounts) {
-        await convex.mutation(api.entitlements.revokeAllEntitlementsForSubject as any, {
+        await convex.mutation(api.entitlements.revokeAllEntitlementsForSubject, {
           apiSecret: config.convexApiSecret,
-          tenantId: body.tenantId,
-          subjectId: body.subjectId,
+          tenantId,
+          subjectId,
         });
       }
 

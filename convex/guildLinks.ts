@@ -30,6 +30,8 @@ export const upsertGuildLink = mutation({
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
     discordGuildId: v.string(),
+    discordGuildName: v.optional(v.string()),
+    discordGuildIcon: v.optional(v.string()),
     installedByAuthUserId: v.string(),
     botPresent: v.boolean(),
     status: GuildLinkStatus,
@@ -50,20 +52,25 @@ export const upsertGuildLink = mutation({
       .first();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
+      const patch: Record<string, unknown> = {
         tenantId: args.tenantId,
         installedByAuthUserId: args.installedByAuthUserId,
         botPresent: args.botPresent,
         status: args.status,
         commandScopeState: args.commandScopeState,
         updatedAt: now,
-      });
+      };
+      if (args.discordGuildName !== undefined) patch.discordGuildName = args.discordGuildName;
+      if (args.discordGuildIcon !== undefined) patch.discordGuildIcon = args.discordGuildIcon;
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
 
     return await ctx.db.insert('guild_links', {
       tenantId: args.tenantId,
       discordGuildId: args.discordGuildId,
+      discordGuildName: args.discordGuildName,
+      discordGuildIcon: args.discordGuildIcon,
       installedByAuthUserId: args.installedByAuthUserId,
       botPresent: args.botPresent,
       status: args.status,
@@ -76,6 +83,7 @@ export const upsertGuildLink = mutation({
 
 /**
  * Update guild link status. Called by API for uninstall/health.
+ * Optionally syncs discordGuildName and discordGuildIcon when available.
  */
 export const updateGuildLinkStatus = mutation({
   args: {
@@ -83,6 +91,8 @@ export const updateGuildLinkStatus = mutation({
     discordGuildId: v.string(),
     status: GuildLinkStatus,
     botPresent: v.boolean(),
+    discordGuildName: v.optional(v.string()),
+    discordGuildIcon: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -97,11 +107,15 @@ export const updateGuildLinkStatus = mutation({
       return { updated: false };
     }
 
-    await ctx.db.patch(link._id, {
+    const patch: Record<string, unknown> = {
       status: args.status,
       botPresent: args.botPresent,
       updatedAt: now,
-    });
+    };
+    if (args.discordGuildName !== undefined) patch.discordGuildName = args.discordGuildName;
+    if (args.discordGuildIcon !== undefined) patch.discordGuildIcon = args.discordGuildIcon;
+
+    await ctx.db.patch(link._id, patch);
 
     return { updated: true };
   },
@@ -154,3 +168,97 @@ export const getGuildLinkForUninstall = query({
     };
   },
 });
+
+/**
+ * Get all active guild links for a user (servers they manage)
+ */
+export const getUserGuilds = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const tenants = await ctx.db
+      .query('tenants')
+      .withIndex('by_owner_auth', (q) => q.eq('ownerAuthUserId', args.authUserId))
+      .collect();
+
+    const guilds = [];
+    for (const tenant of tenants) {
+      const links = await ctx.db
+        .query('guild_links')
+        .withIndex('by_tenant', (q) => q.eq('tenantId', tenant._id))
+        .filter((q) => q.eq(q.field('status'), 'active'))
+        .collect();
+
+      for (const link of links) {
+        guilds.push({
+          tenantId: tenant._id,
+          guildId: link.discordGuildId,
+          name: link.discordGuildName || tenant.name,
+          icon: link.discordGuildIcon ?? null
+        });
+      }
+    }
+    return guilds;
+  },
+});
+
+/**
+ * Completely wipe a guild link and all associated data. Called by bot on /creator-admin settings disconnect.
+ * Danger: Irreversible deletion of role rules, download routes, download artifacts, and the guild link itself.
+ */
+export const hardDisconnectGuild = mutation({
+  args: {
+    apiSecret: v.string(),
+    discordGuildId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const link = await ctx.db
+      .query('guild_links')
+      .withIndex('by_discord_guild', (q) => q.eq('discordGuildId', args.discordGuildId))
+      .first();
+
+    if (!link) {
+      return { success: false, reason: 'guild_link_not_found' };
+    }
+
+    const guildId = args.discordGuildId;
+
+    // Delete all role_rules for this guild
+    const roleRules = await ctx.db
+      .query('role_rules')
+      .withIndex('by_guild_link', (q) => q.eq('guildLinkId', link._id))
+      .collect();
+    for (const rule of roleRules) {
+      await ctx.db.delete(rule._id);
+    }
+
+    // Delete all download_routes for this guild
+    const downloadRoutes = await ctx.db
+      .query('download_routes')
+      .withIndex('by_guild_link', (q) => q.eq('guildLinkId', link._id))
+      .collect();
+    for (const route of downloadRoutes) {
+      await ctx.db.delete(route._id);
+    }
+
+    // Delete all download_artifacts for this guild
+    const downloadArtifacts = await ctx.db
+      .query('download_artifacts')
+      .withIndex('by_tenant_guild', (q) => q.eq('tenantId', link.tenantId).eq('guildId', guildId))
+      .collect();
+    for (const artifact of downloadArtifacts) {
+      await ctx.db.delete(artifact._id);
+    }
+
+    // Delete the guild_link itself
+    await ctx.db.delete(link._id);
+
+    return { success: true };
+  },
+});
+

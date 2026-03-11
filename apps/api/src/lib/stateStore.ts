@@ -5,8 +5,8 @@
  * or in-memory for dev/CI when DRAGONFLY_URI/REDIS_URL is unset.
  */
 
-import type Redis from 'ioredis';
 import { createLogger } from '@yucp/shared';
+import type Redis from 'ioredis';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 

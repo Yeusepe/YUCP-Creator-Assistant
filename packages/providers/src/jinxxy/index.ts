@@ -12,27 +12,27 @@
  * ```
  */
 
-import type { ProviderConfig, PurchaseRecord, ProviderAdapter } from '../index';
 import type { Verification } from '@yucp/shared';
+import type { ProviderAdapter, ProviderConfig, PurchaseRecord } from '../index';
+import { JinxxyApiClient } from './client';
 import type {
   JinxxyAdapterConfig,
+  JinxxyCustomer,
   JinxxyEvidence,
   JinxxyLicense,
   JinxxyOrder,
-  JinxxyCustomer,
   LicenseVerificationResult,
-  PurchaseVerificationResult,
   PaginationParams,
+  PurchaseVerificationResult,
 } from './types';
 import {
-  normalizeLicenseToEvidence,
-  normalizeOrderToEvidence,
-  isLicenseValid,
-  isOrderValid,
   JinxxyApiError,
   JinxxyRateLimitError,
+  isLicenseValid,
+  isOrderValid,
+  normalizeLicenseToEvidence,
+  normalizeOrderToEvidence,
 } from './types';
-import { JinxxyApiClient } from './client';
 
 /**
  * Jinxxy provider adapter implementing ProviderAdapter interface
@@ -68,7 +68,7 @@ export class JinxxyAdapter implements ProviderAdapter {
       apiKey,
       apiBaseUrl: process.env.JINXXY_API_BASE_URL,
       timeout: process.env.JINXXY_API_TIMEOUT
-        ? parseInt(process.env.JINXXY_API_TIMEOUT, 10)
+        ? Number.parseInt(process.env.JINXXY_API_TIMEOUT, 10)
         : undefined,
     });
   }
@@ -211,11 +211,13 @@ export class JinxxyAdapter implements ProviderAdapter {
    *
    * @param params - Pagination and filter parameters
    */
-  async getLicenses(params?: PaginationParams & {
-    product_id?: string;
-    customer_id?: string;
-    status?: string;
-  }): Promise<{
+  async getLicenses(
+    params?: PaginationParams & {
+      product_id?: string;
+      customer_id?: string;
+      status?: string;
+    }
+  ): Promise<{
     licenses: JinxxyLicense[];
     evidence: JinxxyEvidence[];
     pagination: {
@@ -261,12 +263,14 @@ export class JinxxyAdapter implements ProviderAdapter {
    *
    * @param params - Pagination and filter parameters
    */
-  async getOrders(params?: PaginationParams & {
-    product_id?: string;
-    customer_id?: string;
-    status?: string;
-    email?: string;
-  }): Promise<{
+  async getOrders(
+    params?: PaginationParams & {
+      product_id?: string;
+      customer_id?: string;
+      status?: string;
+      email?: string;
+    }
+  ): Promise<{
     orders: JinxxyOrder[];
     evidence: JinxxyEvidence[];
     pagination: {

@@ -12,1123 +12,257 @@
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="./tokens.css">
-
-    <style>
-        
-
-        body {
-            background-color: var(--bg-color);
-            color: var(--accent-blue);
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            margin: 0;
-            overflow-x: hidden;
-            min-height: 100vh;
-        }
-
-        h1,
-        h2,
-        h3,
-        .display-text {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            font-weight: 800;
-            letter-spacing: -0.04em;
-        }
-
-        /* ── Section Cards ─────────────────────────────────────────────────── */
-        .section-card {
-            background: rgba(0, 0, 0, 0.22);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.13);
-            border-radius: 28px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-            margin-bottom: 24px;
-        }
-
-        .section-card.quick-start-card {
-            position: relative;
-            overflow: hidden;
-            background:
-                radial-gradient(circle at top right, rgba(250, 204, 21, 0.18), transparent 34%),
-                radial-gradient(circle at left center, rgba(14, 165, 233, 0.18), transparent 42%),
-                linear-gradient(140deg, rgba(5, 14, 40, 0.82), rgba(11, 33, 84, 0.68));
-            border-color: rgba(255, 255, 255, 0.16);
-            box-shadow: 0 24px 60px rgba(2, 6, 23, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-        }
-
-        .quick-start-card::before,
-        .quick-start-card::after {
-            content: '';
-            position: absolute;
-            border-radius: 999px;
-            pointer-events: none;
-            filter: blur(8px);
-            opacity: 0.9;
-        }
-
-        .quick-start-card::before {
-            width: 240px;
-            height: 240px;
-            top: -120px;
-            right: -40px;
-            background: radial-gradient(circle, rgba(14, 165, 233, 0.32), transparent 70%);
-            animation: quick-start-float 9s ease-in-out infinite;
-        }
-
-        .quick-start-card::after {
-            width: 220px;
-            height: 220px;
-            bottom: -120px;
-            left: -30px;
-            background: radial-gradient(circle, rgba(250, 204, 21, 0.18), transparent 72%);
-            animation: quick-start-float 11s ease-in-out infinite reverse;
-        }
-
-        .quick-start-card.is-hidden {
-            display: none;
-        }
-
-        .quick-start-shell {
-            position: relative;
-            z-index: 1;
-        }
-
-        .quick-start-topline {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            margin-bottom: 14px;
-        }
-
-        .quick-start-progress-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 7px 12px;
-            border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            background: rgba(255, 255, 255, 0.08);
-            color: rgba(255, 255, 255, 0.88);
-            font-size: 11px;
-            font-weight: 800;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            backdrop-filter: blur(14px);
-        }
-
-        .quick-start-progress-pill strong {
-            color: #fde68a;
-        }
-
-        .quick-start-dismiss {
-            appearance: none;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            background: rgba(255, 255, 255, 0.06);
-            color: rgba(255, 255, 255, 0.72);
-            width: 38px;
-            height: 38px;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
-            font-size: 18px;
-            line-height: 1;
-        }
-
-        .quick-start-dismiss:hover {
-            transform: translateY(-1px);
-            background: rgba(255, 255, 255, 0.12);
-            color: #fff;
-        }
-
-        .quick-start-heading {
-            display: grid;
-            gap: 10px;
-        }
-
-        .quick-start-summary {
-            max-width: 620px;
-            color: rgba(255, 255, 255, 0.72);
-            font-size: 14px;
-            line-height: 1.7;
-            font-family: 'DM Sans', sans-serif;
-        }
-
-        .quick-start-progress-rail {
-            width: 100%;
-            height: 12px;
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.08);
-            overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: inset 0 1px 4px rgba(15, 23, 42, 0.35);
-        }
-
-        .quick-start-progress-fill {
-            height: 100%;
-            width: 0%;
-            border-radius: 999px;
-            background: linear-gradient(90deg, #38bdf8 0%, #60a5fa 45%, #fde047 100%);
-            box-shadow: 0 0 18px rgba(56, 189, 248, 0.35);
-            transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .quick-start-progress-fill::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.42) 38%, transparent 70%);
-            transform: translateX(-100%);
-            animation: progress-sheen 2.8s ease-in-out infinite;
-        }
-
-        .quick-start-step-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 14px;
-            margin-top: 18px;
-        }
-
-        .quick-start-step {
-            position: relative;
-            min-height: 182px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            padding: 18px;
-            border-radius: 22px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.06);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-            transition: transform 0.28s ease, border-color 0.28s ease, background 0.28s ease, box-shadow 0.28s ease;
-            overflow: hidden;
-        }
-
-        .quick-start-step::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(140deg, rgba(255, 255, 255, 0.08), transparent 58%);
-            opacity: 0.9;
-            pointer-events: none;
-        }
-
-        .quick-start-step.is-active {
-            transform: translateY(-3px);
-            border-color: rgba(56, 189, 248, 0.32);
-            background: rgba(14, 165, 233, 0.1);
-            box-shadow: 0 20px 35px rgba(14, 165, 233, 0.14);
-        }
-
-        .quick-start-step.is-complete {
-            border-color: rgba(74, 222, 128, 0.36);
-            background: linear-gradient(160deg, rgba(34, 197, 94, 0.16), rgba(255, 255, 255, 0.05));
-            box-shadow: 0 18px 34px rgba(34, 197, 94, 0.12);
-        }
-
-        .quick-start-step.is-locked {
-            opacity: 0.78;
-        }
-
-        .quick-start-step.pop {
-            animation: quick-start-pop 0.7s cubic-bezier(0.22, 1, 0.36, 1);
-        }
-
-        .quick-start-step-header,
-        .quick-start-step-footer {
-            position: relative;
-            z-index: 1;
-        }
-
-        .quick-start-step-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-
-        .quick-start-step-number {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 34px;
-            height: 34px;
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.12);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            font-size: 12px;
-            font-weight: 800;
-            color: #fff;
-        }
-
-        .quick-start-step.is-complete .quick-start-step-number {
-            background: rgba(34, 197, 94, 0.18);
-            color: #86efac;
-            border-color: rgba(134, 239, 172, 0.28);
-        }
-
-        .quick-start-step.is-active .quick-start-step-number {
-            background: rgba(56, 189, 248, 0.16);
-            color: #bae6fd;
-            border-color: rgba(125, 211, 252, 0.28);
-        }
-
-        .quick-start-step-state {
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: rgba(255, 255, 255, 0.58);
-        }
-
-        .quick-start-step.is-complete .quick-start-step-state {
-            color: #86efac;
-        }
-
-        .quick-start-step.is-active .quick-start-step-state {
-            color: #7dd3fc;
-        }
-
-        .quick-start-step-title {
-            position: relative;
-            z-index: 1;
-            color: #fff;
-            font-size: 17px;
-            font-weight: 800;
-            line-height: 1.3;
-        }
-
-        .quick-start-step-body {
-            position: relative;
-            z-index: 1;
-            color: rgba(255, 255, 255, 0.68);
-            font-size: 13px;
-            line-height: 1.6;
-            font-family: 'DM Sans', sans-serif;
-            flex: 1;
-        }
-
-        .quick-start-step-meta {
-            position: relative;
-            z-index: 1;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11px;
-            font-weight: 700;
-            color: rgba(255, 255, 255, 0.6);
-        }
-
-        .quick-start-jump {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            width: 100%;
-            padding: 11px 14px;
-            border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            background: rgba(255, 255, 255, 0.08);
-            color: #fff;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            font-size: 12px;
-            font-weight: 800;
-            cursor: pointer;
-            transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
-        }
-
-        .quick-start-jump:hover {
-            transform: translateY(-1px);
-            background: rgba(255, 255, 255, 0.14);
-            border-color: rgba(255, 255, 255, 0.2);
-        }
-
-        .quick-start-jump.is-ready {
-            background: rgba(34, 197, 94, 0.16);
-            border-color: rgba(134, 239, 172, 0.3);
-            color: #dcfce7;
-        }
-
-        /* ── Platform Cards ────────────────────────────────────────────────── */
-        .platform-card {
-            background: rgba(255, 255, 255, 0.04);
-            border: 1.5px solid rgba(255, 255, 255, 0.12);
-            border-radius: 20px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-            transition: all 0.25s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .platform-card::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: 20px;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, transparent 60%);
-            pointer-events: none;
-        }
-
-        .platform-card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-        }
-
-        .platform-card.connected {
-            border-color: rgba(74, 222, 128, 0.4);
-            box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.15), 0 8px 24px rgba(74, 222, 128, 0.08);
-        }
-
-        .platform-card.connected::after {
-            content: '';
-            position: absolute;
-            width: 160px;
-            height: 160px;
-            right: -52px;
-            bottom: -86px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(74, 222, 128, 0.18), transparent 68%);
-            animation: connected-glow 4.5s ease-in-out infinite;
-            pointer-events: none;
-        }
-
-        .platform-card.disconnected {
-            opacity: 0.85;
-        }
-
-        /* ── Status Pills ──────────────────────────────────────────────────── */
-        .status-pill {
-            font-size: 10px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.07em;
-            padding: 3px 10px;
-            border-radius: 99px;
-        }
-
-        .status-pill.connected {
-            background: rgba(74, 222, 128, 0.2);
-            color: #4ade80;
-            border: 1px solid rgba(74, 222, 128, 0.3);
-        }
-
-        .status-pill.disconnected {
-            background: rgba(255, 255, 255, 0.08);
-            color: rgba(255, 255, 255, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        /* ── Action Buttons on Cards ───────────────────────────────────────── */
-        .card-action-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            font-weight: 700;
-            padding: 8px 16px;
-            border-radius: 10px;
-            border: none;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            margin-top: auto;
-            align-self: flex-start;
-        }
-
-        .card-action-btn.link {
-            background: rgba(255, 255, 255, 0.12);
-            color: #fff;
-        }
-
-        .card-action-btn.link:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .card-action-btn.disconnect {
-            background: rgba(255, 255, 255, 0.08);
-            color: rgba(255, 255, 255, 0.7);
-        }
-
-        .card-action-btn.disconnect:hover {
-            background: rgba(239, 68, 68, 0.2);
-            color: #f87171;
-        }
-
-        /* ── Toggle Switch ─────────────────────────────────────────────────── */
-        .toggle-switch {
-            width: 44px;
-            height: 24px;
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 12px;
-            position: relative;
-            cursor: pointer;
-            transition: background 0.25s;
-            flex-shrink: 0;
-        }
-
-        .toggle-switch.active {
-            background: #0ea5e9;
-        }
-
-        .toggle-switch::after {
-            content: '';
-            position: absolute;
-            top: 3px;
-            left: 3px;
-            width: 18px;
-            height: 18px;
-            background: white;
-            border-radius: 50%;
-            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        .toggle-switch.active::after {
-            transform: translateX(20px);
-        }
-
-        /* ── Setting Rows ──────────────────────────────────────────────────── */
-        .setting-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 13px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-        }
-
-        .setting-row:last-child {
-            border-bottom: none;
-        }
-
-        .setting-row-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex: 1;
-            min-width: 0;
-        }
-
-        .setting-icon {
-            width: 32px;
-            height: 32px;
-            background: rgba(255, 255, 255, 0.08);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .setting-icon img {
-            width: 18px;
-            height: 18px;
-            object-fit: contain;
-        }
-
-        /* ── Setting Select ────────────────────────────────────────────────── */
-        .setting-select {
-            appearance: none;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1.5px solid rgba(255, 255, 255, 0.15);
-            border-radius: 10px;
-            padding: 8px 32px 8px 12px;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            font-weight: 600;
-            font-size: 16px; /* Prevents iOS zoom on focus */
-            color: #fff;
-            cursor: pointer;
-            transition: border-color 0.2s, background 0.2s;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='white' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            min-width: 130px;
-            flex-shrink: 0;
-        }
-
-        .setting-select:focus {
-            outline: none;
-            border-color: rgba(14, 165, 233, 0.6);
-            background-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .setting-select option {
-            background: #1e3a8a;
-            color: #fff;
-        }
-
-        /* ── Save Indicator ────────────────────────────────────────────────── */
-        .save-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 11px;
-            font-weight: 700;
-            color: #4ade80;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-
-        .save-indicator.visible {
-            opacity: 1;
-        }
-
-        /* ── Section Label ─────────────────────────────────────────────────── */
-        .section-label {
-            font-size: 10px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: rgba(255, 255, 255, 0.45);
-            margin-bottom: 4px;
-            display: block;
-        }
-
-        /* ── Collab Rows ───────────────────────────────────────────────────── */
-        .collab-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-        }
-
-        .collab-row:last-child {
-            border-bottom: none;
-        }
-
-        .collab-avatar {
-            width: 36px;
-            height: 36px;
-            background: linear-gradient(135deg, rgba(14, 165, 233, 0.4), rgba(88, 101, 242, 0.4));
-            border: 1.5px solid rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            font-weight: 800;
-            flex-shrink: 0;
-            letter-spacing: -0.02em;
-        }
-
-        .collab-name {
-            font-size: 13px;
-            font-weight: 700;
-            color: #fff;
-            display: block;
-        }
-
-        .collab-meta {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin-top: 2px;
-        }
-
-        .badge-account {
-            font-size: 9px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            padding: 2px 7px;
-            border-radius: 99px;
-            background: rgba(14, 165, 233, 0.2);
-            color: #38bdf8;
-            border: 1px solid rgba(14, 165, 233, 0.3);
-        }
-
-        .badge-api {
-            font-size: 9px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            padding: 2px 7px;
-            border-radius: 99px;
-            background: rgba(255, 235, 59, 0.15);
-            color: #fde047;
-            border: 1px solid rgba(255, 235, 59, 0.25);
-        }
-
-        .webhook-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-
-        .webhook-dot.ok {
-            background: #4ade80;
-            box-shadow: 0 0 4px rgba(74, 222, 128, 0.6);
-        }
-
-        .webhook-dot.warn {
-            background: #facc15;
-        }
-
-        .collab-remove-btn {
-            margin-left: auto;
-            font-size: 11px;
-            font-weight: 700;
-            background: transparent;
-            border: 1.5px solid rgba(255, 255, 255, 0.12);
-            color: rgba(255, 255, 255, 0.5);
-            border-radius: 8px;
-            padding: 5px 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            flex-shrink: 0;
-        }
-
-        .collab-remove-btn:hover {
-            background: rgba(239, 68, 68, 0.15);
-            border-color: rgba(239, 68, 68, 0.4);
-            color: #f87171;
-        }
-
-        /* ── Primary Button ────────────────────────────────────────────────── */
-        .btn-primary {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: #0ea5e9;
-            color: white;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            font-weight: 700;
-            font-size: 13px;
-            padding: 10px 20px;
-            border-radius: 12px;
-            border: none;
-            cursor: pointer;
-            transition: all 0.2s;
-            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
-        }
-
-        .btn-primary:hover {
-            background: #0284c7;
-            box-shadow: 0 6px 20px rgba(14, 165, 233, 0.4);
-            transform: translateY(-1px);
-        }
-
-        .btn-primary:active:not(:disabled) {
-            transform: scale(0.97);
-            transition-duration: 0.1s;
-        }
-
-        .btn-primary:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        /* Done Setup button: full width on mobile, fit-content on desktop */
-        @media (min-width: 768px) {
-            #onboarding-done { width: fit-content; flex-shrink: 0; }
-            #done-btn { width: fit-content; }
-        }
-
-        /* Done Setup: loading & success states */
-        #done-btn { display: inline-flex; align-items: center; justify-content: center; }
-        #done-btn .done-spinner {
-            display: none;
-            width: 16px;
-            height: 16px;
-            border: 2px solid rgba(255,255,255,0.3);
-            border-top-color: white;
-            border-radius: 50%;
-            animation: done-spin 0.6s linear infinite;
-        }
-        #done-btn.is-loading .done-spinner { display: inline-block; }
-        #done-btn.is-loading .done-text { margin-left: 8px; }
-        @keyframes done-spin { to { transform: rotate(360deg); } }
-
-        #done-btn.is-success {
-            background: #22c55e;
-            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.35);
-            pointer-events: none;
-            transition: background 0.3s ease, box-shadow 0.3s ease;
-        }
-        #done-btn .done-check {
-            display: none;
-            width: 18px;
-            height: 18px;
-            stroke: white;
-            stroke-width: 2.5;
-            fill: none;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-        }
-        #done-btn.is-success .done-check { display: inline-block; }
-        #done-btn.is-success .done-text { margin-left: 6px; }
-
-        /* Done Setup: success pill (replaces button for a clean completion state) */
-        .done-success-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px 20px;
-            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-            border-radius: 9999px;
-            box-shadow: 0 4px 14px rgba(34, 197, 94, 0.35);
-            color: white;
-            font-weight: 700;
-            font-size: 0.9375rem;
-            letter-spacing: 0.02em;
-            animation: done-success-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-        }
-        .done-success-pill[hidden] { display: none !important; }
-        .done-success-check {
-            width: 20px;
-            height: 20px;
-            stroke: white;
-            stroke-width: 2.5;
-            fill: none;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-        }
-        .done-success-check path {
-            stroke-dasharray: 1;
-            stroke-dashoffset: 1;
-            animation: done-check-draw 0.5s 0.15s ease-out forwards;
-        }
-        @keyframes done-success-in {
-            from { opacity: 0; transform: scale(0.9); }
-            to { opacity: 1; transform: scale(1); }
-        }
-        @keyframes done-check-draw {
-            to { stroke-dashoffset: 0; }
-        }
-
-        /* ── Empty State ───────────────────────────────────────────────────── */
-        .empty-state {
-            text-align: center;
-            padding: 32px 16px;
-        }
-
-        .empty-state img {
-            width: 48px;
-            height: 48px;
-            object-fit: contain;
-            margin: 0 auto 12px;
-            opacity: 0.5;
-        }
-
-        /* ── Modal (Liquid Glass) ───────────────────────────────────────────── */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.4);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-            opacity: 0;
-            visibility: hidden;
-            pointer-events: none;
-            transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-                visibility 0.35s step-end;
-        }
-        .modal-overlay.modal-visible {
-            opacity: 1;
-            visibility: visible;
-            pointer-events: auto;
-            transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                visibility 0s step-start;
-        }
-        .modal-overlay .modal-box {
-            background: rgba(0, 0, 0, 0.25);
-            backdrop-filter: blur(16px) saturate(160%);
-            -webkit-backdrop-filter: blur(16px) saturate(160%);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 28px;
-            padding: 36px;
-            max-width: 420px;
-            width: calc(100% - 32px);
-            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4), inset 1px 1px 0 rgba(255, 255, 255, 0.1);
-            transform: scale(0.92) translateY(16px);
-            opacity: 0;
-            transition: transform 0.4s cubic-bezier(0.34, 1.2, 0.64, 1),
-                opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .modal-overlay.modal-visible .modal-box {
-            transform: scale(1) translateY(0);
-            opacity: 1;
-        }
-
-        .modal-box .btn-primary {
-            background: rgba(255, 255, 255, 0.2);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        }
-        .modal-box .btn-primary:hover {
-            background: rgba(255, 255, 255, 0.3);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-        }
-        .modal-box .btn-danger {
-            background: rgba(255, 255, 255, 0.2);
-        }
-        .modal-box .btn-danger:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        .modal-box h3 {
-            font-size: 20px;
-            font-weight: 800;
-            color: #fff;
-            margin: 0 0 10px;
-        }
-
-        .modal-box p {
-            font-size: 14px;
-            font-family: 'DM Sans', sans-serif;
-            color: rgba(255, 255, 255, 0.75);
-            line-height: 1.6;
-            margin: 0 0 24px;
-        }
-
-        .modal-btn-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        .btn-ghost {
-            padding: 12px;
-            border-radius: 14px;
-            border: 1.5px solid rgba(255, 255, 255, 0.12);
-            background: transparent;
-            color: #fff;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            font-weight: 700;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-ghost:hover {
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        .btn-danger {
-            padding: 12px;
-            border-radius: 14px;
-            border: none;
-            background: #0ea5e9;
-            color: #fff;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            font-weight: 700;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-danger:hover {
-            background: #0284c7;
-        }
-
-        /* ── Invite URL box ────────────────────────────────────────────────── */
-        .invite-url-box {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1.5px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            padding: 12px 14px;
-            font-family: 'DM Mono', monospace;
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.8);
-            word-break: break-all;
-            line-height: 1.5;
-            margin-bottom: 12px;
-            max-height: 80px;
-            overflow-y: auto;
-        }
-
-        /* ── Page loading ──────────────────────────────────────────────────── */
-        .page-loading-spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(255, 255, 255, 0.1);
-            border-top-color: #0ea5e9;
-            border-radius: 50%;
-            animation: page-loading-spin 0.8s linear infinite;
-        }
-
-        @keyframes page-loading-spin {
-            to {
-                transform: rotate(360deg);
+    <link rel="stylesheet" href="./dashboard-components.css">
+    <link rel="stylesheet" href="./dashboard.css">
+
+    <script>
+        (function () {
+            const storedTheme = localStorage.getItem('yucp_theme');
+            if (storedTheme === 'dark') {
+                document.documentElement.classList.add('dark');
+            }
+        })();
+
+        function toggleTheme() {
+            const isDark = document.documentElement.classList.toggle('dark');
+            localStorage.setItem('yucp_theme', isDark ? 'dark' : 'light');
+
+            const sunIcon = document.querySelector('.sun-icon');
+            const moonIcon = document.querySelector('.moon-icon');
+            if (sunIcon && moonIcon) {
+                if (isDark) {
+                    sunIcon.classList.remove('hidden');
+                    moonIcon.classList.add('hidden');
+                } else {
+                    sunIcon.classList.add('hidden');
+                    moonIcon.classList.remove('hidden');
+                }
             }
         }
 
-        /* ── Animations ─────────────────────────────────────────── */
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(16px);
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.inline-panel').forEach(panel => {
+                if (panel.parentElement && panel.parentElement !== document.body) {
+                    document.body.appendChild(panel);
+                }
+            });
+            document.addEventListener('click', (e) => {
+                const panel = e.target;
+                if ((panel.classList.contains('inline-panel') || panel.classList.contains('inline-confirm')) && panel.classList.contains('open')) {
+                    panel.classList.remove('open');
+                }
+            });
+            const isDark = document.documentElement.classList.contains('dark');
+            const sunIcon = document.querySelector('.sun-icon');
+            const moonIcon = document.querySelector('.moon-icon');
+            if (sunIcon && moonIcon) {
+                if (isDark) {
+                    sunIcon.classList.remove('hidden');
+                    moonIcon.classList.add('hidden');
+                } else {
+                    sunIcon.classList.add('hidden');
+                    moonIcon.classList.remove('hidden');
+                }
             }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .animate-in {
-            animation: fadeInUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-        }
-
-        .animate-in-delay-1 {
-            animation-delay: 0.08s;
-            opacity: 0;
-        }
-
-        .animate-in-delay-2 {
-            animation-delay: 0.16s;
-            opacity: 0;
-        }
-
-        .animate-in-delay-3 {
-            animation-delay: 0.24s;
-            opacity: 0;
-        }
-
-        .animate-in-delay-4 {
-            animation-delay: 0.32s;
-            opacity: 0;
-        }
-
-        @keyframes quick-start-float {
-            0%, 100% {
-                transform: translate3d(0, 0, 0) scale(1);
-            }
-
-            50% {
-                transform: translate3d(-10px, 14px, 0) scale(1.04);
-            }
-        }
-
-        @keyframes quick-start-pop {
-            0% {
-                transform: translateY(0) scale(1);
-            }
-
-            35% {
-                transform: translateY(-6px) scale(1.025);
-            }
-
-            100% {
-                transform: translateY(0) scale(1);
-            }
-        }
-
-        @keyframes progress-sheen {
-            0%,
-            100% {
-                transform: translateX(-100%);
-            }
-
-            50% {
-                transform: translateX(100%);
-            }
-        }
-
-        @keyframes connected-glow {
-            0%,
-            100% {
-                transform: scale(0.9);
-                opacity: 0.5;
-            }
-
-            50% {
-                transform: scale(1.08);
-                opacity: 0.95;
-            }
-        }
-
-        /* ── Flash fix ─────────────────────────────────────────────────────── */
-        #page-loading-overlay {
-            transition: opacity 0.35s ease;
-        }
-
-        #page-loading-overlay.is-hiding {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        #page-content {
-            opacity: 0;
-            transition: opacity 0.3s ease 0.05s;
-        }
-
-        #page-content.is-visible {
-            opacity: 1;
-        }
-
-        @media (min-width: 640px) {
-            .quick-start-step-grid {
-                grid-template-columns: 1fr 1fr;
-            }
-        }
-
-        @media (min-width: 1024px) {
-            .quick-start-step-grid {
-                grid-template-columns: repeat(3, minmax(0, 1fr));
-            }
-        }
-
-        @media (max-width: 639px) {
-            .section-card {
-                border-radius: 20px;
-            }
-            .modal-box {
-                padding: 24px;
-                border-radius: 20px;
-            }
-            .quick-start-step {
-                min-height: auto;
-            }
-            .collab-row {
-                flex-wrap: wrap;
-            }
-            .setting-row {
-                flex-wrap: wrap;
-                gap: 8px;
-            }
-            .setting-select {
-                min-width: 0;
-                width: 100%;
-            }
-        }
-    </style>
+        });
+    </script>
 
     <link rel="stylesheet" href="/assets/site/site.css">
     <script type="module" src="/assets/site/site.js"></script>
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "three": "https://esm.sh/three@0.160.0",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.12?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=three@0.160.0,react@18.2.0,react-dom@18.2.0,@react-three/fiber@8.15.12"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 
-<body class="pb-16 sm:pb-32">
+<body>
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 sm:px-6"
         style="background-color: var(--bg-color);">
-        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8" />
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant"
+            class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4 text-sm font-semibold" style="color: rgba(255,255,255,0.6);">Loading your dashboard...</p>
     </div>
 
-    <div id="page-content" style="display: none;">
+    <div id="page-content" style="display: none;" class="app-shell">
 
-        <!-- Background canvas -->
-        <div id="bg-canvas-root"
-            style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
+        <!-- Mobile sidebar overlay -->
+        <div id="sidebar-overlay" class="sidebar-overlay" aria-hidden="true" onclick="toggleSidebar()"></div>
+
+        <!-- Server dropdown backdrop (blurs whole page when dropdown open) -->
+        <div id="server-dropdown-backdrop" class="server-dropdown-backdrop" aria-hidden="true"></div>
+
+        <!-- Blob Background -->
+        <div class="blobs-container">
+            <div class="blob"></div>
+            <div class="blob"></div>
+            <div class="blob"></div>
+            <div class="blob"></div>
+            <div class="blob"></div>
         </div>
 
-        <main class="max-w-5xl mx-auto px-4 sm:px-6 mt-6 sm:mt-12 pb-12">
+        <!-- Clouds (same as docs) -->
+        <div id="bg-canvas-root" class="w-full"></div>
+        <div id="fg-canvas-root" class="w-full"></div>
+
+        <!-- Sidebar (liquid glass) -->
+        <aside id="sidebar" class="sidebar" aria-label="Main navigation">
+            <div class="sidebar-logo-area">
+                <div class="sidebar-brand">
+                    <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant Logo" class="sidebar-logo-img">
+                </div>
+                <div class="sidebar-server-pill" id="sidebar-server-selector">
+                    <div class="sidebar-server-info">
+                        <div class="sidebar-server-icon" id="sidebar-selected-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M6 9l6 6 6-6" />
+                            </svg>
+                        </div>
+                        <span class="sidebar-server-name text-white" id="sidebar-selected-name">Select Server</span>
+                    </div>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)"
+                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sidebar-server-chevron">
+                        <path d="M6 9l6 6 6-6" />
+                    </svg>
+
+                    <!-- Dynamic Dropdown Menu -->
+                    <div class="server-dropdown-menu" id="server-dropdown-menu">
+                        <div class="server-dropdown-search">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <input type="text" id="server-search-input" placeholder="Search servers..."
+                                autocomplete="off">
+                        </div>
+                        <div class="server-dropdown-list" id="server-dropdown-list">
+                            <!-- Populated via JS -->
+                            <div class="server-dropdown-loading">Loading servers...</div>
+                        </div>
+                        <div class="server-dropdown-footer">
+                            <button type="button" class="server-dropdown-action-btn" id="btn-personal-dashboard">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                                </svg>
+                                Personal Dashboard
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-scroll">
+                <nav class="sidebar-nav" aria-label="Dashboard sections">
+
+                    <!-- Global Config Sidebar -->
+                    <div class="personal-only">
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Global Config</span>
+                            <button class="sidebar-nav-btn is-active" data-tab="setup" aria-controls="tab-panel-setup"
+                                role="tab" aria-selected="true">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path
+                                        d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                </svg>
+                                Setup
+                            </button>
+                        </div>
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Developer</span>
+                            <button class="sidebar-nav-btn" data-tab="integrations"
+                                aria-controls="tab-panel-integrations" role="tab" aria-selected="false">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" />
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                </svg>
+                                Developer Integrations
+                            </button>
+                        </div>
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Collaboration</span>
+                            <button class="sidebar-nav-btn" data-tab="collaboration"
+                                aria-controls="tab-panel-collaboration" role="tab" aria-selected="false">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                </svg>
+                                Collaborating Creators
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Server Config Sidebar -->
+                    <div class="server-only">
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Configuration</span>
+                            <button class="sidebar-nav-btn is-active" data-tab="setup" aria-controls="tab-panel-setup"
+                                role="tab" aria-selected="true">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                    <path
+                                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                                    </path>
+                                </svg>
+                                General Settings
+                            </button>
+                        </div>
+                        <div class="sidebar-nav-group">
+                            <span class="sidebar-nav-label">Moderation</span>
+                            <button class="sidebar-nav-btn" data-tab="server-rules"
+                                aria-controls="tab-panel-server-rules" role="tab" aria-selected="false">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                </svg>
+                                Server Rules
+                            </button>
+                            <button class="sidebar-nav-btn" data-tab="audit-logs" aria-controls="tab-panel-audit-logs"
+                                role="tab" aria-selected="false">
+                                <svg class="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                    <polyline points="10 9 9 9 8 9"></polyline>
+                                </svg>
+                                Audit Logs
+                            </button>
+                        </div>
+                    </div>
+
+                </nav>
+            </div>
+
+            <div class="sidebar-footer">
+            </div>
+        </aside>
+
+        <main class="content-area">
 
             <!-- Holographic Stickers -->
-            <div id="holo-world-0" class="absolute top-10 right-20 w-28 opacity-70 sticker pointer-events-auto z-0 h-28 hidden sm:block"
+            <div id="holo-world-0"
+                class="absolute top-10 right-20 w-28 opacity-70 sticker pointer-events-auto z-0 h-28 hidden sm:block"
                 style="animation-delay: -1s;"></div>
             <div id="holo-gumorad-1"
                 class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24 hidden sm:block"
@@ -1137,1209 +271,940 @@
                 class="absolute top-1/2 right-10 w-20 opacity-50 sticker pointer-events-auto z-0 h-20 hidden md:block"
                 style="animation-delay: -2s;"></div>
 
-            <!-- Header -->
-            <header class="mb-8 sm:mb-10 animate-in relative z-10">
+            <!-- Header (F-pattern: most important top-left) -->
+            <header class="content-area-header animate-in relative z-10">
                 <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                    <div class="relative">
-                        <img src="__API_BASE__/Icons/Assistant.png"
-                            class="absolute -top-10 -left-12 w-16 sticker pointer-events-none hidden md:block" alt="">
-                        <div
-                            class="inline-block px-4 py-1 bg-white/15 text-white rounded-full text-[10px] font-black uppercase tracking-widest mb-4 backdrop-blur-md border border-white/25">
-                            Server Dashboard
-                        </div>
-                        <h1
-                            class="text-3xl sm:text-4xl lg:text-5xl tracking-tight mb-2 font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-blue-200">
-                            Setup Dashboard
-                        </h1>
-                        <p class="text-white/80 font-medium text-base max-w-md"
-                            style="font-family: 'DM Sans', sans-serif;">
-                            Connect your storefronts, verify webhooks, and tune server behavior without bouncing between separate setup pages.
-                        </p>
-                    </div>
-                    <div id="onboarding-done" class="hidden w-full md:w-fit md:flex-shrink-0">
-                        <button id="done-btn" class="btn-primary text-base px-8 py-3 rounded-2xl shadow-xl w-full md:w-fit" type="button">
-                            <span class="done-spinner" aria-hidden="true"></span>
-                            <svg class="done-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
-                            <span class="done-text">Done Setup</span>
+                    <div class="flex items-start gap-3 w-full md:w-auto">
+                        <button id="sidebar-toggle" type="button" class="sidebar-toggle-btn" aria-label="Open menu"
+                            onclick="toggleSidebar()">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 12h18M3 6h18M3 18h18" />
+                            </svg>
                         </button>
-                        <div id="done-success-pill" class="done-success-pill" aria-live="polite" hidden>
-                            <svg class="done-success-check" viewBox="0 0 24 24"><path pathLength="1" d="M5 13l4 4L19 7"/></svg>
-                            <span class="done-success-text">Setup complete</span>
+                        <div class="relative flex-1 min-w-0">
+                            <div class="content-header-eyebrow">
+                                Server Dashboard
+                            </div>
+                            <h1 class="content-header-title">
+                                Dashboard
+                            </h1>
+                            <p class="content-header-desc" style="font-family: 'DM Sans', sans-serif;">
+                                Connect your storefronts, verify webhooks, and tune server behavior without bouncing
+                                between
+                                separate setup pages.
+                            </p>
                         </div>
-                        <p id="status-text" class="text-center text-xs mt-2 font-bold"></p>
                     </div>
-                </div>
+                    <div
+                        class="content-header-actions flex items-center justify-end gap-3 w-full md:w-auto mt-4 md:mt-0">
+                        <button id="theme-toggle" type="button" class="btn-ghost !px-3 !py-2 !rounded-xl"
+                            aria-label="Toggle Dark Mode" onclick="toggleTheme()" title="Toggle Dark Mode">
+                            <svg class="sun-icon hidden" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="5"></circle>
+                                <line x1="12" y1="1" x2="12" y2="3"></line>
+                                <line x1="12" y1="21" x2="12" y2="23"></line>
+                                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                                <line x1="1" y1="12" x2="3" y2="12"></line>
+                                <line x1="21" y1="12" x2="23" y2="12"></line>
+                                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                            </svg>
+                            <svg class="moon-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                            </svg>
+                        </button>
+                    </div>
             </header>
 
-            <div class="space-y-6">
+            <div id="tab-panel-setup" class="dashboard-tab-panel is-active" role="tabpanel"
+                aria-labelledby="tab-btn-setup">
+                <div class="bento-grid">
 
-                <section id="quick-start-card" class="section-card quick-start-card p-4 sm:p-5 md:p-6 animate-in animate-in-delay-1">
-                    <div class="quick-start-shell">
-                        <div class="quick-start-topline">
-                            <div id="quick-start-pill" class="quick-start-progress-pill">Setup Flow</div>
-                            <button id="quick-start-dismiss" class="quick-start-dismiss" type="button" aria-label="Dismiss quick start">
-                                ×
-                            </button>
-                        </div>
-                        <div class="quick-start-heading">
-                            <div>
-                                <span class="section-label">Quick Start</span>
-                                <h2 id="quick-start-title" class="text-xl font-black text-white mb-2">Finish setup from this page</h2>
-                            </div>
-                            <p id="quick-start-summary" class="quick-start-summary">
-                                Link Gumroad® or Jinxxy™ below, review your verification settings, then click <strong class="text-white">Done Setup</strong> when everything looks right.
-                            </p>
-                            <div class="quick-start-progress-rail">
-                                <div id="quick-start-progress-fill" class="quick-start-progress-fill"></div>
-                            </div>
-                        </div>
-                        <div id="quick-start-steps" class="quick-start-step-grid"></div>
-                    </div>
-                </section>
 
-                <!-- ── Connected Platforms ────────────────────────────────────────── -->
-                <section class="section-card p-4 sm:p-5 md:p-7 animate-in animate-in-delay-2">
-                    <div class="flex items-center gap-3 mb-6">
-                        <div class="w-8 h-8 rounded-xl flex items-center justify-center"
-                            style="background: rgba(255,235,59,0.15);">
-                            <img src="__API_BASE__/Icons/Link.png" class="w-4 h-4 object-contain" alt="">
-                        </div>
-                        <h2 class="text-lg font-black">Connected Platforms</h2>
-                    </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="platforms-grid">
-
-                        <!-- Discord® (always connected) -->
-                        <div class="platform-card connected">
-                            <div class="flex items-start justify-between">
-                                <div
-                                    class="w-10 h-10 bg-[#5865F2] rounded-xl flex items-center justify-center overflow-hidden">
-                                    <img src="__API_BASE__/Icons/Discord.png" class="w-6 h-6 object-contain"
-                                        alt="Discord®">
-                                </div>
-                                <span class="status-pill connected">Connected</span>
-                            </div>
-                            <div>
-                                <h3 class="font-bold text-base mb-0.5">Discord®</h3>
-                                <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Bot access
-                                    active</p>
-                            </div>
-                        </div>
-
-                        <!-- Gumroad® -->
-                        <div id="gumroad-card" class="platform-card disconnected">
-                            <div class="flex items-start justify-between">
-                                <div
-                                    class="w-10 h-10 bg-black rounded-xl flex items-center justify-center overflow-hidden">
-                                    <img class="w-6 h-6 rounded object-cover"
-                                        src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
-                                        alt="Gumroad®">
-                                </div>
-                                <span id="gumroad-status" class="status-pill disconnected">Not Linked</span>
-                            </div>
-                            <div>
-                                <h3 class="font-bold text-base mb-0.5">Gumroad®</h3>
-                                <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import sales
-                                    &amp; buyers</p>
-                            </div>
-                            <button id="gumroad-btn" class="card-action-btn link" onclick="navigateGumroad()">
-                                Link Account
-                            </button>
-                        </div>
-
-                        <!-- Jinxxy™ -->
-                        <div id="jinxxy-card" class="platform-card disconnected">
-                            <div class="flex items-start justify-between">
-                                <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center"
-                                    style="background:#9146FF;">
-                                    <img class="w-6 h-6 rounded object-cover"
-                                        src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
-                                        alt="Jinxxy™">
-                                </div>
-                                <span id="jinxxy-status" class="status-pill disconnected">Not Linked</span>
-                            </div>
-                            <div>
-                                <h3 class="font-bold text-base mb-0.5">Jinxxy™</h3>
-                                <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import sales
-                                    &amp; buyers</p>
-                            </div>
-                            <button id="jinxxy-btn" class="card-action-btn link" onclick="navigateJinxxy()">
-                                Link Account
-                            </button>
-                        </div>
-
-                    </div>
-                </section>
-
-                <!-- ── Server Settings ─────────────────────────────────────────────── -->
-                <section class="section-card p-4 sm:p-5 md:p-7 animate-in animate-in-delay-3">
-                    <div class="flex items-center gap-3 mb-1">
-                        <div class="w-8 h-8 rounded-xl flex items-center justify-center"
-                            style="background: rgba(88,101,242,0.2);">
-                            <img src="__API_BASE__/Icons/Wrench.png" class="w-4 h-4 object-contain" alt="">
-                        </div>
-                        <h2 class="text-lg font-black">Server Settings</h2>
-                        <span id="save-indicator" class="save-indicator ml-2">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3"
-                                viewBox="0 0 24 24">
-                                <path d="M5 13l4 4L19 7" />
-                            </svg>
-                            Saved
-                        </span>
-                    </div>
-                    <p class="text-xs text-white/50 font-medium mb-7 ml-11" style="font-family:'DM Sans',sans-serif;">
-                        Configure how verification and security work for your server.
-                    </p>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-10">
-                        <!-- Left: Toggles -->
-                        <div>
-                            <span class="section-label">Verification</span>
-                            <div class="mt-3">
-                                <div class="setting-row">
-                                    <div class="setting-row-left">
-                                        <div class="setting-icon">
-                                            <img src="__API_BASE__/Icons/World.png" alt="">
-                                        </div>
-                                        <div>
-                                            <span class="font-bold text-sm text-white block">Allow Mismatched
-                                                Emails</span>
-                                            <span class="text-xs text-white/55"
-                                                style="font-family:'DM Sans',sans-serif;">Verify with a different email
-                                                than Discord®.</span>
-                                        </div>
-                                    </div>
-                                    <div id="toggle-allowMismatchedEmails" class="toggle-switch"
-                                        onclick="toggleSetting('allowMismatchedEmails')"></div>
-                                </div>
-
-                                <div class="setting-row">
-                                    <div class="setting-row-left">
-                                        <div class="setting-icon">
-                                            <img src="__API_BASE__/Icons/Refresh.png" alt="">
-                                        </div>
-                                        <div>
-                                            <span class="font-bold text-sm text-white block">Auto-Verify on Join</span>
-                                            <span class="text-xs text-white/55"
-                                                style="font-family:'DM Sans',sans-serif;">Automatically verify members
-                                                when they join.</span>
-                                        </div>
-                                    </div>
-                                    <div id="toggle-autoVerifyOnJoin" class="toggle-switch"
-                                        onclick="toggleSetting('autoVerifyOnJoin')"></div>
-                                </div>
-
-                                <div class="setting-row">
-                                    <div class="setting-row-left">
-                                        <div class="setting-icon">
-                                            <img src="__API_BASE__/Icons/Link.png" alt="">
-                                        </div>
-                                        <div>
-                                            <span class="font-bold text-sm text-white block">Share Across Servers</span>
-                                            <span class="text-xs text-white/55"
-                                                style="font-family:'DM Sans',sans-serif;">Allow verification to carry
-                                                over between servers.</span>
-                                        </div>
-                                    </div>
-                                    <div id="toggle-shareVerificationWithServers" class="toggle-switch"
-                                        onclick="toggleSetting('shareVerificationWithServers')"></div>
-                                </div>
-
-                                <div class="setting-row">
-                                    <div class="setting-row-left">
-                                        <div class="setting-icon">
-                                            <img src="__API_BASE__/Icons/PersonKey.png" alt="">
-                                        </div>
-                                        <div>
-                                            <span class="font-bold text-sm text-white block">Cross-Server Role
-                                                Checks</span>
-                                            <span class="text-xs text-white/55"
-                                                style="font-family:'DM Sans',sans-serif;">Check roles from other Discord®
-                                                servers.</span>
-                                        </div>
-                                    </div>
-                                    <div id="toggle-enableDiscordRoleFromOtherServers" class="toggle-switch"
-                                        onclick="toggleSetting('enableDiscordRoleFromOtherServers')"></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Right: Selects -->
-                        <div class="mt-7 md:mt-0">
-                            <span class="section-label">Security &amp; Behavior</span>
-                            <div class="mt-3">
-                                <div class="setting-row">
-                                    <div class="setting-row-left">
-                                        <div class="setting-icon">
-                                            <img src="__API_BASE__/Icons/Key.png" alt="">
-                                        </div>
-                                        <div>
-                                            <span class="font-bold text-sm text-white block">Verification Scope</span>
-                                            <span class="text-xs text-white/55"
-                                                style="font-family:'DM Sans',sans-serif;">How verifications are scoped
-                                                for buyers.</span>
-                                        </div>
-                                    </div>
-                                    <select id="select-verificationScope" class="setting-select"
-                                        onchange="selectSetting('verificationScope', this.value)">
-                                        <option value="account">Account</option>
-                                        <option value="license">License</option>
-                                    </select>
-                                </div>
-
-                                <div class="setting-row">
-                                    <div class="setting-row-left">
-                                        <div class="setting-icon">
-                                            <img src="__API_BASE__/Icons/ClapStars.png" alt="">
-                                        </div>
-                                        <div>
-                                            <span class="font-bold text-sm text-white block">Duplicate
-                                                Verifications</span>
-                                            <span class="text-xs text-white/55"
-                                                style="font-family:'DM Sans',sans-serif;">What happens when a user
-                                                verifies twice.</span>
-                                        </div>
-                                    </div>
-                                    <select id="select-duplicateVerificationBehavior" class="setting-select"
-                                        onchange="selectSetting('duplicateVerificationBehavior', this.value)">
-                                        <option value="allow">Allow</option>
-                                        <option value="notify">Notify</option>
-                                        <option value="block">Block</option>
-                                    </select>
-                                </div>
-
-                                <div class="setting-row">
-                                    <div class="setting-row-left">
-                                        <div class="setting-icon">
-                                            <img src="__API_BASE__/Icons/X.png" alt="">
-                                        </div>
-                                        <div>
-                                            <span class="font-bold text-sm text-white block">Suspicious Accounts</span>
-                                            <span class="text-xs text-white/55"
-                                                style="font-family:'DM Sans',sans-serif;">How to handle potentially
-                                                fraudulent accounts.</span>
-                                        </div>
-                                    </div>
-                                    <select id="select-suspiciousAccountBehavior" class="setting-select"
-                                        onchange="selectSetting('suspiciousAccountBehavior', this.value)">
-                                        <option value="notify">Notify</option>
-                                        <option value="quarantine">Quarantine</option>
-                                        <option value="revoke">Revoke</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- ── Collaborating Creators ──────────────────────────────────────── -->
-                <section class="section-card p-4 sm:p-5 md:p-7 animate-in animate-in-delay-4" id="collab-section">
-                    <div class="flex items-center justify-between mb-1">
-                        <div class="flex items-center gap-3">
+                    <section id="collab-servers-section"
+                        class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1 personal-only"
+                        style="margin-bottom: 24px;">
+                        <div class="flex items-center gap-3 mb-6">
                             <div class="w-8 h-8 rounded-xl flex items-center justify-center"
-                                style="background: rgba(145,70,255,0.2);">
-                                <img src="__API_BASE__/Icons/CreditCard.png" class="w-4 h-4 object-contain" alt="">
+                                style="background: rgba(14, 165, 233, 0.15);">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-sky)"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                    <circle cx="9" cy="7" r="4"></circle>
+                                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                                </svg>
                             </div>
-                            <h2 class="text-lg font-black">Collaborating Creators</h2>
+                            <h2 class="text-lg font-black" style="margin:0;">Participating Servers</h2>
                         </div>
-                        <button id="invite-btn" class="btn-primary" onclick="generateCollabInvite()"
-                            style="font-size:12px;padding:8px 16px;" id="invite-btn">
-                            <img src="__API_BASE__/Icons/Link.png" class="w-3.5 h-3.5 object-contain" alt="">
-                            Invite a Creator
-                        </button>
+                        <p class="text-sm text-white/70 mb-4" style="font-family: 'DM Sans', sans-serif;">
+                            These are the servers you collaborate on. Use the dropdown in the sidebar to configure
+                            specific server settings.
+                        </p>
+                        <!-- To be populated dynamically or via existing logic -->
+                    </section>
+
+                    <!-- Connected Platforms -->
+                    <section id="connected-platforms-section"
+                        class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-2 personal-only">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="w-8 h-8 rounded-xl flex items-center justify-center"
+                                style="background: rgba(255,235,59,0.15);">
+                                <img src="__API_BASE__/Icons/Link.png" class="w-4 h-4 object-contain" alt="">
+                            </div>
+                            <h2 class="text-lg font-black">Connected Platforms</h2>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="platforms-grid">
+
+                            <!-- Discord® (always connected) -->
+                            <div class="platform-card connected">
+                                <div class="flex items-start justify-between">
+                                    <div
+                                        class="w-10 h-10 bg-[#5865F2] rounded-xl flex items-center justify-center overflow-hidden">
+                                        <img src="__API_BASE__/Icons/Discord.png" class="w-6 h-6 object-contain"
+                                            alt="Discord®">
+                                    </div>
+                                    <span class="status-pill connected">Connected</span>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-base mb-0.5">Discord®</h3>
+                                    <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Bot
+                                        access
+                                        active</p>
+                                </div>
+                            </div>
+
+                            <!-- Gumroad® -->
+                            <div id="gumroad-card" class="platform-card disconnected">
+                                <div class="flex items-start justify-between">
+                                    <div
+                                        class="w-10 h-10 bg-black rounded-xl flex items-center justify-center overflow-hidden">
+                                        <img class="w-6 h-6 rounded object-cover"
+                                            src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
+                                            alt="Gumroad®">
+                                    </div>
+                                    <span id="gumroad-status" class="status-pill disconnected">Not Linked</span>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-base mb-0.5">Gumroad®</h3>
+                                    <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import
+                                        sales
+                                        &amp; buyers</p>
+                                </div>
+                                <button id="gumroad-btn" class="card-action-btn link" onclick="navigateGumroad()">
+                                    Link Account
+                                </button>
+                                <!-- Inline disconnect confirm -->
+                                <div class="inline-confirm" id="gumroad-disconnect-confirm">
+                                    <div>
+                                        <div class="inline-confirm-body">
+                                            <span class="inline-confirm-label">Disconnect <strong>Gumroad®</strong>?
+                                                This
+                                                removes all syncing.</span>
+                                            <div class="inline-confirm-btns">
+                                                <button class="inline-cancel-btn"
+                                                    onclick="cancelDisconnect('gumroad')">Cancel</button>
+                                                <button class="inline-danger-btn" id="gumroad-confirm-btn"
+                                                    onclick="confirmDisconnect('gumroad')">Disconnect</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Jinxxy™ -->
+                            <div id="jinxxy-card" class="platform-card disconnected">
+                                <div class="flex items-start justify-between">
+                                    <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center"
+                                        style="background:#9146FF;">
+                                        <img class="w-6 h-6 rounded object-cover"
+                                            src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
+                                            alt="Jinxxy™">
+                                    </div>
+                                    <span id="jinxxy-status" class="status-pill disconnected">Not Linked</span>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-base mb-0.5">Jinxxy™</h3>
+                                    <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import
+                                        sales
+                                        &amp; buyers</p>
+                                </div>
+                                <button id="jinxxy-btn" class="card-action-btn link" onclick="navigateJinxxy()">
+                                    Link Account
+                                </button>
+                                <!-- Inline disconnect confirm -->
+                                <div class="inline-confirm" id="jinxxy-disconnect-confirm">
+                                    <div>
+                                        <div class="inline-confirm-body">
+                                            <span class="inline-confirm-label">Disconnect <strong>Jinxxy™</strong>? This
+                                                removes all syncing.</span>
+                                            <div class="inline-confirm-btns">
+                                                <button class="inline-cancel-btn"
+                                                    onclick="cancelDisconnect('jinxxy')">Cancel</button>
+                                                <button class="inline-danger-btn" id="jinxxy-confirm-btn"
+                                                    onclick="confirmDisconnect('jinxxy')">Disconnect</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- Server Config (tile grid, built from scratch) -->
+                    <div id="server-settings-card"
+                        class="svr-cfg bento-col-12 animate-in animate-in-delay-3 server-only">
+                        <div id="session-locked-banner" class="session-locked-banner" role="alert" hidden>
+                            <svg class="session-locked-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                            <span>Settings require a secure setup link from Discord. Run
+                                <code>/creator-admin setup start</code> to get a new link.</span>
+                        </div>
+                        <div class="svr-cfg-bar">
+                            <h2 class="svr-cfg-title">Server Config</h2>
+                        </div>
+
+                        <div class="settings-subsection" id="server-store-integrations-section">
+                            <div class="settings-subsection-title">Store Integrations</div>
+                            <div class="settings-subsection-body">
+                                <article class="svr-cfg-tile" id="server-tile-gumroad" style="display: none;">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img
+                                                src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
+                                                alt="" style="border-radius:4px;">
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Enable Gumroad® for this Server</span>
+                                            <span class="svr-cfg-tile-hint">Allow users to verify Gumroad purchases in
+                                                this Discord server.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <div id="toggle-serverEnableGumroad" class="svr-cfg-switch active" role="switch"
+                                            onclick="this.classList.toggle('active')" aria-label="Enable Gumroad"></div>
+                                    </div>
+                                </article>
+                                <article class="svr-cfg-tile" id="server-tile-jinxxy" style="display: none;">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img
+                                                src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
+                                                alt="" style="border-radius:4px;">
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Enable Jinxxy™ for this Server</span>
+                                            <span class="svr-cfg-tile-hint">Allow users to verify Jinxxy purchases in
+                                                this Discord server.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <div id="toggle-serverEnableJinxxy" class="svr-cfg-switch active" role="switch"
+                                            onclick="this.classList.toggle('active')" aria-label="Enable Jinxxy"></div>
+                                    </div>
+                                </article>
+                                <div id="server-integrations-empty"
+                                    class="p-4 bg-white/5 border border-white/10 rounded-xl text-center text-sm text-[rgba(255,255,255,0.6)]">
+                                    No global store platforms linked yet. Link them in your Personal Dashboard first.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-subsection">
+                            <div class="settings-subsection-title">General</div>
+                            <div class="settings-subsection-body">
+                                <article class="svr-cfg-tile">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img src="__API_BASE__/Icons/World.png" alt="">
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Allow Mismatched Emails</span>
+                                            <span class="svr-cfg-tile-hint">Verify with a different email than
+                                                Discord®.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <div id="toggle-allowMismatchedEmails" class="svr-cfg-switch" role="switch"
+                                            onclick="toggleSetting('allowMismatchedEmails')"
+                                            aria-label="Allow Mismatched Emails"></div>
+                                        <span class="save-indicator tile-save-indicator" data-for="allowMismatchedEmails" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="allowMismatchedEmails" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
+                                    </div>
+                                </article>
+                                <article class="svr-cfg-tile">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img src="__API_BASE__/Icons/Refresh.png" alt="">
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Auto-Verify on Join</span>
+                                            <span class="svr-cfg-tile-hint">Automatically verify members when they join
+                                                the
+                                                server.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <div id="toggle-autoVerifyOnJoin" class="svr-cfg-switch" role="switch"
+                                            onclick="toggleSetting('autoVerifyOnJoin')"
+                                            aria-label="Auto-Verify on Join"></div>
+                                        <span class="save-indicator tile-save-indicator" data-for="autoVerifyOnJoin" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="autoVerifyOnJoin" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
+                                    </div>
+                                </article>
+                                <article class="svr-cfg-tile">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img src="__API_BASE__/Icons/Link.png" alt="">
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Share Across Servers</span>
+                                            <span class="svr-cfg-tile-hint">Same Discord account, different servers
+                                                Ã¢â‚¬â€
+                                                verification carries over.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <div id="toggle-shareVerificationWithServers" class="svr-cfg-switch"
+                                            role="switch" onclick="toggleSetting('shareVerificationWithServers')"
+                                            aria-label="Share Across Servers"></div>
+                                        <span class="save-indicator tile-save-indicator" data-for="shareVerificationWithServers" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="shareVerificationWithServers" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
+                                    </div>
+                                </article>
+                                <article class="svr-cfg-tile">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img src="__API_BASE__/Icons/PersonKey.png"
+                                                alt=""></div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Cross-Server Role Checks</span>
+                                            <span class="svr-cfg-tile-hint">Check roles from servers the user is
+                                                in.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <div id="toggle-enableDiscordRoleFromOtherServers" class="svr-cfg-switch"
+                                            role="switch" onclick="toggleSetting('enableDiscordRoleFromOtherServers')"
+                                            aria-label="Cross-Server Role Checks"></div>
+                                        <span class="save-indicator tile-save-indicator" data-for="enableDiscordRoleFromOtherServers" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="enableDiscordRoleFromOtherServers" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
+                                    </div>
+                                </article>
+                                <article class="svr-cfg-tile">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img src="__API_BASE__/Icons/Key.png" alt="">
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Verification Scope</span>
+                                            <span class="svr-cfg-tile-hint">How verifications are scoped for
+                                                buyers.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <select id="select-verificationScope" class="svr-cfg-pick"
+                                            onchange="selectSetting('verificationScope', this.value)">
+                                            <option value="account">Account</option>
+                                            <option value="license">License</option>
+                                        </select>
+                                        <span class="save-indicator tile-save-indicator" data-for="verificationScope" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="verificationScope" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
+                                    </div>
+                                </article>
+                                <article class="svr-cfg-tile">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img src="__API_BASE__/Icons/ClapStars.png"
+                                                alt=""></div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Duplicate Verifications</span>
+                                            <span class="svr-cfg-tile-hint">What happens when a user verifies
+                                                twice.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <select id="select-duplicateVerificationBehavior" class="svr-cfg-pick"
+                                            onchange="selectSetting('duplicateVerificationBehavior', this.value)">
+                                            <option value="allow">Allow</option>
+                                            <option value="notify">Notify</option>
+                                            <option value="block">Block</option>
+                                        </select>
+                                        <span class="save-indicator tile-save-indicator" data-for="duplicateVerificationBehavior" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="duplicateVerificationBehavior" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
+                                    </div>
+                                </article>
+                                <article class="svr-cfg-tile">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"><img src="__API_BASE__/Icons/X.png" alt=""></div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Suspicious Accounts</span>
+                                            <span class="svr-cfg-tile-hint">How to handle potentially fraudulent
+                                                accounts.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <select id="select-suspiciousAccountBehavior" class="svr-cfg-pick"
+                                            onchange="selectSetting('suspiciousAccountBehavior', this.value)">
+                                            <option value="notify">Notify</option>
+                                            <option value="quarantine">Quarantine</option>
+                                            <option value="revoke">Revoke</option>
+                                        </select>
+                                        <span class="save-indicator tile-save-indicator" data-for="suspiciousAccountBehavior" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="suspiciousAccountBehavior" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
+                                    </div>
+                                </article>
+                            </div>
+                        </div>
+
+                        <!-- Danger Zone -->
+                        <div class="settings-subsection" style="margin-top: 16px;">
+                            <div class="settings-subsection-title" style="color: #ef4444;">Danger Zone</div>
+                            <div class="settings-subsection-body">
+                                <article class="svr-cfg-tile" style="border: 1px solid rgba(239,68,68,0.15);">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"
+                                            style="background: rgba(239,68,68,0.15); color: #ef4444;">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                stroke-linejoin="round">
+                                                <polyline points="3 6 5 6 21 6" />
+                                                <path
+                                                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                            </svg>
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Disconnect Server</span>
+                                            <span class="svr-cfg-tile-hint">Permanently remove this server and delete
+                                                all verification data.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <button id="server-disconnect-btn" type="button"
+                                            class="card-action-btn disconnect" style="
+                                            background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444;
+                                            padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer;
+                                            font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s; white-space: nowrap;
+                                        ">Disconnect</button>
+                                    </div>
+                                </article>
+                                <!-- 3-step disconnect confirmation area -->
+                                <div id="server-disconnect-steps" style="display:none;"></div>
+                            </div>
+                        </div>
+
                     </div>
-                    <p class="text-xs text-white/50 font-medium mb-6 ml-11" style="font-family:'DM Sans',sans-serif;">
-                        Allow members to verify licenses from other creators' stores.
-                    </p>
-
-                    <!-- Collab list -->
-                    <div id="collab-list"></div>
-
-                    <!-- Empty state -->
-                    <div id="collab-empty" class="empty-state hidden">
-                        <img src="__API_BASE__/Icons/World.png" alt="">
-                        <p class="text-sm text-white/50 font-semibold" style="font-family:'DM Sans',sans-serif;">No
-                            collaborators yet.<br>Invite a creator to share license verification.</p>
-                    </div>
-
-                    <!-- Loading state -->
-                    <div id="collab-loading" class="text-center py-8">
-                        <div class="inline-block w-5 h-5 border-2 border-white/20 border-t-sky-400 rounded-full"
-                            style="animation: page-loading-spin 0.8s linear infinite;"></div>
-                    </div>
-                </section>
-
+                </div>
             </div>
+
+                <div id="tab-panel-integrations" class="dashboard-tab-panel" role="tabpanel"
+                    aria-labelledby="tab-btn-integrations">
+                    <div class="bento-grid integrations-grid">
+
+                        <!-- OAuth Apps -->
+                        <section class="intg-card bento-col-6 animate-in animate-in-delay-5" id="oauth-apps-section">
+                            <div class="intg-header">
+                                <div class="intg-title-row">
+                                    <div class="intg-icon">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <rect x="3" y="11" width="18" height="11" rx="2" />
+                                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                        </svg>
+                                    </div>
+                                    <h2 class="intg-title">OAuth Applications</h2>
+                                </div>
+                                <button id="create-oauth-app-btn" class="intg-add-btn"
+                                    onclick="openCreateOAuthAppPanel()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    Add app
+                                </button>
+                            </div>
+                            <p class="intg-desc">
+                                Register apps that use the OAuth 2.0 flow to access user verification data on their
+                                behalf.
+                            </p>
+
+                            <!-- Inline create OAuth app form -->
+                            <div class="inline-panel" id="create-oauth-app-panel">
+                                <div class="inline-panel-inner">
+                                    <div class="inline-panel-body">
+                                        <div
+                                            style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                                            <p class="inline-panel-title" style="margin:0;">Register OAuth app</p>
+                                            <button onclick="closeCreateOAuthAppPanel()"
+                                                class="panel-close-btn">×</button>
+                                        </div>
+                                        <div class="modal-field">
+                                            <label class="modal-label" for="oauth-app-name">App name</label>
+                                            <input type="text" id="oauth-app-name" class="modal-input"
+                                                placeholder="e.g. My Verification Bot" maxlength="64"
+                                                autocomplete="off">
+                                        </div>
+                                        <div class="modal-field">
+                                            <label class="modal-label" for="oauth-app-redirect-uris">Redirect
+                                                URIs</label>
+                                            <span class="modal-helper">One URI per line. Example:
+                                                https://yourapp.com/callback</span>
+                                            <textarea id="oauth-app-redirect-uris" rows="3" class="modal-textarea"
+                                                placeholder="https://yourapp.com/callback"></textarea>
+                                        </div>
+                                        <div class="modal-field" style="margin-bottom:0;">
+                                            <label class="modal-label">Scopes</label>
+                                            <div class="scope-toggles">
+                                                <label class="scope-toggle">
+                                                    <input type="checkbox" id="create-oauth-scope-vr" checked>
+                                                    <div class="scope-toggle-card">
+                                                        <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
+                                                                <polyline points="2 6 5 9 10 3" />
+                                                            </svg></div>
+                                                        <div class="scope-toggle-text">
+                                                            <div class="scope-toggle-name">verification:read</div>
+                                                            <div class="scope-toggle-desc">Check if a user is verified
+                                                                on
+                                                                your
+                                                                server</div>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                                <label class="scope-toggle">
+                                                    <input type="checkbox" id="create-oauth-scope-sr">
+                                                    <div class="scope-toggle-card">
+                                                        <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
+                                                                <polyline points="2 6 5 9 10 3" />
+                                                            </svg></div>
+                                                        <div class="scope-toggle-text">
+                                                            <div class="scope-toggle-name">subjects:read</div>
+                                                            <div class="scope-toggle-desc">Read verified users and
+                                                                purchase
+                                                                records</div>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="inline-btn-row">
+                                            <button class="btn-primary" id="create-oauth-app-submit"
+                                                onclick="submitCreateOAuthApp()">
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                                    <polyline points="22 4 12 14.01 9 11.01" />
+                                                </svg>
+                                                Register app
+                                            </button>
+                                            <button class="btn-ghost"
+                                                onclick="closeCreateOAuthAppPanel()">Cancel</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="oauth-apps-signin-required" class="hidden text-center py-8 px-4 rounded-xl"
+                                style="background:#f8fafc;border:1px solid #e2e8f0;">
+                                <p class="text-sm font-medium" style="font-family:'DM Sans',sans-serif;color:#64748b;">
+                                    Sign
+                                    in to manage OAuth applications.</p>
+                            </div>
+
+                            <!-- Apps list -->
+                            <div id="oauth-apps-list"></div>
+
+                            <!-- Empty state -->
+                            <div id="oauth-apps-empty" class="empty-state hidden">
+                                <div class="intg-icon" style="margin:0 auto 14px;">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="3" y="11" width="18" height="11" rx="2" />
+                                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                    </svg>
+                                </div>
+                                <p class="text-sm font-semibold" style="font-family:'DM Sans',sans-serif;">No OAuth apps
+                                    yet
+                                </p>
+                                <p class="text-xs mt-2 max-w-xs mx-auto" style="font-family:'DM Sans',sans-serif;">Use
+                                    OAuth
+                                    when a third-party app needs to access verification data on behalf of your users.
+                                </p>
+                                <button class="intg-add-btn" onclick="openCreateOAuthAppPanel()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    Add your first app
+                                </button>
+                            </div>
+
+                            <!-- Loading state -->
+                            <div id="oauth-apps-loading" class="text-center py-8">
+                                <div class="inline-block w-5 h-5 border-2 rounded-full"
+                                    style="border-color:#e2e8f0;border-top-color:#0ea5e9;animation:page-loading-spin 0.8s linear infinite;">
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- API Keys -->
+                        <section class="intg-card bento-col-6 animate-in animate-in-delay-5" id="api-keys-section">
+                            <div class="intg-header">
+                                <div class="intg-title-row">
+                                    <div class="intg-icon">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <path
+                                                d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                                        </svg>
+                                    </div>
+                                    <h2 class="intg-title">API Keys</h2>
+                                </div>
+                                <button id="create-api-key-btn" class="intg-add-btn" onclick="openCreateApiKeyPanel()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    Add key
+                                </button>
+                            </div>
+                            <p class="intg-desc">
+                                Call the verification API from your integrations. Pass as <code>x-api-key</code> header.
+                            </p>
+
+                            <!-- Inline create API key form -->
+                            <div class="inline-panel" id="create-api-key-panel">
+                                <div class="inline-panel-inner">
+                                    <div class="inline-panel-body">
+                                        <div
+                                            style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                                            <p class="inline-panel-title" style="margin:0;">New API key</p>
+                                            <button onclick="closeCreateApiKeyPanel()"
+                                                class="panel-close-btn">×</button>
+                                        </div>
+                                        <div class="modal-field">
+                                            <label class="modal-label" for="api-key-name">Key name</label>
+                                            <span class="modal-helper">e.g. Production bot, Staging integration</span>
+                                            <input type="text" id="api-key-name" class="modal-input"
+                                                placeholder="e.g. Production bot" maxlength="64" autocomplete="off">
+                                        </div>
+                                        <div class="modal-field" style="margin-bottom:0;">
+                                            <label class="modal-label">Permissions</label>
+                                            <div class="scope-toggles">
+                                                <label class="scope-toggle">
+                                                    <input type="checkbox" id="scope-verification-read" checked>
+                                                    <div class="scope-toggle-card">
+                                                        <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
+                                                                <polyline points="2 6 5 9 10 3" />
+                                                            </svg></div>
+                                                        <div class="scope-toggle-text">
+                                                            <div class="scope-toggle-name">verification:read</div>
+                                                            <div class="scope-toggle-desc">Check if a user is verified
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                                <label class="scope-toggle">
+                                                    <input type="checkbox" id="scope-subjects-read" checked>
+                                                    <div class="scope-toggle-card">
+                                                        <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
+                                                                <polyline points="2 6 5 9 10 3" />
+                                                            </svg></div>
+                                                        <div class="scope-toggle-text">
+                                                            <div class="scope-toggle-name">subjects:read</div>
+                                                            <div class="scope-toggle-desc">Read verified users and
+                                                                purchase
+                                                                records</div>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="inline-btn-row">
+                                            <button class="btn-primary" id="create-api-key-submit"
+                                                onclick="submitCreateApiKey()">Create key</button>
+                                            <button class="btn-ghost" onclick="closeCreateApiKeyPanel()">Cancel</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="api-keys-signin-required" class="hidden text-center py-8 px-4 rounded-xl"
+                                style="background:#f8fafc;border:1px solid #e2e8f0;">
+                                <p class="text-sm font-medium" style="font-family:'DM Sans',sans-serif;color:#64748b;">
+                                    Sign
+                                    in to manage API keys.</p>
+                            </div>
+
+                            <!-- API keys list -->
+                            <div id="api-keys-list"></div>
+
+                            <!-- Empty state -->
+                            <div id="api-keys-empty" class="empty-state hidden">
+                                <div class="intg-icon" style="margin:0 auto 14px;">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <path
+                                            d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                                    </svg>
+                                </div>
+                                <p class="text-sm font-semibold" style="font-family:'DM Sans',sans-serif;">No API keys
+                                    yet
+                                </p>
+                                <p class="text-xs mt-2 max-w-xs mx-auto" style="font-family:'DM Sans',sans-serif;">API
+                                    keys
+                                    let you call the verification API from scripts, bots, or integrations. Pass the key
+                                    in
+                                    the <code>x-api-key</code> header.</p>
+                                <button class="intg-add-btn" onclick="openCreateApiKeyPanel()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    Add your first key
+                                </button>
+                            </div>
+
+                            <!-- Loading state -->
+                            <div id="api-keys-loading" class="text-center py-8">
+                                <div class="inline-block w-5 h-5 border-2 rounded-full"
+                                    style="border-color:#e2e8f0;border-top-color:#0ea5e9;animation:page-loading-spin 0.8s linear infinite;">
+                                </div>
+                            </div>
+                        </section>
+
+                    </div>
+                </div>
+
+                <div id="tab-panel-collaboration" class="dashboard-tab-panel" role="tabpanel"
+                    aria-labelledby="tab-btn-collaboration">
+                    <section class="intg-card animate-in max-w-2xl" id="collab-section">
+                        <div class="intg-header">
+                            <div class="intg-title-row">
+                                <div class="intg-icon">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                        <circle cx="9" cy="7" r="4" />
+                                        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                    </svg>
+                                </div>
+                                <h2 class="intg-title">Collaborating Creators</h2>
+                            </div>
+                            <button id="invite-btn" class="intg-add-btn" onclick="generateCollabInvite()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                </svg>
+                                Invite a Creator
+                            </button>
+                        </div>
+                        <p class="intg-desc">
+                            Allow members to verify licenses from other creators' stores.
+                        </p>
+
+                        <div class="inline-panel" id="invite-panel">
+                            <div class="inline-panel-inner" style="max-width: 500px;">
+                                <div class="inline-panel-body" style="padding: 32px; text-align: center;">
+                                    <div style="display:flex; justify-content:flex-end; margin-bottom: -24px;">
+                                        <button onclick="closeInvitePanel()" class="panel-close-btn" aria-label="Close"
+                                            style="z-index: 10;">×</button>
+                                    </div>
+                                    <div class="intg-icon"
+                                        style="margin: 0 auto 16px; width: 48px; height: 48px; background: rgba(14, 165, 233, 0.15); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3);">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                        </svg>
+                                    </div>
+                                    <h3
+                                        style="font-size: 22px; font-weight: 800; font-family: 'Plus Jakarta Sans', sans-serif; color: #fff; margin: 0 0 8px;">
+                                        Invite a Creator</h3>
+                                    <p
+                                        style="font-size: 14px; color: rgba(255,255,255,0.7); margin: 0 0 24px; line-height: 1.5;">
+                                        Share this link with a trusted creator to allow them to link their stores and
+                                        products to your server.</p>
+
+                                    <div
+                                        style="text-align: left; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+                                        <label
+                                            style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Unique
+                                            Share Link</label>
+                                        <div style="display:flex; align-items:center; gap:8px;">
+                                            <span id="invite-url-display"
+                                                style="font-family:'DM Mono',monospace; font-size:14px; color:#fff; word-break:break-all; flex:1;">Loading...</span>
+                                            <button class="cred-copy" id="copy-invite-btn" onclick="copyInviteUrl()"
+                                                title="Copy link"
+                                                style="background:rgba(255,255,255,0.1); border:none; width:40px; height:40px; border-radius:8px; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s; flex-shrink:0;">
+                                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div id="invite-expiry"
+                                            style="margin-top: 10px; font-size: 13px; font-weight: 500; color: #38bdf8;">
+                                            Expires in 7 days</div>
+                                    </div>
+
+                                    <div
+                                        style="text-align: left; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+                                        <label
+                                            style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Message
+                                            Template</label>
+                                        <textarea id="invite-message-template" readonly
+                                            style="width: 100%; height: 80px; background: transparent; border: none; color: rgba(255,255,255,0.9); font-size: 14px; font-family: 'DM Sans', sans-serif; resize: none; outline: none; line-height: 1.5;"></textarea>
+                                        <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+                                            <button onclick="copyInviteMessage(this)"
+                                                style="background: none; border: none; color: #0ea5e9; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; transition: background 0.15s;">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                                </svg>
+                                                Copy template
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <button class="btn-primary" onclick="copyInviteUrl()"
+                                        style="width: 100%; justify-content: center; font-size: 15px; font-weight: 700; padding: 12px 24px; background: #0ea5e9; color: #fff; border-radius: 12px; border: none;">
+                                        Copy Invite Link
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="collab-list"></div>
+
+                        <div id="collab-empty" class="empty-state hidden">
+                            <div class="intg-icon" style="margin:0 auto 14px;">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                </svg>
+                            </div>
+                            <p class="text-sm font-semibold" style="font-family:'DM Sans',sans-serif;">No collaborators
+                                yet.
+                            </p>
+                            <p class="text-xs mt-2 max-w-xs mx-auto" style="font-family:'DM Sans',sans-serif;">Invite a
+                                creator to share license verification.</p>
+                            <button class="intg-add-btn" onclick="generateCollabInvite()" style="margin-top:16px;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                </svg>
+                                Invite a Creator
+                            </button>
+                        </div>
+
+                        <div id="collab-loading" class="text-center py-8">
+                            <div class="inline-block w-5 h-5 border-2 rounded-full"
+                                style="border-color:#e2e8f0;border-top-color:#0ea5e9;animation:page-loading-spin 0.8s linear infinite;">
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <div id="tab-panel-server-rules" class="dashboard-tab-panel server-only" role="tabpanel"
+                    aria-labelledby="tab-btn-server-rules">
+                    <section class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1">
+                        <div class="flex flex-col items-center justify-center py-12 text-center">
+                            <div class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center mb-4">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                    class="text-white/60">
+                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-white mb-2">Server Rules coming soon</h3>
+                            <p class="text-white/50 text-sm max-w-sm" style="font-family:'DM Sans',sans-serif;">Define
+                                product-to-role mappings directly from your dashboard.</p>
+                        </div>
+                    </section>
+                </div>
+
+                <div id="tab-panel-audit-logs" class="dashboard-tab-panel server-only" role="tabpanel"
+                    aria-labelledby="tab-btn-audit-logs">
+                    <section class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1">
+                        <div class="flex flex-col items-center justify-center py-12 text-center">
+                            <div class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center mb-4">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                    class="text-white/60">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-white mb-2">Audit Logs coming soon</h3>
+                            <p class="text-white/50 text-sm max-w-sm" style="font-family:'DM Sans',sans-serif;">View
+                                your
+                                verification history and member role assignments.</p>
+                        </div>
+                    </section>
+                </div>
+
         </main>
-
-        <!-- ── Disconnect Modal ────────────────────────────────────────────── -->
-        <div id="disconnectModal" class="modal-overlay">
-            <div class="modal-box">
-                <h3>Confirm Disconnect</h3>
-                <p>Are you sure you want to disconnect your <strong id="platformName"
-                        class="text-white">Platform</strong> account? This will remove all associated syncing.</p>
-                <div class="modal-btn-row">
-                    <button onclick="closeModal()" class="btn-ghost">Cancel</button>
-                    <button id="confirmDisconnectBtn" class="btn-danger">Confirm</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Invite Link Modal ───────────────────────────────────────────── -->
-        <div id="inviteModal" class="modal-overlay">
-            <div class="modal-box">
-                <div class="flex items-center gap-3 mb-5">
-                    <div class="w-9 h-9 rounded-xl flex items-center justify-center"
-                        style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.15);">
-                        <img src="__API_BASE__/Icons/Link.png" class="w-4 h-4 object-contain" alt="">
-                    </div>
-                    <h3 style="margin:0;">Collaborator Invite Link</h3>
-                </div>
-                <p style="margin-bottom:12px;">Share this link with the creator you'd like to invite. <span
-                        id="invite-expiry" class="font-semibold text-white/70"></span></p>
-                <div id="invite-url-display" class="invite-url-box"></div>
-                <div class="flex gap-3">
-                    <button id="copy-invite-btn" class="btn-primary flex-1" onclick="copyInviteUrl()">
-                        <img src="__API_BASE__/Icons/ClapStars.png" class="w-4 h-4 object-contain" alt="">
-                        Copy Link
-                    </button>
-                    <button onclick="closeInviteModal()" class="btn-ghost flex-1">Close</button>
-                </div>
-            </div>
-        </div>
 
     </div><!-- #page-content -->
 
     <script>
-        const guildId = '__GUILD_ID__';
-        const apiBase = '__API_BASE__';
-        const SETUP_TOKEN_STORAGE_KEY = 'yucp_dashboard_setup_token';
-        const serverHasSetupSession = '__HAS_SETUP_SESSION__' === 'true';
-        const tenantIdFromServer = '__TENANT_ID__';
-        let tenantId = tenantIdFromServer || null;
-        let setupToken = sessionStorage.getItem(SETUP_TOKEN_STORAGE_KEY) || '';
-        let hasSetupSession = serverHasSetupSession || !!setupToken;
-        const SETTINGS_TOUCHED_STORAGE_PREFIX = 'yucp_dashboard_settings_touched:';
-        const QUICK_START_DISMISS_STORAGE_PREFIX = 'yucp_dashboard_quick_start_dismissed:';
-        const SETUP_COMPLETE_STORAGE_PREFIX = 'yucp_dashboard_setup_completed:';
-
-        let connectionsMap = new Map();
-        let settingsMap = new Map();
-        let pendingDisconnectPlatform = null;
-        let collabConnections = [];
-        let currentInviteUrl = '';
-        let quickStartSignature = '';
-        let completedMilestones = new Set();
-        let settingsTouched = false;
-        let setupCompleted = false;
-        let previousQuickStartCompletion = { stores: false, settings: false, finish: false };
-
-        function getTenantStorageKey(prefix) {
-            return `${prefix}${tenantId || tenantIdFromServer || guildId || 'unknown'}`;
-        }
-
-        function loadProgressFlags() {
-            try {
-                settingsTouched = localStorage.getItem(getTenantStorageKey(SETTINGS_TOUCHED_STORAGE_PREFIX)) === '1';
-                setupCompleted = localStorage.getItem(getTenantStorageKey(SETUP_COMPLETE_STORAGE_PREFIX)) === '1';
-            } catch {
-                settingsTouched = false;
-                setupCompleted = false;
-            }
-        }
-
-        function persistSettingsTouched() {
-            settingsTouched = true;
-            try {
-                localStorage.setItem(getTenantStorageKey(SETTINGS_TOUCHED_STORAGE_PREFIX), '1');
-            } catch { }
-        }
-
-        function persistSetupCompleted() {
-            setupCompleted = true;
-            try {
-                localStorage.setItem(getTenantStorageKey(SETUP_COMPLETE_STORAGE_PREFIX), '1');
-            } catch { }
-        }
-
-        function getConnectedProvidersCount() {
-            let count = 0;
-            if (connectionsMap.has('gumroad')) count += 1;
-            if (connectionsMap.has('jinxxy')) count += 1;
-            return count;
-        }
-
-        function hasMeaningfulSettings() {
-            return settingsTouched || settingsMap.size > 0;
-        }
-
-        function getQuickStartState() {
-            const connectedProviders = getConnectedProvidersCount();
-            const storesDone = connectedProviders > 0;
-            const settingsDone = hasMeaningfulSettings();
-            const finalReady = storesDone && settingsDone;
-            const done = setupCompleted;
-
-            const completedCount = [storesDone, settingsDone, done].filter(Boolean).length;
-            const signature = `${storesDone ? 1 : 0}${settingsDone ? 1 : 0}${done ? 1 : 0}`;
-
-            let title = 'Finish setup from this page';
-            let summary = 'Link a store, tune your verification rules, and finish in Discord when the dashboard looks right.';
-            if (done) {
-                title = 'Setup complete';
-                summary = 'Your storefront connection and server preferences are in place. You can close this window or jump back into Discord for role automation.';
-            } else if (finalReady) {
-                title = 'Ready to finish';
-                summary = 'You have connected at least one store and saved your preferences. Click Done Setup whenever you are ready to wrap this up.';
-            } else if (storesDone) {
-                title = 'Strong start';
-                summary = 'Your store connection is in place. Review the server rules next so verification behaves the way you want.';
-            }
-
-            return {
-                connectedProviders,
-                storesDone,
-                settingsDone,
-                finalReady,
-                done,
-                completedCount,
-                signature,
-                title,
-                summary,
-                progressPercent: Math.round((completedCount / 3) * 100),
-                steps: [
-                    {
-                        id: 'stores',
-                        sectionId: 'platforms-grid',
-                        state: storesDone ? 'complete' : 'active',
-                        number: '01',
-                        label: storesDone ? 'Complete' : 'Current',
-                        title: storesDone
-                            ? `${connectedProviders} store${connectedProviders > 1 ? 's' : ''} linked`
-                            : 'Connect Gumroad or Jinxxy',
-                        body: storesDone
-                            ? 'Your storefront credentials are connected. You can add another store or move on.'
-                            : 'Use the platform cards below to connect the storefronts you actually sell through.',
-                        meta: storesDone
-                            ? `Connected: ${Array.from(connectionsMap.keys()).filter((key) => key === 'gumroad' || key === 'jinxxy').join(' + ')}`
-                            : 'Start with the platform cards',
-                        action: storesDone ? 'Review platforms' : 'Go to platforms',
-                    },
-                    {
-                        id: 'settings',
-                        sectionId: 'save-indicator',
-                        state: settingsDone ? 'complete' : (storesDone ? 'active' : 'locked'),
-                        number: '02',
-                        label: settingsDone ? 'Complete' : (storesDone ? 'Next' : 'Locked'),
-                        title: settingsDone ? 'Settings dialed in' : 'Review server settings',
-                        body: settingsDone
-                            ? 'You already saved verification preferences for this tenant.'
-                            : 'Decide how verification, duplicate checks, and cross-server behavior should work.',
-                        meta: settingsDone ? 'Saved on this tenant' : 'Toggle or select a setting to mark this done',
-                        action: settingsDone ? 'Adjust settings' : 'Open settings',
-                    },
-                    {
-                        id: 'finish',
-                        sectionId: 'done-btn',
-                        state: done ? 'complete' : (finalReady ? 'active' : 'locked'),
-                        number: '03',
-                        label: done ? 'Complete' : (finalReady ? 'Ready' : 'Waiting'),
-                        title: done ? 'Back to Discord' : 'Finish in Discord',
-                        body: done
-                            ? 'Setup was completed from this dashboard already.'
-                            : finalReady
-                                ? 'Everything is ready. Confirm the setup and close this page when you are done.'
-                                : 'Finish becomes available after you connect a store and save your preferences.',
-                        meta: done ? 'All set' : (finalReady ? 'Done Setup is ready' : 'Waiting on earlier steps'),
-                        action: done ? 'Review finish' : (finalReady ? 'Jump to finish' : 'See requirements'),
-                    },
-                ],
-            };
-        }
-
-        function celebrateMilestone(milestoneId) {
-            if (completedMilestones.has(milestoneId) || typeof confetti !== 'function') return;
-            completedMilestones.add(milestoneId);
-
-            const palette = ['#0ea5e9', '#facc15', '#ffffff', '#4ade80'];
-            confetti({
-                particleCount: milestoneId === 'finish' ? 90 : 45,
-                spread: milestoneId === 'finish' ? 90 : 65,
-                startVelocity: 28,
-                origin: { y: 0.24 },
-                colors: palette,
-            });
-        }
-
-        function getNewlyCompletedMilestones(state) {
-            const newlyCompleted = [];
-            if (state.storesDone && !previousQuickStartCompletion.stores) newlyCompleted.push('stores');
-            if (state.settingsDone && !previousQuickStartCompletion.settings) newlyCompleted.push('settings');
-            if (state.done && !previousQuickStartCompletion.finish) newlyCompleted.push('finish');
-            previousQuickStartCompletion = {
-                stores: state.storesDone,
-                settings: state.settingsDone,
-                finish: state.done,
-            };
-            return newlyCompleted;
-        }
-
-        function dismissQuickStart() {
-            const state = getQuickStartState();
-            quickStartSignature = state.signature;
-            document.getElementById('quick-start-card')?.classList.add('is-hidden');
-            try {
-                localStorage.setItem(getTenantStorageKey(QUICK_START_DISMISS_STORAGE_PREFIX), state.signature);
-            } catch { }
-        }
-
-        function scrollToSection(sectionId) {
-            const target = document.getElementById(sectionId);
-            if (!target) return;
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            target.classList.add('pop');
-            setTimeout(() => target.classList.remove('pop'), 700);
-        }
-
-        function renderQuickStart() {
-            const card = document.getElementById('quick-start-card');
-            const pill = document.getElementById('quick-start-pill');
-            const title = document.getElementById('quick-start-title');
-            const summary = document.getElementById('quick-start-summary');
-            const fill = document.getElementById('quick-start-progress-fill');
-            const stepsEl = document.getElementById('quick-start-steps');
-            if (!card || !pill || !title || !summary || !fill || !stepsEl) return;
-
-            const state = getQuickStartState();
-            const dismissedSignature = (() => {
-                try {
-                    return localStorage.getItem(getTenantStorageKey(QUICK_START_DISMISS_STORAGE_PREFIX)) || '';
-                } catch {
-                    return '';
-                }
-            })();
-
-            if (dismissedSignature === state.signature) {
-                card.classList.add('is-hidden');
-            } else {
-                card.classList.remove('is-hidden');
-            }
-
-            if (quickStartSignature && quickStartSignature !== state.signature) {
-                card.classList.remove('is-hidden');
-            }
-
-            quickStartSignature = state.signature;
-            const newlyCompletedMilestones = getNewlyCompletedMilestones(state);
-            pill.innerHTML = `${state.completedCount} of 3 complete <strong>${state.progressPercent}%</strong>`;
-            title.textContent = state.title;
-            summary.textContent = state.summary;
-            fill.style.width = `${state.progressPercent}%`;
-
-            stepsEl.replaceChildren();
-            state.steps.forEach((step) => {
-                const item = document.createElement('article');
-                item.className = `quick-start-step is-${step.state}`;
-                item.dataset.stepId = step.id;
-
-                item.innerHTML = `
-                    <div class="quick-start-step-header">
-                        <div class="quick-start-step-number">${step.number}</div>
-                        <div class="quick-start-step-state">${step.label}</div>
-                    </div>
-                    <div class="quick-start-step-title">${step.title}</div>
-                    <div class="quick-start-step-body">${step.body}</div>
-                    <div class="quick-start-step-footer">
-                        <div class="quick-start-step-meta">${step.meta}</div>
-                        <button class="quick-start-jump ${step.state === 'complete' || step.state === 'active' ? 'is-ready' : ''}" type="button">
-                            ${step.action}
-                        </button>
-                    </div>
-                `;
-
-                item.querySelector('.quick-start-jump')?.addEventListener('click', () => {
-                    scrollToSection(step.sectionId);
-                });
-                stepsEl.appendChild(item);
-            });
-
-            newlyCompletedMilestones.forEach((milestoneId) => {
-                celebrateMilestone(milestoneId);
-                const stepEl = stepsEl.querySelector(`[data-step-id="${milestoneId}"]`);
-                if (stepEl) {
-                    stepEl.classList.add('pop');
-                    setTimeout(() => stepEl.classList.remove('pop'), 720);
-                }
-            });
-        }
-
-        function redirectToExpiredLinkError() {
-            const errorUrl = new URL(`${apiBase}/verify-error`, window.location.origin);
-            errorUrl.searchParams.set('error', 'link_expired');
-            window.location.replace(errorUrl.toString());
-        }
-
-        function apiFetch(url, options = {}) {
-            const headers = new Headers(options.headers || {});
-            if (setupToken && !headers.has('Authorization')) {
-                headers.set('Authorization', `Bearer ${setupToken}`);
-            }
-            return fetch(url, { credentials: 'include', ...options, headers });
-        }
-
-        async function exchangeBootstrapTokens() {
-            const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-            const setupTokenFromHash = hash.get('s');
-            const connectToken = hash.get('token');
-            if (!setupTokenFromHash && !connectToken) return false;
-
-            if (setupTokenFromHash) {
-                setupToken = setupTokenFromHash;
-                sessionStorage.setItem(SETUP_TOKEN_STORAGE_KEY, setupTokenFromHash);
-                hasSetupSession = true;
-            }
-
-            const res = await apiFetch(`${apiBase}/api/connect/bootstrap`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    setupToken: setupTokenFromHash || undefined,
-                    connectToken: connectToken || undefined,
-                }),
-            });
-
-            if (!res.ok) {
-                if (setupTokenFromHash) {
-                    sessionStorage.removeItem(SETUP_TOKEN_STORAGE_KEY);
-                    setupToken = '';
-                    hasSetupSession = false;
-                }
-                redirectToExpiredLinkError();
-                return true;
-            }
-
-            window.history.replaceState({}, '', window.location.pathname + window.location.search);
-            window.location.reload();
-            return true;
-        }
-
-        async function ensureSetupSessionCookie() {
-            if (!setupToken) return false;
-            const res = await apiFetch(`${apiBase}/api/connect/bootstrap`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ setupToken }),
-            });
-            return res.ok;
-        }
-
-        // ── Navigation ──────────────────────────────────────────────────────────
-
-        async function navigateGumroad() {
-            if (setupToken) {
-                const restored = await ensureSetupSessionCookie();
-                if (!restored) {
-                    redirectToExpiredLinkError();
-                    return;
-                }
-            }
-            if (tenantId && guildId) {
-                window.location.href = `${apiBase}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tenantId)}&guildId=${encodeURIComponent(guildId)}`;
-            } else if (hasSetupSession) {
-                window.location.href = `${apiBase}/api/connect/gumroad/begin`;
-            } else {
-                alert('Please wait for the page to finish loading.');
-            }
-        }
-
-        async function navigateJinxxy() {
-            if (setupToken) {
-                const restored = await ensureSetupSessionCookie();
-                if (!restored) {
-                    redirectToExpiredLinkError();
-                    return;
-                }
-            }
-            if (tenantId && guildId) {
-                window.location.href = `${apiBase}/jinxxy-setup?tenant_id=${encodeURIComponent(tenantId)}&guild_id=${encodeURIComponent(guildId)}`;
-            } else if (hasSetupSession) {
-                window.location.href = `${apiBase}/jinxxy-setup`;
-            } else {
-                alert('Please wait for the page to finish loading.');
-            }
-        }
-
-        // ── Init ────────────────────────────────────────────────────────────────
-
-        async function init() {
-            try {
-                if (await exchangeBootstrapTokens()) return;
-
-                hasSetupSession = serverHasSetupSession || !!setupToken;
-                loadProgressFlags();
-
-                if (!hasSetupSession && !tenantId && guildId) {
-                    const res = await apiFetch(`${apiBase}/api/connect/ensure-tenant?guildId=${encodeURIComponent(guildId)}`);
-                    const data = await res.json();
-                    if (data.tenantId) tenantId = data.tenantId;
-                }
-
-                if (hasSetupSession && document.getElementById('onboarding-done')) {
-                    document.getElementById('onboarding-done').classList.remove('hidden');
-                }
-
-                await fetchAllData();
-                await fetchCollabConnections();
-                renderQuickStart();
-
-            } catch (err) {
-                console.error('Initialization error:', err);
-            }
-        }
-
-        async function fetchAllData() {
-            try {
-                if (hasSetupSession) {
-                    const statusRes = await apiFetch(`${apiBase}/api/connections`);
-                    if (statusRes.ok) {
-                        const statusData = await statusRes.json();
-                        connectionsMap.clear();
-                        if (statusData.connections) {
-                            statusData.connections.forEach(c => {
-                                if (c.status === 'active') connectionsMap.set(c.provider, c);
-                            });
-                        }
-                        updatePlatformCards();
-                    }
-
-                    const settingsRes = await apiFetch(`${apiBase}/api/connect/settings`);
-                    if (settingsRes.ok) {
-                        const settingsData = await settingsRes.json();
-                        if (settingsData.policy) {
-                            const policy = settingsData.policy;
-                            const keys = [
-                                'allowMismatchedEmails', 'autoVerifyOnJoin',
-                                'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers',
-                                'verificationScope', 'duplicateVerificationBehavior',
-                                'suspiciousAccountBehavior'
-                            ];
-                            keys.forEach(k => { if (policy[k] !== undefined) settingsMap.set(k, policy[k]); });
-                            updateSettingsUI();
-                        }
-                    }
-                } else if (tenantId) {
-                    const statusRes = await apiFetch(`${apiBase}/api/connect/status?tenantId=${encodeURIComponent(tenantId)}`);
-                    if (statusRes.ok) {
-                        const statusData = await statusRes.json();
-                        updateCard('gumroad', statusData.gumroad);
-                        updateCard('jinxxy', statusData.jinxxy);
-                    }
-                }
-            } catch (err) {
-                console.error('Failed to fetch data', err);
-            }
-        }
-
-        // ── Platform Cards ──────────────────────────────────────────────────────
-
-        function updatePlatformCards() {
-            updateCard('gumroad', connectionsMap.has('gumroad'));
-            updateCard('jinxxy', connectionsMap.has('jinxxy'));
-            renderQuickStart();
-        }
-
-        function updateCard(platform, isLinked) {
-            const card = document.getElementById(`${platform}-card`);
-            const status = document.getElementById(`${platform}-status`);
-            const btn = document.getElementById(`${platform}-btn`);
-            if (!card || !status || !btn) return;
-
-            if (isLinked) {
-                card.classList.remove('disconnected');
-                card.classList.add('connected');
-                status.className = 'status-pill connected';
-                status.innerText = 'Connected';
-                btn.className = 'card-action-btn disconnect';
-                btn.innerText = 'Disconnect';
-                btn.onclick = () => openModal(platform);
-            } else {
-                card.classList.add('disconnected');
-                card.classList.remove('connected');
-                status.className = 'status-pill disconnected';
-                status.innerText = 'Not Linked';
-                btn.className = 'card-action-btn link';
-                btn.innerText = 'Link Account';
-                btn.onclick = () => {
-                    if (platform === 'gumroad') navigateGumroad();
-                    else if (platform === 'jinxxy') navigateJinxxy();
-                };
-            }
-        }
-
-        // ── Settings ────────────────────────────────────────────────────────────
-
-        function updateSettingsUI() {
-            ['allowMismatchedEmails', 'autoVerifyOnJoin', 'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers'].forEach(key => {
-                const el = document.getElementById(`toggle-${key}`);
-                if (el) el.classList.toggle('active', !!settingsMap.get(key));
-            });
-            ['verificationScope', 'duplicateVerificationBehavior', 'suspiciousAccountBehavior'].forEach(key => {
-                const el = document.getElementById(`select-${key}`);
-                if (el && settingsMap.has(key)) el.value = settingsMap.get(key);
-            });
-            renderQuickStart();
-        }
-
-        function showSaved() {
-            const indicator = document.getElementById('save-indicator');
-            indicator.classList.add('visible');
-            clearTimeout(indicator._timeout);
-            indicator._timeout = setTimeout(() => indicator.classList.remove('visible'), 2000);
-        }
-
-        async function toggleSetting(key) {
-            if (!hasSetupSession) {
-                alert('Settings can only be changed using a secure setup link from Discord.');
-                return;
-            }
-            const el = document.getElementById(`toggle-${key}`);
-            const newValue = !settingsMap.get(key);
-            el.classList.toggle('active');
-            settingsMap.set(key, newValue);
-            try {
-                const res = await apiFetch(`${apiBase}/api/connect/settings`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key, value: newValue })
-                });
-                if (!res.ok) {
-                    let message = 'Failed to save setting.';
-                    try {
-                        const data = await res.json();
-                        if (data?.error) message = data.error;
-                    } catch { }
-                    throw new Error(message);
-                }
-                showSaved();
-                persistSettingsTouched();
-                renderQuickStart();
-            } catch (e) {
-                console.error('Error updating setting:', e);
-                alert(`${e instanceof Error ? e.message : 'Failed to save setting.'} Reverting.`);
-                el.classList.toggle('active');
-                settingsMap.set(key, !newValue);
-                renderQuickStart();
-            }
-        }
-
-        async function selectSetting(key, value) {
-            if (!hasSetupSession) {
-                alert('Settings can only be changed using a secure setup link from Discord.');
-                return;
-            }
-            const oldValue = settingsMap.get(key);
-            settingsMap.set(key, value);
-            try {
-                const res = await apiFetch(`${apiBase}/api/connect/settings`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key, value })
-                });
-                if (!res.ok) {
-                    let message = 'Failed to save setting.';
-                    try {
-                        const data = await res.json();
-                        if (data?.error) message = data.error;
-                    } catch { }
-                    throw new Error(message);
-                }
-                showSaved();
-                persistSettingsTouched();
-                renderQuickStart();
-            } catch (e) {
-                console.error('Error updating setting:', e);
-                alert(`${e instanceof Error ? e.message : 'Failed to save setting.'} Reverting.`);
-                settingsMap.set(key, oldValue);
-                const el = document.getElementById(`select-${key}`);
-                if (el) el.value = oldValue ?? '';
-                renderQuickStart();
-            }
-        }
-
-        // ── Disconnect Modal ─────────────────────────────────────────────────────
-
-        function openModal(platform) {
-            pendingDisconnectPlatform = platform;
-            document.getElementById('platformName').innerText = platform.charAt(0).toUpperCase() + platform.slice(1);
-            document.getElementById('disconnectModal').classList.add('modal-visible');
-        }
-
-        function closeModal() {
-            pendingDisconnectPlatform = null;
-            document.getElementById('disconnectModal').classList.remove('modal-visible');
-        }
-
-        document.getElementById('confirmDisconnectBtn').addEventListener('click', async () => {
-            if (!pendingDisconnectPlatform || !hasSetupSession) return;
-            const platform = pendingDisconnectPlatform;
-            const conn = connectionsMap.get(platform);
-            if (!conn) { closeModal(); return; }
-
-            const btn = document.getElementById('confirmDisconnectBtn');
-            btn.textContent = 'Disconnecting...';
-            try {
-                const res = await apiFetch(`${apiBase}/api/connections?id=${conn.id}`, { method: 'DELETE' });
-                if (res.ok) {
-                    connectionsMap.delete(platform);
-                    updatePlatformCards();
-                } else {
-                    alert('Failed to disconnect. Please try again.');
-                }
-            } catch (e) {
-                console.error('Disconnect error:', e);
-                alert('Network error while disconnecting.');
-            }
-            btn.textContent = 'Confirm';
-            closeModal();
-        });
-
-        // ── Done Button ──────────────────────────────────────────────────────────
-
-        document.getElementById('done-btn')?.addEventListener('click', async () => {
-            const btn = document.getElementById('done-btn');
-            const status = document.getElementById('status-text');
-            const textEl = btn?.querySelector('.done-text');
-            btn.disabled = true;
-            btn.classList.add('is-loading');
-            if (textEl) textEl.textContent = 'Completing Setup...';
-            status.textContent = '';
-
-            try {
-                if (guildId) {
-                    const res = await apiFetch(`${apiBase}/api/connect/complete`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ guildId }),
-                    });
-                    const data = await res.json();
-                    if (!res.ok || !data.success) throw new Error('Could not finish setup right now.');
-                }
-
-                btn.classList.remove('is-loading');
-                btn.hidden = true;
-                const successPill = document.getElementById('done-success-pill');
-                if (successPill) {
-                    successPill.hidden = false;
-                }
-                status.textContent = '';
-                status.className = 'text-center text-xs mt-2 font-bold';
-                persistSetupCompleted();
-                renderQuickStart();
-
-                /* Single tasteful confetti burst */
-                if (typeof confetti === 'function') {
-                    confetti({
-                        particleCount: 50,
-                        spread: 60,
-                        origin: { y: 0.55 },
-                        colors: ['#22c55e', '#0ea5e9', '#ffffff'],
-                        ticks: 100,
-                    });
-                }
-
-            } catch (err) {
-                btn.classList.remove('is-loading');
-                btn.hidden = false;
-                const successPill = document.getElementById('done-success-pill');
-                if (successPill) successPill.hidden = true;
-                status.textContent = 'Could not finish setup right now. Try again in a moment.';
-                status.className = 'text-center text-xs mt-2 font-bold text-red-400';
-                btn.disabled = false;
-                if (textEl) textEl.textContent = 'Done Setup';
-                renderQuickStart();
-            }
-        });
-
-        // ── Collaborating Creators ────────────────────────────────────────────────
-
-        async function fetchCollabConnections() {
-            if (!hasSetupSession) {
-                document.getElementById('collab-loading').classList.add('hidden');
-                document.getElementById('collab-empty').classList.remove('hidden');
-                return;
-            }
-            try {
-                const res = await apiFetch(`${apiBase}/api/collab/connections`);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                collabConnections = data.connections ?? [];
-            } catch (e) {
-                console.error('Failed to fetch collab connections:', e);
-                collabConnections = [];
-            }
-            renderCollabSection();
-        }
-
-        function renderCollabSection() {
-            document.getElementById('collab-loading').classList.add('hidden');
-            const list = document.getElementById('collab-list');
-            const empty = document.getElementById('collab-empty');
-            const active = collabConnections.filter(c => c.status === 'active');
-
-            list.replaceChildren();
-
-            if (active.length === 0) {
-                empty.classList.remove('hidden');
-                return;
-            }
-
-            empty.classList.add('hidden');
-
-            for (const conn of active) {
-                const initials = (conn.collaboratorDisplayName || '?').slice(0, 2).toUpperCase();
-                const name = conn.collaboratorDisplayName || conn.collaboratorDiscordUserId || 'Unknown';
-
-                const row = document.createElement('div');
-                row.className = 'collab-row';
-
-                const avatar = document.createElement('div');
-                avatar.className = 'collab-avatar';
-                avatar.textContent = initials;
-
-                const info = document.createElement('div');
-                const nameSpan = document.createElement('span');
-                nameSpan.className = 'collab-name';
-                nameSpan.textContent = name;
-
-                const meta = document.createElement('div');
-                meta.className = 'collab-meta';
-
-                const typeBadge = document.createElement('span');
-                typeBadge.className = conn.linkType === 'account' ? 'badge-account' : 'badge-api';
-                typeBadge.textContent = conn.linkType === 'account' ? 'Account' : 'API Key';
-                meta.appendChild(typeBadge);
-
-                if (conn.linkType === 'account') {
-                    const webhookStatus = document.createElement('span');
-                    webhookStatus.className = conn.webhookConfigured ? 'webhook-dot ok' : 'webhook-dot warn';
-                    webhookStatus.title = conn.webhookConfigured ? 'Webhook active' : 'Webhook not configured';
-                    meta.appendChild(webhookStatus);
-                }
-
-                info.appendChild(nameSpan);
-                info.appendChild(meta);
-
-                const removeButton = document.createElement('button');
-                removeButton.className = 'collab-remove-btn';
-                removeButton.type = 'button';
-                removeButton.textContent = 'Remove';
-                removeButton.addEventListener('click', function () {
-                    removeCollabConnection(conn.id);
-                });
-
-                row.appendChild(avatar);
-                row.appendChild(info);
-                row.appendChild(removeButton);
-                list.appendChild(row);
-            }
-        }
-        async function generateCollabInvite() {
-            if (!hasSetupSession) {
-                alert('Settings can only be changed using a secure setup link from Discord.');
-                return;
-            }
-            const btn = document.getElementById('invite-btn');
-            const originalHTML = btn.innerHTML;
-            btn.disabled = true;
-            btn.textContent = 'Generating...';
-            try {
-                const res = await apiFetch(`${apiBase}/api/collab/invite`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ guildName: 'this server', guildId: guildId || '' })
-                });
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    throw new Error('Could not generate an invite right now.');
-                }
-                const data = await res.json();
-                showInviteModal(data.inviteUrl, data.expiresAt);
-            } catch (e) {
-                console.error('Failed to generate collab invite:', e);
-                alert('Failed to generate invite link. Please try again.');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = originalHTML;
-            }
-        }
-
-        function showInviteModal(url, expiresAt) {
-            currentInviteUrl = url;
-            const maskedUrl = url.length > 36 ? `${url.slice(0, 18)}...${url.slice(-12)}` : url;
-            document.getElementById('invite-url-display').textContent = maskedUrl;
-            if (expiresAt) {
-                const d = new Date(expiresAt);
-                document.getElementById('invite-expiry').textContent = `Expires ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}.`;
-            } else {
-                document.getElementById('invite-expiry').textContent = 'Expires in 7 days.';
-            }
-            document.getElementById('inviteModal').classList.add('modal-visible');
-        }
-
-        function closeInviteModal() {
-            document.getElementById('inviteModal').classList.remove('modal-visible');
-        }
-
-        async function copyInviteUrl() {
-            const url = currentInviteUrl;
-            if (!url) return;
-            try {
-                await navigator.clipboard.writeText(url);
-                const btn = document.getElementById('copy-invite-btn');
-                const orig = btn.innerHTML;
-                btn.textContent = 'Copied!';
-                setTimeout(() => { btn.innerHTML = orig; }, 2000);
-            } catch { /* silent */ }
-        }
-
-        async function removeCollabConnection(connectionId) {
-            if (!hasSetupSession) return;
-            if (!confirm('Remove this collaborator connection? Members will no longer be able to verify their licenses.')) return;
-            try {
-                const res = await apiFetch(`${apiBase}/api/collab/connections/${connectionId}`, {
-                    method: 'DELETE'
-                });
-                if (res.ok) {
-                    collabConnections = collabConnections.filter(c => c.id !== connectionId);
-                    renderCollabSection();
-                } else {
-                    alert('Failed to remove connection. Please try again.');
-                }
-            } catch (e) {
-                console.error('Failed to remove collab connection:', e);
-                alert('Network error. Please try again.');
-            }
-        }
-
-        // ── Boot ─────────────────────────────────────────────────────────────────
-
-        const params = new URLSearchParams(window.location.search);
-        document.getElementById('quick-start-dismiss')?.addEventListener('click', dismissQuickStart);
-        if (params.get('gumroad') === 'connected' || params.get('jinxxy') === 'connected') {
-            const cleanParams = new URLSearchParams();
-            if (guildId) cleanParams.set('guild_id', guildId);
-            if (tenantId) cleanParams.set('tenant_id', tenantId);
-            const cleanUrl = cleanParams.toString()
-                ? `${window.location.pathname}?${cleanParams.toString()}`
-                : window.location.pathname;
-            window.history.replaceState({}, '', cleanUrl);
-            setTimeout(init, 500);
-        } else {
-            init();
-        }
+        window.__CONFIG__ = {
+            apiBase: '__API_BASE__',
+            tenantId: '__TENANT_ID__',
+            guildId: '__GUILD_ID__',
+            hasSetupSession: '__HAS_SETUP_SESSION__' === 'true'
+        };
     </script>
+    <script type="module" src="/assets/dashboard/main.js"></script>
+
 
     <script>
         // Smooth overlay fade: intercepts site.js instant display:none
@@ -2366,11 +1231,75 @@
                 }
             });
             observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
-            // Fallback: dismiss if site.js fails to load or call hideLoading()
-            setTimeout(dismissOverlay, 10000);
+            // Fallback: dismiss if dashboard init never completes
+            setTimeout(dismissOverlay, 5000);
         })();
     </script>
 
+    <script type="text/babel" data-type="module">
+        import React, { useRef, Component } from "react";
+        import { createRoot } from "react-dom/client";
+        import * as THREE from "three";
+        import { Canvas, useFrame } from "@react-three/fiber";
+        import { Clouds, Cloud } from "@react-three/drei";
+
+        class ErrorBoundary extends Component {
+            constructor(props) { super(props); this.state = { hasError: false }; }
+            static getDerivedStateFromError() { return { hasError: true }; }
+            componentDidCatch(e) { console.error("Three.js Canvas Error", e); }
+            render() { return this.state.hasError ? null : this.props.children; }
+        }
+
+        function MovingCloud({ startX, speed, bounds, color, volume, opacity, seed, y, z, growth, fade, segments, concentrate }) {
+            const ref = useRef();
+            useFrame((state) => {
+                if (ref.current) {
+                    const elapsed = state.clock.getElapsedTime();
+                    const halfRange = 30;
+                    const range = halfRange * 2;
+                    let currentX = startX - elapsed * speed;
+                    currentX = ((currentX + halfRange) % range + range) % range - halfRange;
+                    ref.current.position.x = currentX;
+                }
+            });
+            return (
+                <group ref={ref} position={[startX, y, z]}>
+                    <Cloud bounds={bounds} color={color} volume={volume} opacity={opacity} seed={seed} growth={growth} fade={fade} segments={segments} concentrate={concentrate} position={[0, 0, 0]} />
+                </group>
+            );
+        }
+
+        function ForegroundSky() {
+            return (
+                <>
+                    <Clouds material={THREE.MeshLambertMaterial} limit={4000} range={20}>
+                        <MovingCloud startX={0} speed={0.9} bounds={[10, 10, 5]} color="#f0f0f0" volume={12} opacity={0.95} seed={4} y={2} z={10} growth={15} fade={5} segments={15} concentrate="inside" />
+                        <MovingCloud startX={0} speed={1.1} bounds={[20, 5, 8]} color="#ffffff" volume={8} opacity={0.9} seed={6} y={-2} z={5} growth={5} fade={25} segments={12} />
+                        <MovingCloud startX={0} speed={0.8} bounds={[30, 15, 25]} color="#fff" volume={30} opacity={0.85} seed={9} y={0} z={8} growth={20} fade={15} segments={40} />
+                    </Clouds>
+                </>
+            );
+        }
+
+        function ForegroundApp() {
+            return (
+                <ErrorBoundary>
+                    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)} style={{ pointerEvents: 'none' }}>
+                        <ForegroundSky />
+                        <ambientLight intensity={Math.PI / 1.5} />
+                        <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
+                    </Canvas>
+                </ErrorBoundary>
+            );
+        }
+
+        const fgRoot = document.getElementById('fg-canvas-root');
+        if (fgRoot) createRoot(fgRoot).render(<ForegroundApp />);
+    </script>
+
+</body>
+
+</html>
 </body>
 
 </html>

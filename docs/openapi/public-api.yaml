@@ -1,0 +1,295 @@
+openapi: 3.1.0
+info:
+  title: YUCP Public Verification API
+  version: 0.1.0
+  description: |
+    Public verification endpoints for third-party integrations.
+
+    **Choosing authentication:**
+    - **OAuth** — For third-party apps that need user resources. Authorize URL: `{convexSite}/api/auth/oauth2/authorize`, Token URL: `{convexSite}/api/auth/oauth2/token`
+    - **API Key** — For your server. Use `x-api-key` header or `Authorization: Bearer <key>` (both supported)
+
+    **Auth topology:**
+    - Better Auth runs on `CONVEX_SITE_URL`
+    - App pages such as login/consent run on `SITE_URL`
+    - Discord social-provider callback must be `{CONVEX_SITE_URL}/api/auth/callback/discord`
+
+    **Flow selection:**
+    | Use case | Auth | Access user resources | Requires secret |
+    |----------|------|------------------------|-----------------|
+    | Third-party app (Discord bot, game server) | OAuth | Yes | Client secret on server |
+    | Your backend, direct verification | API Key | No | API key in env |
+
+servers:
+  - url: https://api.example.com
+    description: Production
+
+paths:
+  /api/public/tenants/{slug}:
+    get:
+      summary: Resolve tenant by slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tenant metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenantId:
+                    type: string
+                  name:
+                    type: string
+                  slug:
+                    type: string
+  /api/public/me/verification/status:
+    get:
+      summary: Get the authenticated caller's entitlement status
+      security:
+        - oauth2: [verification:read]
+      parameters:
+        - name: tenantId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/VerificationStatus'
+  /api/public/verification/status:
+    post:
+      summary: Get an arbitrary subject's entitlement status
+      security:
+        - apiKey: [verification:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationStatusRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/VerificationStatus'
+  /api/public/verification/verify:
+    post:
+      summary: Simple verification — does this user have product X?
+      description: |
+        Gumroad-style endpoint. Provide exactly one identity field (whichever you have).
+        Supports API key or OAuth Bearer token.
+      security:
+        - apiKey: [verification:read]
+        - oauth2: [verification:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenantId, productId]
+              properties:
+                tenantId:
+                  type: string
+                productId:
+                  type: string
+                subjectId:
+                  type: string
+                  description: Canonical subject ID (if already resolved)
+                authUserId:
+                  type: string
+                  description: Better Auth user ID
+                discordUserId:
+                  type: string
+                  description: Discord user ID
+                vrchatUserId:
+                  type: string
+                  description: VRChat user ID
+                gumroadUserId:
+                  type: string
+                  description: Gumroad customer ID
+                jinxxyEmail:
+                  type: string
+                  format: email
+                  description: Jinxxy email address
+                jinxxyUserId:
+                  type: string
+                  description: Jinxxy user ID
+              description: Provide exactly one identity field (subjectId, authUserId, discordUserId, vrchatUserId, gumroadUserId, jinxxyEmail, or jinxxyUserId)
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
+                  subjectId:
+                    type: string
+                    nullable: true
+                  productId:
+                    type: string
+  /api/public/verification/check:
+    post:
+      summary: Check product verification for an arbitrary subject
+      security:
+        - apiKey: [verification:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/VerificationStatusRequest'
+                - type: object
+                  required: [productIds]
+                  properties:
+                    productIds:
+                      type: array
+                      minItems: 1
+                      maxItems: 50
+                      items:
+                        type: string
+      responses:
+        '200':
+          description: Verification results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        productId:
+                          type: string
+                        verified:
+                          type: boolean
+  /api/public/subjects/resolve:
+    post:
+      summary: Resolve a canonical subject ID
+      security:
+        - apiKey: [subjects:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectResolveRequest'
+      responses:
+        '200':
+          description: Canonical subject
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  found:
+                    type: boolean
+                  subjectId:
+                    type: string
+                  authUserId:
+                    type: string
+                    nullable: true
+                  discordUserId:
+                    type: string
+                  externalAccounts:
+                    type: array
+                    items:
+                      type: object
+
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://YOUR_DEPLOYMENT.convex.site/api/auth/oauth2/authorize
+          tokenUrl: https://YOUR_DEPLOYMENT.convex.site/api/auth/oauth2/token
+          scopes:
+            verification:read: Read verification status
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    SubjectSelector:
+      oneOf:
+        - type: object
+          required: [subjectId]
+          properties:
+            subjectId:
+              type: string
+        - type: object
+          required: [authUserId]
+          properties:
+            authUserId:
+              type: string
+        - type: object
+          required: [discordUserId]
+          properties:
+            discordUserId:
+              type: string
+        - type: object
+          required: [externalAccount]
+          properties:
+            externalAccount:
+              type: object
+              required: [provider, providerUserId]
+              properties:
+                provider:
+                  type: string
+                providerUserId:
+                  type: string
+    SubjectResolveRequest:
+      type: object
+      required: [tenantId, subject]
+      properties:
+        tenantId:
+          type: string
+        subject:
+          $ref: '#/components/schemas/SubjectSelector'
+    VerificationStatusRequest:
+      type: object
+      required: [tenantId, subject]
+      properties:
+        tenantId:
+          type: string
+        subject:
+          $ref: '#/components/schemas/SubjectSelector'
+    VerificationStatus:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        subjectId:
+          type: string
+        products:
+          type: array
+          items:
+            type: object
+            properties:
+              productId:
+                type: string
+              status:
+                type: string
+              grantedAt:
+                type: integer
+                format: int64
+              sourceProvider:
+                type: string
+  responses:
+    VerificationStatus:
+      description: Verification status payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VerificationStatus'

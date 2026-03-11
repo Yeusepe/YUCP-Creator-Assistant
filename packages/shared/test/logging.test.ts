@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
+  type CorrelationContext,
+  type CorrelationStorage,
   createChildSpanId,
   createCorrelationContext,
   generateCorrelationId,
@@ -27,22 +29,22 @@ import {
   createAuditHelper,
 } from '../src/logging/audit';
 
-import { createStructuredLogger, type LogEntry } from '../src/logging/index';
+import { type LogEntry, createStructuredLogger } from '../src/logging/index';
 
 // Mock AsyncLocalStorage for testing
-class MockAsyncLocalStorage {
-  private store: Map<string, unknown> = new Map();
+class MockAsyncLocalStorage implements CorrelationStorage {
+  private store?: CorrelationContext;
 
-  getStore(): unknown {
-    return this.store.get('context');
+  getStore(): CorrelationContext | undefined {
+    return this.store;
   }
 
-  run<T>(context: unknown, fn: () => T): T {
-    this.store.set('context', context);
+  run<T>(context: CorrelationContext, fn: () => T): T {
+    this.store = context;
     try {
       return fn();
     } finally {
-      this.store.delete('context');
+      this.store = undefined;
     }
   }
 }
@@ -51,7 +53,7 @@ const mockStorage = new MockAsyncLocalStorage();
 
 describe('correlation', () => {
   beforeEach(() => {
-    setCorrelationStorage(mockStorage as any);
+    setCorrelationStorage(mockStorage);
   });
 
   afterEach(() => {
@@ -277,8 +279,12 @@ describe('audit', () => {
     it('writes event and capture writer receives it', async () => {
       const captured: AuditEvent[] = [];
       const writer: AuditWriter = {
-        write: async (e) => captured.push(e),
-        writeBatch: async (events) => captured.push(...events),
+        write: async (e) => {
+          captured.push(e);
+        },
+        writeBatch: async (events) => {
+          captured.push(...events);
+        },
       };
       const event = createAuditEvent({
         type: 'verification.session.created',
@@ -296,8 +302,12 @@ describe('audit', () => {
     it('writeBatch writes all events in order', async () => {
       const captured: AuditEvent[] = [];
       const writer: AuditWriter = {
-        write: async (e) => captured.push(e),
-        writeBatch: async (events) => captured.push(...events),
+        write: async (e) => {
+          captured.push(e);
+        },
+        writeBatch: async (events) => {
+          captured.push(...events);
+        },
       };
       const events = [
         createAuditEvent({
@@ -324,8 +334,12 @@ describe('audit', () => {
     it('sessionCreated writes event with expected structure', async () => {
       const captured: AuditEvent[] = [];
       const writer: AuditWriter = {
-        write: async (e) => captured.push(e),
-        writeBatch: async (events) => captured.push(...events),
+        write: async (e) => {
+          captured.push(e);
+        },
+        writeBatch: async (events) => {
+          captured.push(...events);
+        },
       };
       const helper = createAuditHelper(writer);
       await helper.verification.sessionCreated(

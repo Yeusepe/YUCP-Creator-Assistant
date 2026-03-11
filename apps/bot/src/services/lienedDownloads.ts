@@ -1,29 +1,31 @@
+import { createLogger } from '@yucp/shared';
+import { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
-  AttachmentBuilder,
   type Attachment,
+  AttachmentBuilder,
   ButtonBuilder,
+  type ButtonInteraction,
   ButtonStyle,
   ChannelType,
+  type Client,
   Collection,
   ContainerBuilder,
   EmbedBuilder,
+  type ForumChannel,
+  type Message,
   MessageFlags,
+  type MessageSnapshot,
   PermissionsBitField,
   SectionBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
-  TextDisplayBuilder,
-  type ButtonInteraction,
-  type Client,
-  type ForumChannel,
-  type Message,
-  type MessageSnapshot,
   type TextBasedChannel,
+  TextDisplayBuilder,
   type ThreadChannel,
+  type Webhook,
 } from 'discord.js';
-import { ConvexHttpClient } from 'convex/browser';
-import { createLogger } from '@yucp/shared';
+import { api } from '../../../../convex/_generated/api';
 import { E } from '../lib/emojis';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -33,6 +35,26 @@ const AUTOFIX_PROMPT_BUTTON_PREFIX = 'creator_download:autofix_prompt:';
 const AUTOFIX_RUN_BUTTON_PREFIX = 'creator_download:autofix_run:';
 const AUTOFIX_CANCEL_BUTTON_PREFIX = 'creator_download:autofix_cancel:';
 const RELAY_WEBHOOK_NAME = 'Liened Downloads Relay';
+
+type BotConvexClient = {
+  // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
+  query: (functionReference: unknown, args?: unknown) => Promise<any>;
+  // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
+  mutation: (functionReference: unknown, args?: unknown) => Promise<any>;
+  // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
+  action: (functionReference: unknown, args?: unknown) => Promise<any>;
+};
+
+type RelayWebhookChannel = {
+  id: string;
+  permissionsFor(userId: string): Readonly<PermissionsBitField> | null;
+  fetchWebhooks(): Promise<Collection<string, Webhook>>;
+  createWebhook(input: { name: string; reason: string }): Promise<Webhook>;
+};
+
+type SendableTextChannel = TextBasedChannel & {
+  send(payload: unknown): Promise<unknown>;
+};
 
 type DownloadRoute = {
   _id: string;
@@ -48,6 +70,33 @@ type DownloadRoute = {
   allowedExtensions: string[];
   enabled: boolean;
 };
+
+function isRelayWebhookChannel(channel: unknown): channel is RelayWebhookChannel {
+  return (
+    typeof channel === 'object' &&
+    channel !== null &&
+    'id' in channel &&
+    typeof channel.id === 'string' &&
+    'permissionsFor' in channel &&
+    typeof channel.permissionsFor === 'function' &&
+    'fetchWebhooks' in channel &&
+    typeof channel.fetchWebhooks === 'function' &&
+    'createWebhook' in channel &&
+    typeof channel.createWebhook === 'function'
+  );
+}
+
+function isSendableTextChannel(channel: unknown): channel is SendableTextChannel {
+  return (
+    typeof channel === 'object' &&
+    channel !== null &&
+    'isTextBased' in channel &&
+    typeof channel.isTextBased === 'function' &&
+    channel.isTextBased() &&
+    'send' in channel &&
+    typeof channel.send === 'function'
+  );
+}
 
 type DownloadArtifact = {
   _id: string;
@@ -108,14 +157,16 @@ function getMatchingFiles(message: Message, route: DownloadRoute): MatchedFile[]
   return [...message.attachments.values()]
     .map((attachment) => {
       const extension = getExtension(attachment.name ?? '');
-      return extension && allowed.has(extension)
-        ? { attachment, extension }
-        : null;
+      return extension && allowed.has(extension) ? { attachment, extension } : null;
     })
     .filter((entry): entry is MatchedFile => Boolean(entry));
 }
 
-function selectRoute(routes: DownloadRoute[], channelId: string, parentId: string | null): DownloadRoute | null {
+function selectRoute(
+  routes: DownloadRoute[],
+  channelId: string,
+  parentId: string | null
+): DownloadRoute | null {
   const exact = routes.filter((route) => route.sourceChannelId === channelId);
   if (exact.length > 0) return exact[0] ?? null;
   if (parentId) {
@@ -140,7 +191,7 @@ async function delay(ms: number): Promise<void> {
 
 async function fetchAttachmentBufferWithRetry(
   attachment: Attachment,
-  stage: 'archive' | 'relay',
+  stage: 'archive' | 'relay'
 ): Promise<Buffer> {
   let lastError: unknown = null;
 
@@ -167,21 +218,24 @@ async function fetchAttachmentBufferWithRetry(
   }
 
   throw new Error(
-    `Failed to fetch attachment for ${stage}: ${attachment.name ?? attachment.id} (${lastError instanceof Error ? lastError.message : String(lastError)})`,
+    `Failed to fetch attachment for ${stage}: ${attachment.name ?? attachment.id} (${lastError instanceof Error ? lastError.message : String(lastError)})`
   );
 }
 
-async function buildRelayFiles(message: Message, matchedFiles: MatchedFile[]): Promise<AttachmentBuilder[]> {
+async function buildRelayFiles(
+  message: Message,
+  matchedFiles: MatchedFile[]
+): Promise<AttachmentBuilder[]> {
   const securedAttachmentIds = new Set(matchedFiles.map(({ attachment }) => attachment.id));
   const relayAttachments = [...message.attachments.values()].filter(
-    (attachment) => !securedAttachmentIds.has(attachment.id),
+    (attachment) => !securedAttachmentIds.has(attachment.id)
   );
 
   return await Promise.all(
     relayAttachments.map(async (attachment) => {
       const buffer = await fetchAttachmentBufferWithRetry(attachment, 'relay');
       return new AttachmentBuilder(buffer, { name: attachment.name ?? 'attachment.bin' });
-    }),
+    })
   );
 }
 
@@ -193,7 +247,7 @@ function shouldReplaceOriginalMessage(message: Message, matchedFiles: MatchedFil
 
   const securedAttachmentIds = new Set(matchedFiles.map(({ attachment }) => attachment.id));
   const hasNonProtectedAttachments = [...message.attachments.values()].some(
-    (attachment) => !securedAttachmentIds.has(attachment.id),
+    (attachment) => !securedAttachmentIds.has(attachment.id)
   );
   if (hasNonProtectedAttachments) return false;
 
@@ -233,7 +287,10 @@ function getProtectedFilesFromForwardedMessage(message: Message): Array<{
   const snapshot = getForwardedSnapshot(message);
   // Prefer the forwarded message's own attachments (persistent URLs) over the snapshot
   // (original message URLs that break when the original is deleted).
-  const attachments = message.attachments.size > 0 ? message.attachments : (snapshot?.attachments ?? message.attachments);
+  const attachments =
+    message.attachments.size > 0
+      ? message.attachments
+      : (snapshot?.attachments ?? message.attachments);
 
   return [...attachments.values()].map((attachment) => ({
     filename: attachment.name ?? 'download.bin',
@@ -254,60 +311,61 @@ function buildReplacementContainer(
   artifactId: string,
   matchedFiles: MatchedFile[],
   originalContent?: string | null,
-  note?: string,
+  note?: string
 ): ContainerBuilder {
   const fileList = matchedFiles
     .map(({ attachment }) => `• \`${truncateText(attachment.name ?? 'download.bin', 72)}\``)
     .join('\n');
-  const accessLabel = route.roleLogic === 'all' ? 'You need every role below.' : 'Any one of these roles works.';
+  const accessLabel =
+    route.roleLogic === 'all' ? 'You need every role below.' : 'Any one of these roles works.';
   const rolesList = route.requiredRoleIds.map((roleId) => `<@&${roleId}>`).join(', ');
 
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
 
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(`## ${E.Key} ${route.messageTitle}`),
-    new TextDisplayBuilder().setContent(route.messageBody),
+    new TextDisplayBuilder().setContent(route.messageBody)
   );
 
   if (originalContent?.trim()) {
     container.addSeparatorComponents(
-      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
     );
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(truncateText(originalContent.trim(), 1200)),
+      new TextDisplayBuilder().setContent(truncateText(originalContent.trim(), 1200))
     );
   }
 
   container.addSeparatorComponents(
-    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
   container.addSectionComponents(
     new SectionBuilder()
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`**${E.Bag} Files**\n${fileList}`),
-        new TextDisplayBuilder().setContent(`**${E.Key} Access**\n${accessLabel}\n${rolesList}`),
+        new TextDisplayBuilder().setContent(`**${E.Key} Access**\n${accessLabel}\n${rolesList}`)
       )
       .setButtonAccessory(
         new ButtonBuilder()
           .setCustomId(`${DOWNLOAD_BUTTON_PREFIX}${artifactId}`)
           .setLabel('Download')
-          .setStyle(ButtonStyle.Primary),
-      ),
+          .setStyle(ButtonStyle.Primary)
+      )
   );
 
   container.addSeparatorComponents(
-    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`-# ${E.Assistant} Discord sends the file privately after access is confirmed.`),
+    new TextDisplayBuilder().setContent(
+      `-# ${E.Assistant} Discord sends the file privately after access is confirmed.`
+    )
   );
 
   if (note) {
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`-# ${note}`),
-    );
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${note}`));
   }
 
   return container;
@@ -315,7 +373,7 @@ function buildReplacementContainer(
 
 async function resolveWebhookChannel(
   channel: TextBasedChannel | ThreadChannel,
-  configuredSourceChannelId?: string | null,
+  configuredSourceChannelId?: string | null
 ) {
   if (!channel.isThread()) {
     return {
@@ -333,7 +391,7 @@ async function resolveWebhookChannel(
 
   if (!parent || !('createWebhook' in parent) || !('fetchWebhooks' in parent)) {
     throw new Error(
-      `Thread ${channel.id} has no webhook-capable parent channel (parentId=${parentId ?? 'null'}, configuredSourceChannelId=${configuredSourceChannelId ?? 'null'}, parentType=${parent?.type ?? 'null'})`,
+      `Thread ${channel.id} has no webhook-capable parent channel (parentId=${parentId ?? 'null'}, configuredSourceChannelId=${configuredSourceChannelId ?? 'null'}, parentType=${parent?.type ?? 'null'})`
     );
   }
 
@@ -343,10 +401,13 @@ async function resolveWebhookChannel(
   };
 }
 
-async function getOrCreateRelayWebhook(client: Client, channel: any) {
-  const permissions = typeof channel.permissionsFor === 'function'
-    ? channel.permissionsFor(client.user?.id ?? null)
-    : null;
+async function getOrCreateRelayWebhook(client: Client, channel: RelayWebhookChannel) {
+  const clientUserId = client.user?.id;
+  if (!clientUserId) {
+    throw new Error('Discord client user is not ready');
+  }
+  const permissions =
+    typeof channel.permissionsFor === 'function' ? channel.permissionsFor(clientUserId) : null;
   if (!permissions?.has(PermissionsBitField.Flags.ManageWebhooks)) {
     throw new Error(`Missing Manage Webhooks permission in channel ${channel.id}`);
   }
@@ -355,8 +416,8 @@ async function getOrCreateRelayWebhook(client: Client, channel: any) {
     throw new Error(`Channel ${channel.id} does not support webhooks`);
   }
 
-  const existing = (await channel.fetchWebhooks()).find((webhook: any) =>
-    webhook.name === RELAY_WEBHOOK_NAME && webhook.owner?.id === client.user?.id,
+  const existing = (await channel.fetchWebhooks()).find(
+    (webhook) => webhook.name === RELAY_WEBHOOK_NAME && webhook.owner?.id === clientUserId
   );
   if (existing) return existing;
 
@@ -371,27 +432,42 @@ async function relaySecureMessage(
   message: Message,
   route: DownloadRoute,
   artifactId: string,
-  matchedFiles: MatchedFile[],
+  matchedFiles: MatchedFile[]
 ) {
-  const permissions = typeof (message.channel as any).permissionsFor === 'function'
-    ? (message.channel as any).permissionsFor(client.user?.id ?? null)
-    : null;
+  const permissions =
+    'permissionsFor' in message.channel &&
+    typeof message.channel.permissionsFor === 'function' &&
+    client.user?.id
+      ? message.channel.permissionsFor(client.user.id)
+      : null;
   if (!permissions?.has(PermissionsBitField.Flags.ViewChannel)) {
     throw new Error(`Missing View Channel permission in source channel ${message.channelId}`);
   }
   if (!permissions?.has(PermissionsBitField.Flags.SendMessages)) {
     throw new Error(`Missing Send Messages permission in source channel ${message.channelId}`);
   }
-  if (message.channel.isThread() && !permissions?.has(PermissionsBitField.Flags.SendMessagesInThreads)) {
-    throw new Error(`Missing Send Messages in Threads permission in source thread ${message.channelId}`);
+  if (
+    message.channel.isThread() &&
+    !permissions?.has(PermissionsBitField.Flags.SendMessagesInThreads)
+  ) {
+    throw new Error(
+      `Missing Send Messages in Threads permission in source thread ${message.channelId}`
+    );
   }
 
-  const { webhookChannel, threadId } = await resolveWebhookChannel(message.channel, route.sourceChannelId);
+  const { webhookChannel, threadId } = await resolveWebhookChannel(
+    message.channel,
+    route.sourceChannelId
+  );
+  if (!isRelayWebhookChannel(webhookChannel)) {
+    throw new Error(`Channel ${route.sourceChannelId} does not support relay webhooks`);
+  }
   const webhook = await getOrCreateRelayWebhook(client, webhookChannel);
-  const username = (message.member?.displayName ?? message.author.globalName ?? message.author.username)
-    .replace(/discord/gi, 'user')
-    .replace(/clyde/gi, 'user')
-    .slice(0, 80) || 'user';
+  const username =
+    (message.member?.displayName ?? message.author.globalName ?? message.author.username)
+      .replace(/discord/gi, 'user')
+      .replace(/clyde/gi, 'user')
+      .slice(0, 80) || 'user';
 
   return await webhook.send({
     username,
@@ -410,17 +486,11 @@ async function postBackfillReply(
   matchedFiles: MatchedFile[],
   options?: {
     note?: string;
-  },
+  }
 ) {
   return await message.reply({
     components: [
-      buildReplacementContainer(
-        route,
-        artifactId,
-        matchedFiles,
-        message.content,
-        options?.note,
-      ),
+      buildReplacementContainer(route, artifactId, matchedFiles, message.content, options?.note),
     ],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },
@@ -432,23 +502,31 @@ function buildArchiveAutofixNotice(artifact: DownloadArtifact): ContainerBuilder
     .setAccentColor(0xfaa61a)
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(`## ${E.Wrench} Attachment Cleanup Needed`),
-      new TextDisplayBuilder().setContent('A protected file was prepared, but the original post still includes the attachment.'),
+      new TextDisplayBuilder().setContent(
+        'A protected file was prepared, but the original post still includes the attachment.'
+      )
     )
     .addSectionComponents(
       new SectionBuilder()
         .addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`**${E.Link} Source message**\n${artifact.sourceMessageUrl}`),
-          new TextDisplayBuilder().setContent(`**${E.Assistant} Action**\nRemove the original attachment manually, or use Autofix to replace the message.`),
+          new TextDisplayBuilder().setContent(
+            `**${E.Link} Source message**\n${artifact.sourceMessageUrl}`
+          ),
+          new TextDisplayBuilder().setContent(
+            `**${E.Assistant} Action**\nRemove the original attachment manually, or use Autofix to replace the message.`
+          )
         )
         .setButtonAccessory(
           new ButtonBuilder()
             .setCustomId(`${AUTOFIX_PROMPT_BUTTON_PREFIX}${artifact._id}`)
             .setLabel('Autofix...')
-            .setStyle(ButtonStyle.Secondary),
-        ),
+            .setStyle(ButtonStyle.Secondary)
+        )
     )
     .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`-# ${E.X_} Autofix deletes the original post and breaks image previews in forum posts.`),
+      new TextDisplayBuilder().setContent(
+        `-# ${E.X_} Autofix deletes the original post and breaks image previews in forum posts.`
+      )
     );
 }
 
@@ -456,29 +534,33 @@ async function postArchiveAutofixNotice(
   client: Client,
   route: DownloadRoute,
   artifact: DownloadArtifact,
-  archiveThreadId?: string,
+  archiveThreadId?: string
 ): Promise<void> {
   const archiveChannel = await client.channels.fetch(route.archiveChannelId).catch(() => null);
   if (!archiveChannel) return;
 
   if (archiveThreadId) {
     const archiveThread = await client.channels.fetch(archiveThreadId).catch(() => null);
-    if (archiveThread?.isTextBased() && 'send' in archiveThread) {
-      await (archiveThread as any).send({
-        components: [buildArchiveAutofixNotice(artifact)],
-        flags: MessageFlags.IsComponentsV2,
-        allowedMentions: { parse: [] },
-      }).catch(() => null);
+    if (isSendableTextChannel(archiveThread)) {
+      await archiveThread
+        .send({
+          components: [buildArchiveAutofixNotice(artifact)],
+          flags: MessageFlags.IsComponentsV2,
+          allowedMentions: { parse: [] },
+        })
+        .catch(() => null);
       return;
     }
   }
 
-  if (archiveChannel.isTextBased() && 'send' in archiveChannel) {
-    await (archiveChannel as any).send({
-      components: [buildArchiveAutofixNotice(artifact)],
-      flags: MessageFlags.IsComponentsV2,
-      allowedMentions: { parse: [] },
-    }).catch(() => null);
+  if (isSendableTextChannel(archiveChannel)) {
+    await archiveChannel
+      .send({
+        components: [buildArchiveAutofixNotice(artifact)],
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] },
+      })
+      .catch(() => null);
   }
 }
 
@@ -491,7 +573,7 @@ function buildSingleAutofixConfirmRow(artifactId: string): ActionRowBuilder<Butt
     new ButtonBuilder()
       .setCustomId(`${AUTOFIX_CANCEL_BUTTON_PREFIX}${artifactId}`)
       .setLabel('Cancel')
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
   );
 }
 
@@ -499,7 +581,7 @@ async function postToArchive(
   client: Client,
   route: DownloadRoute,
   message: Message,
-  matchedFiles: MatchedFile[],
+  matchedFiles: MatchedFile[]
 ) {
   const archiveChannel = await client.channels.fetch(route.archiveChannelId);
   if (!archiveChannel) {
@@ -530,12 +612,14 @@ async function postToArchive(
     };
   }
 
-  if (!archiveChannel.isTextBased() || !('send' in archiveChannel)) {
+  if (!isSendableTextChannel(archiveChannel)) {
     throw new Error(`Archive channel ${route.archiveChannelId} is not writable`);
   }
 
-  await (archiveChannel as any).send({ content });
-  const sentMessage = await message.forward(archiveChannel as any);
+  await archiveChannel.send({ content });
+  const sentMessage = await message.forward(
+    archiveChannel as unknown as Parameters<Message['forward']>[0]
+  );
   return {
     sentMessage,
     archiveChannelId: route.archiveChannelId,
@@ -558,7 +642,9 @@ function formatRoleRequirement(artifact: DownloadArtifact): string {
     : `You need at least one of these roles to open this download:\n${mentions}`;
 }
 
-async function maybeUnarchiveThread(channel: TextBasedChannel | ThreadChannel): Promise<(() => Promise<void>) | null> {
+async function maybeUnarchiveThread(
+  channel: TextBasedChannel | ThreadChannel
+): Promise<(() => Promise<void>) | null> {
   if (!channel.isThread()) return null;
   const thread = channel as ThreadChannel;
   if (!thread.archived) return null;
@@ -597,11 +683,15 @@ async function iterateMessages(channel: TextBasedChannel | ThreadChannel): Promi
 }
 
 export class LienedDownloadsService {
+  private readonly convex: BotConvexClient;
+
   constructor(
     private readonly client: Client,
-    private readonly convex: ConvexHttpClient,
-    private readonly apiSecret: string,
-  ) {}
+    convex: ConvexHttpClient,
+    private readonly apiSecret: string
+  ) {
+    this.convex = convex as unknown as BotConvexClient;
+  }
 
   private async isForumRouteMessage(message: Message, route: DownloadRoute): Promise<boolean> {
     if (!message.channel.isThread()) return false;
@@ -612,7 +702,7 @@ export class LienedDownloadsService {
   private async secureMessage(
     message: Message,
     route: DownloadRoute,
-    mode: 'replace' | 'reply' = 'replace',
+    mode: 'replace' | 'reply' = 'replace'
   ): Promise<'secured' | 'skipped'> {
     logger.info('Liened Downloads securing message', {
       feature: 'Liened Downloads',
@@ -626,10 +716,10 @@ export class LienedDownloadsService {
     if (!message.inGuild() || message.author.bot || message.webhookId) return 'skipped';
     if (message.attachments.size === 0) return 'skipped';
 
-    const existingArtifact = await this.convex.query('downloads:getArtifactBySourceMessage' as any, {
+    const existingArtifact = (await this.convex.query(api.downloads.getArtifactBySourceMessage, {
       apiSecret: this.apiSecret,
       sourceMessageId: message.id,
-    }) as { _id: string } | null;
+    })) as { _id: string } | null;
     if (existingArtifact) {
       logger.info('Liened Downloads skipped message because it is already secured', {
         feature: 'Liened Downloads',
@@ -643,14 +733,17 @@ export class LienedDownloadsService {
 
     const matchedFiles = getMatchingFiles(message, route);
     if (matchedFiles.length === 0) {
-      logger.info('Liened Downloads skipped message because no attachments matched the route extensions', {
-        feature: 'Liened Downloads',
-        guildId: message.guildId,
-        channelId: message.channelId,
-        messageId: message.id,
-        allowedExtensions: route.allowedExtensions,
-        attachments: describeAttachments(message),
-      });
+      logger.info(
+        'Liened Downloads skipped message because no attachments matched the route extensions',
+        {
+          feature: 'Liened Downloads',
+          guildId: message.guildId,
+          channelId: message.channelId,
+          messageId: message.id,
+          allowedExtensions: route.allowedExtensions,
+          attachments: describeAttachments(message),
+        }
+      );
       return 'skipped';
     }
 
@@ -663,7 +756,7 @@ export class LienedDownloadsService {
     if (protectedFiles.length === 0) {
       throw new Error('Forwarded message did not contain attachment metadata');
     }
-    const artifact = (await this.convex.mutation('downloads:createArtifact' as any, {
+    const artifact = (await this.convex.mutation(api.downloads.createArtifact, {
       apiSecret: this.apiSecret,
       tenantId: route.tenantId,
       guildId: route.guildId,
@@ -685,9 +778,10 @@ export class LienedDownloadsService {
     const restoreArchivedState = await maybeUnarchiveThread(message.channel);
     const forumRouteMessage = await this.isForumRouteMessage(message, route);
     try {
-      replacementMessage = mode === 'replace'
-        ? await relaySecureMessage(this.client, message, route, artifact.artifactId, matchedFiles)
-        : await postBackfillReply(message, route, artifact.artifactId, matchedFiles);
+      replacementMessage =
+        mode === 'replace'
+          ? await relaySecureMessage(this.client, message, route, artifact.artifactId, matchedFiles)
+          : await postBackfillReply(message, route, artifact.artifactId, matchedFiles);
       if (!replacementMessage) {
         throw new Error('Replacement message could not be created');
       }
@@ -703,7 +797,7 @@ export class LienedDownloadsService {
         replacementMessageId: replacementMessage.id,
       });
 
-      await this.convex.mutation('downloads:updateArtifactSourceRelay' as any, {
+      await this.convex.mutation(api.downloads.updateArtifactSourceRelay, {
         apiSecret: this.apiSecret,
         artifactId: artifact.artifactId,
         sourceRelayMessageId: replacementMessage.id,
@@ -731,7 +825,7 @@ export class LienedDownloadsService {
           if (replacementMessage) {
             await replacementMessage.delete().catch(() => null);
           }
-          await this.convex.mutation('downloads:markArtifactStatus' as any, {
+          await this.convex.mutation(api.downloads.markArtifactStatus, {
             apiSecret: this.apiSecret,
             artifactId: artifact.artifactId,
             status: 'failed',
@@ -739,17 +833,24 @@ export class LienedDownloadsService {
         } catch {
           // Ignore cleanup failure.
         }
-        throw new Error(`Failed to delete original message after webhook relay: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `Failed to delete original message after webhook relay: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
     if (mode === 'reply' && forumRouteMessage) {
-      const artifactRecord = (await this.convex.query('downloads:getArtifactForDelivery' as any, {
+      const artifactRecord = (await this.convex.query(api.downloads.getArtifactForDelivery, {
         apiSecret: this.apiSecret,
         artifactId: artifact.artifactId,
       })) as DownloadArtifact | null;
       if (artifactRecord) {
-        await postArchiveAutofixNotice(this.client, route, artifactRecord, archiveResult.archiveThreadId);
+        await postArchiveAutofixNotice(
+          this.client,
+          route,
+          artifactRecord,
+          archiveResult.archiveThreadId
+        );
       }
     }
 
@@ -768,11 +869,13 @@ export class LienedDownloadsService {
     if (!message.inGuild() || message.author.bot || message.webhookId) return;
     if (message.attachments.size === 0) return;
 
-    const parentId = 'parentId' in message.channel ? message.channel.parentId ?? null : null;
-    const routes = (await this.convex.query('downloads:getActiveRoutesForChannel' as any, {
+    const parentId = 'parentId' in message.channel ? (message.channel.parentId ?? null) : null;
+    const routes = (await this.convex.query(api.downloads.getActiveRoutesForChannel, {
       apiSecret: this.apiSecret,
       guildId: message.guildId,
-      channelIds: [message.channelId, parentId].filter(Boolean),
+      channelIds: [message.channelId, parentId].filter((channelId): channelId is string =>
+        Boolean(channelId)
+      ),
     })) as DownloadRoute[];
 
     const route = selectRoute(routes, message.channelId, parentId);
@@ -837,7 +940,7 @@ export class LienedDownloadsService {
       for (const thread of threadMap.values()) {
         const starterMessage = await thread.fetchStarterMessage().catch(() => null);
         if (starterMessage) messages.push(starterMessage);
-        messages.push(...await iterateMessages(thread));
+        messages.push(...(await iterateMessages(thread)));
       }
       return messages;
     }
@@ -846,19 +949,21 @@ export class LienedDownloadsService {
       throw new Error(`Source channel ${route.sourceChannelId} is not text-based`);
     }
 
-    messages.push(...await iterateMessages(channel as TextBasedChannel));
+    messages.push(...(await iterateMessages(channel as TextBasedChannel)));
 
     if ('threads' in channel && channel.threads) {
       const activeThreads = await channel.threads.fetchActive().catch(() => null);
       if (activeThreads) {
         for (const thread of activeThreads.threads.values()) {
-          messages.push(...await iterateMessages(thread));
+          messages.push(...(await iterateMessages(thread)));
         }
       }
-      const archivedThreads = await channel.threads.fetchArchived({ type: 'public', fetchAll: true }).catch(() => null);
+      const archivedThreads = await channel.threads
+        .fetchArchived({ type: 'public', fetchAll: true })
+        .catch(() => null);
       if (archivedThreads) {
         for (const thread of archivedThreads.threads.values()) {
-          messages.push(...await iterateMessages(thread));
+          messages.push(...(await iterateMessages(thread)));
         }
       }
     }
@@ -909,7 +1014,7 @@ export class LienedDownloadsService {
     skippedMessages: number;
     failedMessages: number;
   }> {
-    const artifacts = (await this.convex.query('downloads:listActiveArtifactsByRoute' as any, {
+    const artifacts = (await this.convex.query(api.downloads.listActiveArtifactsByRoute, {
       apiSecret: this.apiSecret,
       routeId: route._id,
     })) as DownloadArtifact[];
@@ -950,14 +1055,16 @@ export class LienedDownloadsService {
 
   private async autofixArtifact(
     artifact: DownloadArtifact,
-    route: DownloadRoute,
+    route: DownloadRoute
   ): Promise<'fixed' | 'skipped'> {
     const sourceChannel = await this.client.channels.fetch(artifact.sourceChannelId);
     if (!sourceChannel || !sourceChannel.isTextBased() || !('messages' in sourceChannel)) {
       throw new Error(`Source channel ${artifact.sourceChannelId} is not readable`);
     }
 
-    const sourceMessage = await sourceChannel.messages.fetch(artifact.sourceMessageId).catch(() => null);
+    const sourceMessage = await sourceChannel.messages
+      .fetch(artifact.sourceMessageId)
+      .catch(() => null);
     if (!sourceMessage) {
       return 'skipped';
     }
@@ -973,7 +1080,13 @@ export class LienedDownloadsService {
     const restoreArchivedState = await maybeUnarchiveThread(sourceMessage.channel);
     let webhookMessage: Message | null = null;
     try {
-      webhookMessage = await relaySecureMessage(this.client, sourceMessage, route, artifact._id, matchedFiles);
+      webhookMessage = await relaySecureMessage(
+        this.client,
+        sourceMessage,
+        route,
+        artifact._id,
+        matchedFiles
+      );
       if (!webhookMessage) {
         throw new Error('Webhook replacement message could not be created');
       }
@@ -988,7 +1101,7 @@ export class LienedDownloadsService {
       await sourceChannel.messages.delete(artifact.sourceRelayMessageId).catch(() => null);
     }
 
-    await this.convex.mutation('downloads:updateArtifactSourceRelay' as any, {
+    await this.convex.mutation(api.downloads.updateArtifactSourceRelay, {
       apiSecret: this.apiSecret,
       artifactId: artifact._id,
       sourceRelayMessageId: webhookMessage.id,
@@ -1012,7 +1125,7 @@ export class LienedDownloadsService {
       return;
     }
 
-    const artifact = (await this.convex.query('downloads:getArtifactForDelivery' as any, {
+    const artifact = (await this.convex.query(api.downloads.getArtifactForDelivery, {
       apiSecret: this.apiSecret,
       artifactId,
     })) as DownloadArtifact | null;
@@ -1026,10 +1139,7 @@ export class LienedDownloadsService {
     }
 
     await interaction.reply({
-      content:
-        `${E.Wrench} Autofix replaces the original message with the protected version.\n` +
-        `The original post is deleted.\n\n` +
-        `${E.X_} This breaks image previews in forum posts.`,
+      content: `${E.Wrench} Autofix replaces the original message with the protected version.\nThe original post is deleted.\n\n${E.X_} This breaks image previews in forum posts.`,
       components: [buildSingleAutofixConfirmRow(artifactId)],
       flags: MessageFlags.Ephemeral,
     });
@@ -1046,7 +1156,7 @@ export class LienedDownloadsService {
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const artifact = (await this.convex.query('downloads:getArtifactForDelivery' as any, {
+    const artifact = (await this.convex.query(api.downloads.getArtifactForDelivery, {
       apiSecret: this.apiSecret,
       artifactId,
     })) as DownloadArtifact | null;
@@ -1059,7 +1169,7 @@ export class LienedDownloadsService {
       return;
     }
 
-    const route = (await this.convex.query('downloads:getRouteById' as any, {
+    const route = (await this.convex.query(api.downloads.getRouteById, {
       apiSecret: this.apiSecret,
       routeId: artifact.routeId,
     })) as DownloadRoute | null;
@@ -1075,9 +1185,10 @@ export class LienedDownloadsService {
     try {
       const result = await this.autofixArtifact(artifact, route);
       await interaction.editReply({
-        content: result === 'fixed'
-          ? `${E.Checkmark} Autofix replaced the message.`
-          : `${E.Home} Nothing changed. The source message is no longer available.`,
+        content:
+          result === 'fixed'
+            ? `${E.Checkmark} Autofix replaced the message.`
+            : `${E.Home} Nothing changed. The source message is no longer available.`,
         components: [],
       });
     } catch (error) {
@@ -1101,7 +1212,7 @@ export class LienedDownloadsService {
   }
 
   async handleDownloadButton(interaction: ButtonInteraction, artifactId: string): Promise<void> {
-    const artifact = (await this.convex.query('downloads:getArtifactForDelivery' as any, {
+    const artifact = (await this.convex.query(api.downloads.getArtifactForDelivery, {
       apiSecret: this.apiSecret,
       artifactId,
     })) as DownloadArtifact | null;
@@ -1122,7 +1233,7 @@ export class LienedDownloadsService {
       return;
     }
 
-    const member = await interaction.guild!.members.fetch(interaction.user.id).catch(() => null);
+    const member = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
     if (!member) {
       await interaction.reply({
         content: `${E.X_} Your server membership couldn’t be verified right now. Try again.`,
@@ -1153,7 +1264,9 @@ export class LienedDownloadsService {
         const channelId = artifact.archiveThreadId ?? artifact.archiveChannelId;
         const channel = await this.client.channels.fetch(channelId).catch(() => null);
         if (channel?.isTextBased() && 'messages' in channel) {
-          const archiveMessage = await (channel as TextBasedChannel).messages.fetch(artifact.archiveMessageId).catch(() => null);
+          const archiveMessage = await (channel as TextBasedChannel).messages
+            .fetch(artifact.archiveMessageId)
+            .catch(() => null);
           if (archiveMessage) {
             const liveFiles = getProtectedFilesFromForwardedMessage(archiveMessage);
             if (liveFiles.length > 0) {
@@ -1193,9 +1306,11 @@ export function isLienedDownloadButton(customId: string): boolean {
 }
 
 export function isLienedAutofixButton(customId: string): boolean {
-  return customId.startsWith(AUTOFIX_PROMPT_BUTTON_PREFIX)
-    || customId.startsWith(AUTOFIX_RUN_BUTTON_PREFIX)
-    || customId.startsWith(AUTOFIX_CANCEL_BUTTON_PREFIX);
+  return (
+    customId.startsWith(AUTOFIX_PROMPT_BUTTON_PREFIX) ||
+    customId.startsWith(AUTOFIX_RUN_BUTTON_PREFIX) ||
+    customId.startsWith(AUTOFIX_CANCEL_BUTTON_PREFIX)
+  );
 }
 
 export function getLienedDownloadsInvitePermissions(): bigint {

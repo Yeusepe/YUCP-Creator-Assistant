@@ -22,7 +22,7 @@ export function getPostHogClient(): InstanceType<typeof PostHog> | null {
 export function track(
   distinctId: string,
   event: string,
-  properties?: Record<string, unknown>,
+  properties?: Record<string, unknown>
 ): void {
   const c = getPostHogClient();
   if (!c) return;

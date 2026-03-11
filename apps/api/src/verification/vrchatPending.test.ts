@@ -36,7 +36,9 @@ describe('vrchatPending', () => {
     });
 
     const pending = await readPendingVrchatState(store, followUpRequest, 'verify-token');
-    expect(pending?.state.pendingState).toBe('{"authToken":"cookie","requiresTwoFactorAuth":["emailOtp"]}');
+    expect(pending?.state.pendingState).toBe(
+      '{"authToken":"cookie","requiresTwoFactorAuth":["emailOtp"]}'
+    );
     expect(pending?.state.types).toEqual(['emailOtp']);
   });
 

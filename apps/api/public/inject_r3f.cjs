@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const HEAD_REPLACE = `
     <!-- ES Module Shims for better browser compatibility -->
@@ -118,32 +118,32 @@ const BODY_END_REPLACE = `
 </body>`;
 
 const files = [
-    'connect.html',
-    'dashboard.html',
-    'discord-role-setup.html',
-    'jinxxy-setup.html',
-    'sign-in-redirect.html',
-    'verify-error.html',
-    'verify-success.html',
-    'termsofservice.html'
+  'connect.html',
+  'dashboard.html',
+  'discord-role-setup.html',
+  'jinxxy-setup.html',
+  'sign-in-redirect.html',
+  'verify-error.html',
+  'verify-success.html',
+  'termsofservice.html',
 ];
 
-files.forEach(file => {
-    const filePath = path.join(__dirname, file);
-    if (!fs.existsSync(filePath)) return;
+for (const file of files) {
+  const filePath = path.join(__dirname, file);
+  if (!fs.existsSync(filePath)) continue;
 
-    let content = fs.readFileSync(filePath, 'utf8');
+  let content = fs.readFileSync(filePath, 'utf8');
 
-    // Skip if already injected
-    if (content.includes('bg-canvas-root')) {
-        console.log(`Skipping ${file} - already injected`);
-        return;
-    }
+  // Skip if already injected
+  if (content.includes('bg-canvas-root')) {
+    console.log(`Skipping ${file} - already injected`);
+    continue;
+  }
 
-    content = content.replace('</head>', HEAD_REPLACE);
-    content = content.replace(/<body([^>]*)>/, '<body$1>' + BODY_START_REPLACE);
-    content = content.replace('</body>', BODY_END_REPLACE);
+  content = content.replace('</head>', HEAD_REPLACE);
+  content = content.replace(/<body([^>]*)>/, `<body$1>${BODY_START_REPLACE}`);
+  content = content.replace('</body>', BODY_END_REPLACE);
 
-    fs.writeFileSync(filePath, content);
-    console.log(`Injected into ${file}`);
-});
+  fs.writeFileSync(filePath, content);
+  console.log(`Injected into ${file}`);
+}
