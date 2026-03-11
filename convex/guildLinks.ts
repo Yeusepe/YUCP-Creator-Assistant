@@ -76,6 +76,7 @@ export const upsertGuildLink = mutation({
 
 /**
  * Update guild link status. Called by API for uninstall/health.
+ * Optionally syncs discordGuildName and discordGuildIcon when available.
  */
 export const updateGuildLinkStatus = mutation({
   args: {
@@ -83,6 +84,8 @@ export const updateGuildLinkStatus = mutation({
     discordGuildId: v.string(),
     status: GuildLinkStatus,
     botPresent: v.boolean(),
+    discordGuildName: v.optional(v.string()),
+    discordGuildIcon: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -97,11 +100,15 @@ export const updateGuildLinkStatus = mutation({
       return { updated: false };
     }
 
-    await ctx.db.patch(link._id, {
+    const patch: Record<string, unknown> = {
       status: args.status,
       botPresent: args.botPresent,
       updatedAt: now,
-    });
+    };
+    if (args.discordGuildName !== undefined) patch.discordGuildName = args.discordGuildName;
+    if (args.discordGuildIcon !== undefined) patch.discordGuildIcon = args.discordGuildIcon;
+
+    await ctx.db.patch(link._id, patch);
 
     return { updated: true };
   },
@@ -183,7 +190,7 @@ export const getUserGuilds = query({
           tenantId: tenant._id,
           guildId: link.discordGuildId,
           name: link.discordGuildName || tenant.name,
-          icon: null
+          icon: link.discordGuildIcon ?? null
         });
       }
     }

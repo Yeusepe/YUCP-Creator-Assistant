@@ -393,8 +393,8 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
 
         logger.debug('Guild health check passed', { guildId, guildName: guild.name });
 
-        // Update guild link status in Convex
-        await updateGuildLinkStatus(config.convexApiSecret, guildId, 'active', true);
+        // Update guild link status and sync name/icon in Convex
+        await updateGuildLinkStatus(config.convexApiSecret, guildId, 'active', true, guild.name, guild.icon ?? undefined);
 
         return Response.json({
           healthy: true,
@@ -540,13 +540,16 @@ async function storeGuildLink(apiSecret: string, data: GuildLinkData): Promise<v
 }
 
 /**
- * Updates guild link status in Convex
+ * Updates guild link status in Convex.
+ * Optionally syncs discordGuildName and discordGuildIcon when available.
  */
 async function updateGuildLinkStatus(
   apiSecret: string,
   discordGuildId: string,
   status: GuildLinkStatus,
-  botPresent: boolean
+  botPresent: boolean,
+  discordGuildName?: string,
+  discordGuildIcon?: string
 ): Promise<void> {
   const convex = getConvexClient();
   await convex.mutation(api.guildLinks.updateGuildLinkStatus, {
@@ -554,6 +557,8 @@ async function updateGuildLinkStatus(
     discordGuildId,
     status,
     botPresent,
+    ...(discordGuildName !== undefined && { discordGuildName }),
+    ...(discordGuildIcon !== undefined && { discordGuildIcon }),
   });
   logger.debug('Updated guild link status in Convex', { discordGuildId, status });
 }

@@ -128,15 +128,27 @@ export const getTenantByAuthUser = internalQuery({
   },
 });
 
-/** List active products for a tenant (all providers). */
+/** Get a tenant by its document ID (used for collab product attribution). */
+export const getTenantById = internalQuery({
+  args: { tenantId: v.id('tenants') },
+  returns: v.union(v.null(), v.object({ _id: v.id('tenants'), name: v.string() })),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.tenantId);
+    if (!row) return null;
+    return { _id: row._id, name: row.name };
+  },
+});
+
+/** List active products for a tenant, grouped by canonical productId. */
 export const getProductsForTenant = internalQuery({
   args: { tenantId: v.id('tenants') },
   returns: v.array(
     v.object({
       productId: v.string(),
-      provider: v.string(),
-      providerProductRef: v.string(),
       displayName: v.optional(v.string()),
+      providers: v.array(
+        v.object({ provider: v.string(), providerProductRef: v.string() }),
+      ),
     }),
   ),
   handler: async (ctx, args) => {
@@ -145,12 +157,102 @@ export const getProductsForTenant = internalQuery({
       .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
-    return rows.map((r) => ({
-      productId: r.productId,
-      provider: r.provider as string,
-      providerProductRef: r.providerProductRef,
-      displayName: r.displayName,
-    }));
+
+    // Group by productId so each canonical product appears once with all its providers
+    const grouped = new Map<string, {
+      productId: string;
+      displayName?: string;
+      providers: Array<{ provider: string; providerProductRef: string }>;
+    }>();
+
+    for (const row of rows) {
+      if (!grouped.has(row.productId)) {
+        grouped.set(row.productId, {
+          productId: row.productId,
+          // Mirror the bot's fallback chain: displayName → canonicalSlug → providerProductRef
+          displayName: row.displayName || row.canonicalSlug || row.providerProductRef || undefined,
+          providers: [],
+        });
+      } else {
+        // If a later row for the same productId has a better name, promote it
+        const entry = grouped.get(row.productId)!;
+        const betterName = row.displayName || row.canonicalSlug;
+        if (!entry.displayName && betterName) entry.displayName = betterName;
+      }
+      grouped.get(row.productId)!.providers.push({
+        provider: row.provider as string,
+        providerProductRef: row.providerProductRef,
+      });
+    }
+
+    // ── Enrich with Discord: if role_rules exist for a product, add discord provider ──
+    const roleRules = await ctx.db
+      .query('role_rules')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('enabled'), true))
+      .collect();
+
+    for (const rule of roleRules) {
+      // Only attach Discord to products already in the catalog
+      if (!grouped.has(rule.productId)) continue;
+      const guildLink = await ctx.db.get(rule.guildLinkId);
+      if (!guildLink || guildLink.status !== 'active') continue;
+      const entry = grouped.get(rule.productId)!;
+      if (!entry.providers.some((p) => p.provider === 'discord')) {
+        entry.providers.push({ provider: 'discord', providerProductRef: rule.guildId });
+      }
+    }
+
+    return Array.from(grouped.values());
+  },
+});
+
+/**
+ * Get Discord user ID for a YUCP auth user by looking up their linked Better Auth Discord account.
+ * Returns null if user has no Discord linked.
+ * NOTE: Must be called from an httpAction since it uses components.betterAuth — see http.ts.
+ */
+
+/** Find a subject by their Discord user ID. */
+export const getSubjectByDiscordUser = internalQuery({
+  args: { discordUserId: v.string() },
+  returns: v.union(v.null(), v.object({ _id: v.id('subjects') })),
+  handler: async (ctx, args) => {
+    const subject = await ctx.db
+      .query('subjects')
+      .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
+      .filter((q) => q.neq(q.field('status'), 'banned'))
+      .first();
+    if (!subject) return null;
+    return { _id: subject._id };
+  },
+});
+
+/**
+ * Check if a subject has an active entitlement for a specific product within a tenant.
+ * Used for Discord role-based license verification — the entitlement was granted by the bot.
+ */
+export const checkSubjectEntitlement = internalQuery({
+  args: {
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    productId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const entitlement = await ctx.db
+      .query('entitlements')
+      .withIndex('by_tenant_subject', (q) =>
+        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId),
+      )
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('productId'), args.productId),
+          q.eq(q.field('status'), 'active'),
+        ),
+      )
+      .first();
+    return entitlement != null;
   },
 });
 
