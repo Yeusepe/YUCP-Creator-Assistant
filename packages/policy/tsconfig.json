@@ -3,7 +3,7 @@
   "compilerOptions": {
     "outDir": "./dist",
     "composite": false,
-    "types": ["bun-types", "@types/bun"]
+    "types": ["bun"]
   },
   "include": ["src/**/*"]
 }

@@ -387,7 +387,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Returns an object suitable for spreading into the upsertGuildLink call.
    * Never throws — returns empty object on failure so the flow is unaffected.
    */
-  async function fetchGuildMeta(guildId: string): Promise<{ discordGuildName?: string; discordGuildIcon?: string }> {
+  async function fetchGuildMeta(
+    guildId: string
+  ): Promise<{ discordGuildName?: string; discordGuildIcon?: string }> {
     if (!config.discordBotToken) return {};
     try {
       const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}`, {
@@ -449,11 +451,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function requireBoundSetupSession(request: Request): Promise<
     | {
-      ok: true;
-      setupSession: { tenantId: string; guildId: string; discordUserId: string };
-      authSession: NonNullable<Awaited<ReturnType<typeof auth.getSession>>>;
-      authDiscordUserId: string;
-    }
+        ok: true;
+        setupSession: { tenantId: string; guildId: string; discordUserId: string };
+        authSession: NonNullable<Awaited<ReturnType<typeof auth.getSession>>>;
+        authDiscordUserId: string;
+      }
     | { ok: false; response: Response }
   > {
     const setupSession = await resolveSetupSessionFromRequest(request);
@@ -2160,12 +2162,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         body.name === undefined
           ? undefined
           : (() => {
-            const value = body.name?.trim() ?? '';
-            if (!value) {
-              throw new Error('name cannot be empty');
-            }
-            return value;
-          })();
+              const value = body.name?.trim() ?? '';
+              if (!value) {
+                throw new Error('name cannot be empty');
+              }
+              return value;
+            })();
       const nextRedirectUris =
         body.redirectUris === undefined ? undefined : normalizeRedirectUris(body.redirectUris);
       const nextScopes = body.scopes === undefined ? undefined : normalizeOAuthScopes(body.scopes);
@@ -2701,19 +2703,21 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
                 g.name = meta.discordGuildName;
                 if (meta.discordGuildIcon) g.icon = meta.discordGuildIcon;
                 // Persist to DB in background so future loads are instant
-                convex.mutation(api.guildLinks.updateGuildLinkStatus, {
-                  apiSecret: config.convexApiSecret,
-                  discordGuildId: g.guildId,
-                  status: 'active' as const,
-                  botPresent: true,
-                  discordGuildName: meta.discordGuildName,
-                  ...(meta.discordGuildIcon ? { discordGuildIcon: meta.discordGuildIcon } : {}),
-                }).catch((err) => {
-                  logger.warn('Failed to persist backfilled guild name', {
-                    guildId: g.guildId,
-                    error: err instanceof Error ? err.message : String(err),
+                convex
+                  .mutation(api.guildLinks.updateGuildLinkStatus, {
+                    apiSecret: config.convexApiSecret,
+                    discordGuildId: g.guildId,
+                    status: 'active' as const,
+                    botPresent: true,
+                    discordGuildName: meta.discordGuildName,
+                    ...(meta.discordGuildIcon ? { discordGuildIcon: meta.discordGuildIcon } : {}),
+                  })
+                  .catch((err) => {
+                    logger.warn('Failed to persist backfilled guild name', {
+                      guildId: g.guildId,
+                      error: err instanceof Error ? err.message : String(err),
+                    });
                   });
-                });
               }
             })
           );

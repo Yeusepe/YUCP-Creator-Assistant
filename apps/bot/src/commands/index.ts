@@ -49,9 +49,7 @@ export function buildCreatorAdminCommand(isConfigured: boolean) {
 
   if (isConfigured) {
     cmd.addSubcommand((s) =>
-      s
-        .setName('dashboard')
-        .setDescription('Open the Creator Assistant dashboard')
+      s.setName('dashboard').setDescription('Open the Creator Assistant dashboard')
     );
   } else {
     cmd.addSubcommandGroup((setup) =>
@@ -66,13 +64,14 @@ export function buildCreatorAdminCommand(isConfigured: boolean) {
     );
   }
 
-  cmd.addSubcommand((s) =>
-    s
-      .setName('autosetup')
-      .setDescription(
-        'Guided setup in Discord: create roles, channels, verify button, or migrate from another bot'
-      )
-  )
+  cmd
+    .addSubcommand((s) =>
+      s
+        .setName('autosetup')
+        .setDescription(
+          'Guided setup in Discord: create roles, channels, verify button, or migrate from another bot'
+        )
+    )
     .addSubcommandGroup((product) =>
       product
         .setName('product')
@@ -81,11 +80,7 @@ export function buildCreatorAdminCommand(isConfigured: boolean) {
           s.setName('add').setDescription('Add a product-role mapping (guided setup)')
         )
         .addSubcommand((s) => s.setName('list').setDescription('List product-role mappings'))
-        .addSubcommand((s) =>
-          s
-            .setName('remove')
-            .setDescription('Remove a product-role mapping')
-        )
+        .addSubcommand((s) => s.setName('remove').setDescription('Remove a product-role mapping'))
     )
     .addSubcommandGroup((downloads) =>
       downloads
@@ -137,7 +132,9 @@ export function buildCreatorAdminCommand(isConfigured: boolean) {
           s.setName('cross-server').setDescription('Manage cross-server role verification')
         )
         .addSubcommand((s) =>
-          s.setName('disconnect').setDescription('Disconnect this server from your Creator Assistant account')
+          s
+            .setName('disconnect')
+            .setDescription('Disconnect this server from your Creator Assistant account')
         )
     )
     .addSubcommand((s) => s.setName('analytics').setDescription('View analytics and key metrics'))
@@ -149,14 +146,18 @@ export function buildCreatorAdminCommand(isConfigured: boolean) {
           s
             .setName('mark')
             .setDescription('Flag a user as suspicious')
-            .addUserOption((o) => o.setName('user').setDescription('User to flag').setRequired(true))
+            .addUserOption((o) =>
+              o.setName('user').setDescription('User to flag').setRequired(true)
+            )
         )
         .addSubcommand((s) => s.setName('list').setDescription('List flagged accounts'))
         .addSubcommand((s) =>
           s
             .setName('clear')
             .setDescription('Clear suspicious flag')
-            .addUserOption((o) => o.setName('user').setDescription('User to clear').setRequired(true))
+            .addUserOption((o) =>
+              o.setName('user').setDescription('User to clear').setRequired(true)
+            )
         )
         .addSubcommand((s) =>
           s

@@ -596,9 +596,10 @@ async function showProductSelectStep(
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.PersonKey} Select products\n\n${hasExisting
-        ? `${E.Wrench} **Warning:** Some products already have roles. Creating new roles will add additional mappings.\n\n`
-        : ''
+      `## ${E.PersonKey} Select products\n\n${
+        hasExisting
+          ? `${E.Wrench} **Warning:** Some products already have roles. Creating new roles will add additional mappings.\n\n`
+          : ''
       }${combineDuplicates ? '*(Products with the same name are combined into one role.)*\n\n' : ''}Choose which products should get new roles:\n\n${products.length > 25 ? `*(Showing first 25 of ${products.length})*` : ''}`
     )
   );
@@ -633,9 +634,10 @@ async function handleRolesFlowStart(
     const container = new ContainerBuilder().setAccentColor(0xfaa61a);
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `## ${E.Wrench} No products found\n\nConnect your Gumroad or Jinxxy account first to see your products.\n\n${setupUrl
-          ? `Use \`/creator-admin setup start\` to get the link, or visit ${setupUrl}`
-          : 'Use `/creator-admin setup start` to connect your accounts.'
+        `## ${E.Wrench} No products found\n\nConnect your Gumroad or Jinxxy account first to see your products.\n\n${
+          setupUrl
+            ? `Use \`/creator-admin setup start\` to get the link, or visit ${setupUrl}`
+            : 'Use `/creator-admin setup start` to connect your accounts.'
         }`
       )
     );
@@ -853,9 +855,10 @@ export async function handleAutosetupProductsSelect(
   const container = new ContainerBuilder().setAccentColor(created > 0 ? 0x57f287 : 0xfaa61a);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.Checkmark} Roles created\n\nCreated **${created}** role(s) and mapped them to your products.\n${failed > 0 ? `\n${failed} failed (check role hierarchy).` : ''}${session.mode === 'full'
-        ? "\n\nNext: we'll set up the verify channel and spawn the verify button."
-        : ''
+      `## ${E.Checkmark} Roles created\n\nCreated **${created}** role(s) and mapped them to your products.\n${failed > 0 ? `\n${failed} failed (check role hierarchy).` : ''}${
+        session.mode === 'full'
+          ? "\n\nNext: we'll set up the verify channel and spawn the verify button."
+          : ''
       }`
     )
   );
@@ -999,7 +1002,7 @@ export async function handleAutosetupCreateVerify(
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         `## ${E.Checkmark} Done!\n\n` +
-        `Created <#${channel.id}> and posted the verify button. Your members can now verify their purchases there.`
+          `Created <#${channel.id}> and posted the verify button. Your members can now verify their purchases there.`
       )
     );
     await interaction.editReply({
@@ -1431,7 +1434,7 @@ export async function handleAutosetupMigrateDone(
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
       `## ${E.ThumbsUp} Done!\n\n` +
-      `Mapped **${mapped}** product${mapped === 1 ? '' : 's'} to roles. You're all set.`
+        `Mapped **${mapped}** product${mapped === 1 ? '' : 's'} to roles. You're all set.`
     )
   );
   await interaction.editReply({

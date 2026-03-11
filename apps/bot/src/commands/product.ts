@@ -559,12 +559,12 @@ export async function handleProductDiscordRoleDone(
     const result = (await res.json()) as
       | { completed: false }
       | {
-        completed: true;
-        sourceGuildId: string;
-        sourceRoleId?: string;
-        sourceRoleIds?: string[];
-        requiredRoleMatchMode?: 'any' | 'all';
-      };
+          completed: true;
+          sourceGuildId: string;
+          sourceRoleId?: string;
+          sourceRoleIds?: string[];
+          requiredRoleMatchMode?: 'any' | 'all';
+        };
 
     if (!result.completed) {
       // Re-show the link button so they can go back
@@ -1039,17 +1039,16 @@ export async function handleProductRemove(
       toShow.map((r: any) => {
         const labelText = `${productProviderPrefix(r)}${r.displayName ?? r.productId}`;
         const label = labelText.length > 100 ? `${labelText.slice(0, 97)}...` : labelText;
-        return new StringSelectMenuOptionBuilder()
-          .setLabel(label)
-          .setValue(r.productId)
+        return new StringSelectMenuOptionBuilder().setLabel(label).setValue(r.productId);
       })
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
 
-  const msg = toShow.length < rules.length
-    ? `**Select up to 25 products to remove:**\n*(Showing first 25 of ${rules.length} products)*`
-    : '**Select the product(s) you want to remove:**';
+  const msg =
+    toShow.length < rules.length
+      ? `**Select up to 25 products to remove:**\n*(Showing first 25 of ${rules.length} products)*`
+      : '**Select the product(s) you want to remove:**';
 
   await interaction.editReply({
     content: msg,
@@ -1092,7 +1091,9 @@ export async function handleProductRemoveSelect(
   const embed = new EmbedBuilder()
     .setTitle(`${E.Wrench} Confirm Removal`)
     .setColor(0xfee75c)
-    .setDescription(`Are you sure you want to remove **${productIds.length}** product mapping(s)? This will stop granting roles for these products.`);
+    .setDescription(
+      `Are you sure you want to remove **${productIds.length}** product mapping(s)? This will stop granting roles for these products.`
+    );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
@@ -1177,7 +1178,9 @@ export async function handleProductConfirmRemove(
       try {
         const reqId = r.requiredRoleIds?.[0] ?? r.requiredRoleId;
         if (r.sourceGuildId && reqId) {
-          const sourceGuild = await interaction.client.guilds.fetch(r.sourceGuildId).catch(() => null);
+          const sourceGuild = await interaction.client.guilds
+            .fetch(r.sourceGuildId)
+            .catch(() => null);
           const role = sourceGuild ? await sourceGuild.roles.fetch(reqId).catch(() => null) : null;
           sourceRoleName = role?.name ?? reqId;
         }
@@ -1187,13 +1190,13 @@ export async function handleProductConfirmRemove(
           const targetRole = await interaction.guild.roles.fetch(verId).catch(() => null);
           targetRoleName = targetRole?.name ?? verId;
         }
-      } catch { }
+      } catch {}
       content += `• **Removed Discord role rule**: Users with **${sourceRoleName}** in the source server will no longer receive **${targetRoleName}** here.\n`;
     }
   }
 
   if (notFoundIds.length > 0) {
-    content += '\nNo rules found for: ' + notFoundIds.map(id => '`' + id + '`').join(', ');
+    content += `\nNo rules found for: ${notFoundIds.map((id) => `\`${id}\``).join(', ')}`;
   }
 
   if (!content) {

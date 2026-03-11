@@ -37,6 +37,7 @@ export {
   createLogger,
   createStructuredLogger,
   type StructuredLogger,
+  type StructuredLogger as Logger,
   type LogEntry,
   type LoggerConfig,
 } from './logging';

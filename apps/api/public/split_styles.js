@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const fullCss = fs.readFileSync('full_styles.txt', 'utf8');
 
@@ -32,25 +32,62 @@ const lines = fullCss.split('\n');
 const componentBlocks = [];
 const layoutBlocks = [];
 
-let currentBlock = [];
-let inComponent = false;
-let blockSelectors = '';
+const currentBlock = [];
+const inComponent = false;
+const blockSelectors = '';
 
 const componentSelectors = new Set([
-  'section-card', 'platform-card', 'intg-card', 'oauth-app-card', 'quick-start-card', 'quick-start-',
-  'dropdown-wrapper', 'dropdown-menu', 'oauth-app-menu-btn', 'server-dropdown',
-  'status-pill', 'card-action-btn', 'toggle-switch', 'empty-state', 'section-placeholder',
-  'inline-panel', 'panel-close-btn', 'modal-input', 'modal-textarea', 'modal-label', 'modal-field', 'modal-helper',
-  'scope-toggle', 'scope-toggle-card', 'scope-toggle-check', 'scope-toggle-text', 'scope-toggle-name', 'scope-toggle-desc',
-  'btn-primary', 'btn-ghost', 'api-key-row', 'api-key-icon', 'api-key-prefix', 'api-key-name',
-  'oauth-app-icon', 'oauth-app-icon-btn', 'oauth-edit-body', 'oauth-regen-body', 'oauth-delete-body',
-  'intg-icon', 'intg-title', 'intg-desc', 'intg-add-btn', 'intg-cred-box', 'intg-cred'
+  'section-card',
+  'platform-card',
+  'intg-card',
+  'oauth-app-card',
+  'quick-start-card',
+  'quick-start-',
+  'dropdown-wrapper',
+  'dropdown-menu',
+  'oauth-app-menu-btn',
+  'server-dropdown',
+  'status-pill',
+  'card-action-btn',
+  'toggle-switch',
+  'empty-state',
+  'section-placeholder',
+  'inline-panel',
+  'panel-close-btn',
+  'modal-input',
+  'modal-textarea',
+  'modal-label',
+  'modal-field',
+  'modal-helper',
+  'scope-toggle',
+  'scope-toggle-card',
+  'scope-toggle-check',
+  'scope-toggle-text',
+  'scope-toggle-name',
+  'scope-toggle-desc',
+  'btn-primary',
+  'btn-ghost',
+  'api-key-row',
+  'api-key-icon',
+  'api-key-prefix',
+  'api-key-name',
+  'oauth-app-icon',
+  'oauth-app-icon-btn',
+  'oauth-edit-body',
+  'oauth-regen-body',
+  'oauth-delete-body',
+  'intg-icon',
+  'intg-title',
+  'intg-desc',
+  'intg-add-btn',
+  'intg-cred-box',
+  'intg-cred',
 ]);
 
 function blockIsComponent(lines) {
   const blockText = lines.join('\n');
   for (const sel of componentSelectors) {
-    if (blockText.includes('.' + sel) || blockText.includes(sel + ' ')) return true;
+    if (blockText.includes(`.${sel}`) || blockText.includes(`${sel} `)) return true;
   }
   return false;
 }
@@ -60,27 +97,30 @@ let i = 0;
 while (i < lines.length) {
   const line = lines[i];
   const trimmed = line.trim();
-  
-  if (trimmed.startsWith('/*') || trimmed.startsWith('@keyframes') || 
-      (trimmed.match(/^[.#a-zA-Z\[\]_-][\w\s,#.:()[\]-]*\{/) && !trimmed.startsWith('.dark'))) {
+
+  if (
+    trimmed.startsWith('/*') ||
+    trimmed.startsWith('@keyframes') ||
+    (trimmed.match(/^[.#a-zA-Z\[\]_-][\w\s,#.:()[\]-]*\{/) && !trimmed.startsWith('.dark'))
+  ) {
     const blockStart = i;
     let braceCount = 0;
-    let block = [line];
+    const block = [line];
     i++;
     if (line.includes('{')) braceCount += (line.match(/\{/g) || []).length;
     if (line.includes('}')) braceCount -= (line.match(/\}/g) || []).length;
-    
+
     while (i < lines.length && braceCount > 0) {
       block.push(lines[i]);
       if (lines[i].includes('{')) braceCount += (lines[i].match(/\{/g) || []).length;
       if (lines[i].includes('}')) braceCount -= (lines[i].match(/\}/g) || []).length;
       i++;
     }
-    
+
     const blockStr = block.join('\n');
     const isDark = blockStr.includes('.dark ');
     const isComponent = !isDark && blockIsComponent(block);
-    
+
     if (isDark) {
       layoutBlocks.push(block.join('\n'));
     } else if (isComponent) {

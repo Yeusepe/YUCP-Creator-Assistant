@@ -417,7 +417,14 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
         logger.debug('Guild health check passed', { guildId, guildName: guild.name });
 
         // Update guild link status and sync name/icon in Convex
-        await updateGuildLinkStatus(config.convexApiSecret, guildId, 'active', true, guild.name, guild.icon ?? undefined);
+        await updateGuildLinkStatus(
+          config.convexApiSecret,
+          guildId,
+          'active',
+          true,
+          guild.name,
+          guild.icon ?? undefined
+        );
 
         return Response.json({
           healthy: true,

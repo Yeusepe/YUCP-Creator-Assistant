@@ -7,7 +7,7 @@ describe('toBufferSource', () => {
     const res = toBufferSource(u8);
     const out = res instanceof ArrayBuffer ? new Uint8Array(res) : (res as Uint8Array);
     expect(Array.from(out)).toEqual([1, 2, 3, 4]);
-    if (res instanceof Uint8Array) expect(res).toBe(u8 as unknown as Uint8Array);
+    if (res instanceof Uint8Array) expect(res as Uint8Array<ArrayBuffer>).toBe(u8);
   });
 
   it('copies from SharedArrayBuffer into ArrayBuffer when SharedArrayBuffer is present', () => {
@@ -23,6 +23,6 @@ describe('toBufferSource', () => {
     const out = new Uint8Array(res as ArrayBuffer);
     expect(Array.from(out)).toEqual([9, 8, 7, 6]);
     // Not the same underlying buffer
-    expect((res as ArrayBuffer) === u8.buffer).toBe(false);
+    expect(Object.is(res, u8.buffer)).toBe(false);
   });
 });

@@ -421,7 +421,9 @@ async function handleSlashCommand(
     } else if (subcommandGroup === 'settings') {
       const sub = interaction.options.getSubcommand();
       if (sub === 'cross-server') {
-        const { handleDiscordRoleVerification } = await import('../commands/discordRoleVerification');
+        const { handleDiscordRoleVerification } = await import(
+          '../commands/discordRoleVerification'
+        );
         await handleDiscordRoleVerification(interaction, ctx.convex, ctx.apiSecret, { tenantId });
       } else if (sub === 'disconnect') {
         const { handleSettingsDisconnect } = await import('../commands/settings');
@@ -487,11 +489,11 @@ async function handleSlashCommand(
       if (interaction.deferred) {
         await interaction
           .editReply({ content: 'An error occurred. Please try again.' })
-          .catch(() => { });
+          .catch(() => {});
       } else if (!interaction.replied) {
         await interaction
           .reply({ content: 'An error occurred. Please try again.', flags: MessageFlags.Ephemeral })
-          .catch(() => { });
+          .catch(() => {});
       }
     } catch {
       // ignore
@@ -613,7 +615,7 @@ async function handleUserCommand(
     if (!interaction.replied && !interaction.deferred) {
       await interaction
         .reply({ content: 'An error occurred.', flags: MessageFlags.Ephemeral })
-        .catch(() => { });
+        .catch(() => {});
     }
   }
 }
@@ -1132,7 +1134,13 @@ async function handleButton(
     const userId = rest.slice(0, colonIdx);
     const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
     const { handleProductConfirmRemove } = await import('../commands/product');
-    await handleProductConfirmRemove(interaction as ButtonInteraction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    await handleProductConfirmRemove(
+      interaction as ButtonInteraction,
+      ctx.convex,
+      ctx.apiSecret,
+      userId,
+      tenantId
+    );
     return;
   }
 
@@ -1160,37 +1168,42 @@ async function handleButton(
   }
 
   // ─── Settings disconnect flow ──────────────────────────────────────────────
-  if (customId === 'creator_settings:disconnect_warn1:confirm') {
-    const { handleDisconnectWarn1 } = await import('../commands/settings');
-    await handleDisconnectWarn1(interaction, ctx.convex, ctx.apiSecret, {
-      logger,
-      guildId: interaction.guildId!,
-    });
-    return;
-  }
+  if (customId.startsWith('creator_settings:disconnect')) {
+    const guildId = interaction.guildId;
+    if (!guildId) return;
 
-  if (customId === 'creator_settings:disconnect_warn2:confirm') {
-    const { handleDisconnectWarn2 } = await import('../commands/settings');
-    await handleDisconnectWarn2(interaction, ctx.convex, ctx.apiSecret, {
-      logger,
-      guildId: interaction.guildId!,
-    });
-    return;
-  }
+    if (customId === 'creator_settings:disconnect_warn1:confirm') {
+      const { handleDisconnectWarn1 } = await import('../commands/settings');
+      await handleDisconnectWarn1(interaction, ctx.convex, ctx.apiSecret, {
+        logger,
+        guildId,
+      });
+      return;
+    }
 
-  if (customId === 'creator_settings:disconnect_confirm') {
-    const { handleDisconnectConfirm } = await import('../commands/settings');
-    await handleDisconnectConfirm(interaction, ctx.convex, ctx.apiSecret, {
-      logger,
-      guildId: interaction.guildId!,
-    });
-    return;
-  }
+    if (customId === 'creator_settings:disconnect_warn2:confirm') {
+      const { handleDisconnectWarn2 } = await import('../commands/settings');
+      await handleDisconnectWarn2(interaction, ctx.convex, ctx.apiSecret, {
+        logger,
+        guildId,
+      });
+      return;
+    }
 
-  if (customId === 'creator_settings:disconnect_cancel') {
-    const { handleDisconnectCancel } = await import('../commands/settings');
-    await handleDisconnectCancel(interaction, ctx.convex, ctx.apiSecret, { logger });
-    return;
+    if (customId === 'creator_settings:disconnect_confirm') {
+      const { handleDisconnectConfirm } = await import('../commands/settings');
+      await handleDisconnectConfirm(interaction, ctx.convex, ctx.apiSecret, {
+        logger,
+        guildId,
+      });
+      return;
+    }
+
+    if (customId === 'creator_settings:disconnect_cancel') {
+      const { handleDisconnectCancel } = await import('../commands/settings');
+      await handleDisconnectCancel(interaction, ctx.convex, ctx.apiSecret, { logger });
+      return;
+    }
   }
 
   // ─── Legacy setup buttons ──────────────────────────────────────────────────
@@ -1228,7 +1241,7 @@ async function handleButton(
 
   await interaction
     .reply({ content: 'Unknown button.', flags: MessageFlags.Ephemeral })
-    .catch(() => { });
+    .catch(() => {});
 }
 
 async function handleModalSubmit(
@@ -1306,7 +1319,7 @@ async function handleModalSubmit(
 
   await interaction
     .reply({ content: 'Unknown modal.', flags: MessageFlags.Ephemeral })
-    .catch(() => { });
+    .catch(() => {});
 }
 
 async function handleSelectMenu(
@@ -1399,7 +1412,12 @@ async function handleSelectMenu(
   if (customId.startsWith('creator_product:remove_select:')) {
     const tenantId = customId.slice('creator_product:remove_select:'.length) as Id<'tenants'>;
     const { handleProductRemoveSelect } = await import('../commands/product');
-    await handleProductRemoveSelect(interaction as StringSelectMenuInteraction, ctx.convex, ctx.apiSecret, tenantId);
+    await handleProductRemoveSelect(
+      interaction as StringSelectMenuInteraction,
+      ctx.convex,
+      ctx.apiSecret,
+      tenantId
+    );
     return;
   }
 
@@ -1460,7 +1478,7 @@ async function handleSelectMenu(
 
   await interaction
     .reply({ content: 'Unknown select.', flags: MessageFlags.Ephemeral })
-    .catch(() => { });
+    .catch(() => {});
 }
 
 async function handleRoleSelectMenu(
@@ -1525,7 +1543,7 @@ async function handleRoleSelectMenu(
     return;
   }
 
-  await interaction.editReply({ content: 'Unknown role select.' }).catch(() => { });
+  await interaction.editReply({ content: 'Unknown role select.' }).catch(() => {});
 }
 
 async function handleChannelSelectMenu(
@@ -1556,7 +1574,7 @@ async function handleChannelSelectMenu(
 
   await interaction
     .reply({ content: 'Unknown channel select.', flags: MessageFlags.Ephemeral })
-    .catch(() => { });
+    .catch(() => {});
 }
 
 async function handleUserSelectMenu(
@@ -1578,5 +1596,5 @@ async function handleUserSelectMenu(
 
   await interaction
     .reply({ content: 'Unknown user select.', flags: MessageFlags.Ephemeral })
-    .catch(() => { });
+    .catch(() => {});
 }

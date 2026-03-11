@@ -497,7 +497,9 @@ async function routeRequest(request: Request): Promise<Response> {
       // Solution: when we see a loopback (127.0.0.1 or ::1) redirect_uri in the
       // token exchange body we silently rewrite it to the same fixed URL.
       let proxyBody: BodyInit | undefined =
-        request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined;
+        request.method !== 'GET' && request.method !== 'HEAD'
+          ? ((request.body as BodyInit | null | undefined) ?? undefined)
+          : undefined;
 
       if (
         pathname === '/api/auth/oauth2/token' &&
@@ -548,7 +550,7 @@ async function routeRequest(request: Request): Promise<Response> {
         if (request.method === 'POST') {
           return Response.json(
             { redirectTo: location },
-            { headers: { 'cache-control': 'no-store' } },
+            { headers: { 'cache-control': 'no-store' } }
           );
         }
         return new Response(null, {
@@ -869,7 +871,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const escapedScope = (scope || 'openid verification:read').replace(/[<>&"'`]/g, '');
     const escapedConsentCode = consentCode.replace(/[<>&"'`]/g, '');
     const convexSiteUrl = (process.env.CONVEX_SITE_URL ?? '').replace(/\/$/, '');
-    const consentAction = `/api/auth/oauth2/consent`;
+    const consentAction = '/api/auth/oauth2/consent';
     const filePath = `${import.meta.dir}/../public/oauth-consent.html`;
     let html = await Bun.file(filePath).text();
     html = html.replace(/__CLIENT_ID__/g, escapedClientId);
