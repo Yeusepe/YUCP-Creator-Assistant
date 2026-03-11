@@ -52,6 +52,7 @@ import type * as webhookCron from "../webhookCron.js";
 import type * as webhookIngestion from "../webhookIngestion.js";
 import type * as webhookProcessing from "../webhookProcessing.js";
 import type * as yucpCertificates from "../yucpCertificates.js";
+import type * as yucpLicenses from "../yucpLicenses.js";
 
 import type {
   ApiFromModules,
@@ -104,6 +105,7 @@ declare const fullApi: ApiFromModules<{
   webhookIngestion: typeof webhookIngestion;
   webhookProcessing: typeof webhookProcessing;
   yucpCertificates: typeof yucpCertificates;
+  yucpLicenses: typeof yucpLicenses;
 }>;
 
 /**

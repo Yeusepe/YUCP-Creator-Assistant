@@ -154,4 +154,55 @@ export async function getPublicKeyFromPrivate(privateKeyBase64: string): Promise
   return bytesToBase64(publicKeyBytes);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// License JWT
+// ─────────────────────────────────────────────────────────────────────────────
 
+/** Claims embedded in a license gate JWT. */
+export interface LicenseClaims {
+  iss: string;
+  aud: 'yucp-license-gate';
+  /** SHA-256 hex of the raw license key (never log the raw key) */
+  sub: string;
+  jti: string;
+  package_id: string;
+  machine_fingerprint: string;
+  provider: string;
+  iat: number;
+  exp: number;
+}
+
+function base64urlEncode(data: Uint8Array | string): string {
+  let b64: string;
+  if (typeof data === 'string') {
+    b64 = btoa(data);
+  } else {
+    let binary = '';
+    for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
+    b64 = btoa(binary);
+  }
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+/**
+ * Create a signed license JWT (EdDSA / Ed25519).
+ * The client can parse the payload without signature verification — security
+ * relies on: valid token only obtainable via server license check, machine
+ * fingerprint binding, short TTL, and HMAC-authenticated on-disk cache.
+ */
+export async function signLicenseJwt(
+  claims: LicenseClaims,
+  privateKeyBase64: string,
+  keyId: string,
+): Promise<string> {
+  const header = { alg: 'EdDSA', crv: 'Ed25519', kid: keyId };
+  const headerB64 = base64urlEncode(JSON.stringify(header));
+  const payloadB64 = base64urlEncode(JSON.stringify(claims));
+  const signingInput = `${headerB64}.${payloadB64}`;
+
+  const messageBytes = new TextEncoder().encode(signingInput);
+  const privateKeyBytes = base64ToBytes(privateKeyBase64);
+  const signatureBytes = await ed.signAsync(messageBytes, privateKeyBytes);
+
+  return `${signingInput}.${base64urlEncode(signatureBytes)}`;
+}

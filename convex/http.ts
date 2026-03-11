@@ -14,6 +14,11 @@
  *        Returns the authenticated creator's profile (sub, name, email).
  *        Like Spotify GET /v1/me — token identifies "me".
  *
+ *   GET  /v1/products
+ *        List the authenticated creator's registered products (all providers).
+ *        Used by the Unity PackageSigning editor to populate Gumroad/Jinxxy pickers.
+ *        Returns: { products: [{ productId, provider, providerProductRef, displayName }] }
+ *
  *   POST /v1/certificates
  *        Issue a signing certificate for the authenticated creator.
  *        Scope: cert:issue   Audience: yucp-public-api
@@ -56,6 +61,18 @@ import {
   base64ToBytes,
   type CertEnvelope,
 } from './lib/yucpCrypto';
+
+/**
+ * Public API routes follow Spotify/GitHub/Stripe conventions.
+ * Added: POST /v1/licenses/verify — Unity editor license gate verification.
+ *
+ *   POST /v1/licenses/verify
+ *        Verify a Gumroad or Jinxxy purchase license for a YUCP package.
+ *        Returns a short-lived machine-fingerprint-bound JWT for FBX derivation gate.
+ *        No auth header required — the license key itself is the credential.
+ *        Body: { packageId, licenseKey, provider, productPermalink,
+ *                machineFingerprint, nonce, timestamp }
+ */
 
 const http = httpRouter();
 
@@ -289,6 +306,45 @@ http.route({
       name: user.name ?? tokenResult.name,
       email: user.email ?? tokenResult.email,
     });
+  }),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /v1/products — List authenticated creator's registered products
+//
+// Returns all active products from product_catalog for the requesting creator.
+// Used by the Unity PackageSigning editor to populate Gumroad/Jinxxy dropdowns.
+// Pattern mirrors GET /v1/me — validate Bearer token → sub → tenant → products.
+// ─────────────────────────────────────────────────────────────────────────────
+
+http.route({
+  method: 'GET',
+  path: '/v1/products',
+  handler: httpAction(async (ctx, request) => {
+    const siteUrl = process.env.CONVEX_SITE_URL;
+    if (!siteUrl) return errorResponse('Service not configured', 503);
+
+    const authHeader = request.headers.get('Authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
+
+    const tokenResult = await verifyOAuthToken(token, siteUrl);
+    if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
+
+    const tenant = await ctx.runQuery(internal.yucpLicenses.getTenantByAuthUser, {
+      ownerAuthUserId: tokenResult.yucpUserId,
+    });
+    if (!tenant) {
+      console.log(`[products] No tenant found for user ${tokenResult.yucpUserId}`);
+      return errorResponse('Creator account not found', 404);
+    }
+
+    const products = await ctx.runQuery(internal.yucpLicenses.getProductsForTenant, {
+      tenantId: tenant._id,
+    });
+
+    console.log(`[products] tenant=${tenant._id} count=${products.length}`);
+    return jsonResponse({ products });
   }),
 });
 
@@ -589,6 +645,63 @@ http.route({
     });
 
     return jsonResponse(result);
+  }),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /v1/licenses/verify — Unity editor license gate
+// ─────────────────────────────────────────────────────────────────────────────
+
+http.route({
+  method: 'POST',
+  path: '/v1/licenses/verify',
+  handler: httpAction(async (ctx, request) => {
+    let body: {
+      packageId: string;
+      licenseKey: string;
+      provider: string;
+      productPermalink: string;
+      machineFingerprint: string;
+      nonce: string;
+      timestamp: number;
+    };
+
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+
+    const { packageId, licenseKey, provider, productPermalink, machineFingerprint, nonce, timestamp } =
+      body ?? {};
+
+    if (
+      !packageId ||
+      !licenseKey ||
+      !provider ||
+      !productPermalink ||
+      !machineFingerprint ||
+      !nonce ||
+      !timestamp
+    ) {
+      return errorResponse('Missing required fields', 400);
+    }
+
+    const result = await ctx.runAction(internal.yucpLicenses.verifyLicense, {
+      packageId,
+      licenseKey,
+      provider,
+      productPermalink,
+      machineFingerprint,
+      nonce,
+      timestamp,
+    });
+
+    if (!result.success) {
+      return jsonResponse({ error: result.error }, 422);
+    }
+
+    return jsonResponse({ success: true, token: result.token, expiresAt: result.expiresAt });
   }),
 });
 
