@@ -58,7 +58,7 @@ export interface ManualProviderAdapter extends ProviderAdapter {
 
 // Re-export Gumroad adapter (full implementation in ./gumroad)
 import { GumroadAdapter } from './gumroad';
-export { GumroadAdapter, resolveGumroadProductId } from './gumroad';
+export { GumroadAdapter, resolveGumroadProductId, resolveGumroadProduct } from './gumroad';
 import type { GumroadAdapterConfig } from './gumroad/types';
 export type {
   GumroadAdapterConfig,

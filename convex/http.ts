@@ -63,6 +63,7 @@ import {
   type CertEnvelope,
   type LicenseClaims,
 } from './lib/yucpCrypto';
+import { decryptForPurpose } from './lib/vrchat/crypto';
 
 /**
  * Public API routes follow Spotify/GitHub/Stripe conventions.
@@ -894,6 +895,96 @@ http.route({
     );
 
     return jsonResponse({ success: true, token: licenseToken, expiresAt: exp });
+  }),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /v1/vrchat/avatar-name — Bot-internal: resolve avatar display name
+// Auth: Bearer <CONVEX_API_SECRET>
+// Body: { tenantId, avatarId }
+// Uses the tenant owner's stored VRChat session (from BetterAuth) to call
+// GET /avatars/{id} and return the avatar name. Non-fatal — returns null if
+// the owner has no linked VRChat account or the avatar is inaccessible.
+// ─────────────────────────────────────────────────────────────────────────────
+
+http.route({
+  method: 'POST',
+  path: '/v1/vrchat/avatar-name',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || auth !== `Bearer ${apiSecret}`) {
+      return errorResponse('Unauthorized', 401);
+    }
+
+    let body: { tenantId: string; avatarId: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    if (!body.tenantId || !body.avatarId) {
+      return errorResponse('tenantId and avatarId are required', 400);
+    }
+
+    // Get tenant to find owner's auth user ID
+    const tenant = await ctx.runQuery(internal.yucpLicenses.getTenantOwnerById, {
+      tenantId: body.tenantId as any,
+    });
+    if (!tenant) return jsonResponse({ name: null });
+
+    // Look up owner's VRChat account from BetterAuth
+    const vrchatAccount = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'account',
+      where: [
+        { field: 'userId', value: tenant.ownerAuthUserId },
+        { field: 'providerId', value: 'vrchat' },
+      ],
+      select: ['accessToken', 'idToken'],
+    }) as { accessToken?: string; idToken?: string } | null;
+
+    if (!vrchatAccount?.accessToken) return jsonResponse({ name: null });
+
+    // Decrypt the stored VRChat session (mirrors loadStoredSession in vrchat plugin)
+    const ENCRYPTED_PREFIX = 'enc:v1:';
+    const PROVIDER_SESSION_PURPOSE = 'vrchat-provider-session';
+    const sessionSecret = process.env.VRCHAT_PROVIDER_SESSION_SECRET ?? process.env.BETTER_AUTH_SECRET;
+    if (!sessionSecret) return jsonResponse({ name: null });
+
+    let authToken: string;
+    let twoFactorAuthToken: string | undefined;
+    try {
+      const rawAuth = vrchatAccount.accessToken;
+      authToken = rawAuth.startsWith(ENCRYPTED_PREFIX)
+        ? await decryptForPurpose(rawAuth.slice(ENCRYPTED_PREFIX.length), sessionSecret, PROVIDER_SESSION_PURPOSE)
+        : rawAuth;
+      if (vrchatAccount.idToken) {
+        const rawTfa = vrchatAccount.idToken;
+        twoFactorAuthToken = rawTfa.startsWith(ENCRYPTED_PREFIX)
+          ? await decryptForPurpose(rawTfa.slice(ENCRYPTED_PREFIX.length), sessionSecret, PROVIDER_SESSION_PURPOSE)
+          : rawTfa;
+      }
+    } catch {
+      return jsonResponse({ name: null });
+    }
+
+    // Call VRChat API with the decrypted session
+    const cookieParts = [`auth=${authToken}`];
+    if (twoFactorAuthToken) cookieParts.push(`twoFactorAuth=${twoFactorAuthToken}`);
+    const avatarRes = await fetch(
+      `https://api.vrchat.cloud/api/1/avatars/${encodeURIComponent(body.avatarId)}`,
+      {
+        headers: {
+          cookie: cookieParts.join('; '),
+          'user-agent': 'YUCP Creator Assistant/0.1.0 (https://yucp.app)',
+        },
+      }
+    );
+
+    if (!avatarRes.ok) return jsonResponse({ name: null });
+    const avatarData = await avatarRes.json().catch(() => null) as Record<string, unknown> | null;
+    const name = typeof avatarData?.name === 'string' ? avatarData.name : null;
+    return jsonResponse({ name });
   }),
 });
 

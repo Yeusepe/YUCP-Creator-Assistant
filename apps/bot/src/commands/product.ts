@@ -789,15 +789,16 @@ export async function handleProductConfirmAdd(
       const slug = parseGumroadProductId(urlOrId ?? '');
       if (!slug) throw new Error('Could not parse Gumroad product URL or ID');
 
-      // Reconstruct the product URL so we can resolve the real product_id.
-      // Gumroad products created after Jan 2023 require the internal product_id
-      // (e.g. "QAJc7ErxdAC815P5P8R89g=="), not the URL slug.
       const input = urlOrId ?? '';
       const productUrl = input.startsWith('http') ? input : `https://gumroad.com/l/${slug}`;
 
+      const { resolveGumroadProduct } = await import('@yucp/providers');
       let resolvedProductId: string;
+      let resolvedDisplayName: string | undefined;
       try {
-        resolvedProductId = await resolveGumroadProductId(productUrl);
+        const resolved = await resolveGumroadProduct(productUrl);
+        resolvedProductId = resolved.id;
+        resolvedDisplayName = resolved.name;
       } catch (resolveErr) {
         throw new Error(
           `Could not resolve Gumroad product ID from "${productUrl}": ${resolveErr instanceof Error ? resolveErr.message : String(resolveErr)}`
@@ -810,6 +811,7 @@ export async function handleProductConfirmAdd(
         productId: resolvedProductId,
         providerProductRef: resolvedProductId,
         canonicalSlug: slug,
+        displayName: resolvedDisplayName,
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
@@ -850,11 +852,38 @@ export async function handleProductConfirmAdd(
         throw new Error(
           'Could not parse VRChat avatar URL or ID. Use https://vrchat.com/home/avatar/avtr_xxx or avtr_xxx'
         );
+
+      // Best-effort: fetch avatar name via Convex using the tenant owner's stored VRChat session
+      let vrchatDisplayName: string | undefined;
+      try {
+        const convexUrl = process.env.CONVEX_URL ?? '';
+        const convexSiteUrl = convexUrl.includes('.convex.cloud')
+          ? convexUrl.replace('.convex.cloud', '.convex.site')
+          : convexUrl.replace('.convex.cloud', '.convex.site');
+        if (convexSiteUrl) {
+          const nameRes = await fetch(`${convexSiteUrl}/v1/vrchat/avatar-name`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiSecret}`,
+            },
+            body: JSON.stringify({ tenantId, avatarId }),
+          });
+          if (nameRes.ok) {
+            const nameData = (await nameRes.json()) as { name: string | null };
+            vrchatDisplayName = nameData.name ?? undefined;
+          }
+        }
+      } catch {
+        // Non-fatal: proceed without display name
+      }
+
       const result = await convex.mutation(api.role_rules.addProductFromVrchat, {
         apiSecret,
         tenantId,
         productId: avatarId,
         providerProductRef: avatarId,
+        displayName: vrchatDisplayName,
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;

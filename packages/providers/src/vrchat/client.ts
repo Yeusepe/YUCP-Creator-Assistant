@@ -417,4 +417,23 @@ export class VrchatApiClient {
 
     return ownership;
   }
+
+  /**
+   * Look up a single avatar by ID. Returns `{ id, name }` or null if not found / inaccessible.
+   * Requires an active session (any authenticated VRChat account).
+   */
+  async getAvatarById(
+    session: VrchatSessionTokens,
+    avatarId: string
+  ): Promise<{ id: string; name: string } | null> {
+    const { response, data } = await request(`/avatars/${encodeURIComponent(avatarId)}`, {
+      method: 'GET',
+      headers: { cookie: buildCookieHeader(session) },
+    });
+
+    if (!response.ok || !data || typeof data !== 'object') return null;
+    const avatar = data as Record<string, unknown>;
+    if (typeof avatar.id !== 'string' || typeof avatar.name !== 'string') return null;
+    return { id: avatar.id, name: avatar.name };
+  }
 }

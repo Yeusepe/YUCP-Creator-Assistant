@@ -1112,6 +1112,28 @@ async function handleButton(
     return;
   }
 
+  // Product remove confirm: creator_product:confirm_remove:{userId}:{tenantId}
+  if (customId.startsWith('creator_product:confirm_remove:')) {
+    const rest = customId.slice('creator_product:confirm_remove:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleProductConfirmRemove } = await import('../commands/product');
+    await handleProductConfirmRemove(interaction as ButtonInteraction, ctx.convex, ctx.apiSecret, userId, tenantId);
+    return;
+  }
+
+  // Product remove cancel: creator_product:cancel_remove:{userId}:{tenantId}
+  if (customId.startsWith('creator_product:cancel_remove:')) {
+    const rest = customId.slice('creator_product:cancel_remove:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleProductCancelRemove } = await import('../commands/product');
+    await handleProductCancelRemove(interaction as ButtonInteraction, userId, tenantId);
+    return;
+  }
+
   // ─── Collab invite ─────────────────────────────────────────────────────────
   // creator_collab:remove:{tenantId}:{connectionId}
   if (customId.startsWith('creator_collab:remove:')) {
@@ -1331,28 +1353,6 @@ async function handleSelectMenu(
     const tenantId = customId.slice('creator_product:remove_select:'.length) as Id<'tenants'>;
     const { handleProductRemoveSelect } = await import('../commands/product');
     await handleProductRemoveSelect(interaction as StringSelectMenuInteraction, ctx.convex, ctx.apiSecret, tenantId);
-    return;
-  }
-
-  // Product remove confirm: creator_product:confirm_remove:{userId}:{tenantId}
-  if (customId.startsWith('creator_product:confirm_remove:')) {
-    const rest = customId.slice('creator_product:confirm_remove:'.length);
-    const colonIdx = rest.indexOf(':');
-    const userId = rest.slice(0, colonIdx);
-    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
-    const { handleProductConfirmRemove } = await import('../commands/product');
-    await handleProductConfirmRemove(interaction as ButtonInteraction, ctx.convex, ctx.apiSecret, userId, tenantId);
-    return;
-  }
-
-  // Product remove cancel: creator_product:cancel_remove:{userId}:{tenantId}
-  if (customId.startsWith('creator_product:cancel_remove:')) {
-    const rest = customId.slice('creator_product:cancel_remove:'.length);
-    const colonIdx = rest.indexOf(':');
-    const userId = rest.slice(0, colonIdx);
-    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
-    const { handleProductCancelRemove } = await import('../commands/product');
-    await handleProductCancelRemove(interaction as ButtonInteraction, userId, tenantId);
     return;
   }
 
