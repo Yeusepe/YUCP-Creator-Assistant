@@ -1,11 +1,11 @@
-import { ConvexHttpClient } from 'convex/browser';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { cwd } from 'node:process';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { requireBotE2ESecrets, type BotE2ESecrets } from '@yucp/shared/test/loadBotE2ESecrets';
+import { type BotE2ESecrets, requireBotE2ESecrets } from '@yucp/shared/test/loadBotE2ESecrets';
+import { ConvexHttpClient } from 'convex/browser';
+import { type Browser, type BrowserContext, type Page, chromium } from 'playwright';
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const ARTIFACT_DIR = join(cwd(), 'apps', 'bot', 'test', 'e2e', '.artifacts');
@@ -144,11 +144,7 @@ class ManagedProcess {
   private stdoutBuffer = '';
   private stderrBuffer = '';
 
-  constructor(
-    cmd: string,
-    args: string[],
-    env: NodeJS.ProcessEnv,
-  ) {
+  constructor(cmd: string, args: string[], env: NodeJS.ProcessEnv) {
     this.child = spawn(cmd, args, {
       cwd: cwd(),
       env,
@@ -167,7 +163,10 @@ class ManagedProcess {
     });
   }
 
-  async waitForOutput(pattern: RegExp | string, timeoutMs = SERVICE_BOOT_TIMEOUT_MS): Promise<void> {
+  async waitForOutput(
+    pattern: RegExp | string,
+    timeoutMs = SERVICE_BOOT_TIMEOUT_MS
+  ): Promise<void> {
     const matcher = typeof pattern === 'string' ? new RegExp(escapeRegExp(pattern)) : pattern;
     const deadline = Date.now() + timeoutMs;
 
@@ -177,14 +176,14 @@ class ManagedProcess {
       }
       if (this.child.exitCode !== null) {
         throw new Error(
-          `Process exited before emitting ${matcher}: stdout=${this.stdoutBuffer}\nstderr=${this.stderrBuffer}`,
+          `Process exited before emitting ${matcher}: stdout=${this.stdoutBuffer}\nstderr=${this.stderrBuffer}`
         );
       }
       await delay(250);
     }
 
     throw new Error(
-      `Timed out waiting for ${matcher}: stdout=${this.stdoutBuffer}\nstderr=${this.stderrBuffer}`,
+      `Timed out waiting for ${matcher}: stdout=${this.stdoutBuffer}\nstderr=${this.stderrBuffer}`
     );
   }
 
@@ -333,8 +332,11 @@ export class DiscordBotE2EHarness {
   }
 
   private async openWebSession(storageStateB64: string): Promise<DiscordWebSession> {
+    const storageState = decodeStorageState(storageStateB64) as NonNullable<
+      Parameters<typeof this.browser.newContext>[0]
+    >['storageState'];
     const context = await this.browser.newContext({
-      storageState: decodeStorageState(storageStateB64) as any,
+      storageState,
     });
     return new DiscordWebSession(context);
   }
@@ -351,22 +353,26 @@ export class DiscordBotE2EHarness {
         return commands;
       },
       SERVICE_BOOT_TIMEOUT_MS,
-      'creator and creator-admin slash command registration',
+      'creator and creator-admin slash command registration'
     );
   }
 
   async fetchGuildCommands(guildId: string): Promise<DiscordGuildCommand[]> {
     return await this.discordRequest<DiscordGuildCommand[]>(
       'GET',
-      `/applications/${this.secrets.discordClientId}/guilds/${guildId}/commands`,
+      `/applications/${this.secrets.discordClientId}/guilds/${guildId}/commands`
     );
   }
 
   async createTextChannel(guildId: string, name: string): Promise<string> {
-    const channel = await this.discordRequest<{ id: string }>('POST', `/guilds/${guildId}/channels`, {
-      name,
-      type: 0,
-    });
+    const channel = await this.discordRequest<{ id: string }>(
+      'POST',
+      `/guilds/${guildId}/channels`,
+      {
+        name,
+        type: 0,
+      }
+    );
     return channel.id;
   }
 
@@ -397,7 +403,10 @@ export class DiscordBotE2EHarness {
   }
 
   async fetchMember(guildId: string, userId: string): Promise<DiscordGuildMember> {
-    return await this.discordRequest<DiscordGuildMember>('GET', `/guilds/${guildId}/members/${userId}`);
+    return await this.discordRequest<DiscordGuildMember>(
+      'GET',
+      `/guilds/${guildId}/members/${userId}`
+    );
   }
 
   async waitForMemberRole(guildId: string, userId: string, roleId: string): Promise<void> {
@@ -407,7 +416,7 @@ export class DiscordBotE2EHarness {
         return member.roles.includes(roleId) ? true : null;
       },
       DEFAULT_WAIT_TIMEOUT_MS,
-      `member ${userId} gaining role ${roleId}`,
+      `member ${userId} gaining role ${roleId}`
     );
   }
 
@@ -418,31 +427,34 @@ export class DiscordBotE2EHarness {
         return member.roles.includes(roleId) ? null : true;
       },
       DEFAULT_WAIT_TIMEOUT_MS,
-      `member ${userId} losing role ${roleId}`,
+      `member ${userId} losing role ${roleId}`
     );
   }
 
   async fetchChannelMessages(channelId: string, limit = 20): Promise<DiscordChannelMessage[]> {
     return await this.discordRequest<DiscordChannelMessage[]>(
       'GET',
-      `/channels/${channelId}/messages?limit=${limit}`,
+      `/channels/${channelId}/messages?limit=${limit}`
     );
   }
 
   async convexQuery<T>(name: string, args: Record<string, unknown>): Promise<T> {
-    return (await this.convex.query(name as any, args as any)) as T;
+    return (await this.convex.query(name as never, args as never)) as T;
   }
 
   async convexMutation<T>(name: string, args: Record<string, unknown>): Promise<T> {
-    return (await this.convex.mutation(name as any, args as any)) as T;
+    return (await this.convex.mutation(name as never, args as never)) as T;
   }
 
   async ensureSubjectForDiscord(discordUserId: string, displayName: string): Promise<string> {
-    const result = await this.convexMutation<{ subjectId: string }>('subjects:ensureSubjectForDiscord', {
-      apiSecret: this.secrets.convexApiSecret,
-      discordUserId,
-      displayName,
-    });
+    const result = await this.convexMutation<{ subjectId: string }>(
+      'subjects:ensureSubjectForDiscord',
+      {
+        apiSecret: this.secrets.convexApiSecret,
+        discordUserId,
+        displayName,
+      }
+    );
     return result.subjectId;
   }
 
@@ -514,21 +526,28 @@ export class DiscordBotE2EHarness {
         guildId: params.guildId ?? this.secrets.targetGuildId,
         guildLinkId: params.guildLinkId ?? this.secrets.guildLinkId,
         verifiedRoleIds: params.verifiedRoleIds,
-      },
+      }
     );
   }
 
-  async grantManualEntitlement(subjectId: string, productId: string, sourceReference: string): Promise<string> {
-    const result = await this.convexMutation<{ entitlementId: string }>('entitlements:grantEntitlement', {
-      apiSecret: this.secrets.convexApiSecret,
-      tenantId: this.secrets.tenantId,
-      subjectId,
-      productId,
-      evidence: {
-        provider: 'manual',
-        sourceReference,
-      },
-    });
+  async grantManualEntitlement(
+    subjectId: string,
+    productId: string,
+    sourceReference: string
+  ): Promise<string> {
+    const result = await this.convexMutation<{ entitlementId: string }>(
+      'entitlements:grantEntitlement',
+      {
+        apiSecret: this.secrets.convexApiSecret,
+        tenantId: this.secrets.tenantId,
+        subjectId,
+        productId,
+        evidence: {
+          provider: 'manual',
+          sourceReference,
+        },
+      }
+    );
     return result.entitlementId;
   }
 
@@ -584,14 +603,17 @@ export class DiscordBotE2EHarness {
   async waitForDownloadArtifact(routeId: string): Promise<Array<{ _id: string }>> {
     return await poll(
       async () => {
-        const artifacts = await this.convexQuery<Array<{ _id: string }>>('downloads:listActiveArtifactsByRoute', {
-          apiSecret: this.secrets.convexApiSecret,
-          routeId,
-        });
+        const artifacts = await this.convexQuery<Array<{ _id: string }>>(
+          'downloads:listActiveArtifactsByRoute',
+          {
+            apiSecret: this.secrets.convexApiSecret,
+            routeId,
+          }
+        );
         return artifacts.length > 0 ? artifacts : null;
       },
       DEFAULT_WAIT_TIMEOUT_MS,
-      `download artifact for route ${routeId}`,
+      `download artifact for route ${routeId}`
     );
   }
 
@@ -616,16 +638,19 @@ export class DiscordBotE2EHarness {
   }
 
   async listSuspiciousSubjects(): Promise<SuspiciousSubjectRecord[]> {
-    return await this.convexQuery<SuspiciousSubjectRecord[]>('identitySync:listSuspiciousSubjects', {
-      apiSecret: this.secrets.convexApiSecret,
-      tenantId: this.secrets.tenantId,
-      limit: 25,
-    });
+    return await this.convexQuery<SuspiciousSubjectRecord[]>(
+      'identitySync:listSuspiciousSubjects',
+      {
+        apiSecret: this.secrets.convexApiSecret,
+        tenantId: this.secrets.tenantId,
+        limit: 25,
+      }
+    );
   }
 
   async createSetupSessionToken(
     discordUserId: string,
-    guildId = this.secrets.targetGuildId,
+    guildId = this.secrets.targetGuildId
   ): Promise<string> {
     const response = await this.apiRequest<{ token: string }>('POST', '/api/setup/create-session', {
       body: {
@@ -652,7 +677,7 @@ export class DiscordBotE2EHarness {
           jinxxyApiKey: apiKey,
           serverName: 'Discord Bot E2E',
         },
-      },
+      }
     );
   }
 
@@ -669,12 +694,19 @@ export class DiscordBotE2EHarness {
       {
         apiSecret: this.secrets.convexApiSecret,
         ownerTenantId: this.secrets.tenantId,
-      },
+      }
     );
   }
 
-  async createScenarioChannel(scenario: string, suffix: string, guildId = this.secrets.targetGuildId): Promise<string> {
-    const channelId = await this.createTextChannel(guildId, `${this.runId}-${scenario}-${suffix}`.slice(0, 90));
+  async createScenarioChannel(
+    scenario: string,
+    suffix: string,
+    guildId = this.secrets.targetGuildId
+  ): Promise<string> {
+    const channelId = await this.createTextChannel(
+      guildId,
+      `${this.runId}-${scenario}-${suffix}`.slice(0, 90)
+    );
     await this.recordResource({
       scenario,
       type: 'channel',
@@ -684,8 +716,15 @@ export class DiscordBotE2EHarness {
     return channelId;
   }
 
-  async createScenarioRole(scenario: string, suffix: string, guildId = this.secrets.targetGuildId): Promise<string> {
-    const roleId = await this.createRole(guildId, `${this.runId}-${scenario}-${suffix}`.slice(0, 90));
+  async createScenarioRole(
+    scenario: string,
+    suffix: string,
+    guildId = this.secrets.targetGuildId
+  ): Promise<string> {
+    const roleId = await this.createRole(
+      guildId,
+      `${this.runId}-${scenario}-${suffix}`.slice(0, 90)
+    );
     await this.recordResource({
       scenario,
       type: 'role',
@@ -695,7 +734,11 @@ export class DiscordBotE2EHarness {
     return roleId;
   }
 
-  async noteScenario(scenario: string, id: string, metadata?: Record<string, unknown>): Promise<void> {
+  async noteScenario(
+    scenario: string,
+    id: string,
+    metadata?: Record<string, unknown>
+  ): Promise<void> {
     await this.recordResource({
       scenario,
       type: 'note',
@@ -721,10 +764,11 @@ export class DiscordBotE2EHarness {
         } else if (resource.type === 'channel') {
           await this.deleteChannel(resource.id);
         } else if (resource.type === 'product') {
-          const discordUserId = String(resource.metadata?.discordUserId ?? this.secrets.memberUserId);
+          const discordUserId = String(
+            resource.metadata?.discordUserId ?? this.secrets.memberUserId
+          );
           await this.revokeProductEntitlements(discordUserId, resource.id);
         } else if (resource.type === 'note') {
-          continue;
         }
       } catch (error) {
         await this.recordCleanupFailure(scenario, `${resource.type}:${resource.id}`, error);
@@ -738,7 +782,7 @@ export class DiscordBotE2EHarness {
     options?: {
       token?: string;
       body?: Record<string, unknown>;
-    },
+    }
   ): Promise<T> {
     const response = await fetch(new URL(path, this.secrets.apiInternalUrl), {
       method,
@@ -764,7 +808,7 @@ export class DiscordBotE2EHarness {
   private async discordRequest<T = unknown>(
     method: string,
     path: string,
-    body?: Record<string, unknown>,
+    body?: Record<string, unknown>
   ): Promise<T> {
     const response = await fetch(`${DISCORD_API_BASE}${path}`, {
       method,
@@ -804,7 +848,9 @@ export class DiscordWebSession {
     await page.goto(`https://discord.com/channels/${guildId}/${channelId}`, {
       waitUntil: 'domcontentloaded',
     });
-    await page.waitForLoadState('networkidle', { timeout: DEFAULT_WAIT_TIMEOUT_MS }).catch(() => {});
+    await page
+      .waitForLoadState('networkidle', { timeout: DEFAULT_WAIT_TIMEOUT_MS })
+      .catch(() => {});
     await page.waitForSelector('[role="textbox"]', { timeout: DEFAULT_WAIT_TIMEOUT_MS });
     return page;
   }
@@ -832,7 +878,7 @@ export class DiscordWebSession {
   async waitForAnyText(
     page: Page,
     texts: string[],
-    timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+    timeoutMs = DEFAULT_WAIT_TIMEOUT_MS
   ): Promise<string> {
     const deadline = Date.now() + timeoutMs;
 
@@ -897,7 +943,7 @@ export async function waitForHealthcheck(baseUrl: string): Promise<void> {
 async function poll<T>(
   run: () => Promise<T | null>,
   timeoutMs: number,
-  description: string,
+  description: string
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs;
 
@@ -915,7 +961,7 @@ async function poll<T>(
 export async function safeCleanup(
   harness: DiscordBotE2EHarness,
   scenario: string,
-  cleanup: () => Promise<void>,
+  cleanup: () => Promise<void>
 ): Promise<void> {
   try {
     await cleanup();

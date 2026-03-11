@@ -6,22 +6,22 @@
  * The collaborator's identity is verified via Discord OAuth on the consent page.
  */
 
+import { createLogger } from '@yucp/shared';
 import {
   ActionRowBuilder,
   ButtonBuilder,
+  type ButtonInteraction,
   ButtonStyle,
+  type ChatInputCommandInteraction,
   MessageFlags,
   ModalBuilder,
+  type ModalSubmitInteraction,
   TextInputBuilder,
   TextInputStyle,
-  type ButtonInteraction,
-  type ChatInputCommandInteraction,
-  type ModalSubmitInteraction,
 } from 'discord.js';
-import { createLogger } from '@yucp/shared';
-import { E } from '../lib/emojis';
-import { getApiUrls } from '../lib/apiUrls';
 import type { Id } from '../../../../convex/_generated/dataModel';
+import { getApiUrls } from '../lib/apiUrls';
+import { E } from '../lib/emojis';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -33,7 +33,7 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 export async function handleCollabInvite(
   interaction: ChatInputCommandInteraction,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -51,7 +51,7 @@ export async function handleCollabInvite(
     apiSecret,
     tenantId,
     interaction.guildId ?? '',
-    interaction.guild?.name ?? 'this server',
+    interaction.guild?.name ?? 'this server'
   );
 }
 
@@ -62,7 +62,7 @@ export async function handleCollabInvite(
 export async function handleCollabAdd(
   interaction: ChatInputCommandInteraction,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const modal = new ModalBuilder()
     .setCustomId(`creator_collab:add_modal:${tenantId}`)
@@ -86,7 +86,7 @@ export async function handleCollabAdd(
 export async function handleCollabAddModalSubmit(
   interaction: ModalSubmitInteraction,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -117,7 +117,7 @@ export async function handleCollabAddModalSubmit(
       }),
     });
     if (res.ok) {
-      const data = await res.json() as { token: string };
+      const data = (await res.json()) as { token: string };
       sessionToken = data.token;
     }
   } catch (err) {
@@ -142,7 +142,7 @@ export async function handleCollabAddModalSubmit(
       }),
     });
 
-    const data = await res.json() as { success?: boolean; displayName?: string; error?: string };
+    const data = (await res.json()) as { success?: boolean; displayName?: string; error?: string };
 
     if (!res.ok) {
       const msg = data.error ?? `HTTP ${res.status}`;
@@ -166,7 +166,7 @@ export async function handleCollabAddModalSubmit(
 export async function handleCollabList(
   interaction: ChatInputCommandInteraction,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -192,7 +192,7 @@ export async function handleCollabList(
       }),
     });
     if (res.ok) {
-      const data = await res.json() as { token: string };
+      const data = (await res.json()) as { token: string };
       sessionToken = data.token;
     }
   } catch (err) {
@@ -220,7 +220,7 @@ export async function handleCollabList(
       headers: { Authorization: `Bearer ${sessionToken}` },
     });
     if (res.ok) {
-      const data = await res.json() as { connections: typeof connections };
+      const data = (await res.json()) as { connections: typeof connections };
       connections = data.connections ?? [];
     }
   } catch (err) {
@@ -242,9 +242,12 @@ export async function handleCollabList(
   for (const conn of activeConnections.slice(0, 5)) {
     const typeBadge = conn.linkType === 'account' ? '🔗 Account' : '🔑 API';
     const manualBadge = conn.source === 'manual' ? ' [Manual]' : '';
-    const webhookStatus = conn.linkType === 'account'
-      ? (conn.webhookConfigured ? ' • webhook ✓' : ' • webhook not configured')
-      : '';
+    const webhookStatus =
+      conn.linkType === 'account'
+        ? conn.webhookConfigured
+          ? ' • webhook ✓'
+          : ' • webhook not configured'
+        : '';
     const collaboratorLabel = /^\d+$/.test(conn.collaboratorDiscordUserId)
       ? `**<@${conn.collaboratorDiscordUserId}>**`
       : `**${conn.collaboratorDisplayName}**`;
@@ -272,7 +275,7 @@ export async function handleCollabRemove(
   interaction: ButtonInteraction,
   apiSecret: string,
   tenantId: Id<'tenants'>,
-  connectionId: string,
+  connectionId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -298,7 +301,7 @@ export async function handleCollabRemove(
       }),
     });
     if (res.ok) {
-      const data = await res.json() as { token: string };
+      const data = (await res.json()) as { token: string };
       sessionToken = data.token;
     }
   } catch (err) {
@@ -306,7 +309,10 @@ export async function handleCollabRemove(
   }
 
   if (!sessionToken) {
-    await interaction.editReply({ content: 'Failed to authenticate. Please try again.', components: [] });
+    await interaction.editReply({
+      content: 'Failed to authenticate. Please try again.',
+      components: [],
+    });
     return;
   }
 
@@ -316,12 +322,18 @@ export async function handleCollabRemove(
       headers: { Authorization: `Bearer ${sessionToken}` },
     });
     if (!res.ok) {
-      await interaction.editReply({ content: `${E.X_} Failed to remove connection.`, components: [] });
+      await interaction.editReply({
+        content: `${E.X_} Failed to remove connection.`,
+        components: [],
+      });
       return;
     }
   } catch (err) {
     logger.error('Failed to remove collab connection', { err });
-    await interaction.editReply({ content: `${E.X_} Network error. Please try again.`, components: [] });
+    await interaction.editReply({
+      content: `${E.X_} Network error. Please try again.`,
+      components: [],
+    });
     return;
   }
 
@@ -340,7 +352,7 @@ async function generateAndShowInviteLink(
   apiSecret: string,
   tenantId: Id<'tenants'>,
   guildId: string,
-  guildName: string,
+  guildName: string
 ): Promise<void> {
   // Get a session token for the API call
   let sessionToken: string | null = null;
@@ -356,7 +368,7 @@ async function generateAndShowInviteLink(
       }),
     });
     if (res.ok) {
-      const data = await res.json() as { token: string };
+      const data = (await res.json()) as { token: string };
       sessionToken = data.token;
     }
   } catch (err) {
@@ -364,7 +376,10 @@ async function generateAndShowInviteLink(
   }
 
   if (!sessionToken) {
-    await interaction.editReply({ content: 'Failed to authenticate. Please try again.', components: [] });
+    await interaction.editReply({
+      content: 'Failed to authenticate. Please try again.',
+      components: [],
+    });
     return;
   }
 
@@ -381,11 +396,11 @@ async function generateAndShowInviteLink(
       body: JSON.stringify({ guildName, guildId }),
     });
     if (res.ok) {
-      const data = await res.json() as { inviteUrl: string; expiresAt: number };
+      const data = (await res.json()) as { inviteUrl: string; expiresAt: number };
       inviteUrl = data.inviteUrl;
       expiresAt = data.expiresAt;
     } else {
-      const err = await res.json() as { error?: string };
+      const err = (await res.json()) as { error?: string };
       logger.error('Failed to create collab invite', { status: res.status, err });
     }
   } catch (err) {
@@ -407,7 +422,7 @@ async function generateAndShowInviteLink(
   await interaction.editReply({
     content: [
       `${E.Link} **Collaborator invite link:**`,
-      ``,
+      '',
       `\`\`\`${inviteUrl}\`\`\``,
       `Share this link with the creator you'd like to invite. ${expiryText}.`,
     ].join('\n'),

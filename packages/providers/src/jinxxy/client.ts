@@ -12,28 +12,28 @@
  */
 
 import type {
+  JinxxyActivationsResponse,
   JinxxyAdapterConfig,
-  JinxxyUser,
-  JinxxyUserResponse,
-  JinxxyProduct,
-  JinxxyProductsResponse,
-  JinxxyProductResponse,
+  JinxxyApiErrorResponse,
   JinxxyCustomer,
-  JinxxyCustomersResponse,
   JinxxyCustomerResponse,
+  JinxxyCustomersResponse,
   JinxxyLicense,
-  JinxxyLicenseListResult,
-  JinxxyLicensesResponse,
   JinxxyLicenseListResponse,
+  JinxxyLicenseListResult,
   JinxxyLicenseRaw,
   JinxxyLicenseResponse,
-  JinxxyActivationsResponse,
+  JinxxyLicensesResponse,
   JinxxyOrder,
-  JinxxyOrdersResponse,
   JinxxyOrderResponse,
+  JinxxyOrdersResponse,
   JinxxyPagination,
+  JinxxyProduct,
+  JinxxyProductResponse,
+  JinxxyProductsResponse,
+  JinxxyUser,
+  JinxxyUserResponse,
   PaginationParams,
-  JinxxyApiErrorResponse,
 } from './types';
 import { JinxxyApiError, JinxxyRateLimitError } from './types';
 
@@ -85,7 +85,7 @@ export class JinxxyApiClient {
       apiKey,
       apiBaseUrl: process.env.JINXXY_API_BASE_URL,
       timeout: process.env.JINXXY_API_TIMEOUT
-        ? parseInt(process.env.JINXXY_API_TIMEOUT, 10)
+        ? Number.parseInt(process.env.JINXXY_API_TIMEOUT, 10)
         : undefined,
     });
   }
@@ -119,7 +119,7 @@ export class JinxxyApiClient {
         method,
         headers: {
           'x-api-key': this.apiKey,
-          'Accept': 'application/json',
+          Accept: 'application/json',
           'Content-Type': 'application/json',
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -131,17 +131,14 @@ export class JinxxyApiClient {
       // Handle rate limiting
       if (response.status === 429) {
         const retryAfter = response.headers.get('retry-after');
-        const retryAfterMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 1000;
+        const retryAfterMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 1000;
 
         if (retryCount < this.maxRetries) {
           await this.sleep(retryAfterMs * (retryCount + 1));
           return this.request<T>(method, path, params, body, retryCount + 1);
         }
 
-        throw new JinxxyRateLimitError(
-          'Rate limit exceeded after maximum retries',
-          retryAfterMs
-        );
+        throw new JinxxyRateLimitError('Rate limit exceeded after maximum retries', retryAfterMs);
       }
 
       // Handle other errors
@@ -150,12 +147,7 @@ export class JinxxyApiClient {
         const errorMessage = errorBody?.error ?? errorBody?.message ?? `HTTP ${response.status}`;
         const errorCode = errorBody?.error;
 
-        throw new JinxxyApiError(
-          errorMessage,
-          response.status,
-          errorCode,
-          errorBody?.details
-        );
+        throw new JinxxyApiError(errorMessage, response.status, errorCode, errorBody?.details);
       }
 
       // Parse successful response
@@ -251,9 +243,10 @@ export class JinxxyApiClient {
     });
 
     const products = response.results ?? response.products ?? [];
-    const hasNext = response.page_count != null
-      ? (response.page ?? 1) < response.page_count
-      : (response.pagination?.has_next ?? false);
+    const hasNext =
+      response.page_count != null
+        ? (response.page ?? 1) < response.page_count
+        : (response.pagination?.has_next ?? false);
 
     return {
       products,
@@ -269,10 +262,7 @@ export class JinxxyApiClient {
    */
   async getProduct(productId: string): Promise<JinxxyProduct | null> {
     try {
-      const response = await this.request<JinxxyProductResponse>(
-        'GET',
-        `/products/${productId}`
-      );
+      const response = await this.request<JinxxyProductResponse>('GET', `/products/${productId}`);
 
       return response.product ?? null;
     } catch (error) {
@@ -331,13 +321,15 @@ export class JinxxyApiClient {
   /**
    * List all licenses with optional filtering
    */
-  async getLicenses(params?: PaginationParams & {
-    product_id?: string;
-    customer_id?: string;
-    status?: string;
-    key?: string;
-    short_key?: string;
-  }): Promise<{
+  async getLicenses(
+    params?: PaginationParams & {
+      product_id?: string;
+      customer_id?: string;
+      status?: string;
+      key?: string;
+      short_key?: string;
+    }
+  ): Promise<{
     licenses: JinxxyLicense[];
     pagination: JinxxyPagination;
   }> {
@@ -409,9 +401,7 @@ export class JinxxyApiClient {
         `/licenses/${licenseId}`
       );
 
-      const raw =
-        (data as JinxxyLicenseResponse).license ??
-        (data as JinxxyLicenseRaw);
+      const raw = (data as JinxxyLicenseResponse).license ?? (data as JinxxyLicenseRaw);
       if (!raw?.id) return null;
 
       return this.mapRawLicenseToLicense(raw as JinxxyLicenseRaw);
@@ -463,11 +453,7 @@ export class JinxxyApiClient {
 
     // Step 1: GET /licenses?key=... or short_key=... returns minimal results { id, user, short_key }
     const params = isUuid ? { key: normalizedKey } : { short_key: normalizedKey };
-    const listResponse = await this.request<JinxxyLicenseListResponse>(
-      'GET',
-      '/licenses',
-      params
-    );
+    const listResponse = await this.request<JinxxyLicenseListResponse>('GET', '/licenses', params);
 
     const results = listResponse.results ?? [];
     const first = results[0];
@@ -506,7 +492,10 @@ export class JinxxyApiClient {
   /**
    * Get activations for a license
    */
-  async getLicenseActivations(licenseId: string, params?: PaginationParams): Promise<{
+  async getLicenseActivations(
+    licenseId: string,
+    params?: PaginationParams
+  ): Promise<{
     activations: Array<{
       id: string;
       license_id: string;
@@ -541,12 +530,14 @@ export class JinxxyApiClient {
   /**
    * List all orders with optional filtering
    */
-  async getOrders(params?: PaginationParams & {
-    product_id?: string;
-    customer_id?: string;
-    status?: string;
-    email?: string;
-  }): Promise<{
+  async getOrders(
+    params?: PaginationParams & {
+      product_id?: string;
+      customer_id?: string;
+      status?: string;
+      email?: string;
+    }
+  ): Promise<{
     orders: JinxxyOrder[];
     pagination: JinxxyPagination;
   }> {
@@ -570,10 +561,7 @@ export class JinxxyApiClient {
    */
   async getOrder(orderId: string): Promise<JinxxyOrder | null> {
     try {
-      const response = await this.request<JinxxyOrderResponse>(
-        'GET',
-        `/orders/${orderId}`
-      );
+      const response = await this.request<JinxxyOrderResponse>('GET', `/orders/${orderId}`);
 
       return response.order ?? null;
     } catch (error) {

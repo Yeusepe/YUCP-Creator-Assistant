@@ -4,11 +4,11 @@
  * Options: Gumroad OAuth, License key, Discord (other server)
  */
 
+import type { ConvexHttpClient } from 'convex/browser';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
-import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { buildLicenseModal } from './verify';
 
 export async function handleLink(
@@ -16,7 +16,7 @@ export async function handleLink(
   convex: ConvexHttpClient,
   apiSecret: string,
   apiBaseUrl: string | undefined,
-  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   const provider = interaction.options.getString('provider', true);
 

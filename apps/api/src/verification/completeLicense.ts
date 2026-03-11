@@ -6,8 +6,9 @@
  * and grants entitlements for all products the user owns from that provider.
  */
 
+import { GumroadAdapter, JinxxyApiClient, detectLicenseFormat } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
-import { detectLicenseFormat, GumroadAdapter, JinxxyApiClient } from '@yucp/providers';
+import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt } from '../lib/encrypt';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
@@ -98,7 +99,8 @@ export async function handleCompleteLicense(
         };
       }
 
-      const providerUserId = result.purchaseEmail ?? `gumroad:${productId}:${licenseKey.slice(0, 8)}`;
+      const providerUserId =
+        result.purchaseEmail ?? `gumroad:${productId}:${licenseKey.slice(0, 8)}`;
       const sourceReference = result.saleId ?? `gumroad:${productId}:${licenseKey.trim()}`;
 
       const productsToGrant = [
@@ -112,16 +114,14 @@ export async function handleCompleteLicense(
       const apiSecret = config.convexApiSecret;
 
       const mutationResult = await convex.mutation(
-        'licenseVerification:completeLicenseVerification' as any,
+        api.licenseVerification.completeLicenseVerification,
         {
           apiSecret,
           tenantId,
           subjectId,
           provider: 'gumroad',
           providerUserId,
-          providerMetadata: result.purchaseEmail
-            ? { email: result.purchaseEmail }
-            : undefined,
+          providerMetadata: result.purchaseEmail ? { email: result.purchaseEmail } : undefined,
           productsToGrant,
         }
       );
@@ -132,7 +132,7 @@ export async function handleCompleteLicense(
         entitlementIds: mutationResult.entitlementIds,
         error: sanitizePublicErrorMessage(
           mutationResult.error,
-          'The license could not be verified right now.',
+          'The license could not be verified right now.'
         ),
       };
     }
@@ -141,7 +141,7 @@ export async function handleCompleteLicense(
       const convex = getConvexClientFromUrl(config.convexUrl);
       // Try provider_connections first (connect flow), then tenant_provider_config (legacy)
       let tenantJinxxyKeyEncrypted: string | null = null;
-      const conn = await convex.query('providerConnections:getConnectionForBackfill' as any, {
+      const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
         apiSecret: config.convexApiSecret,
         tenantId,
         provider: 'jinxxy',
@@ -151,7 +151,7 @@ export async function handleCompleteLicense(
       }
       if (!tenantJinxxyKeyEncrypted) {
         tenantJinxxyKeyEncrypted = await convex.query(
-          'tenantConfig:getJinxxyApiKeyForVerification' as any,
+          api.tenantConfig.getJinxxyApiKeyForVerification,
           { apiSecret: config.convexApiSecret, tenantId }
         );
       }
@@ -176,8 +176,7 @@ export async function handleCompleteLicense(
       if (!jinxxyApiKey) {
         return {
           success: false,
-          error:
-            'Jinxxy API key not configured. Add your Jinxxy API key in `/creator setup`.',
+          error: 'Jinxxy API key not configured. Add your Jinxxy API key in `/creator setup`.',
         };
       }
 
@@ -190,10 +189,7 @@ export async function handleCompleteLicense(
       if (!verifyResult.valid || !verifyResult.license) {
         return {
           success: false,
-          error: sanitizePublicErrorMessage(
-            verifyResult.error,
-            'License verification failed',
-          ),
+          error: sanitizePublicErrorMessage(verifyResult.error, 'License verification failed'),
         };
       }
 
@@ -217,7 +213,7 @@ export async function handleCompleteLicense(
       ];
 
       const mutationResult = await convex.mutation(
-        'licenseVerification:completeLicenseVerification' as any,
+        api.licenseVerification.completeLicenseVerification,
         {
           apiSecret: config.convexApiSecret,
           tenantId,
@@ -237,15 +233,18 @@ export async function handleCompleteLicense(
       }
 
       // Primary key failed - try collaborator connections
-      const collabConnections = await convex.query(
-        'collaboratorInvites:getCollabConnectionsForVerification' as any,
+      const collabConnections = (await convex.query(
+        api.collaboratorInvites.getCollabConnectionsForVerification,
         { apiSecret: config.convexApiSecret, ownerTenantId: tenantId }
-      ) as Array<{ id: string; jinxxyApiKeyEncrypted?: string }>;
+      )) as Array<{ id: string; jinxxyApiKeyEncrypted?: string }>;
 
       for (const collab of collabConnections) {
         if (!collab.jinxxyApiKeyEncrypted) continue;
         try {
-          const collabKey = await decrypt(collab.jinxxyApiKeyEncrypted, config.encryptionSecret ?? '');
+          const collabKey = await decrypt(
+            collab.jinxxyApiKeyEncrypted,
+            config.encryptionSecret ?? ''
+          );
           const collabClient = new JinxxyApiClient({
             apiKey: collabKey,
             apiBaseUrl: process.env.JINXXY_API_BASE_URL,
@@ -256,17 +255,19 @@ export async function handleCompleteLicense(
             if (!collabLicense.product_id) continue;
             const collabCustomerId = collabLicense.customer_id ?? collabLicense.id;
             const collabMutation = await convex.mutation(
-              'licenseVerification:completeLicenseVerification' as any,
+              api.licenseVerification.completeLicenseVerification,
               {
                 apiSecret: config.convexApiSecret,
                 tenantId,
                 subjectId,
                 provider: 'jinxxy',
                 providerUserId: collabCustomerId,
-                productsToGrant: [{
-                  productId: collabLicense.product_id,
-                  sourceReference: `jinxxy-collab:${collab.id}:license:${collabLicense.id}`,
-                }],
+                productsToGrant: [
+                  {
+                    productId: collabLicense.product_id,
+                    sourceReference: `jinxxy-collab:${collab.id}:license:${collabLicense.id}`,
+                  },
+                ],
               }
             );
             if (collabMutation.success) {
@@ -291,7 +292,7 @@ export async function handleCompleteLicense(
         entitlementIds: mutationResult.entitlementIds,
         error: sanitizePublicErrorMessage(
           mutationResult.error,
-          'The license could not be verified right now.',
+          'The license could not be verified right now.'
         ),
       };
     }
@@ -307,7 +308,7 @@ export async function handleCompleteLicense(
       success: false,
       error: sanitizePublicErrorMessage(
         err instanceof Error ? err.message : String(err),
-        'The license could not be verified right now.',
+        'The license could not be verified right now.'
       ),
     };
   }

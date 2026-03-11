@@ -6,12 +6,13 @@
  * Uses decrypted tenant API key; returns product.id and product.name (jinx-master style).
  */
 
-import { createLogger } from '@yucp/shared';
-import { getConvexClientFromUrl } from '../lib/convex';
-import { loadEnv } from '../lib/env';
-import { decrypt } from '../lib/encrypt';
-import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { JinxxyApiClient } from '@yucp/providers/jinxxy';
+import { createLogger } from '@yucp/shared';
+import { api } from '../../../../convex/_generated/api';
+import { getConvexClientFromUrl } from '../lib/convex';
+import { decrypt } from '../lib/encrypt';
+import { loadEnv } from '../lib/env';
+import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -80,10 +81,10 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
 
     const encryptionSecret = loadEnv().BETTER_AUTH_SECRET;
     if (!encryptionSecret) {
-      return new Response(
-        JSON.stringify({ error: 'BETTER_AUTH_SECRET not configured' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'BETTER_AUTH_SECRET not configured' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     const convex = getConvexClientFromUrl(convexUrl);
@@ -91,7 +92,7 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
     // Try provider_connections first (connect flow), then tenant_provider_config (legacy)
     let apiKeyEncrypted: string | null = null;
 
-    const conn = await convex.query('providerConnections:getConnectionForBackfill' as any, {
+    const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret,
       tenantId,
       provider: 'jinxxy',
@@ -101,7 +102,7 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
     }
 
     if (!apiKeyEncrypted) {
-      const tenantKey = await convex.query('tenantConfig:getJinxxyApiKeyForVerification' as any, {
+      const tenantKey = await convex.query(api.tenantConfig.getJinxxyApiKeyForVerification, {
         apiSecret,
         tenantId,
       });
@@ -158,10 +159,13 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
 
     // Also fetch products from active collaborator connections
     try {
-      const collabConnections = await convex.query('collaboratorInvites:getCollabConnectionsForVerification' as any, {
-        apiSecret,
-        ownerTenantId: tenantId,
-      }) as Array<{ id: string; jinxxyApiKeyEncrypted?: string; collaboratorDisplayName?: string }>;
+      const collabConnections = (await convex.query(
+        api.collaboratorInvites.getCollabConnectionsForVerification,
+        {
+          apiSecret,
+          ownerTenantId: tenantId,
+        }
+      )) as Array<{ id: string; jinxxyApiKeyEncrypted?: string; collaboratorDisplayName?: string }>;
 
       for (const collab of collabConnections) {
         if (!collab.jinxxyApiKeyEncrypted) continue;
@@ -212,10 +216,10 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
       }
     }
 
-    return new Response(
-      JSON.stringify({ products: deduped }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ products: deduped }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Jinxxy products fetch failed', {

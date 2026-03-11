@@ -5,9 +5,10 @@
  * load entitlements, and queue role_sync if autoVerifyOnJoin. No provider API calls.
  */
 
-import type { GuildMember } from 'discord.js';
-import type { ConvexHttpClient } from 'convex/browser';
 import { createLogger } from '@yucp/shared';
+import type { ConvexHttpClient } from 'convex/browser';
+import type { GuildMember } from 'discord.js';
+import { api } from '../../../../convex/_generated/api';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -21,14 +22,11 @@ export async function handleGuildMemberAdd(
   ctx: GuildMemberAddContext
 ): Promise<void> {
   try {
-    const result = await ctx.convex.mutation(
-      'guildMemberAdd:handleGuildMemberJoin' as any,
-      {
-        apiSecret: ctx.apiSecret,
-        discordGuildId: member.guild.id,
-        discordUserId: member.id,
-      }
-    );
+    const result = await ctx.convex.mutation(api.guildMemberAdd.handleGuildMemberJoin, {
+      apiSecret: ctx.apiSecret,
+      discordGuildId: member.guild.id,
+      discordUserId: member.id,
+    });
 
     if (result.queued && result.jobCount > 0) {
       logger.info('Queued role sync for guild join', {

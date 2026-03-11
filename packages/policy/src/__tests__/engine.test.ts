@@ -300,6 +300,10 @@ describe('Policy Engine', () => {
 
       expect(decision.remediation).toBeDefined();
       const remediation = decision.remediation?.[0];
+      expect(remediation).toBeDefined();
+      if (!remediation) {
+        throw new Error('Expected remediation to be defined');
+      }
       expect(remediation.action).toBeDefined();
       expect(remediation.message).toBeDefined();
     });

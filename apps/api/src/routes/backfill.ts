@@ -6,12 +6,13 @@
  * Fetches sales from Gumroad/Jinxxy, decrypts tokens, ingests into purchase_facts.
  */
 
-import { createLogger } from '@yucp/shared';
-import { getConvexClientFromUrl } from '../lib/convex';
-import { loadEnv } from '../lib/env';
-import { decrypt } from '../lib/encrypt';
-import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { JinxxyApiClient } from '@yucp/providers/jinxxy';
+import { createLogger } from '@yucp/shared';
+import { api } from '../../../../convex/_generated/api';
+import { getConvexClientFromUrl } from '../lib/convex';
+import { decrypt } from '../lib/encrypt';
+import { loadEnv } from '../lib/env';
+import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -62,7 +63,10 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
 
     if (!apiSecret || !tenantId || !productId || !provider || !providerProductRef) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: apiSecret, tenantId, productId, provider, providerProductRef' }),
+        JSON.stringify({
+          error:
+            'Missing required fields: apiSecret, tenantId, productId, provider, providerProductRef',
+        }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -97,7 +101,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
     let totalSkipped = 0;
 
     if (provider === 'gumroad') {
-      const connWithToken = await convex.query('providerConnections:getConnectionForBackfill' as any, {
+      const connWithToken = await convex.query(api.providerConnections.getConnectionForBackfill, {
         apiSecret,
         tenantId,
         provider: 'gumroad',
@@ -110,7 +114,10 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
         });
       }
 
-      const accessToken = await decrypt(connWithToken.gumroadAccessTokenEncrypted, encryptionSecret);
+      const accessToken = await decrypt(
+        connWithToken.gumroadAccessTokenEncrypted,
+        encryptionSecret
+      );
 
       let page = 1;
       let hasMore = true;
@@ -128,7 +135,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
 
         if (res.status === 429) {
           const retryAfter = res.headers.get('Retry-After');
-          const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+          const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 5000;
           logger.warn('Gumroad rate limit, waiting', { waitMs });
           await new Promise((r) => setTimeout(r, waitMs));
           continue;
@@ -139,7 +146,10 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
           throw new Error(`Gumroad API error: ${res.status} ${text}`);
         }
 
-        const data = (await res.json()) as { sales?: Array<Record<string, unknown>>; next_page_url?: string };
+        const data = (await res.json()) as {
+          sales?: Array<Record<string, unknown>>;
+          next_page_url?: string;
+        };
         const sales = data.sales ?? [];
 
         if (sales.length === 0) {
@@ -160,7 +170,9 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
                 : Date.now();
 
             const buyerEmailNormalized = email ? normalizeEmail(email) : undefined;
-            const buyerEmailHash = buyerEmailNormalized ? await sha256Hex(buyerEmailNormalized) : undefined;
+            const buyerEmailHash = buyerEmailNormalized
+              ? await sha256Hex(buyerEmailNormalized)
+              : undefined;
 
             return {
               tenantId,
@@ -170,13 +182,16 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
               buyerEmailHash,
               providerProductId: productIdVal,
               paymentStatus: refunded ? 'refunded' : 'paid',
-              lifecycleStatus: (refunded ? 'refunded' : 'active') as 'active' | 'refunded' | 'disputed',
+              lifecycleStatus: (refunded ? 'refunded' : 'active') as
+                | 'active'
+                | 'refunded'
+                | 'disputed',
               purchasedAt: saleTimestamp,
             };
           })
         );
 
-        const result = await convex.mutation('backgroundSync:ingestBackfillPurchaseFactsBatch' as any, {
+        const result = await convex.mutation(api.backgroundSync.ingestBackfillPurchaseFactsBatch, {
           apiSecret,
           tenantId,
           provider: 'gumroad',
@@ -193,7 +208,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
         }
       }
     } else if (provider === 'jinxxy') {
-      const connWithKey = await convex.query('providerConnections:getConnectionForBackfill' as any, {
+      const connWithKey = await convex.query(api.providerConnections.getConnectionForBackfill, {
         apiSecret,
         tenantId,
         provider: 'jinxxy',
@@ -226,7 +241,9 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
           const purchasedAt = order.created_at ? new Date(order.created_at).getTime() : Date.now();
           const email = order.email ?? '';
           const buyerEmailNormalized = email ? normalizeEmail(email) : undefined;
-          const buyerEmailHash = buyerEmailNormalized ? await sha256Hex(buyerEmailNormalized) : undefined;
+          const buyerEmailHash = buyerEmailNormalized
+            ? await sha256Hex(buyerEmailNormalized)
+            : undefined;
 
           purchases.push({
             tenantId,
@@ -242,12 +259,15 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
         }
 
         if (purchases.length > 0) {
-          const result = await convex.mutation('backgroundSync:ingestBackfillPurchaseFactsBatch' as any, {
-            apiSecret,
-            tenantId,
-            provider: 'jinxxy',
-            purchases,
-          });
+          const result = await convex.mutation(
+            api.backgroundSync.ingestBackfillPurchaseFactsBatch,
+            {
+              apiSecret,
+              tenantId,
+              provider: 'jinxxy',
+              purchases,
+            }
+          );
           totalInserted += result.inserted;
           totalSkipped += result.skipped;
         }
@@ -271,12 +291,18 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Backfill failed', { error: msg, stack: err instanceof Error ? err.stack : undefined });
-    return new Response(JSON.stringify({
-      error: sanitizePublicErrorMessage(msg, 'Backfill failed. Try again in a moment.'),
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
+    logger.error('Backfill failed', {
+      error: msg,
+      stack: err instanceof Error ? err.stack : undefined,
     });
+    return new Response(
+      JSON.stringify({
+        error: sanitizePublicErrorMessage(msg, 'Backfill failed. Try again in a moment.'),
+      }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
   }
 }

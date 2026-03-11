@@ -4,16 +4,16 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import type { LogEntry } from '../src/logging';
 import {
   type VerificationStatus,
-  createStructuredLogger,
-  encrypt,
-  decrypt,
-  createAAD,
-  validateActivateInput,
   canTransferBinding,
+  createAAD,
+  createStructuredLogger,
+  decrypt,
+  encrypt,
+  validateActivateInput,
 } from '../src/index';
+import type { LogEntry } from '../src/logging';
 
 describe('shared', () => {
   describe('createLogger', () => {
@@ -82,7 +82,7 @@ describe('shared', () => {
         tenantId: 't1',
         subjectId: 's1',
         externalAccountId: 'e1',
-        bindingType: 'invalid' as any,
+        bindingType: 'invalid' as never,
       });
       expect(errors).toContain('Invalid bindingType: invalid');
     });

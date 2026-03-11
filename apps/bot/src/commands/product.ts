@@ -6,6 +6,9 @@
  * remove: Remove a product mapping
  */
 
+import { providerLabel, resolveGumroadProductId } from '@yucp/providers';
+import { createLogger } from '@yucp/shared';
+import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -26,15 +29,12 @@ import type {
   RoleSelectMenuInteraction,
   StringSelectMenuInteraction,
 } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
-import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { E, Emoji } from '../lib/emojis';
-import { canBotManageRole } from '../lib/roleHierarchy';
 import { track } from '../lib/posthog';
+import { canBotManageRole } from '../lib/roleHierarchy';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
-import { resolveGumroadProductId, providerLabel } from '@yucp/providers';
-import { createLogger } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -56,6 +56,7 @@ interface ProductSession {
   jinxxyProductNames?: Record<string, string>;
   /** Jinxxy product id -> collaborator display name (undefined = owner's own store) */
   jinxxyProductSources?: Record<string, string>;
+  removeProductIds?: string[];
   expiresAt: number;
 }
 
@@ -85,7 +86,7 @@ function parseGumroadProductId(urlOrId: string): string | null {
 /** Step 1: /creator-admin product add - show type select menu */
 export async function handleProductAddInteractive(
   interaction: ChatInputCommandInteraction,
-  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   cleanExpiredSessions();
 
@@ -125,7 +126,7 @@ export async function handleProductAddInteractive(
         .setLabel('Discord Role (Other Server)')
         .setDescription('User has a specific role in another server')
         .setValue('discord_role')
-        .setEmoji(Emoji.Link),
+        .setEmoji(Emoji.Link)
     );
 
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
@@ -140,7 +141,7 @@ export async function handleProductAddInteractive(
 /** Step 2: Type selected - show relevant modal */
 export async function handleProductTypeSelect(
   interaction: StringSelectMenuInteraction,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const selectedType = interaction.values[0] as ProductSession['type'];
   const sessionKey = getSessionKey(interaction.user.id, tenantId);
@@ -174,7 +175,7 @@ export async function handleProductTypeSelect(
               .setLabel('Source Server ID')
               .setPlaceholder('Right-click the server → Copy Server ID (requires Developer Mode)')
               .setStyle(TextInputStyle.Short)
-              .setRequired(true),
+              .setRequired(true)
           ),
           new ActionRowBuilder<TextInputBuilder>().addComponents(
             new TextInputBuilder()
@@ -182,7 +183,7 @@ export async function handleProductTypeSelect(
               .setLabel('Source Role ID(s)')
               .setPlaceholder('One per line or comma-separated. e.g. 123456789012345678')
               .setStyle(TextInputStyle.Paragraph)
-              .setRequired(true),
+              .setRequired(true)
           ),
           new ActionRowBuilder<TextInputBuilder>().addComponents(
             new TextInputBuilder()
@@ -191,8 +192,8 @@ export async function handleProductTypeSelect(
               .setPlaceholder('any = user needs one role; all = user needs every role')
               .setStyle(TextInputStyle.Short)
               .setRequired(false)
-              .setValue('any'),
-          ),
+              .setValue('any')
+          )
         );
       await interaction.showModal(modal);
       return;
@@ -225,7 +226,7 @@ export async function handleProductTypeSelect(
           .setCustomId(doneButtonId)
           .setLabel("Done, I've selected it")
           .setEmoji(Emoji.Checkmark)
-          .setStyle(ButtonStyle.Success),
+          .setStyle(ButtonStyle.Success)
       );
 
       await interaction.editReply({
@@ -269,7 +270,10 @@ export async function handleProductTypeSelect(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiSecret, tenantId }),
       });
-      const data = (await res.json()) as { products?: { id: string; name: string; collaboratorName?: string }[]; error?: string };
+      const data = (await res.json()) as {
+        products?: { id: string; name: string; collaboratorName?: string }[];
+        error?: string;
+      };
 
       if (data.error && (!data.products || data.products.length === 0)) {
         await interaction.editReply({
@@ -290,7 +294,7 @@ export async function handleProductTypeSelect(
 
       session.jinxxyProductNames = Object.fromEntries(products.map((p) => [p.id, p.name]));
       session.jinxxyProductSources = Object.fromEntries(
-        products.filter((p) => p.collaboratorName).map((p) => [p.id, p.collaboratorName!]),
+        products.flatMap((p) => (p.collaboratorName ? [[p.id, p.collaboratorName]] : []))
       );
 
       // Discord select menu limit: 25 options
@@ -302,16 +306,17 @@ export async function handleProductTypeSelect(
         .setPlaceholder('Select a Jinxxy product...')
         .addOptions(
           toShow.map((p) => {
-            const label = p.name.length > 100 ? p.name.slice(0, 97) + '...' : p.name;
+            const label = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
             const sourcePrefix = p.collaboratorName ? `[${p.collaboratorName}] ` : '';
-            const description = (sourcePrefix + p.name).length > 100
-              ? (sourcePrefix + p.name).slice(0, 97) + '...'
-              : sourcePrefix + p.name;
+            const description =
+              (sourcePrefix + p.name).length > 100
+                ? `${(sourcePrefix + p.name).slice(0, 97)}...`
+                : sourcePrefix + p.name;
             return new StringSelectMenuOptionBuilder()
               .setLabel(label)
               .setValue(p.id)
               .setDescription(description);
-          }),
+          })
         );
 
       const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
@@ -361,8 +366,8 @@ export async function handleProductTypeSelect(
           .setLabel(labels[selectedType ?? 'gumroad'] ?? 'Product URL or ID')
           .setPlaceholder(placeholders[selectedType ?? 'gumroad'] ?? '')
           .setStyle(TextInputStyle.Short)
-          .setRequired(true),
-      ),
+          .setRequired(true)
+      )
     );
 
   await interaction.showModal(modal);
@@ -372,7 +377,7 @@ export async function handleProductTypeSelect(
 export async function handleProductJinxxySelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const productId = interaction.values[0];
   const sessionKey = getSessionKey(userId, tenantId);
@@ -397,7 +402,8 @@ export async function handleProductJinxxySelect(
   const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
   await interaction.reply({
-    content: '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    content:
+      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
@@ -407,7 +413,7 @@ export async function handleProductJinxxySelect(
 export async function handleProductUrlModal(
   interaction: ModalSubmitInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const urlOrId = interaction.fields.getTextInputValue('url_or_id')?.trim();
   const sessionKey = getSessionKey(userId, tenantId);
@@ -432,7 +438,8 @@ export async function handleProductUrlModal(
   const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
   await interaction.reply({
-    content: '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    content:
+      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
@@ -449,7 +456,7 @@ function parseRoleIdsFromInput(input: string): string[] {
 export async function handleProductDiscordModal(
   interaction: ModalSubmitInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sourceGuildId = interaction.fields.getTextInputValue('source_guild_id')?.trim();
   const roleIdsRaw =
@@ -510,7 +517,7 @@ export async function handleProductDiscordModal(
 export async function handleProductDiscordRoleDone(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = productSessions.get(sessionKey);
@@ -568,11 +575,10 @@ export async function handleProductDiscordRoleDone(
           .setCustomId(`creator_product:discord_role_done:${userId}:${tenantId}`)
           .setLabel("Done, I've selected it")
           .setEmoji(Emoji.Checkmark)
-          .setStyle(ButtonStyle.Success),
+          .setStyle(ButtonStyle.Success)
       );
       await interaction.editReply({
-        content:
-          `${E.Wrench} You haven't saved your selection yet. Open the setup page, pick a server and role, then come back and click **Done**.`,
+        content: `${E.Wrench} You haven't saved your selection yet. Open the setup page, pick a server and role, then come back and click **Done**.`,
         components: [row],
       });
       return;
@@ -581,8 +587,7 @@ export async function handleProductDiscordRoleDone(
     session.sourceGuildId = result.sourceGuildId;
     session.sourceRoleIds =
       result.sourceRoleIds ?? (result.sourceRoleId ? [result.sourceRoleId] : []);
-    session.sourceRoleId =
-      result.sourceRoleId ?? session.sourceRoleIds[0];
+    session.sourceRoleId = result.sourceRoleId ?? session.sourceRoleIds[0];
     session.requiredRoleMatchMode = result.requiredRoleMatchMode ?? 'any';
     session.discordRoleSetupToken = undefined;
 
@@ -616,7 +621,7 @@ export async function handleProductDiscordRoleDone(
 export async function handleProductRoleSelect(
   interaction: RoleSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const roleIds = interaction.values;
   const sessionKey = getSessionKey(userId, tenantId);
@@ -643,16 +648,14 @@ export async function handleProductRoleSelect(
     return providerLabel(t);
   };
 
-  const detailLines: string[] = [
-    `**Type:** ${typeLabel(session.type)}`,
-  ];
+  const detailLines: string[] = [`**Type:** ${typeLabel(session.type)}`];
 
   if (session.type === 'discord_role') {
     detailLines.push(`**Source Server ID:** \`${session.sourceGuildId}\``);
     const srcIds = session.sourceRoleIds ?? (session.sourceRoleId ? [session.sourceRoleId] : []);
     const matchMode = session.requiredRoleMatchMode ?? 'any';
     detailLines.push(
-      `**Source Role(s):** ${srcIds.map((id) => `<@&${id}>`).join(', ')} (${matchMode})`,
+      `**Source Role(s):** ${srcIds.map((id) => `<@&${id}>`).join(', ')} (${matchMode})`
     );
   } else if (session.urlOrId) {
     const productLabel =
@@ -662,19 +665,21 @@ export async function handleProductRoleSelect(
     detailLines.push(`**Product:** ${productLabel}`);
   }
 
-  detailLines.push(
-    `**Assigns Role(s):** ${roleIds.map((id) => `<@&${id}>`).join(', ')}`,
-  );
+  detailLines.push(`**Assigns Role(s):** ${roleIds.map((id) => `<@&${id}>`).join(', ')}`);
 
   if (hierarchyCheck && !hierarchyCheck.canManage) {
     detailLines.push('');
     detailLines.push(
-      `${E.Wrench} **Role hierarchy warning:** ${hierarchyCheck.reason} The bot will not be able to assign this role until you fix it.`,
+      `${E.Wrench} **Role hierarchy warning:** ${hierarchyCheck.reason} The bot will not be able to assign this role until you fix it.`
     );
   }
 
   const embed = new EmbedBuilder()
-    .setTitle(hierarchyCheck && !hierarchyCheck.canManage ? `${E.Wrench} Ready to add (with warning)` : `${E.Checkmark} Ready to add`)
+    .setTitle(
+      hierarchyCheck && !hierarchyCheck.canManage
+        ? `${E.Wrench} Ready to add (with warning)`
+        : `${E.Checkmark} Ready to add`
+    )
     .setColor(hierarchyCheck && !hierarchyCheck.canManage ? 0xfee75c : 0x57f287)
     .setDescription(detailLines.join('\n'));
 
@@ -686,7 +691,7 @@ export async function handleProductRoleSelect(
     new ButtonBuilder()
       .setCustomId(`creator_product:cancel_add:${tenantId}`)
       .setLabel('Cancel')
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
   );
 
   await interaction.editReply({ embeds: [embed], components: [row] });
@@ -698,7 +703,7 @@ export async function handleProductConfirmAdd(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = productSessions.get(sessionKey);
@@ -715,7 +720,18 @@ export async function handleProductConfirmAdd(
   await interaction.deferUpdate();
 
   try {
-    const { type, urlOrId, sourceGuildId, sourceRoleId, sourceRoleIds, requiredRoleMatchMode, roleId, roleIds, guildId, guildLinkId } = session;
+    const {
+      type,
+      urlOrId,
+      sourceGuildId,
+      sourceRoleId,
+      sourceRoleIds,
+      requiredRoleMatchMode,
+      roleId,
+      roleIds,
+      guildId,
+      guildLinkId,
+    } = session;
 
     const verifiedRoleIds = roleIds ?? (roleId ? [roleId] : []);
     if (verifiedRoleIds.length === 0) throw new Error('No role selected');
@@ -726,7 +742,7 @@ export async function handleProductConfirmAdd(
     if (type === 'discord_role') {
       const reqIds = sourceRoleIds ?? (sourceRoleId ? [sourceRoleId] : []);
       if (!sourceGuildId || reqIds.length === 0) throw new Error('Source guild/role ID missing');
-      const result = await convex.mutation(api.role_rules.addProductFromDiscordRole as any, {
+      const result = await convex.mutation(api.role_rules.addProductFromDiscordRole, {
         apiSecret,
         tenantId,
         sourceGuildId,
@@ -740,14 +756,14 @@ export async function handleProductConfirmAdd(
 
       // Enable cross-server Discord role verification via OAuth (user authorizes guilds.members.read)
       // so buyers can verify via "Use Another Server" without manual /creator-admin settings
-      const tenant = await convex.query(api.tenants.getTenant as any, {
+      const tenant = await convex.query(api.tenants.getTenant, {
         apiSecret,
         tenantId,
       });
       const policy = tenant?.policy ?? {};
       const allowed = new Set((policy.allowedSourceGuildIds as string[]) ?? []);
       allowed.add(sourceGuildId);
-      await convex.mutation(api.tenants.updateTenantPolicy as any, {
+      await convex.mutation(api.tenants.updateTenantPolicy, {
         apiSecret,
         tenantId,
         policy: {
@@ -773,28 +789,29 @@ export async function handleProductConfirmAdd(
       const slug = parseGumroadProductId(urlOrId ?? '');
       if (!slug) throw new Error('Could not parse Gumroad product URL or ID');
 
-      // Reconstruct the product URL so we can resolve the real product_id.
-      // Gumroad products created after Jan 2023 require the internal product_id
-      // (e.g. "QAJc7ErxdAC815P5P8R89g=="), not the URL slug.
-      const productUrl = (urlOrId ?? '').startsWith('http')
-        ? urlOrId!
-        : `https://gumroad.com/l/${slug}`;
+      const input = urlOrId ?? '';
+      const productUrl = input.startsWith('http') ? input : `https://gumroad.com/l/${slug}`;
 
+      const { resolveGumroadProduct } = await import('@yucp/providers');
       let resolvedProductId: string;
+      let resolvedDisplayName: string | undefined;
       try {
-        resolvedProductId = await resolveGumroadProductId(productUrl);
+        const resolved = await resolveGumroadProduct(productUrl);
+        resolvedProductId = resolved.id;
+        resolvedDisplayName = resolved.name;
       } catch (resolveErr) {
         throw new Error(
-          `Could not resolve Gumroad product ID from "${productUrl}": ${resolveErr instanceof Error ? resolveErr.message : String(resolveErr)}`,
+          `Could not resolve Gumroad product ID from "${productUrl}": ${resolveErr instanceof Error ? resolveErr.message : String(resolveErr)}`
         );
       }
 
-      const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
+      const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
         apiSecret,
         tenantId,
         productId: resolvedProductId,
         providerProductRef: resolvedProductId,
         canonicalSlug: slug,
+        displayName: resolvedDisplayName,
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
@@ -805,9 +822,11 @@ export async function handleProductConfirmAdd(
       const productName = session.jinxxyProductNames?.[productIdFromApi];
       const collabSource = session.jinxxyProductSources?.[productIdFromApi];
       const displayName = productName
-        ? (collabSource ? `${productName} (via ${collabSource})` : productName)
+        ? collabSource
+          ? `${productName} (via ${collabSource})`
+          : productName
         : undefined;
-      const result = await convex.mutation(api.role_rules.addProductFromJinxxy as any, {
+      const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
         apiSecret,
         tenantId,
         productId: productIdFromApi,
@@ -818,7 +837,7 @@ export async function handleProductConfirmAdd(
       catalogProductId = result.catalogProductId;
     } else if (type === 'license') {
       const parsed = urlOrId?.trim() ?? 'license';
-      const result = await convex.mutation(api.role_rules.addProductFromGumroad as any, {
+      const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
         apiSecret,
         tenantId,
         productId: parsed,
@@ -829,12 +848,42 @@ export async function handleProductConfirmAdd(
     } else if (type === 'vrchat') {
       const { extractVrchatAvatarId } = await import('@yucp/providers');
       const avatarId = extractVrchatAvatarId(urlOrId?.trim() ?? '');
-      if (!avatarId) throw new Error('Could not parse VRChat avatar URL or ID. Use https://vrchat.com/home/avatar/avtr_xxx or avtr_xxx');
-      const result = await convex.mutation(api.role_rules.addProductFromVrchat as any, {
+      if (!avatarId)
+        throw new Error(
+          'Could not parse VRChat avatar URL or ID. Use https://vrchat.com/home/avatar/avtr_xxx or avtr_xxx'
+        );
+
+      // Best-effort: fetch avatar name via Convex using the tenant owner's stored VRChat session
+      let vrchatDisplayName: string | undefined;
+      try {
+        const convexUrl = process.env.CONVEX_URL ?? '';
+        const convexSiteUrl = convexUrl.includes('.convex.cloud')
+          ? convexUrl.replace('.convex.cloud', '.convex.site')
+          : convexUrl.replace('.convex.cloud', '.convex.site');
+        if (convexSiteUrl) {
+          const nameRes = await fetch(`${convexSiteUrl}/v1/vrchat/avatar-name`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiSecret}`,
+            },
+            body: JSON.stringify({ tenantId, avatarId }),
+          });
+          if (nameRes.ok) {
+            const nameData = (await nameRes.json()) as { name: string | null };
+            vrchatDisplayName = nameData.name ?? undefined;
+          }
+        }
+      } catch {
+        // Non-fatal: proceed without display name
+      }
+
+      const result = await convex.mutation(api.role_rules.addProductFromVrchat, {
         apiSecret,
         tenantId,
         productId: avatarId,
         providerProductRef: avatarId,
+        displayName: vrchatDisplayName,
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
@@ -842,7 +891,7 @@ export async function handleProductConfirmAdd(
       throw new Error('Unknown product type');
     }
 
-    const { ruleId } = await convex.mutation(api.role_rules.createRoleRule as any, {
+    const { ruleId } = await convex.mutation(api.role_rules.createRoleRule, {
       apiSecret,
       tenantId,
       guildId,
@@ -886,7 +935,7 @@ export async function handleProductConfirmAdd(
 export async function handleProductCancelAdd(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   productSessions.delete(sessionKey);
@@ -903,11 +952,11 @@ export async function handleProductList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   _apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const rules = await convex.query(api.role_rules.getByGuildWithProductNames as any, {
+  const rules = await convex.query(api.role_rules.getByGuildWithProductNames, {
     tenantId: ctx.tenantId,
     guildId: ctx.guildId,
   });
@@ -943,9 +992,9 @@ export async function handleProductList(
             const roleIds = r.verifiedRoleIds ?? (r.verifiedRoleId ? [r.verifiedRoleId] : []);
             const rolesStr = roleIds.map((id) => `<@&${id}>`).join(', ');
             return `• **${productProviderPrefix(r)}${r.displayName ?? r.productId}** → ${rolesStr} ${r.enabled !== false ? E.Checkmark : '(disabled)'}`;
-          },
+          }
         )
-        .join('\n'),
+        .join('\n')
     );
 
   await interaction.editReply({ embeds: [embed] });
@@ -956,57 +1005,222 @@ export async function handleProductRemove(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
-  const productId = interaction.options.getString('product_id', true);
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const rules = await convex.query(api.role_rules.getByTenant as any, {
+  const rules = await convex.query(api.role_rules.getByGuildWithProductNames, {
     tenantId: ctx.tenantId,
+    guildId: ctx.guildId,
   });
-  const matching = rules.filter((r: { productId: string }) => r.productId === productId);
 
-  if (!matching.length) {
+  if (!rules.length) {
     await interaction.editReply({
-      content: `No rule found for product \`${productId}\`. Use \`/creator-admin product list\` to see all mappings.`,
+      content: 'No product-role mappings found for this server.',
     });
     return;
   }
 
-  for (const rule of matching) {
-    await convex.mutation(api.role_rules.deleteRoleRule as any, {
-      apiSecret,
-      ruleId: rule._id,
-    });
-  }
+  const productProviderPrefix = (p: { provider?: string }) => {
+    if (!p.provider) return '';
+    if (p.provider === 'discord') return '[Discord Role] ';
+    return `[${providerLabel(p.provider)}] `;
+  };
 
-  let content: string;
-  const isDiscordRole = productId.startsWith('discord_role:');
-  if (isDiscordRole && matching.length > 0) {
-    const r = matching[0] as { sourceGuildId?: string; requiredRoleId?: string; verifiedRoleId?: string };
-    let sourceRoleName = '?';
-    let targetRoleName = '?';
-    try {
-      if (r.sourceGuildId && r.requiredRoleId) {
-        const sourceGuild = await interaction.client.guilds.fetch(r.sourceGuildId).catch(() => null);
-        const role = sourceGuild ? await sourceGuild.roles.fetch(r.requiredRoleId!).catch(() => null) : null;
-        sourceRoleName = role?.name ?? '?';
-      }
-      if (r.verifiedRoleId && interaction.guild) {
-        const targetRole = await interaction.guild.roles.fetch(r.verifiedRoleId).catch(() => null);
-        targetRoleName = targetRole?.name ?? '?';
-      }
-    } catch {
-      /* use fallbacks */
+  // discord max options is 25
+  const toShow = rules.slice(0, 25);
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`creator_product:remove_select:${ctx.tenantId}`)
+    .setPlaceholder('Select product(s) to remove (1-25)')
+    .setMinValues(1)
+    .setMaxValues(toShow.length)
+    .addOptions(
+      toShow.map((r: any) => {
+        const labelText = `${productProviderPrefix(r)}${r.displayName ?? r.productId}`;
+        const label = labelText.length > 100 ? `${labelText.slice(0, 97)}...` : labelText;
+        return new StringSelectMenuOptionBuilder().setLabel(label).setValue(r.productId);
+      })
+    );
+
+  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+
+  const msg =
+    toShow.length < rules.length
+      ? `**Select up to 25 products to remove:**\n*(Showing first 25 of ${rules.length} products)*`
+      : '**Select the product(s) you want to remove:**';
+
+  await interaction.editReply({
+    content: msg,
+    components: [row],
+  });
+}
+
+/** Step 2 for remove: Products selected in dropdown */
+export async function handleProductRemoveSelect(
+  interaction: StringSelectMenuInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  tenantId: Id<'tenants'>
+): Promise<void> {
+  const productIds = interaction.values;
+  if (!productIds || productIds.length === 0) {
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.update({ content: 'No products selected.', components: [] });
+    } else {
+      await interaction.editReply({ content: 'No products selected.', components: [] });
     }
-    content =
-      `**Removed Discord role rule** (${matching.length} mapping${matching.length > 1 ? 's' : ''})\n\n` +
-      `Users with **${sourceRoleName}** in the source server will no longer receive **${targetRoleName}** here.`;
-  } else {
-    content = `Removed ${matching.length} rule(s) for product \`${productId}\`.`;
+    return;
   }
 
-  await interaction.editReply({ content });
+  const sessionKey = getSessionKey(interaction.user.id, tenantId);
+  let session = productSessions.get(sessionKey);
+  if (!session) {
+    session = {
+      tenantId,
+      guildId: interaction.guildId ?? '',
+      guildLinkId: '' as Id<'guild_links'>,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    };
+    productSessions.set(sessionKey, session);
+  }
+
+  session.removeProductIds = productIds;
+  session.expiresAt = Date.now() + 10 * 60 * 1000;
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${E.Wrench} Confirm Removal`)
+    .setColor(0xfee75c)
+    .setDescription(
+      `Are you sure you want to remove **${productIds.length}** product mapping(s)? This will stop granting roles for these products.`
+    );
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`creator_product:confirm_remove:${interaction.user.id}:${tenantId}`)
+      .setLabel('Remove Products')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`creator_product:cancel_remove:${interaction.user.id}:${tenantId}`)
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  await interaction.update({
+    content: '',
+    embeds: [embed],
+    components: [row],
+  });
+}
+
+/** Step 3 for remove: Confirmed */
+export async function handleProductConfirmRemove(
+  interaction: ButtonInteraction,
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  userId: string,
+  tenantId: Id<'tenants'>
+): Promise<void> {
+  // Use discordjs loading function (deferUpdate tells Discord to show a loading state on the button!)
+  await interaction.deferUpdate();
+
+  const sessionKey = getSessionKey(userId, tenantId);
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt || !session.removeProductIds) {
+    await interaction.editReply({
+      content: `${E.Timer} Session expired. Please run \`/creator-admin product remove\` again.`,
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+
+  const productIds = session.removeProductIds;
+
+  const rules = await convex.query(api.role_rules.getByTenant, {
+    tenantId,
+  });
+
+  let removedCount = 0;
+  // biome-ignore lint/suspicious/noExplicitAny: Rule object fields vary
+  const removedDiscordRoles: any[] = [];
+  const notFoundIds: string[] = [];
+
+  for (const productId of productIds) {
+    const matching = rules.filter((r: { productId: string }) => r.productId === productId);
+
+    if (matching.length === 0) {
+      notFoundIds.push(productId);
+      continue;
+    }
+
+    for (const rule of matching) {
+      await convex.mutation(api.role_rules.deleteRoleRule, {
+        apiSecret,
+        ruleId: (rule as any)._id,
+      });
+      removedCount++;
+      if (productId.startsWith('discord_role:')) {
+        removedDiscordRoles.push(rule);
+      }
+    }
+  }
+
+  let content = '';
+
+  if (removedCount > 0) {
+    content += `${E.Checkmark} Removed ${removedCount} rule(s) for ${productIds.length - notFoundIds.length} product(s).\n\n`;
+
+    for (const r of removedDiscordRoles) {
+      let sourceRoleName = '?';
+      let targetRoleName = '?';
+      try {
+        const reqId = r.requiredRoleIds?.[0] ?? r.requiredRoleId;
+        if (r.sourceGuildId && reqId) {
+          const sourceGuild = await interaction.client.guilds
+            .fetch(r.sourceGuildId)
+            .catch(() => null);
+          const role = sourceGuild ? await sourceGuild.roles.fetch(reqId).catch(() => null) : null;
+          sourceRoleName = role?.name ?? reqId;
+        }
+
+        const verId = r.verifiedRoleIds?.[0] ?? r.verifiedRoleId;
+        if (verId && interaction.guild) {
+          const targetRole = await interaction.guild.roles.fetch(verId).catch(() => null);
+          targetRoleName = targetRole?.name ?? verId;
+        }
+      } catch {}
+      content += `• **Removed Discord role rule**: Users with **${sourceRoleName}** in the source server will no longer receive **${targetRoleName}** here.\n`;
+    }
+  }
+
+  if (notFoundIds.length > 0) {
+    content += `\nNo rules found for: ${notFoundIds.map((id) => `\`${id}\``).join(', ')}`;
+  }
+
+  if (!content) {
+    content = 'No mappings were removed.';
+  }
+
+  productSessions.delete(sessionKey);
+  await interaction.editReply({ content: content.trim(), embeds: [], components: [] });
+}
+
+/** Cancel remove button */
+export async function handleProductCancelRemove(
+  interaction: ButtonInteraction,
+  userId: string,
+  tenantId: Id<'tenants'>
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, tenantId);
+  productSessions.delete(sessionKey);
+
+  await interaction.update({
+    content: 'Cancelled product removal.',
+    embeds: [],
+    components: [],
+  });
 }
 
 // Legacy handleProductAdd kept for backwards compat (maps to interactive flow)
@@ -1014,7 +1228,7 @@ export async function handleProductAdd(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   return handleProductAddInteractive(interaction, ctx);
 }

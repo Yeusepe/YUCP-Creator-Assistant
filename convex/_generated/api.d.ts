@@ -11,6 +11,7 @@
 import type * as audit_events from "../audit_events.js";
 import type * as auth from "../auth.js";
 import type * as backgroundSync from "../backgroundSync.js";
+import type * as betterAuthApiKeys from "../betterAuthApiKeys.js";
 import type * as bindings from "../bindings.js";
 import type * as collaboratorInvites from "../collaboratorInvites.js";
 import type * as crons from "../crons.js";
@@ -28,14 +29,20 @@ import type * as lib_vrchat_crypto from "../lib/vrchat/crypto.js";
 import type * as lib_vrchat_guards from "../lib/vrchat/guards.js";
 import type * as lib_vrchat_index from "../lib/vrchat/index.js";
 import type * as lib_vrchat_types from "../lib/vrchat/types.js";
+import type * as lib_yucpCrypto from "../lib/yucpCrypto.js";
 import type * as licenseVerification from "../licenseVerification.js";
 import type * as manualLicenses from "../manualLicenses.js";
+import type * as oauthApps from "../oauthApps.js";
+import type * as oauthLoopback from "../oauthLoopback.js";
 import type * as outbox_jobs from "../outbox_jobs.js";
+import type * as packageRegistry from "../packageRegistry.js";
 import type * as plugins_vrchat from "../plugins/vrchat.js";
 import type * as productResolution from "../productResolution.js";
 import type * as providerConnections from "../providerConnections.js";
 import type * as purgeOrphans from "../purgeOrphans.js";
 import type * as role_rules from "../role_rules.js";
+import type * as seedYucpOAuthClient from "../seedYucpOAuthClient.js";
+import type * as signingLog from "../signingLog.js";
 import type * as subjects from "../subjects.js";
 import type * as tenantConfig from "../tenantConfig.js";
 import type * as tenantHelpers from "../tenantHelpers.js";
@@ -44,6 +51,8 @@ import type * as verificationSessions from "../verificationSessions.js";
 import type * as webhookCron from "../webhookCron.js";
 import type * as webhookIngestion from "../webhookIngestion.js";
 import type * as webhookProcessing from "../webhookProcessing.js";
+import type * as yucpCertificates from "../yucpCertificates.js";
+import type * as yucpLicenses from "../yucpLicenses.js";
 
 import type {
   ApiFromModules,
@@ -55,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   audit_events: typeof audit_events;
   auth: typeof auth;
   backgroundSync: typeof backgroundSync;
+  betterAuthApiKeys: typeof betterAuthApiKeys;
   bindings: typeof bindings;
   collaboratorInvites: typeof collaboratorInvites;
   crons: typeof crons;
@@ -72,14 +82,20 @@ declare const fullApi: ApiFromModules<{
   "lib/vrchat/guards": typeof lib_vrchat_guards;
   "lib/vrchat/index": typeof lib_vrchat_index;
   "lib/vrchat/types": typeof lib_vrchat_types;
+  "lib/yucpCrypto": typeof lib_yucpCrypto;
   licenseVerification: typeof licenseVerification;
   manualLicenses: typeof manualLicenses;
+  oauthApps: typeof oauthApps;
+  oauthLoopback: typeof oauthLoopback;
   outbox_jobs: typeof outbox_jobs;
+  packageRegistry: typeof packageRegistry;
   "plugins/vrchat": typeof plugins_vrchat;
   productResolution: typeof productResolution;
   providerConnections: typeof providerConnections;
   purgeOrphans: typeof purgeOrphans;
   role_rules: typeof role_rules;
+  seedYucpOAuthClient: typeof seedYucpOAuthClient;
+  signingLog: typeof signingLog;
   subjects: typeof subjects;
   tenantConfig: typeof tenantConfig;
   tenantHelpers: typeof tenantHelpers;
@@ -88,6 +104,8 @@ declare const fullApi: ApiFromModules<{
   webhookCron: typeof webhookCron;
   webhookIngestion: typeof webhookIngestion;
   webhookProcessing: typeof webhookProcessing;
+  yucpCertificates: typeof yucpCertificates;
+  yucpLicenses: typeof yucpLicenses;
 }>;
 
 /**
@@ -127,18 +145,12 @@ export declare const components: {
             | {
                 data: {
                   createdAt: number;
-                  displayUsername?: null | string;
                   email: string;
                   emailVerified: boolean;
                   image?: null | string;
-                  isAnonymous?: null | boolean;
                   name: string;
-                  phoneNumber?: null | string;
-                  phoneNumberVerified?: null | boolean;
-                  twoFactorEnabled?: null | boolean;
                   updatedAt: number;
                   userId?: null | string;
-                  username?: null | string;
                 };
                 model: "user";
               }
@@ -182,68 +194,9 @@ export declare const components: {
                 model: "verification";
               }
             | {
-                data: { backupCodes: string; secret: string; userId: string };
-                model: "twoFactor";
-              }
-            | {
-                data: {
-                  aaguid?: null | string;
-                  backedUp: boolean;
-                  counter: number;
-                  createdAt?: null | number;
-                  credentialID: string;
-                  deviceType: string;
-                  name?: null | string;
-                  publicKey: string;
-                  transports?: null | string;
-                  userId: string;
-                };
-                model: "passkey";
-              }
-            | {
-                data: {
-                  clientId?: null | string;
-                  clientSecret?: null | string;
-                  createdAt?: null | number;
-                  disabled?: null | boolean;
-                  icon?: null | string;
-                  metadata?: null | string;
-                  name?: null | string;
-                  redirectURLs?: null | string;
-                  type?: null | string;
-                  updatedAt?: null | number;
-                  userId?: null | string;
-                };
-                model: "oauthApplication";
-              }
-            | {
-                data: {
-                  accessToken?: null | string;
-                  accessTokenExpiresAt?: null | number;
-                  clientId?: null | string;
-                  createdAt?: null | number;
-                  refreshToken?: null | string;
-                  refreshTokenExpiresAt?: null | number;
-                  scopes?: null | string;
-                  updatedAt?: null | number;
-                  userId?: null | string;
-                };
-                model: "oauthAccessToken";
-              }
-            | {
-                data: {
-                  clientId?: null | string;
-                  consentGiven?: null | boolean;
-                  createdAt?: null | number;
-                  scopes?: null | string;
-                  updatedAt?: null | number;
-                  userId?: null | string;
-                };
-                model: "oauthConsent";
-              }
-            | {
                 data: {
                   createdAt: number;
+                  expiresAt?: null | number;
                   privateKey: string;
                   publicKey: string;
                 };
@@ -251,11 +204,99 @@ export declare const components: {
               }
             | {
                 data: {
-                  count?: null | number;
-                  key?: null | string;
+                  createdAt: number;
+                  enabled?: null | boolean;
+                  expiresAt?: null | number;
+                  key: string;
+                  lastRefillAt?: null | number;
                   lastRequest?: null | number;
+                  metadata?: null | string;
+                  name?: null | string;
+                  permissions?: null | string;
+                  prefix?: null | string;
+                  rateLimitEnabled?: null | boolean;
+                  rateLimitMax?: null | number;
+                  rateLimitTimeWindow?: null | number;
+                  refillAmount?: null | number;
+                  refillInterval?: null | number;
+                  remaining?: null | number;
+                  requestCount?: null | number;
+                  start?: null | string;
+                  updatedAt: number;
+                  userId: string;
                 };
-                model: "rateLimit";
+                model: "apikey";
+              }
+            | {
+                data: {
+                  clientId: string;
+                  clientSecret?: null | string;
+                  contacts?: null | Array<string>;
+                  createdAt?: null | number;
+                  disabled?: null | boolean;
+                  enableEndSession?: null | boolean;
+                  grantTypes?: null | Array<string>;
+                  icon?: null | string;
+                  metadata?: null | string;
+                  name?: null | string;
+                  policy?: null | string;
+                  postLogoutRedirectUris?: null | Array<string>;
+                  public?: null | boolean;
+                  redirectUris: Array<string>;
+                  referenceId?: null | string;
+                  responseTypes?: null | Array<string>;
+                  scopes?: null | Array<string>;
+                  skipConsent?: null | boolean;
+                  softwareId?: null | string;
+                  softwareStatement?: null | string;
+                  softwareVersion?: null | string;
+                  tokenEndpointAuthMethod?: null | string;
+                  tos?: null | string;
+                  type?: null | string;
+                  updatedAt?: null | number;
+                  uri?: null | string;
+                  userId?: null | string;
+                };
+                model: "oauthClient";
+              }
+            | {
+                data: {
+                  clientId: string;
+                  createdAt?: null | number;
+                  expiresAt?: null | number;
+                  referenceId?: null | string;
+                  revoked?: null | number;
+                  scopes: Array<string>;
+                  sessionId?: null | string;
+                  token: string;
+                  userId: string;
+                };
+                model: "oauthRefreshToken";
+              }
+            | {
+                data: {
+                  clientId: string;
+                  createdAt?: null | number;
+                  expiresAt?: null | number;
+                  referenceId?: null | string;
+                  refreshId?: null | string;
+                  scopes: Array<string>;
+                  sessionId?: null | string;
+                  token?: null | string;
+                  userId?: null | string;
+                };
+                model: "oauthAccessToken";
+              }
+            | {
+                data: {
+                  clientId: string;
+                  createdAt?: null | number;
+                  referenceId?: null | string;
+                  scopes: Array<string>;
+                  updatedAt?: null | number;
+                  userId?: null | string;
+                };
+                model: "oauthConsent";
               };
           onCreateHandle?: string;
           select?: Array<string>;
@@ -278,12 +319,6 @@ export declare const components: {
                     | "image"
                     | "createdAt"
                     | "updatedAt"
-                    | "twoFactorEnabled"
-                    | "isAnonymous"
-                    | "username"
-                    | "displayUsername"
-                    | "phoneNumber"
-                    | "phoneNumberVerified"
                     | "userId"
                     | "_id";
                   operator?:
@@ -413,46 +448,14 @@ export declare const components: {
                 }>;
               }
             | {
-                model: "twoFactor";
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "passkey";
+                model: "jwks";
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "name"
                     | "publicKey"
-                    | "userId"
-                    | "credentialID"
-                    | "counter"
-                    | "deviceType"
-                    | "backedUp"
-                    | "transports"
+                    | "privateKey"
                     | "createdAt"
-                    | "aaguid"
+                    | "expiresAt"
                     | "_id";
                   operator?:
                     | "lt"
@@ -476,21 +479,120 @@ export declare const components: {
                 }>;
               }
             | {
-                model: "oauthApplication";
+                model: "apikey";
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
                     | "name"
-                    | "icon"
+                    | "start"
+                    | "prefix"
+                    | "key"
+                    | "userId"
+                    | "refillInterval"
+                    | "refillAmount"
+                    | "lastRefillAt"
+                    | "enabled"
+                    | "rateLimitEnabled"
+                    | "rateLimitTimeWindow"
+                    | "rateLimitMax"
+                    | "requestCount"
+                    | "remaining"
+                    | "lastRequest"
+                    | "expiresAt"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "permissions"
                     | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "oauthClient";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
                     | "clientId"
                     | "clientSecret"
-                    | "redirectURLs"
-                    | "type"
                     | "disabled"
+                    | "skipConsent"
+                    | "enableEndSession"
+                    | "scopes"
                     | "userId"
                     | "createdAt"
                     | "updatedAt"
+                    | "name"
+                    | "uri"
+                    | "icon"
+                    | "contacts"
+                    | "tos"
+                    | "policy"
+                    | "softwareId"
+                    | "softwareVersion"
+                    | "softwareStatement"
+                    | "redirectUris"
+                    | "postLogoutRedirectUris"
+                    | "tokenEndpointAuthMethod"
+                    | "grantTypes"
+                    | "responseTypes"
+                    | "public"
+                    | "type"
+                    | "referenceId"
+                    | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "oauthRefreshToken";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "token"
+                    | "clientId"
+                    | "sessionId"
+                    | "userId"
+                    | "referenceId"
+                    | "expiresAt"
+                    | "createdAt"
+                    | "revoked"
+                    | "scopes"
                     | "_id";
                   operator?:
                     | "lt"
@@ -518,15 +620,15 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accessToken"
-                    | "refreshToken"
-                    | "accessTokenExpiresAt"
-                    | "refreshTokenExpiresAt"
+                    | "token"
                     | "clientId"
+                    | "sessionId"
                     | "userId"
-                    | "scopes"
+                    | "referenceId"
+                    | "refreshId"
+                    | "expiresAt"
                     | "createdAt"
-                    | "updatedAt"
+                    | "scopes"
                     | "_id";
                   operator?:
                     | "lt"
@@ -556,63 +658,11 @@ export declare const components: {
                   field:
                     | "clientId"
                     | "userId"
+                    | "referenceId"
                     | "scopes"
                     | "createdAt"
                     | "updatedAt"
-                    | "consentGiven"
                     | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "jwks";
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "rateLimit";
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "key" | "count" | "lastRequest" | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -662,12 +712,6 @@ export declare const components: {
                     | "image"
                     | "createdAt"
                     | "updatedAt"
-                    | "twoFactorEnabled"
-                    | "isAnonymous"
-                    | "username"
-                    | "displayUsername"
-                    | "phoneNumber"
-                    | "phoneNumberVerified"
                     | "userId"
                     | "_id";
                   operator?:
@@ -797,46 +841,14 @@ export declare const components: {
                 }>;
               }
             | {
-                model: "twoFactor";
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "passkey";
+                model: "jwks";
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "name"
                     | "publicKey"
-                    | "userId"
-                    | "credentialID"
-                    | "counter"
-                    | "deviceType"
-                    | "backedUp"
-                    | "transports"
+                    | "privateKey"
                     | "createdAt"
-                    | "aaguid"
+                    | "expiresAt"
                     | "_id";
                   operator?:
                     | "lt"
@@ -860,21 +872,120 @@ export declare const components: {
                 }>;
               }
             | {
-                model: "oauthApplication";
+                model: "apikey";
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
                     | "name"
-                    | "icon"
+                    | "start"
+                    | "prefix"
+                    | "key"
+                    | "userId"
+                    | "refillInterval"
+                    | "refillAmount"
+                    | "lastRefillAt"
+                    | "enabled"
+                    | "rateLimitEnabled"
+                    | "rateLimitTimeWindow"
+                    | "rateLimitMax"
+                    | "requestCount"
+                    | "remaining"
+                    | "lastRequest"
+                    | "expiresAt"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "permissions"
                     | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "oauthClient";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
                     | "clientId"
                     | "clientSecret"
-                    | "redirectURLs"
-                    | "type"
                     | "disabled"
+                    | "skipConsent"
+                    | "enableEndSession"
+                    | "scopes"
                     | "userId"
                     | "createdAt"
                     | "updatedAt"
+                    | "name"
+                    | "uri"
+                    | "icon"
+                    | "contacts"
+                    | "tos"
+                    | "policy"
+                    | "softwareId"
+                    | "softwareVersion"
+                    | "softwareStatement"
+                    | "redirectUris"
+                    | "postLogoutRedirectUris"
+                    | "tokenEndpointAuthMethod"
+                    | "grantTypes"
+                    | "responseTypes"
+                    | "public"
+                    | "type"
+                    | "referenceId"
+                    | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "oauthRefreshToken";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "token"
+                    | "clientId"
+                    | "sessionId"
+                    | "userId"
+                    | "referenceId"
+                    | "expiresAt"
+                    | "createdAt"
+                    | "revoked"
+                    | "scopes"
                     | "_id";
                   operator?:
                     | "lt"
@@ -902,15 +1013,15 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accessToken"
-                    | "refreshToken"
-                    | "accessTokenExpiresAt"
-                    | "refreshTokenExpiresAt"
+                    | "token"
                     | "clientId"
+                    | "sessionId"
                     | "userId"
-                    | "scopes"
+                    | "referenceId"
+                    | "refreshId"
+                    | "expiresAt"
                     | "createdAt"
-                    | "updatedAt"
+                    | "scopes"
                     | "_id";
                   operator?:
                     | "lt"
@@ -940,63 +1051,11 @@ export declare const components: {
                   field:
                     | "clientId"
                     | "userId"
+                    | "referenceId"
                     | "scopes"
                     | "createdAt"
                     | "updatedAt"
-                    | "consentGiven"
                     | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "jwks";
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "rateLimit";
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "key" | "count" | "lastRequest" | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1033,13 +1092,12 @@ export declare const components: {
             | "session"
             | "account"
             | "verification"
-            | "twoFactor"
-            | "passkey"
-            | "oauthApplication"
-            | "oauthAccessToken"
-            | "oauthConsent"
             | "jwks"
-            | "rateLimit";
+            | "apikey"
+            | "oauthClient"
+            | "oauthRefreshToken"
+            | "oauthAccessToken"
+            | "oauthConsent";
           offset?: number;
           paginationOpts: {
             cursor: string | null;
@@ -1086,13 +1144,12 @@ export declare const components: {
             | "session"
             | "account"
             | "verification"
-            | "twoFactor"
-            | "passkey"
-            | "oauthApplication"
-            | "oauthAccessToken"
-            | "oauthConsent"
             | "jwks"
-            | "rateLimit";
+            | "apikey"
+            | "oauthClient"
+            | "oauthRefreshToken"
+            | "oauthAccessToken"
+            | "oauthConsent";
           select?: Array<string>;
           where?: Array<{
             connector?: "AND" | "OR";
@@ -1129,18 +1186,12 @@ export declare const components: {
                 model: "user";
                 update: {
                   createdAt?: number;
-                  displayUsername?: null | string;
                   email?: string;
                   emailVerified?: boolean;
                   image?: null | string;
-                  isAnonymous?: null | boolean;
                   name?: string;
-                  phoneNumber?: null | string;
-                  phoneNumberVerified?: null | boolean;
-                  twoFactorEnabled?: null | boolean;
                   updatedAt?: number;
                   userId?: null | string;
-                  username?: null | string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
@@ -1151,12 +1202,6 @@ export declare const components: {
                     | "image"
                     | "createdAt"
                     | "updatedAt"
-                    | "twoFactorEnabled"
-                    | "isAnonymous"
-                    | "username"
-                    | "displayUsername"
-                    | "phoneNumber"
-                    | "phoneNumberVerified"
                     | "userId"
                     | "_id";
                   operator?:
@@ -1316,63 +1361,20 @@ export declare const components: {
                 }>;
               }
             | {
-                model: "twoFactor";
+                model: "jwks";
                 update: {
-                  backupCodes?: string;
-                  secret?: string;
-                  userId?: string;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "passkey";
-                update: {
-                  aaguid?: null | string;
-                  backedUp?: boolean;
-                  counter?: number;
-                  createdAt?: null | number;
-                  credentialID?: string;
-                  deviceType?: string;
-                  name?: null | string;
+                  createdAt?: number;
+                  expiresAt?: null | number;
+                  privateKey?: string;
                   publicKey?: string;
-                  transports?: null | string;
-                  userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "name"
                     | "publicKey"
-                    | "userId"
-                    | "credentialID"
-                    | "counter"
-                    | "deviceType"
-                    | "backedUp"
-                    | "transports"
+                    | "privateKey"
                     | "createdAt"
-                    | "aaguid"
+                    | "expiresAt"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1396,34 +1398,182 @@ export declare const components: {
                 }>;
               }
             | {
-                model: "oauthApplication";
+                model: "apikey";
                 update: {
-                  clientId?: null | string;
-                  clientSecret?: null | string;
-                  createdAt?: null | number;
-                  disabled?: null | boolean;
-                  icon?: null | string;
+                  createdAt?: number;
+                  enabled?: null | boolean;
+                  expiresAt?: null | number;
+                  key?: string;
+                  lastRefillAt?: null | number;
+                  lastRequest?: null | number;
                   metadata?: null | string;
                   name?: null | string;
-                  redirectURLs?: null | string;
-                  type?: null | string;
-                  updatedAt?: null | number;
-                  userId?: null | string;
+                  permissions?: null | string;
+                  prefix?: null | string;
+                  rateLimitEnabled?: null | boolean;
+                  rateLimitMax?: null | number;
+                  rateLimitTimeWindow?: null | number;
+                  refillAmount?: null | number;
+                  refillInterval?: null | number;
+                  remaining?: null | number;
+                  requestCount?: null | number;
+                  start?: null | string;
+                  updatedAt?: number;
+                  userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
                     | "name"
-                    | "icon"
+                    | "start"
+                    | "prefix"
+                    | "key"
+                    | "userId"
+                    | "refillInterval"
+                    | "refillAmount"
+                    | "lastRefillAt"
+                    | "enabled"
+                    | "rateLimitEnabled"
+                    | "rateLimitTimeWindow"
+                    | "rateLimitMax"
+                    | "requestCount"
+                    | "remaining"
+                    | "lastRequest"
+                    | "expiresAt"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "permissions"
                     | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "oauthClient";
+                update: {
+                  clientId?: string;
+                  clientSecret?: null | string;
+                  contacts?: null | Array<string>;
+                  createdAt?: null | number;
+                  disabled?: null | boolean;
+                  enableEndSession?: null | boolean;
+                  grantTypes?: null | Array<string>;
+                  icon?: null | string;
+                  metadata?: null | string;
+                  name?: null | string;
+                  policy?: null | string;
+                  postLogoutRedirectUris?: null | Array<string>;
+                  public?: null | boolean;
+                  redirectUris?: Array<string>;
+                  referenceId?: null | string;
+                  responseTypes?: null | Array<string>;
+                  scopes?: null | Array<string>;
+                  skipConsent?: null | boolean;
+                  softwareId?: null | string;
+                  softwareStatement?: null | string;
+                  softwareVersion?: null | string;
+                  tokenEndpointAuthMethod?: null | string;
+                  tos?: null | string;
+                  type?: null | string;
+                  updatedAt?: null | number;
+                  uri?: null | string;
+                  userId?: null | string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
                     | "clientId"
                     | "clientSecret"
-                    | "redirectURLs"
-                    | "type"
                     | "disabled"
+                    | "skipConsent"
+                    | "enableEndSession"
+                    | "scopes"
                     | "userId"
                     | "createdAt"
                     | "updatedAt"
+                    | "name"
+                    | "uri"
+                    | "icon"
+                    | "contacts"
+                    | "tos"
+                    | "policy"
+                    | "softwareId"
+                    | "softwareVersion"
+                    | "softwareStatement"
+                    | "redirectUris"
+                    | "postLogoutRedirectUris"
+                    | "tokenEndpointAuthMethod"
+                    | "grantTypes"
+                    | "responseTypes"
+                    | "public"
+                    | "type"
+                    | "referenceId"
+                    | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "oauthRefreshToken";
+                update: {
+                  clientId?: string;
+                  createdAt?: null | number;
+                  expiresAt?: null | number;
+                  referenceId?: null | string;
+                  revoked?: null | number;
+                  scopes?: Array<string>;
+                  sessionId?: null | string;
+                  token?: string;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "token"
+                    | "clientId"
+                    | "sessionId"
+                    | "userId"
+                    | "referenceId"
+                    | "expiresAt"
+                    | "createdAt"
+                    | "revoked"
+                    | "scopes"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1449,28 +1599,28 @@ export declare const components: {
             | {
                 model: "oauthAccessToken";
                 update: {
-                  accessToken?: null | string;
-                  accessTokenExpiresAt?: null | number;
-                  clientId?: null | string;
+                  clientId?: string;
                   createdAt?: null | number;
-                  refreshToken?: null | string;
-                  refreshTokenExpiresAt?: null | number;
-                  scopes?: null | string;
-                  updatedAt?: null | number;
+                  expiresAt?: null | number;
+                  referenceId?: null | string;
+                  refreshId?: null | string;
+                  scopes?: Array<string>;
+                  sessionId?: null | string;
+                  token?: null | string;
                   userId?: null | string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accessToken"
-                    | "refreshToken"
-                    | "accessTokenExpiresAt"
-                    | "refreshTokenExpiresAt"
+                    | "token"
                     | "clientId"
+                    | "sessionId"
                     | "userId"
-                    | "scopes"
+                    | "referenceId"
+                    | "refreshId"
+                    | "expiresAt"
                     | "createdAt"
-                    | "updatedAt"
+                    | "scopes"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1496,10 +1646,10 @@ export declare const components: {
             | {
                 model: "oauthConsent";
                 update: {
-                  clientId?: null | string;
-                  consentGiven?: null | boolean;
+                  clientId?: string;
                   createdAt?: null | number;
-                  scopes?: null | string;
+                  referenceId?: null | string;
+                  scopes?: Array<string>;
                   updatedAt?: null | number;
                   userId?: null | string;
                 };
@@ -1508,73 +1658,11 @@ export declare const components: {
                   field:
                     | "clientId"
                     | "userId"
+                    | "referenceId"
                     | "scopes"
                     | "createdAt"
                     | "updatedAt"
-                    | "consentGiven"
                     | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "jwks";
-                update: {
-                  createdAt?: number;
-                  privateKey?: string;
-                  publicKey?: string;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "rateLimit";
-                update: {
-                  count?: null | number;
-                  key?: null | string;
-                  lastRequest?: null | number;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "key" | "count" | "lastRequest" | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1617,18 +1705,12 @@ export declare const components: {
                 model: "user";
                 update: {
                   createdAt?: number;
-                  displayUsername?: null | string;
                   email?: string;
                   emailVerified?: boolean;
                   image?: null | string;
-                  isAnonymous?: null | boolean;
                   name?: string;
-                  phoneNumber?: null | string;
-                  phoneNumberVerified?: null | boolean;
-                  twoFactorEnabled?: null | boolean;
                   updatedAt?: number;
                   userId?: null | string;
-                  username?: null | string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
@@ -1639,12 +1721,6 @@ export declare const components: {
                     | "image"
                     | "createdAt"
                     | "updatedAt"
-                    | "twoFactorEnabled"
-                    | "isAnonymous"
-                    | "username"
-                    | "displayUsername"
-                    | "phoneNumber"
-                    | "phoneNumberVerified"
                     | "userId"
                     | "_id";
                   operator?:
@@ -1804,63 +1880,20 @@ export declare const components: {
                 }>;
               }
             | {
-                model: "twoFactor";
+                model: "jwks";
                 update: {
-                  backupCodes?: string;
-                  secret?: string;
-                  userId?: string;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "secret" | "backupCodes" | "userId" | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "passkey";
-                update: {
-                  aaguid?: null | string;
-                  backedUp?: boolean;
-                  counter?: number;
-                  createdAt?: null | number;
-                  credentialID?: string;
-                  deviceType?: string;
-                  name?: null | string;
+                  createdAt?: number;
+                  expiresAt?: null | number;
+                  privateKey?: string;
                   publicKey?: string;
-                  transports?: null | string;
-                  userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "name"
                     | "publicKey"
-                    | "userId"
-                    | "credentialID"
-                    | "counter"
-                    | "deviceType"
-                    | "backedUp"
-                    | "transports"
+                    | "privateKey"
                     | "createdAt"
-                    | "aaguid"
+                    | "expiresAt"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1884,34 +1917,182 @@ export declare const components: {
                 }>;
               }
             | {
-                model: "oauthApplication";
+                model: "apikey";
                 update: {
-                  clientId?: null | string;
-                  clientSecret?: null | string;
-                  createdAt?: null | number;
-                  disabled?: null | boolean;
-                  icon?: null | string;
+                  createdAt?: number;
+                  enabled?: null | boolean;
+                  expiresAt?: null | number;
+                  key?: string;
+                  lastRefillAt?: null | number;
+                  lastRequest?: null | number;
                   metadata?: null | string;
                   name?: null | string;
-                  redirectURLs?: null | string;
-                  type?: null | string;
-                  updatedAt?: null | number;
-                  userId?: null | string;
+                  permissions?: null | string;
+                  prefix?: null | string;
+                  rateLimitEnabled?: null | boolean;
+                  rateLimitMax?: null | number;
+                  rateLimitTimeWindow?: null | number;
+                  refillAmount?: null | number;
+                  refillInterval?: null | number;
+                  remaining?: null | number;
+                  requestCount?: null | number;
+                  start?: null | string;
+                  updatedAt?: number;
+                  userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
                     | "name"
-                    | "icon"
+                    | "start"
+                    | "prefix"
+                    | "key"
+                    | "userId"
+                    | "refillInterval"
+                    | "refillAmount"
+                    | "lastRefillAt"
+                    | "enabled"
+                    | "rateLimitEnabled"
+                    | "rateLimitTimeWindow"
+                    | "rateLimitMax"
+                    | "requestCount"
+                    | "remaining"
+                    | "lastRequest"
+                    | "expiresAt"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "permissions"
                     | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "oauthClient";
+                update: {
+                  clientId?: string;
+                  clientSecret?: null | string;
+                  contacts?: null | Array<string>;
+                  createdAt?: null | number;
+                  disabled?: null | boolean;
+                  enableEndSession?: null | boolean;
+                  grantTypes?: null | Array<string>;
+                  icon?: null | string;
+                  metadata?: null | string;
+                  name?: null | string;
+                  policy?: null | string;
+                  postLogoutRedirectUris?: null | Array<string>;
+                  public?: null | boolean;
+                  redirectUris?: Array<string>;
+                  referenceId?: null | string;
+                  responseTypes?: null | Array<string>;
+                  scopes?: null | Array<string>;
+                  skipConsent?: null | boolean;
+                  softwareId?: null | string;
+                  softwareStatement?: null | string;
+                  softwareVersion?: null | string;
+                  tokenEndpointAuthMethod?: null | string;
+                  tos?: null | string;
+                  type?: null | string;
+                  updatedAt?: null | number;
+                  uri?: null | string;
+                  userId?: null | string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
                     | "clientId"
                     | "clientSecret"
-                    | "redirectURLs"
-                    | "type"
                     | "disabled"
+                    | "skipConsent"
+                    | "enableEndSession"
+                    | "scopes"
                     | "userId"
                     | "createdAt"
                     | "updatedAt"
+                    | "name"
+                    | "uri"
+                    | "icon"
+                    | "contacts"
+                    | "tos"
+                    | "policy"
+                    | "softwareId"
+                    | "softwareVersion"
+                    | "softwareStatement"
+                    | "redirectUris"
+                    | "postLogoutRedirectUris"
+                    | "tokenEndpointAuthMethod"
+                    | "grantTypes"
+                    | "responseTypes"
+                    | "public"
+                    | "type"
+                    | "referenceId"
+                    | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "oauthRefreshToken";
+                update: {
+                  clientId?: string;
+                  createdAt?: null | number;
+                  expiresAt?: null | number;
+                  referenceId?: null | string;
+                  revoked?: null | number;
+                  scopes?: Array<string>;
+                  sessionId?: null | string;
+                  token?: string;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "token"
+                    | "clientId"
+                    | "sessionId"
+                    | "userId"
+                    | "referenceId"
+                    | "expiresAt"
+                    | "createdAt"
+                    | "revoked"
+                    | "scopes"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1937,28 +2118,28 @@ export declare const components: {
             | {
                 model: "oauthAccessToken";
                 update: {
-                  accessToken?: null | string;
-                  accessTokenExpiresAt?: null | number;
-                  clientId?: null | string;
+                  clientId?: string;
                   createdAt?: null | number;
-                  refreshToken?: null | string;
-                  refreshTokenExpiresAt?: null | number;
-                  scopes?: null | string;
-                  updatedAt?: null | number;
+                  expiresAt?: null | number;
+                  referenceId?: null | string;
+                  refreshId?: null | string;
+                  scopes?: Array<string>;
+                  sessionId?: null | string;
+                  token?: null | string;
                   userId?: null | string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accessToken"
-                    | "refreshToken"
-                    | "accessTokenExpiresAt"
-                    | "refreshTokenExpiresAt"
+                    | "token"
                     | "clientId"
+                    | "sessionId"
                     | "userId"
-                    | "scopes"
+                    | "referenceId"
+                    | "refreshId"
+                    | "expiresAt"
                     | "createdAt"
-                    | "updatedAt"
+                    | "scopes"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1984,10 +2165,10 @@ export declare const components: {
             | {
                 model: "oauthConsent";
                 update: {
-                  clientId?: null | string;
-                  consentGiven?: null | boolean;
+                  clientId?: string;
                   createdAt?: null | number;
-                  scopes?: null | string;
+                  referenceId?: null | string;
+                  scopes?: Array<string>;
                   updatedAt?: null | number;
                   userId?: null | string;
                 };
@@ -1996,73 +2177,11 @@ export declare const components: {
                   field:
                     | "clientId"
                     | "userId"
+                    | "referenceId"
                     | "scopes"
                     | "createdAt"
                     | "updatedAt"
-                    | "consentGiven"
                     | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "jwks";
-                update: {
-                  createdAt?: number;
-                  privateKey?: string;
-                  publicKey?: string;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "publicKey" | "privateKey" | "createdAt" | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              }
-            | {
-                model: "rateLimit";
-                update: {
-                  count?: null | number;
-                  key?: null | string;
-                  lastRequest?: null | number;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field: "key" | "count" | "lastRequest" | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -2088,10 +2207,6 @@ export declare const components: {
         },
         any
       >;
-    };
-    adapterTest: {
-      runCustomTests: FunctionReference<"action", "internal", any, any>;
-      runTests: FunctionReference<"action", "internal", any, any>;
     };
   };
 };

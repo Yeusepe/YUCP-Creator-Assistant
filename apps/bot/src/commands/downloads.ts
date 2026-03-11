@@ -1,32 +1,33 @@
+import { createLogger } from '@yucp/shared';
+import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
+  type AutocompleteInteraction,
   ButtonBuilder,
+  type ButtonInteraction,
   ButtonStyle,
   ChannelSelectMenuBuilder,
+  type ChannelSelectMenuInteraction,
   ChannelType,
+  type ChatInputCommandInteraction,
   EmbedBuilder,
+  type Guild,
   MessageFlags,
   ModalBuilder,
+  type ModalSubmitInteraction,
   RoleSelectMenuBuilder,
+  type RoleSelectMenuInteraction,
   StringSelectMenuBuilder,
+  type StringSelectMenuInteraction,
   StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
-  type AutocompleteInteraction,
-  type ButtonInteraction,
-  type ChannelSelectMenuInteraction,
-  type ChatInputCommandInteraction,
-  type Guild,
-  type ModalSubmitInteraction,
-  type RoleSelectMenuInteraction,
-  type StringSelectMenuInteraction,
 } from 'discord.js';
-import type { ConvexHttpClient } from 'convex/browser';
+import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { E, Emoji } from '../lib/emojis';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { LienedDownloadsService } from '../services/lienedDownloads';
-import { createLogger } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -64,20 +65,37 @@ type ManageRouteRecord = RouteRecord & {
 };
 
 const downloadSessions = new Map<string, DownloadRouteSession>();
-const managePanels = new Map<string, {
-  userId: string;
-  tenantId: Id<'tenants'>;
-  guildId: string;
-  selectedRouteId: Id<'download_routes'>;
-  expiresAt: number;
-}>();
+const managePanels = new Map<
+  string,
+  {
+    userId: string;
+    tenantId: Id<'tenants'>;
+    guildId: string;
+    selectedRouteId: Id<'download_routes'>;
+    expiresAt: number;
+  }
+>();
 const SESSION_TTL_MS = 10 * 60 * 1000;
-const SUPPORTED_EXTENSIONS = ['fbx', 'unitypackage', 'zip', '7z', 'rar', 'blend', 'spp', 'sbscfg', 'sbsar'];
+const SUPPORTED_EXTENSIONS = [
+  'fbx',
+  'unitypackage',
+  'zip',
+  '7z',
+  'rar',
+  'blend',
+  'spp',
+  'sbscfg',
+  'sbsar',
+];
 const DEFAULT_PRESET = 'all_supported';
 const DEFAULT_MESSAGE_TITLE = 'Ready to Download';
-const DEFAULT_MESSAGE_BODY = 'Open Download to check access. If this file is available to you, Discord sends it privately.';
+const DEFAULT_MESSAGE_BODY =
+  'Open Download to check access. If this file is available to you, Discord sends it privately.';
 
-const EXTENSION_PRESETS: Record<string, { label: string; description: string; extensions: string[] }> = {
+const EXTENSION_PRESETS: Record<
+  string,
+  { label: string; description: string; extensions: string[] }
+> = {
   all_supported: {
     label: 'All supported creator files',
     description: 'FBX, Unity packages, archives, and Substance files',
@@ -109,6 +127,20 @@ function cleanExpiredSessions(): void {
   }
 }
 
+function getGuildContext(interaction: {
+  guild: Guild | null;
+  guildId: string | null;
+}): { guild: Guild; guildId: string } | null {
+  if (!interaction.guild || !interaction.guildId) {
+    return null;
+  }
+
+  return {
+    guild: interaction.guild,
+    guildId: interaction.guildId,
+  };
+}
+
 function createManagePanelToken(): string {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -127,7 +159,7 @@ function upsertManagePanel(
     tenantId: Id<'tenants'>;
     guildId: string;
     selectedRouteId: Id<'download_routes'>;
-  },
+  }
 ): void {
   managePanels.set(token, {
     ...panel,
@@ -153,9 +185,22 @@ function getPresetKey(extensions: string[]): string | null {
   return null;
 }
 
-function routeSummary(session: Pick<DownloadRouteSession, 'sourceChannelId' | 'archiveChannelId' | 'messageTitle' | 'messageBody' | 'requiredRoleIds' | 'roleLogic' | 'allowedExtensions'>): string {
+function routeSummary(
+  session: Pick<
+    DownloadRouteSession,
+    | 'sourceChannelId'
+    | 'archiveChannelId'
+    | 'messageTitle'
+    | 'messageBody'
+    | 'requiredRoleIds'
+    | 'roleLogic'
+    | 'allowedExtensions'
+  >
+): string {
   const presetKey = getPresetKey(session.allowedExtensions);
-  const presetLabel = presetKey ? EXTENSION_PRESETS[presetKey].label : session.allowedExtensions.map((ext) => `.${ext}`).join(', ');
+  const presetLabel = presetKey
+    ? EXTENSION_PRESETS[presetKey].label
+    : session.allowedExtensions.map((ext) => `.${ext}`).join(', ');
   return [
     `${E.World} **Uploads**\n${session.sourceChannelId ? `<#${session.sourceChannelId}>` : 'Choose a channel or forum'}`,
     `${E.Library} **Archive**\n${session.archiveChannelId ? `<#${session.archiveChannelId}>` : 'Choose a private channel or forum'}`,
@@ -174,7 +219,7 @@ function buildStepOneEmbed(session: DownloadRouteSession): EmbedBuilder {
         'Choose where members post files and where protected copies are stored.',
         '',
         routeSummary(session),
-      ].join('\n'),
+      ].join('\n')
     )
     .setFooter({ text: 'Step 1 of 3 • Choose the uploads location and the private archive.' });
 }
@@ -188,7 +233,7 @@ function buildStepTwoEmbed(session: DownloadRouteSession): EmbedBuilder {
         'Choose who can open downloads and which file types trigger protection.',
         '',
         routeSummary(session),
-      ].join('\n'),
+      ].join('\n')
     )
     .setFooter({ text: 'Step 2 of 3 • Choose roles, access rules, and file types.' });
 }
@@ -198,11 +243,7 @@ function buildConfirmEmbed(session: DownloadRouteSession): EmbedBuilder {
     .setTitle(`${E.Checkmark} Review Route`)
     .setColor(0x57f287)
     .setDescription(
-      [
-        'Review this route before you turn it on.',
-        '',
-        routeSummary(session),
-      ].join('\n'),
+      ['Review this route before you turn it on.', '', routeSummary(session)].join('\n')
     )
     .setFooter({ text: 'Step 3 of 3 • Create the route or go back to make changes.' });
 }
@@ -210,26 +251,34 @@ function buildConfirmEmbed(session: DownloadRouteSession): EmbedBuilder {
 function buildSourceArchiveComponents(
   userId: string,
   tenantId: Id<'tenants'>,
-  session?: Pick<DownloadRouteSession, 'sourceChannelId' | 'archiveChannelId'>,
+  session?: Pick<DownloadRouteSession, 'sourceChannelId' | 'archiveChannelId'>
 ): Array<ActionRowBuilder<ChannelSelectMenuBuilder | ButtonBuilder>> {
   return [
     new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
       new ChannelSelectMenuBuilder()
         .setCustomId(`creator_downloads:source_select:${userId}:${tenantId}`)
         .setPlaceholder('Choose an uploads channel or forum')
-        .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildForum)
+        .setChannelTypes(
+          ChannelType.GuildText,
+          ChannelType.GuildAnnouncement,
+          ChannelType.GuildForum
+        )
         .setMinValues(1)
         .setMaxValues(1)
-        .setDefaultChannels(...(session?.sourceChannelId ? [session.sourceChannelId] : [])),
+        .setDefaultChannels(...(session?.sourceChannelId ? [session.sourceChannelId] : []))
     ),
     new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
       new ChannelSelectMenuBuilder()
         .setCustomId(`creator_downloads:archive_select:${userId}:${tenantId}`)
         .setPlaceholder('Choose a private archive channel or forum')
-        .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildForum)
+        .setChannelTypes(
+          ChannelType.GuildText,
+          ChannelType.GuildAnnouncement,
+          ChannelType.GuildForum
+        )
         .setMinValues(1)
         .setMaxValues(1)
-        .setDefaultChannels(...(session?.archiveChannelId ? [session.archiveChannelId] : [])),
+        .setDefaultChannels(...(session?.archiveChannelId ? [session.archiveChannelId] : []))
     ),
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -240,7 +289,7 @@ function buildSourceArchiveComponents(
       new ButtonBuilder()
         .setCustomId(`creator_downloads:cancel_add:${userId}:${tenantId}`)
         .setLabel('Cancel')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     ),
   ];
 }
@@ -248,7 +297,7 @@ function buildSourceArchiveComponents(
 function buildAccessComponents(
   userId: string,
   tenantId: Id<'tenants'>,
-  session: Pick<DownloadRouteSession, 'requiredRoleIds' | 'roleLogic' | 'allowedExtensions'>,
+  session: Pick<DownloadRouteSession, 'requiredRoleIds' | 'roleLogic' | 'allowedExtensions'>
 ): Array<ActionRowBuilder<RoleSelectMenuBuilder | StringSelectMenuBuilder | ButtonBuilder>> {
   const selectedPreset = getPresetKey(session.allowedExtensions) ?? DEFAULT_PRESET;
 
@@ -259,7 +308,7 @@ function buildAccessComponents(
         .setPlaceholder('Choose required roles')
         .setMinValues(1)
         .setMaxValues(10)
-        .setDefaultRoles(...session.requiredRoleIds),
+        .setDefaultRoles(...session.requiredRoleIds)
     ),
     new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
       new StringSelectMenuBuilder()
@@ -275,8 +324,8 @@ function buildAccessComponents(
             .setLabel('Any Role')
             .setDescription('Member needs at least one selected role')
             .setValue('any')
-            .setDefault(session.roleLogic === 'any'),
-        ),
+            .setDefault(session.roleLogic === 'any')
+        )
     ),
     new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
       new StringSelectMenuBuilder()
@@ -288,9 +337,9 @@ function buildAccessComponents(
               .setLabel(preset.label)
               .setDescription(preset.description)
               .setValue(value)
-              .setDefault(value === selectedPreset),
-          ),
-        ),
+              .setDefault(value === selectedPreset)
+          )
+        )
     ),
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -305,12 +354,15 @@ function buildAccessComponents(
       new ButtonBuilder()
         .setCustomId(`creator_downloads:cancel_add:${userId}:${tenantId}`)
         .setLabel('Cancel')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     ),
   ];
 }
 
-function buildConfirmComponents(userId: string, tenantId: Id<'tenants'>): Array<ActionRowBuilder<ButtonBuilder>> {
+function buildConfirmComponents(
+  userId: string,
+  tenantId: Id<'tenants'>
+): Array<ActionRowBuilder<ButtonBuilder>> {
   return [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -326,23 +378,29 @@ function buildConfirmComponents(userId: string, tenantId: Id<'tenants'>): Array<
         .setCustomId(`creator_downloads:confirm_add:${userId}:${tenantId}`)
         .setLabel('Turn On Route')
         .setEmoji(Emoji.Checkmark)
-        .setStyle(ButtonStyle.Success),
+        .setStyle(ButtonStyle.Success)
     ),
   ];
 }
 
-function buildBackfillWarningComponents(userId: string, routeId: Id<'download_routes'>): Array<ActionRowBuilder<ButtonBuilder>> {
+function buildBackfillWarningComponents(
+  userId: string,
+  routeId: Id<'download_routes'>
+): Array<ActionRowBuilder<ButtonBuilder>> {
   return [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`creator_downloads:autofix_prompt:${userId}:${routeId}`)
         .setLabel('Autofix Messages')
-        .setStyle(ButtonStyle.Danger),
+        .setStyle(ButtonStyle.Danger)
     ),
   ];
 }
 
-function buildBackfillAutofixConfirmComponents(userId: string, routeId: Id<'download_routes'>): Array<ActionRowBuilder<ButtonBuilder>> {
+function buildBackfillAutofixConfirmComponents(
+  userId: string,
+  routeId: Id<'download_routes'>
+): Array<ActionRowBuilder<ButtonBuilder>> {
   return [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -352,7 +410,7 @@ function buildBackfillAutofixConfirmComponents(userId: string, routeId: Id<'down
       new ButtonBuilder()
         .setCustomId(`creator_downloads:autofix_cancel:${userId}:${routeId}`)
         .setLabel('Cancel')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     ),
   ];
 }
@@ -362,8 +420,13 @@ function truncateLabel(value: string, maxLength: number): string {
   return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
-async function buildManageRoutes(guild: Guild, routes: RouteRecord[]): Promise<ManageRouteRecord[]> {
-  const channelIds = [...new Set(routes.flatMap((route) => [route.sourceChannelId, route.archiveChannelId]))];
+async function buildManageRoutes(
+  guild: Guild,
+  routes: RouteRecord[]
+): Promise<ManageRouteRecord[]> {
+  const channelIds = [
+    ...new Set(routes.flatMap((route) => [route.sourceChannelId, route.archiveChannelId])),
+  ];
   const channelNames = new Map<string, string>();
 
   await Promise.all(
@@ -381,7 +444,7 @@ async function buildManageRoutes(guild: Guild, routes: RouteRecord[]): Promise<M
       }
 
       channelNames.set(channelId, channelId);
-    }),
+    })
   );
 
   return routes.map((route) => ({
@@ -397,7 +460,9 @@ function formatRouteOptionLabel(route: ManageRouteRecord): string {
 
 function buildManageEmbed(route: RouteRecord, totalRoutes: number): EmbedBuilder {
   const presetKey = getPresetKey(route.allowedExtensions);
-  const presetLabel = presetKey ? EXTENSION_PRESETS[presetKey].label : route.allowedExtensions.map((ext) => `.${ext}`).join(', ');
+  const presetLabel = presetKey
+    ? EXTENSION_PRESETS[presetKey].label
+    : route.allowedExtensions.map((ext) => `.${ext}`).join(', ');
 
   return new EmbedBuilder()
     .setTitle(`${E.Library} Manage Liened Downloads`)
@@ -411,7 +476,7 @@ function buildManageEmbed(route: RouteRecord, totalRoutes: number): EmbedBuilder
         `${E.Assistant} **Message**\n**${route.messageTitle}**\n${route.messageBody}`,
         `${E.Key} **Access**\n${roleLogicLabel(route.roleLogic)}\n${route.requiredRoleIds.map((roleId) => `<@&${roleId}>`).join(', ')}`,
         `${E.Bag} **Files**\n${presetLabel}`,
-      ].join('\n'),
+      ].join('\n')
     )
     .setFooter({ text: `Route ${route._id} • ${totalRoutes} total` });
 }
@@ -419,7 +484,7 @@ function buildManageEmbed(route: RouteRecord, totalRoutes: number): EmbedBuilder
 function buildManageComponents(
   panelToken: string,
   routes: ManageRouteRecord[],
-  selectedRouteId: Id<'download_routes'>,
+  selectedRouteId: Id<'download_routes'>
 ): Array<ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>> {
   const selectedRoute = routes.find((route) => route._id === selectedRouteId) ?? routes[0];
 
@@ -434,9 +499,9 @@ function buildManageComponents(
               .setLabel(formatRouteOptionLabel(route))
               .setDescription(truncateLabel(`${route.sourceName} → ${route.archiveName}`, 100))
               .setValue(route._id)
-              .setDefault(route._id === selectedRoute?._id),
-          ),
-        ),
+              .setDefault(route._id === selectedRoute?._id)
+          )
+        )
     ),
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -451,13 +516,13 @@ function buildManageComponents(
       new ButtonBuilder()
         .setCustomId(`creator_downloads:manage_remove_prompt:${panelToken}`)
         .setLabel('Remove Route...')
-        .setStyle(ButtonStyle.Danger),
+        .setStyle(ButtonStyle.Danger)
     ),
   ];
 }
 
 function buildManageRemoveConfirmComponents(
-  panelToken: string,
+  panelToken: string
 ): Array<ActionRowBuilder<ButtonBuilder>> {
   return [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -468,7 +533,7 @@ function buildManageRemoveConfirmComponents(
       new ButtonBuilder()
         .setCustomId(`creator_downloads:manage_refresh:${panelToken}`)
         .setLabel('Cancel')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     ),
   ];
 }
@@ -484,16 +549,20 @@ async function fetchRouteList(
   convex: ConvexHttpClient,
   apiSecret: string,
   tenantId: Id<'tenants'>,
-  guildId: string,
+  guildId: string
 ): Promise<RouteRecord[]> {
-  return await convex.query('downloads:listRoutesByGuild' as any, {
+  return await convex.query(api.downloads.listRoutesByGuild, {
     apiSecret,
     tenantId,
     guildId,
   });
 }
 
-function buildMessageCustomizeModal(userId: string, tenantId: Id<'tenants'>, session: DownloadRouteSession): ModalBuilder {
+function buildMessageCustomizeModal(
+  userId: string,
+  tenantId: Id<'tenants'>,
+  session: DownloadRouteSession
+): ModalBuilder {
   return new ModalBuilder()
     .setCustomId(`creator_downloads:message_modal:${userId}:${tenantId}`)
     .setTitle('Edit Delivery Message')
@@ -506,7 +575,7 @@ function buildMessageCustomizeModal(userId: string, tenantId: Id<'tenants'>, ses
           .setRequired(true)
           .setMaxLength(100)
           .setPlaceholder(DEFAULT_MESSAGE_TITLE)
-          .setValue(session.messageTitle),
+          .setValue(session.messageTitle)
       ),
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
@@ -516,8 +585,8 @@ function buildMessageCustomizeModal(userId: string, tenantId: Id<'tenants'>, ses
           .setRequired(true)
           .setMaxLength(500)
           .setPlaceholder(DEFAULT_MESSAGE_BODY)
-          .setValue(session.messageBody),
-      ),
+          .setValue(session.messageBody)
+      )
     );
 }
 
@@ -534,7 +603,7 @@ function buildManageMessageModal(panelToken: string, route: RouteRecord): ModalB
           .setRequired(true)
           .setMaxLength(100)
           .setPlaceholder(DEFAULT_MESSAGE_TITLE)
-          .setValue(route.messageTitle),
+          .setValue(route.messageTitle)
       ),
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
@@ -544,14 +613,14 @@ function buildManageMessageModal(panelToken: string, route: RouteRecord): ModalB
           .setRequired(true)
           .setMaxLength(500)
           .setPlaceholder(DEFAULT_MESSAGE_BODY)
-          .setValue(route.messageBody),
-      ),
+          .setValue(route.messageBody)
+      )
     );
 }
 
 export async function handleDownloadsAdd(
   interaction: ChatInputCommandInteraction,
-  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   cleanExpiredSessions();
 
@@ -579,7 +648,7 @@ export async function handleDownloadsAdd(
 export async function handleDownloadsSourceSelect(
   interaction: ChannelSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -600,7 +669,7 @@ export async function handleDownloadsSourceSelect(
 export async function handleDownloadsArchiveSelect(
   interaction: ChannelSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -621,7 +690,7 @@ export async function handleDownloadsArchiveSelect(
 export async function handleDownloadsGoToAccess(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -658,7 +727,7 @@ export async function handleDownloadsGoToAccess(
 export async function handleDownloadsRoleSelect(
   interaction: RoleSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -678,7 +747,7 @@ export async function handleDownloadsRoleSelect(
 export async function handleDownloadsLogicSelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -699,7 +768,7 @@ export async function handleDownloadsLogicSelect(
 export async function handleDownloadsExtensionSelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -729,7 +798,7 @@ export async function handleDownloadsExtensionSelect(
 export async function handleDownloadsBackToChannels(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -750,7 +819,7 @@ export async function handleDownloadsBackToChannels(
 export async function handleDownloadsGoToConfirm(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -781,7 +850,7 @@ export async function handleDownloadsConfirmAdd(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, tenantId);
   const session = requireSession(userId, tenantId);
@@ -794,7 +863,11 @@ export async function handleDownloadsConfirmAdd(
     return;
   }
 
-  if (!session.sourceChannelId || !session.archiveChannelId || session.requiredRoleIds.length === 0) {
+  if (
+    !session.sourceChannelId ||
+    !session.archiveChannelId ||
+    session.requiredRoleIds.length === 0
+  ) {
     await interaction.update({
       content: `${E.X_} This route is incomplete. Start again with \`/creator-admin downloads add\`.`,
       embeds: [],
@@ -807,14 +880,15 @@ export async function handleDownloadsConfirmAdd(
 
   try {
     const existingRoutes = await fetchRouteList(convex, apiSecret, tenantId, session.guildId);
-    const duplicate = existingRoutes.find((route) =>
-      route.sourceChannelId === session.sourceChannelId &&
-      route.archiveChannelId === session.archiveChannelId &&
-      route.roleLogic === session.roleLogic &&
-      route.requiredRoleIds.length === session.requiredRoleIds.length &&
-      route.requiredRoleIds.every((roleId) => session.requiredRoleIds.includes(roleId)) &&
-      route.allowedExtensions.length === session.allowedExtensions.length &&
-      route.allowedExtensions.every((ext) => session.allowedExtensions.includes(ext)),
+    const duplicate = existingRoutes.find(
+      (route) =>
+        route.sourceChannelId === session.sourceChannelId &&
+        route.archiveChannelId === session.archiveChannelId &&
+        route.roleLogic === session.roleLogic &&
+        route.requiredRoleIds.length === session.requiredRoleIds.length &&
+        route.requiredRoleIds.every((roleId) => session.requiredRoleIds.includes(roleId)) &&
+        route.allowedExtensions.length === session.allowedExtensions.length &&
+        route.allowedExtensions.every((ext) => session.allowedExtensions.includes(ext))
     );
 
     if (duplicate) {
@@ -836,7 +910,7 @@ export async function handleDownloadsConfirmAdd(
       return;
     }
 
-    const result = await convex.mutation('downloads:createRoute' as any, {
+    const result = await convex.mutation(api.downloads.createRoute, {
       apiSecret,
       tenantId,
       guildId: session.guildId,
@@ -871,30 +945,27 @@ export async function handleDownloadsConfirmAdd(
       .slice(0, 10)
       .map((entry, index) => `${index + 1}. ${entry.sourceMessageUrl}`)
       .join('\n');
-    const remainingManualCleanupCount = Math.max(0, backfillStats.manualCleanupMessages.length - 10);
+    const remainingManualCleanupCount = Math.max(
+      0,
+      backfillStats.manualCleanupMessages.length - 10
+    );
 
     downloadSessions.delete(sessionKey);
     await interaction.editReply({
-      content:
-        `${E.Checkmark} Liened Downloads is on for <#${session.sourceChannelId}>.\n` +
-        `Scanned **${backfillStats.scannedMessages}** existing messages: **${backfillStats.securedMessages}** prepared, ` +
-        `**${backfillStats.skippedMessages}** skipped, **${backfillStats.failedMessages}** failed.` +
-        (backfillStats.manualCleanupMessages.length > 0
-          ? `\n\n${E.Wrench} Existing messages keep their original attachments for now.` +
-            `\nIf you want full protection, remove the original attachments from:` +
-            `\n${manualCleanupList}` +
-            (remainingManualCleanupCount > 0 ? `\n...and ${remainingManualCleanupCount} more.` : '') +
-            `\n\nUse **Autofix Messages** to replace those messages automatically.` +
-            `\n${E.X_} This breaks image previews in forum posts.`
-          : ''),
+      content: `${E.Checkmark} Liened Downloads is on for <#${session.sourceChannelId}>.\nScanned **${backfillStats.scannedMessages}** existing messages: **${backfillStats.securedMessages}** prepared, **${backfillStats.skippedMessages}** skipped, **${backfillStats.failedMessages}** failed.${
+        backfillStats.manualCleanupMessages.length > 0
+          ? `\n\n${E.Wrench} Existing messages keep their original attachments for now.\nIf you want full protection, remove the original attachments from:\n${manualCleanupList}${remainingManualCleanupCount > 0 ? `\n...and ${remainingManualCleanupCount} more.` : ''}\n\nUse **Autofix Messages** to replace those messages automatically.\n${E.X_} This breaks image previews in forum posts.`
+          : ''
+      }`,
       embeds: [
         buildConfirmEmbed(session).setFooter({
           text: `Route ID: ${result.routeId}`,
         }),
       ],
-      components: backfillStats.manualCleanupMessages.length > 0
-        ? buildBackfillWarningComponents(interaction.user.id, result.routeId)
-        : [],
+      components:
+        backfillStats.manualCleanupMessages.length > 0
+          ? buildBackfillWarningComponents(interaction.user.id, result.routeId)
+          : [],
     });
   } catch (err) {
     logger.error('Failed to create Liened Downloads route', {
@@ -908,7 +979,7 @@ export async function handleDownloadsConfirmAdd(
     await interaction.editReply({
       content: `${E.X_} Couldn’t create this route. ${sanitizeUserFacingErrorMessage(
         err instanceof Error ? err.message : String(err),
-        'Try again in a moment.',
+        'Try again in a moment.'
       )}`,
       embeds: [],
       components: [],
@@ -919,7 +990,7 @@ export async function handleDownloadsConfirmAdd(
 export async function handleDownloadsCancelAdd(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   downloadSessions.delete(getSessionKey(userId, tenantId));
   await interaction.update({
@@ -932,7 +1003,7 @@ export async function handleDownloadsCancelAdd(
 export async function handleDownloadsCustomizeMessage(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -949,7 +1020,7 @@ export async function handleDownloadsCustomizeMessage(
 export async function handleDownloadsMessageModal(
   interaction: ModalSubmitInteraction,
   userId: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   const session = requireSession(userId, tenantId);
   if (!session) {
@@ -986,7 +1057,7 @@ export async function handleDownloadsAutofixPrompt(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  routeId: Id<'download_routes'>,
+  routeId: Id<'download_routes'>
 ): Promise<void> {
   if (interaction.user.id !== userId) {
     await interaction.reply({
@@ -996,7 +1067,7 @@ export async function handleDownloadsAutofixPrompt(
     return;
   }
 
-  const route = await convex.query('downloads:getRouteById' as any, { apiSecret, routeId });
+  const route = await convex.query(api.downloads.getRouteById, { apiSecret, routeId });
   if (!route) {
     await interaction.update({
       content: `${E.X_} This route is no longer available.`,
@@ -1010,8 +1081,8 @@ export async function handleDownloadsAutofixPrompt(
     content:
       `${E.Wrench} Autofix deletes the original messages found during setup and replaces them with the protected version.\n` +
       `This can’t be undone.\n\n${E.X_} This breaks image previews in forum posts.`,
-      embeds: [],
-      components: buildBackfillAutofixConfirmComponents(userId, routeId),
+    embeds: [],
+    components: buildBackfillAutofixConfirmComponents(userId, routeId),
   });
 }
 
@@ -1020,7 +1091,7 @@ export async function handleDownloadsAutofixRun(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  routeId: Id<'download_routes'>,
+  routeId: Id<'download_routes'>
 ): Promise<void> {
   if (interaction.user.id !== userId) {
     await interaction.reply({
@@ -1032,7 +1103,7 @@ export async function handleDownloadsAutofixRun(
 
   await interaction.deferUpdate();
 
-  const route = await convex.query('downloads:getRouteById' as any, { apiSecret, routeId });
+  const route = await convex.query(api.downloads.getRouteById, { apiSecret, routeId });
   if (!route) {
     await interaction.editReply({
       content: `${E.X_} This route is no longer available.`,
@@ -1054,9 +1125,7 @@ export async function handleDownloadsAutofixRun(
   });
 }
 
-export async function handleDownloadsAutofixCancel(
-  interaction: ButtonInteraction,
-): Promise<void> {
+export async function handleDownloadsAutofixCancel(interaction: ButtonInteraction): Promise<void> {
   await interaction.update({
     content: `${E.Home} Autofix canceled. Existing messages were left as they are.`,
     embeds: [],
@@ -1068,18 +1137,29 @@ export async function handleDownloadsManage(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const guildContext = getGuildContext(interaction);
+  if (!guildContext) {
+    await interaction.editReply(`${E.X_} This command can only be used inside a server.`);
+    return;
+  }
   const routes = await fetchRouteList(convex, apiSecret, ctx.tenantId, ctx.guildId);
 
   if (routes.length === 0) {
-    await interaction.editReply(`${E.Library} No routes yet. Use \`/creator-admin downloads setup\` to create one.`);
+    await interaction.editReply(
+      `${E.Library} No routes yet. Use \`/creator-admin downloads setup\` to create one.`
+    );
     return;
   }
 
-  const selectedRoute = routes[0]!;
-  const manageRoutes = await buildManageRoutes(interaction.guild!, routes);
+  const selectedRoute = routes[0];
+  if (!selectedRoute) {
+    await interaction.editReply(`${E.Library} No routes are available anymore.`);
+    return;
+  }
+  const manageRoutes = await buildManageRoutes(guildContext.guild, routes);
   const panelToken = createManagePanelToken();
   upsertManagePanel(panelToken, {
     userId: interaction.user.id,
@@ -1097,30 +1177,49 @@ export async function handleDownloadsManageSelect(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  panelToken: string,
+  panelToken: string
 ): Promise<void> {
   const panel = requireManagePanel(panelToken);
   if (!panel) {
-    await interaction.reply({ content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
   if (interaction.user.id !== panel.userId) {
-    await interaction.reply({ content: `${E.X_} Only the person who opened this panel can use it.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Only the person who opened this panel can use it.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
   const guildId = interaction.guildId;
-  if (!guildId) return;
+  const guild = interaction.guild;
+  if (!guildId || !guild) return;
 
   const routes = await fetchRouteList(convex, apiSecret, panel.tenantId, guildId);
   if (routes.length === 0) {
-    await interaction.update({ content: `${E.Library} No routes are available anymore.`, embeds: [], components: [] });
+    await interaction.update({
+      content: `${E.Library} No routes are available anymore.`,
+      embeds: [],
+      components: [],
+    });
     return;
   }
 
   const selectedRouteId = interaction.values[0] as Id<'download_routes'>;
-  const selectedRoute = routes.find((route) => route._id === selectedRouteId) ?? routes[0]!;
-  const manageRoutes = await buildManageRoutes(interaction.guild!, routes);
+  const selectedRoute = routes.find((route) => route._id === selectedRouteId) ?? routes[0];
+  if (!selectedRoute) {
+    await interaction.update({
+      content: `${E.Library} No routes are available anymore.`,
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+  const manageRoutes = await buildManageRoutes(guild, routes);
   upsertManagePanel(panelToken, {
     userId: panel.userId,
     tenantId: panel.tenantId,
@@ -1138,33 +1237,53 @@ export async function handleDownloadsManageToggle(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  panelToken: string,
+  panelToken: string
 ): Promise<void> {
   const panel = requireManagePanel(panelToken);
   if (!panel) {
-    await interaction.reply({ content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
   if (interaction.user.id !== panel.userId) {
-    await interaction.reply({ content: `${E.X_} Only the person who opened this panel can use it.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Only the person who opened this panel can use it.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
   const routeId = panel.selectedRouteId;
-  const route = await convex.query('downloads:getRouteById' as any, { apiSecret, routeId });
+  const route = await convex.query(api.downloads.getRouteById, { apiSecret, routeId });
   if (!route || route.tenantId !== panel.tenantId || route.guildId !== interaction.guildId) {
-    await interaction.update({ content: `${E.X_} This route is no longer available.`, embeds: [], components: [] });
+    await interaction.update({
+      content: `${E.X_} This route is no longer available.`,
+      embeds: [],
+      components: [],
+    });
     return;
   }
 
   const nextEnabled = !route.enabled;
-  await convex.mutation('downloads:toggleRoute' as any, {
+  await convex.mutation(api.downloads.toggleRoute, {
     apiSecret,
     routeId,
     enabled: nextEnabled,
   });
 
-  const routes = await fetchRouteList(convex, apiSecret, panel.tenantId, interaction.guildId!);
+  const guildContext = getGuildContext(interaction);
+  if (!guildContext) {
+    await interaction.update({
+      content: `${E.X_} This route is only manageable inside a server.`,
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+
+  const routes = await fetchRouteList(convex, apiSecret, panel.tenantId, guildContext.guildId);
   const updatedRoute = routes.find((entry) => entry._id === routeId);
   if (!updatedRoute) {
     await interaction.update({
@@ -1178,10 +1297,10 @@ export async function handleDownloadsManageToggle(
   upsertManagePanel(panelToken, {
     userId: panel.userId,
     tenantId: panel.tenantId,
-    guildId: interaction.guildId!,
+    guildId: guildContext.guildId,
     selectedRouteId: updatedRoute._id,
   });
-  const manageRoutes = await buildManageRoutes(interaction.guild!, routes);
+  const manageRoutes = await buildManageRoutes(guildContext.guild, routes);
 
   await interaction.update({
     content: `${nextEnabled ? E.Checkmark : E.X_} Route is now **${nextEnabled ? 'on' : 'off'}**.`,
@@ -1194,31 +1313,37 @@ export async function handleDownloadsManageRemovePrompt(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  panelToken: string,
+  panelToken: string
 ): Promise<void> {
   const panel = requireManagePanel(panelToken);
   if (!panel) {
-    await interaction.reply({ content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
   if (interaction.user.id !== panel.userId) {
-    await interaction.reply({ content: `${E.X_} Only the person who opened this panel can use it.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Only the person who opened this panel can use it.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
   const routeId = panel.selectedRouteId;
-  const route = await convex.query('downloads:getRouteById' as any, { apiSecret, routeId });
+  const route = await convex.query(api.downloads.getRouteById, { apiSecret, routeId });
   if (!route || route.tenantId !== panel.tenantId || route.guildId !== interaction.guildId) {
-    await interaction.update({ content: `${E.X_} This route is no longer available.`, embeds: [], components: [] });
+    await interaction.update({
+      content: `${E.X_} This route is no longer available.`,
+      embeds: [],
+      components: [],
+    });
     return;
   }
 
   await interaction.update({
-    content:
-      `${E.X_} Remove this route?\n` +
-      `Uploads: <#${route.sourceChannelId}>\n` +
-      `Archive: <#${route.archiveChannelId}>\n\n` +
-      `Members will stop getting liened download links from this route.`,
+    content: `${E.X_} Remove this route?\nUploads: <#${route.sourceChannelId}>\nArchive: <#${route.archiveChannelId}>\n\nMembers will stop getting liened download links from this route.`,
     embeds: [],
     components: buildManageRemoveConfirmComponents(panelToken),
   });
@@ -1228,21 +1353,33 @@ export async function handleDownloadsManageEditMessage(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  panelToken: string,
+  panelToken: string
 ): Promise<void> {
   const panel = requireManagePanel(panelToken);
   if (!panel) {
-    await interaction.reply({ content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
   if (interaction.user.id !== panel.userId) {
-    await interaction.reply({ content: `${E.X_} Only the person who opened this panel can use it.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Only the person who opened this panel can use it.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
-  const route = await convex.query('downloads:getRouteById' as any, { apiSecret, routeId: panel.selectedRouteId });
+  const route = await convex.query(api.downloads.getRouteById, {
+    apiSecret,
+    routeId: panel.selectedRouteId,
+  });
   if (!route || route.tenantId !== panel.tenantId || route.guildId !== interaction.guildId) {
-    await interaction.reply({ content: `${E.X_} This route is no longer available.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} This route is no longer available.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
@@ -1253,27 +1390,46 @@ export async function handleDownloadsManageRemoveConfirm(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  panelToken: string,
+  panelToken: string
 ): Promise<void> {
   const panel = requireManagePanel(panelToken);
   if (!panel) {
-    await interaction.reply({ content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
   if (interaction.user.id !== panel.userId) {
-    await interaction.reply({ content: `${E.X_} Only the person who opened this panel can use it.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Only the person who opened this panel can use it.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
   const routeId = panel.selectedRouteId;
-  const route = await convex.query('downloads:getRouteById' as any, { apiSecret, routeId });
+  const route = await convex.query(api.downloads.getRouteById, { apiSecret, routeId });
   if (!route || route.tenantId !== panel.tenantId || route.guildId !== interaction.guildId) {
-    await interaction.update({ content: `${E.X_} This route is no longer available.`, embeds: [], components: [] });
+    await interaction.update({
+      content: `${E.X_} This route is no longer available.`,
+      embeds: [],
+      components: [],
+    });
     return;
   }
 
-  await convex.mutation('downloads:deleteRoute' as any, { apiSecret, routeId });
-  const routes = await fetchRouteList(convex, apiSecret, panel.tenantId, interaction.guildId!);
+  await convex.mutation(api.downloads.deleteRoute, { apiSecret, routeId });
+  const guildContext = getGuildContext(interaction);
+  if (!guildContext) {
+    await interaction.update({
+      content: `${E.X_} This route is only manageable inside a server.`,
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+  const routes = await fetchRouteList(convex, apiSecret, panel.tenantId, guildContext.guildId);
 
   if (routes.length === 0) {
     managePanels.delete(panelToken);
@@ -1285,12 +1441,20 @@ export async function handleDownloadsManageRemoveConfirm(
     return;
   }
 
-  const nextRoute = routes[0]!;
-  const manageRoutes = await buildManageRoutes(interaction.guild!, routes);
+  const nextRoute = routes[0];
+  if (!nextRoute) {
+    await interaction.update({
+      content: `${E.Library} No routes are available anymore.`,
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+  const manageRoutes = await buildManageRoutes(guildContext.guild, routes);
   upsertManagePanel(panelToken, {
     userId: panel.userId,
     tenantId: panel.tenantId,
-    guildId: interaction.guildId!,
+    guildId: guildContext.guildId,
     selectedRouteId: nextRoute._id,
   });
   await interaction.update({
@@ -1304,31 +1468,59 @@ export async function handleDownloadsManageRefresh(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  panelToken: string,
+  panelToken: string
 ): Promise<void> {
   const panel = requireManagePanel(panelToken);
   if (!panel) {
-    await interaction.reply({ content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
   if (interaction.user.id !== panel.userId) {
-    await interaction.reply({ content: `${E.X_} Only the person who opened this panel can use it.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Only the person who opened this panel can use it.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
-  const routes = await fetchRouteList(convex, apiSecret, panel.tenantId, interaction.guildId!);
+  const guildContext = getGuildContext(interaction);
+  if (!guildContext) {
+    await interaction.update({
+      content: `${E.X_} This route is only manageable inside a server.`,
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+
+  const routes = await fetchRouteList(convex, apiSecret, panel.tenantId, guildContext.guildId);
   if (routes.length === 0) {
     managePanels.delete(panelToken);
-    await interaction.update({ content: `${E.Library} No routes are available anymore.`, embeds: [], components: [] });
+    await interaction.update({
+      content: `${E.Library} No routes are available anymore.`,
+      embeds: [],
+      components: [],
+    });
     return;
   }
 
-  const selectedRoute = routes.find((entry) => entry._id === panel.selectedRouteId) ?? routes[0]!;
-  const manageRoutes = await buildManageRoutes(interaction.guild!, routes);
+  const selectedRoute = routes.find((entry) => entry._id === panel.selectedRouteId) ?? routes[0];
+  if (!selectedRoute) {
+    await interaction.update({
+      content: `${E.Library} No routes are available anymore.`,
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+  const manageRoutes = await buildManageRoutes(guildContext.guild, routes);
   upsertManagePanel(panelToken, {
     userId: panel.userId,
     tenantId: panel.tenantId,
-    guildId: interaction.guildId!,
+    guildId: guildContext.guildId,
     selectedRouteId: selectedRoute._id,
   });
   await interaction.update({
@@ -1341,21 +1533,33 @@ export async function handleDownloadsManageMessageModal(
   interaction: ModalSubmitInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  panelToken: string,
+  panelToken: string
 ): Promise<void> {
   const panel = requireManagePanel(panelToken);
   if (!panel) {
-    await interaction.reply({ content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.Timer} This panel expired. Open \`/creator-admin downloads manage\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
   if (interaction.user.id !== panel.userId) {
-    await interaction.reply({ content: `${E.X_} Only the person who opened this panel can use it.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Only the person who opened this panel can use it.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
-  const route = await convex.query('downloads:getRouteById' as any, { apiSecret, routeId: panel.selectedRouteId });
+  const route = await convex.query(api.downloads.getRouteById, {
+    apiSecret,
+    routeId: panel.selectedRouteId,
+  });
   if (!route || route.tenantId !== panel.tenantId || route.guildId !== interaction.guildId) {
-    await interaction.reply({ content: `${E.X_} This route is no longer available.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} This route is no longer available.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
@@ -1363,28 +1567,43 @@ export async function handleDownloadsManageMessageModal(
   const messageBody = interaction.fields.getTextInputValue('message_body').trim();
 
   if (!messageTitle || !messageBody) {
-    await interaction.reply({ content: `${E.X_} Add a title and body before saving.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: `${E.X_} Add a title and body before saving.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
-  await convex.mutation('downloads:updateRouteMessage' as any, {
+  await convex.mutation(api.downloads.updateRouteMessage, {
     apiSecret,
     routeId: panel.selectedRouteId,
     messageTitle,
     messageBody,
   });
 
-  const routes = await fetchRouteList(convex, apiSecret, panel.tenantId, interaction.guildId!);
-  const selectedRoute = routes.find((entry) => entry._id === panel.selectedRouteId) ?? routes[0];
-  if (!selectedRoute) {
-    await interaction.reply({ content: `${E.Checkmark} Delivery message updated.`, flags: MessageFlags.Ephemeral });
+  const guildContext = getGuildContext(interaction);
+  if (!guildContext) {
+    await interaction.reply({
+      content: `${E.X_} This route is only manageable inside a server.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
-  const manageRoutes = await buildManageRoutes(interaction.guild!, routes);
+
+  const routes = await fetchRouteList(convex, apiSecret, panel.tenantId, guildContext.guildId);
+  const selectedRoute = routes.find((entry) => entry._id === panel.selectedRouteId) ?? routes[0];
+  if (!selectedRoute) {
+    await interaction.reply({
+      content: `${E.Checkmark} Delivery message updated.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  const manageRoutes = await buildManageRoutes(guildContext.guild, routes);
   upsertManagePanel(panelToken, {
     userId: panel.userId,
     tenantId: panel.tenantId,
-    guildId: interaction.guildId!,
+    guildId: guildContext.guildId,
     selectedRouteId: selectedRoute._id,
   });
 
@@ -1401,7 +1620,7 @@ export async function handleDownloadsRouteAutocomplete(
   convex: ConvexHttpClient,
   apiSecret: string,
   tenantId: Id<'tenants'>,
-  guildId: string,
+  guildId: string
 ): Promise<void> {
   const focused = interaction.options.getFocused(true);
   if (focused.name !== 'route_id') {
@@ -1429,6 +1648,6 @@ export async function handleDownloadsRouteAutocomplete(
       .map((route) => ({
         name: `${route.enabled ? 'Enabled' : 'Disabled'} • #${route.sourceChannelId} -> #${route.archiveChannelId}`,
         value: route._id,
-      })),
+      }))
   );
 }

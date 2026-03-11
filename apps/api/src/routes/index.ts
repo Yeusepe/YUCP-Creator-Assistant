@@ -19,5 +19,5 @@ export {
   type VerificationRouteHandlers,
 } from '../verification';
 export { createConnectRoutes, type ConnectConfig } from './connect';
+export { createPublicRoutes, type PublicRouteConfig } from './public';
 export { createWebhookHandler } from './webhooks';
-

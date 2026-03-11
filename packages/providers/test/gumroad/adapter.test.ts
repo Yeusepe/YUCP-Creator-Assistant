@@ -4,24 +4,22 @@
  * Tests the OAuth flow, token management, and purchase verification.
  */
 
-import { describe, expect, it, beforeEach, afterEach, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
+  type EncryptionService,
   GumroadAdapter,
-  GumroadOAuthClient,
-  OAuthError,
   GumroadApiError,
+  GumroadOAuthClient,
   InMemoryStateStorage,
+  OAuthError,
+  type TokenStorage,
 } from '../../src/gumroad/index';
 import type {
-  GumroadSale,
-  GumroadPurchaseEvidence,
   AuthorizationUrlResult,
+  GumroadPurchaseEvidence,
+  GumroadSale,
 } from '../../src/gumroad/types';
-import {
-  normalizeSaleToEvidence,
-  isSaleValid,
-  getSaleStatus,
-} from '../../src/gumroad/types';
+import { getSaleStatus, isSaleValid, normalizeSaleToEvidence } from '../../src/gumroad/types';
 
 // Test configuration
 const testConfig = {
@@ -33,8 +31,11 @@ const testConfig = {
 };
 
 // Mock token storage
-class MockTokenStorage {
-  private tokens = new Map<string, { accessToken: string; refreshToken: string; expiresAt: number }>();
+class MockTokenStorage implements TokenStorage {
+  private tokens = new Map<
+    string,
+    { accessToken: string; refreshToken: string; expiresAt: number }
+  >();
 
   async storeTokens(
     tenantId: string,
@@ -60,16 +61,16 @@ class MockTokenStorage {
 }
 
 // Mock encryption service
-class MockEncryptionService {
+class MockEncryptionService implements EncryptionService {
   async encryptToken(token: string): Promise<string> {
     return `encrypted:${token}`;
   }
 
-  async decryptToken(encryptedToken: string): Promise<string> {
+  async decryptToken(encryptedToken: unknown): Promise<string> {
     if (typeof encryptedToken === 'string' && encryptedToken.startsWith('encrypted:')) {
       return encryptedToken.slice(10);
     }
-    return encryptedToken as string;
+    return String(encryptedToken);
   }
 }
 
@@ -170,12 +171,7 @@ describe('GumroadAdapter', () => {
     tokenStorage = new MockTokenStorage();
     encryptionService = new MockEncryptionService();
     stateStorage = new InMemoryStateStorage();
-    adapter = new GumroadAdapter(
-      testConfig,
-      tokenStorage as any,
-      encryptionService as any,
-      stateStorage
-    );
+    adapter = new GumroadAdapter(testConfig, tokenStorage, encryptionService, stateStorage);
   });
 
   afterEach(() => {
@@ -252,14 +248,19 @@ describe('GumroadAdapter', () => {
       const saleId = purchases[0].rawRef;
       const result = await adapter.checkPurchaseStatus(secrets.gumroad.accessToken, saleId);
       expect(result.found).toBe(true);
-      expect(['active', 'refunded', 'chargebacked', 'disputed', 'unknown']).toContain(result.status);
+      expect(['active', 'refunded', 'chargebacked', 'disputed', 'unknown']).toContain(
+        result.status
+      );
       expect(result.sale).toBeDefined();
     });
     it('returns found:false for non-existent sale ID', async () => {
       const { loadTestSecrets } = await import('@yucp/shared/test/loadTestSecrets');
       const secrets = await loadTestSecrets();
       if (!secrets?.gumroad?.accessToken) return;
-      const result = await adapter.checkPurchaseStatus(secrets.gumroad.accessToken, 'non-existent-sale-id-99999');
+      const result = await adapter.checkPurchaseStatus(
+        secrets.gumroad.accessToken,
+        'non-existent-sale-id-99999'
+      );
       expect(result.found).toBe(false);
       expect(result.status).toBe('unknown');
     });
@@ -267,8 +268,14 @@ describe('GumroadAdapter', () => {
 
   describe('revokeAccess', () => {
     it('should delete tokens from storage', async () => {
-      await tokenStorage.storeTokens('tenant-123', 'gumroad-456', 'access', 'refresh', Date.now() + 3600000);
-      
+      await tokenStorage.storeTokens(
+        'tenant-123',
+        'gumroad-456',
+        'access',
+        'refresh',
+        Date.now() + 3600000
+      );
+
       await adapter.revokeAccess('tenant-123', 'gumroad-456');
 
       const tokens = await tokenStorage.getTokens('tenant-123', 'gumroad-456');

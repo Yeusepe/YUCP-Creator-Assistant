@@ -3,6 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createAAD, decrypt, encrypt } from '@yucp/shared';
 import { DiscordOAuthProvider } from '../../src/discord/oauth';
 import type {
   DiscordOAuthConfig,
@@ -12,7 +13,6 @@ import type {
   OAuthState,
   TokenStorage,
 } from '../../src/discord/types';
-import { encrypt, createAAD, decrypt } from '@yucp/shared';
 
 // Mock token storage implementation
 class MockTokenStorage implements TokenStorage {
@@ -47,6 +47,10 @@ class MockTokenStorage implements TokenStorage {
   clear(): void {
     this.states.clear();
     this.tokens.clear();
+  }
+
+  getStoredStateCount(): number {
+    return this.states.size;
   }
 }
 
@@ -116,7 +120,7 @@ describe('DiscordOAuthProvider', () => {
 
       // State should be stored (we can't directly check, but we can verify getState works)
       // State exists in storage
-      expect(storage['states'].size).toBe(1);
+      expect(storage.getStoredStateCount()).toBe(1);
     });
 
     it('should generate unique state and verification session IDs', async () => {
@@ -135,7 +139,7 @@ describe('DiscordOAuthProvider', () => {
 
       // Code challenge should be base64url encoded
       expect(codeChallenge).toMatch(/^[A-Za-z0-9_-]+$/);
-      expect(codeChallenge!.length).toBeGreaterThan(0);
+      expect(codeChallenge?.length).toBeGreaterThan(0);
     });
 
     it('should use default scopes if not specified', async () => {
@@ -172,7 +176,8 @@ describe('DiscordOAuthProvider', () => {
 
       // Mock fetch responses
       global.fetch = mock(async (input: string | URL | Request) => {
-        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 
         if (url.includes('/oauth2/token')) {
           return new Response(JSON.stringify(mockTokens), {
@@ -394,9 +399,7 @@ describe('DiscordOAuthProvider', () => {
         });
       }) as unknown as typeof fetch;
 
-      await expect(provider.getGuildMember('token', 'guild-123')).rejects.toThrow(
-        'Access denied'
-      );
+      await expect(provider.getGuildMember('token', 'guild-123')).rejects.toThrow('Access denied');
     });
 
     it('should handle 404 Not Found', async () => {

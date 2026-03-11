@@ -7,9 +7,10 @@
  */
 
 import { createLogger } from '@yucp/shared';
+import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
-import { loadEnv } from '../lib/env';
 import { decrypt } from '../lib/encrypt';
+import { loadEnv } from '../lib/env';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -90,15 +91,15 @@ export async function handleGumroadProducts(request: Request): Promise<Response>
 
     const encryptionSecret = loadEnv().BETTER_AUTH_SECRET;
     if (!encryptionSecret) {
-      return new Response(
-        JSON.stringify({ error: 'BETTER_AUTH_SECRET not configured' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'BETTER_AUTH_SECRET not configured' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     const convex = getConvexClientFromUrl(convexUrl);
 
-    const conn = await convex.query('providerConnections:getConnectionForBackfill' as any, {
+    const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret,
       tenantId,
       provider: 'gumroad',
@@ -142,7 +143,7 @@ export async function handleGumroadProducts(request: Request): Promise<Response>
 
       if (response.status === 429) {
         const retryAfter = response.headers.get('Retry-After');
-        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+        const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 5000;
         logger.warn('Gumroad rate limit, waiting', { waitMs });
         await new Promise((r) => setTimeout(r, waitMs));
         continue;
@@ -170,10 +171,10 @@ export async function handleGumroadProducts(request: Request): Promise<Response>
       if (!nextPageUrl || pageProducts.length === 0) break;
     }
 
-    return new Response(
-      JSON.stringify({ products }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ products }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Gumroad products fetch failed', {

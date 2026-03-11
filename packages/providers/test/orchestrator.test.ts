@@ -170,9 +170,9 @@ class MockRegistry {
     return new Map();
   }
 
-  startPeriodicHealthChecks(): void { }
-  stopPeriodicHealthChecks(): void { }
-  clear(): void { }
+  startPeriodicHealthChecks(): void {}
+  stopPeriodicHealthChecks(): void {}
+  clear(): void {}
 }
 
 // Mock binding storage
@@ -202,7 +202,7 @@ class MockBindingStorage implements VerificationBindingStorage {
     return this.bindings.get(bindingId) ?? null;
   }
 
-  async update(_bindingId: string, _verification: Verification): Promise<void> { }
+  async update(_bindingId: string, _verification: Verification): Promise<void> {}
 
   async delete(bindingId: string): Promise<void> {
     this.bindings.delete(bindingId);
@@ -411,9 +411,12 @@ describe('VerificationOrchestrator', () => {
 
   describe('refreshVerification', () => {
     it('should fail without binding storage', async () => {
-      const orchestratorNoStorage = new VerificationOrchestrator(registry as unknown as ProviderRegistry, {
-        getTenantConfig: async () => ({ enabledModes: ['gumroad'] }),
-      });
+      const orchestratorNoStorage = new VerificationOrchestrator(
+        registry as unknown as ProviderRegistry,
+        {
+          getTenantConfig: async () => ({ enabledModes: ['gumroad'] }),
+        }
+      );
 
       const result = await orchestratorNoStorage.refreshVerification('binding-123');
 
@@ -454,9 +457,12 @@ describe('VerificationOrchestrator', () => {
 
   describe('revokeVerification', () => {
     it('should fail without binding storage', async () => {
-      const orchestratorNoStorage = new VerificationOrchestrator(registry as unknown as ProviderRegistry, {
-        getTenantConfig: async () => ({ enabledModes: ['gumroad'] }),
-      });
+      const orchestratorNoStorage = new VerificationOrchestrator(
+        registry as unknown as ProviderRegistry,
+        {
+          getTenantConfig: async () => ({ enabledModes: ['gumroad'] }),
+        }
+      );
 
       const result = await orchestratorNoStorage.revokeVerification('binding-123');
 

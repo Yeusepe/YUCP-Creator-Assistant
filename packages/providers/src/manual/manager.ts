@@ -9,18 +9,18 @@
  */
 
 import type {
-  CreateLicenseInput,
-  CreateLicenseResult,
-  ValidateLicenseInput,
-  ValidateLicenseResult,
-  UseLicenseInput,
-  UseLicenseResult,
-  RevokeLicenseInput,
   BulkImportInput,
   BulkImportResult,
+  CreateLicenseInput,
+  CreateLicenseResult,
   GenerateKeyOptions,
   ManualLicense,
   ManualLicenseStorage,
+  RevokeLicenseInput,
+  UseLicenseInput,
+  UseLicenseResult,
+  ValidateLicenseInput,
+  ValidateLicenseResult,
 } from './types';
 
 /** Default prefix for generated license keys */
@@ -209,9 +209,16 @@ export class ManualLicenseManager {
         reason: validation.reason,
       };
     }
+    const licenseToUse = validation.license;
+    if (!licenseToUse) {
+      return {
+        success: false,
+        reason: 'not_found',
+      };
+    }
 
     // Increment usage
-    const license = await this.storage.incrementUsage(validation.license!._id);
+    const license = await this.storage.incrementUsage(licenseToUse._id);
 
     // Check if now exhausted
     if (license.maxUses !== undefined && license.currentUses >= license.maxUses) {
@@ -241,11 +248,7 @@ export class ManualLicenseManager {
     }
 
     // Update status to revoked
-    const updated = await this.storage.updateStatus(
-      license._id,
-      'revoked',
-      input.reason
-    );
+    const updated = await this.storage.updateStatus(license._id, 'revoked', input.reason);
 
     return updated;
   }
@@ -284,9 +287,7 @@ export class ManualLicenseManager {
         const licenseKeyHash = await hashLicenseKey(licenseKey);
 
         // Check for duplicates in batch
-        const duplicateInBatch = licensesToCreate.some(
-          (l) => l.licenseKeyHash === licenseKeyHash
-        );
+        const duplicateInBatch = licensesToCreate.some((l) => l.licenseKeyHash === licenseKeyHash);
         if (duplicateInBatch) {
           throw new Error('Duplicate license key in import batch');
         }
@@ -348,7 +349,10 @@ export class ManualLicenseManager {
   /**
    * List licenses for a tenant/product.
    */
-  async listLicenses(tenantId: string, productId?: string): Promise<Array<Omit<ManualLicense, 'licenseKeyHash'>>> {
+  async listLicenses(
+    tenantId: string,
+    productId?: string
+  ): Promise<Array<Omit<ManualLicense, 'licenseKeyHash'>>> {
     const licenses = await this.storage.list(tenantId, productId);
     return licenses.map((l) => this.stripHash(l));
   }

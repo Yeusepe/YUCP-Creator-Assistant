@@ -1,14 +1,17 @@
 // Discord bot entrypoint
 
-import { createLogger } from '@yucp/shared';
 import { setDefaultResultOrder } from 'node:dns';
+import { createLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
-import { loadEnvAsync, validateBotEnv } from './lib/env';
 import { startBot } from './client';
 import { registerCommands } from './commands';
-import { handleInteraction } from './handlers/interactions';
 import { handleGuildMemberAdd } from './handlers/guildMemberAdd';
-import { LienedDownloadsService, getLienedDownloadsInvitePermissions } from './services/lienedDownloads';
+import { handleInteraction } from './handlers/interactions';
+import { loadEnvAsync, validateBotEnv } from './lib/env';
+import {
+  LienedDownloadsService,
+  getLienedDownloadsInvitePermissions,
+} from './services/lienedDownloads';
 import { RoleSyncService } from './services/roleSync';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -32,7 +35,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -56,28 +59,31 @@ async function discordPreflight(token: string): Promise<void> {
   const meResponse = await fetchWithTimeout(
     'https://discord.com/api/v10/users/@me',
     { method: 'GET', headers },
-    10_000,
+    10_000
   );
   if (!meResponse.ok) {
     const body = (await meResponse.text()).slice(0, 300);
     throw new Error(
-      `Discord preflight /users/@me failed: HTTP ${meResponse.status} ${meResponse.statusText}; body=${body}`,
+      `Discord preflight /users/@me failed: HTTP ${meResponse.status} ${meResponse.statusText}; body=${body}`
     );
   }
 
   const gatewayResponse = await fetchWithTimeout(
     'https://discord.com/api/v10/gateway/bot',
     { method: 'GET', headers },
-    10_000,
+    10_000
   );
   if (!gatewayResponse.ok) {
     const body = (await gatewayResponse.text()).slice(0, 300);
     if (gatewayResponse.status >= 500) {
-      logger.warn('Discord preflight /gateway/bot returned transient server error; continuing to login', {
-        gatewayStatus: gatewayResponse.status,
-        gatewayStatusText: gatewayResponse.statusText,
-        gatewayBody: body,
-      });
+      logger.warn(
+        'Discord preflight /gateway/bot returned transient server error; continuing to login',
+        {
+          gatewayStatus: gatewayResponse.status,
+          gatewayStatusText: gatewayResponse.statusText,
+          gatewayBody: body,
+        }
+      );
       logger.info('Discord preflight passed with degraded gateway metadata check', {
         meStatus: meResponse.status,
         gatewayStatus: gatewayResponse.status,
@@ -86,7 +92,7 @@ async function discordPreflight(token: string): Promise<void> {
     }
 
     throw new Error(
-      `Discord preflight /gateway/bot failed: HTTP ${gatewayResponse.status} ${gatewayResponse.statusText}; body=${body}`,
+      `Discord preflight /gateway/bot failed: HTTP ${gatewayResponse.status} ${gatewayResponse.statusText}; body=${body}`
     );
   }
 
@@ -99,6 +105,12 @@ async function discordPreflight(token: string): Promise<void> {
 async function main() {
   const env = await loadEnvAsync();
   validateBotEnv(env);
+  const discordBotToken = env.DISCORD_BOT_TOKEN;
+  const convexUrl = env.CONVEX_URL;
+  const convexApiSecret = env.CONVEX_API_SECRET;
+  if (!discordBotToken || !convexUrl || !convexApiSecret) {
+    throw new Error('Missing required bot env vars after validation');
+  }
 
   logger.info('Starting Creator Discord Bot', {
     nodeEnv: env.NODE_ENV,
@@ -115,14 +127,10 @@ async function main() {
     });
   }
 
-  await discordPreflight(env.DISCORD_BOT_TOKEN!);
+  await discordPreflight(discordBotToken);
 
   const LOGIN_TIMEOUT_MS = Number.parseInt(process.env.BOT_LOGIN_TIMEOUT_MS ?? '30000', 10);
-  const client = await withTimeout(
-    startBot(env.DISCORD_BOT_TOKEN!),
-    LOGIN_TIMEOUT_MS,
-    'Discord login',
-  );
+  const client = await withTimeout(startBot(discordBotToken), LOGIN_TIMEOUT_MS, 'Discord login');
 
   const READY_TIMEOUT_MS = 30_000;
 
@@ -137,10 +145,8 @@ async function main() {
       client.removeListener('error', onError);
       reject(
         new Error(
-          `Discord client did not become ready within ${READY_TIMEOUT_MS / 1000}s. ` +
-            'Possible causes: rate limiting (429), invalid token, or network issues. ' +
-            'Check logs for Discord client error/warn events.',
-        ),
+          `Discord client did not become ready within ${READY_TIMEOUT_MS / 1000}s. Possible causes: rate limiting (429), invalid token, or network issues. Check logs for Discord client error/warn events.`
+        )
       );
     }, READY_TIMEOUT_MS);
 
@@ -153,12 +159,7 @@ async function main() {
     const onError = (err: Error) => {
       clearTimeout(timeout);
       client.removeListener('clientReady', onReady);
-      reject(
-        new Error(
-          `Discord client error before ready: ${err.message}`,
-          { cause: err },
-        ),
-      );
+      reject(new Error(`Discord client error before ready: ${err.message}`, { cause: err }));
     };
 
     client.once('clientReady', onReady);
@@ -168,29 +169,39 @@ async function main() {
   logger.info('Discord bot ready');
 
   // Register slash commands (global or per-guild)
-  const clientId = client.user!.id;
+  const clientId = client.user?.id;
+  if (!clientId) {
+    throw new Error('Discord client is ready but user ID is missing');
+  }
   const guildId = env.DISCORD_GUILD_ID;
-  await registerCommands(env.DISCORD_BOT_TOKEN!, clientId, guildId);
+  await registerCommands(discordBotToken, clientId, guildId);
   logger.info('Slash commands registered', { guildId: guildId ?? 'global' });
 
   const invitePermissions = getLienedDownloadsInvitePermissions();
   const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${invitePermissions.toString()}&scope=bot%20applications.commands`;
   logger.info('Add bot to your server', { inviteUrl });
 
-  const convex = new ConvexHttpClient(env.CONVEX_URL!);
+  const convex = new ConvexHttpClient(convexUrl);
   const interactionCtx = {
     convex,
-    apiSecret: env.CONVEX_API_SECRET!,
+    apiSecret: convexApiSecret,
   };
-  const lienedDownloadsService = new LienedDownloadsService(
-    client,
-    convex,
-    env.CONVEX_API_SECRET!,
-  );
+  const lienedDownloadsService = new LienedDownloadsService(client, convex, convexApiSecret);
 
   client.on('interactionCreate', async (interaction) => {
     try {
-      await handleInteraction(interaction as any, interactionCtx);
+      if (
+        interaction.isChatInputCommand() ||
+        interaction.isButton() ||
+        interaction.isModalSubmit() ||
+        interaction.isStringSelectMenu() ||
+        interaction.isRoleSelectMenu() ||
+        interaction.isAutocomplete() ||
+        interaction.isChannelSelectMenu() ||
+        interaction.isUserSelectMenu()
+      ) {
+        await handleInteraction(interaction, interactionCtx);
+      }
     } catch (err) {
       logger.error('Unhandled interaction error', {
         message: err instanceof Error ? err.message : String(err),
@@ -216,8 +227,8 @@ async function main() {
 
   const roleSyncService = new RoleSyncService({
     discordClient: client,
-    convexUrl: env.CONVEX_URL!,
-    apiSecret: env.CONVEX_API_SECRET!,
+    convexUrl,
+    apiSecret: convexApiSecret,
     logLevel: (env.LOG_LEVEL as 'debug' | 'info' | 'warn' | 'error') ?? 'info',
     encryptionSecret: env.BETTER_AUTH_SECRET,
   });

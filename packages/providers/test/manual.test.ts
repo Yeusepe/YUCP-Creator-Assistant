@@ -2,21 +2,21 @@
  * Tests for Manual License Adapter
  */
 
-import { describe, expect, it, beforeEach } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import {
+  ManualLicenseManager,
   generateLicenseKey,
   hashLicenseKey,
   normalizeLicenseKey,
-  ManualLicenseManager,
 } from '../src/manual/manager';
 import type {
+  BulkImportInput,
+  CreateLicenseInput,
   ManualLicense,
   ManualLicenseStorage,
-  CreateLicenseInput,
-  ValidateLicenseInput,
-  UseLicenseInput,
   RevokeLicenseInput,
-  BulkImportInput,
+  UseLicenseInput,
+  ValidateLicenseInput,
 } from '../src/manual/types';
 
 // In-memory storage implementation for testing
@@ -24,7 +24,9 @@ class InMemoryStorage implements ManualLicenseStorage {
   private licenses: Map<string, ManualLicense> = new Map();
   private idCounter = 0;
 
-  async create(input: Omit<CreateLicenseInput, 'licenseKey'> & { licenseKeyHash: string }): Promise<ManualLicense> {
+  async create(
+    input: Omit<CreateLicenseInput, 'licenseKey'> & { licenseKeyHash: string }
+  ): Promise<ManualLicense> {
     const id = `license-${++this.idCounter}`;
     const now = Date.now();
     const license: ManualLicense = {
@@ -70,7 +72,11 @@ class InMemoryStorage implements ManualLicenseStorage {
     return license;
   }
 
-  async updateStatus(licenseId: string, status: ManualLicense['status'], reason?: string): Promise<ManualLicense> {
+  async updateStatus(
+    licenseId: string,
+    status: ManualLicense['status'],
+    reason?: string
+  ): Promise<ManualLicense> {
     const license = this.licenses.get(licenseId);
     if (!license) {
       throw new Error('License not found');
@@ -91,7 +97,9 @@ class InMemoryStorage implements ManualLicenseStorage {
     });
   }
 
-  async bulkCreate(licenses: Array<Omit<CreateLicenseInput, 'licenseKey'> & { licenseKeyHash: string }>): Promise<ManualLicense[]> {
+  async bulkCreate(
+    licenses: Array<Omit<CreateLicenseInput, 'licenseKey'> & { licenseKeyHash: string }>
+  ): Promise<ManualLicense[]> {
     const results: ManualLicense[] = [];
     for (const input of licenses) {
       const license = await this.create({ ...input, licenseKeyHash: input.licenseKeyHash });
@@ -503,10 +511,7 @@ describe('ManualLicenseManager', () => {
       const result = await manager.bulkImport({
         tenantId: 'tenant-123',
         productId: 'product-456',
-        licenses: [
-          { licenseKey: 'CUSTOM-1' },
-          { licenseKey: 'CUSTOM-2' },
-        ],
+        licenses: [{ licenseKey: 'CUSTOM-1' }, { licenseKey: 'CUSTOM-2' }],
       });
 
       expect(result.created).toBe(2);
@@ -518,10 +523,7 @@ describe('ManualLicenseManager', () => {
       const result = await manager.bulkImport({
         tenantId: 'tenant-123',
         productId: 'product-456',
-        licenses: [
-          { licenseKey: 'DUPLICATE' },
-          { licenseKey: 'DUPLICATE' },
-        ],
+        licenses: [{ licenseKey: 'DUPLICATE' }, { licenseKey: 'DUPLICATE' }],
       });
 
       expect(result.created).toBe(1);

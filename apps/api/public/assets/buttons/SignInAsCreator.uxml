@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<engine:UXML
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:engine="UnityEngine.UIElements"
+    xmlns:editor="UnityEditor.UIElements"
+    xsi:noNamespaceSchemaLocation="../../UIElementsSchema/UIElements.xsd"
+>
+    <!-- Recreated from SignInAsCreator.svg: white bg, person icon, avatar (maskedgradient.jpg), text. Place maskedgradient.jpg in Assets/UI/Buttons/ -->
+    <engine:Button name="sign-in-as-creator" text="" class="sign-in-as-creator-btn" style="flex-direction: row; align-items: center; justify-content: flex-start; background-color: rgb(255, 255, 255); border-radius: 20px; width: 375px; height: 83px; padding-left: 24px; padding-right: 24px;">
+        <engine:VisualElement name="icon-placeholder" style="width: 26px; height: 26px; margin-right: 12px; background-color: rgb(36, 36, 36); border-radius: 13px; -unity-background-scale-mode: scale-to-fit;" />
+        <engine:VisualElement name="avatar-placeholder" style="width: 36px; height: 36px; margin-right: 16px; background-image: url('project://database/Assets/UI/Buttons/maskedgradient.jpg'); -unity-background-scale-mode: scale-and-crop; border-radius: 18px; overflow: hidden;" />
+        <engine:Label name="label" text="Sign in as Creator" style="font-size: 18px; color: rgb(36, 36, 36); -unity-font-style: normal; flex-grow: 1;" />
+    </engine:Button>
+</engine:UXML>

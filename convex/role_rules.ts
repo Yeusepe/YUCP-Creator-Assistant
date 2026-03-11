@@ -535,6 +535,7 @@ export const addProductFromGumroad = mutation({
     productId: v.string(),
     providerProductRef: v.string(),
     canonicalSlug: v.optional(v.string()),
+    displayName: v.optional(v.string()),
   },
   returns: v.object({
     productId: v.string(),
@@ -551,6 +552,10 @@ export const addProductFromGumroad = mutation({
       .first();
 
     if (existing) {
+      // Update displayName if we now have one and it was previously missing
+      if (args.displayName && !existing.displayName) {
+        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+      }
       await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
         tenantId: args.tenantId,
         productId: args.productId,
@@ -566,6 +571,7 @@ export const addProductFromGumroad = mutation({
       provider: 'gumroad',
       providerProductRef: args.providerProductRef,
       canonicalSlug: args.canonicalSlug,
+      displayName: args.displayName,
       status: 'active',
       supportsAutoDiscovery: true,
       createdAt: now,

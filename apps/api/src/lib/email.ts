@@ -27,7 +27,7 @@ export async function sendCollabKeyAddedEmail(params: {
       subject: 'Your Jinxxy API key was added to a Discord server',
       react: CollabKeyAddedEmail(params),
     },
-    { idempotencyKey: `collab-key-added/${params.connectionId}` },
+    { idempotencyKey: `collab-key-added/${params.connectionId}` }
   );
   return error ? { error } : { id: data?.id };
 }

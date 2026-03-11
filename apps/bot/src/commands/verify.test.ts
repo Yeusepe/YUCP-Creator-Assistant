@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { buildVerifyStatusReply, handleRefreshCommand, handleVerifyStartButton } from './verify';
 
 const originalWarn = console.warn;
 const originalErrorReferenceSecret = process.env.ERROR_REFERENCE_SECRET;
+type VerifyStartInteraction = Parameters<typeof handleVerifyStartButton>[0];
+type VerifyStartConvex = Parameters<typeof handleVerifyStartButton>[1];
+type RefreshInteraction = Parameters<typeof handleRefreshCommand>[0];
+type RefreshConvex = Parameters<typeof handleRefreshCommand>[1];
+type VerifyStatusConvex = Parameters<typeof buildVerifyStatusReply>[3];
 
 describe('verification support codes in bot handlers', () => {
   beforeEach(() => {
@@ -38,11 +44,11 @@ describe('verification support codes in bot handlers', () => {
     };
 
     await handleVerifyStartButton(
-      interaction as any,
-      convex as any,
+      interaction as unknown as VerifyStartInteraction,
+      convex as unknown as VerifyStartConvex,
       'api-secret',
       'https://api.example.com',
-      { tenantId: 'tenant_123' as any, guildId: 'guild_123' }
+      { tenantId: 'tenant_123' as Id<'tenants'>, guildId: 'guild_123' }
     );
 
     const message = editReply.mock.calls[0]?.[0]?.content;
@@ -50,7 +56,9 @@ describe('verification support codes in bot handlers', () => {
     const supportCode = message.match(/Support code: `([^`]+)`/)?.[1];
     expect(supportCode).toBeTruthy();
 
-    const loggedSupportCode = ((warnMock.mock.calls as unknown) as Array<[string, Record<string, unknown>?]>)
+    const loggedSupportCode = (
+      warnMock.mock.calls as unknown as Array<[string, Record<string, unknown>?]>
+    )
       .map((call) => call[1] as Record<string, unknown> | undefined)
       .find((meta) => meta?.supportCode)?.supportCode;
     expect(loggedSupportCode).toBe(supportCode);
@@ -77,10 +85,12 @@ describe('verification support codes in bot handlers', () => {
     };
 
     await handleRefreshCommand(
-      interaction as any,
-      convex as any,
+      interaction as unknown as RefreshInteraction,
+      convex as unknown as RefreshConvex,
       'api-secret',
-      { tenantId: 'tenant_456' as any }
+      {
+        tenantId: 'tenant_456' as Id<'tenants'>,
+      }
     );
 
     const message = editReply.mock.calls[0]?.[0]?.content;
@@ -88,7 +98,9 @@ describe('verification support codes in bot handlers', () => {
     const supportCode = message.match(/Support code: `([^`]+)`/)?.[1];
     expect(supportCode).toBeTruthy();
 
-    const loggedSupportCode = ((warnMock.mock.calls as unknown) as Array<[string, Record<string, unknown>?]>)
+    const loggedSupportCode = (
+      warnMock.mock.calls as unknown as Array<[string, Record<string, unknown>?]>
+    )
       .map((call) => call[1] as Record<string, unknown> | undefined)
       .find((meta) => meta?.supportCode)?.supportCode;
     expect(loggedSupportCode).toBe(supportCode);
@@ -140,9 +152,9 @@ describe('verification support codes in bot handlers', () => {
 
     const reply = await buildVerifyStatusReply(
       'user_123',
-      'tenant_123' as any,
+      'tenant_123' as Id<'tenants'>,
       'guild_123',
-      convex as any,
+      convex as unknown as VerifyStatusConvex,
       'api-secret',
       'https://api.example.com'
     );

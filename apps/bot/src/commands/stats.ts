@@ -5,6 +5,7 @@
  * Uses custom Discord icons (E.*, Emoji.*) and CDN thumbnails.
  */
 
+import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -18,9 +19,8 @@ import type {
   ChatInputCommandInteraction,
   UserSelectMenuInteraction,
 } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
-import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { E, Emoji, EmojiIds, getEmojiCdnUrl } from '../lib/emojis';
 
 const USERS_PAGE_SIZE = 25;
@@ -46,7 +46,10 @@ function cleanExpiredStatsSessions(): void {
   }
 }
 
-function buildOverviewButtons(tenantId: Id<'tenants'>, guildId: string): ActionRowBuilder<ButtonBuilder> {
+function buildOverviewButtons(
+  tenantId: Id<'tenants'>,
+  guildId: string
+): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`creator_stats:view_users:${tenantId}:${guildId}`)
@@ -62,7 +65,7 @@ function buildOverviewButtons(tenantId: Id<'tenants'>, guildId: string): ActionR
       .setCustomId(`creator_stats:check_user:${tenantId}:${guildId}`)
       .setLabel('Check a User')
       .setEmoji(Emoji.PersonKey)
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
   );
 }
 
@@ -71,15 +74,15 @@ export async function handleStats(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const rules = await convex.query(api.role_rules.getByGuild as any, {
+  const rules = await convex.query(api.role_rules.getByGuild, {
     tenantId: ctx.tenantId,
     guildId: ctx.guildId,
   });
-  const stats = await convex.query(api.entitlements.getStatsOverviewExtended as any, {
+  const stats = await convex.query(api.entitlements.getStatsOverviewExtended, {
     apiSecret,
     tenantId: ctx.tenantId,
   });
@@ -89,14 +92,14 @@ export async function handleStats(
     .setColor(0x5865f2)
     .setThumbnail(getEmojiCdnUrl(EmojiIds.Library))
     .setDescription(
-      'Unique verified users, product-role mappings, and new verifications in the last 24h, 7d, and 30d.',
+      'Unique verified users, product-role mappings, and new verifications in the last 24h, 7d, and 30d.'
     )
     .addFields(
       { name: 'Verified Users', value: String(stats.totalVerified), inline: true },
       { name: 'Products Mapped', value: String(rules.length), inline: true },
       { name: 'Verified (24h)', value: String(stats.recent24h), inline: true },
       { name: 'Verified (7d)', value: String(stats.recent7d), inline: true },
-      { name: 'Verified (30d)', value: String(stats.recent30d), inline: true },
+      { name: 'Verified (30d)', value: String(stats.recent30d), inline: true }
     )
     .setTimestamp()
     .setFooter({ text: 'Use the buttons below to explore' });
@@ -111,7 +114,7 @@ export async function handleStatsViewUsersButton(
   convex: ConvexHttpClient,
   apiSecret: string,
   tenantId: Id<'tenants'>,
-  guildId: string,
+  guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -125,12 +128,12 @@ export async function handleStatsViewUsersButton(
   });
 
   const { users, nextCursor, totalCount } = await convex.query(
-    api.entitlements.getVerifiedUsersPaginated as any,
+    api.entitlements.getVerifiedUsersPaginated,
     {
       apiSecret,
       tenantId,
       limit: USERS_PAGE_SIZE,
-    },
+    }
   );
 
   statsUsersSessions.set(sessionKey, {
@@ -153,7 +156,7 @@ export async function handleStatsViewUsersButton(
         .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
         .setLabel('Back to Overview')
         .setEmoji(Emoji.Home)
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     );
     await interaction.editReply({ embeds: [embed], components: [backRow] });
     return;
@@ -161,7 +164,7 @@ export async function handleStatsViewUsersButton(
 
   const lines = users.map(
     (u: { discordUserId: string; productCount: number }) =>
-      `• <@${u.discordUserId}> - ${u.productCount} product(s)`,
+      `• <@${u.discordUserId}> - ${u.productCount} product(s)`
   );
 
   const embed = new EmbedBuilder()
@@ -173,13 +176,7 @@ export async function handleStatsViewUsersButton(
       text: `Page 1 • Showing ${users.length} of ${totalCount} users`,
     });
 
-  const row = buildViewUsersPaginationRow(
-    tenantId,
-    guildId,
-    0,
-    totalCount,
-    nextCursor != null,
-  );
+  const row = buildViewUsersPaginationRow(tenantId, guildId, 0, totalCount, nextCursor != null);
   await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
@@ -190,7 +187,7 @@ export async function handleStatsViewUsersPageButton(
   apiSecret: string,
   tenantId: Id<'tenants'>,
   guildId: string,
-  direction: 'next' | 'prev',
+  direction: 'next' | 'prev'
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -210,13 +207,13 @@ export async function handleStatsViewUsersPageButton(
   const cursor = session.cursorStack[newPageIndex];
 
   const { users, nextCursor, totalCount } = await convex.query(
-    api.entitlements.getVerifiedUsersPaginated as any,
+    api.entitlements.getVerifiedUsersPaginated,
     {
       apiSecret,
       tenantId,
       limit: USERS_PAGE_SIZE,
       cursor: cursor ?? undefined,
-    },
+    }
   );
 
   const newCursorStack = [...session.cursorStack];
@@ -233,7 +230,7 @@ export async function handleStatsViewUsersPageButton(
 
   const lines = users.map(
     (u: { discordUserId: string; productCount: number }) =>
-      `• <@${u.discordUserId}> - ${u.productCount} product(s)`,
+      `• <@${u.discordUserId}> - ${u.productCount} product(s)`
   );
 
   const start = newPageIndex * USERS_PAGE_SIZE + 1;
@@ -253,7 +250,7 @@ export async function handleStatsViewUsersPageButton(
     guildId,
     newPageIndex,
     totalCount,
-    nextCursor != null,
+    nextCursor != null
   );
   await interaction.editReply({ embeds: [embed], components: [row] });
 }
@@ -263,7 +260,7 @@ function buildViewUsersPaginationRow(
   guildId: string,
   pageIndex: number,
   totalCount: number,
-  hasNext: boolean,
+  hasNext: boolean
 ): ActionRowBuilder<ButtonBuilder> {
   const buttons: ButtonBuilder[] = [];
 
@@ -272,7 +269,7 @@ function buildViewUsersPaginationRow(
       new ButtonBuilder()
         .setCustomId(`creator_stats:view_users_page:${tenantId}:${guildId}:prev`)
         .setLabel('Previous')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     );
   }
 
@@ -281,7 +278,7 @@ function buildViewUsersPaginationRow(
       .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
       .setLabel('Back to Overview')
       .setEmoji(Emoji.Home)
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
   );
 
   if (hasNext) {
@@ -289,7 +286,7 @@ function buildViewUsersPaginationRow(
       new ButtonBuilder()
         .setCustomId(`creator_stats:view_users_page:${tenantId}:${guildId}:next`)
         .setLabel('Next')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     );
   }
 
@@ -302,7 +299,7 @@ export async function handleStatsBackButton(
   convex: ConvexHttpClient,
   apiSecret: string,
   tenantId: Id<'tenants'>,
-  guildId: string,
+  guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -310,11 +307,11 @@ export async function handleStatsBackButton(
   const sessionKey = getStatsSessionKey(interaction.user.id, tenantId);
   statsUsersSessions.delete(sessionKey);
 
-  const rules = await convex.query(api.role_rules.getByGuild as any, {
+  const rules = await convex.query(api.role_rules.getByGuild, {
     tenantId,
     guildId,
   });
-  const stats = await convex.query(api.entitlements.getStatsOverviewExtended as any, {
+  const stats = await convex.query(api.entitlements.getStatsOverviewExtended, {
     apiSecret,
     tenantId,
   });
@@ -324,14 +321,14 @@ export async function handleStatsBackButton(
     .setColor(0x5865f2)
     .setThumbnail(getEmojiCdnUrl(EmojiIds.Library))
     .setDescription(
-      'Unique verified users, product-role mappings, and new verifications in the last 24h, 7d, and 30d.',
+      'Unique verified users, product-role mappings, and new verifications in the last 24h, 7d, and 30d.'
     )
     .addFields(
       { name: 'Verified Users', value: String(stats.totalVerified), inline: true },
       { name: 'Products Mapped', value: String(rules.length), inline: true },
       { name: 'Verified (24h)', value: String(stats.recent24h), inline: true },
       { name: 'Verified (7d)', value: String(stats.recent7d), inline: true },
-      { name: 'Verified (30d)', value: String(stats.recent30d), inline: true },
+      { name: 'Verified (30d)', value: String(stats.recent30d), inline: true }
     )
     .setTimestamp()
     .setFooter({ text: 'Use the buttons below to explore' });
@@ -346,16 +343,16 @@ export async function handleStatsViewProductsButton(
   convex: ConvexHttpClient,
   apiSecret: string,
   tenantId: Id<'tenants'>,
-  guildId: string,
+  guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
   const [productStats, productNames] = await Promise.all([
-    convex.query(api.entitlements.getProductStats as any, {
+    convex.query(api.entitlements.getProductStats, {
       apiSecret,
       tenantId,
     }),
-    convex.query(api.role_rules.getByGuildWithProductNames as any, {
+    convex.query(api.role_rules.getByGuildWithProductNames, {
       tenantId,
       guildId,
     }),
@@ -365,7 +362,7 @@ export async function handleStatsViewProductsButton(
     (productNames as { productId: string; displayName: string | null }[]).map((p) => [
       p.productId,
       p.displayName ?? p.productId.slice(0, 12) + (p.productId.length > 12 ? '…' : ''),
-    ]),
+    ])
   );
 
   if (!productStats.length) {
@@ -381,7 +378,7 @@ export async function handleStatsViewProductsButton(
         .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
         .setLabel('Back to Overview')
         .setEmoji(Emoji.Home)
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     );
     await interaction.editReply({ embeds: [embed], components: [backRow] });
     return;
@@ -390,7 +387,8 @@ export async function handleStatsViewProductsButton(
   const sorted = (productStats as { productId: string; verifiedCount: number }[])
     .sort((a, b) => b.verifiedCount - a.verifiedCount)
     .map((p) => {
-      const name = nameMap.get(p.productId) ?? p.productId.slice(0, 12) + (p.productId.length > 12 ? '…' : '');
+      const name =
+        nameMap.get(p.productId) ?? p.productId.slice(0, 12) + (p.productId.length > 12 ? '…' : '');
       return `• **${name}** - ${p.verifiedCount} verified`;
     });
 
@@ -406,7 +404,7 @@ export async function handleStatsViewProductsButton(
       .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
       .setLabel('Back to Overview')
       .setEmoji(Emoji.Home)
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
   );
   await interaction.editReply({ embeds: [embed], components: [backRow] });
 }
@@ -415,7 +413,7 @@ export async function handleStatsViewProductsButton(
 export async function handleStatsCheckUserButton(
   interaction: ButtonInteraction,
   tenantId: Id<'tenants'>,
-  guildId: string,
+  guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -439,7 +437,7 @@ export async function handleStatsCheckUserButton(
       .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
       .setLabel('Back to Overview')
       .setEmoji(Emoji.Home)
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
   );
 
   await interaction.editReply({
@@ -454,7 +452,7 @@ export async function handleStatsCheckUserSelect(
   convex: ConvexHttpClient,
   apiSecret: string,
   tenantId: Id<'tenants'>,
-  guildId: string,
+  guildId: string
 ): Promise<void> {
   const selectedUser = interaction.users.first();
   if (!selectedUser) {
@@ -465,7 +463,7 @@ export async function handleStatsCheckUserSelect(
   const discordUserId = selectedUser.id;
   await interaction.deferUpdate();
 
-  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
     discordUserId,
   });
 
@@ -478,7 +476,7 @@ export async function handleStatsCheckUserSelect(
     return;
   }
 
-  const entitlements = (await convex.query(api.entitlements.getEntitlementsBySubject as any, {
+  const entitlements = (await convex.query(api.entitlements.getEntitlementsBySubject, {
     apiSecret,
     tenantId,
     subjectId: subjectResult.subject._id,
@@ -490,7 +488,7 @@ export async function handleStatsCheckUserSelect(
 
   let productDisplay = 'None';
   if (productIds.length) {
-    const productNames = await convex.query(api.role_rules.getByGuildWithProductNames as any, {
+    const productNames = await convex.query(api.role_rules.getByGuildWithProductNames, {
       tenantId,
       guildId,
     });
@@ -498,7 +496,7 @@ export async function handleStatsCheckUserSelect(
       (productNames as { productId: string; displayName: string | null }[]).map((p) => [
         p.productId,
         p.displayName ?? p.productId,
-      ]),
+      ])
     );
     productDisplay = productIds
       .map((id) => nameMap.get(id) ?? id)
@@ -512,7 +510,7 @@ export async function handleStatsCheckUserSelect(
     .setThumbnail(getEmojiCdnUrl(EmojiIds.PersonKey))
     .addFields(
       { name: 'Status', value: status, inline: false },
-      { name: 'Products', value: productDisplay, inline: false },
+      { name: 'Products', value: productDisplay, inline: false }
     );
 
   const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -520,7 +518,7 @@ export async function handleStatsCheckUserSelect(
       .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
       .setLabel('Back to Overview')
       .setEmoji(Emoji.Home)
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
   );
 
   await interaction.editReply({ embeds: [embed], components: [backRow] });

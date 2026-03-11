@@ -5,6 +5,7 @@
  * Button handlers for enable/disable are routed in interactions.ts.
  */
 
+import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -13,9 +14,8 @@ import {
   MessageFlags,
 } from 'discord.js';
 import type { ButtonInteraction, ChatInputCommandInteraction } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
-import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { E } from '../lib/emojis';
 
 /** /creator-admin settings cross-server - shows status + enable/disable buttons */
@@ -23,11 +23,11 @@ export async function handleDiscordRoleVerification(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'> },
+  ctx: { tenantId: Id<'tenants'> }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const tenant = await convex.query(api.tenants.getTenant as any, {
+  const tenant = await convex.query(api.tenants.getTenant, {
     apiSecret,
     tenantId: ctx.tenantId,
   });
@@ -47,10 +47,14 @@ export async function handleDiscordRoleVerification(
     .setDescription(
       enabled
         ? 'Users can verify by signing in with Discord and proving they have a role in an allowed source server.'
-        : 'Cross-server role verification is currently disabled.',
+        : 'Cross-server role verification is currently disabled.'
     )
     .addFields(
-      { name: 'Status', value: enabled ? `${E.Checkmark} Enabled` : `${E.X_} Disabled`, inline: true },
+      {
+        name: 'Status',
+        value: enabled ? `${E.Checkmark} Enabled` : `${E.X_} Disabled`,
+        inline: true,
+      },
       {
         name: 'Allowed Source Servers',
         value:
@@ -58,14 +62,14 @@ export async function handleDiscordRoleVerification(
             ? allowedGuilds.map((id) => `\`${id}\``).join(', ')
             : 'None configured',
         inline: false,
-      },
+      }
     );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`creator_settings:${enabled ? 'disable' : 'enable'}:${ctx.tenantId}`)
       .setLabel(enabled ? 'Disable' : 'Enable')
-      .setStyle(enabled ? ButtonStyle.Danger : ButtonStyle.Success),
+      .setStyle(enabled ? ButtonStyle.Danger : ButtonStyle.Success)
   );
 
   await interaction.editReply({ embeds: [embed], components: [row] });
@@ -76,11 +80,11 @@ export async function handleSettingsEnable(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   await interaction.deferUpdate();
 
-  await convex.mutation(api.tenants.updateTenantPolicy as any, {
+  await convex.mutation(api.tenants.updateTenantPolicy, {
     apiSecret,
     tenantId,
     policy: { enableDiscordRoleFromOtherServers: true },
@@ -90,14 +94,14 @@ export async function handleSettingsEnable(
     .setTitle('Cross-Server Role Verification')
     .setColor(0x57f287)
     .setDescription(
-      `${E.Checkmark} Cross-server role verification has been **enabled**.\n\nMake sure \`allowedSourceGuildIds\` is configured in your setup (the server IDs where users must have the required role).`,
+      `${E.Checkmark} Cross-server role verification has been **enabled**.\n\nMake sure \`allowedSourceGuildIds\` is configured in your setup (the server IDs where users must have the required role).`
     );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`creator_settings:disable:${tenantId}`)
       .setLabel('Disable')
-      .setStyle(ButtonStyle.Danger),
+      .setStyle(ButtonStyle.Danger)
   );
 
   await interaction.editReply({ embeds: [embed], components: [row] });
@@ -108,11 +112,11 @@ export async function handleSettingsDisable(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  tenantId: Id<'tenants'>
 ): Promise<void> {
   await interaction.deferUpdate();
 
-  await convex.mutation(api.tenants.updateTenantPolicy as any, {
+  await convex.mutation(api.tenants.updateTenantPolicy, {
     apiSecret,
     tenantId,
     policy: { enableDiscordRoleFromOtherServers: false },
@@ -127,7 +131,7 @@ export async function handleSettingsDisable(
     new ButtonBuilder()
       .setCustomId(`creator_settings:enable:${tenantId}`)
       .setLabel('Enable')
-      .setStyle(ButtonStyle.Success),
+      .setStyle(ButtonStyle.Success)
   );
 
   await interaction.editReply({ embeds: [embed], components: [row] });

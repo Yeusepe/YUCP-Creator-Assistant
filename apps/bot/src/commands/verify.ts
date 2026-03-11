@@ -225,7 +225,7 @@ async function fetchVerifyData(
   convex: ConvexHttpClient,
   apiSecret: string
 ): Promise<VerifyData> {
-  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
     discordUserId: userId,
   });
 
@@ -236,7 +236,7 @@ async function fetchVerifyData(
 
   if (subjectResult.found) {
     try {
-      await convex.mutation(api.providerConnections.cleanupDuplicateAccountsForSubject as any, {
+      await convex.mutation(api.providerConnections.cleanupDuplicateAccountsForSubject, {
         apiSecret,
         subjectId: subjectResult.subject._id,
         tenantId,
@@ -251,18 +251,18 @@ async function fetchVerifyData(
     }
 
     const [accountsResult, entitlements, guildProducts] = await Promise.all([
-      convex.query(api.subjects.getSubjectWithAccounts as any, {
+      convex.query(api.subjects.getSubjectWithAccounts, {
         apiSecret,
         subjectId: subjectResult.subject._id,
         tenantId,
       }),
-      convex.query(api.entitlements.getEntitlementsBySubject as any, {
+      convex.query(api.entitlements.getEntitlementsBySubject, {
         apiSecret,
         tenantId,
         subjectId: subjectResult.subject._id,
         includeInactive: false,
       }),
-      convex.query(api.role_rules.getByGuildWithProductNames as any, {
+      convex.query(api.role_rules.getByGuildWithProductNames, {
         tenantId,
         guildId,
       }),
@@ -325,7 +325,7 @@ async function getRoleSyncBanner(
   discordUserId: string,
   convex: ConvexHttpClient
 ): Promise<string | undefined> {
-  const jobs = await convex.query(api.outbox_jobs.getFailedRoleSyncForUser as any, {
+  const jobs = await convex.query(api.outbox_jobs.getFailedRoleSyncForUser, {
     tenantId,
     discordUserId,
     guildId,
@@ -408,8 +408,9 @@ function getUniqueActiveEnabledProviders(
 }
 
 function getActiveProviderCount(linkedAccounts: LinkedAccountSummary[], provider: string): number {
-  return linkedAccounts.filter((account) => account.provider === provider && account.status === 'active')
-    .length;
+  return linkedAccounts.filter(
+    (account) => account.provider === provider && account.status === 'active'
+  ).length;
 }
 
 function buildStatusContainer(
@@ -477,12 +478,9 @@ function buildStatusContainer(
     }
     return `${emoji} ${label} - ${E.Checkmark} ${activeCount} accounts connected`;
   };
-  if (enabledProviders.gumroad)
-    lines.push(getConnectionLabel('gumroad', 'Gumroad', E.Gumorad));
-  if (enabledProviders.jinxxy)
-    lines.push(getConnectionLabel('jinxxy', 'Jinxxy', E.Jinxxy));
-  if (enabledProviders.vrchat)
-    lines.push(getConnectionLabel('vrchat', 'VRChat', E.VRC));
+  if (enabledProviders.gumroad) lines.push(getConnectionLabel('gumroad', 'Gumroad', E.Gumorad));
+  if (enabledProviders.jinxxy) lines.push(getConnectionLabel('jinxxy', 'Jinxxy', E.Jinxxy));
+  if (enabledProviders.vrchat) lines.push(getConnectionLabel('vrchat', 'VRChat', E.VRC));
   if (enabledProviders.discord)
     lines.push(getConnectionLabel('discord', 'Discord (other server)', E.Discord));
   if (lines.length > 0) {
@@ -657,14 +655,14 @@ function buildStatusContainer(
       );
     }
 
-    const disconnectButtons = getUniqueActiveEnabledProviders(linkedAccounts, enabledProviders)
-      .map((provider) =>
+    const disconnectButtons = getUniqueActiveEnabledProviders(linkedAccounts, enabledProviders).map(
+      (provider) =>
         new ButtonBuilder()
           .setCustomId(`${VERIFY_PREFIX}disconnect:${provider}`)
           .setLabel(`Disconnect ${providerLabel(provider)}`)
           .setEmoji(Emoji.X_)
           .setStyle(ButtonStyle.Danger)
-      );
+    );
     if (disconnectButtons.length > 0) {
       container.addActionRowComponents(
         new ActionRowBuilder<ButtonBuilder>().addComponents(...disconnectButtons.slice(0, 5))
@@ -684,14 +682,13 @@ function buildStatusContainer(
         .setLabel('Add another account')
         .setEmoji(Emoji.Refresh)
         .setStyle(ButtonStyle.Secondary),
-      ...getUniqueActiveEnabledProviders(linkedAccounts, enabledProviders)
-        .map((provider) =>
-          new ButtonBuilder()
-            .setCustomId(`${VERIFY_PREFIX}disconnect:${provider}`)
-            .setLabel(`Disconnect ${providerLabel(provider)}`)
-            .setEmoji(Emoji.X_)
-            .setStyle(ButtonStyle.Danger)
-        ),
+      ...getUniqueActiveEnabledProviders(linkedAccounts, enabledProviders).map((provider) =>
+        new ButtonBuilder()
+          .setCustomId(`${VERIFY_PREFIX}disconnect:${provider}`)
+          .setLabel(`Disconnect ${providerLabel(provider)}`)
+          .setEmoji(Emoji.X_)
+          .setStyle(ButtonStyle.Danger)
+      ),
     ];
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(...primaryButtons.slice(0, 5))
@@ -996,7 +993,7 @@ export async function handleLicenseModalSubmit(
     return;
   }
 
-  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
     discordUserId: interaction.user.id,
   });
 
@@ -1004,7 +1001,7 @@ export async function handleLicenseModalSubmit(
   if (subjectResult.found) {
     subjectId = subjectResult.subject._id;
   } else {
-    const created = await convex.mutation(api.subjects.ensureSubjectForDiscord as any, {
+    const created = await convex.mutation(api.subjects.ensureSubjectForDiscord, {
       apiSecret,
       discordUserId: interaction.user.id,
       displayName: interaction.user.username,
@@ -1130,7 +1127,7 @@ export async function handleVerifyDisconnectButton(
   await interaction.deferUpdate();
 
   try {
-    const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+    const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
       discordUserId: interaction.user.id,
     });
 
@@ -1139,7 +1136,7 @@ export async function handleVerifyDisconnectButton(
       return;
     }
 
-    const guildLink = await convex.query(api.guildLinks.getByDiscordGuildForBot as any, {
+    const guildLink = await convex.query(api.guildLinks.getByDiscordGuildForBot, {
       apiSecret,
       discordGuildId: guildId,
     });
@@ -1161,7 +1158,11 @@ export async function handleVerifyDisconnectButton(
       }),
     });
 
-    const result = (await res.json()) as { success?: boolean; error?: string; supportCode?: string };
+    const result = (await res.json()) as {
+      success?: boolean;
+      error?: string;
+      supportCode?: string;
+    };
 
     if (!result.success) {
       await interaction.editReply({
@@ -1244,7 +1245,7 @@ export async function handleRefreshCommand(
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
-    const result = await convex.mutation(api.entitlements.enqueueRoleSyncsForUser as any, {
+    const result = await convex.mutation(api.entitlements.enqueueRoleSyncsForUser, {
       apiSecret,
       tenantId: ctx.tenantId,
       discordUserId: interaction.user.id,

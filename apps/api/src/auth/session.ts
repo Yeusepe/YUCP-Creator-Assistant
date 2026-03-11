@@ -91,24 +91,31 @@ export interface SessionInfo {
   ipAddress?: string;
 }
 
+interface BetterAuthAdminApi {
+  revokeSession(args: { body: { token: string } }): Promise<void>;
+  revokeUserSessions(args: { body: { userId: string } }): Promise<void>;
+  listUserSessions(args: { body: { userId: string } }): Promise<SessionInfo[] | null | undefined>;
+}
+
 /**
  * Creates a session manager from a Better Auth instance
  * Uses the admin plugin for user session management
  * Note: Admin plugin methods are added at runtime, so we use type assertion
  */
 export function createSessionManager(auth: Auth): SessionManager {
+  const adminApi = (auth as unknown as { api: BetterAuthAdminApi }).api;
+
   return {
     async revokeSession(token: string) {
-      await (auth as any).api.revokeSession({ body: { token } });
+      await adminApi.revokeSession({ body: { token } });
     },
 
     async revokeAllUserSessions(userId: string) {
-      await (auth as any).api.revokeUserSessions({ body: { userId } });
+      await adminApi.revokeUserSessions({ body: { userId } });
     },
 
     async listUserSessions(userId: string) {
-      const result = await (auth as any).api.listUserSessions({ body: { userId } });
-      return (result as SessionInfo[]) ?? [];
+      return (await adminApi.listUserSessions({ body: { userId } })) ?? [];
     },
   };
 }

@@ -14,8 +14,6 @@
 
     <link rel="stylesheet" href="./tokens.css">
     <style>
-        
-
         body {
             background-color: var(--bg-color);
             color: var(--text-primary);
@@ -31,10 +29,15 @@
         }
 
         @media (min-width: 640px) {
-            body { padding: 2rem 1.5rem; }
+            body {
+                padding: 2rem 1.5rem;
+            }
         }
+
         @media (min-width: 1024px) {
-            body { padding: 3rem 2rem; }
+            body {
+                padding: 3rem 2rem;
+            }
         }
 
         h1 {
@@ -52,9 +55,9 @@
         }
 
         .check-path {
-            stroke-dasharray: 1000;
-            stroke-dashoffset: 1000;
-            animation: dash 1.5s ease-in-out forwards;
+            stroke-dasharray: 100;
+            stroke-dashoffset: 100;
+            animation: dash 0.8s ease-out 0.3s forwards;
         }
 
         @keyframes dash {
@@ -64,9 +67,9 @@
         }
 
         .circle-path {
-            stroke-dasharray: 1000;
-            stroke-dashoffset: 1000;
-            animation: dash 1.2s ease-in-out forwards;
+            stroke-dasharray: 300;
+            stroke-dashoffset: 300;
+            animation: dash 0.6s ease-out forwards;
         }
 
         .action-btn {
@@ -140,7 +143,8 @@
 <body>
     <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 sm:px-6"
         style="background-color: var(--bg-color);">
-        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain mb-8" />
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant"
+            class="h-8 sm:h-10 max-w-full w-auto object-contain mb-8" />
         <div class="page-loading-spinner"></div>
         <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
     </div>
@@ -149,9 +153,11 @@
             style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -20; pointer-events: none;">
         </div>
         <!-- Playful Background Stickers -->
-        <div id="holo-clapstars-0" class="absolute top-20 right-20 w-32 opacity-80 sticker pointer-events-auto z-0 h-32 hidden sm:block"
+        <div id="holo-clapstars-0"
+            class="absolute top-20 right-20 w-32 opacity-80 sticker pointer-events-auto z-0 h-32 hidden sm:block"
             style="animation-delay: -2s;"></div>
-        <div id="holo-world-1" class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24 hidden sm:block"
+        <div id="holo-world-1"
+            class="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24 hidden sm:block"
             style="animation-delay: -5s;"></div>
 
         <main class="text-center max-w-2xl w-full px-4 sm:px-6 relative z-10">
@@ -173,8 +179,14 @@
             </p>
             <div class="fade-up" style="animation-delay: 0.7s">
                 <a id="return-btn" href="#"
-                    class="action-btn inline-block w-full sm:w-auto px-8 py-4 sm:px-12 sm:py-5 rounded-full text-lg sm:text-xl font-black uppercase tracking-widest no-underline">
-                    Return to Discord®
+                    class="action-btn inline-block w-full sm:w-auto px-8 py-4 sm:px-12 sm:py-5 rounded-full text-lg sm:text-xl font-black uppercase tracking-widest no-underline mb-4">
+                    Open Discord App
+                </a>
+                <br>
+                <a id="return-web-btn" href="#"
+                    class="text-sm text-white/50 hover:text-white transition-colors underline underline-offset-4 hidden"
+                    style="font-family:'Plus Jakarta Sans',sans-serif; font-weight: 600;">
+                    Or continue in browser
                 </a>
             </div>
             <div id="redirect-msg" class="mt-12 text-sm font-bold uppercase tracking-widest opacity-40 fade-up"
@@ -200,7 +212,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ panelToken }),
-                    }).catch(() => {});
+                    }).catch(() => { });
                 }
 
                 function getSafeReturnTo(value) {
@@ -224,15 +236,26 @@
                 const safeReturnTo = getSafeReturnTo(returnTo);
 
                 if (safeReturnTo) {
-                    btn.href = safeReturnTo;
-                    btn.textContent = 'Return to Discord®';
+                    const deepLink = safeReturnTo.replace(/^http(s)?:\/\/(ptb\.|canary\.)?discord\.com/, 'discord://-');
+                    btn.href = deepLink;
+                    btn.textContent = 'Open Discord App';
+
+                    const webBtn = document.getElementById('return-web-btn');
+                    if (webBtn) {
+                        webBtn.href = safeReturnTo;
+                        webBtn.classList.remove('hidden');
+                    }
+
                     let count = 5;
                     const interval = setInterval(function () {
                         count--;
-                        redirectMsg.textContent = count > 0 ? 'Redirecting in ' + count + ' second' + (count !== 1 ? 's' : '') + '...' : 'Redirecting...';
+                        redirectMsg.textContent = count > 0 ? 'Redirecting to app in ' + count + ' second' + (count !== 1 ? 's' : '') + '...' : 'Redirecting...';
                         if (count <= 0) {
                             clearInterval(interval);
-                            window.location.href = safeReturnTo;
+                            window.location.href = deepLink;
+                            setTimeout(function () {
+                                window.location.href = safeReturnTo;
+                            }, 2500);
                         }
                     }, 1000);
                 } else {
@@ -267,14 +290,14 @@
             var observer = new MutationObserver(function () {
                 if (overlay.style.display === 'none') {
                     overlay.style.display = '';
-                    setTimeout(function() {
+                    setTimeout(function () {
                         overlay.classList.add('is-hiding');
                         if (content) {
-                        requestAnimationFrame(function () {
-                            requestAnimationFrame(function () { content.classList.add('is-visible'); });
-                        });
-                    }
-                    setTimeout(function () { overlay.style.display = 'none'; }, 370);
+                            requestAnimationFrame(function () {
+                                requestAnimationFrame(function () { content.classList.add('is-visible'); });
+                            });
+                        }
+                        setTimeout(function () { overlay.style.display = 'none'; }, 370);
                     }, 500);
                     observer.disconnect();
                 }

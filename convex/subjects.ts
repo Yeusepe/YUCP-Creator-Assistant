@@ -5,10 +5,10 @@
  * Subjects are platform-level entities that span all tenants.
  */
 
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { Doc } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 import { selectCanonicalExternalAccountCandidates } from './lib/externalAccountIdentity';
 import { ProviderV } from './lib/providers';
 
@@ -18,6 +18,24 @@ function requireApiSecret(apiSecret: string | undefined): void {
     throw new Error('Unauthorized: invalid or missing API secret');
   }
 }
+
+export const PublicSubjectSelector = v.union(
+  v.object({
+    subjectId: v.id('subjects'),
+  }),
+  v.object({
+    authUserId: v.string(),
+  }),
+  v.object({
+    discordUserId: v.string(),
+  }),
+  v.object({
+    externalAccount: v.object({
+      provider: ProviderV,
+      providerUserId: v.string(),
+    }),
+  })
+);
 
 // ============================================================================
 // QUERIES
@@ -43,7 +61,7 @@ export const getSubjectByAuthId = query({
           v.literal('active'),
           v.literal('suspended'),
           v.literal('quarantined'),
-          v.literal('deleted'),
+          v.literal('deleted')
         ),
         displayName: v.optional(v.string()),
         avatarUrl: v.optional(v.string()),
@@ -54,7 +72,7 @@ export const getSubjectByAuthId = query({
     v.object({
       found: v.literal(false),
       subject: v.null(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const subject = await ctx.db
@@ -90,7 +108,7 @@ export const getSubjectByDiscordId = query({
           v.literal('active'),
           v.literal('suspended'),
           v.literal('quarantined'),
-          v.literal('deleted'),
+          v.literal('deleted')
         ),
         displayName: v.optional(v.string()),
         avatarUrl: v.optional(v.string()),
@@ -101,7 +119,7 @@ export const getSubjectByDiscordId = query({
     v.object({
       found: v.literal(false),
       subject: v.null(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const subject = await ctx.db
@@ -114,6 +132,105 @@ export const getSubjectByDiscordId = query({
     }
 
     return { found: true as const, subject };
+  },
+});
+
+/**
+ * Resolve a canonical subject for the public API.
+ * External account selectors are tenant-aware and only resolve through active bindings.
+ */
+export const resolveSubjectForPublicApi = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    selector: PublicSubjectSelector,
+  },
+  returns: v.union(
+    v.object({
+      found: v.literal(true),
+      subject: v.object({
+        _id: v.id('subjects'),
+        _creationTime: v.number(),
+        primaryDiscordUserId: v.string(),
+        authUserId: v.optional(v.string()),
+        status: v.union(
+          v.literal('active'),
+          v.literal('suspended'),
+          v.literal('quarantined'),
+          v.literal('deleted')
+        ),
+        displayName: v.optional(v.string()),
+        avatarUrl: v.optional(v.string()),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+      }),
+    }),
+    v.object({
+      found: v.literal(false),
+      subject: v.null(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const selector = args.selector as
+      | { subjectId: Id<'subjects'> }
+      | { authUserId: string }
+      | { discordUserId: string }
+      | {
+          externalAccount: {
+            provider: Doc<'external_accounts'>['provider'];
+            providerUserId: string;
+          };
+        };
+
+    if ('subjectId' in selector) {
+      const subject = await ctx.db.get(selector.subjectId);
+      return subject ? { found: true as const, subject } : { found: false as const, subject: null };
+    }
+
+    if ('authUserId' in selector) {
+      const subject = await ctx.db
+        .query('subjects')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', selector.authUserId))
+        .first();
+      return subject ? { found: true as const, subject } : { found: false as const, subject: null };
+    }
+
+    if ('discordUserId' in selector) {
+      const subject = await ctx.db
+        .query('subjects')
+        .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', selector.discordUserId))
+        .first();
+      return subject ? { found: true as const, subject } : { found: false as const, subject: null };
+    }
+
+    const account = await ctx.db
+      .query('external_accounts')
+      .withIndex('by_provider_user', (q) =>
+        q
+          .eq('provider', selector.externalAccount.provider)
+          .eq('providerUserId', selector.externalAccount.providerUserId)
+      )
+      .first();
+
+    if (!account) {
+      return { found: false as const, subject: null };
+    }
+
+    const binding = await ctx.db
+      .query('bindings')
+      .withIndex('by_tenant_external', (q) =>
+        q.eq('tenantId', args.tenantId).eq('externalAccountId', account._id)
+      )
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .first();
+
+    if (!binding) {
+      return { found: false as const, subject: null };
+    }
+
+    const subject = await ctx.db.get(binding.subjectId);
+    return subject ? { found: true as const, subject } : { found: false as const, subject: null };
   },
 });
 
@@ -140,7 +257,7 @@ export const getSubjectWithAccounts = query({
           v.literal('active'),
           v.literal('suspended'),
           v.literal('quarantined'),
-          v.literal('deleted'),
+          v.literal('deleted')
         ),
         displayName: v.optional(v.string()),
         avatarUrl: v.optional(v.string()),
@@ -160,24 +277,20 @@ export const getSubjectWithAccounts = query({
               avatarUrl: v.optional(v.string()),
               profileUrl: v.optional(v.string()),
               rawData: v.optional(v.any()),
-            }),
+            })
           ),
           lastValidatedAt: v.optional(v.number()),
-          status: v.union(
-            v.literal('active'),
-            v.literal('disconnected'),
-            v.literal('revoked'),
-          ),
+          status: v.union(v.literal('active'), v.literal('disconnected'), v.literal('revoked')),
           createdAt: v.number(),
           updatedAt: v.number(),
-        }),
+        })
       ),
     }),
     v.object({
       found: v.literal(false),
       subject: v.null(),
       externalAccounts: v.array(v.any()),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -189,7 +302,7 @@ export const getSubjectWithAccounts = query({
 
     // Look up active external accounts linked to this subject via bindings.
     // When tenantId is provided (e.g. from verify panel), only return accounts in that tenant.
-    let bindingsQuery = ctx.db
+    const bindingsQuery = ctx.db
       .query('bindings')
       .withIndex('by_subject', (q) => q.eq('subjectId', args.subjectId))
       .filter((q) => q.eq(q.field('status'), 'active'));
@@ -227,9 +340,9 @@ export const getSubjectWithAccounts = query({
       }
     }
 
-    const externalAccounts = selectCanonicalExternalAccountCandidates(externalAccountCandidates).map(
-      (candidate) => candidate.value
-    );
+    const externalAccounts = selectCanonicalExternalAccountCandidates(
+      externalAccountCandidates
+    ).map((candidate) => candidate.value);
 
     return {
       found: true as const,
@@ -314,7 +427,7 @@ export const getSubjectIdByDiscordId = query({
     v.object({
       found: v.literal(false),
       subjectId: v.null(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const subject = await ctx.db

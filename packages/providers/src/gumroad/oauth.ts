@@ -8,11 +8,11 @@
  */
 
 import type {
+  AuthorizationUrlResult,
   GumroadAdapterConfig,
   GumroadOAuthError,
   GumroadTokenResponse,
   GumroadUserResponse,
-  AuthorizationUrlResult,
   OAuthCompletionResult,
   OAuthState,
 } from './types';
@@ -120,10 +120,7 @@ export class GumroadOAuthClient {
    * @param codeVerifier - The PKCE code verifier from the authorization step
    * @returns Token response with access and refresh tokens
    */
-  async exchangeCodeForToken(
-    code: string,
-    codeVerifier: string
-  ): Promise<GumroadTokenResponse> {
+  async exchangeCodeForToken(code: string, codeVerifier: string): Promise<GumroadTokenResponse> {
     const response = await fetch(`${this.oauthBaseUrl}/oauth/token`, {
       method: 'POST',
       headers: {
@@ -142,11 +139,7 @@ export class GumroadOAuthClient {
 
     if (!response.ok) {
       const error = (await response.json()) as GumroadOAuthError;
-      throw new OAuthError(
-        error.error_description ?? error.error,
-        error.error,
-        response.status
-      );
+      throw new OAuthError(error.error_description ?? error.error, error.error, response.status);
     }
 
     return response.json() as Promise<GumroadTokenResponse>;
@@ -175,11 +168,7 @@ export class GumroadOAuthClient {
 
     if (!response.ok) {
       const error = (await response.json()) as GumroadOAuthError;
-      throw new OAuthError(
-        error.error_description ?? error.error,
-        error.error,
-        response.status
-      );
+      throw new OAuthError(error.error_description ?? error.error, error.error, response.status);
     }
 
     return response.json() as Promise<GumroadTokenResponse>;
@@ -214,10 +203,7 @@ export class GumroadOAuthClient {
    * @param codeVerifier - The PKCE code verifier
    * @returns OAuth completion result with user ID and encrypted tokens
    */
-  async completeOAuthFlow(
-    code: string,
-    codeVerifier: string
-  ): Promise<OAuthCompletionResult> {
+  async completeOAuthFlow(code: string, codeVerifier: string): Promise<OAuthCompletionResult> {
     try {
       // Exchange code for tokens
       const tokenResponse = await this.exchangeCodeForToken(code, codeVerifier);

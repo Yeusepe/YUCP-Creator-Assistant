@@ -11,18 +11,19 @@
  * - Emit audit events for all role changes
  */
 
-import {
-  Client,
-  Guild,
-  GuildMember,
-  Role,
-  RESTJSONErrorCodes,
-} from 'discord.js';
+import { type StructuredLogger, createStructuredLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
-import {
-  createStructuredLogger,
-  type StructuredLogger,
-} from '@yucp/shared';
+import { Client, Guild, GuildMember, RESTJSONErrorCodes, Role } from 'discord.js';
+import { api } from '../../../../convex/_generated/api';
+
+type BotConvexClient = {
+  // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
+  query: (functionReference: unknown, args?: unknown) => Promise<any>;
+  // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
+  mutation: (functionReference: unknown, args?: unknown) => Promise<any>;
+  // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
+  action: (functionReference: unknown, args?: unknown) => Promise<any>;
+};
 
 // ============================================================================
 // TYPES (defined locally to avoid Convex import issues)
@@ -67,11 +68,7 @@ export interface OutboxJob {
   _id: Id<'outbox_jobs'>;
   tenantId: Id<'tenants'>;
   jobType: 'role_sync' | 'role_removal' | 'creator_alert' | 'retroactive_rule_sync';
-  payload:
-  | RoleSyncPayload
-  | RoleRemovalPayload
-  | CreatorAlertPayload
-  | RetroactiveRuleSyncPayload;
+  payload: RoleSyncPayload | RoleRemovalPayload | CreatorAlertPayload | RetroactiveRuleSyncPayload;
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'dead_letter';
   retryCount: number;
   maxRetries: number;
@@ -180,8 +177,8 @@ export class DiscordRateLimiter {
     const remainingHeader = headers['x-ratelimit-remaining'];
 
     if (resetHeader) {
-      const resetAt = parseFloat(resetHeader) * 1000; // Convert to ms
-      const remaining = remainingHeader ? parseInt(remainingHeader, 10) : 1;
+      const resetAt = Number.parseFloat(resetHeader) * 1000; // Convert to ms
+      const remaining = remainingHeader ? Number.parseInt(remainingHeader, 10) : 1;
 
       this.routeLimits.set(route, { resetAt, remaining });
     }
@@ -193,7 +190,7 @@ export class DiscordRateLimiter {
   calculateBackoff(retryCount: number, baseDelay = 1000): number {
     const maxDelay = 60000; // 60 seconds max
     const jitter = Math.random() * 0.3 * baseDelay; // Add jitter
-    const delay = Math.min(baseDelay * Math.pow(2, retryCount) + jitter, maxDelay);
+    const delay = Math.min(baseDelay * 2 ** retryCount + jitter, maxDelay);
     return Math.floor(delay);
   }
 
@@ -212,7 +209,7 @@ export class DiscordRateLimiter {
  */
 export class RoleSyncService {
   private readonly logger: StructuredLogger;
-  private readonly convexClient: ConvexHttpClient;
+  private readonly convexClient: BotConvexClient;
   private readonly discordClient: Client;
   private readonly rateLimiter: DiscordRateLimiter;
   private readonly apiSecret: string;
@@ -234,7 +231,7 @@ export class RoleSyncService {
       jsonOutput: true,
     });
 
-    this.convexClient = new ConvexHttpClient(options.convexUrl);
+    this.convexClient = new ConvexHttpClient(options.convexUrl) as unknown as BotConvexClient;
     this.discordClient = options.discordClient;
     this.apiSecret = options.apiSecret;
     this.encryptionSecret = options.encryptionSecret;
@@ -433,16 +430,11 @@ export class RoleSyncService {
         continue;
       }
 
-      const roleIds =
-        rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
+      const roleIds = rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
 
       for (const roleId of roleIds) {
         try {
-          const result = await this.addRoleToMember(
-            rule.guildId,
-            discordUserId,
-            roleId,
-          );
+          const result = await this.addRoleToMember(rule.guildId, discordUserId, roleId);
 
           if (result.added) {
             rolesAdded.push(roleId);
@@ -464,7 +456,7 @@ export class RoleSyncService {
     }
 
     // Determine overall success
-    const success = rolesAdded.length > 0 || (roleRules.filter(r => r.enabled).length === 0);
+    const success = rolesAdded.length > 0 || roleRules.filter((r) => r.enabled).length === 0;
 
     return {
       success,
@@ -552,12 +544,15 @@ export class RoleSyncService {
       throw new Error('Retroactive rule sync payload missing tenantId or productId');
     }
 
-    const result = (await this.convexClient.mutation('backgroundSync:processRetroactiveRuleSyncJob' as any, {
-      apiSecret: this.apiSecret,
-      jobId: job._id,
-      tenantId: payload.tenantId,
-      productId: payload.productId,
-    })) as {
+    const result = (await this.convexClient.mutation(
+      api.backgroundSync.processRetroactiveRuleSyncJob,
+      {
+        apiSecret: this.apiSecret,
+        jobId: job._id,
+        tenantId: payload.tenantId,
+        productId: payload.productId,
+      }
+    )) as {
       success: boolean;
       roleSyncJobsCreated: number;
       entitlementsFound: number;
@@ -587,7 +582,7 @@ export class RoleSyncService {
       await this.proactiveDiscordRoleCheck(
         payload.tenantId,
         payload.productId,
-        result.discordTokenAccounts,
+        result.discordTokenAccounts
       );
     }
   }
@@ -604,7 +599,7 @@ export class RoleSyncService {
       providerUserId: string;
       discordAccessTokenEncrypted: string;
       discordTokenExpiresAt?: number;
-    }>,
+    }>
   ): Promise<void> {
     if (!this.encryptionSecret) {
       this.logger.warn('Cannot do proactive discord role check: no encryptionSecret configured');
@@ -644,18 +639,18 @@ export class RoleSyncService {
         // Decrypt the access token
         const accessToken = await this.decryptToken(
           account.discordAccessTokenEncrypted,
-          this.encryptionSecret,
+          this.encryptionSecret
         );
 
         // Check guild membership using the user's OAuth token
         const memberRes = await fetch(
           `https://discord.com/api/v10/users/@me/guilds/${sourceGuildId}/member`,
-          { headers: { Authorization: `Bearer ${accessToken}` } },
+          { headers: { Authorization: `Bearer ${accessToken}` } }
         );
 
         if (memberRes.status === 429) {
           const retryAfter = memberRes.headers.get('Retry-After');
-          const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+          const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 5000;
           await new Promise((r) => setTimeout(r, waitMs));
           continue; // Skip this user for now, will be retried
         }
@@ -668,34 +663,30 @@ export class RoleSyncService {
         const member = (await memberRes.json()) as { roles?: string[] };
         const roles = member.roles ?? [];
         const hasRole =
-          roles.includes(requiredRoleId) ||
-          (requiredRoleId === sourceGuildId && memberRes.ok);
+          roles.includes(requiredRoleId) || (requiredRoleId === sourceGuildId && memberRes.ok);
 
         if (hasRole) {
           // Find or create subject for this Discord user
           const subjectId = await this.convexClient.mutation(
-            'identitySync:getOrCreateSubjectForDiscordUser' as any,
+            api.identitySync.getOrCreateSubjectForDiscordUser,
             {
               apiSecret: this.apiSecret,
               discordUserId: account.providerUserId,
-            },
+            }
           );
 
           // Grant entitlement
           const sourceReference = `discord_role:${sourceGuildId}:${requiredRoleId}`;
-          await this.convexClient.mutation(
-            'entitlements:grantEntitlement' as any,
-            {
-              apiSecret: this.apiSecret,
-              tenantId,
-              subjectId,
-              productId,
-              evidence: {
-                provider: 'discord',
-                sourceReference,
-              },
+          await this.convexClient.mutation(api.entitlements.grantEntitlement, {
+            apiSecret: this.apiSecret,
+            tenantId,
+            subjectId,
+            productId,
+            evidence: {
+              provider: 'discord',
+              sourceReference,
             },
-          );
+          });
           granted++;
         } else {
           skipped++;
@@ -727,15 +718,11 @@ export class RoleSyncService {
   private async decryptToken(ciphertextB64: string, secret: string): Promise<string> {
     const encoder = new TextEncoder();
     const hash = await crypto.subtle.digest('SHA-256', encoder.encode(secret));
-    const key = await crypto.subtle.importKey(
-      'raw', hash, { name: 'AES-GCM' }, false, ['decrypt'],
-    );
+    const key = await crypto.subtle.importKey('raw', hash, { name: 'AES-GCM' }, false, ['decrypt']);
     const combined = Uint8Array.from(atob(ciphertextB64), (c) => c.charCodeAt(0));
     const iv = combined.slice(0, 12);
     const data = combined.slice(12);
-    const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv }, key, data,
-    );
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
     return new TextDecoder().decode(decrypted);
   }
 
@@ -770,7 +757,7 @@ export class RoleSyncService {
     await this.rateLimiter.waitForRateLimit(route);
 
     try {
-      let member;
+      let member: GuildMember;
       try {
         member = await guild.members.fetch(discordUserId);
       } catch (fetchErr) {
@@ -961,17 +948,14 @@ export class RoleSyncService {
   /**
    * Emit audit event for role sync operation.
    */
-  private async emitAuditEvent(
-    job: OutboxJob,
-    result: RoleSyncResult
-  ): Promise<void> {
+  private async emitAuditEvent(job: OutboxJob, result: RoleSyncResult): Promise<void> {
     try {
       const eventType =
         job.jobType === 'role_sync'
           ? 'discord.role.sync.completed'
           : 'discord.role.removal.completed';
 
-      await this.convexClient.mutation('audit_events:createAuditEvent' as any, {
+      await this.convexClient.mutation(api.audit_events.createAuditEvent, {
         apiSecret: this.apiSecret,
         tenantId: job.tenantId,
         eventType,
@@ -1007,7 +991,7 @@ export class RoleSyncService {
    */
   private async fetchPendingJobs(): Promise<OutboxJob[]> {
     try {
-      const jobs = await this.convexClient.query('outbox_jobs:getPendingJobs' as any, {
+      const jobs = await this.convexClient.query(api.outbox_jobs.getPendingJobs, {
         apiSecret: this.apiSecret,
         jobTypes: ['role_sync', 'role_removal', 'creator_alert', 'retroactive_rule_sync'],
         limit: 10,
@@ -1032,7 +1016,7 @@ export class RoleSyncService {
     nextRetryAt?: number
   ): Promise<void> {
     try {
-      await this.convexClient.mutation('outbox_jobs:updateJobStatus' as any, {
+      await this.convexClient.mutation(api.outbox_jobs.updateJobStatus, {
         apiSecret: this.apiSecret,
         jobId,
         status,
@@ -1051,12 +1035,9 @@ export class RoleSyncService {
   /**
    * Fetch role rules for a tenant and product.
    */
-  private async fetchRoleRules(
-    tenantId: Id<'tenants'>,
-    productId: string
-  ): Promise<RoleRule[]> {
+  private async fetchRoleRules(tenantId: Id<'tenants'>, productId: string): Promise<RoleRule[]> {
     try {
-      const rules = await this.convexClient.query('role_rules:getByProduct' as any, {
+      const rules = await this.convexClient.query(api.role_rules.getByProduct, {
         tenantId,
         productId,
       });
@@ -1077,7 +1058,7 @@ export class RoleSyncService {
    */
   private async fetchEntitlement(entitlementId: Id<'entitlements'>): Promise<Entitlement | null> {
     try {
-      const result = await this.convexClient.query('entitlements:getEntitlement' as any, {
+      const result = await this.convexClient.query(api.entitlements.getEntitlement, {
         apiSecret: this.apiSecret,
         entitlementId,
       });

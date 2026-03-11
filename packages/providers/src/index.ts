@@ -1,9 +1,8 @@
 // Provider adapters for Gumroad, Jinxxy, Discord, and manual licenses
 
 import type { User, Verification, VerificationStatus } from '@yucp/shared';
-import type { ManualLicenseStorage } from './manual/types';
 import { ManualLicenseManager } from './manual/manager';
-
+import type { ManualLicenseStorage } from './manual/types';
 
 export interface PurchaseRecord {
   buyerEmail?: string;
@@ -31,22 +30,35 @@ export interface ProviderAdapter {
 /** Extended adapter interface for manual licenses with full license management */
 export interface ManualProviderAdapter extends ProviderAdapter {
   /** Generate a new license key */
-  generateLicense(input: import('./manual/types').CreateLicenseInput): Promise<import('./manual/types').CreateLicenseResult>;
+  generateLicense(
+    input: import('./manual/types').CreateLicenseInput
+  ): Promise<import('./manual/types').CreateLicenseResult>;
   /** Validate a license key */
-  validateLicense(input: import('./manual/types').ValidateLicenseInput): Promise<import('./manual/types').ValidateLicenseResult>;
+  validateLicense(
+    input: import('./manual/types').ValidateLicenseInput
+  ): Promise<import('./manual/types').ValidateLicenseResult>;
   /** Use a license (increment usage count) */
-  useLicense(input: import('./manual/types').UseLicenseInput): Promise<import('./manual/types').UseLicenseResult>;
+  useLicense(
+    input: import('./manual/types').UseLicenseInput
+  ): Promise<import('./manual/types').UseLicenseResult>;
   /** Revoke a license */
-  revokeLicense(input: import('./manual/types').RevokeLicenseInput): Promise<import('./manual/types').ManualLicense>;
+  revokeLicense(
+    input: import('./manual/types').RevokeLicenseInput
+  ): Promise<import('./manual/types').ManualLicense>;
   /** Bulk import licenses */
-  bulkImport(input: import('./manual/types').BulkImportInput): Promise<import('./manual/types').BulkImportResult>;
+  bulkImport(
+    input: import('./manual/types').BulkImportInput
+  ): Promise<import('./manual/types').BulkImportResult>;
   /** List licenses for a tenant/product */
-  listLicenses(tenantId: string, productId?: string): Promise<Array<Omit<import('./manual/types').ManualLicense, 'licenseKeyHash'>>>;
+  listLicenses(
+    tenantId: string,
+    productId?: string
+  ): Promise<Array<Omit<import('./manual/types').ManualLicense, 'licenseKeyHash'>>>;
 }
 
 // Re-export Gumroad adapter (full implementation in ./gumroad)
 import { GumroadAdapter } from './gumroad';
-export { GumroadAdapter, resolveGumroadProductId } from './gumroad';
+export { GumroadAdapter, resolveGumroadProductId, resolveGumroadProduct } from './gumroad';
 import type { GumroadAdapterConfig } from './gumroad/types';
 export type {
   GumroadAdapterConfig,
@@ -89,7 +101,7 @@ export type {
 export class DiscordAdapter implements ProviderAdapter {
   readonly name = 'discord';
 
-  constructor(private config: ProviderConfig) { }
+  constructor(private config: ProviderConfig) {}
 
   async verifyPurchase(_discordId: string): Promise<Verification | null> {
     // Placeholder - Discord verification via OAuth/bot

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="__API_BASE__/Icons/favicon.ico" type="image/x-icon">
+    <title>Page Not Found | Creator Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="/tokens.css">
+    <style>
+        html, body {
+            background: linear-gradient(180deg, #4A9DD9 0%, #3a8bc6 100%);
+            min-height: 100%;
+        }
+        body {
+            color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+            overflow-x: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100dvh;
+            padding: 1.25rem 1rem;
+            box-sizing: border-box;
+        }
+        @media (min-width: 640px) {
+            body { padding: 2rem 1.5rem; }
+        }
+        @media (min-width: 1024px) {
+            body { padding: 3rem 2rem; }
+        }
+
+        /* Blobs – docs-inspired */
+        .blobs-container {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        .blob {
+            position: absolute;
+            width: 450px;
+            height: 450px;
+            border-radius: 50%;
+            filter: blur(90px);
+            opacity: 0.45;
+        }
+        .blob:nth-child(1) { background: #FF75C3; top: 5%; left: 10%; }
+        .blob:nth-child(2) { background: #FFA647; top: 10%; right: 15%; }
+        .blob:nth-child(3) { background: #FFE83F; bottom: 20%; left: 20%; }
+        .blob:nth-child(4) { background: #9FFF5B; bottom: 15%; right: 10%; }
+        .blob:nth-child(5) { background: #70E2FF; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+
+        .content-above-clouds {
+            position: relative;
+            z-index: 10;
+        }
+
+        h1 {
+            font-family: "Plus Jakarta Sans", sans-serif;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+
+        /* 404 – 3D Text3D canvas (drei + cloud texture) */
+        #canvas-404-root {
+            width: 100%;
+            max-width: 800px;
+            height: 380px;
+            margin: 0 auto 1.5rem;
+            display: block;
+        }
+
+        .action-btn {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            transition: all 0.2s ease;
+            color: #ffffff;
+        }
+        .action-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .fade-up {
+            animation: fadeUp 0.5s ease-out forwards;
+            opacity: 0;
+            transform: translateY(12px);
+        }
+        @keyframes fadeUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .page-loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: page-loading-spin 0.8s linear infinite;
+        }
+        @keyframes page-loading-spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #page-loading-overlay {
+            transition: opacity 0.35s ease;
+            background: linear-gradient(180deg, #4A9DD9 0%, #3a8bc6 100%);
+        }
+        #page-loading-overlay.is-hiding {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #page-content {
+            opacity: 0;
+            transition: opacity 0.3s ease 0.05s;
+        }
+        #page-content.is-visible {
+            opacity: 1;
+        }
+    </style>
+
+    <link rel="stylesheet" href="/assets/site/site.css">
+    <script type="module" src="/assets/site/site.js"></script>
+</head>
+
+<body data-page="404">
+    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center">
+        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
+        <div class="page-loading-spinner"></div>
+        <p class="mt-4" style="color: rgba(255,255,255,0.8);">Loading...</p>
+    </div>
+    <div id="page-content" style="display: none;">
+        <div class="blobs-container">
+            <div class="blob"></div>
+            <div class="blob"></div>
+            <div class="blob"></div>
+            <div class="blob"></div>
+            <div class="blob"></div>
+        </div>
+        <div id="bg-canvas-root"
+            style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none;">
+        </div>
+
+        <main class="content-above-clouds text-center max-w-xl w-full px-4 sm:px-6">
+            <!-- 404 formed by drei Text3D with cloud texture -->
+            <div id="canvas-404-root" class="fade-up" style="animation-delay: 0.1s" aria-hidden="true"></div>
+            <h1 class="text-2xl sm:text-3xl text-white mb-4 fade-up" style="animation-delay: 0.2s">
+                Page not found
+            </h1>
+            <p class="text-base sm:text-lg text-white/80 leading-relaxed fade-up" style="animation-delay: 0.3s">
+                The page you're looking for doesn't exist or has been moved.
+            </p>
+        </main>
+    </div>
+
+    <script>
+        (function () {
+            var overlay = document.getElementById('page-loading-overlay');
+            var content = document.getElementById('page-content');
+            if (!overlay) return;
+            var observer = new MutationObserver(function () {
+                if (overlay.style.display === 'none') {
+                    overlay.style.display = '';
+                    setTimeout(function() {
+                        overlay.classList.add('is-hiding');
+                        if (content) {
+                            requestAnimationFrame(function () {
+                                requestAnimationFrame(function () { content.classList.add('is-visible'); });
+                            });
+                        }
+                        setTimeout(function () { overlay.style.display = 'none'; }, 370);
+                    }, 500);
+                    observer.disconnect();
+                }
+            });
+            observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
+        })();
+    </script>
+
+</body>
+
+</html>

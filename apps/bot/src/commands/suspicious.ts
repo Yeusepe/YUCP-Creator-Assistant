@@ -2,24 +2,24 @@
  * /creator suspicious - Suspicious account management (admin)
  */
 
+import type { ConvexHttpClient } from 'convex/browser';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
-import type { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { track } from '../lib/posthog';
 
 export async function handleSuspiciousMark(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
   const reason = interaction.options.getString('reason') ?? 'No reason provided';
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
     discordUserId: targetUser.id,
   });
   if (!subjectResult.found) {
@@ -29,7 +29,7 @@ export async function handleSuspiciousMark(
     return;
   }
 
-  const result = await convex.mutation(api.identitySync.markSubjectSuspicious as any, {
+  const result = await convex.mutation(api.identitySync.markSubjectSuspicious, {
     apiSecret,
     subjectId: subjectResult.subject._id,
     reason,
@@ -53,11 +53,11 @@ export async function handleSuspiciousList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const list = await convex.query(api.identitySync.listSuspiciousSubjects as any, {
+  const list = await convex.query(api.identitySync.listSuspiciousSubjects, {
     apiSecret,
     tenantId: ctx.tenantId,
     limit: 25,
@@ -70,7 +70,7 @@ export async function handleSuspiciousList(
 
   const lines = list.map(
     (s: { discordUserId: string; reason?: string }) =>
-      `<@${s.discordUserId}> - ${s.reason ?? 'No reason'}`,
+      `<@${s.discordUserId}> - ${s.reason ?? 'No reason'}`
   );
   const embed = new EmbedBuilder()
     .setTitle('Suspicious Accounts')
@@ -84,12 +84,12 @@ export async function handleSuspiciousClear(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string },
+  ctx: { tenantId: Id<'tenants'>; guildId: string }
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId as any, {
+  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
     discordUserId: targetUser.id,
   });
   if (!subjectResult.found) {
@@ -99,7 +99,7 @@ export async function handleSuspiciousClear(
     return;
   }
 
-  await convex.mutation(api.identitySync.clearSubjectSuspicious as any, {
+  await convex.mutation(api.identitySync.clearSubjectSuspicious, {
     apiSecret,
     subjectId: subjectResult.subject._id,
     actorId: interaction.user.id,
