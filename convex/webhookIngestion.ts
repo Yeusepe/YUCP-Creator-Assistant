@@ -26,6 +26,8 @@ export const insertWebhookEvent = mutation({
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
     provider: WebhookProviderV,
+    providerKey: v.optional(ProviderV),
+    providerConnectionId: v.optional(v.id('provider_connections')),
     providerEventId: v.string(),
     eventType: v.string(),
     rawPayload: v.any(),
@@ -63,6 +65,8 @@ export const insertWebhookEvent = mutation({
 
     const eventId = await ctx.db.insert('webhook_events', {
       provider: args.provider,
+      providerKey: args.providerKey ?? args.provider,
+      providerConnectionId: args.providerConnectionId,
       providerEventId: args.providerEventId,
       eventType: args.eventType,
       rawPayload: args.rawPayload,
@@ -114,6 +118,8 @@ export const getPendingWebhookEvents = query({
       _id: v.id('webhook_events'),
       tenantId: v.optional(v.id('tenants')),
       provider: ProviderV,
+      providerKey: v.optional(ProviderV),
+      providerConnectionId: v.optional(v.id('provider_connections')),
       providerEventId: v.string(),
       eventType: v.string(),
       rawPayload: v.any(),

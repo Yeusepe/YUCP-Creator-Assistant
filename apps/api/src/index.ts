@@ -17,6 +17,7 @@ import {
   type InstallConfig,
   type VerificationConfig,
   createConnectRoutes,
+  createProviderPlatformRoutes,
   createWebhookHandler,
   mountInstallRoutes,
   mountVerificationRoutes,
@@ -34,6 +35,7 @@ let auth: Auth | null = null;
 let installRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
+let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
 let publicRoutes: ReturnType<typeof createPublicRoutes> | null = null;
@@ -186,6 +188,13 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
     gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
+    encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
+  });
+
+  providerPlatformRoutes = createProviderPlatformRoutes(auth, {
+    apiBaseUrl: publicBaseUrl,
+    convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   });
 
@@ -466,6 +475,13 @@ async function routeRequest(request: Request): Promise<Response> {
   // Proxy /api/auth/*, /api/yucp/*, and /v1/* requests to Convex.
   // Auth, YUCP OAuth, and the versioned public API (/v1/) all live on Convex .site.
   // When the API runs on localhost, proxy so everything works from a single origin.
+  if (pathname.startsWith('/v1/') && providerPlatformRoutes) {
+    const localV1Response = await providerPlatformRoutes.handleRequest(request);
+    if (localV1Response) {
+      return localV1Response;
+    }
+  }
+
   if (
     pathname.startsWith('/api/auth/') ||
     pathname.startsWith('/api/yucp/') ||

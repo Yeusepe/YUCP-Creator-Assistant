@@ -36,12 +36,12 @@ export const DASHBOARD_PROVIDER_REGISTRY = [
     iconBg: '#f7b84b',
     iconClassName: 'w-6 h-6 object-contain',
     description: 'API tokens, webhooks & license keys',
-    quickStartDescription: 'Lemon Squeezy is next in line',
+    quickStartDescription: 'Connect Lemon Squeezy',
     quickStartButtonBg: 'rgba(247,184,75,0.12)',
     quickStartButtonBorder: 'rgba(247,184,75,0.32)',
     serverTileLabel: 'Enable Lemon Squeezy for this Server',
     serverTileHint: 'Allow users to verify Lemon Squeezy purchases and licenses in this Discord server.',
-    setupState: 'preview',
+    setupState: 'ready',
   },
 ];
 
@@ -52,4 +52,3 @@ export function getDashboardProvider(providerKey) {
 export function getActiveSetupProviders() {
   return DASHBOARD_PROVIDER_REGISTRY.filter((provider) => provider.setupState !== 'hidden');
 }
-

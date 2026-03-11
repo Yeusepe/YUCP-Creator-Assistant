@@ -9,7 +9,10 @@ import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { Doc } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
-import { selectCanonicalExternalAccountCandidates } from './lib/externalAccountIdentity';
+import {
+  selectCanonicalExternalAccountCandidates,
+  type ExternalAccountIdentityCandidate,
+} from './lib/externalAccountIdentity';
 import { ProviderV } from './lib/providers';
 
 function requireApiSecret(apiSecret: string | undefined): void {
@@ -311,7 +314,27 @@ export const getSubjectWithAccounts = query({
       ? (await bindingsQuery.collect()).filter((b) => b.tenantId === args.tenantId)
       : await bindingsQuery.collect();
 
-    const externalAccountCandidates = [];
+    const externalAccountCandidates: Array<
+      ExternalAccountIdentityCandidate & {
+        value: {
+          _id: Id<'external_accounts'>;
+          _creationTime: number;
+          provider: string;
+          providerUserId: string;
+          providerUsername?: string;
+          providerMetadata?: {
+            email?: string;
+            avatarUrl?: string;
+            profileUrl?: string;
+            rawData?: any;
+          };
+          lastValidatedAt?: number;
+          status: 'active' | 'disconnected' | 'revoked';
+          createdAt: number;
+          updatedAt: number;
+        };
+      }
+    > = [];
     for (const binding of activeBindings) {
       const account = await ctx.db.get(binding.externalAccountId);
       if (account && account.status === 'active') {

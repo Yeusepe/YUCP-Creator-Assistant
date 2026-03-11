@@ -308,7 +308,7 @@ export const getPurchasesByEmailHash = internalQuery({
   returns: v.array(
     v.object({
       tenantId: v.id('tenants'),
-      provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+      provider: v.string(),
       externalOrderId: v.string(),
       externalLineItemId: v.optional(v.string()),
       providerProductId: v.string(),

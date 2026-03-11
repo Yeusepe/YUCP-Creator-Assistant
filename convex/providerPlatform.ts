@@ -1,5 +1,6 @@
 import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
+import type { Id } from './_generated/dataModel';
 import { ProviderV } from './lib/providers';
 
 function requireApiSecret(apiSecret: string | undefined): void {
@@ -427,5 +428,202 @@ export const listCatalogMappingsForConnection = query({
       .query('provider_catalog_mappings')
       .withIndex('by_connection', (q) => q.eq('providerConnectionId', args.providerConnectionId))
       .collect();
+  },
+});
+
+export const getProviderConnectionAdmin = query({
+  args: {
+    apiSecret: v.string(),
+    providerConnectionId: v.id('provider_connections'),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      connectionId: v.id('provider_connections'),
+      tenantId: v.id('tenants'),
+      providerKey: ProviderV,
+      provider: v.string(),
+      label: v.optional(v.string()),
+      status: v.optional(v.string()),
+      authMode: v.optional(v.string()),
+      externalShopId: v.optional(v.string()),
+      externalShopName: v.optional(v.string()),
+      webhookConfigured: v.boolean(),
+      webhookEndpoint: v.optional(v.string()),
+      remoteWebhookId: v.optional(v.string()),
+      remoteWebhookSecretRef: v.optional(v.string()),
+      testMode: v.optional(v.boolean()),
+      metadata: v.optional(v.any()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const connection = await ctx.db.get(args.providerConnectionId);
+    if (!connection) {
+      return null;
+    }
+
+    return {
+      connectionId: connection._id,
+      tenantId: connection.tenantId,
+      providerKey: (connection.providerKey ?? connection.provider) as any,
+      provider: connection.provider,
+      label: connection.label,
+      status: connection.status,
+      authMode: connection.authMode,
+      externalShopId: connection.externalShopId,
+      externalShopName: connection.externalShopName,
+      webhookConfigured: connection.webhookConfigured,
+      webhookEndpoint: connection.webhookEndpoint,
+      remoteWebhookId: connection.remoteWebhookId,
+      remoteWebhookSecretRef: connection.remoteWebhookSecretRef,
+      testMode: connection.testMode,
+      metadata: connection.metadata,
+      createdAt: connection.createdAt,
+      updatedAt: connection.updatedAt,
+    };
+  },
+});
+
+export const updateProviderConnectionState = mutation({
+  args: {
+    apiSecret: v.string(),
+    providerConnectionId: v.id('provider_connections'),
+    status: v.optional(
+      v.union(
+        v.literal('pending'),
+        v.literal('active'),
+        v.literal('degraded'),
+        v.literal('disconnected'),
+        v.literal('error')
+      )
+    ),
+    authMode: v.optional(v.string()),
+    label: v.optional(v.string()),
+    externalShopId: v.optional(v.string()),
+    externalShopName: v.optional(v.string()),
+    webhookConfigured: v.optional(v.boolean()),
+    webhookEndpoint: v.optional(v.string()),
+    remoteWebhookId: v.optional(v.string()),
+    remoteWebhookSecretRef: v.optional(v.string()),
+    lastHealthcheckAt: v.optional(v.number()),
+    lastSyncAt: v.optional(v.number()),
+    lastWebhookAt: v.optional(v.number()),
+    testMode: v.optional(v.boolean()),
+    metadata: v.optional(v.any()),
+  },
+  returns: v.id('provider_connections'),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const connection = await ctx.db.get(args.providerConnectionId);
+    if (!connection) {
+      throw new Error('Provider connection not found');
+    }
+
+    await ctx.db.patch(args.providerConnectionId, {
+      ...(args.status !== undefined ? { status: args.status } : {}),
+      ...(args.authMode !== undefined ? { authMode: args.authMode } : {}),
+      ...(args.label !== undefined ? { label: args.label } : {}),
+      ...(args.externalShopId !== undefined ? { externalShopId: args.externalShopId } : {}),
+      ...(args.externalShopName !== undefined
+        ? { externalShopName: args.externalShopName }
+        : {}),
+      ...(args.webhookConfigured !== undefined
+        ? { webhookConfigured: args.webhookConfigured }
+        : {}),
+      ...(args.webhookEndpoint !== undefined ? { webhookEndpoint: args.webhookEndpoint } : {}),
+      ...(args.remoteWebhookId !== undefined ? { remoteWebhookId: args.remoteWebhookId } : {}),
+      ...(args.remoteWebhookSecretRef !== undefined
+        ? { remoteWebhookSecretRef: args.remoteWebhookSecretRef }
+        : {}),
+      ...(args.lastHealthcheckAt !== undefined
+        ? { lastHealthcheckAt: args.lastHealthcheckAt }
+        : {}),
+      ...(args.lastSyncAt !== undefined ? { lastSyncAt: args.lastSyncAt } : {}),
+      ...(args.lastWebhookAt !== undefined ? { lastWebhookAt: args.lastWebhookAt } : {}),
+      ...(args.testMode !== undefined ? { testMode: args.testMode } : {}),
+      ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
+      updatedAt: Date.now(),
+    });
+
+    return args.providerConnectionId;
+  },
+});
+
+export const listCatalogProductsForTenant = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id('product_catalog'),
+      productId: v.string(),
+      provider: ProviderV,
+      providerProductRef: v.string(),
+      canonicalSlug: v.optional(v.string()),
+      displayName: v.optional(v.string()),
+      status: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const products = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    return products.map((product) => ({
+      _id: product._id,
+      productId: product.productId,
+      provider: product.provider,
+      providerProductRef: product.providerProductRef,
+      canonicalSlug: product.canonicalSlug,
+      displayName: product.displayName,
+      status: product.status,
+    }));
+  },
+});
+
+async function findSubjectByEmailHash(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  emailHash: string
+): Promise<Id<'subjects'> | null> {
+  const externalAccounts = await ctx.db
+    .query('external_accounts')
+    .withIndex('by_email_hash', (q: any) => q.eq('emailHash', emailHash))
+    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .collect();
+
+  for (const account of externalAccounts) {
+    const binding = await ctx.db
+      .query('bindings')
+      .withIndex('by_tenant_external', (q: any) =>
+        q.eq('tenantId', tenantId).eq('externalAccountId', account._id)
+      )
+      .filter((q: any) => q.eq(q.field('status'), 'active'))
+      .first();
+    if (binding) {
+      return binding.subjectId;
+    }
+  }
+
+  return null;
+}
+
+export const resolveTenantSubjectByEmailHash = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    emailHash: v.string(),
+  },
+  returns: v.union(v.null(), v.id('subjects')),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    return await findSubjectByEmailHash(ctx, args.tenantId, args.emailHash);
   },
 });

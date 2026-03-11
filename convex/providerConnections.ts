@@ -24,10 +24,16 @@ function requireApiSecret(apiSecret: string | undefined): void {
 }
 
 function getConnectionProviderKey(connection: {
-  provider?: string;
-  providerKey?: string;
+  provider?: unknown;
+  providerKey?: unknown;
 }): string {
-  return connection.providerKey ?? connection.provider ?? 'unknown';
+  const providerKey =
+    typeof connection.providerKey === 'string'
+      ? connection.providerKey
+      : typeof connection.provider === 'string'
+        ? connection.provider
+        : 'unknown';
+  return providerKey;
 }
 
 function getDefaultConnectionLabel(providerKey: string): string {
@@ -35,13 +41,13 @@ function getDefaultConnectionLabel(providerKey: string): string {
 }
 
 async function getCredentialValue(
-  ctx: MutationCtx,
+  ctx: any,
   connectionId: Id<'provider_connections'>,
   credentialKey: string
 ): Promise<string | null> {
   const credential = await ctx.db
     .query('provider_credentials')
-    .withIndex('by_connection_key', (q) =>
+    .withIndex('by_connection_key', (q: any) =>
       q.eq('providerConnectionId', connectionId).eq('credentialKey', credentialKey)
     )
     .first();
