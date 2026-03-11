@@ -295,6 +295,20 @@ async function routeRequest(request: Request): Promise<Response> {
     });
   }
 
+  if (pathname === '/dashboard-components.css') {
+    const file = Bun.file(`${import.meta.dir}/../public/dashboard-components.css`);
+    return new Response(file, {
+      headers: { 'Content-Type': 'text/css; charset=utf-8' },
+    });
+  }
+
+  if (pathname === '/dashboard.css') {
+    const file = Bun.file(`${import.meta.dir}/../public/dashboard.css`);
+    return new Response(file, {
+      headers: { 'Content-Type': 'text/css; charset=utf-8' },
+    });
+  }
+
   // Handle /Icons/ even with path prefix (e.g. /api/Icons/ when API has base path)
   const iconsPath = pathname.includes('/Icons/')
     ? pathname.slice(pathname.indexOf('/Icons/'))
@@ -775,6 +789,21 @@ async function routeRequest(request: Request): Promise<Response> {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
   };
+  const DASHBOARD_HTML_SECURITY_HEADERS: Record<string, string> = {
+    'Content-Security-Policy':
+      "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline' https://ga.jspm.io https://unpkg.com https://esm.sh; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "img-src 'self' data: blob: https:; " +
+      "font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; " +
+      "connect-src 'self' https: wss:; " +
+      "worker-src 'self' blob:; " +
+      "child-src 'self'; " +
+      "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+  };
   const COLLAB_HTML_SECURITY_HEADERS: Record<string, string> = {
     'Content-Security-Policy':
       "default-src 'self'; " +
@@ -1089,7 +1118,7 @@ async function routeRequest(request: Request): Promise<Response> {
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__HAS_SETUP_SESSION__', setupCookieToken ? 'true' : 'false');
     return new Response(html, {
-      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+      headers: { 'Content-Type': 'text/html', ...DASHBOARD_HTML_SECURITY_HEADERS },
     });
   }
 

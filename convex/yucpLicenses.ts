@@ -139,6 +139,20 @@ export const getTenantById = internalQuery({
   },
 });
 
+/** Get a tenant by its document ID, including ownerAuthUserId (for internal auth lookups). */
+export const getTenantOwnerById = internalQuery({
+  args: { tenantId: v.id('tenants') },
+  returns: v.union(
+    v.null(),
+    v.object({ _id: v.id('tenants'), name: v.string(), ownerAuthUserId: v.string() }),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.tenantId);
+    if (!row) return null;
+    return { _id: row._id, name: row.name, ownerAuthUserId: row.ownerAuthUserId };
+  },
+});
+
 /** List active products for a tenant, grouped by canonical productId. */
 export const getProductsForTenant = internalQuery({
   args: { tenantId: v.id('tenants') },

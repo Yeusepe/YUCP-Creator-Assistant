@@ -561,6 +561,15 @@ export * from './types';
  * @throws If the page can't be fetched or parsed
  */
 export async function resolveGumroadProductId(urlOrSlug: string): Promise<string> {
+  return (await resolveGumroadProduct(urlOrSlug)).id;
+}
+
+/**
+ * Fetches a Gumroad product page and extracts both the internal product ID and the display name.
+ */
+export async function resolveGumroadProduct(
+  urlOrSlug: string
+): Promise<{ id: string; name: string | undefined }> {
   // Normalise plain slugs to a full URL
   let url = urlOrSlug.trim();
   if (!url.startsWith('http')) {
@@ -603,7 +612,7 @@ export async function resolveGumroadProductId(urlOrSlug: string): Promise<string
     throw new Error(`Could not parse data-page JSON from Gumroad product page: ${url}`);
   }
 
-  const productId =
+  const product =
     typeof pageData === 'object' &&
     pageData !== null &&
     'props' in pageData &&
@@ -611,14 +620,16 @@ export async function resolveGumroadProductId(urlOrSlug: string): Promise<string
     pageData.props !== null &&
     'product' in pageData.props &&
     typeof pageData.props.product === 'object' &&
-    pageData.props.product !== null &&
-    'id' in pageData.props.product &&
-    typeof pageData.props.product.id === 'string'
-      ? pageData.props.product.id
+    pageData.props.product !== null
+      ? (pageData.props.product as Record<string, unknown>)
       : undefined;
+
+  const productId = typeof product?.id === 'string' ? product.id : undefined;
   if (!productId) {
     throw new Error(`Could not find product.id in Gumroad page data: ${url}`);
   }
 
-  return productId;
+  const productName = typeof product?.name === 'string' ? product.name : undefined;
+
+  return { id: productId, name: productName };
 }

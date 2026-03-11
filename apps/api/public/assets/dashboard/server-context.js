@@ -1,0 +1,291 @@
+import {
+  getApiBase,
+  getTenantId,
+  getGuildId,
+  setGuildId,
+  setTenantId,
+  getHasSetupSession,
+  setHasSetupSession,
+  apiFetch,
+  connectionsMap,
+} from './store.js';
+import { escHtml } from './utils.js';
+
+let userServers = null;
+let filteredServers = null;
+
+export function getServerIconUrl(server) {
+  if (server.iconUrl) return server.iconUrl;
+  if (server.icon) {
+    const sId = server.id || server.guildId;
+    const ext = server.icon.startsWith('a_') ? 'gif' : 'png';
+    return `https://cdn.discordapp.com/icons/${sId}/${server.icon}.${ext}`;
+  }
+  return null;
+}
+
+function applyContextState() {
+  const guildId = getGuildId();
+  if (guildId && guildId !== '') {
+    document.body.classList.add('state-server-selected');
+  } else {
+    document.body.classList.remove('state-server-selected');
+  }
+}
+
+export async function switchDashboardContext(newGuildId, deps) {
+  if (newGuildId === getGuildId()) return;
+  if (window.switchToTab) window.switchToTab('setup');
+
+  const urlParams = new URLSearchParams(window.location.search);
+  if (newGuildId) {
+    urlParams.set('guild_id', newGuildId);
+  } else {
+    urlParams.delete('guild_id');
+  }
+  if (!urlParams.has('tenant_id') && getTenantId()) {
+    urlParams.set('tenant_id', getTenantId());
+  }
+  const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+  window.history.pushState({ guildId: newGuildId }, '', newUrl);
+
+  setGuildId(newGuildId);
+  applyContextState();
+
+  if (newGuildId && userServers) {
+    const currentServer = userServers.find((s) => (s.id || s.guildId) === newGuildId);
+    if (currentServer) {
+      const sIconUrl = getServerIconUrl(currentServer);
+      const nameEl = document.getElementById('sidebar-selected-name');
+      const iconEl = document.getElementById('sidebar-selected-icon');
+      if (nameEl) nameEl.textContent = currentServer.name || 'Unnamed';
+      if (iconEl) {
+        if (sIconUrl) {
+          iconEl.innerHTML = `<img src="${sIconUrl}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+        } else {
+          const initials = (currentServer.name || '?').split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase() || '?';
+          iconEl.innerHTML = `<div class="fallback-icon">${initials}</div>`;
+        }
+      }
+    }
+  } else {
+    const nameEl = document.getElementById('sidebar-selected-name');
+    const iconEl = document.getElementById('sidebar-selected-icon');
+    if (nameEl) nameEl.textContent = 'Personal Dashboard';
+    if (iconEl) iconEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+  }
+
+  if (deps?.renderServerList && filteredServers) deps.renderServerList(filteredServers);
+  if (deps?.updatePlatformCards) deps.updatePlatformCards();
+}
+
+function renderServerList(servers) {
+  const listEl = document.getElementById('server-dropdown-list');
+  if (!listEl) return;
+  listEl.replaceChildren();
+
+  if (!servers || servers.length === 0) {
+    listEl.innerHTML = '<div class="server-dropdown-empty">No servers found.</div>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  servers.forEach((server) => {
+    const sId = server.id || server.guildId;
+    const item = document.createElement('div');
+    item.className = 'server-dropdown-item' + (sId === getGuildId() ? ' active' : '');
+
+    let iconHtml = '';
+    const sIconUrl = getServerIconUrl(server);
+    if (sIconUrl) {
+      iconHtml = `<img src="${sIconUrl}" alt="" loading="lazy">`;
+    } else {
+      const initials = (server.name || '?').split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase() || '?';
+      iconHtml = `<div class="fallback-icon">${initials}</div>`;
+    }
+
+    item.innerHTML = `${iconHtml}<span>${escHtml(server.name || 'Unnamed')}</span>`;
+
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('server-dropdown-menu')?.classList.remove('open');
+      switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards });
+    });
+
+    frag.appendChild(item);
+  });
+
+  listEl.appendChild(frag);
+}
+
+function renderParticipatingServers(servers) {
+  const section = document.getElementById('collab-servers-section');
+  if (!section) return;
+
+  let container = document.getElementById('participating-servers-list');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'participating-servers-list';
+    container.className = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4';
+    section.appendChild(container);
+  }
+
+  container.innerHTML = '';
+
+  if (!servers || servers.length === 0) {
+    container.innerHTML = `
+      <div class="bento-col-12 empty-state" style="margin: 0; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05);">
+        <div class="intg-icon" style="margin: 0 auto 16px; width: 40px; height: 40px; background: rgba(14,165,233,0.1); color: #0ea5e9;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14M12 5l7 7-7 7" />
+          </svg>
+        </div>
+        <p class="text-sm font-bold text-white mb-2" style="font-family:'Plus Jakarta Sans',sans-serif; font-size: 16px;">No participating servers</p>
+        <p class="text-white/50 max-w-sm mx-auto mb-6" style="font-family:'DM Sans',sans-serif; font-size: 13px; line-height:1.5;">You aren't managing any servers yet. Install the Assistant to your server to connect your storefront data.</p>
+        <button class="btn-primary" onclick="window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')" style="margin: 0 auto; background: #0ea5e9; color: #fff; border: none; padding: 10px 20px; font-weight: 700; border-radius: 8px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Add Assistant to Server
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  servers.forEach((server) => {
+    const sId = server.id || server.guildId;
+    const sIconUrl = getServerIconUrl(server);
+    const card = document.createElement('div');
+    card.className = 'platform-card connected flex items-center gap-3 cursor-pointer hover:bg-white/5 transition-colors';
+    card.style.padding = '12px 16px';
+
+    let iconHtml = '';
+    if (sIconUrl) {
+      iconHtml = `<img src="${sIconUrl}" class="w-10 h-10 rounded-full object-cover" alt="" loading="lazy">`;
+    } else {
+      const initials = (server.name || '?').split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase() || '?';
+      iconHtml = `<div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center font-bold text-white/70">${initials}</div>`;
+    }
+
+    card.innerHTML = `
+      ${iconHtml}
+      <div style="flex:1;min-width:0;">
+        <div class="font-bold text-base text-white truncate">${escHtml(server.name || 'Unnamed')}</div>
+        <div class="text-xs text-white/50">Manage Settings →</div>
+      </div>
+    `;
+
+    card.addEventListener('click', () => switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards }));
+
+    container.appendChild(card);
+  });
+}
+
+async function loadUserServers(updatePlatformCards) {
+  const listEl = document.getElementById('server-dropdown-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="server-dropdown-loading">Loading servers...</div>';
+
+  const tenantId = getTenantId();
+  const cacheKey = `ca_servers_${tenantId || 'global'}_V1`;
+  const cached = sessionStorage.getItem(cacheKey);
+
+  try {
+    if (cached) {
+      userServers = JSON.parse(cached);
+    } else {
+      const data = await apiFetch(`${getApiBase()}/api/connect/user/guilds`)
+        .then((res) => (res.ok ? res.json() : { servers: [] }));
+      userServers = data.guilds || data.servers || [];
+      sessionStorage.setItem(cacheKey, JSON.stringify(userServers));
+    }
+
+    filteredServers = [...userServers];
+    renderServerList(filteredServers);
+    renderParticipatingServers(filteredServers);
+
+    const guildId = getGuildId();
+    if (guildId && userServers.length > 0) {
+      const currentServer = userServers.find((s) => (s.id || s.guildId) === guildId);
+      if (currentServer) {
+        const nameEl = document.getElementById('sidebar-selected-name');
+        const iconEl = document.getElementById('sidebar-selected-icon');
+        if (nameEl) nameEl.textContent = currentServer.name || 'Unnamed';
+        const sIconUrl = getServerIconUrl(currentServer);
+        if (iconEl) {
+          if (sIconUrl) {
+            iconEl.innerHTML = `<img src="${sIconUrl}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+          } else {
+            const initials = (currentServer.name || '?').split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase() || '?';
+            iconEl.innerHTML = `<div class="fallback-icon">${initials}</div>`;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Server fetch failed', err);
+    userServers = [];
+    listEl.innerHTML = '<div class="server-dropdown-empty">Failed to load servers.</div>';
+  }
+}
+
+export function initServerContext(deps) {
+  window.__updatePlatformCards = deps?.updatePlatformCards;
+
+  applyContextState();
+
+  window.addEventListener('popstate', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const stateGuildId = urlParams.get('guild_id') || '';
+    if (stateGuildId !== getGuildId()) {
+      switchDashboardContext(stateGuildId, deps);
+    }
+  });
+
+  const selector = document.getElementById('sidebar-server-selector');
+  const menu = document.getElementById('server-dropdown-menu');
+  const searchInput = document.getElementById('server-search-input');
+  const personalBtn = document.getElementById('btn-personal-dashboard');
+
+  if (!selector || !menu) return;
+
+  selector.addEventListener('click', async (e) => {
+    if (menu.contains(e.target) && !e.target.closest('.server-dropdown-item') && e.target !== personalBtn) return;
+    const isOpen = menu.classList.contains('open');
+    if (isOpen) {
+      menu.classList.remove('open');
+    } else {
+      document.querySelectorAll('.dropdown-menu.open, .custom-select-wrapper.open').forEach((w) => w.classList.remove('open'));
+      menu.classList.add('open');
+      searchInput?.focus();
+      if (!userServers) await loadUserServers(deps?.updatePlatformCards);
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!selector.contains(e.target)) menu.classList.remove('open');
+  });
+
+  searchInput?.addEventListener('input', (e) => {
+    const term = e.target.value.toLowerCase();
+    if (!userServers) return;
+    filteredServers = userServers.filter((s) => s.name.toLowerCase().includes(term));
+    renderServerList(filteredServers);
+  });
+
+  personalBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.classList.remove('open');
+    switchDashboardContext('', deps);
+  });
+
+  if (!getGuildId()) {
+    const nameEl = document.getElementById('sidebar-selected-name');
+    const iconPath = document.querySelector('#sidebar-selected-icon path');
+    if (nameEl) nameEl.textContent = 'Personal Dashboard';
+    if (iconPath) iconPath.setAttribute('d', 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z');
+  }
+
+  loadUserServers(deps?.updatePlatformCards);
+}
