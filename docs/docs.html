@@ -437,6 +437,7 @@
         }
         .badge-gumroad { background: rgba(54,169,174,0.12); border: 1px solid rgba(54,169,174,0.35); color: #36a9ae; }
         .badge-jinxxy  { background: rgba(145,70,255,0.12);  border: 1px solid rgba(145,70,255,0.35);  color: #a78bfa; }
+        .badge-lemons  { background: rgba(255,211,110,0.12); border: 1px solid rgba(255,211,110,0.35); color: #ffd36e; }
         .badge-discord { background: rgba(88,101,242,0.12);  border: 1px solid rgba(88,101,242,0.35);  color: #818cf8; }
 .badge-manual  { background: rgba(0,230,118,0.10);   border: 1px solid rgba(0,230,118,0.3);    color: #34d399; }
 .badge-vrchat  { background: rgba(0,230,118,0.12);   border: 1px solid rgba(0,230,118,0.35);   color: #00e676; }
@@ -597,12 +598,12 @@
                 <div class="glow-ring" style="width:280px;height:280px;background:var(--accent-sky);top:-40px;right:-60px;opacity:0.2;"></div>
                 <p class="section-label">Section 1</p>
                 <h2 class="section-title">Introduction</h2>
-                <p class="section-lead">Creator Assistant bridges your <strong style="color:#fff;">Gumroad®, Jinxxy™, or VRChat® marketplace</strong> with your Discord® server, automatically granting roles when buyers verify a purchase. No DMs, no spreadsheets, no manual grants.</p>
+                <p class="section-lead">Creator Assistant bridges your <strong style="color:#fff;">Gumroad®, Jinxxy™, Lemon Squeezy®, or VRChat® marketplace</strong> with your Discord® server, automatically granting roles when buyers verify a purchase. No DMs, no spreadsheets, no manual grants.</p>
 
                 <div class="bento-card" style="margin-bottom:1.25rem;">
                     <div class="overview-steps">
                         <div class="overview-step"><div class="overview-num">1</div><h4>Install</h4><p>Add the bot to your server</p></div>
-                        <div class="overview-step"><div class="overview-num">2</div><h4>Connect</h4><p>Link Gumroad®, Jinxxy™, or VRChat®</p></div>
+                        <div class="overview-step"><div class="overview-num">2</div><h4>Connect</h4><p>Link Gumroad®, Jinxxy™, Lemon Squeezy®, or VRChat®</p></div>
                         <div class="overview-step"><div class="overview-num">3</div><h4>Verify</h4><p>Buyers get roles instantly</p></div>
                     </div>
                 </div>
@@ -612,7 +613,7 @@
                         <h4 style="color:#38bdf8;">For Creators</h4>
                         <ul>
                             <li>Automatic role assignment on purchase</li>
-                            <li>Connect Gumroad®, Jinxxy™, or VRChat® marketplaces</li>
+                            <li>Connect Gumroad®, Jinxxy™, Lemon Squeezy®, or VRChat® marketplaces</li>
                             <li>Map any product to any Discord® role</li>
                             <li>Invite collaborating creators</li>
                             <li>Gate download channels to buyers</li>
@@ -647,7 +648,7 @@
                 <h3 class="sub-heading"><span class="sub-dot"></span>Prerequisites</h3>
                 <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1.75rem;">
                     <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> Administrator permissions in your Discord® server</div>
-                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> A Gumroad® account with products, a Jinxxy™ creator account, or VRChat® avatars to verify</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> A Gumroad® or Lemon Squeezy® account with products, a Jinxxy™ creator account, or VRChat® avatars to verify</div>
                     <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> At least one Discord® role to assign to verified buyers</div>
                 </div>
 
@@ -678,7 +679,7 @@
                         <div class="step-content">
                             <h4>Follow the dashboard Quick Start</h4>
                             <p>The dashboard now drives setup end-to-end. Its Quick Start panel updates based on what you have already completed, shows the next recommended action, and can be dismissed until your progress changes.</p>
-                            <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,0.6);">Connect <span class="badge badge-gumroad">Gumroad®</span> with OAuth or finish <span class="badge badge-jinxxy">Jinxxy™</span> from the dashboard, save your server settings, then click <strong>Done Setup</strong>. The setup UI includes progress states, animations, and celebration effects as you complete milestones.</p>
+                            <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,0.6);">Connect <span class="badge badge-gumroad">Gumroad®</span> or <span class="badge badge-lemons">Lemon Squeezy®</span> with OAuth, or finish <span class="badge badge-jinxxy">Jinxxy™</span> from the dashboard, save your server settings, then click <strong>Done Setup</strong>. The setup UI includes progress states, animations, and celebration effects as you complete milestones.</p>
                         </div>
                     </div>
                     <div class="step-item">
@@ -725,8 +726,8 @@
 
                 <div style="display:flex;flex-direction:column;gap:0.85rem;margin-bottom:1.75rem;">
                     <div class="bento-card" style="padding:1.25rem;">
-                        <div style="margin-bottom:8px;"><span class="badge badge-gumroad">Gumroad® OAuth</span></div>
-                        <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">Buyer clicks <strong style="color:#fff;">Sign in with Gumroad®</strong>, authorizes read-only access to their purchase history. The bot matches purchases to your product mappings and grants roles automatically.</p>
+                        <div style="margin-bottom:8px;"><span class="badge badge-gumroad">Gumroad® OAuth</span> <span class="badge badge-lemons">Lemon Squeezy® OAuth</span></div>
+                        <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">Buyer clicks <strong style="color:#fff;">Sign in with Gumroad® or Lemon Squeezy®</strong>, authorizes read-only access to their purchase history. The bot matches purchases to your product mappings and grants roles automatically.</p>
                     </div>
                     <div class="bento-card" style="padding:1.25rem;">
                         <div style="margin-bottom:8px;"><span class="badge badge-jinxxy">License Key</span></div>
@@ -933,6 +934,7 @@
                     </div>
                     <div class="product-card" style="border-color:rgba(145,70,255,0.2);">
                         <div class="product-icon" style="background:rgba(145,70,255,0.12);"><img src="Icons/Jinxxy.png" alt="Jinxxy™"></div>
+                        <div class="product-icon" style="background:rgba(255,211,110,0.12);"><img src="Icons/Bag.png" alt="Lemon Squeezy®"></div>
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>Jinxxy™</h4><span class="badge badge-jinxxy">License Key</span></div>
                         <p>Products pulled from your connected Jinxxy™ store. Buyers enter the license key from their receipt, validated in real time.</p>
                     </div>
@@ -1051,7 +1053,7 @@
                 <p class="section-lead">Built-in tools to identify and block fraudulent verification, automatically via OAuth validation, and manually when you need finer control.</p>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Automatic protection</h3>
-                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1.5rem;">OAuth-based verification (Gumroad®, Discord®) means the buyer must actually own the account; fake keys or screenshots won't work. License key validation hits the provider's API in real time, so revoked or reused keys are rejected immediately.</p>
+                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1.5rem;">OAuth-based verification (Gumroad®, Lemon Squeezy®, Discord®) means the buyer must actually own the account; fake keys or screenshots won't work. License key validation hits the provider's API in real time, so revoked or reused keys are rejected immediately.</p>
 
                 <div class="two-col">
                     <div class="two-col-card" style="border-color:rgba(245,158,11,0.2);">
