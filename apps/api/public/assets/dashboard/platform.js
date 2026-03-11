@@ -96,7 +96,7 @@ function getQuickStartState() {
     progressPercent: Math.round((completedCount / 3) * 100),
     steps: [
       { id: 'stores', sectionId: 'platforms-grid', state: storesDone ? 'complete' : 'active', number: '01', label: storesDone ? 'Complete' : 'Current', title: storesDone ? `${connectedProviders} store${connectedProviders > 1 ? 's' : ''} linked` : 'Connect Gumroad or Jinxxy', body: storesDone ? 'Your storefront credentials are connected. You can add another store or move on.' : 'Use the platform cards below to connect the storefronts you actually sell through.', meta: storesDone ? `Connected: ${Array.from(connectionsMap.keys()).filter((k) => k === 'gumroad' || k === 'jinxxy').join(' + ')}` : 'Start with the platform cards', action: storesDone ? 'Review platforms' : 'Go to platforms' },
-      { id: 'settings', sectionId: 'save-indicator', state: settingsDone ? 'complete' : storesDone ? 'active' : 'locked', number: '02', label: settingsDone ? 'Complete' : storesDone ? 'Next' : 'Locked', title: settingsDone ? 'Settings dialed in' : 'Review server settings', body: settingsDone ? 'You already saved verification preferences for this tenant.' : 'Decide how verification, duplicate checks, and cross-server behavior should work.', meta: settingsDone ? 'Saved on this tenant' : 'Toggle or select a setting to mark this done', action: settingsDone ? 'Adjust settings' : 'Open settings' },
+      { id: 'settings', sectionId: 'server-settings-card', state: settingsDone ? 'complete' : storesDone ? 'active' : 'locked', number: '02', label: settingsDone ? 'Complete' : storesDone ? 'Next' : 'Locked', title: settingsDone ? 'Settings dialed in' : 'Review server settings', body: settingsDone ? 'You already saved verification preferences for this tenant.' : 'Decide how verification, duplicate checks, and cross-server behavior should work.', meta: settingsDone ? 'Saved on this tenant' : 'Toggle or select a setting to mark this done', action: settingsDone ? 'Adjust settings' : 'Open settings' },
       { id: 'finish', sectionId: 'done-btn', state: done ? 'complete' : finalReady ? 'active' : 'locked', number: '03', label: done ? 'Complete' : finalReady ? 'Ready' : 'Waiting', title: done ? 'Back to Discord' : 'Finish in Discord', body: done ? 'Setup was completed from this dashboard already.' : finalReady ? 'Everything is ready. Confirm the setup and close this page when you are done.' : 'Finish becomes available after you connect a store and save your preferences.', meta: done ? 'All set' : finalReady ? 'Done Setup is ready' : 'Waiting on earlier steps', action: done ? 'Review finish' : finalReady ? 'Jump to finish' : 'See requirements' },
     ],
   };
@@ -333,11 +333,38 @@ function updateSettingsUI() {
   renderQuickStart();
 }
 
-function showSaved() {
-  const indicator = document.getElementById('save-indicator');
-  indicator.classList.add('visible');
-  clearTimeout(indicator._timeout);
-  indicator._timeout = setTimeout(() => indicator.classList.remove('visible'), 2000);
+function showSaved(key) {
+  const indicator = document.querySelector(`.tile-save-indicator[data-for="${key}"]`);
+  const errIndicator = document.querySelector(`.tile-save-error[data-for="${key}"]`);
+  if (errIndicator) {
+    errIndicator.hidden = true;
+    errIndicator.classList.remove('visible');
+    clearTimeout(errIndicator._timeout);
+  }
+  if (indicator) {
+    indicator.classList.add('visible');
+    clearTimeout(indicator._timeout);
+    indicator._timeout = setTimeout(() => indicator.classList.remove('visible'), 2200);
+  }
+}
+
+function showSaveError(key) {
+  const indicator = document.querySelector(`.tile-save-indicator[data-for="${key}"]`);
+  const errIndicator = document.querySelector(`.tile-save-error[data-for="${key}"]`);
+  if (indicator) {
+    indicator.classList.remove('visible');
+    clearTimeout(indicator._timeout);
+  }
+  if (errIndicator) {
+    clearTimeout(errIndicator._timeout);
+    clearTimeout(errIndicator._hideTimeout);
+    errIndicator.hidden = false;
+    errIndicator.classList.add('visible');
+    errIndicator._timeout = setTimeout(() => {
+      errIndicator.classList.remove('visible');
+      errIndicator._hideTimeout = setTimeout(() => { errIndicator.hidden = true; }, 380);
+    }, 3000);
+  }
 }
 
 async function toggleSetting(key) {
@@ -355,12 +382,12 @@ async function toggleSetting(key) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data?.error || 'Failed to save setting.');
     }
-    showSaved();
+    showSaved(key);
     persistSettingsTouched();
     renderQuickStart();
   } catch (e) {
     console.error('Error updating setting:', e);
-    alert(`${e instanceof Error ? e.message : 'Failed to save setting.'} Reverting.`);
+    showSaveError(key);
     el.classList.toggle('active');
     settingsMap.set(key, !newValue);
     renderQuickStart();
@@ -380,12 +407,12 @@ async function selectSetting(key, value) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data?.error || 'Failed to save setting.');
     }
-    showSaved();
+    showSaved(key);
     persistSettingsTouched();
     renderQuickStart();
   } catch (e) {
     console.error('Error updating setting:', e);
-    alert(`${e instanceof Error ? e.message : 'Failed to save setting.'} Reverting.`);
+    showSaveError(key);
     settingsMap.set(key, oldValue);
     const el = document.getElementById(`select-${key}`);
     if (el) el.value = oldValue ?? '';

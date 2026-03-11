@@ -117,17 +117,15 @@
 
         <!-- Sidebar (liquid glass) -->
         <aside id="sidebar" class="sidebar" aria-label="Main navigation">
-            <div id="sidebar-blur-overlay" class="sidebar-blur-overlay" aria-hidden="true"></div>
             <div class="sidebar-logo-area">
                 <div class="sidebar-brand">
-                    <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant Logo"
-                        class="sidebar-logo-img">
+                    <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant Logo" class="sidebar-logo-img">
                 </div>
                 <div class="sidebar-server-pill" id="sidebar-server-selector">
                     <div class="sidebar-server-info">
                         <div class="sidebar-server-icon" id="sidebar-selected-icon">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                stroke-linecap="round" stroke-linejoin="round">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M6 9l6 6 6-6" />
                             </svg>
                         </div>
@@ -298,7 +296,8 @@
                             </p>
                         </div>
                     </div>
-                    <div class="flex items-center gap-3 w-full md:w-auto mt-4 md:mt-0">
+                    <div
+                        class="content-header-actions flex items-center justify-end gap-3 w-full md:w-auto mt-4 md:mt-0">
                         <button id="theme-toggle" type="button" class="btn-ghost !px-3 !py-2 !rounded-xl"
                             aria-label="Toggle Dark Mode" onclick="toggleTheme()" title="Toggle Dark Mode">
                             <svg class="sun-icon hidden" width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -480,15 +479,17 @@
                     <!-- Server Config (tile grid, built from scratch) -->
                     <div id="server-settings-card"
                         class="svr-cfg bento-col-12 animate-in animate-in-delay-3 server-only">
+                        <div id="session-locked-banner" class="session-locked-banner" role="alert" hidden>
+                            <svg class="session-locked-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                            <span>Settings require a secure setup link from Discord. Run
+                                <code>/creator-admin setup start</code> to get a new link.</span>
+                        </div>
                         <div class="svr-cfg-bar">
                             <h2 class="svr-cfg-title">Server Config</h2>
-                            <span id="save-indicator" class="svr-cfg-saved save-indicator">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M5 13l4 4L19 7" />
-                                </svg>
-                                Saved
-                            </span>
                         </div>
 
                         <div class="settings-subsection" id="server-store-integrations-section">
@@ -552,6 +553,12 @@
                                         <div id="toggle-allowMismatchedEmails" class="svr-cfg-switch" role="switch"
                                             onclick="toggleSetting('allowMismatchedEmails')"
                                             aria-label="Allow Mismatched Emails"></div>
+                                        <span class="save-indicator tile-save-indicator" data-for="allowMismatchedEmails" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="allowMismatchedEmails" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
                                     </div>
                                 </article>
                                 <article class="svr-cfg-tile">
@@ -569,6 +576,12 @@
                                         <div id="toggle-autoVerifyOnJoin" class="svr-cfg-switch" role="switch"
                                             onclick="toggleSetting('autoVerifyOnJoin')"
                                             aria-label="Auto-Verify on Join"></div>
+                                        <span class="save-indicator tile-save-indicator" data-for="autoVerifyOnJoin" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="autoVerifyOnJoin" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
                                     </div>
                                 </article>
                                 <article class="svr-cfg-tile">
@@ -577,7 +590,8 @@
                                         </div>
                                         <div class="svr-cfg-tile-text">
                                             <span class="svr-cfg-tile-label">Share Across Servers</span>
-                                            <span class="svr-cfg-tile-hint">Same Discord account, different servers Ã¢â‚¬â€
+                                            <span class="svr-cfg-tile-hint">Same Discord account, different servers
+                                                Ã¢â‚¬â€
                                                 verification carries over.</span>
                                         </div>
                                     </div>
@@ -585,6 +599,12 @@
                                         <div id="toggle-shareVerificationWithServers" class="svr-cfg-switch"
                                             role="switch" onclick="toggleSetting('shareVerificationWithServers')"
                                             aria-label="Share Across Servers"></div>
+                                        <span class="save-indicator tile-save-indicator" data-for="shareVerificationWithServers" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="shareVerificationWithServers" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
                                     </div>
                                 </article>
                                 <article class="svr-cfg-tile">
@@ -601,6 +621,12 @@
                                         <div id="toggle-enableDiscordRoleFromOtherServers" class="svr-cfg-switch"
                                             role="switch" onclick="toggleSetting('enableDiscordRoleFromOtherServers')"
                                             aria-label="Cross-Server Role Checks"></div>
+                                        <span class="save-indicator tile-save-indicator" data-for="enableDiscordRoleFromOtherServers" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="enableDiscordRoleFromOtherServers" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
                                     </div>
                                 </article>
                                 <article class="svr-cfg-tile">
@@ -619,6 +645,12 @@
                                             <option value="account">Account</option>
                                             <option value="license">License</option>
                                         </select>
+                                        <span class="save-indicator tile-save-indicator" data-for="verificationScope" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="verificationScope" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
                                     </div>
                                 </article>
                                 <article class="svr-cfg-tile">
@@ -638,6 +670,12 @@
                                             <option value="notify">Notify</option>
                                             <option value="block">Block</option>
                                         </select>
+                                        <span class="save-indicator tile-save-indicator" data-for="duplicateVerificationBehavior" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="duplicateVerificationBehavior" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
                                     </div>
                                 </article>
                                 <article class="svr-cfg-tile">
@@ -656,468 +694,535 @@
                                             <option value="quarantine">Quarantine</option>
                                             <option value="revoke">Revoke</option>
                                         </select>
+                                        <span class="save-indicator tile-save-indicator" data-for="suspiciousAccountBehavior" aria-live="polite">
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                        </span>
+                                        <span class="save-indicator save-indicator-error tile-save-error" data-for="suspiciousAccountBehavior" aria-live="assertive" hidden>
+                                            <svg class="save-indicator-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        </span>
                                     </div>
                                 </article>
                             </div>
                         </div>
+
+                        <!-- Danger Zone -->
+                        <div class="settings-subsection" style="margin-top: 16px;">
+                            <div class="settings-subsection-title" style="color: #ef4444;">Danger Zone</div>
+                            <div class="settings-subsection-body">
+                                <article class="svr-cfg-tile" style="border: 1px solid rgba(239,68,68,0.15);">
+                                    <div class="svr-cfg-tile-head">
+                                        <div class="svr-cfg-tile-icon"
+                                            style="background: rgba(239,68,68,0.15); color: #ef4444;">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                stroke-linejoin="round">
+                                                <polyline points="3 6 5 6 21 6" />
+                                                <path
+                                                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                            </svg>
+                                        </div>
+                                        <div class="svr-cfg-tile-text">
+                                            <span class="svr-cfg-tile-label">Disconnect Server</span>
+                                            <span class="svr-cfg-tile-hint">Permanently remove this server and delete
+                                                all verification data.</span>
+                                        </div>
+                                    </div>
+                                    <div class="svr-cfg-tile-ctrl">
+                                        <button id="server-disconnect-btn" type="button"
+                                            class="card-action-btn disconnect" style="
+                                            background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444;
+                                            padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer;
+                                            font-family: 'Plus Jakarta Sans', sans-serif; transition: all 0.2s; white-space: nowrap;
+                                        ">Disconnect</button>
+                                    </div>
+                                </article>
+                                <!-- 3-step disconnect confirmation area -->
+                                <div id="server-disconnect-steps" style="display:none;"></div>
+                            </div>
+                        </div>
+
                     </div>
-
                 </div>
-            </div>
 
-            <div id="tab-panel-integrations" class="dashboard-tab-panel" role="tabpanel"
-                aria-labelledby="tab-btn-integrations">
-                <div class="bento-grid integrations-grid">
+                <div id="tab-panel-integrations" class="dashboard-tab-panel" role="tabpanel"
+                    aria-labelledby="tab-btn-integrations">
+                    <div class="bento-grid integrations-grid">
 
-                    <!-- OAuth Apps -->
-                    <section class="intg-card bento-col-6 animate-in animate-in-delay-5" id="oauth-apps-section">
-                        <div class="intg-header">
-                            <div class="intg-title-row">
-                                <div class="intg-icon">
+                        <!-- OAuth Apps -->
+                        <section class="intg-card bento-col-6 animate-in animate-in-delay-5" id="oauth-apps-section">
+                            <div class="intg-header">
+                                <div class="intg-title-row">
+                                    <div class="intg-icon">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <rect x="3" y="11" width="18" height="11" rx="2" />
+                                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                        </svg>
+                                    </div>
+                                    <h2 class="intg-title">OAuth Applications</h2>
+                                </div>
+                                <button id="create-oauth-app-btn" class="intg-add-btn"
+                                    onclick="openCreateOAuthAppPanel()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    Add app
+                                </button>
+                            </div>
+                            <p class="intg-desc">
+                                Register apps that use the OAuth 2.0 flow to access user verification data on their
+                                behalf.
+                            </p>
+
+                            <!-- Inline create OAuth app form -->
+                            <div class="inline-panel" id="create-oauth-app-panel">
+                                <div class="inline-panel-inner">
+                                    <div class="inline-panel-body">
+                                        <div
+                                            style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                                            <p class="inline-panel-title" style="margin:0;">Register OAuth app</p>
+                                            <button onclick="closeCreateOAuthAppPanel()"
+                                                class="panel-close-btn">×</button>
+                                        </div>
+                                        <div class="modal-field">
+                                            <label class="modal-label" for="oauth-app-name">App name</label>
+                                            <input type="text" id="oauth-app-name" class="modal-input"
+                                                placeholder="e.g. My Verification Bot" maxlength="64"
+                                                autocomplete="off">
+                                        </div>
+                                        <div class="modal-field">
+                                            <label class="modal-label" for="oauth-app-redirect-uris">Redirect
+                                                URIs</label>
+                                            <span class="modal-helper">One URI per line. Example:
+                                                https://yourapp.com/callback</span>
+                                            <textarea id="oauth-app-redirect-uris" rows="3" class="modal-textarea"
+                                                placeholder="https://yourapp.com/callback"></textarea>
+                                        </div>
+                                        <div class="modal-field" style="margin-bottom:0;">
+                                            <label class="modal-label">Scopes</label>
+                                            <div class="scope-toggles">
+                                                <label class="scope-toggle">
+                                                    <input type="checkbox" id="create-oauth-scope-vr" checked>
+                                                    <div class="scope-toggle-card">
+                                                        <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
+                                                                <polyline points="2 6 5 9 10 3" />
+                                                            </svg></div>
+                                                        <div class="scope-toggle-text">
+                                                            <div class="scope-toggle-name">verification:read</div>
+                                                            <div class="scope-toggle-desc">Check if a user is verified
+                                                                on
+                                                                your
+                                                                server</div>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                                <label class="scope-toggle">
+                                                    <input type="checkbox" id="create-oauth-scope-sr">
+                                                    <div class="scope-toggle-card">
+                                                        <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
+                                                                <polyline points="2 6 5 9 10 3" />
+                                                            </svg></div>
+                                                        <div class="scope-toggle-text">
+                                                            <div class="scope-toggle-name">subjects:read</div>
+                                                            <div class="scope-toggle-desc">Read verified users and
+                                                                purchase
+                                                                records</div>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="inline-btn-row">
+                                            <button class="btn-primary" id="create-oauth-app-submit"
+                                                onclick="submitCreateOAuthApp()">
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                                    <polyline points="22 4 12 14.01 9 11.01" />
+                                                </svg>
+                                                Register app
+                                            </button>
+                                            <button class="btn-ghost"
+                                                onclick="closeCreateOAuthAppPanel()">Cancel</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="oauth-apps-signin-required" class="hidden text-center py-8 px-4 rounded-xl"
+                                style="background:#f8fafc;border:1px solid #e2e8f0;">
+                                <p class="text-sm font-medium" style="font-family:'DM Sans',sans-serif;color:#64748b;">
+                                    Sign
+                                    in to manage OAuth applications.</p>
+                            </div>
+
+                            <!-- Apps list -->
+                            <div id="oauth-apps-list"></div>
+
+                            <!-- Empty state -->
+                            <div id="oauth-apps-empty" class="empty-state hidden">
+                                <div class="intg-icon" style="margin:0 auto 14px;">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                                         <rect x="3" y="11" width="18" height="11" rx="2" />
                                         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                                     </svg>
                                 </div>
-                                <h2 class="intg-title">OAuth Applications</h2>
+                                <p class="text-sm font-semibold" style="font-family:'DM Sans',sans-serif;">No OAuth apps
+                                    yet
+                                </p>
+                                <p class="text-xs mt-2 max-w-xs mx-auto" style="font-family:'DM Sans',sans-serif;">Use
+                                    OAuth
+                                    when a third-party app needs to access verification data on behalf of your users.
+                                </p>
+                                <button class="intg-add-btn" onclick="openCreateOAuthAppPanel()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    Add your first app
+                                </button>
                             </div>
-                            <button id="create-oauth-app-btn" class="intg-add-btn" onclick="openCreateOAuthAppPanel()">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                                    stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="12" y1="5" x2="12" y2="19" />
-                                    <line x1="5" y1="12" x2="19" y2="12" />
-                                </svg>
-                                Add app
-                            </button>
-                        </div>
-                        <p class="intg-desc">
-                            Register apps that use the OAuth 2.0 flow to access user verification data on their behalf.
-                        </p>
 
-                        <!-- Inline create OAuth app form -->
-                        <div class="inline-panel" id="create-oauth-app-panel">
-                            <div class="inline-panel-inner">
-                                <div class="inline-panel-body">
-                                    <div
-                                        style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-                                        <p class="inline-panel-title" style="margin:0;">Register OAuth app</p>
-                                        <button onclick="closeCreateOAuthAppPanel()" class="panel-close-btn">×</button>
+                            <!-- Loading state -->
+                            <div id="oauth-apps-loading" class="text-center py-8">
+                                <div class="inline-block w-5 h-5 border-2 rounded-full"
+                                    style="border-color:#e2e8f0;border-top-color:#0ea5e9;animation:page-loading-spin 0.8s linear infinite;">
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- API Keys -->
+                        <section class="intg-card bento-col-6 animate-in animate-in-delay-5" id="api-keys-section">
+                            <div class="intg-header">
+                                <div class="intg-title-row">
+                                    <div class="intg-icon">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <path
+                                                d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                                        </svg>
                                     </div>
-                                    <div class="modal-field">
-                                        <label class="modal-label" for="oauth-app-name">App name</label>
-                                        <input type="text" id="oauth-app-name" class="modal-input"
-                                            placeholder="e.g. My Verification Bot" maxlength="64" autocomplete="off">
-                                    </div>
-                                    <div class="modal-field">
-                                        <label class="modal-label" for="oauth-app-redirect-uris">Redirect URIs</label>
-                                        <span class="modal-helper">One URI per line. Example:
-                                            https://yourapp.com/callback</span>
-                                        <textarea id="oauth-app-redirect-uris" rows="3" class="modal-textarea"
-                                            placeholder="https://yourapp.com/callback"></textarea>
-                                    </div>
-                                    <div class="modal-field" style="margin-bottom:0;">
-                                        <label class="modal-label">Scopes</label>
-                                        <div class="scope-toggles">
-                                            <label class="scope-toggle">
-                                                <input type="checkbox" id="create-oauth-scope-vr" checked>
-                                                <div class="scope-toggle-card">
-                                                    <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
-                                                            <polyline points="2 6 5 9 10 3" />
-                                                        </svg></div>
-                                                    <div class="scope-toggle-text">
-                                                        <div class="scope-toggle-name">verification:read</div>
-                                                        <div class="scope-toggle-desc">Check if a user is verified on
-                                                            your
-                                                            server</div>
-                                                    </div>
-                                                </div>
-                                            </label>
-                                            <label class="scope-toggle">
-                                                <input type="checkbox" id="create-oauth-scope-sr">
-                                                <div class="scope-toggle-card">
-                                                    <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
-                                                            <polyline points="2 6 5 9 10 3" />
-                                                        </svg></div>
-                                                    <div class="scope-toggle-text">
-                                                        <div class="scope-toggle-name">subjects:read</div>
-                                                        <div class="scope-toggle-desc">Read verified users and purchase
-                                                            records</div>
-                                                    </div>
-                                                </div>
-                                            </label>
+                                    <h2 class="intg-title">API Keys</h2>
+                                </div>
+                                <button id="create-api-key-btn" class="intg-add-btn" onclick="openCreateApiKeyPanel()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    Add key
+                                </button>
+                            </div>
+                            <p class="intg-desc">
+                                Call the verification API from your integrations. Pass as <code>x-api-key</code> header.
+                            </p>
+
+                            <!-- Inline create API key form -->
+                            <div class="inline-panel" id="create-api-key-panel">
+                                <div class="inline-panel-inner">
+                                    <div class="inline-panel-body">
+                                        <div
+                                            style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                                            <p class="inline-panel-title" style="margin:0;">New API key</p>
+                                            <button onclick="closeCreateApiKeyPanel()"
+                                                class="panel-close-btn">×</button>
                                         </div>
-                                    </div>
-                                    <div class="inline-btn-row">
-                                        <button class="btn-primary" id="create-oauth-app-submit"
-                                            onclick="submitCreateOAuthApp()">
-                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                                                stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-                                                stroke-linejoin="round">
-                                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                                                <polyline points="22 4 12 14.01 9 11.01" />
-                                            </svg>
-                                            Register app
-                                        </button>
-                                        <button class="btn-ghost" onclick="closeCreateOAuthAppPanel()">Cancel</button>
+                                        <div class="modal-field">
+                                            <label class="modal-label" for="api-key-name">Key name</label>
+                                            <span class="modal-helper">e.g. Production bot, Staging integration</span>
+                                            <input type="text" id="api-key-name" class="modal-input"
+                                                placeholder="e.g. Production bot" maxlength="64" autocomplete="off">
+                                        </div>
+                                        <div class="modal-field" style="margin-bottom:0;">
+                                            <label class="modal-label">Permissions</label>
+                                            <div class="scope-toggles">
+                                                <label class="scope-toggle">
+                                                    <input type="checkbox" id="scope-verification-read" checked>
+                                                    <div class="scope-toggle-card">
+                                                        <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
+                                                                <polyline points="2 6 5 9 10 3" />
+                                                            </svg></div>
+                                                        <div class="scope-toggle-text">
+                                                            <div class="scope-toggle-name">verification:read</div>
+                                                            <div class="scope-toggle-desc">Check if a user is verified
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                                <label class="scope-toggle">
+                                                    <input type="checkbox" id="scope-subjects-read" checked>
+                                                    <div class="scope-toggle-card">
+                                                        <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
+                                                                <polyline points="2 6 5 9 10 3" />
+                                                            </svg></div>
+                                                        <div class="scope-toggle-text">
+                                                            <div class="scope-toggle-name">subjects:read</div>
+                                                            <div class="scope-toggle-desc">Read verified users and
+                                                                purchase
+                                                                records</div>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="inline-btn-row">
+                                            <button class="btn-primary" id="create-api-key-submit"
+                                                onclick="submitCreateApiKey()">Create key</button>
+                                            <button class="btn-ghost" onclick="closeCreateApiKeyPanel()">Cancel</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div id="oauth-apps-signin-required" class="hidden text-center py-8 px-4 rounded-xl"
-                            style="background:#f8fafc;border:1px solid #e2e8f0;">
-                            <p class="text-sm font-medium" style="font-family:'DM Sans',sans-serif;color:#64748b;">Sign
-                                in to manage OAuth applications.</p>
-                        </div>
-
-                        <!-- Apps list -->
-                        <div id="oauth-apps-list"></div>
-
-                        <!-- Empty state -->
-                        <div id="oauth-apps-empty" class="empty-state hidden">
-                            <div class="intg-icon" style="margin:0 auto 14px;">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                                    <rect x="3" y="11" width="18" height="11" rx="2" />
-                                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                                </svg>
+                            <div id="api-keys-signin-required" class="hidden text-center py-8 px-4 rounded-xl"
+                                style="background:#f8fafc;border:1px solid #e2e8f0;">
+                                <p class="text-sm font-medium" style="font-family:'DM Sans',sans-serif;color:#64748b;">
+                                    Sign
+                                    in to manage API keys.</p>
                             </div>
-                            <p class="text-sm font-semibold" style="font-family:'DM Sans',sans-serif;">No OAuth apps yet
-                            </p>
-                            <p class="text-xs mt-2 max-w-xs mx-auto" style="font-family:'DM Sans',sans-serif;">Use OAuth
-                                when a third-party app needs to access verification data on behalf of your users.</p>
-                            <button class="intg-add-btn" onclick="openCreateOAuthAppPanel()">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                                    stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="12" y1="5" x2="12" y2="19" />
-                                    <line x1="5" y1="12" x2="19" y2="12" />
-                                </svg>
-                                Add your first app
-                            </button>
-                        </div>
 
-                        <!-- Loading state -->
-                        <div id="oauth-apps-loading" class="text-center py-8">
-                            <div class="inline-block w-5 h-5 border-2 rounded-full"
-                                style="border-color:#e2e8f0;border-top-color:#0ea5e9;animation:page-loading-spin 0.8s linear infinite;">
+                            <!-- API keys list -->
+                            <div id="api-keys-list"></div>
+
+                            <!-- Empty state -->
+                            <div id="api-keys-empty" class="empty-state hidden">
+                                <div class="intg-icon" style="margin:0 auto 14px;">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                        <path
+                                            d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                                    </svg>
+                                </div>
+                                <p class="text-sm font-semibold" style="font-family:'DM Sans',sans-serif;">No API keys
+                                    yet
+                                </p>
+                                <p class="text-xs mt-2 max-w-xs mx-auto" style="font-family:'DM Sans',sans-serif;">API
+                                    keys
+                                    let you call the verification API from scripts, bots, or integrations. Pass the key
+                                    in
+                                    the <code>x-api-key</code> header.</p>
+                                <button class="intg-add-btn" onclick="openCreateApiKeyPanel()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                    Add your first key
+                                </button>
                             </div>
-                        </div>
-                    </section>
 
-                    <!-- API Keys -->
-                    <section class="intg-card bento-col-6 animate-in animate-in-delay-5" id="api-keys-section">
+                            <!-- Loading state -->
+                            <div id="api-keys-loading" class="text-center py-8">
+                                <div class="inline-block w-5 h-5 border-2 rounded-full"
+                                    style="border-color:#e2e8f0;border-top-color:#0ea5e9;animation:page-loading-spin 0.8s linear infinite;">
+                                </div>
+                            </div>
+                        </section>
+
+                    </div>
+                </div>
+
+                <div id="tab-panel-collaboration" class="dashboard-tab-panel" role="tabpanel"
+                    aria-labelledby="tab-btn-collaboration">
+                    <section class="intg-card animate-in max-w-2xl" id="collab-section">
                         <div class="intg-header">
                             <div class="intg-title-row">
                                 <div class="intg-icon">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path
-                                            d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                        <circle cx="9" cy="7" r="4" />
+                                        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                                     </svg>
                                 </div>
-                                <h2 class="intg-title">API Keys</h2>
+                                <h2 class="intg-title">Collaborating Creators</h2>
                             </div>
-                            <button id="create-api-key-btn" class="intg-add-btn" onclick="openCreateApiKeyPanel()">
+                            <button id="invite-btn" class="intg-add-btn" onclick="generateCollabInvite()">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
                                     stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="12" y1="5" x2="12" y2="19" />
-                                    <line x1="5" y1="12" x2="19" y2="12" />
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                                 </svg>
-                                Add key
+                                Invite a Creator
                             </button>
                         </div>
                         <p class="intg-desc">
-                            Call the verification API from your integrations. Pass as <code>x-api-key</code> header.
+                            Allow members to verify licenses from other creators' stores.
                         </p>
 
-                        <!-- Inline create API key form -->
-                        <div class="inline-panel" id="create-api-key-panel">
-                            <div class="inline-panel-inner">
-                                <div class="inline-panel-body">
+                        <div class="inline-panel" id="invite-panel">
+                            <div class="inline-panel-inner" style="max-width: 500px;">
+                                <div class="inline-panel-body" style="padding: 32px; text-align: center;">
+                                    <div style="display:flex; justify-content:flex-end; margin-bottom: -24px;">
+                                        <button onclick="closeInvitePanel()" class="panel-close-btn" aria-label="Close"
+                                            style="z-index: 10;">×</button>
+                                    </div>
+                                    <div class="intg-icon"
+                                        style="margin: 0 auto 16px; width: 48px; height: 48px; background: rgba(14, 165, 233, 0.15); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3);">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                        </svg>
+                                    </div>
+                                    <h3
+                                        style="font-size: 22px; font-weight: 800; font-family: 'Plus Jakarta Sans', sans-serif; color: #fff; margin: 0 0 8px;">
+                                        Invite a Creator</h3>
+                                    <p
+                                        style="font-size: 14px; color: rgba(255,255,255,0.7); margin: 0 0 24px; line-height: 1.5;">
+                                        Share this link with a trusted creator to allow them to link their stores and
+                                        products to your server.</p>
+
                                     <div
-                                        style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-                                        <p class="inline-panel-title" style="margin:0;">New API key</p>
-                                        <button onclick="closeCreateApiKeyPanel()" class="panel-close-btn">×</button>
+                                        style="text-align: left; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+                                        <label
+                                            style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Unique
+                                            Share Link</label>
+                                        <div style="display:flex; align-items:center; gap:8px;">
+                                            <span id="invite-url-display"
+                                                style="font-family:'DM Mono',monospace; font-size:14px; color:#fff; word-break:break-all; flex:1;">Loading...</span>
+                                            <button class="cred-copy" id="copy-invite-btn" onclick="copyInviteUrl()"
+                                                title="Copy link"
+                                                style="background:rgba(255,255,255,0.1); border:none; width:40px; height:40px; border-radius:8px; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s; flex-shrink:0;">
+                                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div id="invite-expiry"
+                                            style="margin-top: 10px; font-size: 13px; font-weight: 500; color: #38bdf8;">
+                                            Expires in 7 days</div>
                                     </div>
-                                    <div class="modal-field">
-                                        <label class="modal-label" for="api-key-name">Key name</label>
-                                        <span class="modal-helper">e.g. Production bot, Staging integration</span>
-                                        <input type="text" id="api-key-name" class="modal-input"
-                                            placeholder="e.g. Production bot" maxlength="64" autocomplete="off">
-                                    </div>
-                                    <div class="modal-field" style="margin-bottom:0;">
-                                        <label class="modal-label">Permissions</label>
-                                        <div class="scope-toggles">
-                                            <label class="scope-toggle">
-                                                <input type="checkbox" id="scope-verification-read" checked>
-                                                <div class="scope-toggle-card">
-                                                    <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
-                                                            <polyline points="2 6 5 9 10 3" />
-                                                        </svg></div>
-                                                    <div class="scope-toggle-text">
-                                                        <div class="scope-toggle-name">verification:read</div>
-                                                        <div class="scope-toggle-desc">Check if a user is verified</div>
-                                                    </div>
-                                                </div>
-                                            </label>
-                                            <label class="scope-toggle">
-                                                <input type="checkbox" id="scope-subjects-read" checked>
-                                                <div class="scope-toggle-card">
-                                                    <div class="scope-toggle-check"><svg viewBox="0 0 12 12">
-                                                            <polyline points="2 6 5 9 10 3" />
-                                                        </svg></div>
-                                                    <div class="scope-toggle-text">
-                                                        <div class="scope-toggle-name">subjects:read</div>
-                                                        <div class="scope-toggle-desc">Read verified users and purchase
-                                                            records</div>
-                                                    </div>
-                                                </div>
-                                            </label>
+
+                                    <div
+                                        style="text-align: left; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+                                        <label
+                                            style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Message
+                                            Template</label>
+                                        <textarea id="invite-message-template" readonly
+                                            style="width: 100%; height: 80px; background: transparent; border: none; color: rgba(255,255,255,0.9); font-size: 14px; font-family: 'DM Sans', sans-serif; resize: none; outline: none; line-height: 1.5;"></textarea>
+                                        <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+                                            <button onclick="copyInviteMessage(this)"
+                                                style="background: none; border: none; color: #0ea5e9; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; transition: background 0.15s;">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                                </svg>
+                                                Copy template
+                                            </button>
                                         </div>
                                     </div>
-                                    <div class="inline-btn-row">
-                                        <button class="btn-primary" id="create-api-key-submit"
-                                            onclick="submitCreateApiKey()">Create key</button>
-                                        <button class="btn-ghost" onclick="closeCreateApiKeyPanel()">Cancel</button>
-                                    </div>
+
+                                    <button class="btn-primary" onclick="copyInviteUrl()"
+                                        style="width: 100%; justify-content: center; font-size: 15px; font-weight: 700; padding: 12px 24px; background: #0ea5e9; color: #fff; border-radius: 12px; border: none;">
+                                        Copy Invite Link
+                                    </button>
                                 </div>
                             </div>
                         </div>
 
-                        <div id="api-keys-signin-required" class="hidden text-center py-8 px-4 rounded-xl"
-                            style="background:#f8fafc;border:1px solid #e2e8f0;">
-                            <p class="text-sm font-medium" style="font-family:'DM Sans',sans-serif;color:#64748b;">Sign
-                                in to manage API keys.</p>
-                        </div>
+                        <div id="collab-list"></div>
 
-                        <!-- API keys list -->
-                        <div id="api-keys-list"></div>
-
-                        <!-- Empty state -->
-                        <div id="api-keys-empty" class="empty-state hidden">
+                        <div id="collab-empty" class="empty-state hidden">
                             <div class="intg-icon" style="margin:0 auto 14px;">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                     stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                                    <path
-                                        d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-                                </svg>
-                            </div>
-                            <p class="text-sm font-semibold" style="font-family:'DM Sans',sans-serif;">No API keys yet
-                            </p>
-                            <p class="text-xs mt-2 max-w-xs mx-auto" style="font-family:'DM Sans',sans-serif;">API keys
-                                let you call the verification API from scripts, bots, or integrations. Pass the key in
-                                the <code>x-api-key</code> header.</p>
-                            <button class="intg-add-btn" onclick="openCreateApiKeyPanel()">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                                    stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="12" y1="5" x2="12" y2="19" />
-                                    <line x1="5" y1="12" x2="19" y2="12" />
-                                </svg>
-                                Add your first key
-                            </button>
-                        </div>
-
-                        <!-- Loading state -->
-                        <div id="api-keys-loading" class="text-center py-8">
-                            <div class="inline-block w-5 h-5 border-2 rounded-full"
-                                style="border-color:#e2e8f0;border-top-color:#0ea5e9;animation:page-loading-spin 0.8s linear infinite;">
-                            </div>
-                        </div>
-                    </section>
-
-                </div>
-            </div>
-
-            <div id="tab-panel-collaboration" class="dashboard-tab-panel" role="tabpanel"
-                aria-labelledby="tab-btn-collaboration">
-                <section class="intg-card animate-in max-w-2xl" id="collab-section">
-                    <div class="intg-header">
-                        <div class="intg-title-row">
-                            <div class="intg-icon">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
                                     <circle cx="9" cy="7" r="4" />
                                     <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
                                     <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                                 </svg>
                             </div>
-                            <h2 class="intg-title">Collaborating Creators</h2>
+                            <p class="text-sm font-semibold" style="font-family:'DM Sans',sans-serif;">No collaborators
+                                yet.
+                            </p>
+                            <p class="text-xs mt-2 max-w-xs mx-auto" style="font-family:'DM Sans',sans-serif;">Invite a
+                                creator to share license verification.</p>
+                            <button class="intg-add-btn" onclick="generateCollabInvite()" style="margin-top:16px;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                </svg>
+                                Invite a Creator
+                            </button>
                         </div>
-                        <button id="invite-btn" class="intg-add-btn" onclick="generateCollabInvite()">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                                stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                            </svg>
-                            Invite a Creator
-                        </button>
-                    </div>
-                    <p class="intg-desc">
-                        Allow members to verify licenses from other creators' stores.
-                    </p>
 
-                    <div class="inline-panel" id="invite-panel">
-                        <div class="inline-panel-inner" style="max-width: 500px;">
-                            <div class="inline-panel-body" style="padding: 32px; text-align: center;">
-                                <div style="display:flex; justify-content:flex-end; margin-bottom: -24px;">
-                                    <button onclick="closeInvitePanel()" class="panel-close-btn" aria-label="Close"
-                                        style="z-index: 10;">×</button>
-                                </div>
-                                <div class="intg-icon"
-                                    style="margin: 0 auto 16px; width: 48px; height: 48px; background: rgba(14, 165, 233, 0.15); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3);">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                                    </svg>
-                                </div>
-                                <h3
-                                    style="font-size: 22px; font-weight: 800; font-family: 'Plus Jakarta Sans', sans-serif; color: #fff; margin: 0 0 8px;">
-                                    Invite a Creator</h3>
-                                <p
-                                    style="font-size: 14px; color: rgba(255,255,255,0.7); margin: 0 0 24px; line-height: 1.5;">
-                                    Share this link with a trusted creator to allow them to link their stores and
-                                    products to your server.</p>
-
-                                <div
-                                    style="text-align: left; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
-                                    <label
-                                        style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Unique
-                                        Share Link</label>
-                                    <div style="display:flex; align-items:center; gap:8px;">
-                                        <span id="invite-url-display"
-                                            style="font-family:'DM Mono',monospace; font-size:14px; color:#fff; word-break:break-all; flex:1;">Loading...</span>
-                                        <button class="cred-copy" id="copy-invite-btn" onclick="copyInviteUrl()"
-                                            title="Copy link"
-                                            style="background:rgba(255,255,255,0.1); border:none; width:40px; height:40px; border-radius:8px; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s; flex-shrink:0;">
-                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
-                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                stroke-linejoin="round">
-                                                <rect x="9" y="9" width="13" height="13" rx="2" />
-                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                    <div id="invite-expiry"
-                                        style="margin-top: 10px; font-size: 13px; font-weight: 500; color: #38bdf8;">
-                                        Expires in 7 days</div>
-                                </div>
-
-                                <div
-                                    style="text-align: left; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
-                                    <label
-                                        style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Message
-                                        Template</label>
-                                    <textarea id="invite-message-template" readonly
-                                        style="width: 100%; height: 80px; background: transparent; border: none; color: rgba(255,255,255,0.9); font-size: 14px; font-family: 'DM Sans', sans-serif; resize: none; outline: none; line-height: 1.5;"></textarea>
-                                    <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
-                                        <button onclick="copyInviteMessage(this)"
-                                            style="background: none; border: none; color: #0ea5e9; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; transition: background 0.15s;">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                stroke-linejoin="round">
-                                                <rect x="9" y="9" width="13" height="13" rx="2" />
-                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                            </svg>
-                                            Copy template
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <button class="btn-primary" onclick="copyInviteUrl()"
-                                    style="width: 100%; justify-content: center; font-size: 15px; font-weight: 700; padding: 12px 24px; background: #0ea5e9; color: #fff; border-radius: 12px; border: none;">
-                                    Copy Invite Link
-                                </button>
+                        <div id="collab-loading" class="text-center py-8">
+                            <div class="inline-block w-5 h-5 border-2 rounded-full"
+                                style="border-color:#e2e8f0;border-top-color:#0ea5e9;animation:page-loading-spin 0.8s linear infinite;">
                             </div>
                         </div>
-                    </div>
+                    </section>
+                </div>
 
-                    <div id="collab-list"></div>
-
-                    <div id="collab-empty" class="empty-state hidden">
-                        <div class="intg-icon" style="margin:0 auto 14px;">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                                <circle cx="9" cy="7" r="4" />
-                                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                            </svg>
+                <div id="tab-panel-server-rules" class="dashboard-tab-panel server-only" role="tabpanel"
+                    aria-labelledby="tab-btn-server-rules">
+                    <section class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1">
+                        <div class="flex flex-col items-center justify-center py-12 text-center">
+                            <div class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center mb-4">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                    class="text-white/60">
+                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-white mb-2">Server Rules coming soon</h3>
+                            <p class="text-white/50 text-sm max-w-sm" style="font-family:'DM Sans',sans-serif;">Define
+                                product-to-role mappings directly from your dashboard.</p>
                         </div>
-                        <p class="text-sm font-semibold" style="font-family:'DM Sans',sans-serif;">No collaborators yet.
-                        </p>
-                        <p class="text-xs mt-2 max-w-xs mx-auto" style="font-family:'DM Sans',sans-serif;">Invite a
-                            creator to share license verification.</p>
-                        <button class="intg-add-btn" onclick="generateCollabInvite()" style="margin-top:16px;">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                                stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                            </svg>
-                            Invite a Creator
-                        </button>
-                    </div>
+                    </section>
+                </div>
 
-                    <div id="collab-loading" class="text-center py-8">
-                        <div class="inline-block w-5 h-5 border-2 rounded-full"
-                            style="border-color:#e2e8f0;border-top-color:#0ea5e9;animation:page-loading-spin 0.8s linear infinite;">
+                <div id="tab-panel-audit-logs" class="dashboard-tab-panel server-only" role="tabpanel"
+                    aria-labelledby="tab-btn-audit-logs">
+                    <section class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1">
+                        <div class="flex flex-col items-center justify-center py-12 text-center">
+                            <div class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center mb-4">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                    class="text-white/60">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-white mb-2">Audit Logs coming soon</h3>
+                            <p class="text-white/50 text-sm max-w-sm" style="font-family:'DM Sans',sans-serif;">View
+                                your
+                                verification history and member role assignments.</p>
                         </div>
-                    </div>
-                </section>
+                    </section>
+                </div>
+
             </div>
 
-            <div id="tab-panel-server-rules" class="dashboard-tab-panel server-only" role="tabpanel"
-                aria-labelledby="tab-btn-server-rules">
-                <section class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1">
-                    <div class="flex flex-col items-center justify-center py-12 text-center">
-                        <div class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center mb-4">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white/60">
-                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                            </svg>
-                        </div>
-                        <h3 class="text-xl font-bold text-white mb-2">Server Rules coming soon</h3>
-                        <p class="text-white/50 text-sm max-w-sm" style="font-family:'DM Sans',sans-serif;">Define
-                            product-to-role mappings directly from your dashboard.</p>
-                    </div>
-                </section>
-            </div>
-
-            <div id="tab-panel-audit-logs" class="dashboard-tab-panel server-only" role="tabpanel"
-                aria-labelledby="tab-btn-audit-logs">
-                <section class="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1">
-                    <div class="flex flex-col items-center justify-center py-12 text-center">
-                        <div class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center mb-4">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white/60">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                <polyline points="14 2 14 8 20 8"></polyline>
-                            </svg>
-                        </div>
-                        <h3 class="text-xl font-bold text-white mb-2">Audit Logs coming soon</h3>
-                        <p class="text-white/50 text-sm max-w-sm" style="font-family:'DM Sans',sans-serif;">View your
-                            verification history and member role assignments.</p>
-                    </div>
-                </section>
-            </div>
-
-    </div>
-
-    </main>
+        </main>
 
     </div><!-- #page-content -->
 
     <script>
-  window.__CONFIG__ = {
-    apiBase: '__API_BASE__',
-    tenantId: '__TENANT_ID__',
-    guildId: '__GUILD_ID__',
-    hasSetupSession: '__HAS_SETUP_SESSION__' === 'true'
-  };
-</script>
-<script type="module" src="/assets/dashboard/main.js"></script>
+        window.__CONFIG__ = {
+            apiBase: '__API_BASE__',
+            tenantId: '__TENANT_ID__',
+            guildId: '__GUILD_ID__',
+            hasSetupSession: '__HAS_SETUP_SESSION__' === 'true'
+        };
+    </script>
+    <script type="module" src="/assets/dashboard/main.js"></script>
 
 
     <script>
