@@ -138,6 +138,22 @@
             background: rgba(255,255,255,0.07);
             border-color: rgba(255,255,255,0.15);
         }
+        .nav-api-link {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+            color: rgba(56,189,248,0.8);
+            text-decoration: none;
+            display: flex; align-items: center; gap: 6px;
+            padding: 6px 14px; border-radius: 999px;
+            border: 1px solid rgba(56,189,248,0.2);
+            background: rgba(56,189,248,0.05);
+            transition: color .2s, background .2s, border-color .2s;
+        }
+        .nav-api-link:hover {
+            color: rgba(56,189,248,1);
+            background: rgba(56,189,248,0.1);
+            border-color: rgba(56,189,248,0.4);
+        }
         .hamburger-btn {
             display: none; background: none; border: none;
             cursor: pointer; color: rgba(255,255,255,0.6);
@@ -412,6 +428,7 @@
         @media (max-width: 900px) {
             .hamburger-btn { display: flex; }
             .nav-back-link { display: none; }
+            .nav-api-link { display: none; }
             .docs-sidebar { transform: translateX(-100%); transition: transform .3s cubic-bezier(.22,1,.36,1); }
             .docs-sidebar.open { transform: translateX(0); box-shadow: 8px 0 40px rgba(0,0,0,0.5); }
             .docs-main { margin-left: 0; padding: 2rem 1.25rem 5rem; }
@@ -447,6 +464,10 @@
         <a href="index.html" class="nav-back-link clickable">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
             Back to Home
+        </a>
+        <a href="https://yucp-creator-assistant.docs.buildwithfern.com" class="nav-api-link clickable" target="_blank" rel="noopener noreferrer">
+            API Reference
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         </a>
         <button class="hamburger-btn clickable" id="hamburger-btn" aria-label="Toggle navigation">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
@@ -660,6 +681,10 @@
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator refresh')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">refresh</span></span></div>
                         <span class="cmd-row-desc">Re-query linked stores for new purchases and sync Discord® roles</span>
                     </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator docs')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">docs</span></span></div>
+                        <span class="cmd-row-desc">Get a link to this documentation page</span>
+                    </div>
                 </div>
             </section>
 
@@ -683,6 +708,10 @@
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator refresh')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">refresh</span></span></div>
                         <span class="cmd-row-desc">Re-query linked stores for new purchases and sync roles immediately</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator docs')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">docs</span></span></div>
+                        <span class="cmd-row-desc">Get a link to this documentation page</span>
                     </div>
                 </div>
 
