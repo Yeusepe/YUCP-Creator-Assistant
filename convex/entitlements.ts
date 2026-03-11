@@ -741,6 +741,72 @@ export const revokeEntitlement = mutation({
 });
 
 /**
+ * Revoke an active entitlement by its sourceReference.
+ * Used by reconciliation paths that discover a refunded/cancelled record and need to
+ * revoke an existing entitlement without knowing its document ID.
+ */
+export const revokeEntitlementBySourceRef = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    sourceReference: v.string(),
+    reason: v.optional(RevocationReason),
+    correlationId: v.optional(v.string()),
+  },
+  returns: v.object({ success: v.boolean() }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const now = Date.now();
+
+    const entitlement = await ctx.db
+      .query('entitlements')
+      .withIndex('by_tenant_subject', (q) =>
+        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      )
+      .filter((q) => q.eq(q.field('sourceReference'), args.sourceReference))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .first();
+
+    if (!entitlement) return { success: false };
+
+    const newStatus = args.reason ? mapReasonToStatus(args.reason) : 'refunded';
+
+    await ctx.db.patch(entitlement._id, {
+      status: newStatus,
+      revokedAt: now,
+      updatedAt: now,
+    });
+
+    await emitRoleRemovalJobs(
+      ctx,
+      args.tenantId,
+      args.subjectId,
+      entitlement.productId,
+      entitlement._id,
+      args.correlationId
+    );
+
+    await createAuditEvent(ctx, {
+      tenantId: args.tenantId,
+      eventType: 'entitlement.revoked',
+      subjectId: args.subjectId,
+      entitlementId: entitlement._id,
+      metadata: {
+        productId: entitlement.productId,
+        reason: args.reason ?? 'refunded',
+        sourceReference: args.sourceReference,
+        previousStatus: 'active',
+        newStatus,
+      },
+      correlationId: args.correlationId,
+    });
+
+    return { success: true };
+  },
+});
+
+/**
  * Revoke all entitlements for a subject in a tenant.
  * Used when user disconnects their last account - no remaining proof of ownership.
  */

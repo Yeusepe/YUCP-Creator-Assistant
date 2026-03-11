@@ -484,6 +484,14 @@ async function reconcileLemonConnection(
           rawEvidence: order,
         },
       });
+    } else if (order.refunded && subjectId) {
+      await convex.mutation(api.entitlements.revokeEntitlementBySourceRef, {
+        apiSecret: config.convexApiSecret,
+        tenantId: connection.tenantId,
+        subjectId,
+        sourceReference: `lemonsqueezy:order:${order.id}`,
+        reason: 'refunded',
+      });
     }
   }
 

@@ -117,6 +117,21 @@ export interface VerificationModeConfig {
   scopes: string[];
   /** Callback path */
   callbackPath: string;
+  /**
+   * Key in VerificationConfig for the OAuth client ID.
+   * If omitted, falls back to providerClientIds[mode].
+   */
+  clientIdKey?: keyof VerificationConfig;
+  /**
+   * Key in VerificationConfig for the OAuth client secret.
+   * If omitted, falls back to providerClientSecrets[mode].
+   */
+  clientSecretKey?: keyof VerificationConfig;
+  /**
+   * Extra OAuth query params appended to the authorization URL for this mode.
+   * Merged with (and overridden by) providerExtraOAuthParams[mode] from VerificationConfig.
+   */
+  extraOAuthParams?: Record<string, string>;
 }
 
 /**
@@ -127,6 +142,8 @@ export const GUMROAD_CONFIG: VerificationModeConfig = {
   tokenUrl: 'https://api.gumroad.com/oauth/token',
   scopes: ['view_profile', 'view_sales'],
   callbackPath: '/api/verification/callback/gumroad',
+  clientIdKey: 'gumroadClientId',
+  clientSecretKey: 'gumroadClientSecret',
 };
 
 /**
@@ -138,6 +155,9 @@ export const DISCORD_ROLE_CONFIG: VerificationModeConfig = {
   tokenUrl: 'https://discord.com/api/oauth2/token',
   scopes: ['identify', 'guilds', 'guilds.members.read'],
   callbackPath: '/api/verification/callback/discord',
+  clientIdKey: 'discordClientId',
+  clientSecretKey: 'discordClientSecret',
+  extraOAuthParams: { prompt: 'consent' },
 };
 
 /**
@@ -148,6 +168,8 @@ export const JINXXY_CONFIG: VerificationModeConfig = {
   tokenUrl: 'https://api.jinxxy.com/oauth/token',
   scopes: ['user:read', 'products:read', 'purchases:read'],
   callbackPath: '/api/verification/callback/jinxxy',
+  clientIdKey: 'jinxxyClientId',
+  clientSecretKey: 'jinxxyClientSecret',
 };
 
 /**
@@ -393,20 +415,16 @@ export function createVerificationSessionManager(
           : `${config.baseUrl}${modeConfig.callbackPath}`;
       authUrl.searchParams.set('redirect_uri', redirectUri);
 
-      // Build client ID lookup from known fields and generic providerClientIds
-      const clientIds: Record<string, string | undefined> = {
-        gumroad: config.gumroadClientId,
-        discord_role: config.discordClientId,
-        jinxxy: config.jinxxyClientId,
-        ...config.providerClientIds,
-      };
-      // Extra OAuth params per mode (e.g. discord_role needs prompt=consent)
-      const extraOAuthParams: Record<string, Record<string, string>> = {
-        discord_role: { prompt: 'consent' },
-        ...config.providerExtraOAuthParams,
+      // Derive client ID from mode config (falls back to generic providerClientIds)
+      const clientId = modeConfig.clientIdKey
+        ? (config[modeConfig.clientIdKey] as string | undefined)
+        : config.providerClientIds?.[input.mode];
+      // Merge per-mode extra OAuth params with runtime overrides
+      const extraOAuthParams = {
+        ...modeConfig.extraOAuthParams,
+        ...config.providerExtraOAuthParams?.[input.mode],
       };
 
-      const clientId = clientIds[input.mode];
       if (!clientId) {
         return {
           success: false,
@@ -415,7 +433,7 @@ export function createVerificationSessionManager(
       }
       authUrl.searchParams.set('client_id', clientId);
       authUrl.searchParams.set('scope', modeConfig.scopes.join(' '));
-      for (const [k, v] of Object.entries(extraOAuthParams[input.mode] ?? {})) {
+      for (const [k, v] of Object.entries(extraOAuthParams)) {
         authUrl.searchParams.set(k, v);
       }
 
@@ -566,23 +584,13 @@ export function createVerificationSessionManager(
         code_verifier: codeVerifier,
       });
 
-      const clientId = (
-        {
-          gumroad: config.gumroadClientId,
-          discord: config.discordClientId,
-          discord_role: config.discordClientId,
-          jinxxy: config.jinxxyClientId,
-          ...config.providerClientIds,
-        } as Record<string, string | undefined>
-      )[mode];
-      const clientSecret = (
-        {
-          gumroad: config.gumroadClientSecret,
-          discord: config.discordClientSecret,
-          discord_role: config.discordClientSecret,
-          jinxxy: config.jinxxyClientSecret,
-        } as Record<string, string | undefined>
-      )[mode];
+      const tokenModeConfig = VERIFICATION_CONFIGS[mode];
+      const clientId = tokenModeConfig?.clientIdKey
+        ? (config[tokenModeConfig.clientIdKey] as string | undefined)
+        : config.providerClientIds?.[mode];
+      const clientSecret = tokenModeConfig?.clientSecretKey
+        ? (config[tokenModeConfig.clientSecretKey] as string | undefined)
+        : config.providerClientSecrets?.[mode];
 
       if (clientId) tokenParams.set('client_id', clientId);
       if (clientSecret) tokenParams.set('client_secret', clientSecret);

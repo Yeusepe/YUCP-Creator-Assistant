@@ -1068,13 +1068,8 @@ export async function handleLicenseModalSubmit(
     if (guildId && apiBaseUrl) {
       const panelToken =
         getActiveVerifyPanel(interaction.user.id, guildId)?.panelToken ?? createVerifyPanelToken();
-      const providerLabel =
-        result.provider === 'gumroad'
-          ? 'Gumroad'
-          : result.provider === 'jinxxy'
-            ? 'Jinxxy'
-            : (result.provider ?? 'account');
-      const bannerMessage = `${E.ClapStars} **Connected!** Your ${providerLabel} account is linked. Your roles will be updated shortly. ${E.Dance}`;
+      const connectedProviderLabel = result.provider ? providerLabel(result.provider) : 'account';
+      const bannerMessage = `${E.ClapStars} **Connected!** Your ${connectedProviderLabel} account is linked. Your roles will be updated shortly. ${E.Dance}`;
       const reply = await buildVerifyStatusReply(
         interaction.user.id,
         tenantId,

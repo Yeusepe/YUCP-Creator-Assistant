@@ -256,47 +256,49 @@ export const getGumroadWebhookSecret = query({
 });
 
 /**
- * Get connection status for a tenant (gumroad, jinxxy).
+ * Maps authMode (stored on each connection) to the corresponding credential key
+ * in the provider_credentials table. Adding support for a new auth mode only
+ * requires adding an entry here — no per-provider hardcoding needed.
+ */
+const AUTH_MODE_CREDENTIAL_KEY: Record<string, string> = {
+  oauth: 'oauth_access_token',
+  api_key: 'api_key',
+  api_token: 'api_token',
+};
+
+/**
+ * Get connection status for a tenant. Returns a dynamic record keyed by
+ * provider name so new providers are automatically included without code changes.
  */
 export const getConnectionStatus = query({
   args: {
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
   },
-  returns: v.object({
-    gumroad: v.boolean(),
-    jinxxy: v.boolean(),
-  }),
+  returns: v.record(v.string(), v.boolean()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const [gumroad, jinxxy] = await Promise.all([
-      ctx.db
-        .query('provider_connections')
-        .withIndex('by_tenant_provider', (q) =>
-          q.eq('tenantId', args.tenantId).eq('provider', 'gumroad')
-        )
-        .first(),
-      ctx.db
-        .query('provider_connections')
-        .withIndex('by_tenant_provider', (q) =>
-          q.eq('tenantId', args.tenantId).eq('provider', 'jinxxy')
-        )
-        .first(),
-    ]);
-    const gumroadAccessToken = gumroad
-      ? await getCredentialValue(ctx, gumroad._id, 'oauth_access_token')
-      : null;
-    const jinxxyApiKey = jinxxy ? await getCredentialValue(ctx, jinxxy._id, 'api_key') : null;
-    return {
-      gumroad: !!(
-        (gumroadAccessToken || gumroad?.gumroadAccessTokenEncrypted) &&
-        gumroad?.status !== 'disconnected'
-      ),
-      jinxxy: !!(
-        (jinxxyApiKey || jinxxy?.jinxxyApiKeyEncrypted) &&
-        jinxxy?.status !== 'disconnected'
-      ),
-    };
+    const connections = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .collect();
+
+    const result: Record<string, boolean> = {};
+    await Promise.all(
+      connections.map(async (conn) => {
+        const providerKey = getConnectionProviderKey(conn);
+        if (conn.status === 'disconnected') {
+          result[providerKey] = false;
+          return;
+        }
+        const credKey = conn.authMode ? AUTH_MODE_CREDENTIAL_KEY[conn.authMode] : undefined;
+        const credValue = credKey ? await getCredentialValue(ctx, conn._id, credKey) : null;
+        // Preserve backward compatibility for connections that predate the credentials table.
+        const hasLegacyToken = !!(conn.gumroadAccessTokenEncrypted || conn.jinxxyApiKeyEncrypted);
+        result[providerKey] = !!(credValue || hasLegacyToken);
+      })
+    );
+    return result;
   },
 });
 
