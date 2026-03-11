@@ -362,6 +362,8 @@ export interface ConnectConfig {
   convexSiteUrl: string;
   discordClientId: string;
   discordClientSecret: string;
+  /** Discord bot token for fetching guild info (name, icon) */
+  discordBotToken?: string;
   convexApiSecret: string;
   convexUrl: string;
   gumroadClientId?: string;
@@ -379,6 +381,33 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     'duplicateVerificationBehavior',
     'suspiciousAccountBehavior',
   ]);
+
+  /**
+   * Fetches guild name/icon from Discord's API using the bot token.
+   * Returns an object suitable for spreading into the upsertGuildLink call.
+   * Never throws — returns empty object on failure so the flow is unaffected.
+   */
+  async function fetchGuildMeta(guildId: string): Promise<{ discordGuildName?: string; discordGuildIcon?: string }> {
+    if (!config.discordBotToken) return {};
+    try {
+      const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}`, {
+        headers: { Authorization: `Bot ${config.discordBotToken}` },
+      });
+      if (res.ok) {
+        const guild = (await res.json()) as { name?: string; icon?: string | null };
+        return {
+          ...(guild.name ? { discordGuildName: guild.name } : {}),
+          ...(guild.icon ? { discordGuildIcon: guild.icon } : {}),
+        };
+      }
+    } catch (e) {
+      logger.warn('Failed to fetch guild meta', {
+        guildId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+    return {};
+  }
 
   async function getAuthenticatedDiscordUserId(request: Request): Promise<string | null> {
     return auth.getDiscordUserId(request);
@@ -954,6 +983,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         apiSecret,
         tenantId,
         discordGuildId: guildId,
+        ...(await fetchGuildMeta(guildId)),
         installedByAuthUserId: session.user.id,
         botPresent: true,
         status: 'active',
@@ -1071,6 +1101,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         apiSecret,
         tenantId,
         discordGuildId: guildId,
+        ...(await fetchGuildMeta(guildId)),
         installedByAuthUserId: session.user.id,
         botPresent: true,
         status: 'active',
@@ -2656,6 +2687,42 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         apiSecret: config.convexApiSecret,
         authUserId: session.user.id,
       });
+
+      // Backfill missing guild names from Discord
+      if (config.discordBotToken) {
+        const guilds = userGuilds as Array<{ guildId: string; name: string; icon?: string | null }>;
+        const missing = guilds.filter((g) => !g.name || g.name.startsWith('Creator '));
+
+        if (missing.length > 0) {
+          const results = await Promise.allSettled(
+            missing.map(async (g) => {
+              const meta = await fetchGuildMeta(g.guildId);
+              if (meta.discordGuildName) {
+                g.name = meta.discordGuildName;
+                if (meta.discordGuildIcon) g.icon = meta.discordGuildIcon;
+                // Persist to DB in background so future loads are instant
+                convex.mutation(api.guildLinks.updateGuildLinkStatus, {
+                  apiSecret: config.convexApiSecret,
+                  discordGuildId: g.guildId,
+                  status: 'active' as const,
+                  botPresent: true,
+                  discordGuildName: meta.discordGuildName,
+                  ...(meta.discordGuildIcon ? { discordGuildIcon: meta.discordGuildIcon } : {}),
+                }).catch((err) => {
+                  logger.warn('Failed to persist backfilled guild name', {
+                    guildId: g.guildId,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                });
+              }
+            })
+          );
+          const failures = results.filter((r) => r.status === 'rejected');
+          if (failures.length > 0) {
+            logger.warn('Some guild name backfills failed', { count: failures.length });
+          }
+        }
+      }
 
       return Response.json({ guilds: userGuilds });
     } catch (err) {

@@ -107,9 +107,9 @@
             position: fixed; top: 0; left: 0; right: 0; z-index: 50;
             height: 60px;
             display: flex; align-items: center; padding: 0 1.5rem; gap: 1rem;
-            background: rgba(9,9,15,0.75);
-            backdrop-filter: blur(32px) saturate(160%);
-            -webkit-backdrop-filter: blur(32px) saturate(160%);
+            background: rgba(9,9,15,0.55);
+            backdrop-filter: blur(48px) saturate(180%);
+            -webkit-backdrop-filter: blur(48px) saturate(180%);
             border-bottom: 1px solid rgba(255,255,255,0.08);
             box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
         }
@@ -152,8 +152,9 @@
             position: fixed; top: 60px; left: 0;
             width: 256px; height: calc(100vh - 60px);
             overflow-y: auto;
-            background: rgba(9,9,15,0.65);
-            backdrop-filter: blur(24px);
+            background: rgba(9,9,15,0.5);
+            backdrop-filter: blur(40px) saturate(150%);
+            -webkit-backdrop-filter: blur(40px) saturate(150%);
             border-right: 1px solid rgba(255,255,255,0.06);
             padding: 1.75rem 0 3rem;
             z-index: 40;
@@ -221,8 +222,9 @@
 
         /* ── Bento Card ───────────────────────────────────────────────────────── */
         .bento-card {
-            background: rgba(255,255,255,0.04);
-            backdrop-filter: blur(12px);
+            background: rgba(255,255,255,0.03);
+            backdrop-filter: blur(24px) saturate(140%);
+            -webkit-backdrop-filter: blur(24px) saturate(140%);
             border: 1px solid rgba(255,255,255,0.08);
             border-radius: 20px; padding: 1.75rem;
             transition: background .25s, transform .25s, box-shadow .25s;
@@ -251,7 +253,9 @@
         /* ── Command Block ────────────────────────────────────────────────────── */
         .cmd-wrap { position: relative; margin: 0.4rem 0; }
         .cmd-block {
-            background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.05); backdrop-filter: blur(16px) saturate(120%);
+            -webkit-backdrop-filter: blur(16px) saturate(120%);
+            border: 1px solid rgba(255,255,255,0.07);
             border-radius: 10px; padding: 0.8rem 3.5rem 0.8rem 1rem;
             font-family: 'Fira Code','Cascadia Code','Consolas',monospace;
             font-size: 13px; line-height: 1.5;
@@ -291,7 +295,9 @@
 
         /* ── Command Table ────────────────────────────────────────────────────── */
         .cmd-table {
-            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.04); backdrop-filter: blur(20px) saturate(130%);
+            -webkit-backdrop-filter: blur(20px) saturate(130%);
+            border: 1px solid rgba(255,255,255,0.07);
             border-radius: 14px; overflow: hidden; margin-bottom: 1.25rem;
         }
         .cmd-table-head {
@@ -360,7 +366,8 @@
         /* ── Tag Pill ─────────────────────────────────────────────────────────── */
         .tag-pill {
             display: inline-flex; align-items: center; gap: 8px;
-            background: rgba(255,255,255,0.05); backdrop-filter: blur(8px);
+            background: rgba(255,255,255,0.04); backdrop-filter: blur(16px) saturate(130%);
+            -webkit-backdrop-filter: blur(16px) saturate(130%);
             padding: 9px 16px; border-radius: 999px;
             border: 1px solid rgba(255,255,255,0.09);
             font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em;
@@ -370,7 +377,9 @@
         /* ── Product Grid ─────────────────────────────────────────────────────── */
         .product-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
         .product-card {
-            background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.03); backdrop-filter: blur(20px) saturate(130%);
+            -webkit-backdrop-filter: blur(20px) saturate(130%);
+            border: 1px solid rgba(255,255,255,0.07);
             border-radius: 14px; padding: 1.25rem;
             transition: border-color .2s, background .2s, transform .2s;
         }
@@ -382,7 +391,11 @@
 
         /* ── Two-col ──────────────────────────────────────────────────────────── */
         .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
-        .two-col-card { background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 1.25rem; }
+        .two-col-card {
+            background: rgba(255,255,255,0.03); backdrop-filter: blur(20px) saturate(130%);
+            -webkit-backdrop-filter: blur(20px) saturate(130%);
+            border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 1.25rem;
+        }
         .two-col-card h4 { font-size: 13.5px; margin: 0 0 0.8rem; }
         .two-col-card ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 5px; }
         .two-col-card ul li { font-size: 13px; color: rgba(255,255,255,0.5); line-height: 1.45; display: flex; align-items: flex-start; gap: 8px; }
@@ -405,7 +418,7 @@
         .cmd-group-label { font-family: 'Plus Jakarta Sans',sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.2); margin: 1.5rem 0 0.5rem; }
 
         /* ── Sidebar backdrop ─────────────────────────────────────────────────── */
-        .sidebar-backdrop { display: none; position: fixed; inset: 0; top: 60px; background: rgba(0,0,0,0.65); z-index: 39; backdrop-filter: blur(4px); }
+        .sidebar-backdrop { display: none; position: fixed; inset: 0; top: 60px; background: rgba(0,0,0,0.5); z-index: 39; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
         .sidebar-backdrop.open { display: block; }
 
         /* ── Responsive ───────────────────────────────────────────────────────── */
@@ -660,6 +673,10 @@
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator refresh')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">refresh</span></span></div>
                         <span class="cmd-row-desc">Re-query linked stores for new purchases and sync Discord® roles</span>
                     </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator docs')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">docs</span></span></div>
+                        <span class="cmd-row-desc">Get a link to the Creator Assistant documentation</span>
+                    </div>
                 </div>
             </section>
 
@@ -684,6 +701,10 @@
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator refresh')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">refresh</span></span></div>
                         <span class="cmd-row-desc">Re-query linked stores for new purchases and sync roles immediately</span>
                     </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator docs')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">docs</span></span></div>
+                        <span class="cmd-row-desc">Get a link to the Creator Assistant documentation</span>
+                    </div>
                 </div>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Admin Commands <code style="font-size:.8em;">/creator-admin</code></h3>
@@ -701,7 +722,11 @@
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin setup start')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">setup start</span></span></div>
-                        <span class="cmd-row-desc">Send a private secure dashboard link for store connections, onboarding progress, and server setup.</span>
+                        <span class="cmd-row-desc">Send a private secure dashboard link for store connections, onboarding progress, and server setup. (Shown when server is not configured)</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin dashboard')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">dashboard</span></span></div>
+                        <span class="cmd-row-desc">Open the Creator Assistant dashboard. (Shown when server is already configured)</span>
                     </div>
                 </div>
 
@@ -753,6 +778,10 @@
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin settings cross-server')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">settings cross-server</span></span></div>
                         <span class="cmd-row-desc">Toggle cross-server role verification on or off for this server.</span>
+                    </div>
+                    <div class="cmd-row">
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin settings disconnect')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">settings disconnect</span></span></div>
+                        <span class="cmd-row-desc">Disconnect this server from your Creator Assistant account.</span>
                     </div>
                 </div>
 

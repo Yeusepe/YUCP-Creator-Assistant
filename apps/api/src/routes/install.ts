@@ -161,6 +161,8 @@ export type GuildLinkStatus = 'active' | 'uninstalled' | 'suspended';
 export interface GuildLinkData {
   tenantId: string;
   discordGuildId: string;
+  discordGuildName?: string;
+  discordGuildIcon?: string;
   installedByAuthUserId: string;
   botPresent: boolean;
   commandScopeState?: {
@@ -328,9 +330,30 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
       });
 
       // Store guild link in Convex
+      // Fetch guild info from Discord so we can store the server name/icon immediately
+      let guildName: string | undefined;
+      let guildIcon: string | undefined;
+      try {
+        const guildRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}`, {
+          headers: { Authorization: `Bot ${config.discordBotToken}` },
+        });
+        if (guildRes.ok) {
+          const guild = (await guildRes.json()) as DiscordGuildResponse;
+          guildName = guild.name;
+          guildIcon = guild.icon ?? undefined;
+        }
+      } catch (e) {
+        logger.warn('Failed to fetch guild info after install', {
+          guildId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+
       await storeGuildLink(config.convexApiSecret, {
         tenantId: installState.tenantId,
         discordGuildId: guildId,
+        discordGuildName: guildName,
+        discordGuildIcon: guildIcon,
         installedByAuthUserId: installState.authUserId,
         botPresent: true,
         status: 'active',
@@ -529,6 +552,8 @@ async function storeGuildLink(apiSecret: string, data: GuildLinkData): Promise<v
     apiSecret,
     tenantId: data.tenantId,
     discordGuildId: data.discordGuildId,
+    ...(data.discordGuildName !== undefined && { discordGuildName: data.discordGuildName }),
+    ...(data.discordGuildIcon !== undefined && { discordGuildIcon: data.discordGuildIcon }),
     installedByAuthUserId: data.installedByAuthUserId,
     botPresent: data.botPresent,
     status: data.status,

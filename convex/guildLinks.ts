@@ -30,6 +30,8 @@ export const upsertGuildLink = mutation({
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
     discordGuildId: v.string(),
+    discordGuildName: v.optional(v.string()),
+    discordGuildIcon: v.optional(v.string()),
     installedByAuthUserId: v.string(),
     botPresent: v.boolean(),
     status: GuildLinkStatus,
@@ -50,20 +52,25 @@ export const upsertGuildLink = mutation({
       .first();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
+      const patch: Record<string, unknown> = {
         tenantId: args.tenantId,
         installedByAuthUserId: args.installedByAuthUserId,
         botPresent: args.botPresent,
         status: args.status,
         commandScopeState: args.commandScopeState,
         updatedAt: now,
-      });
+      };
+      if (args.discordGuildName !== undefined) patch.discordGuildName = args.discordGuildName;
+      if (args.discordGuildIcon !== undefined) patch.discordGuildIcon = args.discordGuildIcon;
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
 
     return await ctx.db.insert('guild_links', {
       tenantId: args.tenantId,
       discordGuildId: args.discordGuildId,
+      discordGuildName: args.discordGuildName,
+      discordGuildIcon: args.discordGuildIcon,
       installedByAuthUserId: args.installedByAuthUserId,
       botPresent: args.botPresent,
       status: args.status,

@@ -108,7 +108,9 @@ function renderServerList(servers) {
 
     item.addEventListener('click', (e) => {
       e.stopPropagation();
+      document.body.classList.remove('server-dropdown-open');
       document.getElementById('server-dropdown-menu')?.classList.remove('open');
+      document.getElementById('server-dropdown-backdrop')?.classList.remove('open');
       switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards });
     });
 
@@ -171,8 +173,8 @@ function renderParticipatingServers(servers) {
     card.innerHTML = `
       ${iconHtml}
       <div style="flex:1;min-width:0;">
-        <div class="font-bold text-base text-white truncate">${escHtml(server.name || 'Unnamed')}</div>
-        <div class="text-xs text-white/50">Manage Settings →</div>
+        <div class="participating-server-name font-bold text-base truncate">${escHtml(server.name || 'Unnamed')}</div>
+        <div class="participating-server-hint text-xs">Manage Settings →</div>
       </div>
     `;
 
@@ -245,26 +247,41 @@ export function initServerContext(deps) {
 
   const selector = document.getElementById('sidebar-server-selector');
   const menu = document.getElementById('server-dropdown-menu');
+  const backdrop = document.getElementById('server-dropdown-backdrop');
   const searchInput = document.getElementById('server-search-input');
   const personalBtn = document.getElementById('btn-personal-dashboard');
 
   if (!selector || !menu) return;
 
+  function setDropdownOpen(open) {
+    if (open) {
+      menu.classList.add('open');
+      backdrop?.classList.add('open');
+      document.body.classList.add('server-dropdown-open');
+    } else {
+      menu.classList.remove('open');
+      backdrop?.classList.remove('open');
+      document.body.classList.remove('server-dropdown-open');
+    }
+  }
+
   selector.addEventListener('click', async (e) => {
     if (menu.contains(e.target) && !e.target.closest('.server-dropdown-item') && e.target !== personalBtn) return;
     const isOpen = menu.classList.contains('open');
     if (isOpen) {
-      menu.classList.remove('open');
+      setDropdownOpen(false);
     } else {
       document.querySelectorAll('.dropdown-menu.open, .custom-select-wrapper.open').forEach((w) => w.classList.remove('open'));
-      menu.classList.add('open');
+      setDropdownOpen(true);
       searchInput?.focus();
       if (!userServers) await loadUserServers(deps?.updatePlatformCards);
     }
   });
 
+  backdrop?.addEventListener('click', () => setDropdownOpen(false));
+
   document.addEventListener('click', (e) => {
-    if (!selector.contains(e.target)) menu.classList.remove('open');
+    if (!selector.contains(e.target) && !backdrop?.contains(e.target)) setDropdownOpen(false);
   });
 
   searchInput?.addEventListener('input', (e) => {
@@ -276,7 +293,7 @@ export function initServerContext(deps) {
 
   personalBtn?.addEventListener('click', (e) => {
     e.stopPropagation();
-    menu.classList.remove('open');
+    setDropdownOpen(false);
     switchDashboardContext('', deps);
   });
 

@@ -181,6 +181,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexSiteUrl,
     discordClientId: env.DISCORD_CLIENT_ID ?? '',
     discordClientSecret: env.DISCORD_CLIENT_SECRET ?? '',
+    discordBotToken: env.DISCORD_BOT_TOKEN,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,

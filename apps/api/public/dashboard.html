@@ -46,6 +46,12 @@
                     document.body.appendChild(panel);
                 }
             });
+            document.addEventListener('click', (e) => {
+                const panel = e.target;
+                if ((panel.classList.contains('inline-panel') || panel.classList.contains('inline-confirm')) && panel.classList.contains('open')) {
+                    panel.classList.remove('open');
+                }
+            });
             const isDark = document.documentElement.classList.contains('dark');
             const sunIcon = document.querySelector('.sun-icon');
             const moonIcon = document.querySelector('.moon-icon');
@@ -93,6 +99,9 @@
         <!-- Mobile sidebar overlay -->
         <div id="sidebar-overlay" class="sidebar-overlay" aria-hidden="true" onclick="toggleSidebar()"></div>
 
+        <!-- Server dropdown backdrop (blurs whole page when dropdown open) -->
+        <div id="server-dropdown-backdrop" class="server-dropdown-backdrop" aria-hidden="true"></div>
+
         <!-- Blob Background -->
         <div class="blobs-container">
             <div class="blob"></div>
@@ -108,10 +117,11 @@
 
         <!-- Sidebar (liquid glass) -->
         <aside id="sidebar" class="sidebar" aria-label="Main navigation">
+            <div id="sidebar-blur-overlay" class="sidebar-blur-overlay" aria-hidden="true"></div>
             <div class="sidebar-logo-area">
                 <div class="sidebar-brand">
                     <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant Logo"
-                        style="height: 32px; width: auto; object-fit: contain;">
+                        class="sidebar-logo-img">
                 </div>
                 <div class="sidebar-server-pill" id="sidebar-server-selector">
                     <div class="sidebar-server-info">

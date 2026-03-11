@@ -515,24 +515,47 @@
             transform: translateX(20px);
         }
 
+/* Server dropdown backdrop: full-page blur when dropdown open (like inline-panel) */
+.server-dropdown-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 100000;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.25s ease, visibility 0.25s;
+        }
+
+.server-dropdown-backdrop.open {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
 .server-dropdown-menu {
             position: absolute;
             top: calc(100% + 8px);
             left: 0;
             width: 260px;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.07) 50%, rgba(255, 255, 255, 0.04) 100%);
-            backdrop-filter: blur(56px) saturate(220%) brightness(1.08);
-            -webkit-backdrop-filter: blur(56px) saturate(220%) brightness(1.08);
-            border: 1px solid rgba(255, 255, 255, 0.25);
+            /* Match content-area liquid glass background */
+            background: rgba(255, 255, 255, 0.35);
+            backdrop-filter: blur(32px) saturate(180%);
+            -webkit-backdrop-filter: blur(32px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.4);
             border-radius: 20px;
-            box-shadow: 0 28px 56px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1) inset, 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+            box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.2), inset 0 2px 5px rgba(255, 255, 255, 0.5);
+            background-image: radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px);
+            background-size: 24px 24px;
             display: flex;
             flex-direction: column;
             opacity: 0;
             visibility: hidden;
             transform: translateY(-10px);
             transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.2s;
-            z-index: 99999;
+            z-index: 100002;
             overflow: hidden;
         }
 

@@ -131,14 +131,14 @@ Do not commit real values; use env files or a secret store (all env files are gi
 | setup      | start                         | Get links to connect Gumroad/Jinxxy and configure (opens in browser)                            |
 | autosetup  | -                             | Guided setup in Discord: create roles, channels, verify button, or migrate from another bot     |
 | product    | add, list, remove             | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy, vrchat              |
-| downloads  | setup, manage                 | **Liened Downloads**: protected file routes; setup creates routes, manage toggles/edits/removes |
+| downloads  | setup, manage                 | **Liened Downloads**: liened file routes; setup creates routes, manage toggles/edits/removes |
 | collab     | invite, list                  | **Collaborators**: invite creators to share Jinxxy store; list active connections               |
 | stats      | -                             | Verification statistics                                                                         |
 | (root)     | spawn-verify                  | Spawn verify button (admin)                                                                     |
 | settings   | cross-server                  | Cross-server role verification                                                                  |
 | analytics  | -                             | Dashboard and metrics                                                                           |
 | moderation | mark, list, clear, unverify   | Suspicious account handling; unverify removes product from user                                 |
-| (root)     | link, status, verify, refresh | User linking, status panel, license verification, role refresh                                  |
+| (root)     | status, verify, refresh, docs | User verification status, license verification, role refresh, documentation link                 |
 
 
 Full options and catalog: `apps/bot/src/commands/index.ts`.
