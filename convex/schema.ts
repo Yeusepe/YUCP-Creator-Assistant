@@ -393,6 +393,8 @@ const guild_links = defineTable({
   discordGuildId: v.string(),
   // Human-readable guild name (optional — populated when bot installs)
   discordGuildName: v.optional(v.string()),
+  // Discord guild icon hash (optional — for CDN URL)
+  discordGuildIcon: v.optional(v.string()),
   // Who installed the bot
   installedByAuthUserId: v.string(),
   // Whether the bot is present in the guild

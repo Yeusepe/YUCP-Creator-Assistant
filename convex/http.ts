@@ -59,20 +59,34 @@ import {
   verifyCertEnvelope,
   getPublicKeyFromPrivate,
   base64ToBytes,
+  signLicenseJwt,
   type CertEnvelope,
+  type LicenseClaims,
 } from './lib/yucpCrypto';
 
 /**
  * Public API routes follow Spotify/GitHub/Stripe conventions.
- * Added: POST /v1/licenses/verify — Unity editor license gate verification.
  *
  *   POST /v1/licenses/verify
  *        Verify a Gumroad or Jinxxy purchase license for a YUCP package.
- *        Returns a short-lived machine-fingerprint-bound JWT for FBX derivation gate.
- *        No auth header required — the license key itself is the credential.
+ *        No auth header — license key is the credential.
  *        Body: { packageId, licenseKey, provider, productPermalink,
  *                machineFingerprint, nonce, timestamp }
+ *
+ *   POST /v1/licenses/verify-discord
+ *        Verify entitlement via Discord role (buyer must have verified with creator's bot).
+ *        Requires Bearer OAuth token to identify the buyer's YUCP account.
+ *        Body: { packageId, creatorAuthUserId, productId,
+ *                machineFingerprint, nonce, timestamp }
  */
+
+async function sha256HexHttp(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 const http = httpRouter();
 
@@ -339,12 +353,63 @@ http.route({
       return errorResponse('Creator account not found', 404);
     }
 
-    const products = await ctx.runQuery(internal.yucpLicenses.getProductsForTenant, {
+    // ── Own products (includes Discord if role_rules are configured) ──────────
+    const ownProducts = await ctx.runQuery(internal.yucpLicenses.getProductsForTenant, {
       tenantId: tenant._id,
     });
 
-    console.log(`[products] tenant=${tenant._id} count=${products.length}`);
-    return jsonResponse({ products });
+    // Tag own products with owner=null
+    const allProducts: Array<{
+      productId: string;
+      displayName?: string;
+      providers: Array<{ provider: string; providerProductRef: string }>;
+      owner: string | null;
+    }> = ownProducts.map((p) => ({ ...p, owner: null }));
+
+    // ── Collaborator products ─────────────────────────────────────────────────
+    // If the creator has linked Discord, check for collaborator connections
+    try {
+      const discordAccount = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: 'account',
+        where: [
+          { field: 'userId', value: tokenResult.yucpUserId },
+          { field: 'providerId', value: 'discord' },
+        ],
+        select: ['accountId'],
+      }) as { accountId?: string } | null;
+
+      if (discordAccount?.accountId) {
+        const collabConnections = await ctx.runQuery(
+          internal.collaboratorInvites.getActiveByCollaboratorDiscord,
+          { collaboratorDiscordUserId: discordAccount.accountId },
+        );
+
+        for (const conn of collabConnections) {
+          // Skip if this is the same tenant as own (shouldn't happen, but guard)
+          if (conn.ownerTenantId === tenant._id) continue;
+
+          const [collabProducts, ownerTenant] = await Promise.all([
+            ctx.runQuery(internal.yucpLicenses.getProductsForTenant, {
+              tenantId: conn.ownerTenantId,
+            }),
+            ctx.runQuery(internal.yucpLicenses.getTenantById, {
+              tenantId: conn.ownerTenantId,
+            }),
+          ]);
+
+          const ownerName = ownerTenant?.name ?? 'Collaborator';
+          for (const p of collabProducts) {
+            allProducts.push({ ...p, owner: ownerName });
+          }
+        }
+      }
+    } catch (err) {
+      // Non-fatal: collaborator lookup failure should not block own products
+      console.warn('[products] collaborator lookup failed:', err);
+    }
+
+    console.log(`[products] tenant=${tenant._id} own=${ownProducts.length} total=${allProducts.length}`);
+    return jsonResponse({ products: allProducts });
   }),
 });
 
@@ -702,6 +767,133 @@ http.route({
     }
 
     return jsonResponse({ success: true, token: result.token, expiresAt: result.expiresAt });
+  }),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /v1/licenses/verify-discord — Discord role entitlement verification
+//
+// The buyer must have already been granted an entitlement via the creator's
+// Discord bot. This endpoint checks for that existing entitlement and issues
+// a license JWT — no license key input required.
+//
+// Flow: buyer does YUCP OAuth → Bearer token → server maps to Discord user ID
+//   → checks entitlements table → issues machine-bound license JWT
+// ─────────────────────────────────────────────────────────────────────────────
+
+http.route({
+  method: 'POST',
+  path: '/v1/licenses/verify-discord',
+  handler: httpAction(async (ctx, request) => {
+    const siteUrl = process.env.CONVEX_SITE_URL;
+    if (!siteUrl) return errorResponse('Service not configured', 503);
+
+    const authHeader = request.headers.get('Authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return errorResponse('Authorization: Bearer <oauth_access_token> required', 401);
+
+    const tokenResult = await verifyOAuthToken(token, siteUrl);
+    if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
+
+    let body: {
+      packageId: string;
+      creatorAuthUserId: string;
+      productId: string;
+      machineFingerprint: string;
+      nonce: string;
+      timestamp: number;
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+
+    const { packageId, creatorAuthUserId, productId, machineFingerprint, nonce, timestamp } = body ?? {};
+    if (!packageId || !creatorAuthUserId || !productId || !machineFingerprint || !nonce || !timestamp) {
+      return errorResponse('Missing required fields', 400);
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (Math.abs(nowSeconds - (timestamp as number)) > 120) {
+      return errorResponse('Request timestamp out of range', 422);
+    }
+
+    // Get buyer's linked Discord account via Better Auth
+    const discordAccount = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'account',
+      where: [
+        { field: 'userId', value: tokenResult.yucpUserId },
+        { field: 'providerId', value: 'discord' },
+      ],
+      select: ['accountId'],
+    }) as { accountId?: string } | null;
+
+    if (!discordAccount?.accountId) {
+      return errorResponse(
+        'No Discord account linked. Sign in with Discord via YUCP first.',
+        403,
+      );
+    }
+
+    // Find subject record by their Discord user ID
+    const subject = await ctx.runQuery(internal.yucpLicenses.getSubjectByDiscordUser, {
+      discordUserId: discordAccount.accountId,
+    });
+    if (!subject) {
+      return errorResponse(
+        'No verified Discord account found. Verify your purchase with the creator\'s Discord server first.',
+        403,
+      );
+    }
+
+    // Look up creator's tenant
+    const tenant = await ctx.runQuery(internal.yucpLicenses.getTenantByAuthUser, {
+      ownerAuthUserId: creatorAuthUserId,
+    });
+    if (!tenant) return errorResponse('Creator account not found', 404);
+
+    // Check for an active entitlement
+    const hasEntitlement = await ctx.runQuery(internal.yucpLicenses.checkSubjectEntitlement, {
+      tenantId: tenant._id,
+      subjectId: subject._id,
+      productId,
+    });
+    if (!hasEntitlement) {
+      return errorResponse(
+        'No active entitlement. Purchase or verify via the creator\'s Discord server first.',
+        403,
+      );
+    }
+
+    // Issue machine-fingerprint-bound license JWT
+    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
+    if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+
+    const TOKEN_TTL_SECONDS = 3600;
+    const iat = nowSeconds;
+    const exp = iat + TOKEN_TTL_SECONDS;
+
+    const claims: LicenseClaims = {
+      iss: `${siteUrl.replace(/\/$/, '')}/api/auth`,
+      aud: 'yucp-license-gate',
+      sub: await sha256HexHttp(discordAccount.accountId),
+      jti: nonce,
+      package_id: packageId,
+      machine_fingerprint: machineFingerprint,
+      provider: 'discord',
+      iat,
+      exp,
+    };
+
+    const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
+    const licenseToken = await signLicenseJwt(claims, rootPrivateKey, keyId);
+
+    console.log(
+      `[license/verify-discord] issued token package_id=${packageId} subject=${String(subject._id).slice(0, 8)}*** exp=${exp}`,
+    );
+
+    return jsonResponse({ success: true, token: licenseToken, expiresAt: exp });
   }),
 });
 
