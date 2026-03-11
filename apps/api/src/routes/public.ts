@@ -283,14 +283,14 @@ async function defaultVerifyAccessToken(
   config: PublicRouteConfig,
   scopes: string[]
 ): Promise<{ sub: string } | null> {
-  const verified = await verifyBetterAuthAccessToken(token, {
+  const result = await verifyBetterAuthAccessToken(token, {
     convexSiteUrl: config.convexSiteUrl,
     audience: config.oauthAudience ?? 'yucp-public-api',
     requiredScopes: scopes,
     logger,
     logContext: 'Public API OAuth token verification failed',
   });
-  return verified ? { sub: verified.sub } : null;
+  return result.ok ? { sub: result.token.sub } : null;
 }
 
 async function defaultVerifyApiKey(

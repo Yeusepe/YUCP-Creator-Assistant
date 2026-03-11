@@ -18,7 +18,7 @@
     <script>
         (function () {
             const storedTheme = localStorage.getItem('yucp_theme');
-            if (storedTheme === 'dark' || (!storedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            if (storedTheme === 'dark') {
                 document.documentElement.classList.add('dark');
             }
         })();

@@ -67,7 +67,34 @@ function renderCollabSection() {
     const confirmRow = document.createElement('div');
     confirmRow.className = 'inline-confirm';
     confirmRow.id = `collab-confirm-${conn.id}`;
-    confirmRow.innerHTML = `<div><div class="inline-confirm-body"><span class="inline-confirm-label">Remove this collaborator?</span><div class="inline-confirm-btns"><button class="inline-cancel-btn" onclick="document.getElementById('collab-confirm-${conn.id}').classList.remove('open')">Cancel</button><button class="inline-danger-btn" onclick="window.removeCollabConnection('${conn.id}')">Remove</button></div></div></div>`;
+    const confirmOuter = document.createElement('div');
+    const confirmBody = document.createElement('div');
+    confirmBody.className = 'inline-confirm-body';
+    const confirmLabel = document.createElement('span');
+    confirmLabel.className = 'inline-confirm-label';
+    confirmLabel.textContent = 'Remove this collaborator?';
+    const confirmBtns = document.createElement('div');
+    confirmBtns.className = 'inline-confirm-btns';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'inline-cancel-btn';
+    cancelBtn.type = 'button';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => {
+      confirmRow.classList.remove('open');
+    });
+    const dangerBtn = document.createElement('button');
+    dangerBtn.className = 'inline-danger-btn';
+    dangerBtn.type = 'button';
+    dangerBtn.textContent = 'Remove';
+    dangerBtn.addEventListener('click', () => {
+      window.removeCollabConnection(conn.id);
+    });
+    confirmBtns.appendChild(cancelBtn);
+    confirmBtns.appendChild(dangerBtn);
+    confirmBody.appendChild(confirmLabel);
+    confirmBody.appendChild(confirmBtns);
+    confirmOuter.appendChild(confirmBody);
+    confirmRow.appendChild(confirmOuter);
 
     row.appendChild(avatar);
     row.appendChild(info);

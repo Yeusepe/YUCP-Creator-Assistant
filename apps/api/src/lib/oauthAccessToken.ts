@@ -16,10 +16,14 @@ interface VerifyOAuthAccessTokenOptions {
   requiredScopes?: string[];
 }
 
+export type VerifyOAuthAccessTokenResult =
+  | { ok: true; token: VerifiedOAuthAccessToken }
+  | { ok: false; reason: 'invalid' | 'insufficient_scope' };
+
 export async function verifyBetterAuthAccessToken(
   token: string,
   options: VerifyOAuthAccessTokenOptions
-): Promise<VerifiedOAuthAccessToken | null> {
+): Promise<VerifyOAuthAccessTokenResult> {
   try {
     const { verifyAccessToken } = await import('better-auth/oauth2');
     const authBase = `${options.convexSiteUrl.replace(/\/$/, '')}/api/auth`;
@@ -31,6 +35,10 @@ export async function verifyBetterAuthAccessToken(
       jwksUrl: `${authBase}/jwks`,
     });
 
+    if (!verified || typeof verified.sub !== 'string') {
+      return { ok: false, reason: 'invalid' };
+    }
+
     const grantedScopes =
       typeof (verified as { scope?: unknown }).scope === 'string'
         ? (verified as { scope: string }).scope.split(/\s+/).filter(Boolean)
@@ -40,23 +48,18 @@ export async function verifyBetterAuthAccessToken(
         ? (verified as { scope: string }).scope
         : undefined;
 
-    if (
-      !verified ||
-      typeof verified.sub !== 'string' ||
-      (options.requiredScopes?.some((scope) => !grantedScopes.includes(scope)) ?? false)
-    ) {
-      return null;
+    if (options.requiredScopes?.some((s) => !grantedScopes.includes(s)) ?? false) {
+      return { ok: false, reason: 'insufficient_scope' };
     }
 
     return {
-      sub: verified.sub,
-      scope,
-      grantedScopes,
+      ok: true,
+      token: { sub: verified.sub, scope, grantedScopes },
     };
   } catch (error) {
     options.logger?.warn(options.logContext ?? 'OAuth access token verification failed', {
       message: error instanceof Error ? error.message : String(error),
     });
-    return null;
+    return { ok: false, reason: 'invalid' };
   }
 }

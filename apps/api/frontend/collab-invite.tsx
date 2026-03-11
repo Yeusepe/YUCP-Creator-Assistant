@@ -55,7 +55,7 @@ function MovingCloud({
   segments,
   concentrate,
 }: MovingCloudProps) {
-  const ref = useRef<any>(null);
+  const ref = useRef<THREE.Group | null>(null);
 
   useFrame((state) => {
     if (!ref.current) return;

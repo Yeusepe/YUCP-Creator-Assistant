@@ -444,7 +444,8 @@
                 // Fallback: if no redirectTo, reload — server may redirect us
                 window.location.reload();
             } catch (err) {
-                alert('Network error: ' + err.message);
+                const message = err instanceof Error ? err.message : String(err);
+                alert('Network error: ' + message);
             } finally {
                 allowBtn.disabled = false;
                 denyBtn.disabled  = false;

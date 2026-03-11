@@ -3,8 +3,15 @@ import dotenv from 'dotenv';
 dotenv.config({ path: '../../.env' });
 import { anyApi } from 'convex/server';
 
-// Convex client requires a string URL; guard against undefined env var
-const convex = new ConvexHttpClient(process.env.CONVEX_URL ?? '');
+// Convex client requires a valid URL; fail fast if env var is missing
+const convexUrl = process.env.CONVEX_URL;
+if (!convexUrl) {
+  throw new Error(
+    'CONVEX_URL environment variable is not set. ' +
+      'Please define CONVEX_URL in ../../.env before running this script.'
+  );
+}
+const convex = new ConvexHttpClient(convexUrl);
 
 async function test() {
   try {

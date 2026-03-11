@@ -51,21 +51,24 @@ async function authenticateSuiteRequest(
     return errorResponse('unauthorized', 'Missing or invalid Authorization header', 401);
   }
 
-  const verified = await verifyBetterAuthAccessToken(token, {
+  const result = await verifyBetterAuthAccessToken(token, {
     convexSiteUrl: config.convexSiteUrl,
     audience: 'yucp-public-api',
     requiredScopes: [REQUIRED_SCOPE],
     logger,
     logContext: 'Suite token verification failed',
   });
-  if (!verified) {
-    return errorResponse('unauthorized', 'Invalid, expired, or insufficiently scoped token', 401);
+  if (!result.ok) {
+    if (result.reason === 'insufficient_scope') {
+      return errorResponse('forbidden', `Token missing required scope: ${REQUIRED_SCOPE}`, 403);
+    }
+    return errorResponse('unauthorized', 'Invalid or expired token', 401);
   }
 
-  return { sub: verified.sub };
+  return { sub: result.token.sub };
 }
 
-async function getSubjectIdForTenant(
+async function getSubjectIdByAuthUserId(
   authUserId: string,
   config: SuiteConfig
 ): Promise<{ found: true; subjectId: string } | { found: false }> {
@@ -103,7 +106,7 @@ export async function getVerificationStatus(
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const subjectResult = await getSubjectIdForTenant(auth.sub, config);
+  const subjectResult = await getSubjectIdByAuthUserId(auth.sub, config);
   if (!subjectResult.found) {
     return errorResponse('forbidden', 'Subject not found', 403);
   }
@@ -149,7 +152,7 @@ export async function getVerifiedProducts(
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const subjectResult = await getSubjectIdForTenant(auth.sub, config);
+  const subjectResult = await getSubjectIdByAuthUserId(auth.sub, config);
   if (!subjectResult.found) {
     return jsonResponse({ productIds: [] });
   }
@@ -200,7 +203,7 @@ export async function checkVerification(request: Request, config: SuiteConfig): 
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const subjectResult = await getSubjectIdForTenant(auth.sub, config);
+  const subjectResult = await getSubjectIdByAuthUserId(auth.sub, config);
   if (!subjectResult.found) {
     return jsonResponse({
       results: productIds.map((productId) => ({ productId, verified: false })),
