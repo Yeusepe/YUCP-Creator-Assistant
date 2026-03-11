@@ -1147,6 +1147,12 @@ async function routeRequest(request: Request): Promise<Response> {
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', '');
     html = html.replaceAll('__HAS_SETUP_SESSION__', resolvedSetupSession ? 'true' : 'false');
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
+  if (pathname === '/dashboard' || pathname === '/dashboard.html') {
     if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
       const redirectUrl = new URL(request.url);
       redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
