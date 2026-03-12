@@ -5,9 +5,9 @@
  * Caller encrypts the API key before storing; decrypts when fetching.
  */
 
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;
@@ -48,7 +48,7 @@ export const getTenantProviderConfig = query({
     v.null(),
     v.object({
       jinxxyApiKeyEncrypted: v.optional(v.string()),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const config = await ctx.db

@@ -5,9 +5,9 @@
  * Normalization to purchase_facts and entitlements is handled by separate pipeline.
  */
 
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 import { ProviderV, WebhookProviderV } from './lib/providers';
 
 function requireApiSecret(apiSecret: string | undefined): void {
@@ -26,6 +26,8 @@ export const insertWebhookEvent = mutation({
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
     provider: WebhookProviderV,
+    providerKey: v.optional(ProviderV),
+    providerConnectionId: v.optional(v.id('provider_connections')),
     providerEventId: v.string(),
     eventType: v.string(),
     rawPayload: v.any(),
@@ -63,6 +65,8 @@ export const insertWebhookEvent = mutation({
 
     const eventId = await ctx.db.insert('webhook_events', {
       provider: args.provider,
+      providerKey: args.providerKey ?? args.provider,
+      providerConnectionId: args.providerConnectionId,
       providerEventId: args.providerEventId,
       eventType: args.eventType,
       rawPayload: args.rawPayload,
@@ -114,6 +118,8 @@ export const getPendingWebhookEvents = query({
       _id: v.id('webhook_events'),
       tenantId: v.optional(v.id('tenants')),
       provider: ProviderV,
+      providerKey: v.optional(ProviderV),
+      providerConnectionId: v.optional(v.id('provider_connections')),
       providerEventId: v.string(),
       eventType: v.string(),
       rawPayload: v.any(),
@@ -131,5 +137,37 @@ export const getPendingWebhookEvents = query({
       .order('asc')
       .take(limit);
     return events;
+  },
+});
+
+/**
+ * Resolves a webhook route ID to one or more tenant IDs.
+ * Supports both direct tenant IDs (legacy) and Better Auth user IDs (user-scoped connections).
+ * Returns an empty array if the routeId doesn't match any tenant or user.
+ */
+export const resolveWebhookTenantIds = query({
+  args: {
+    apiSecret: v.string(),
+    routeId: v.string(),
+  },
+  returns: v.array(v.id('tenants')),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    // Try as a direct tenant ID first (most common case)
+    try {
+      const tenant = await ctx.db.get(args.routeId as Id<'tenants'>);
+      if (tenant) return [args.routeId as Id<'tenants'>];
+    } catch {
+      // Not a valid Convex document ID — fall through to authUserId lookup
+    }
+
+    // Try as a Better Auth user ID — return all tenants owned by this user
+    const tenants = await ctx.db
+      .query('tenants')
+      .filter((q) => q.eq(q.field('ownerAuthUserId'), args.routeId))
+      .collect();
+
+    return tenants.map((t) => t._id);
   },
 });

@@ -5,8 +5,8 @@
  * their Jinxxy API key so license verification works across both stores.
  */
 
-import { internalQuery, mutation, query } from './_generated/server';
 import { v } from 'convex/values';
+import { internalQuery, mutation, query } from './_generated/server';
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;
@@ -363,7 +363,6 @@ export const getCollabWebhookSecret = query({
   },
 });
 
-
 /**
  * Get active collaborator connections where the given Discord user is the collaborator.
  * Used by GET /v1/products to include products from tenants this creator collaborates with.
@@ -375,7 +374,7 @@ export const getActiveByCollaboratorDiscord = internalQuery({
     const connections = await ctx.db
       .query('collaborator_connections')
       .withIndex('by_collaborator_discord', (q) =>
-        q.eq('collaboratorDiscordUserId', args.collaboratorDiscordUserId),
+        q.eq('collaboratorDiscordUserId', args.collaboratorDiscordUserId)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();

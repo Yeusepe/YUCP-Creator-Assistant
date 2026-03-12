@@ -19,9 +19,9 @@
  */
 
 import { v } from 'convex/values';
-import { internalMutation, internalQuery, internalAction } from './_generated/server';
 import { internal } from './_generated/api';
-import { signCertData, type CertData, type CertEnvelope } from './lib/yucpCrypto';
+import { internalAction, internalMutation, internalQuery } from './_generated/server';
+import { type CertData, type CertEnvelope, signCertData } from './lib/yucpCrypto';
 
 const CERT_TTL_DAYS = 90;
 const RATE_LIMIT_DAYS = 30;
@@ -74,8 +74,8 @@ export const autoRevokeActiveForPublisher = internalMutation({
           revocationReason: args.reason,
           revokedAt: now,
           updatedAt: now,
-        }),
-      ),
+        })
+      )
     );
     return existing.length;
   },
@@ -140,9 +140,7 @@ export const checkRateLimit = internalQuery({
 
     // Count distinct new keys (exclude the current key if somehow already in log)
     const distinctNewKeys = new Set(
-      recentIssuances
-        .filter((r) => r.devPublicKey !== args.devPublicKey)
-        .map((r) => r.devPublicKey),
+      recentIssuances.filter((r) => r.devPublicKey !== args.devPublicKey).map((r) => r.devPublicKey)
     );
 
     return {
@@ -192,10 +190,7 @@ export const getActiveCertForUser = internalQuery({
       .query('yucp_certificates')
       .withIndex('by_dev_public_key', (q) => q.eq('devPublicKey', args.devPublicKey))
       .filter((q) =>
-        q.and(
-          q.eq(q.field('yucpUserId'), args.yucpUserId),
-          q.eq(q.field('status'), 'active'),
-        ),
+        q.and(q.eq(q.field('yucpUserId'), args.yucpUserId), q.eq(q.field('status'), 'active'))
       )
       .first();
   },
@@ -236,7 +231,7 @@ export const issueCertificate = internalAction({
     });
     if (rateLimit.exceeded) {
       throw new Error(
-        `Rate limit: you have registered ${rateLimit.newKeysUsed} new machines in the last ${RATE_LIMIT_DAYS} days (limit ${rateLimit.newKeysLimit}). Please wait before adding another machine.`,
+        `Rate limit: you have registered ${rateLimit.newKeysUsed} new machines in the last ${RATE_LIMIT_DAYS} days (limit ${rateLimit.newKeysLimit}). Please wait before adding another machine.`
       );
     }
 

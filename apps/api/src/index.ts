@@ -17,6 +17,7 @@ import {
   type InstallConfig,
   type VerificationConfig,
   createConnectRoutes,
+  createProviderPlatformRoutes,
   createWebhookHandler,
   mountInstallRoutes,
   mountVerificationRoutes,
@@ -34,6 +35,7 @@ let auth: Auth | null = null;
 let installRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
+let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
 let publicRoutes: ReturnType<typeof createPublicRoutes> | null = null;
@@ -186,6 +188,13 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
     gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
+    encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
+  });
+
+  providerPlatformRoutes = createProviderPlatformRoutes(auth, {
+    apiBaseUrl: publicBaseUrl,
+    convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   });
 
@@ -466,6 +475,13 @@ async function routeRequest(request: Request): Promise<Response> {
   // Proxy /api/auth/*, /api/yucp/*, and /v1/* requests to Convex.
   // Auth, YUCP OAuth, and the versioned public API (/v1/) all live on Convex .site.
   // When the API runs on localhost, proxy so everything works from a single origin.
+  if (pathname.startsWith('/v1/') && providerPlatformRoutes) {
+    const localV1Response = await providerPlatformRoutes.handleRequest(request);
+    if (localV1Response) {
+      return localV1Response;
+    }
+  }
+
   if (
     pathname.startsWith('/api/auth/') ||
     pathname.startsWith('/api/yucp/') ||
@@ -618,6 +634,18 @@ async function routeRequest(request: Request): Promise<Response> {
     return handleGumroadProducts(request);
   }
 
+  // Lemon Squeezy products (for product add flow - fetches from LS API using tenant API token)
+  if (pathname === '/api/lemonsqueezy/products' && request.method === 'POST') {
+    const { handleLemonSqueezyProducts } = await import('./routes/lemonsqueezyProducts');
+    return handleLemonSqueezyProducts(request);
+  }
+
+  // Payhip products (for product add flow - merges credential keys + webhook-seen products)
+  if (pathname === '/api/payhip/products' && request.method === 'POST') {
+    const { handlePayhipProducts } = await import('./routes/payhipProducts');
+    return handlePayhipProducts(request);
+  }
+
   // Webhook routes (Gumroad, Jinxxy)
   if (pathname.startsWith('/webhooks/') && webhookHandler) {
     return webhookHandler(request);
@@ -641,6 +669,10 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/user/guilds' && connectRoutes) {
     return connectRoutes.getUserGuilds(request);
+  }
+  if (pathname === '/api/connect/user/accounts' && connectRoutes) {
+    if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);
+    return connectRoutes.getUserAccounts(request);
   }
   if (pathname === '/api/connect/gumroad/begin' && connectRoutes) {
     return connectRoutes.gumroadBegin(request);
@@ -676,6 +708,18 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/jinxxy-store' && connectRoutes) {
     return connectRoutes.jinxxyStore(request);
+  }
+  if (pathname === '/api/connect/lemonsqueezy-finish' && connectRoutes) {
+    return connectRoutes.lemonsqueezyFinish(request);
+  }
+  if (pathname === '/api/connect/payhip-finish' && connectRoutes) {
+    return connectRoutes.payhipFinish(request);
+  }
+  if (pathname === '/api/connect/payhip/product-key' && connectRoutes) {
+    return connectRoutes.payhipProductKey(request);
+  }
+  if (pathname === '/api/connect/payhip/test-webhook' && connectRoutes) {
+    return connectRoutes.payhipTestWebhook(request);
   }
   // Setup session management
   if (pathname === '/api/connect/create-token' && connectRoutes) {
@@ -1058,6 +1102,134 @@ async function routeRequest(request: Request): Promise<Response> {
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', '');
     html = html.replaceAll('__HAS_SETUP_SESSION__', setupCookieToken ? 'true' : 'false');
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
+  if (pathname === '/lemonsqueezy-setup' || pathname === '/lemonsqueezy-setup.html') {
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return redirectPreservingFragment(redirectUrl.toString());
+    }
+    const filePath = `${import.meta.dir}/../public/lemonsqueezy-setup.html`;
+    const file = Bun.file(filePath);
+    let html = await file.text();
+    let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
+    const ott = url.searchParams.get('ott');
+    const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
+
+    if (ott && auth) {
+      const { session, setCookieHeaders } = await auth.exchangeOTT(ott);
+      if (session && setCookieHeaders.length > 0) {
+        const redirectUrl = new URL(url);
+        redirectUrl.searchParams.delete('ott');
+        const headers = new Headers({ Location: redirectUrl.toString() });
+        for (const cookie of setCookieHeaders) {
+          headers.append('Set-Cookie', cookie);
+        }
+        return new Response(null, { status: 302, headers });
+      }
+      logger.warn('OTT exchange failed for lemonsqueezy setup page', {
+        tenantId: tenantId || undefined,
+        guildId: guildId || undefined,
+      });
+    }
+
+    let resolvedSetupSession: Awaited<ReturnType<typeof resolveSetupSession>> = null;
+    if (setupCookieToken) {
+      const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
+      resolvedSetupSession = await resolveSetupSession(setupCookieToken, encryptionSecret);
+      if (resolvedSetupSession) {
+        tenantId = resolvedSetupSession.tenantId;
+        guildId = resolvedSetupSession.guildId;
+      }
+    }
+
+    const setupAuthRedirect = await maybeServeSetupAuthRedirect(
+      request,
+      '/lemonsqueezy-setup',
+      tenantId,
+      guildId,
+      setupCookieToken
+    );
+    if (setupAuthRedirect) {
+      return setupAuthRedirect;
+    }
+
+    const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
+    html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
+    html = html.replaceAll('__SETUP_TOKEN__', '');
+    html = html.replaceAll('__HAS_SETUP_SESSION__', resolvedSetupSession ? 'true' : 'false');
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
+  if (pathname === '/payhip-setup' || pathname === '/payhip-setup.html') {
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return redirectPreservingFragment(redirectUrl.toString());
+    }
+    const filePath = `${import.meta.dir}/../public/payhip-setup.html`;
+    const file = Bun.file(filePath);
+    let html = await file.text();
+    let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
+    const ott = url.searchParams.get('ott');
+    const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
+
+    if (ott && auth) {
+      const { session, setCookieHeaders } = await auth.exchangeOTT(ott);
+      if (session && setCookieHeaders.length > 0) {
+        const redirectUrl = new URL(url);
+        redirectUrl.searchParams.delete('ott');
+        const headers = new Headers({ Location: redirectUrl.toString() });
+        for (const cookie of setCookieHeaders) {
+          headers.append('Set-Cookie', cookie);
+        }
+        return new Response(null, { status: 302, headers });
+      }
+      logger.warn('OTT exchange failed for payhip setup page', {
+        tenantId: tenantId || undefined,
+        guildId: guildId || undefined,
+      });
+    }
+
+    let resolvedSetupSession: Awaited<ReturnType<typeof resolveSetupSession>> = null;
+    if (setupCookieToken) {
+      const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
+      resolvedSetupSession = await resolveSetupSession(setupCookieToken, encryptionSecret);
+      if (resolvedSetupSession) {
+        tenantId = resolvedSetupSession.tenantId;
+        guildId = resolvedSetupSession.guildId;
+      }
+    }
+
+    const setupAuthRedirect = await maybeServeSetupAuthRedirect(
+      request,
+      '/payhip-setup',
+      tenantId,
+      guildId,
+      setupCookieToken
+    );
+    if (setupAuthRedirect) {
+      return setupAuthRedirect;
+    }
+
+    const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
+    html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
+    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
+    html = html.replaceAll('__SETUP_TOKEN__', '');
+    html = html.replaceAll('__HAS_SETUP_SESSION__', resolvedSetupSession ? 'true' : 'false');
     return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });

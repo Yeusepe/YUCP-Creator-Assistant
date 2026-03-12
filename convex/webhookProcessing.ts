@@ -8,10 +8,10 @@
  * Plan Phase 3: event → purchase_facts → link subject → entitlements → role_sync
  */
 
-import { internalAction, internalMutation, internalQuery } from './_generated/server';
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
+import { internalAction, internalMutation, internalQuery } from './_generated/server';
 
 /**
  * Get IDs of pending webhook events for processing.
@@ -93,14 +93,29 @@ export const processWebhookEvent = internalMutation({
     }
 
     const tenantId = event.tenantId;
-    const provider = event.provider as 'gumroad' | 'jinxxy';
+    const provider = (event.providerKey ?? event.provider) as string;
     const rawPayload = event.rawPayload as Record<string, unknown>;
 
+    const EVENT_PROCESSORS: Record<
+      string,
+      // biome-ignore lint/suspicious/noExplicitAny: processor functions use any for ctx/event
+      (
+        ctx: any,
+        tenantId: Id<'tenants'>,
+        event: any,
+        payload: Record<string, unknown>
+      ) => Promise<void>
+    > = {
+      gumroad: processGumroadEvent,
+      jinxxy: processJinxxyEvent,
+      lemonsqueezy: processLemonEvent,
+      payhip: processPayhipEvent,
+    };
+
     try {
-      if (provider === 'gumroad') {
-        await processGumroadEvent(ctx, tenantId, event, rawPayload);
-      } else if (provider === 'jinxxy') {
-        await processJinxxyEvent(ctx, tenantId, event, rawPayload);
+      const processor = EVENT_PROCESSORS[provider];
+      if (processor) {
+        await processor(ctx, tenantId, event, rawPayload);
       } else {
         await ctx.db.patch(args.eventId, {
           status: 'failed',
@@ -145,12 +160,10 @@ async function processGumroadEvent(
 
   const lifecycleStatus = refunded ? 'refunded' : 'active';
   const buyerEmailNormalized = email ? normalizeEmail(email) : undefined;
-  const buyerEmailHash = buyerEmailNormalized
-    ? await sha256Hex(buyerEmailNormalized)
-    : undefined;
+  const buyerEmailHash = buyerEmailNormalized ? await sha256Hex(buyerEmailNormalized) : undefined;
 
   const saleTimestamp = payload.sale_timestamp
-    ? parseInt(String(payload.sale_timestamp), 10) * 1000
+    ? Number.parseInt(String(payload.sale_timestamp), 10) * 1000
     : Date.now();
 
   const existing = await ctx.db
@@ -227,9 +240,7 @@ async function processJinxxyEvent(
   const email = (data.email ?? '') as string;
   const paymentStatus = (data.payment_status ?? '') as string;
   const createdAt = data.created_at as string | undefined;
-  const purchasedAt = createdAt
-    ? new Date(createdAt).getTime()
-    : Date.now();
+  const purchasedAt = createdAt ? new Date(createdAt).getTime() : Date.now();
 
   const orderItems = (data.order_items ?? []) as Array<{
     id: string;
@@ -239,19 +250,13 @@ async function processJinxxyEvent(
   }>;
 
   const buyerEmailNormalized = email ? normalizeEmail(email) : undefined;
-  const buyerEmailHash = buyerEmailNormalized
-    ? await sha256Hex(buyerEmailNormalized)
-    : undefined;
+  const buyerEmailHash = buyerEmailNormalized ? await sha256Hex(buyerEmailNormalized) : undefined;
 
   const jinxxyUserId = (data.user as { id?: string })?.id;
 
   const subjectId =
-    (buyerEmailHash
-      ? await findSubjectByEmailHash(ctx, tenantId, buyerEmailHash)
-      : undefined) ??
-    (jinxxyUserId
-      ? await findSubjectByJinxxyUserId(ctx, tenantId, jinxxyUserId)
-      : undefined);
+    (buyerEmailHash ? await findSubjectByEmailHash(ctx, tenantId, buyerEmailHash) : undefined) ??
+    (jinxxyUserId ? await findSubjectByJinxxyUserId(ctx, tenantId, jinxxyUserId) : undefined);
 
   const now = Date.now();
 
@@ -303,6 +308,7 @@ async function processJinxxyEvent(
         externalLineItemId,
         buyerEmailNormalized,
         buyerEmailHash,
+        providerUserId: jinxxyUserId,
         providerProductId,
         paymentStatus: paymentStatus.toLowerCase(),
         lifecycleStatus: 'active',
@@ -324,6 +330,821 @@ async function processJinxxyEvent(
         );
       }
     }
+  }
+}
+
+async function resolveLemonCatalogProduct(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  providerRefs: string[]
+): Promise<{ catalogProductId?: Id<'product_catalog'>; productId?: string }> {
+  for (const ref of providerRefs.filter(Boolean)) {
+    const mapping = await ctx.db
+      .query('provider_catalog_mappings')
+      .withIndex('by_external_variant', (q: any) =>
+        q.eq('providerKey', 'lemonsqueezy').eq('externalVariantId', ref)
+      )
+      .filter((q: any) => q.eq(q.field('tenantId'), tenantId))
+      .first();
+    if (mapping?.catalogProductId || mapping?.localProductId) {
+      return {
+        catalogProductId: mapping.catalogProductId,
+        productId: mapping.localProductId,
+      };
+    }
+  }
+
+  const catalogProducts = await ctx.db
+    .query('product_catalog')
+    .withIndex('by_tenant', (q: any) => q.eq('tenantId', tenantId))
+    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .collect();
+
+  for (const ref of providerRefs.filter(Boolean)) {
+    const match = catalogProducts.find(
+      (entry: any) => entry.provider === 'lemonsqueezy' && entry.providerProductRef === ref
+    );
+    if (match) {
+      return { catalogProductId: match._id, productId: match.productId };
+    }
+  }
+
+  return { productId: providerRefs.find(Boolean) };
+}
+
+async function projectCanonicalEntitlement(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  subjectId: Id<'subjects'>,
+  provider: 'lemonsqueezy',
+  sourceRef: string,
+  productId: string,
+  catalogProductId: Id<'product_catalog'> | undefined,
+  grantedAt: number
+): Promise<void> {
+  const existing = await ctx.db
+    .query('entitlements')
+    .withIndex('by_tenant_subject', (q: any) =>
+      q.eq('tenantId', tenantId).eq('subjectId', subjectId)
+    )
+    .filter((q: any) => q.eq(q.field('sourceReference'), sourceRef))
+    .first();
+
+  if (existing?.status === 'active') {
+    return;
+  }
+
+  const now = Date.now();
+  let entitlementId: Id<'entitlements'>;
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      status: 'active',
+      revokedAt: undefined,
+      updatedAt: now,
+    });
+    entitlementId = existing._id;
+  } else {
+    entitlementId = await ctx.db.insert('entitlements', {
+      tenantId,
+      subjectId,
+      productId,
+      sourceProvider: provider,
+      sourceReference: sourceRef,
+      catalogProductId,
+      status: 'active',
+      policySnapshotVersion: 1,
+      grantedAt,
+      updatedAt: now,
+    });
+  }
+
+  const subject = await ctx.db.get(subjectId);
+  const discordUserId = subject?.primaryDiscordUserId;
+  if (
+    discordUserId &&
+    !discordUserId.startsWith('gumroad:') &&
+    !discordUserId.startsWith('jinxxy:') &&
+    !discordUserId.startsWith('lemonsqueezy:')
+  ) {
+    await emitRoleSyncJob(ctx, tenantId, subjectId, discordUserId, entitlementId);
+  }
+}
+
+async function revokeCanonicalEntitlementBySource(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  subjectId: Id<'subjects'> | undefined,
+  sourceRef: string
+): Promise<void> {
+  if (!subjectId) return;
+  const entitlement = await ctx.db
+    .query('entitlements')
+    .withIndex('by_tenant_subject', (q: any) =>
+      q.eq('tenantId', tenantId).eq('subjectId', subjectId)
+    )
+    .filter((q: any) => q.eq(q.field('sourceReference'), sourceRef))
+    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .first();
+
+  if (!entitlement) return;
+
+  const now = Date.now();
+  await ctx.db.patch(entitlement._id, {
+    status: 'refunded',
+    revokedAt: now,
+    updatedAt: now,
+  });
+
+  const subject = await ctx.db.get(subjectId);
+  const discordUserId = subject?.primaryDiscordUserId;
+  if (
+    discordUserId &&
+    !discordUserId.startsWith('gumroad:') &&
+    !discordUserId.startsWith('jinxxy:') &&
+    !discordUserId.startsWith('lemonsqueezy:')
+  ) {
+    await emitRoleRemovalJobs(ctx, tenantId, subjectId, entitlement.productId, discordUserId);
+  }
+}
+
+async function processLemonEvent(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  event: any,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const connectionId = event.providerConnectionId as Id<'provider_connections'> | undefined;
+  if (!connectionId) {
+    throw new Error('Lemon Squeezy webhook missing providerConnectionId');
+  }
+
+  const meta = (payload.meta ?? {}) as Record<string, unknown>;
+  const data = (payload.data ?? {}) as Record<string, unknown>;
+  const attributes = (data.attributes ?? {}) as Record<string, unknown>;
+  const eventType = String(meta.event_name ?? event.eventType ?? '');
+  const objectId = String(data.id ?? '');
+  if (!objectId) {
+    throw new Error('Lemon Squeezy webhook missing data.id');
+  }
+
+  const normalizedEmail =
+    typeof attributes.user_email === 'string' && attributes.user_email
+      ? normalizeEmail(attributes.user_email)
+      : undefined;
+  const emailHash = normalizedEmail ? await sha256Hex(normalizedEmail) : undefined;
+  const subjectId = emailHash ? await findSubjectByEmailHash(ctx, tenantId, emailHash) : undefined;
+  const now = Date.now();
+
+  if (eventType.startsWith('order_')) {
+    const variantId =
+      attributes.first_order_item && typeof attributes.first_order_item === 'object'
+        ? String((attributes.first_order_item as any).variant_id ?? '')
+        : '';
+    const productId =
+      attributes.first_order_item && typeof attributes.first_order_item === 'object'
+        ? String((attributes.first_order_item as any).product_id ?? '')
+        : '';
+    const resolved = await resolveLemonCatalogProduct(ctx, tenantId, [variantId, productId]);
+    const transactionStatus =
+      eventType === 'order_refunded' || attributes.refunded === true ? 'refunded' : 'paid';
+
+    const existing = await ctx.db
+      .query('provider_transactions')
+      .withIndex('by_external_id', (q: any) =>
+        q.eq('providerKey', 'lemonsqueezy').eq('externalTransactionId', objectId)
+      )
+      .filter((q: any) => q.eq(q.field('tenantId'), tenantId))
+      .first();
+    const transactionId = existing?._id
+      ? (await ctx.db.patch(existing._id, {
+          providerConnectionId: connectionId,
+          externalOrderNumber:
+            typeof attributes.order_number === 'number'
+              ? String(attributes.order_number)
+              : existing.externalOrderNumber,
+          externalOrderItemId:
+            attributes.first_order_item && typeof attributes.first_order_item === 'object'
+              ? String(
+                  (attributes.first_order_item as any).id ?? existing.externalOrderItemId ?? ''
+                )
+              : existing.externalOrderItemId,
+          externalStoreId:
+            typeof attributes.store_id === 'number'
+              ? String(attributes.store_id)
+              : existing.externalStoreId,
+          externalProductId: productId || existing.externalProductId,
+          externalVariantId: variantId || existing.externalVariantId,
+          externalCustomerId:
+            typeof attributes.customer_id === 'number'
+              ? String(attributes.customer_id)
+              : existing.externalCustomerId,
+          customerEmail: normalizedEmail ?? existing.customerEmail,
+          customerEmailHash: emailHash ?? existing.customerEmailHash,
+          currency:
+            typeof attributes.currency === 'string' ? attributes.currency : existing.currency,
+          amountSubtotal:
+            typeof attributes.subtotal === 'number' ? attributes.subtotal : existing.amountSubtotal,
+          amountTotal:
+            typeof attributes.total === 'number' ? attributes.total : existing.amountTotal,
+          status: transactionStatus,
+          purchasedAt: Number.parseInt(
+            String(Date.parse(String(attributes.created_at ?? '')) || existing.purchasedAt || now),
+            10
+          ),
+          refundedAt:
+            typeof attributes.refunded_at === 'string'
+              ? new Date(attributes.refunded_at).getTime()
+              : existing.refundedAt,
+          rawWebhookEventId: event._id,
+          metadata: { payload },
+          updatedAt: now,
+        }),
+        existing._id)
+      : await ctx.db.insert('provider_transactions', {
+          tenantId,
+          providerConnectionId: connectionId,
+          providerKey: 'lemonsqueezy',
+          externalTransactionId: objectId,
+          externalOrderNumber:
+            typeof attributes.order_number === 'number'
+              ? String(attributes.order_number)
+              : undefined,
+          externalOrderItemId:
+            attributes.first_order_item && typeof attributes.first_order_item === 'object'
+              ? String((attributes.first_order_item as any).id ?? '')
+              : undefined,
+          externalStoreId:
+            typeof attributes.store_id === 'number' ? String(attributes.store_id) : undefined,
+          externalProductId: productId || undefined,
+          externalVariantId: variantId || undefined,
+          externalCustomerId:
+            typeof attributes.customer_id === 'number' ? String(attributes.customer_id) : undefined,
+          customerEmail: normalizedEmail,
+          customerEmailHash: emailHash,
+          currency: typeof attributes.currency === 'string' ? attributes.currency : undefined,
+          amountSubtotal: typeof attributes.subtotal === 'number' ? attributes.subtotal : undefined,
+          amountTotal: typeof attributes.total === 'number' ? attributes.total : undefined,
+          status: transactionStatus,
+          purchasedAt:
+            typeof attributes.created_at === 'string'
+              ? new Date(attributes.created_at).getTime()
+              : now,
+          refundedAt:
+            typeof attributes.refunded_at === 'string'
+              ? new Date(attributes.refunded_at).getTime()
+              : undefined,
+          rawWebhookEventId: event._id,
+          metadata: { payload },
+          createdAt: now,
+          updatedAt: now,
+        });
+
+    const sourceRef = `lemonsqueezy:order:${objectId}`;
+    const evidenceExisting = await ctx.db
+      .query('entitlement_evidence')
+      .withIndex('by_source_reference', (q: any) =>
+        q.eq('providerKey', 'lemonsqueezy').eq('sourceReference', sourceRef)
+      )
+      .first();
+    if (evidenceExisting) {
+      await ctx.db.patch(evidenceExisting._id, {
+        subjectId: subjectId ?? evidenceExisting.subjectId,
+        providerConnectionId: connectionId,
+        transactionId,
+        status: transactionStatus === 'refunded' ? 'revoked' : 'active',
+        productId: resolved.productId ?? evidenceExisting.productId,
+        catalogProductId: resolved.catalogProductId ?? evidenceExisting.catalogProductId,
+        rawWebhookEventId: event._id,
+        metadata: { payload },
+        observedAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert('entitlement_evidence', {
+        tenantId,
+        subjectId,
+        providerKey: 'lemonsqueezy',
+        providerConnectionId: connectionId,
+        transactionId,
+        sourceReference: sourceRef,
+        evidenceType: transactionStatus === 'refunded' ? 'purchase.refunded' : 'purchase.recorded',
+        status: transactionStatus === 'refunded' ? 'revoked' : 'active',
+        productId: resolved.productId,
+        catalogProductId: resolved.catalogProductId,
+        rawWebhookEventId: event._id,
+        metadata: { payload },
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    if (subjectId && resolved.productId && transactionStatus !== 'refunded') {
+      await projectCanonicalEntitlement(
+        ctx,
+        tenantId,
+        subjectId,
+        'lemonsqueezy',
+        sourceRef,
+        resolved.productId,
+        resolved.catalogProductId,
+        typeof attributes.created_at === 'string' ? new Date(attributes.created_at).getTime() : now
+      );
+    } else if (transactionStatus === 'refunded') {
+      await revokeCanonicalEntitlementBySource(ctx, tenantId, subjectId, sourceRef);
+    }
+    return;
+  }
+
+  if (eventType.startsWith('subscription_')) {
+    const variantId =
+      typeof attributes.variant_id === 'number' ? String(attributes.variant_id) : '';
+    const productId =
+      typeof attributes.product_id === 'number' ? String(attributes.product_id) : '';
+    const status =
+      eventType === 'subscription_cancelled'
+        ? 'cancelled'
+        : eventType === 'subscription_expired'
+          ? 'expired'
+          : eventType === 'subscription_paused'
+            ? 'paused'
+            : attributes.status === 'on_trial'
+              ? 'trialing'
+              : 'active';
+    const resolved = await resolveLemonCatalogProduct(ctx, tenantId, [variantId, productId]);
+
+    const existing = await ctx.db
+      .query('provider_memberships')
+      .withIndex('by_external_id', (q: any) =>
+        q.eq('providerKey', 'lemonsqueezy').eq('externalMembershipId', objectId)
+      )
+      .filter((q: any) => q.eq(q.field('tenantId'), tenantId))
+      .first();
+    const membershipId = existing?._id
+      ? (await ctx.db.patch(existing._id, {
+          providerConnectionId: connectionId,
+          externalTransactionId:
+            typeof attributes.order_id === 'number'
+              ? String(attributes.order_id)
+              : existing.externalTransactionId,
+          externalProductId: productId || existing.externalProductId,
+          externalVariantId: variantId || existing.externalVariantId,
+          externalCustomerId:
+            typeof attributes.customer_id === 'number'
+              ? String(attributes.customer_id)
+              : existing.externalCustomerId,
+          customerEmail: normalizedEmail ?? existing.customerEmail,
+          customerEmailHash: emailHash ?? existing.customerEmailHash,
+          status,
+          startedAt:
+            typeof attributes.created_at === 'string'
+              ? new Date(attributes.created_at).getTime()
+              : existing.startedAt,
+          renewsAt:
+            typeof attributes.renews_at === 'string'
+              ? new Date(attributes.renews_at).getTime()
+              : existing.renewsAt,
+          endsAt:
+            typeof attributes.ends_at === 'string'
+              ? new Date(attributes.ends_at).getTime()
+              : existing.endsAt,
+          cancelledAt: status === 'cancelled' || status === 'expired' ? now : existing.cancelledAt,
+          rawWebhookEventId: event._id,
+          metadata: { payload },
+          updatedAt: now,
+        }),
+        existing._id)
+      : await ctx.db.insert('provider_memberships', {
+          tenantId,
+          providerConnectionId: connectionId,
+          providerKey: 'lemonsqueezy',
+          externalMembershipId: objectId,
+          externalTransactionId:
+            typeof attributes.order_id === 'number' ? String(attributes.order_id) : undefined,
+          externalProductId: productId || undefined,
+          externalVariantId: variantId || undefined,
+          externalCustomerId:
+            typeof attributes.customer_id === 'number' ? String(attributes.customer_id) : undefined,
+          customerEmail: normalizedEmail,
+          customerEmailHash: emailHash,
+          status,
+          startedAt:
+            typeof attributes.created_at === 'string'
+              ? new Date(attributes.created_at).getTime()
+              : now,
+          renewsAt:
+            typeof attributes.renews_at === 'string'
+              ? new Date(attributes.renews_at).getTime()
+              : undefined,
+          endsAt:
+            typeof attributes.ends_at === 'string'
+              ? new Date(attributes.ends_at).getTime()
+              : undefined,
+          cancelledAt: status === 'cancelled' || status === 'expired' ? now : undefined,
+          rawWebhookEventId: event._id,
+          metadata: { payload },
+          createdAt: now,
+          updatedAt: now,
+        });
+
+    const sourceRef = `lemonsqueezy:subscription:${objectId}`;
+    const evidenceStatus = status === 'cancelled' || status === 'expired' ? 'revoked' : 'active';
+    const evidenceExisting = await ctx.db
+      .query('entitlement_evidence')
+      .withIndex('by_source_reference', (q: any) =>
+        q.eq('providerKey', 'lemonsqueezy').eq('sourceReference', sourceRef)
+      )
+      .first();
+    if (evidenceExisting) {
+      await ctx.db.patch(evidenceExisting._id, {
+        subjectId: subjectId ?? evidenceExisting.subjectId,
+        providerConnectionId: connectionId,
+        membershipId,
+        status: evidenceStatus,
+        productId: resolved.productId ?? evidenceExisting.productId,
+        catalogProductId: resolved.catalogProductId ?? evidenceExisting.catalogProductId,
+        rawWebhookEventId: event._id,
+        metadata: { payload },
+        observedAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert('entitlement_evidence', {
+        tenantId,
+        subjectId,
+        providerKey: 'lemonsqueezy',
+        providerConnectionId: connectionId,
+        membershipId,
+        sourceReference: sourceRef,
+        evidenceType: evidenceStatus === 'revoked' ? 'subscription.ended' : 'subscription.updated',
+        status: evidenceStatus,
+        productId: resolved.productId,
+        catalogProductId: resolved.catalogProductId,
+        rawWebhookEventId: event._id,
+        metadata: { payload },
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    if (subjectId && resolved.productId && evidenceStatus === 'active') {
+      await projectCanonicalEntitlement(
+        ctx,
+        tenantId,
+        subjectId,
+        'lemonsqueezy',
+        sourceRef,
+        resolved.productId,
+        resolved.catalogProductId,
+        typeof attributes.created_at === 'string' ? new Date(attributes.created_at).getTime() : now
+      );
+    } else if (evidenceStatus === 'revoked') {
+      await revokeCanonicalEntitlementBySource(ctx, tenantId, subjectId, sourceRef);
+    }
+    return;
+  }
+
+  if (eventType.startsWith('license_key_')) {
+    const variantId =
+      typeof attributes.variant_id === 'number' ? String(attributes.variant_id) : '';
+    const productId =
+      typeof attributes.product_id === 'number' ? String(attributes.product_id) : '';
+    const licenseStatus =
+      attributes.disabled === true || attributes.status === 'disabled'
+        ? 'disabled'
+        : attributes.status === 'expired'
+          ? 'expired'
+          : 'active';
+    const existing = await ctx.db
+      .query('provider_licenses')
+      .withIndex('by_external_id', (q: any) =>
+        q.eq('providerKey', 'lemonsqueezy').eq('externalLicenseId', objectId)
+      )
+      .filter((q: any) => q.eq(q.field('tenantId'), tenantId))
+      .first();
+    const licenseId = existing?._id
+      ? (await ctx.db.patch(existing._id, {
+          providerConnectionId: connectionId,
+          externalTransactionId:
+            typeof attributes.order_id === 'number'
+              ? String(attributes.order_id)
+              : existing.externalTransactionId,
+          externalProductId: productId || existing.externalProductId,
+          externalVariantId: variantId || existing.externalVariantId,
+          externalCustomerId:
+            typeof attributes.customer_id === 'number'
+              ? String(attributes.customer_id)
+              : existing.externalCustomerId,
+          customerEmail: normalizedEmail ?? existing.customerEmail,
+          customerEmailHash: emailHash ?? existing.customerEmailHash,
+          licenseKeyHash:
+            typeof attributes.key === 'string'
+              ? await sha256Hex(attributes.key)
+              : existing.licenseKeyHash,
+          shortKey:
+            typeof attributes.key_short === 'string' ? attributes.key_short : existing.shortKey,
+          status: licenseStatus,
+          issuedAt:
+            typeof attributes.created_at === 'string'
+              ? new Date(attributes.created_at).getTime()
+              : existing.issuedAt,
+          expiresAt:
+            typeof attributes.expires_at === 'string'
+              ? new Date(attributes.expires_at).getTime()
+              : existing.expiresAt,
+          lastValidatedAt: now,
+          revokedAt:
+            licenseStatus === 'disabled' || licenseStatus === 'expired' ? now : existing.revokedAt,
+          rawWebhookEventId: event._id,
+          metadata: { payload },
+          updatedAt: now,
+        }),
+        existing._id)
+      : await ctx.db.insert('provider_licenses', {
+          tenantId,
+          providerConnectionId: connectionId,
+          providerKey: 'lemonsqueezy',
+          externalLicenseId: objectId,
+          externalTransactionId:
+            typeof attributes.order_id === 'number' ? String(attributes.order_id) : undefined,
+          externalProductId: productId || undefined,
+          externalVariantId: variantId || undefined,
+          externalCustomerId:
+            typeof attributes.customer_id === 'number' ? String(attributes.customer_id) : undefined,
+          customerEmail: normalizedEmail,
+          customerEmailHash: emailHash,
+          licenseKeyHash:
+            typeof attributes.key === 'string' ? await sha256Hex(attributes.key) : undefined,
+          shortKey: typeof attributes.key_short === 'string' ? attributes.key_short : undefined,
+          status: licenseStatus,
+          issuedAt:
+            typeof attributes.created_at === 'string'
+              ? new Date(attributes.created_at).getTime()
+              : now,
+          expiresAt:
+            typeof attributes.expires_at === 'string'
+              ? new Date(attributes.expires_at).getTime()
+              : undefined,
+          lastValidatedAt: now,
+          revokedAt: licenseStatus === 'disabled' || licenseStatus === 'expired' ? now : undefined,
+          rawWebhookEventId: event._id,
+          metadata: { payload },
+          createdAt: now,
+          updatedAt: now,
+        });
+
+    const resolved = await resolveLemonCatalogProduct(ctx, tenantId, [variantId, productId]);
+    const sourceRef = `lemonsqueezy:license:${objectId}`;
+    const evidenceStatus = licenseStatus === 'active' ? 'active' : 'revoked';
+    const evidenceExisting = await ctx.db
+      .query('entitlement_evidence')
+      .withIndex('by_source_reference', (q: any) =>
+        q.eq('providerKey', 'lemonsqueezy').eq('sourceReference', sourceRef)
+      )
+      .first();
+    if (evidenceExisting) {
+      await ctx.db.patch(evidenceExisting._id, {
+        subjectId: subjectId ?? evidenceExisting.subjectId,
+        providerConnectionId: connectionId,
+        licenseId,
+        status: evidenceStatus,
+        productId: resolved.productId ?? evidenceExisting.productId,
+        catalogProductId: resolved.catalogProductId ?? evidenceExisting.catalogProductId,
+        rawWebhookEventId: event._id,
+        metadata: { payload },
+        observedAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert('entitlement_evidence', {
+        tenantId,
+        subjectId,
+        providerKey: 'lemonsqueezy',
+        providerConnectionId: connectionId,
+        licenseId,
+        sourceReference: sourceRef,
+        evidenceType: evidenceStatus === 'active' ? 'license.issued' : 'license.revoked',
+        status: evidenceStatus,
+        productId: resolved.productId,
+        catalogProductId: resolved.catalogProductId,
+        rawWebhookEventId: event._id,
+        metadata: { payload },
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    if (subjectId && resolved.productId && evidenceStatus === 'active') {
+      await projectCanonicalEntitlement(
+        ctx,
+        tenantId,
+        subjectId,
+        'lemonsqueezy',
+        sourceRef,
+        resolved.productId,
+        resolved.catalogProductId,
+        typeof attributes.created_at === 'string' ? new Date(attributes.created_at).getTime() : now
+      );
+    } else if (evidenceStatus === 'revoked') {
+      await revokeCanonicalEntitlementBySource(ctx, tenantId, subjectId, sourceRef);
+    }
+  }
+}
+
+/**
+ * Process a Payhip webhook event.
+ *
+ * Handles `paid` and `refunded` events. Each transaction can have multiple items.
+ * The canonical product identifier is `items[].product_key` (the permalink, e.g. "RGsF"),
+ * matching the `product_link` field returned by the Payhip license key verify API.
+ * The numeric `product_id` is used only for per-line-item deduplication.
+ *
+ * Also upserts each product into `provider_catalog_mappings` so that names discovered
+ * from webhook events are available for product-listing even before any manual setup.
+ */
+async function processPayhipEvent(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  event: any,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const transactionId = String(payload.id ?? '');
+  const email = String(payload.email ?? '');
+  const eventType = String(payload.type ?? '');
+  const dateSec = typeof payload.date === 'number' ? payload.date : 0;
+  const purchasedAt = dateSec > 0 ? dateSec * 1000 : Date.now();
+
+  const items = (payload.items ?? []) as Array<{
+    product_id?: string;
+    product_key?: string;
+    product_name?: string;
+    product_permalink?: string;
+  }>;
+
+  if (!transactionId) {
+    throw new Error('Payhip webhook missing id field');
+  }
+
+  const buyerEmailNormalized = email ? normalizeEmail(email) : undefined;
+  const buyerEmailHash = buyerEmailNormalized ? await sha256Hex(buyerEmailNormalized) : undefined;
+  const subjectId = buyerEmailHash
+    ? await findSubjectByEmailHash(ctx, tenantId, buyerEmailHash)
+    : undefined;
+
+  const now = Date.now();
+
+  // Upsert catalog mappings so product names are discoverable
+  const conn = await ctx.db
+    .query('provider_connections')
+    .withIndex('by_tenant_provider', (q: any) =>
+      q.eq('tenantId', tenantId).eq('provider', 'payhip')
+    )
+    .first();
+
+  if (conn) {
+    for (const item of items) {
+      const permalink = item.product_key;
+      if (!permalink) continue;
+      await upsertPayhipCatalogMapping(ctx, tenantId, conn._id, {
+        permalink,
+        displayName: item.product_name,
+        productPermalink: item.product_permalink,
+      });
+    }
+  }
+
+  if (eventType === 'paid') {
+    for (const item of items) {
+      const permalink = item.product_key;
+      if (!permalink) continue;
+
+      const externalLineItemId = item.product_id ? String(item.product_id) : permalink;
+      const sourceRef = `payhip:${transactionId}:${externalLineItemId}`;
+
+      const existing = await ctx.db
+        .query('purchase_facts')
+        .withIndex('by_tenant_provider_order', (q: any) =>
+          q.eq('tenantId', tenantId).eq('provider', 'payhip').eq('externalOrderId', transactionId)
+        )
+        .filter((q: any) => q.eq(q.field('externalLineItemId'), externalLineItemId))
+        .first();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          lifecycleStatus: 'active',
+          paymentStatus: 'paid',
+          subjectId: subjectId ?? existing.subjectId,
+          rawSourceEventId: event._id,
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.insert('purchase_facts', {
+          tenantId,
+          provider: 'payhip',
+          externalOrderId: transactionId,
+          externalLineItemId,
+          buyerEmailNormalized,
+          buyerEmailHash,
+          providerProductId: permalink,
+          paymentStatus: 'paid',
+          lifecycleStatus: 'active',
+          purchasedAt,
+          rawSourceEventId: event._id,
+          subjectId,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      if (subjectId) {
+        await projectEntitlementFromPurchaseFact(
+          ctx,
+          tenantId,
+          subjectId,
+          permalink,
+          sourceRef,
+          purchasedAt
+        );
+      }
+    }
+  } else if (eventType === 'refunded') {
+    for (const item of items) {
+      const permalink = item.product_key;
+      if (!permalink) continue;
+
+      const externalLineItemId = item.product_id ? String(item.product_id) : permalink;
+      const sourceRef = `payhip:${transactionId}:${externalLineItemId}`;
+
+      const existing = await ctx.db
+        .query('purchase_facts')
+        .withIndex('by_tenant_provider_order', (q: any) =>
+          q.eq('tenantId', tenantId).eq('provider', 'payhip').eq('externalOrderId', transactionId)
+        )
+        .filter((q: any) => q.eq(q.field('externalLineItemId'), externalLineItemId))
+        .first();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          lifecycleStatus: 'refunded',
+          paymentStatus: 'refunded',
+          rawSourceEventId: event._id,
+          updatedAt: now,
+        });
+        if (existing.subjectId) {
+          await revokeEntitlementForPurchaseFact(ctx, tenantId, existing, sourceRef);
+        }
+      }
+    }
+  }
+  // subscription.created / subscription.deleted — out of scope for v1, silently ignored
+}
+
+/**
+ * Upsert a Payhip product entry into `provider_catalog_mappings`.
+ * Called from processPayhipEvent whenever a purchase webhook fires so that product
+ * names discovered from real sales are stored and available for the products UI.
+ */
+async function upsertPayhipCatalogMapping(
+  ctx: any,
+  tenantId: Id<'tenants'>,
+  connectionId: Id<'provider_connections'>,
+  product: { permalink: string; displayName?: string; productPermalink?: string }
+): Promise<void> {
+  const existing = await ctx.db
+    .query('provider_catalog_mappings')
+    .withIndex('by_connection', (q: any) => q.eq('providerConnectionId', connectionId))
+    .filter((q: any) => q.eq(q.field('externalProductId'), product.permalink))
+    .first();
+
+  const now = Date.now();
+  if (existing) {
+    if (!existing.displayName && product.displayName) {
+      await ctx.db.patch(existing._id, {
+        displayName: product.displayName,
+        metadata: {
+          ...(typeof existing.metadata === 'object' && existing.metadata !== null
+            ? existing.metadata
+            : {}),
+          productPermalink:
+            product.productPermalink ?? (existing.metadata as any)?.productPermalink,
+        },
+        updatedAt: now,
+      });
+    }
+  } else {
+    await ctx.db.insert('provider_catalog_mappings', {
+      tenantId,
+      providerConnectionId: connectionId,
+      providerKey: 'payhip',
+      externalProductId: product.permalink,
+      displayName: product.displayName,
+      status: 'active',
+      metadata: { productPermalink: product.productPermalink },
+      createdAt: now,
+      updatedAt: now,
+    });
   }
 }
 
@@ -456,7 +1277,11 @@ async function projectEntitlementFromPurchaseFact(
 
   const subject = await ctx.db.get(subjectId);
   const discordUserId = subject?.primaryDiscordUserId;
-  if (discordUserId && !discordUserId.startsWith('gumroad:') && !discordUserId.startsWith('jinxxy:')) {
+  if (
+    discordUserId &&
+    !discordUserId.startsWith('gumroad:') &&
+    !discordUserId.startsWith('jinxxy:')
+  ) {
     await emitRoleSyncJob(ctx, tenantId, subjectId, discordUserId, entitlementId);
   }
 }
@@ -489,8 +1314,18 @@ async function revokeEntitlementForPurchaseFact(
 
     const subject = await ctx.db.get(purchaseFact.subjectId);
     const discordUserId = subject?.primaryDiscordUserId;
-    if (discordUserId && !discordUserId.startsWith('gumroad:') && !discordUserId.startsWith('jinxxy:')) {
-      await emitRoleRemovalJobs(ctx, tenantId, purchaseFact.subjectId, entitlement.productId, discordUserId);
+    if (
+      discordUserId &&
+      !discordUserId.startsWith('gumroad:') &&
+      !discordUserId.startsWith('jinxxy:')
+    ) {
+      await emitRoleRemovalJobs(
+        ctx,
+        tenantId,
+        purchaseFact.subjectId,
+        entitlement.productId,
+        discordUserId
+      );
     }
   }
 }
@@ -589,20 +1424,20 @@ export const processPendingWebhookEvents = internalAction({
     requireApiSecret(args.apiSecret);
     const limit = Math.min(args.limit ?? 10, 50);
 
-    const events = await ctx.runQuery(
-      internal.webhookProcessing.getPendingEventIds,
-      { apiSecret: args.apiSecret, limit }
-    );
+    const events = await ctx.runQuery(internal.webhookProcessing.getPendingEventIds, {
+      apiSecret: args.apiSecret,
+      limit,
+    });
 
     let processed = 0;
     let failed = 0;
     const errors: string[] = [];
 
     for (const eventId of events) {
-      const result = await ctx.runMutation(
-        internal.webhookProcessing.processWebhookEvent,
-        { apiSecret: args.apiSecret, eventId }
-      );
+      const result = await ctx.runMutation(internal.webhookProcessing.processWebhookEvent, {
+        apiSecret: args.apiSecret,
+        eventId,
+      });
       if (result.success) {
         processed++;
       } else {
@@ -614,4 +1449,3 @@ export const processPendingWebhookEvents = internalAction({
     return { processed, failed, errors };
   },
 });
-

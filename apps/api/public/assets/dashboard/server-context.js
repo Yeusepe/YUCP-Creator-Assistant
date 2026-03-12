@@ -14,6 +14,7 @@ import { escHtml } from './utils.js';
 let userServers = null;
 let filteredServers = null;
 let _setDropdownOpen = null;
+let _refreshData = null;
 
 export function getServerIconUrl(server) {
   if (server.iconUrl) return server.iconUrl;
@@ -44,13 +45,13 @@ export async function switchDashboardContext(newGuildId, deps) {
   } else {
     urlParams.delete('guild_id');
   }
-  if (!urlParams.has('tenant_id') && getTenantId()) {
-    urlParams.set('tenant_id', getTenantId());
-  }
+  // Always clear tenant_id when switching guilds; it will be re-resolved for the new guild.
+  urlParams.delete('tenant_id');
   const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
   window.history.pushState({ guildId: newGuildId }, '', newUrl);
 
   setGuildId(newGuildId);
+  setTenantId('');
   applyContextState();
 
   if (newGuildId && userServers) {
@@ -77,7 +78,12 @@ export async function switchDashboardContext(newGuildId, deps) {
   }
 
   if (deps?.renderServerList && filteredServers) deps.renderServerList(filteredServers);
-  if (deps?.updatePlatformCards) deps.updatePlatformCards();
+  const refresh = deps?.refreshData ?? _refreshData;
+  if (refresh) {
+    await refresh();
+  } else if (deps?.updatePlatformCards) {
+    deps.updatePlatformCards();
+  }
 }
 
 function renderServerList(servers) {
@@ -110,7 +116,7 @@ function renderServerList(servers) {
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       _setDropdownOpen?.(false);
-      switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards });
+      switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards, refreshData: _refreshData });
     });
 
     frag.appendChild(item);
@@ -177,7 +183,7 @@ function renderParticipatingServers(servers) {
       </div>
     `;
 
-    card.addEventListener('click', () => switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards }));
+    card.addEventListener('click', () => switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards, refreshData: _refreshData }));
 
     container.appendChild(card);
   });
@@ -233,6 +239,7 @@ async function loadUserServers(updatePlatformCards) {
 
 export function initServerContext(deps) {
   window.__updatePlatformCards = deps?.updatePlatformCards;
+  _refreshData = deps?.refreshData ?? null;
 
   applyContextState();
 

@@ -19,13 +19,37 @@ import { initApiKeys, fetchPublicApiKeys } from './api.js';
 import { initOAuth, fetchOAuthApps } from './oauth.js';
 import { getTenantId, setTenantId, getGuildId, getHasSetupSession, getApiBase, apiFetch } from './store.js';
 
+async function refreshContextData() {
+  try {
+    if (!getHasSetupSession() && !getTenantId() && getGuildId()) {
+      const res = await apiFetch(
+        `${getApiBase()}/api/connect/ensure-tenant?guildId=${encodeURIComponent(getGuildId())}`,
+      );
+      const data = await res.json();
+      if (data.tenantId) {
+        setTenantId(data.tenantId);
+        const urlParams = new URLSearchParams(window.location.search);
+        urlParams.set('tenant_id', data.tenantId);
+        window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
+      }
+    }
+    await fetchAllData();
+    await fetchCollabConnections();
+    await fetchPublicApiKeys();
+    await fetchOAuthApps();
+    renderQuickStart();
+  } catch (err) {
+    console.error('Context refresh error:', err);
+  }
+}
+
 async function init() {
   try {
     if (await exchangeBootstrapTokens()) return;
 
     if (await ensureBoundSetupSession()) return;
     loadProgressFlags();
-    initServerContext({ updatePlatformCards });
+    initServerContext({ updatePlatformCards, refreshData: refreshContextData });
 
     if (!getHasSetupSession() && !getTenantId() && getGuildId()) {
       const res = await apiFetch(`${getApiBase()}/api/connect/ensure-tenant?guildId=${encodeURIComponent(getGuildId())}`);

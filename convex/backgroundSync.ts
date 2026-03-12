@@ -7,10 +7,17 @@
  * 3. Retroactive product rule: When a new role rule is added, create role_sync jobs for all users with entitlements
  */
 
-import { internalAction, internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
 import { api, internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
+import {
+  type MutationCtx,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from './_generated/server';
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;
@@ -22,7 +29,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
 /** Normalized purchase record for batch ingestion */
 const BackfillPurchaseRecord = v.object({
   tenantId: v.id('tenants'),
-  provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+  provider: v.string(),
   externalOrderId: v.string(),
   externalLineItemId: v.optional(v.string()),
   buyerEmailNormalized: v.optional(v.string()),
@@ -33,10 +40,24 @@ const BackfillPurchaseRecord = v.object({
   lifecycleStatus: v.union(
     v.literal('active'),
     v.literal('refunded'),
+    v.literal('cancelled'),
     v.literal('disputed')
   ),
   purchasedAt: v.number(),
 });
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+/**
+ * Build a provider-agnostic source reference string for entitlement evidence.
+ * Gumroad uses a simple format; all other providers use provider:orderId[:lineItemId].
+ */
+function buildSourceRef(provider: string, orderId: string, lineItemId?: string): string {
+  if (provider === 'gumroad') return `gumroad:${orderId}`;
+  return lineItemId ? `${provider}:${orderId}:${lineItemId}` : `${provider}:${orderId}`;
+}
 
 // ============================================================================
 // 1. HISTORICAL BACKFILL
@@ -51,7 +72,7 @@ export const backfillProductPurchases = internalAction({
   args: {
     tenantId: v.id('tenants'),
     productId: v.string(),
-    provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+    provider: v.string(),
     providerProductRef: v.string(),
   },
   handler: async (ctx, args) => {
@@ -100,7 +121,7 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
   args: {
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
-    provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+    provider: v.string(),
     purchases: v.array(BackfillPurchaseRecord),
   },
   returns: v.object({
@@ -173,10 +194,9 @@ export const triggerBackfillThenSyncForGumroadBuyer = internalAction({
     emailHash: v.string(),
   },
   handler: async (ctx, args) => {
-    const products = await ctx.runQuery(
-      internal.backgroundSync.getGumroadProductsForTenant,
-      { tenantId: args.tenantId }
-    );
+    const products = await ctx.runQuery(internal.backgroundSync.getGumroadProductsForTenant, {
+      tenantId: args.tenantId,
+    });
 
     for (const p of products) {
       await ctx.runAction(internal.backgroundSync.backfillProductPurchases, {
@@ -210,12 +230,16 @@ export const scheduleBackfillThenSyncForGumroadBuyer = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await ctx.scheduler.runAfter(0, internal.backgroundSync.triggerBackfillThenSyncForGumroadBuyer, {
-      tenantId: args.tenantId,
-      subjectId: args.subjectId,
-      providerUserId: args.providerUserId,
-      emailHash: args.emailHash,
-    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.backgroundSync.triggerBackfillThenSyncForGumroadBuyer,
+      {
+        tenantId: args.tenantId,
+        subjectId: args.subjectId,
+        providerUserId: args.providerUserId,
+        emailHash: args.emailHash,
+      }
+    );
   },
 });
 
@@ -243,6 +267,163 @@ export const getGumroadProductsForTenant = internalQuery({
   },
 });
 
+/** Internal query: Get Jinxxy products for a tenant */
+export const getJinxxyProductsForTenant = internalQuery({
+  args: { tenantId: v.id('tenants') },
+  returns: v.array(
+    v.object({
+      productId: v.string(),
+      providerProductRef: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const catalog = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('provider'), 'jinxxy'))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    return catalog.map((c) => ({
+      productId: c.productId,
+      providerProductRef: c.providerProductRef,
+    }));
+  },
+});
+
+/** Internal query: Get LemonSqueezy products for a tenant */
+export const getLSProductsForTenant = internalQuery({
+  args: { tenantId: v.id('tenants') },
+  returns: v.array(
+    v.object({
+      productId: v.string(),
+      providerProductRef: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const catalog = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('provider'), 'lemonsqueezy'))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    return catalog.map((c) => ({
+      productId: c.productId,
+      providerProductRef: c.providerProductRef,
+    }));
+  },
+});
+
+/**
+ * Internal action: Trigger backfill for tenant's Jinxxy products, then sync past purchases.
+ * Mirrors triggerBackfillThenSyncForGumroadBuyer for Jinxxy.
+ */
+export const triggerBackfillThenSyncForJinxxyBuyer = internalAction({
+  args: {
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    providerUserId: v.string(),
+    emailHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const products = await ctx.runQuery(internal.backgroundSync.getJinxxyProductsForTenant, {
+      tenantId: args.tenantId,
+    });
+
+    for (const p of products) {
+      await ctx.runAction(internal.backgroundSync.backfillProductPurchases, {
+        tenantId: args.tenantId,
+        productId: p.productId,
+        provider: 'jinxxy',
+        providerProductRef: p.providerProductRef,
+      });
+    }
+
+    await ctx.runAction(internal.backgroundSync.syncPastPurchasesForSubject, {
+      subjectId: args.subjectId,
+      provider: 'jinxxy',
+      providerUserId: args.providerUserId,
+      emailHash: args.emailHash,
+    });
+  },
+});
+
+/**
+ * Internal action: Trigger backfill for tenant's LemonSqueezy products, then sync past purchases.
+ * Mirrors triggerBackfillThenSyncForGumroadBuyer for LemonSqueezy.
+ */
+export const triggerBackfillThenSyncForLSBuyer = internalAction({
+  args: {
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    providerUserId: v.string(),
+    emailHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const products = await ctx.runQuery(internal.backgroundSync.getLSProductsForTenant, {
+      tenantId: args.tenantId,
+    });
+
+    for (const p of products) {
+      await ctx.runAction(internal.backgroundSync.backfillProductPurchases, {
+        tenantId: args.tenantId,
+        productId: p.productId,
+        provider: 'lemonsqueezy',
+        providerProductRef: p.providerProductRef,
+      });
+    }
+
+    await ctx.runAction(internal.backgroundSync.syncPastPurchasesForSubject, {
+      subjectId: args.subjectId,
+      provider: 'lemonsqueezy',
+      providerUserId: args.providerUserId,
+      emailHash: args.emailHash,
+    });
+  },
+});
+
+/**
+ * Public mutation: Generic schedule for buyer backfill+sync after license key verification.
+ * Dispatches to the correct provider-specific internal action.
+ * Both Jinxxy and LemonSqueezy license handlers call this after successful verification.
+ * Adding a new provider = add one internalAction above + one dispatch case here.
+ */
+export const scheduleBackfillThenSyncForBuyer = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    provider: v.string(),
+    providerUserId: v.string(),
+    emailHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    if (args.provider === 'jinxxy') {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.backgroundSync.triggerBackfillThenSyncForJinxxyBuyer,
+        {
+          tenantId: args.tenantId,
+          subjectId: args.subjectId,
+          providerUserId: args.providerUserId,
+          emailHash: args.emailHash,
+        }
+      );
+    } else if (args.provider === 'lemonsqueezy') {
+      await ctx.scheduler.runAfter(0, internal.backgroundSync.triggerBackfillThenSyncForLSBuyer, {
+        tenantId: args.tenantId,
+        subjectId: args.subjectId,
+        providerUserId: args.providerUserId,
+        emailHash: args.emailHash,
+      });
+    }
+    // Other providers: no-op (Gumroad has its own scheduleBackfillThenSyncForGumroadBuyer)
+  },
+});
+
 /**
  * Internal action: Sync past purchases for a subject who just linked Gumroad/Jinxxy.
  * Queries purchase_facts by emailHash, resolves productId, grants entitlements.
@@ -250,41 +431,51 @@ export const getGumroadProductsForTenant = internalQuery({
 export const syncPastPurchasesForSubject = internalAction({
   args: {
     subjectId: v.id('subjects'),
-    provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+    provider: v.string(),
     providerUserId: v.string(),
     emailHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (!args.emailHash) return;
-
     const apiSecret = process.env.CONVEX_API_SECRET;
     if (!apiSecret) {
       throw new Error('CONVEX_API_SECRET required for syncPastPurchasesForSubject');
     }
 
-    const purchases = await ctx.runQuery(
-      internal.backgroundSync.getPurchasesByEmailHash,
-      { emailHash: args.emailHash }
-    );
+    // Fetch purchase facts: by emailHash if available, otherwise by providerUserId
+    type PurchaseFact = {
+      tenantId: Id<'tenants'>;
+      provider: string;
+      externalOrderId: string;
+      externalLineItemId?: string;
+      providerProductId: string;
+      lifecycleStatus: string;
+      purchasedAt: number;
+    };
+    let purchases: PurchaseFact[];
+    if (args.emailHash) {
+      purchases = await ctx.runQuery(internal.backgroundSync.getPurchasesByEmailHash, {
+        emailHash: args.emailHash,
+      });
+    } else {
+      purchases = await ctx.runQuery(internal.backgroundSync.getPurchasesByProviderUserId, {
+        provider: args.provider,
+        providerUserId: args.providerUserId,
+      });
+    }
 
     for (const p of purchases) {
       if (p.lifecycleStatus !== 'active') continue;
+      if (p.provider !== args.provider) continue;
 
-      const catalog = await ctx.runQuery(
-        internal.backgroundSync.resolveCatalogProduct,
-        {
-          tenantId: p.tenantId,
-          provider: args.provider,
-          providerProductId: p.providerProductId,
-        }
-      );
+      const catalog = await ctx.runQuery(internal.backgroundSync.resolveCatalogProduct, {
+        tenantId: p.tenantId,
+        provider: args.provider,
+        providerProductId: p.providerProductId,
+      });
 
       const productId = catalog?.productId ?? p.providerProductId;
       const catalogProductId = catalog?.catalogProductId;
-      const sourceRef =
-        args.provider === 'gumroad'
-          ? `gumroad:${p.externalOrderId}`
-          : `jinxxy:${p.externalOrderId}:${p.externalLineItemId ?? p.externalOrderId}`;
+      const sourceRef = buildSourceRef(args.provider, p.externalOrderId, p.externalLineItemId);
 
       await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,
@@ -308,7 +499,7 @@ export const getPurchasesByEmailHash = internalQuery({
   returns: v.array(
     v.object({
       tenantId: v.id('tenants'),
-      provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+      provider: v.string(),
       externalOrderId: v.string(),
       externalLineItemId: v.optional(v.string()),
       providerProductId: v.string(),
@@ -334,11 +525,45 @@ export const getPurchasesByEmailHash = internalQuery({
   },
 });
 
+/** Internal query: Get purchases by providerUserId (for providers without email, e.g. Jinxxy) */
+export const getPurchasesByProviderUserId = internalQuery({
+  args: { provider: v.string(), providerUserId: v.string() },
+  returns: v.array(
+    v.object({
+      tenantId: v.id('tenants'),
+      provider: v.string(),
+      externalOrderId: v.string(),
+      externalLineItemId: v.optional(v.string()),
+      providerProductId: v.string(),
+      lifecycleStatus: v.string(),
+      purchasedAt: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const facts = await ctx.db
+      .query('purchase_facts')
+      .withIndex('by_provider_user', (q) =>
+        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId)
+      )
+      .collect();
+
+    return facts.map((f) => ({
+      tenantId: f.tenantId,
+      provider: f.provider,
+      externalOrderId: f.externalOrderId,
+      externalLineItemId: f.externalLineItemId,
+      providerProductId: f.providerProductId,
+      lifecycleStatus: f.lifecycleStatus,
+      purchasedAt: f.purchasedAt,
+    }));
+  },
+});
+
 /** Internal query: Resolve catalog product by tenant + provider ref */
 export const resolveCatalogProduct = internalQuery({
   args: {
     tenantId: v.id('tenants'),
-    provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+    provider: v.string(),
     providerProductId: v.string(),
   },
   returns: v.union(
@@ -352,6 +577,7 @@ export const resolveCatalogProduct = internalQuery({
     const catalog = await ctx.db
       .query('product_catalog')
       .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('provider'), args.provider))
       .filter((q) => q.eq(q.field('providerProductRef'), args.providerProductId))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
@@ -373,7 +599,7 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
   args: {
     tenantId: v.id('tenants'),
     productId: v.string(),
-    provider: v.union(v.literal('gumroad'), v.literal('jinxxy')),
+    provider: v.string(),
     providerProductRef: v.string(),
   },
   returns: v.object({
@@ -429,7 +655,7 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
           ctx,
           args.tenantId,
           args.provider,
-          purchaseFact.providerUserId,
+          purchaseFact.providerUserId
         );
       }
 
@@ -446,10 +672,11 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
         linkedToSubject++;
       }
 
-      const sourceReference =
-        args.provider === 'gumroad'
-          ? `gumroad:${purchaseFact.externalOrderId}`
-          : `jinxxy:${purchaseFact.externalOrderId}:${purchaseFact.externalLineItemId ?? purchaseFact.externalOrderId}`;
+      const sourceReference = buildSourceRef(
+        args.provider,
+        purchaseFact.externalOrderId,
+        purchaseFact.externalLineItemId
+      );
 
       const grantResult = await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,
@@ -480,25 +707,25 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
 });
 
 async function findSubjectByEmailHash(
-  ctx: any,
+  ctx: MutationCtx,
   tenantId: Id<'tenants'>,
-  emailHash: string | undefined,
+  emailHash: string | undefined
 ): Promise<Id<'subjects'> | undefined> {
   if (!emailHash) return undefined;
 
   const externalAccounts = await ctx.db
     .query('external_accounts')
-    .withIndex('by_email_hash', (q: any) => q.eq('emailHash', emailHash))
-    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .withIndex('by_email_hash', (q) => q.eq('emailHash', emailHash))
+    .filter((q) => q.eq(q.field('status'), 'active'))
     .collect();
 
   for (const externalAccount of externalAccounts) {
     const binding = await ctx.db
       .query('bindings')
-      .withIndex('by_tenant_external', (q: any) =>
+      .withIndex('by_tenant_external', (q) =>
         q.eq('tenantId', tenantId).eq('externalAccountId', externalAccount._id)
       )
-      .filter((q: any) => q.eq(q.field('status'), 'active'))
+      .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
 
     if (binding) {
@@ -510,17 +737,17 @@ async function findSubjectByEmailHash(
 }
 
 async function findSubjectByProviderUserId(
-  ctx: any,
+  ctx: MutationCtx,
   tenantId: Id<'tenants'>,
-  provider: 'gumroad' | 'jinxxy',
-  providerUserId: string,
+  provider: string,
+  providerUserId: string
 ): Promise<Id<'subjects'> | undefined> {
   const externalAccount = await ctx.db
     .query('external_accounts')
-    .withIndex('by_provider_user', (q: any) =>
+    .withIndex('by_provider_user', (q) =>
       q.eq('provider', provider).eq('providerUserId', providerUserId)
     )
-    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .filter((q) => q.eq(q.field('status'), 'active'))
     .first();
 
   if (!externalAccount) {
@@ -529,10 +756,10 @@ async function findSubjectByProviderUserId(
 
   const binding = await ctx.db
     .query('bindings')
-    .withIndex('by_tenant_external', (q: any) =>
+    .withIndex('by_tenant_external', (q) =>
       q.eq('tenantId', tenantId).eq('externalAccountId', externalAccount._id)
     )
-    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .filter((q) => q.eq(q.field('status'), 'active'))
     .first();
 
   return binding?.subjectId;
@@ -569,8 +796,8 @@ export const processRetroactiveRuleSyncJob = mutation({
           discordAccessTokenEncrypted: v.string(),
           discordTokenExpiresAt: v.optional(v.number()),
           discordRefreshTokenEncrypted: v.optional(v.string()),
-        }),
-      ),
+        })
+      )
     ),
   }),
   handler: async (ctx, args) => {
@@ -634,12 +861,12 @@ export const processRetroactiveRuleSyncJob = mutation({
     // so the bot can proactively check guild membership without re-authorization.
     let discordTokenAccounts:
       | Array<{
-        externalAccountId: Id<'external_accounts'>;
-        providerUserId: string;
-        discordAccessTokenEncrypted: string;
-        discordTokenExpiresAt?: number;
-        discordRefreshTokenEncrypted?: string;
-      }>
+          externalAccountId: Id<'external_accounts'>;
+          providerUserId: string;
+          discordAccessTokenEncrypted: string;
+          discordTokenExpiresAt?: number;
+          discordRefreshTokenEncrypted?: string;
+        }>
       | undefined;
 
     if (args.productId.startsWith('discord_role:')) {
@@ -654,7 +881,7 @@ export const processRetroactiveRuleSyncJob = mutation({
         .map((a) => ({
           externalAccountId: a._id,
           providerUserId: a.providerUserId,
-          discordAccessTokenEncrypted: a.discordAccessTokenEncrypted!,
+          discordAccessTokenEncrypted: a.discordAccessTokenEncrypted as string,
           discordTokenExpiresAt: a.discordTokenExpiresAt,
           discordRefreshTokenEncrypted: a.discordRefreshTokenEncrypted,
         }));

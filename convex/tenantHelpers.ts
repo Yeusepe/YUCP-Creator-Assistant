@@ -5,6 +5,7 @@
  * All tenant-scoped tables should use these types and helpers for consistency.
  */
 
+import type { ProviderKey } from '../packages/shared/src/providers';
 import type { Id } from './_generated/dataModel';
 
 // ============================================================================
@@ -122,10 +123,13 @@ export type PlatformIndexPattern =
 // ============================================================================
 
 /** Provider types for type-safe provider handling */
-export type Provider = 'discord' | 'gumroad' | 'jinxxy' | 'manual';
+export type Provider = ProviderKey;
 
 /** Commerce providers (those that can have provider_customers) */
-export type CommerceProvider = 'gumroad' | 'jinxxy' | 'manual';
+export type CommerceProvider = Extract<
+  ProviderKey,
+  'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'manual' | 'patreon' | 'fourthwall' | 'itchio' | 'payhip'
+>;
 
 // ============================================================================
 // STATUS TYPES
@@ -133,19 +137,9 @@ export type CommerceProvider = 'gumroad' | 'jinxxy' | 'manual';
 
 export type SubjectStatus = 'active' | 'suspended' | 'quarantined' | 'deleted';
 
-export type BindingStatus =
-  | 'pending'
-  | 'active'
-  | 'revoked'
-  | 'transferred'
-  | 'quarantined';
+export type BindingStatus = 'pending' | 'active' | 'revoked' | 'transferred' | 'quarantined';
 
-export type EntitlementStatus =
-  | 'active'
-  | 'revoked'
-  | 'expired'
-  | 'refunded'
-  | 'disputed';
+export type EntitlementStatus = 'active' | 'revoked' | 'expired' | 'refunded' | 'disputed';
 
 export type VerificationSessionStatus =
   | 'pending'
@@ -158,12 +152,7 @@ export type UnityInstallationStatus = 'active' | 'revoked' | 'quarantined';
 
 export type RuntimeAssertionStatus = 'valid' | 'expired' | 'revoked';
 
-export type OutboxJobStatus =
-  | 'pending'
-  | 'in_progress'
-  | 'completed'
-  | 'failed'
-  | 'dead_letter';
+export type OutboxJobStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'dead_letter';
 
 // ============================================================================
 // POLICY TYPES
@@ -242,9 +231,7 @@ export type AuditEventType =
  * Type guard to check if a document has a tenantId.
  * Useful for filtering audit events that may or may not be tenant-scoped.
  */
-export function hasTenantId(
-  doc: unknown,
-): doc is { tenantId: TenantId } {
+export function hasTenantId(doc: unknown): doc is { tenantId: TenantId } {
   return (
     typeof doc === 'object' &&
     doc !== null &&
@@ -266,7 +253,7 @@ export function tenantFilter(tenantId: TenantId): TenantQueryFilter {
  */
 export function tenantSubjectFilter(
   tenantId: TenantId,
-  subjectId: Id<'subjects'>,
+  subjectId: Id<'subjects'>
 ): TenantSubjectQueryFilter {
   return { tenantId, subjectId };
 }

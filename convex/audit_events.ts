@@ -5,9 +5,9 @@
  * Called by the bot role sync service and other internal services.
  */
 
-import { mutation } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { mutation } from './_generated/server';
 
 const AuditEventType = v.union(
   v.literal('verification.session.created'),
@@ -32,7 +32,7 @@ const AuditEventType = v.union(
   v.literal('guild.unlinked'),
   v.literal('subject.status.updated'),
   v.literal('subject.suspicious.marked'),
-  v.literal('subject.suspicious.cleared'),
+  v.literal('subject.suspicious.cleared')
 );
 
 function requireApiSecret(apiSecret: string | undefined): void {
@@ -50,11 +50,7 @@ export const createAuditEvent = mutation({
     apiSecret: v.string(),
     tenantId: v.optional(v.id('tenants')),
     eventType: AuditEventType,
-    actorType: v.union(
-      v.literal('subject'),
-      v.literal('system'),
-      v.literal('admin'),
-    ),
+    actorType: v.union(v.literal('subject'), v.literal('system'), v.literal('admin')),
     actorId: v.optional(v.string()),
     subjectId: v.optional(v.id('subjects')),
     metadata: v.optional(v.any()),

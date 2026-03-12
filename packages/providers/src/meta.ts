@@ -1,5 +1,14 @@
+import {
+  LICENSE_PROVIDER_KEYS,
+  PROVIDER_REGISTRY,
+  PROVIDER_REGISTRY_BY_KEY,
+  type ProviderDescriptor,
+  type ProviderKey,
+  providerLabel,
+} from '@yucp/shared';
+
 export interface ProviderMeta {
-  id: string;
+  id: ProviderKey;
   label: string;
   emojiKey: string;
   addProductDescription: string;
@@ -8,70 +17,39 @@ export interface ProviderMeta {
   supportsOAuth: boolean;
   supportsCredentialLogin: boolean;
   supportsDisconnect: boolean;
+  docsUrl: string;
+  category: ProviderDescriptor['category'];
+  status: ProviderDescriptor['status'];
+  creatorAuthModes: ProviderDescriptor['creatorAuthModes'];
+  buyerVerificationMethods: ProviderDescriptor['buyerVerificationMethods'];
+  capabilities: ProviderDescriptor['capabilities'];
+  setupRequirements: ProviderDescriptor['setupRequirements'];
 }
 
-export const PROVIDER_META: Record<string, ProviderMeta> = {
-  gumroad: {
-    id: 'gumroad',
-    label: 'Gumroad',
-    emojiKey: 'Gumorad',
-    addProductDescription: 'Sold on gumroad.com',
-    supportsLicenseVerify: true,
-    supportsWebhook: true,
-    supportsOAuth: true,
-    supportsCredentialLogin: false,
-    supportsDisconnect: true,
-  },
-  jinxxy: {
-    id: 'jinxxy',
-    label: 'Jinxxy',
-    emojiKey: 'Jinxxy',
-    addProductDescription: 'Sold on jinxxy.com',
-    supportsLicenseVerify: true,
-    supportsWebhook: true,
-    supportsOAuth: false,
-    supportsCredentialLogin: false,
-    supportsDisconnect: true,
-  },
-  vrchat: {
-    id: 'vrchat',
-    label: 'VRChat',
-    emojiKey: 'VRC',
-    addProductDescription: 'Avatar from vrchat.com/...',
-    supportsLicenseVerify: true,
-    supportsWebhook: false,
-    supportsOAuth: false,
-    supportsCredentialLogin: true,
-    supportsDisconnect: true,
-  },
-  discord: {
-    id: 'discord',
-    label: 'Discord',
-    emojiKey: 'Discord',
-    addProductDescription: 'Discord role from another server',
-    supportsLicenseVerify: false,
-    supportsWebhook: false,
-    supportsOAuth: true,
-    supportsCredentialLogin: false,
-    supportsDisconnect: true,
-  },
-  manual: {
-    id: 'manual',
-    label: 'Manual License',
-    emojiKey: 'PersonKey',
-    addProductDescription: 'Manually issued license key',
-    supportsLicenseVerify: false,
-    supportsWebhook: false,
-    supportsOAuth: false,
-    supportsCredentialLogin: false,
-    supportsDisconnect: false,
-  },
-};
+export const PROVIDER_META = Object.fromEntries(
+  PROVIDER_REGISTRY.map((provider) => [
+    provider.providerKey,
+    {
+      id: provider.providerKey,
+      label: provider.label,
+      emojiKey: provider.emojiKey,
+      addProductDescription: provider.addProductDescription,
+      supportsLicenseVerify: provider.supportsLicenseVerify,
+      supportsWebhook: provider.supportsWebhook,
+      supportsOAuth: provider.supportsOAuth,
+      supportsCredentialLogin: provider.supportsCredentialLogin,
+      supportsDisconnect: provider.supportsDisconnect,
+      docsUrl: provider.docsUrl,
+      category: provider.category,
+      status: provider.status,
+      creatorAuthModes: provider.creatorAuthModes,
+      buyerVerificationMethods: provider.buyerVerificationMethods,
+      capabilities: provider.capabilities,
+      setupRequirements: provider.setupRequirements,
+    } satisfies ProviderMeta,
+  ])
+) as unknown as Record<ProviderKey, ProviderMeta>;
 
-export const LICENSE_PROVIDERS = Object.values(PROVIDER_META)
-  .filter((m) => m.supportsLicenseVerify)
-  .map((m) => m.id);
+export const LICENSE_PROVIDERS = [...LICENSE_PROVIDER_KEYS];
 
-export function providerLabel(id: string): string {
-  return PROVIDER_META[id]?.label ?? id;
-}
+export { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY, providerLabel };

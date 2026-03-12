@@ -47,7 +47,7 @@ const AUTOSETUP_PREFIX = 'creator_autosetup:';
 export interface AutosetupProduct {
   id: string;
   name: string;
-  provider: 'gumroad' | 'jinxxy';
+  provider: string;
 }
 
 interface AutosetupSession {

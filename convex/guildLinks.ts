@@ -5,14 +5,14 @@
  * Called by the API server after validating creator session.
  */
 
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 
 const GuildLinkStatus = v.union(
   v.literal('active'),
   v.literal('uninstalled'),
-  v.literal('suspended'),
+  v.literal('suspended')
 );
 
 function requireApiSecret(apiSecret: string | undefined): void {
@@ -39,7 +39,7 @@ export const upsertGuildLink = mutation({
       v.object({
         registered: v.boolean(),
         registeredAt: v.optional(v.number()),
-      }),
+      })
     ),
   },
   handler: async (ctx, args) => {
@@ -197,7 +197,7 @@ export const getUserGuilds = query({
           tenantId: tenant._id,
           guildId: link.discordGuildId,
           name: link.discordGuildName || tenant.name,
-          icon: link.discordGuildIcon ?? null
+          icon: link.discordGuildIcon ?? null,
         });
       }
     }
@@ -261,4 +261,3 @@ export const hardDisconnectGuild = mutation({
     return { success: true };
   },
 });
-

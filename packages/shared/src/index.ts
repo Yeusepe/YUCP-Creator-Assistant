@@ -1,6 +1,8 @@
 // Shared types and utilities
 // Re-export common types across the monorepo
 
+import type { ProviderKey } from './providers';
+
 export interface EnvConfig {
   NODE_ENV: 'development' | 'production' | 'test';
   INFISICAL_URL?: string;
@@ -27,11 +29,13 @@ export type VerificationStatus = 'pending' | 'verified' | 'rejected' | 'expired'
 export interface Verification {
   id: string;
   userId: string;
-  provider: 'gumroad' | 'jinxxy' | 'discord' | 'manual';
+  provider: ProviderKey;
   status: VerificationStatus;
   expiresAt?: Date;
   createdAt: Date;
 }
+
+export * from './providers';
 
 export {
   createLogger,

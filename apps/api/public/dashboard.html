@@ -360,7 +360,14 @@
                             <h2 class="text-lg font-black">Connected Platforms</h2>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="platforms-grid">
+                        <!-- Dynamic user accounts list (rendered by platform.js) -->
+                        <div id="user-accounts-list" class="grid grid-cols-1 md:grid-cols-3 gap-4" style="margin-bottom: 16px;">
+                        </div>
+
+                        <!-- Add account buttons (rendered dynamically by platform.js from PROVIDER_META) -->
+                        <div id="add-account-buttons" style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px;"></div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="platforms-grid" style="display:none;">
 
                             <!-- Discord® (always connected) -->
                             <div class="platform-card connected">
@@ -380,80 +387,7 @@
                                 </div>
                             </div>
 
-                            <!-- Gumroad® -->
-                            <div id="gumroad-card" class="platform-card disconnected">
-                                <div class="flex items-start justify-between">
-                                    <div
-                                        class="w-10 h-10 bg-black rounded-xl flex items-center justify-center overflow-hidden">
-                                        <img class="w-6 h-6 rounded object-cover"
-                                            src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
-                                            alt="Gumroad®">
-                                    </div>
-                                    <span id="gumroad-status" class="status-pill disconnected">Not Linked</span>
-                                </div>
-                                <div>
-                                    <h3 class="font-bold text-base mb-0.5">Gumroad®</h3>
-                                    <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import
-                                        sales
-                                        &amp; buyers</p>
-                                </div>
-                                <button id="gumroad-btn" class="card-action-btn link" onclick="navigateGumroad()">
-                                    Link Account
-                                </button>
-                                <!-- Inline disconnect confirm -->
-                                <div class="inline-confirm" id="gumroad-disconnect-confirm">
-                                    <div>
-                                        <div class="inline-confirm-body">
-                                            <span class="inline-confirm-label">Disconnect <strong>Gumroad®</strong>?
-                                                This
-                                                removes all syncing.</span>
-                                            <div class="inline-confirm-btns">
-                                                <button class="inline-cancel-btn"
-                                                    onclick="cancelDisconnect('gumroad')">Cancel</button>
-                                                <button class="inline-danger-btn" id="gumroad-confirm-btn"
-                                                    onclick="confirmDisconnect('gumroad')">Disconnect</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Jinxxy™ -->
-                            <div id="jinxxy-card" class="platform-card disconnected">
-                                <div class="flex items-start justify-between">
-                                    <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center"
-                                        style="background:#9146FF;">
-                                        <img class="w-6 h-6 rounded object-cover"
-                                            src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
-                                            alt="Jinxxy™">
-                                    </div>
-                                    <span id="jinxxy-status" class="status-pill disconnected">Not Linked</span>
-                                </div>
-                                <div>
-                                    <h3 class="font-bold text-base mb-0.5">Jinxxy™</h3>
-                                    <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">Import
-                                        sales
-                                        &amp; buyers</p>
-                                </div>
-                                <button id="jinxxy-btn" class="card-action-btn link" onclick="navigateJinxxy()">
-                                    Link Account
-                                </button>
-                                <!-- Inline disconnect confirm -->
-                                <div class="inline-confirm" id="jinxxy-disconnect-confirm">
-                                    <div>
-                                        <div class="inline-confirm-body">
-                                            <span class="inline-confirm-label">Disconnect <strong>Jinxxy™</strong>? This
-                                                removes all syncing.</span>
-                                            <div class="inline-confirm-btns">
-                                                <button class="inline-cancel-btn"
-                                                    onclick="cancelDisconnect('jinxxy')">Cancel</button>
-                                                <button class="inline-danger-btn" id="jinxxy-confirm-btn"
-                                                    onclick="confirmDisconnect('jinxxy')">Disconnect</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            <div id="dynamic-platform-cards" class="contents"></div>
 
                         </div>
                     </section>
@@ -477,43 +411,10 @@
                         <div class="settings-subsection" id="server-store-integrations-section">
                             <div class="settings-subsection-title">Store Integrations</div>
                             <div class="settings-subsection-body">
-                                <article class="svr-cfg-tile" id="server-tile-gumroad" style="display: none;">
-                                    <div class="svr-cfg-tile-head">
-                                        <div class="svr-cfg-tile-icon"><img
-                                                src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460"
-                                                alt="" style="border-radius:4px;">
-                                        </div>
-                                        <div class="svr-cfg-tile-text">
-                                            <span class="svr-cfg-tile-label">Enable Gumroad® for this Server</span>
-                                            <span class="svr-cfg-tile-hint">Allow users to verify Gumroad purchases in
-                                                this Discord server.</span>
-                                        </div>
-                                    </div>
-                                    <div class="svr-cfg-tile-ctrl">
-                                        <div id="toggle-serverEnableGumroad" class="svr-cfg-switch active" role="switch"
-                                            onclick="this.classList.toggle('active')" aria-label="Enable Gumroad"></div>
-                                    </div>
-                                </article>
-                                <article class="svr-cfg-tile" id="server-tile-jinxxy" style="display: none;">
-                                    <div class="svr-cfg-tile-head">
-                                        <div class="svr-cfg-tile-icon"><img
-                                                src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483"
-                                                alt="" style="border-radius:4px;">
-                                        </div>
-                                        <div class="svr-cfg-tile-text">
-                                            <span class="svr-cfg-tile-label">Enable Jinxxy™ for this Server</span>
-                                            <span class="svr-cfg-tile-hint">Allow users to verify Jinxxy purchases in
-                                                this Discord server.</span>
-                                        </div>
-                                    </div>
-                                    <div class="svr-cfg-tile-ctrl">
-                                        <div id="toggle-serverEnableJinxxy" class="svr-cfg-switch active" role="switch"
-                                            onclick="this.classList.toggle('active')" aria-label="Enable Jinxxy"></div>
-                                    </div>
-                                </article>
+                                <div id="dynamic-server-provider-tiles"></div>
                                 <div id="server-integrations-empty"
                                     class="p-4 bg-white/5 border border-white/10 rounded-xl text-center text-sm text-[rgba(255,255,255,0.6)]">
-                                    No global store platforms linked yet. Link them in your Personal Dashboard first.
+                                    No store accounts linked. Add a Gumroad or Jinxxy account in the <strong>Connected Platforms</strong> section above.
                                 </div>
                             </div>
                         </div>
@@ -1297,9 +1198,6 @@
         if (fgRoot) createRoot(fgRoot).render(<ForegroundApp />);
     </script>
 
-</body>
-
-</html>
 </body>
 
 </html>

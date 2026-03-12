@@ -5,10 +5,10 @@
  * Uses SHA-256 hashing - license keys are NEVER stored in plaintext.
  */
 
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { Doc } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 
 // ============================================================================
 // TYPES
@@ -19,7 +19,7 @@ export const ManualLicenseStatus = v.union(
   v.literal('active'),
   v.literal('revoked'),
   v.literal('expired'),
-  v.literal('exhausted'),
+  v.literal('exhausted')
 );
 
 /** Input for creating a manual license */
@@ -79,14 +79,16 @@ function requireApiSecret(apiSecret: string | undefined): void {
 /** Input for bulk creating manual licenses */
 export const BulkCreateManualLicensesInput = v.object({
   tenantId: v.id('tenants'),
-  licenses: v.array(v.object({
-    licenseKeyHash: v.string(),
-    productId: v.string(),
-    maxUses: v.optional(v.number()),
-    expiresAt: v.optional(v.number()),
-    notes: v.optional(v.string()),
-    buyerEmail: v.optional(v.string()),
-  })),
+  licenses: v.array(
+    v.object({
+      licenseKeyHash: v.string(),
+      productId: v.string(),
+      maxUses: v.optional(v.number()),
+      expiresAt: v.optional(v.number()),
+      notes: v.optional(v.string()),
+      buyerEmail: v.optional(v.string()),
+    })
+  ),
 });
 
 // ============================================================================
@@ -119,11 +121,11 @@ export const findByKeyHash = query({
       .query('manual_licenses')
       .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', licenseKeyHash))
       .first();
-    
+
     if (!license) {
       return null;
     }
-    
+
     // Never return the hash
     const { licenseKeyHash: _, ...rest } = license;
     return rest;
@@ -140,22 +142,22 @@ export const listByTenant = query({
     status: v.optional(ManualLicenseStatus),
   },
   handler: async (ctx, { tenantId, productId, status }) => {
-    let query = ctx.db
+    const query = ctx.db
       .query('manual_licenses')
       .withIndex('by_tenant', (q) => q.eq('tenantId', tenantId));
-    
+
     const licenses = await query.collect();
-    
+
     let filtered = licenses;
-    
+
     if (productId) {
       filtered = filtered.filter((l) => l.productId === productId);
     }
-    
+
     if (status) {
       filtered = filtered.filter((l) => l.status === status);
     }
-    
+
     // Never return hashes
     return filtered.map(({ licenseKeyHash: _, ...rest }) => rest);
   },
@@ -171,7 +173,7 @@ export const getStats = query({
       .query('manual_licenses')
       .withIndex('by_tenant', (q) => q.eq('tenantId', tenantId))
       .collect();
-    
+
     return {
       total: licenses.length,
       active: licenses.filter((l) => l.status === 'active').length,
@@ -205,7 +207,7 @@ export const create = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const now = Date.now();
-    
+
     const licenseId = await ctx.db.insert('manual_licenses', {
       tenantId: args.tenantId,
       licenseKeyHash: args.licenseKeyHash,
@@ -220,7 +222,7 @@ export const create = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    
+
     return { licenseId };
   },
 });
@@ -235,22 +237,22 @@ export const incrementUsage = mutation({
     if (!license) {
       throw new Error('License not found');
     }
-    
+
     const now = Date.now();
     const newUses = license.currentUses + 1;
-    
+
     // Check if this would exhaust the license
     let newStatus = license.status;
     if (license.maxUses !== undefined && newUses >= license.maxUses) {
       newStatus = 'exhausted';
     }
-    
+
     await ctx.db.patch(licenseId, {
       currentUses: newUses,
       status: newStatus,
       updatedAt: now,
     });
-    
+
     const updated = await ctx.db.get(licenseId);
     const { licenseKeyHash: _, ...rest } = updated!;
     return rest;
@@ -274,20 +276,20 @@ export const revoke = mutation({
     if (!license) {
       throw new Error('License not found');
     }
-    
+
     // Verify tenant ownership
     if (license.tenantId !== tenantId) {
       throw new Error('License not found');
     }
-    
+
     const now = Date.now();
-    
+
     await ctx.db.patch(licenseId, {
       status: 'revoked',
       notes: reason ? `${license.notes || ''}\nRevoked: ${reason}`.trim() : license.notes,
       updatedAt: now,
     });
-    
+
     const updated = await ctx.db.get(licenseId);
     const { licenseKeyHash: _, ...rest } = updated!;
     return rest;
@@ -311,15 +313,15 @@ export const updateStatus = mutation({
     if (!license) {
       throw new Error('License not found');
     }
-    
+
     const now = Date.now();
-    
+
     await ctx.db.patch(licenseId, {
       status,
       notes: reason ? `${license.notes || ''}\n${reason}`.trim() : license.notes,
       updatedAt: now,
     });
-    
+
     const updated = await ctx.db.get(licenseId);
     const { licenseKeyHash: _, ...rest } = updated!;
     return rest;
@@ -334,20 +336,22 @@ export const bulkCreate = mutation({
   args: {
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
-    licenses: v.array(v.object({
-      licenseKeyHash: v.string(),
-      productId: v.string(),
-      maxUses: v.optional(v.number()),
-      expiresAt: v.optional(v.number()),
-      notes: v.optional(v.string()),
-      buyerEmail: v.optional(v.string()),
-    })),
+    licenses: v.array(
+      v.object({
+        licenseKeyHash: v.string(),
+        productId: v.string(),
+        maxUses: v.optional(v.number()),
+        expiresAt: v.optional(v.number()),
+        notes: v.optional(v.string()),
+        buyerEmail: v.optional(v.string()),
+      })
+    ),
   },
   handler: async (ctx, { apiSecret, tenantId, licenses }) => {
     requireApiSecret(apiSecret);
     const now = Date.now();
     const results: Id<'manual_licenses'>[] = [];
-    
+
     for (const input of licenses) {
       const licenseId = await ctx.db.insert('manual_licenses', {
         tenantId,
@@ -364,7 +368,7 @@ export const bulkCreate = mutation({
       });
       results.push(licenseId);
     }
-    
+
     return { created: results.length, licenseIds: results };
   },
 });
@@ -392,21 +396,21 @@ export const validateByHash = query({
       .query('manual_licenses')
       .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', licenseKeyHash))
       .first();
-    
+
     if (!license) {
       return { valid: false, reason: 'not_found' };
     }
-    
+
     // Check product match
     if (license.productId !== productId) {
       return { valid: false, reason: 'wrong_product' };
     }
-    
+
     // Check tenant match
     if (license.tenantId !== tenantId) {
       return { valid: false, reason: 'not_found' };
     }
-    
+
     // Check status
     if (license.status === 'revoked') {
       return {
@@ -416,7 +420,7 @@ export const validateByHash = query({
         reason: 'revoked',
       };
     }
-    
+
     // Check expiry
     if (license.expiresAt && Date.now() > license.expiresAt) {
       return {
@@ -427,7 +431,7 @@ export const validateByHash = query({
         reason: 'expired',
       };
     }
-    
+
     // Check usage limit
     if (license.maxUses !== undefined && license.currentUses >= license.maxUses) {
       return {
@@ -439,7 +443,7 @@ export const validateByHash = query({
         reason: 'exhausted',
       };
     }
-    
+
     return {
       valid: true,
       licenseId: license._id,

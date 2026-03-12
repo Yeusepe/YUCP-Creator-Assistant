@@ -23,14 +23,16 @@ non-commercial purpose.
 
 2. No Commercial Use
 
-You may not use the Software, in whole or in part, for any commercial
-purpose.
-
+You may not use the Software, in whole or in part, for any commercial purpose except to operate your own self-hosted instance for your own communities or creator activities, where the Software itself is not sold or offered as a paid hosting service.
 “Commercial purpose” includes any use intended for or directed toward
 commercial advantage, private monetary compensation, revenue generation,
 client work, paid services, consulting deliverables, production business
 use, resale, licensing, sublicensing, or operation as part of a product
 or service offered to third parties.
+
+Non-Commercial Self-Hosting
+You are permitted to deploy and run your own instance of the Software for personal, community, or creator use, including to verify buyers of your own products.
+You may not charge money for access to your hosted instance, sell or rent hosting of the Software, or offer it as a paid SaaS or managed service for others.
 
 3. No Redistribution or Public Use
 
@@ -40,7 +42,7 @@ service functionality for a public repository, you may not:
   (a) distribute, publish, sublicense, sell, resell, rent, lease, or
       otherwise make the Software available to any third party;
   (b) distribute modified versions of the Software;
-  (c) use the Software in production; or
+  (c) use the Software in production as a paid hosting service, SaaS, or managed instance for third parties; or
   (d) incorporate the Software, in whole or in part, into any product,
       service, library, SDK, plugin, template, model, dataset, or other
       deliverable.

@@ -117,6 +117,21 @@ export interface VerificationModeConfig {
   scopes: string[];
   /** Callback path */
   callbackPath: string;
+  /**
+   * Key in VerificationConfig for the OAuth client ID.
+   * If omitted, falls back to providerClientIds[mode].
+   */
+  clientIdKey?: keyof VerificationConfig;
+  /**
+   * Key in VerificationConfig for the OAuth client secret.
+   * If omitted, falls back to providerClientSecrets[mode].
+   */
+  clientSecretKey?: keyof VerificationConfig;
+  /**
+   * Extra OAuth query params appended to the authorization URL for this mode.
+   * Merged with (and overridden by) providerExtraOAuthParams[mode] from VerificationConfig.
+   */
+  extraOAuthParams?: Record<string, string>;
 }
 
 /**
@@ -127,6 +142,8 @@ export const GUMROAD_CONFIG: VerificationModeConfig = {
   tokenUrl: 'https://api.gumroad.com/oauth/token',
   scopes: ['view_profile', 'view_sales'],
   callbackPath: '/api/verification/callback/gumroad',
+  clientIdKey: 'gumroadClientId',
+  clientSecretKey: 'gumroadClientSecret',
 };
 
 /**
@@ -138,6 +155,9 @@ export const DISCORD_ROLE_CONFIG: VerificationModeConfig = {
   tokenUrl: 'https://discord.com/api/oauth2/token',
   scopes: ['identify', 'guilds', 'guilds.members.read'],
   callbackPath: '/api/verification/callback/discord',
+  clientIdKey: 'discordClientId',
+  clientSecretKey: 'discordClientSecret',
+  extraOAuthParams: { prompt: 'consent' },
 };
 
 /**
@@ -148,39 +168,39 @@ export const JINXXY_CONFIG: VerificationModeConfig = {
   tokenUrl: 'https://api.jinxxy.com/oauth/token',
   scopes: ['user:read', 'products:read', 'purchases:read'],
   callbackPath: '/api/verification/callback/jinxxy',
+  clientIdKey: 'jinxxyClientId',
+  clientSecretKey: 'jinxxyClientSecret',
 };
 
 /**
  * Get configuration for a verification mode.
  * Callback path uses 'discord' but internal mode is 'discord_role'.
  */
+/**
+ * Registry mapping verification mode → OAuth config.
+ * Add a new entry here when adding a new OAuth provider.
+ */
+const VERIFICATION_CONFIGS: Record<string, VerificationModeConfig> = {
+  gumroad: GUMROAD_CONFIG,
+  discord: DISCORD_ROLE_CONFIG,
+  discord_role: DISCORD_ROLE_CONFIG,
+  jinxxy: JINXXY_CONFIG,
+};
+
 export function getVerificationConfig(mode: string): VerificationModeConfig | null {
-  switch (mode) {
-    case 'gumroad':
-      return GUMROAD_CONFIG;
-    case 'discord':
-    case 'discord_role':
-      return DISCORD_ROLE_CONFIG;
-    case 'jinxxy':
-      return JINXXY_CONFIG;
-    default:
-      return null;
-  }
+  return VERIFICATION_CONFIGS[mode] ?? null;
 }
 
 /** Map callback path mode to Convex/identitySync provider name */
-function modeToProvider(mode: string): 'gumroad' | 'discord' | 'jinxxy' | null {
-  switch (mode) {
-    case 'gumroad':
-      return 'gumroad';
-    case 'discord':
-    case 'discord_role':
-      return 'discord';
-    case 'jinxxy':
-      return 'jinxxy';
-    default:
-      return null;
-  }
+const MODE_TO_PROVIDER_MAP: Record<string, string> = {
+  gumroad: 'gumroad',
+  discord: 'discord',
+  discord_role: 'discord',
+  jinxxy: 'jinxxy',
+};
+
+function modeToProvider(mode: string): string | null {
+  return MODE_TO_PROVIDER_MAP[mode] ?? null;
 }
 
 // ============================================================================
@@ -194,7 +214,7 @@ export interface CreateSessionInput {
   /** Tenant ID */
   tenantId: string;
   /** Verification mode */
-  mode: 'gumroad' | 'discord_role' | 'jinxxy' | 'manual';
+  mode: string;
   /** Redirect URI after completion */
   redirectUri: string;
   /** Discord user ID when started from Discord (for Gumroad→Discord link) */
@@ -316,6 +336,22 @@ export interface VerificationConfig {
   jinxxyClientSecret?: string;
   /** Secret for decrypting tenant-stored keys (e.g. Jinxxy API key) */
   encryptionSecret?: string;
+  /**
+   * Generic OAuth client IDs for additional providers.
+   * Keys are verification modes (e.g. 'myprovider'); values are client IDs.
+   * Add new OAuth providers here without changing the interface.
+   */
+  providerClientIds?: Record<string, string>;
+  /**
+   * Generic OAuth client secrets for additional providers.
+   * Keys are verification modes; values are client secrets.
+   * Add new OAuth providers here without changing the interface.
+   */
+  providerClientSecrets?: Record<string, string>;
+  /**
+   * Extra OAuth query params per mode (e.g. { discord_role: { prompt: 'consent' } }).
+   */
+  providerExtraOAuthParams?: Record<string, Record<string, string>>;
 }
 
 /**
@@ -379,32 +415,26 @@ export function createVerificationSessionManager(
           : `${config.baseUrl}${modeConfig.callbackPath}`;
       authUrl.searchParams.set('redirect_uri', redirectUri);
 
-      // Add mode-specific parameters
-      switch (input.mode) {
-        case 'gumroad':
-          if (!config.gumroadClientId) {
-            return { success: false, error: 'Gumroad client ID not configured' };
-          }
-          authUrl.searchParams.set('client_id', config.gumroadClientId);
-          authUrl.searchParams.set('scope', modeConfig.scopes.join(' '));
-          break;
+      // Derive client ID from mode config (falls back to generic providerClientIds)
+      const clientId = modeConfig.clientIdKey
+        ? (config[modeConfig.clientIdKey] as string | undefined)
+        : config.providerClientIds?.[input.mode];
+      // Merge per-mode extra OAuth params with runtime overrides
+      const extraOAuthParams = {
+        ...modeConfig.extraOAuthParams,
+        ...config.providerExtraOAuthParams?.[input.mode],
+      };
 
-        case 'discord_role':
-          if (!config.discordClientId) {
-            return { success: false, error: 'Discord client ID not configured' };
-          }
-          authUrl.searchParams.set('client_id', config.discordClientId);
-          authUrl.searchParams.set('scope', modeConfig.scopes.join(' '));
-          authUrl.searchParams.set('prompt', 'consent'); // Force re-approve for guilds.members.read
-          break;
-
-        case 'jinxxy':
-          if (!config.jinxxyClientId) {
-            return { success: false, error: 'Jinxxy client ID not configured' };
-          }
-          authUrl.searchParams.set('client_id', config.jinxxyClientId);
-          authUrl.searchParams.set('scope', modeConfig.scopes.join(' '));
-          break;
+      if (!clientId) {
+        return {
+          success: false,
+          error: `${input.mode.charAt(0).toUpperCase() + input.mode.slice(1)} client ID not configured`,
+        };
+      }
+      authUrl.searchParams.set('client_id', clientId);
+      authUrl.searchParams.set('scope', modeConfig.scopes.join(' '));
+      for (const [k, v] of Object.entries(extraOAuthParams)) {
+        authUrl.searchParams.set(k, v);
       }
 
       logger.info('Verification session started', {
@@ -554,23 +584,13 @@ export function createVerificationSessionManager(
         code_verifier: codeVerifier,
       });
 
-      let clientId: string | undefined;
-      let clientSecret: string | undefined;
-      switch (mode) {
-        case 'gumroad':
-          clientId = config.gumroadClientId;
-          clientSecret = config.gumroadClientSecret;
-          break;
-        case 'discord':
-        case 'discord_role':
-          clientId = config.discordClientId;
-          clientSecret = config.discordClientSecret;
-          break;
-        case 'jinxxy':
-          clientId = config.jinxxyClientId;
-          clientSecret = config.jinxxyClientSecret;
-          break;
-      }
+      const tokenModeConfig = VERIFICATION_CONFIGS[mode];
+      const clientId = tokenModeConfig?.clientIdKey
+        ? (config[tokenModeConfig.clientIdKey] as string | undefined)
+        : config.providerClientIds?.[mode];
+      const clientSecret = tokenModeConfig?.clientSecretKey
+        ? (config[tokenModeConfig.clientSecretKey] as string | undefined)
+        : config.providerClientSecrets?.[mode];
 
       if (clientId) tokenParams.set('client_id', clientId);
       if (clientSecret) tokenParams.set('client_secret', clientSecret);
@@ -1443,6 +1463,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       | {
           apiSecret?: string;
           licenseKey?: string;
+          provider?: string;
           productId?: string;
           tenantId?: string;
           subjectId?: string;
@@ -1459,6 +1480,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       const { handleCompleteLicense } = await import('./completeLicense');
       const result = await handleCompleteLicense(config, {
         licenseKey: body.licenseKey ?? '',
+        provider: body.provider,
         productId: body.productId,
         tenantId: body.tenantId ?? '',
         subjectId: body.subjectId ?? '',

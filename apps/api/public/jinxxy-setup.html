@@ -838,14 +838,10 @@
                 return true;
             }
 
-            function goBackToConnect() {
-                if (HAS_SETUP_SESSION) {
-                    window.location.href = API_BASE + '/connect';
-                } else {
-                    let url = API_BASE + '/connect?tenant_id=' + encodeURIComponent(TENANT_ID);
-                    if (GUILD_ID) url += '&guild_id=' + encodeURIComponent(GUILD_ID);
-                    window.location.href = url;
-                }
+            function goBackToDashboard() {
+                let url = API_BASE + '/dashboard?tenant_id=' + encodeURIComponent(TENANT_ID);
+                if (GUILD_ID) url += '&guild_id=' + encodeURIComponent(GUILD_ID);
+                window.location.href = url;
             }
 
             const SIGNING_SECRET_MIN = 16;
@@ -1224,7 +1220,7 @@
                     finishBtn.classList.add('bg-green-600');
                     lucide.createIcons();
                     confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-                    setTimeout(() => goBackToConnect(), 1500);
+                    setTimeout(() => goBackToDashboard(), 1500);
                 } catch (e) {
                     errEl.textContent = 'Could not save this Jinxxy™ connection right now. Check the key and try again.';
                     errEl.classList.remove('hidden');

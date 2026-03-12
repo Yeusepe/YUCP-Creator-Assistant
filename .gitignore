@@ -3,4 +3,24 @@
 .env.local
 .env.infisical
 .env.test
+node_modules
+*.md
+!README.md
+!docs/bot-e2e.md
+/.swarm
+/StaticSitesExamples
 
+# Build & tooling
+dist
+.convex
+.sisyphus
+coverage
+.cache
+.bun
+convex/tsconfig.tsbuildinfo
+convex/tsconfig.tsbuildinfo
+apps/bot/test/e2e/.artifacts/
+.claude
+.cursor
+*.tsbuildinfo
+convex/tsconfig.tsbuildinfo

@@ -168,10 +168,81 @@ const WebhookEventStatus = v.union(
   v.literal('duplicate')
 );
 
+const ProviderConnectionStatus = v.union(
+  v.literal('pending'),
+  v.literal('active'),
+  v.literal('degraded'),
+  v.literal('disconnected'),
+  v.literal('error')
+);
+
+const ProviderCredentialKind = v.union(
+  v.literal('api_key'),
+  v.literal('api_token'),
+  v.literal('oauth_access_token'),
+  v.literal('oauth_refresh_token'),
+  v.literal('webhook_secret'),
+  v.literal('remote_webhook'),
+  v.literal('store_selector')
+);
+
+const ProviderCredentialStatus = v.union(
+  v.literal('pending'),
+  v.literal('active'),
+  v.literal('expired'),
+  v.literal('invalid'),
+  v.literal('rotated'),
+  v.literal('revoked')
+);
+
+const ProviderCapabilityStatus = v.union(
+  v.literal('pending'),
+  v.literal('available'),
+  v.literal('configured'),
+  v.literal('active'),
+  v.literal('degraded'),
+  v.literal('unsupported')
+);
+
+const ProviderTransactionStatus = v.union(
+  v.literal('pending'),
+  v.literal('paid'),
+  v.literal('refunded'),
+  v.literal('partial_refund'),
+  v.literal('disputed'),
+  v.literal('failed'),
+  v.literal('cancelled')
+);
+
+const ProviderMembershipStatus = v.union(
+  v.literal('trialing'),
+  v.literal('active'),
+  v.literal('paused'),
+  v.literal('past_due'),
+  v.literal('cancelled'),
+  v.literal('expired')
+);
+
+const ProviderLicenseStatus = v.union(
+  v.literal('active'),
+  v.literal('inactive'),
+  v.literal('expired'),
+  v.literal('revoked'),
+  v.literal('disabled')
+);
+
+const EntitlementEvidenceStatus = v.union(
+  v.literal('pending'),
+  v.literal('active'),
+  v.literal('revoked'),
+  v.literal('superseded')
+);
+
 /** Purchase fact lifecycle status */
 const PurchaseFactLifecycleStatus = v.union(
   v.literal('active'),
   v.literal('refunded'),
+  v.literal('cancelled'),
   v.literal('disputed')
 );
 
@@ -310,6 +381,10 @@ const verification_sessions = defineTable({
   subjectId: v.optional(v.id('subjects')),
   // Verification mode being used
   mode: VerificationMode,
+  // Generic provider identity for capability-driven flows
+  providerKey: v.optional(Provider),
+  // Canonical verification method for capability-driven flows
+  verificationMethod: v.optional(VerificationMode),
   // Product being verified (if applicable)
   productId: v.optional(v.id('product_catalog')),
   // OAuth state parameter
@@ -714,7 +789,7 @@ const product_catalog = defineTable({
  */
 const purchase_facts = defineTable({
   tenantId: v.id('tenants'),
-  provider: WebhookProviderV,
+  provider: Provider,
   externalOrderId: v.string(),
   externalLineItemId: v.optional(v.string()),
   externalLicenseId: v.optional(v.string()),
@@ -736,6 +811,7 @@ const purchase_facts = defineTable({
   .index('by_tenant_provider_order', ['tenantId', 'provider', 'externalOrderId'])
   .index('by_tenant_product', ['tenantId', 'providerProductId'])
   .index('by_email_hash', ['buyerEmailHash'])
+  .index('by_provider_user', ['provider', 'providerUserId'])
   .index('by_subject', ['subjectId']);
 
 /**
@@ -743,14 +819,28 @@ const purchase_facts = defineTable({
  * Gumroad: OAuth tokens, resource subscriptions; Jinxxy: API key, webhook secret.
  */
 const provider_connections = defineTable({
-  tenantId: v.id('tenants'),
-  provider: WebhookProviderV,
+  /**
+   * Owner identity. Connections are user-scoped: authUserId is always set.
+   * tenantId is optional — set when the connection was created in the context of a specific
+   * Discord server (legacy / bot-initiated setup flow). User-scoped connections created from
+   * the personal dashboard have authUserId only.
+   */
+  authUserId: v.optional(v.string()),
+  tenantId: v.optional(v.id('tenants')),
+  provider: Provider,
+  providerKey: v.optional(Provider),
   // Human-readable label for multi-store support (e.g. "Main Store", "VRChat Assets")
   label: v.optional(v.string()),
   // Whether this is a creator setup connection or verification connection
   connectionType: v.optional(v.union(v.literal('setup'), v.literal('verification'))),
   // Connection status
-  status: v.optional(v.union(v.literal('active'), v.literal('disconnected'), v.literal('error'))),
+  status: v.optional(ProviderConnectionStatus),
+  authMode: v.optional(v.string()),
+  externalShopId: v.optional(v.string()),
+  externalShopName: v.optional(v.string()),
+  installedBySubjectId: v.optional(v.id('subjects')),
+  lastHealthcheckAt: v.optional(v.number()),
+  lastSyncAt: v.optional(v.number()),
   gumroadAccessTokenEncrypted: v.optional(v.string()),
   gumroadRefreshTokenEncrypted: v.optional(v.string()),
   gumroadUserId: v.optional(v.string()),
@@ -760,15 +850,187 @@ const provider_connections = defineTable({
   webhookSecretRef: v.optional(v.string()),
   gumroadWebhookSecretRef: v.optional(v.string()),
   webhookEndpoint: v.optional(v.string()),
+  remoteWebhookId: v.optional(v.string()),
+  remoteWebhookSecretRef: v.optional(v.string()),
+  testMode: v.optional(v.boolean()),
+  metadata: v.optional(v.any()),
   lastSuccessfulBackfillAt: v.optional(v.number()),
   lastSeenOrderId: v.optional(v.string()),
   lastWebhookAt: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),
 })
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_provider', ['authUserId', 'provider'])
   .index('by_tenant', ['tenantId'])
   .index('by_tenant_provider', ['tenantId', 'provider'])
+  .index('by_tenant_provider_key', ['tenantId', 'providerKey'])
   .index('by_tenant_provider_label', ['tenantId', 'provider', 'label']);
+
+const provider_credentials = defineTable({
+  tenantId: v.optional(v.id('tenants')),
+  providerConnectionId: v.id('provider_connections'),
+  providerKey: Provider,
+  credentialKey: v.string(),
+  kind: ProviderCredentialKind,
+  status: ProviderCredentialStatus,
+  encryptedValue: v.optional(v.string()),
+  metadata: v.optional(v.any()),
+  expiresAt: v.optional(v.number()),
+  lastValidatedAt: v.optional(v.number()),
+  lastRotatedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_connection', ['providerConnectionId'])
+  .index('by_connection_key', ['providerConnectionId', 'credentialKey'])
+  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+
+const provider_connection_capabilities = defineTable({
+  tenantId: v.optional(v.id('tenants')),
+  providerConnectionId: v.id('provider_connections'),
+  providerKey: Provider,
+  capabilityKey: v.string(),
+  status: ProviderCapabilityStatus,
+  requiredCredentialKeys: v.array(v.string()),
+  lastCheckedAt: v.optional(v.number()),
+  errorCode: v.optional(v.string()),
+  errorSummary: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_connection', ['providerConnectionId'])
+  .index('by_connection_capability', ['providerConnectionId', 'capabilityKey'])
+  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+
+const provider_catalog_mappings = defineTable({
+  tenantId: v.id('tenants'),
+  providerConnectionId: v.id('provider_connections'),
+  providerKey: Provider,
+  catalogProductId: v.optional(v.id('product_catalog')),
+  localProductId: v.optional(v.string()),
+  externalStoreId: v.optional(v.string()),
+  externalProductId: v.optional(v.string()),
+  externalVariantId: v.optional(v.string()),
+  externalPriceId: v.optional(v.string()),
+  externalSku: v.optional(v.string()),
+  displayName: v.optional(v.string()),
+  status: v.union(v.literal('active'), v.literal('archived'), v.literal('error')),
+  metadata: v.optional(v.any()),
+  lastSyncedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_connection', ['providerConnectionId'])
+  .index('by_catalog_product', ['catalogProductId'])
+  .index('by_external_variant', ['providerKey', 'externalVariantId'])
+  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+
+const provider_transactions = defineTable({
+  tenantId: v.id('tenants'),
+  providerConnectionId: v.id('provider_connections'),
+  providerKey: Provider,
+  externalTransactionId: v.string(),
+  externalOrderNumber: v.optional(v.string()),
+  externalOrderItemId: v.optional(v.string()),
+  externalStoreId: v.optional(v.string()),
+  externalProductId: v.optional(v.string()),
+  externalVariantId: v.optional(v.string()),
+  externalCustomerId: v.optional(v.string()),
+  customerEmail: v.optional(v.string()),
+  customerEmailHash: v.optional(v.string()),
+  currency: v.optional(v.string()),
+  amountSubtotal: v.optional(v.number()),
+  amountTotal: v.optional(v.number()),
+  status: ProviderTransactionStatus,
+  purchasedAt: v.optional(v.number()),
+  refundedAt: v.optional(v.number()),
+  rawWebhookEventId: v.optional(v.id('webhook_events')),
+  metadata: v.optional(v.any()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_connection', ['providerConnectionId'])
+  .index('by_external_id', ['providerKey', 'externalTransactionId'])
+  .index('by_tenant_provider', ['tenantId', 'providerKey'])
+  .index('by_customer_email_hash', ['customerEmailHash']);
+
+const provider_memberships = defineTable({
+  tenantId: v.id('tenants'),
+  providerConnectionId: v.id('provider_connections'),
+  providerKey: Provider,
+  externalMembershipId: v.string(),
+  externalTransactionId: v.optional(v.string()),
+  externalProductId: v.optional(v.string()),
+  externalVariantId: v.optional(v.string()),
+  externalCustomerId: v.optional(v.string()),
+  customerEmail: v.optional(v.string()),
+  customerEmailHash: v.optional(v.string()),
+  status: ProviderMembershipStatus,
+  startedAt: v.optional(v.number()),
+  renewsAt: v.optional(v.number()),
+  endsAt: v.optional(v.number()),
+  cancelledAt: v.optional(v.number()),
+  rawWebhookEventId: v.optional(v.id('webhook_events')),
+  metadata: v.optional(v.any()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_connection', ['providerConnectionId'])
+  .index('by_external_id', ['providerKey', 'externalMembershipId'])
+  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+
+const provider_licenses = defineTable({
+  tenantId: v.id('tenants'),
+  providerConnectionId: v.id('provider_connections'),
+  providerKey: Provider,
+  externalLicenseId: v.string(),
+  externalTransactionId: v.optional(v.string()),
+  externalProductId: v.optional(v.string()),
+  externalVariantId: v.optional(v.string()),
+  externalCustomerId: v.optional(v.string()),
+  customerEmail: v.optional(v.string()),
+  customerEmailHash: v.optional(v.string()),
+  licenseKeyHash: v.optional(v.string()),
+  shortKey: v.optional(v.string()),
+  status: ProviderLicenseStatus,
+  issuedAt: v.optional(v.number()),
+  expiresAt: v.optional(v.number()),
+  lastValidatedAt: v.optional(v.number()),
+  revokedAt: v.optional(v.number()),
+  rawWebhookEventId: v.optional(v.id('webhook_events')),
+  metadata: v.optional(v.any()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_connection', ['providerConnectionId'])
+  .index('by_external_id', ['providerKey', 'externalLicenseId'])
+  .index('by_license_key_hash', ['licenseKeyHash'])
+  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+
+const entitlement_evidence = defineTable({
+  tenantId: v.id('tenants'),
+  subjectId: v.optional(v.id('subjects')),
+  providerKey: Provider,
+  providerConnectionId: v.optional(v.id('provider_connections')),
+  transactionId: v.optional(v.id('provider_transactions')),
+  membershipId: v.optional(v.id('provider_memberships')),
+  licenseId: v.optional(v.id('provider_licenses')),
+  sourceReference: v.string(),
+  evidenceType: v.string(),
+  status: EntitlementEvidenceStatus,
+  productId: v.optional(v.string()),
+  catalogProductId: v.optional(v.id('product_catalog')),
+  rawWebhookEventId: v.optional(v.id('webhook_events')),
+  metadata: v.optional(v.any()),
+  observedAt: v.number(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_tenant_subject', ['tenantId', 'subjectId'])
+  .index('by_source_reference', ['providerKey', 'sourceReference'])
+  .index('by_license', ['licenseId'])
+  .index('by_transaction', ['transactionId']);
 
 /**
  * Creator OAuth Apps - tenant mappings for OAuth clients stored by Better Auth.
@@ -942,6 +1204,8 @@ const catalog_product_links = defineTable({
 const webhook_events = defineTable({
   // Provider that sent the webhook
   provider: Provider,
+  providerKey: v.optional(Provider),
+  providerConnectionId: v.optional(v.id('provider_connections')),
   // Provider's event ID for deduplication
   providerEventId: v.string(),
   // Event type from provider
@@ -960,6 +1224,7 @@ const webhook_events = defineTable({
   subjectId: v.optional(v.id('subjects')),
   // Related entitlement (if determined from payload)
   entitlementId: v.optional(v.id('entitlements')),
+  canonicalEventType: v.optional(v.string()),
   // Timestamps
   receivedAt: v.number(),
   processedAt: v.optional(v.number()),
@@ -968,6 +1233,7 @@ const webhook_events = defineTable({
   .index('by_provider', ['provider'])
   .index('by_status', ['status'])
   .index('by_tenant', ['tenantId'])
+  .index('by_connection_event', ['providerConnectionId', 'providerEventId'])
   .index('by_tenant_provider_event', ['tenantId', 'provider', 'providerEventId'])
   .index('by_received', ['receivedAt']);
 
@@ -1094,11 +1360,7 @@ const collaborator_connections = defineTable({
 // YUCP CERTIFICATE AUTHORITY TABLES
 // ============================================================================
 
-const YucpCertStatus = v.union(
-  v.literal('active'),
-  v.literal('revoked'),
-  v.literal('expired'),
-);
+const YucpCertStatus = v.union(v.literal('active'), v.literal('revoked'), v.literal('expired'));
 
 /** Issued YUCP publisher certificates (schemaVersion 2+, identity-anchored) */
 const yucp_certificates = defineTable({
@@ -1230,6 +1492,13 @@ export default defineSchema({
   tenant_provider_config,
   purchase_facts,
   provider_connections,
+  provider_credentials,
+  provider_connection_capabilities,
+  provider_catalog_mappings,
+  provider_transactions,
+  provider_memberships,
+  provider_licenses,
+  entitlement_evidence,
   creator_oauth_apps,
   collaborator_invites,
   collaborator_connections,

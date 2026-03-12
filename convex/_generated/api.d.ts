@@ -39,6 +39,7 @@ import type * as packageRegistry from "../packageRegistry.js";
 import type * as plugins_vrchat from "../plugins/vrchat.js";
 import type * as productResolution from "../productResolution.js";
 import type * as providerConnections from "../providerConnections.js";
+import type * as providerPlatform from "../providerPlatform.js";
 import type * as purgeOrphans from "../purgeOrphans.js";
 import type * as role_rules from "../role_rules.js";
 import type * as seedYucpOAuthClient from "../seedYucpOAuthClient.js";
@@ -92,6 +93,7 @@ declare const fullApi: ApiFromModules<{
   "plugins/vrchat": typeof plugins_vrchat;
   productResolution: typeof productResolution;
   providerConnections: typeof providerConnections;
+  providerPlatform: typeof providerPlatform;
   purgeOrphans: typeof purgeOrphans;
   role_rules: typeof role_rules;
   seedYucpOAuthClient: typeof seedYucpOAuthClient;

@@ -12,25 +12,25 @@ import { v } from 'convex/values';
 
 // Import shared types and helpers
 import {
+  EntitlementConstants,
+  type EntitlementStatus,
+  type Provider,
+  type RevocationReason,
+  calculateGracePeriodEnd,
+  canReactivate,
+  generateGrantIdempotencyKey,
+  generateRoleRemovalIdempotencyKey,
+  generateRoleSyncIdempotencyKey,
+  getGumroadRevocationReason,
+  getReasonLabel,
+  getStatusLabel,
+  isAutoDiscoveryEnabled,
   isEntitlementActive,
   isStatusTerminal,
-  canReactivate,
-  mapReasonToStatus,
-  getStatusLabel,
-  getReasonLabel,
-  generateRoleSyncIdempotencyKey,
-  generateRoleRemovalIdempotencyKey,
-  generateGrantIdempotencyKey,
-  isAutoDiscoveryEnabled,
-  calculateGracePeriodEnd,
   isWithinGracePeriod,
   mapGumroadEventToAction,
   mapJinxxyEventToAction,
-  getGumroadRevocationReason,
-  EntitlementConstants,
-  type EntitlementStatus,
-  type RevocationReason,
-  type Provider,
+  mapReasonToStatus,
 } from '../packages/shared/src/entitlement';
 
 // ============================================================================
@@ -44,7 +44,7 @@ describe('Provider Evidence Validator', () => {
       v.literal('discord'),
       v.literal('gumroad'),
       v.literal('jinxxy'),
-      v.literal('manual'),
+      v.literal('manual')
     ),
     sourceReference: v.string(),
     providerCustomerId: v.optional(v.string()),
@@ -82,7 +82,7 @@ describe('Provider Evidence Validator', () => {
 
   it('should accept all provider types', () => {
     const providers: Provider[] = ['discord', 'gumroad', 'jinxxy', 'manual'];
-    
+
     providers.forEach((provider) => {
       const data = { provider, sourceReference: 'test' };
       expect(data.provider).toBe(provider);
@@ -95,13 +95,15 @@ describe('Grant Result Validator', () => {
     success: v.boolean(),
     entitlementId: v.string(),
     isNew: v.boolean(),
-    previousStatus: v.optional(v.union(
-      v.literal('active'),
-      v.literal('revoked'),
-      v.literal('expired'),
-      v.literal('refunded'),
-      v.literal('disputed'),
-    )),
+    previousStatus: v.optional(
+      v.union(
+        v.literal('active'),
+        v.literal('revoked'),
+        v.literal('expired'),
+        v.literal('refunded'),
+        v.literal('disputed')
+      )
+    ),
     outboxJobId: v.optional(v.string()),
   });
 
@@ -142,7 +144,7 @@ describe('Revoke Result Validator', () => {
       v.literal('revoked'),
       v.literal('expired'),
       v.literal('refunded'),
-      v.literal('disputed'),
+      v.literal('disputed')
     ),
     revokedAt: v.number(),
     outboxJobIds: v.array(v.string()),
@@ -255,12 +257,7 @@ describe('getReasonLabel', () => {
 
 describe('generateRoleSyncIdempotencyKey', () => {
   it('should generate consistent format', () => {
-    const key = generateRoleSyncIdempotencyKey(
-      'tenant_123',
-      'subject_456',
-      'ent_789',
-      1000,
-    );
+    const key = generateRoleSyncIdempotencyKey('tenant_123', 'subject_456', 'ent_789', 1000);
 
     expect(key).toBe('role_sync:tenant_123:subject_456:ent_789:1000');
   });
@@ -270,7 +267,7 @@ describe('generateRoleSyncIdempotencyKey', () => {
     const key = generateRoleSyncIdempotencyKey('t', 's', 'e');
     const after = Date.now();
 
-    const timestamp = parseInt(key.split(':').pop()!, 10);
+    const timestamp = Number.parseInt(key.split(':').pop()!, 10);
     expect(timestamp).toBeGreaterThanOrEqual(before);
     expect(timestamp).toBeLessThanOrEqual(after);
   });
@@ -283,7 +280,7 @@ describe('generateRoleRemovalIdempotencyKey', () => {
       'subject_456',
       'guild_789',
       'product_abc',
-      1000,
+      1000
     );
 
     expect(key).toBe('role_removal:tenant_123:subject_456:guild_789:product_abc:1000');
@@ -292,11 +289,7 @@ describe('generateRoleRemovalIdempotencyKey', () => {
 
 describe('generateGrantIdempotencyKey', () => {
   it('should generate consistent format', () => {
-    const key = generateGrantIdempotencyKey(
-      'tenant_123',
-      'subject_456',
-      'order_789',
-    );
+    const key = generateGrantIdempotencyKey('tenant_123', 'subject_456', 'order_789');
 
     expect(key).toBe('grant:tenant_123:subject_456:order_789');
   });
@@ -308,15 +301,19 @@ describe('generateGrantIdempotencyKey', () => {
 
 describe('isAutoDiscoveryEnabled', () => {
   it('should return true when explicitly enabled', () => {
-    expect(isAutoDiscoveryEnabled({
-      autoDiscoverSupportedProductsForRememberedPurchaser: true,
-    })).toBe(true);
+    expect(
+      isAutoDiscoveryEnabled({
+        autoDiscoverSupportedProductsForRememberedPurchaser: true,
+      })
+    ).toBe(true);
   });
 
   it('should return false when explicitly disabled', () => {
-    expect(isAutoDiscoveryEnabled({
-      autoDiscoverSupportedProductsForRememberedPurchaser: false,
-    })).toBe(false);
+    expect(
+      isAutoDiscoveryEnabled({
+        autoDiscoverSupportedProductsForRememberedPurchaser: false,
+      })
+    ).toBe(false);
   });
 
   it('should return false when not set', () => {

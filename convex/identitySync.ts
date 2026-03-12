@@ -14,10 +14,10 @@
  * All operations are idempotent - safe to call multiple times.
  */
 
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -71,7 +71,10 @@ export const SyncUserInput = v.object({
 // ============================================================================
 
 /** Build Discord CDN avatar URL from user ID and avatar hash */
-export function buildDiscordAvatarUrl(discordUserId: string, avatarHash: string | undefined): string | undefined {
+export function buildDiscordAvatarUrl(
+  discordUserId: string,
+  avatarHash: string | undefined
+): string | undefined {
   if (!avatarHash) return undefined;
   return `https://cdn.discordapp.com/avatars/${discordUserId}/${avatarHash}.png`;
 }
@@ -118,7 +121,7 @@ export const findSubjectByAuthId = query({
       found: v.literal(false),
       subjectId: v.null(),
       primaryDiscordUserId: v.null(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const subject = await ctx.db
@@ -156,7 +159,7 @@ export const findSubjectByDiscordId = query({
       found: v.literal(false),
       subjectId: v.null(),
       authUserId: v.null(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const subject = await ctx.db
@@ -181,7 +184,7 @@ export const findSubjectByDiscordId = query({
  */
 export const findExternalAccount = query({
   args: {
-    provider: v.union(v.literal('discord'), v.literal('gumroad'), v.literal('jinxxy'), v.literal('manual')),
+    provider: v.string(),
     providerUserId: v.string(),
   },
   returns: v.union(
@@ -194,13 +197,13 @@ export const findExternalAccount = query({
       found: v.literal(false),
       externalAccountId: v.null(),
       status: v.null(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const account = await ctx.db
       .query('external_accounts')
       .withIndex('by_provider_user', (q) =>
-        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId),
+        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId)
       )
       .first();
 
@@ -317,7 +320,9 @@ export const syncUserFromAuth = mutation({
         // Same Discord account - just update profile info
         await ctx.db.patch(subjectId, {
           displayName: args.discord.username,
-          avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar) ?? existingByAuth.avatarUrl,
+          avatarUrl:
+            buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar) ??
+            existingByAuth.avatarUrl,
           updatedAt: now,
         });
       }
@@ -325,7 +330,9 @@ export const syncUserFromAuth = mutation({
       // No subject with this authUserId - check if Discord account already exists
       const existingByDiscord = await ctx.db
         .query('subjects')
-        .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discord.discordUserId))
+        .withIndex('by_discord_user', (q) =>
+          q.eq('primaryDiscordUserId', args.discord.discordUserId)
+        )
         .first();
 
       if (existingByDiscord) {
@@ -335,7 +342,9 @@ export const syncUserFromAuth = mutation({
         await ctx.db.patch(subjectId, {
           authUserId: args.authUserId,
           displayName: args.discord.username,
-          avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar) ?? existingByDiscord.avatarUrl,
+          avatarUrl:
+            buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar) ??
+            existingByDiscord.avatarUrl,
           updatedAt: now,
         });
       } else {
@@ -357,14 +366,15 @@ export const syncUserFromAuth = mutation({
     const existingExternalAccount = await ctx.db
       .query('external_accounts')
       .withIndex('by_provider_user', (q) =>
-        q.eq('provider', 'discord').eq('providerUserId', args.discord.discordUserId),
+        q.eq('provider', 'discord').eq('providerUserId', args.discord.discordUserId)
       )
       .first();
 
     // Build display name with discriminator if present
-    const fullUsername = args.discord.discriminator && args.discord.discriminator !== '0'
-      ? `${args.discord.username}#${args.discord.discriminator}`
-      : args.discord.username;
+    const fullUsername =
+      args.discord.discriminator && args.discord.discriminator !== '0'
+        ? `${args.discord.username}#${args.discord.discriminator}`
+        : args.discord.username;
 
     if (existingExternalAccount) {
       // Update existing external account
@@ -426,7 +436,7 @@ export const syncUserFromAuth = mutation({
 export const syncUserFromProvider = mutation({
   args: {
     apiSecret: v.string(),
-    provider: v.union(v.literal('gumroad'), v.literal('discord'), v.literal('jinxxy')),
+    provider: v.string(),
     providerUserId: v.string(),
     username: v.optional(v.union(v.string(), v.null())),
     email: v.optional(v.union(v.string(), v.null())),
@@ -554,10 +564,7 @@ export const syncUserFromProvider = mutation({
       isNewExternalAccount = true;
     }
 
-    if (
-      (args.provider === 'gumroad' || args.provider === 'jinxxy') &&
-      emailHash
-    ) {
+    if (args.provider !== 'discord' && emailHash) {
       await ctx.scheduler.runAfter(0, internal.backgroundSync.syncPastPurchasesForSubject, {
         subjectId,
         provider: args.provider,
@@ -622,7 +629,7 @@ export const getDiscordAccountsWithTokens = query({
       discordAccessTokenEncrypted: v.string(),
       discordTokenExpiresAt: v.optional(v.number()),
       discordRefreshTokenEncrypted: v.optional(v.string()),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -658,7 +665,7 @@ export const updateSubjectStatus = mutation({
       v.literal('active'),
       v.literal('suspended'),
       v.literal('quarantined'),
-      v.literal('deleted'),
+      v.literal('deleted')
     ),
     reason: v.optional(v.string()),
   },
@@ -668,7 +675,7 @@ export const updateSubjectStatus = mutation({
       v.literal('active'),
       v.literal('suspended'),
       v.literal('quarantined'),
-      v.literal('deleted'),
+      v.literal('deleted')
     ),
   }),
   handler: async (ctx, args) => {
@@ -777,7 +784,7 @@ export const listSuspiciousSubjects = query({
       displayName: v.optional(v.string()),
       reason: v.optional(v.string()),
       flaggedAt: v.optional(v.number()),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const expected = process.env.CONVEX_API_SECRET;
@@ -790,7 +797,7 @@ export const listSuspiciousSubjects = query({
       const events = await ctx.db
         .query('audit_events')
         .withIndex('by_tenant_event', (q) =>
-          q.eq('tenantId', args.tenantId!).eq('eventType', 'subject.suspicious.marked'),
+          q.eq('tenantId', args.tenantId!).eq('eventType', 'subject.suspicious.marked')
         )
         .order('desc')
         .take(limit * 2);
@@ -863,12 +870,12 @@ export const clearSubjectSuspicious = mutation({
     await ctx.db.patch(args.subjectId, {
       flags: subject.flags
         ? {
-          ...subject.flags,
-          suspicious: false,
-          reason: undefined,
-          flaggedAt: undefined,
-          flaggedBy: undefined,
-        }
+            ...subject.flags,
+            suspicious: false,
+            reason: undefined,
+            flaggedAt: undefined,
+            flaggedBy: undefined,
+          }
         : undefined,
       status: 'active',
       updatedAt: now,
@@ -928,7 +935,7 @@ export const linkExternalAccountToSubject = mutation({
   args: {
     apiSecret: v.string(),
     subjectId: v.id('subjects'),
-    provider: v.union(v.literal('discord'), v.literal('gumroad'), v.literal('jinxxy'), v.literal('manual')),
+    provider: v.string(),
     providerUserId: v.string(),
     providerUsername: v.optional(v.string()),
     providerMetadata: v.optional(
@@ -937,7 +944,7 @@ export const linkExternalAccountToSubject = mutation({
         avatarUrl: v.optional(v.string()),
         profileUrl: v.optional(v.string()),
         rawData: v.optional(v.any()),
-      }),
+      })
     ),
   },
   returns: v.object({
@@ -953,7 +960,7 @@ export const linkExternalAccountToSubject = mutation({
     const existing = await ctx.db
       .query('external_accounts')
       .withIndex('by_provider_user', (q) =>
-        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId),
+        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId)
       )
       .first();
 
@@ -1052,7 +1059,9 @@ export const internalSyncUserFromAuth = mutation({
     } else {
       const existingByDiscord = await ctx.db
         .query('subjects')
-        .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discord.discordUserId))
+        .withIndex('by_discord_user', (q) =>
+          q.eq('primaryDiscordUserId', args.discord.discordUserId)
+        )
         .first();
 
       if (existingByDiscord) {
@@ -1079,13 +1088,14 @@ export const internalSyncUserFromAuth = mutation({
     const existingAccount = await ctx.db
       .query('external_accounts')
       .withIndex('by_provider_user', (q) =>
-        q.eq('provider', 'discord').eq('providerUserId', args.discord.discordUserId),
+        q.eq('provider', 'discord').eq('providerUserId', args.discord.discordUserId)
       )
       .first();
 
-    const fullUsername = args.discord.discriminator && args.discord.discriminator !== '0'
-      ? `${args.discord.username}#${args.discord.discriminator}`
-      : args.discord.username;
+    const fullUsername =
+      args.discord.discriminator && args.discord.discriminator !== '0'
+        ? `${args.discord.username}#${args.discord.discriminator}`
+        : args.discord.username;
 
     if (existingAccount) {
       externalAccountId = existingAccount._id;

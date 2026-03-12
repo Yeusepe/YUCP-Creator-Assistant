@@ -1,5 +1,9 @@
 import { getConfig } from './config.js';
 import {
+  getActiveSetupProviders,
+  getDashboardProvider,
+} from './providers.js';
+import {
   getApiBase,
   getTenantId,
   getGuildId,
@@ -18,11 +22,14 @@ import {
   setupCompleted,
   previousQuickStartCompletion,
   completedMilestones,
+  userAccountsList,
+  setUserAccountsList,
 } from './store.js';
 
 const SETTINGS_TOUCHED_PREFIX = 'yucp_dashboard_settings_touched:';
 const QUICK_START_DISMISS_PREFIX = 'yucp_dashboard_quick_start_dismissed:';
 const SETUP_COMPLETE_PREFIX = 'yucp_dashboard_setup_completed:';
+const platformProviders = getActiveSetupProviders();
 
 function getTenantStorageKey(prefix) {
   return `${prefix}${getTenantId() || getGuildId() || 'unknown'}`;
@@ -52,19 +59,125 @@ function persistSetupCompleted() {
   } catch {}
 }
 
+function resolveIconUrl(provider) {
+  return provider.iconUrl.replace('__API_BASE__', getApiBase());
+}
+
+function getConnectedProviderKeys() {
+  return platformProviders
+    .filter((provider) => connectionsMap.has(provider.key))
+    .map((provider) => provider.key);
+}
+
 function getConnectedProvidersCount() {
-  let count = 0;
-  if (connectionsMap.has('gumroad')) count += 1;
-  if (connectionsMap.has('jinxxy')) count += 1;
-  return count;
+  return getConnectedProviderKeys().length;
 }
 
 function hasMeaningfulSettings() {
   return settingsTouched || settingsMap.size > 0;
 }
 
+function getQuickStartProviderNames() {
+  return platformProviders
+    .filter((provider) => provider.setupState === 'ready')
+    .map((provider) => provider.label)
+    .join(', ');
+}
+
+function buildQuickStartButtons() {
+  return platformProviders
+    .map((provider) => {
+      const disabled = provider.setupState !== 'ready';
+      const action = disabled ? '' : `onclick="navigateProvider('${provider.key}')"`;
+      const opacity = disabled ? 'opacity:0.55;cursor:not-allowed;' : '';
+      const statusPill = disabled
+        ? `<span style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.45);">Preview</span>`
+        : '';
+      return `
+        <button ${action} ${disabled ? 'disabled' : ''} style="background: ${provider.quickStartButtonBg}; border: 1px solid ${provider.quickStartButtonBorder}; color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; transition: background 0.2s; ${opacity}">
+          <img src="${resolveIconUrl(provider)}" style="width: 20px; border-radius: 4px;" alt="">
+          <span>${provider.quickStartDescription}</span>
+          ${statusPill}
+        </button>
+      `;
+    })
+    .join('');
+}
+
+function providerButtonLabel(provider, isLinked) {
+  if (isLinked) return getHasSetupSession() ? 'Disconnect' : 'Connected';
+  if (provider.setupState === 'preview') return 'Setup Soon';
+  return 'Link Account';
+}
+
+function providerStatusLabel(provider, isLinked) {
+  if (isLinked) return 'Connected';
+  return provider.setupState === 'preview' ? 'Preview' : 'Not Linked';
+}
+
+function renderPlatformScaffolding() {
+  const cardsContainer = document.getElementById('dynamic-platform-cards');
+  const tilesContainer = document.getElementById('dynamic-server-provider-tiles');
+  if (cardsContainer) {
+    cardsContainer.innerHTML = platformProviders
+      .map(
+        (provider) => `
+          <div id="${provider.key}-card" class="platform-card disconnected">
+            <div class="flex items-start justify-between">
+              <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center" style="background:${provider.iconBg};">
+                <img class="${provider.iconClassName}" src="${resolveIconUrl(provider)}" alt="${provider.label}">
+              </div>
+              <span id="${provider.key}-status" class="status-pill disconnected">${providerStatusLabel(provider, false)}</span>
+            </div>
+            <div>
+              <h3 class="font-bold text-base mb-0.5">${provider.label}</h3>
+              <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">${provider.description}</p>
+            </div>
+            <button id="${provider.key}-btn" class="card-action-btn link" type="button">${providerButtonLabel(provider, false)}</button>
+            <div class="inline-confirm" id="${provider.key}-disconnect-confirm">
+              <div>
+                <div class="inline-confirm-body">
+                  <span class="inline-confirm-label">Disconnect <strong>${provider.label}</strong>? This removes all syncing.</span>
+                  <div class="inline-confirm-btns">
+                    <button class="inline-cancel-btn" type="button" data-cancel-disconnect="${provider.key}">Cancel</button>
+                    <button class="inline-danger-btn" id="${provider.key}-confirm-btn" type="button">Disconnect</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `
+      )
+      .join('');
+  }
+
+  if (tilesContainer) {
+    tilesContainer.innerHTML = platformProviders
+      .map(
+        (provider) => `
+          <article class="svr-cfg-tile" id="server-tile-${provider.key}" style="display: none;">
+            <div class="svr-cfg-tile-head">
+              <div class="svr-cfg-tile-icon">
+                <img src="${resolveIconUrl(provider)}" alt="${provider.label}" style="border-radius:4px;">
+              </div>
+              <div class="svr-cfg-tile-text">
+                <span class="svr-cfg-tile-label">${provider.serverTileLabel}</span>
+                <span class="svr-cfg-tile-hint">${provider.serverTileHint}</span>
+              </div>
+            </div>
+            <div class="svr-cfg-tile-ctrl">
+              <div id="toggle-serverEnable${provider.key[0].toUpperCase()}${provider.key.slice(1)}" class="svr-cfg-switch active" role="switch" aria-label="${provider.serverTileLabel}"></div>
+            </div>
+          </article>
+        `
+      )
+      .join('');
+  }
+}
+
 function getQuickStartState() {
   const connectedProviders = getConnectedProvidersCount();
+  const connectedProviderKeys = getConnectedProviderKeys();
   const storesDone = connectedProviders > 0;
   const settingsDone = hasMeaningfulSettings();
   const finalReady = storesDone && settingsDone;
@@ -86,6 +199,7 @@ function getQuickStartState() {
 
   return {
     connectedProviders,
+    connectedProviderKeys,
     storesDone,
     settingsDone,
     finalReady,
@@ -95,7 +209,7 @@ function getQuickStartState() {
     summary,
     progressPercent: Math.round((completedCount / 3) * 100),
     steps: [
-      { id: 'stores', sectionId: 'platforms-grid', state: storesDone ? 'complete' : 'active', number: '01', label: storesDone ? 'Complete' : 'Current', title: storesDone ? `${connectedProviders} store${connectedProviders > 1 ? 's' : ''} linked` : 'Connect Gumroad or Jinxxy', body: storesDone ? 'Your storefront credentials are connected. You can add another store or move on.' : 'Use the platform cards below to connect the storefronts you actually sell through.', meta: storesDone ? `Connected: ${Array.from(connectionsMap.keys()).filter((k) => k === 'gumroad' || k === 'jinxxy').join(' + ')}` : 'Start with the platform cards', action: storesDone ? 'Review platforms' : 'Go to platforms' },
+      { id: 'stores', sectionId: 'platforms-grid', state: storesDone ? 'complete' : 'active', number: '01', label: storesDone ? 'Complete' : 'Current', title: storesDone ? `${connectedProviders} store${connectedProviders > 1 ? 's' : ''} linked` : 'Connect a supported store', body: storesDone ? 'Your storefront credentials are connected. You can add another store or move on.' : 'Use the provider cards below to connect the storefronts you actually sell through.', meta: storesDone ? `Connected: ${connectedProviderKeys.join(' + ')}` : `Available now: ${getQuickStartProviderNames()}`, action: storesDone ? 'Review platforms' : 'Go to platforms' },
       { id: 'settings', sectionId: 'server-settings-card', state: settingsDone ? 'complete' : storesDone ? 'active' : 'locked', number: '02', label: settingsDone ? 'Complete' : storesDone ? 'Next' : 'Locked', title: settingsDone ? 'Settings dialed in' : 'Review server settings', body: settingsDone ? 'You already saved verification preferences for this tenant.' : 'Decide how verification, duplicate checks, and cross-server behavior should work.', meta: settingsDone ? 'Saved on this tenant' : 'Toggle or select a setting to mark this done', action: settingsDone ? 'Adjust settings' : 'Open settings' },
       { id: 'finish', sectionId: 'server-settings-card', state: done ? 'complete' : finalReady ? 'active' : 'locked', number: '03', label: done ? 'Complete' : finalReady ? 'Ready' : 'Waiting', title: done ? 'Back to Discord' : 'Finish in Discord', body: done ? 'Setup was completed from this dashboard already.' : finalReady ? 'Everything is ready. Confirm the setup and close this page when you are done.' : 'Finish becomes available after you connect a store and save your preferences.', meta: done ? 'All set' : finalReady ? 'Done Setup is ready' : 'Waiting on earlier steps', action: done ? 'Review finish' : finalReady ? 'Jump to finish' : 'See requirements' },
     ],
@@ -155,12 +269,7 @@ export function renderQuickStart() {
           <h2 style="font-size: 24px; font-weight: 800; font-family: 'Plus Jakarta Sans', sans-serif; margin: 0 0 12px; color: white;">Welcome to Creator Assistant</h2>
           <p style="font-size: 15px; color: rgba(255,255,255,0.7); font-family: 'DM Sans', sans-serif; line-height: 1.6; margin-bottom: 32px; padding: 0 10px;">Let's get your dashboard set up. First, connect the storefront you sell through so we can automatically verify your buyers and assign them roles in Discord.</p>
           <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
-            <button onclick="navigateGumroad()" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
-              <img src="https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460" style="width: 20px; border-radius: 4px;" alt=""> Connect Gumroad
-            </button>
-            <button onclick="navigateJinxxy()" style="background: rgba(145,70,255,0.1); border: 1px solid rgba(145,70,255,0.3); color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='rgba(145,70,255,0.2)'" onmouseout="this.style.background='rgba(145,70,255,0.1)'">
-              <img src="https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483" style="width: 20px; border-radius: 4px;" alt=""> Connect Jinxxy
-            </button>
+            ${buildQuickStartButtons()}
           </div>
           <button onclick="dismissQuickStart()" style="background: transparent; color: rgba(255,255,255,0.4); border: none; font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 4px;">I'll set this up later</button>
         </div>
@@ -250,7 +359,8 @@ export async function navigateGumroad() {
   } else if (getHasSetupSession()) {
     window.location.href = `${getApiBase()}/api/connect/gumroad/begin`;
   } else {
-    alert('Please wait for the page to finish loading.');
+    // User-scoped: connect without server context (auth session only)
+    window.location.href = `${getApiBase()}/api/connect/gumroad/begin`;
   }
 }
 
@@ -269,52 +379,194 @@ export async function navigateJinxxy() {
   } else if (getHasSetupSession()) {
     window.location.href = `${getApiBase()}/jinxxy-setup`;
   } else {
+    // User-scoped: connect without server context
+    window.location.href = `${getApiBase()}/jinxxy-setup`;
+  }
+}
+
+export async function navigateLemonSqueezy() {
+  if (getSetupToken()) {
+    const restored = await ensureSetupSessionCookie();
+    if (!restored) {
+      redirectToExpiredLinkError();
+      return;
+    }
+  }
+  const tid = getTenantId();
+  const gid = getGuildId();
+  if (tid && gid) {
+    window.location.href = `${getApiBase()}/lemonsqueezy-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
+  } else if (getHasSetupSession()) {
+    window.location.href = `${getApiBase()}/lemonsqueezy-setup`;
+  } else {
     alert('Please wait for the page to finish loading.');
   }
 }
 
+export async function navigatePayhip() {
+  if (getSetupToken()) {
+    const restored = await ensureSetupSessionCookie();
+    if (!restored) {
+      redirectToExpiredLinkError();
+      return;
+    }
+  }
+  const tid = getTenantId();
+  const gid = getGuildId();
+  if (tid && gid) {
+    window.location.href = `${getApiBase()}/payhip-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
+  } else if (getHasSetupSession()) {
+    window.location.href = `${getApiBase()}/payhip-setup`;
+  } else {
+    alert('Please wait for the page to finish loading.');
+  }
+}
+
+export async function navigateProvider(providerKey) {
+  if (providerKey === 'gumroad') {
+    return navigateGumroad();
+  }
+  if (providerKey === 'jinxxy') {
+    return navigateJinxxy();
+  }
+  if (providerKey === 'lemonsqueezy') {
+    return navigateLemonSqueezy();
+  }
+  if (providerKey === 'payhip') {
+    return navigatePayhip();
+  }
+  return undefined;
+}
+
 export function updatePlatformCards() {
-  updateCard('gumroad', connectionsMap.has('gumroad'));
-  updateCard('jinxxy', connectionsMap.has('jinxxy'));
+  renderAccountsSection();
+  platformProviders.forEach((provider) => {
+    updateCard(provider.key, connectionsMap.has(provider.key));
+  });
   renderQuickStart();
 }
 
+const PROVIDER_META = {
+  gumroad: {
+    name: 'Gumroad®',
+    icon: 'https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460',
+    iconBg: '#000',
+    navigate: () => navigateGumroad(),
+  },
+  jinxxy: {
+    name: 'Jinxxy™',
+    icon: 'https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483',
+    iconBg: '#9146FF',
+    navigate: () => navigateJinxxy(),
+  },
+  lemonsqueezy: {
+    name: 'Lemon Squeezy',
+    icon: 'https://www.lemonsqueezy.com/favicon.ico',
+    iconBg: '#FFC233',
+    comingSoon: true,
+  },
+};
+
+function renderAddButtons() {
+  const container = document.getElementById('add-account-buttons');
+  if (!container) return;
+
+  container.innerHTML = Object.entries(PROVIDER_META)
+    .map(([key, meta]) => {
+      if (meta.comingSoon) {
+        return `<button class="card-action-btn link" disabled data-provider="${key}"
+            style="flex:1;min-width:160px;display:flex;align-items:center;justify-content:center;gap:8px;opacity:0.45;cursor:not-allowed;">
+            <img src="${meta.icon}" style="width:16px;border-radius:3px;" alt="">
+            ${meta.name} <span style="font-size:10px;margin-left:4px;opacity:0.7;">(soon)</span>
+          </button>`;
+      }
+      return `<button class="card-action-btn link" data-provider="${key}"
+          style="flex:1;min-width:160px;display:flex;align-items:center;justify-content:center;gap:8px;">
+          <img src="${meta.icon}" style="width:16px;border-radius:3px;" alt="">
+          Add ${meta.name} Account
+        </button>`;
+    })
+    .join('');
+
+  container.querySelectorAll('[data-provider]:not([disabled])').forEach((btn) => {
+    const key = btn.getAttribute('data-provider');
+    const meta = PROVIDER_META[key];
+    if (meta?.navigate) btn.addEventListener('click', () => meta.navigate());
+  });
+}
+
+function renderAccountsSection() {
+  const container = document.getElementById('user-accounts-list');
+  if (!container) return;
+
+  const accounts = userAccountsList;
+  if (accounts.length === 0) {
+    container.innerHTML = `
+      <div style="color:rgba(255,255,255,0.5); font-size:14px; font-family:'DM Sans',sans-serif; padding: 16px 0;">
+        No store accounts linked yet. Use the buttons below to connect.
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = accounts.map((conn) => {
+    const meta = PROVIDER_META[conn.provider] || { name: conn.provider, icon: '', iconBg: '#333', navigate: () => {} };
+    const label = conn.label || meta.name;
+    return `
+      <div class="platform-card connected" style="position:relative;">
+        <div class="flex items-start justify-between">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden" style="background:${meta.iconBg}; flex-shrink:0;">
+            <img src="${meta.icon}" class="w-6 h-6 object-contain" alt="${meta.name}">
+          </div>
+          <span class="status-pill connected">Connected</span>
+        </div>
+        <div>
+          <h3 class="font-bold text-base mb-0.5">${meta.name}</h3>
+          <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">${label}</p>
+        </div>
+        <button class="card-action-btn disconnect" data-conn-id="${conn.id}" onclick="confirmDisconnectUserAccount('${conn.id}', '${conn.provider}')">Disconnect</button>
+      </div>`;
+  }).join('');
+}
+
 function updateCard(platform, isLinked) {
+  const provider = getDashboardProvider(platform);
   const card = document.getElementById(`${platform}-card`);
   const status = document.getElementById(`${platform}-status`);
   const btn = document.getElementById(`${platform}-btn`);
-  if (!card || !status || !btn) return;
+  if (!provider || !card || !status || !btn) return;
 
   card.style.display = 'flex';
+  btn.disabled = false;
   if (isLinked) {
     card.classList.remove('disconnected');
     card.classList.add('connected');
     status.className = 'status-pill connected';
-    status.innerText = 'Connected';
-    btn.className = 'card-action-btn disconnect';
-    btn.innerText = 'Disconnect';
+    status.innerText = providerStatusLabel(provider, true);
+    btn.className = getHasSetupSession() ? 'card-action-btn disconnect' : 'card-action-btn link';
+    btn.innerText = providerButtonLabel(provider, true);
     btn.style = '';
-    btn.onclick = () => openModal(platform);
+    btn.onclick = getHasSetupSession() ? () => openModal(platform) : null;
+    btn.disabled = !getHasSetupSession();
   } else {
     card.classList.add('disconnected');
     card.classList.remove('connected');
     status.className = 'status-pill disconnected';
-    status.innerText = 'Not Linked';
+    status.innerText = providerStatusLabel(provider, false);
     btn.className = 'card-action-btn link';
-    btn.innerText = 'Link Account';
+    btn.innerText = providerButtonLabel(provider, false);
     btn.style = '';
-    btn.onclick = () => (platform === 'gumroad' ? navigateGumroad() : navigateJinxxy());
+    btn.onclick = provider.setupState === 'ready' ? () => navigateProvider(platform) : null;
+    btn.disabled = provider.setupState !== 'ready';
   }
 
-  const tGumroad = document.getElementById('server-tile-gumroad');
-  const tJinxxy = document.getElementById('server-tile-jinxxy');
   const sEmpty = document.getElementById('server-integrations-empty');
-  if (tGumroad && tJinxxy && sEmpty) {
-    const hasGumroad = connectionsMap.has('gumroad');
-    const hasJinxxy = connectionsMap.has('jinxxy');
-    tGumroad.style.display = hasGumroad ? 'flex' : 'none';
-    tJinxxy.style.display = hasJinxxy ? 'flex' : 'none';
-    sEmpty.style.display = hasGumroad || hasJinxxy ? 'none' : 'block';
+  if (sEmpty) {
+    const hasLinkedProvider = platformProviders.some((entry) => connectionsMap.has(entry.key));
+    platformProviders.forEach((entry) => {
+      const tile = document.getElementById(`server-tile-${entry.key}`);
+      if (tile) tile.style.display = connectionsMap.has(entry.key) ? 'flex' : 'none';
+    });
+    sEmpty.style.display = hasLinkedProvider ? 'none' : 'block';
   }
 }
 
@@ -428,7 +680,7 @@ function cancelDisconnect(platform) {
 
 function openModal(platform) {
   setPendingDisconnectPlatform(platform);
-  ['gumroad', 'jinxxy'].forEach((p) => {
+  platformProviders.forEach(({ key: p }) => {
     if (p !== platform) {
       const el = document.getElementById(`${p}-disconnect-confirm`);
       if (el) el.classList.remove('open');
@@ -467,19 +719,48 @@ async function confirmDisconnect(platform) {
   }
 }
 
+export async function confirmDisconnectUserAccount(connId, provider) {
+  if (!confirm(`Disconnect this ${provider} account? This removes syncing for all servers.`)) return;
+  try {
+    const res = await apiFetch(`${getApiBase()}/api/connect/user/accounts?id=${encodeURIComponent(connId)}`, { method: 'DELETE' });
+    if (res.ok) {
+      setUserAccountsList(userAccountsList.filter((c) => c.id !== connId));
+      updatePlatformCards();
+    } else {
+      alert('Failed to disconnect. Please try again.');
+    }
+  } catch (e) {
+    console.error('Disconnect error:', e);
+    alert('Network error while disconnecting.');
+  }
+}
+
 export async function fetchAllData() {
   try {
+    // Always fetch user-scoped accounts (works regardless of server selection)
+    const userAccountsRes = await apiFetch(`${getApiBase()}/api/connect/user/accounts`);
+    if (userAccountsRes.ok) {
+      const userAccountsData = await userAccountsRes.json();
+      setUserAccountsList(userAccountsData.connections || []);
+    }
+
     if (getHasSetupSession()) {
+      // Also fetch setup-session-scoped connections (legacy flow)
       const statusRes = await apiFetch(`${getApiBase()}/api/connections`);
       if (statusRes.ok) {
         const statusData = await statusRes.json();
-        connectionsMap.clear();
+        // Merge setup-session connections with user accounts (deduplicate by id)
+        const existing = new Set(userAccountsList.map((c) => c.id));
+        const merged = [...userAccountsList];
         if (statusData.connections) {
           statusData.connections.forEach((c) => {
-            if (c.status === 'active') connectionsMap.set(c.provider, c);
+            if (c.status === 'active') {
+              connectionsMap.set(c.providerKey || c.provider, c);
+              if (!existing.has(c.id)) merged.push(c);
+            }
           });
         }
-        updatePlatformCards();
+        setUserAccountsList(merged);
       }
       const settingsRes = await apiFetch(`${getApiBase()}/api/connect/settings`);
       if (settingsRes.ok) {
@@ -496,10 +777,20 @@ export async function fetchAllData() {
       const statusRes = await apiFetch(`${getApiBase()}/api/connect/status?tenantId=${encodeURIComponent(getTenantId())}`);
       if (statusRes.ok) {
         const statusData = await statusRes.json();
-        updateCard('gumroad', statusData.gumroad);
-        updateCard('jinxxy', statusData.jinxxy);
+        connectionsMap.clear();
+        if (Array.isArray(statusData.connections)) {
+          statusData.connections.forEach((connection) => {
+            const providerKey = connection.providerKey || connection.provider;
+            if (providerKey) connectionsMap.set(providerKey, connection);
+          });
+        } else {
+          if (statusData.gumroad) connectionsMap.set('gumroad', { provider: 'gumroad', status: 'active' });
+          if (statusData.jinxxy) connectionsMap.set('jinxxy', { provider: 'jinxxy', status: 'active' });
+          if (statusData.lemonsqueezy) connectionsMap.set('lemonsqueezy', { provider: 'lemonsqueezy', status: 'active' });
+        }
       }
     }
+    updatePlatformCards();
   } catch (err) {
     console.error('Failed to fetch data', err);
   }
@@ -566,25 +857,34 @@ function initCustomSelects() {
 }
 
 export function initPlatforms() {
+  renderPlatformScaffolding();
   window.navigateGumroad = navigateGumroad;
   window.navigateJinxxy = navigateJinxxy;
+  window.navigateLemonSqueezy = navigateLemonSqueezy;
+  window.navigatePayhip = navigatePayhip;
+  window.navigateProvider = navigateProvider;
   window.dismissQuickStart = dismissQuickStart;
   window.toggleSetting = toggleSetting;
   window.selectSetting = selectSetting;
   window.cancelDisconnect = cancelDisconnect;
+  window.confirmDisconnectUserAccount = confirmDisconnectUserAccount;
+
+  renderAddButtons();
 
   document.querySelectorAll('.setting-select, .svr-cfg-pick').forEach((select) => {
     const key = select.id?.replace('select-', '') || '';
     if (key) select.addEventListener('change', (e) => selectSetting(key, select.value));
   });
 
-  document.getElementById('gumroad-confirm-btn')?.addEventListener('click', () => confirmDisconnect('gumroad'));
-  document.getElementById('jinxxy-confirm-btn')?.addEventListener('click', () => confirmDisconnect('jinxxy'));
+  platformProviders.forEach((provider) => {
+    document.getElementById(`${provider.key}-confirm-btn`)?.addEventListener('click', () => confirmDisconnect(provider.key));
+  });
   document.querySelectorAll('[data-cancel-disconnect]').forEach((el) => {
     const platform = el.getAttribute('data-cancel-disconnect');
-    el.addEventListener('click', () => document.getElementById(`${platform}-disconnect-confirm`)?.classList.remove('open'));
+    el.addEventListener('click', () => cancelDisconnect(platform));
   });
 
   document.getElementById('quick-start-dismiss')?.addEventListener('click', dismissQuickStart);
+  updatePlatformCards();
   initCustomSelects();
 }

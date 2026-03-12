@@ -30,11 +30,11 @@
  *   RFC 8725 JWT BCP     https://www.rfc-editor.org/rfc/rfc8725
  */
 
-import { internalAction, internalQuery } from './_generated/server';
+import { symmetricDecrypt } from 'better-auth/crypto';
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import { symmetricDecrypt } from 'better-auth/crypto';
-import { signLicenseJwt, type LicenseClaims } from './lib/yucpCrypto';
+import { internalAction, internalQuery } from './_generated/server';
+import { type LicenseClaims, signLicenseJwt } from './lib/yucpCrypto';
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
 
@@ -50,13 +50,19 @@ export const getProductByProviderRef = internalQuery({
   },
   returns: v.union(
     v.null(),
-    v.object({ tenantId: v.id('tenants'), productId: v.string(), displayName: v.optional(v.string()) }),
+    v.object({
+      tenantId: v.id('tenants'),
+      productId: v.string(),
+      displayName: v.optional(v.string()),
+    })
   ),
   handler: async (ctx, args) => {
     const row = await ctx.db
       .query('product_catalog')
       .withIndex('by_provider_ref', (q) =>
-        q.eq('provider', args.provider as 'gumroad' | 'jinxxy').eq('providerProductRef', args.providerProductRef),
+        q
+          .eq('provider', args.provider as 'gumroad' | 'jinxxy')
+          .eq('providerProductRef', args.providerProductRef)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
@@ -65,7 +71,9 @@ export const getProductByProviderRef = internalQuery({
   },
 });
 
-/** Get the encrypted provider connection for a tenant. */
+/** Get the encrypted provider connection for a tenant.
+ * Falls back to user-scoped connections if no tenant-scoped one is found.
+ */
 export const getProviderConnection = internalQuery({
   args: {
     tenantId: v.id('tenants'),
@@ -76,20 +84,40 @@ export const getProviderConnection = internalQuery({
     v.object({
       gumroadAccessTokenEncrypted: v.optional(v.string()),
       jinxxyApiKeyEncrypted: v.optional(v.string()),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
-    const conn = await ctx.db
+    // First try tenant-scoped connection (fastest path for existing setups)
+    const tenantConn = await ctx.db
       .query('provider_connections')
       .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', args.provider as 'gumroad' | 'jinxxy'),
+        q.eq('tenantId', args.tenantId).eq('provider', args.provider as 'gumroad' | 'jinxxy')
       )
       .filter((q) => q.neq(q.field('status'), 'disconnected'))
       .first();
-    if (!conn) return null;
+    if (tenantConn) {
+      return {
+        gumroadAccessTokenEncrypted: tenantConn.gumroadAccessTokenEncrypted,
+        jinxxyApiKeyEncrypted: tenantConn.jinxxyApiKeyEncrypted,
+      };
+    }
+
+    // Fall back to user-scoped connection owned by the tenant owner
+    const tenant = await ctx.db.get(args.tenantId);
+    if (!tenant?.ownerAuthUserId) return null;
+    const ownerAuthUserId = tenant.ownerAuthUserId;
+
+    const userConn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', ownerAuthUserId).eq('provider', args.provider as 'gumroad' | 'jinxxy')
+      )
+      .filter((q) => q.neq(q.field('status'), 'disconnected'))
+      .first();
+    if (!userConn) return null;
     return {
-      gumroadAccessTokenEncrypted: conn.gumroadAccessTokenEncrypted,
-      jinxxyApiKeyEncrypted: conn.jinxxyApiKeyEncrypted,
+      gumroadAccessTokenEncrypted: userConn.gumroadAccessTokenEncrypted,
+      jinxxyApiKeyEncrypted: userConn.jinxxyApiKeyEncrypted,
     };
   },
 });
@@ -102,7 +130,7 @@ export const getCollaboratorConnections = internalQuery({
     const rows = await ctx.db
       .query('collaborator_connections')
       .withIndex('by_owner_status', (q) =>
-        q.eq('ownerTenantId', args.ownerTenantId).eq('status', 'active'),
+        q.eq('ownerTenantId', args.ownerTenantId).eq('status', 'active')
       )
       .collect();
     return rows
@@ -116,7 +144,7 @@ export const getTenantByAuthUser = internalQuery({
   args: { ownerAuthUserId: v.string() },
   returns: v.union(
     v.null(),
-    v.object({ _id: v.id('tenants'), name: v.string(), slug: v.optional(v.string()) }),
+    v.object({ _id: v.id('tenants'), name: v.string(), slug: v.optional(v.string()) })
   ),
   handler: async (ctx, args) => {
     const row = await ctx.db
@@ -144,7 +172,7 @@ export const getTenantOwnerById = internalQuery({
   args: { tenantId: v.id('tenants') },
   returns: v.union(
     v.null(),
-    v.object({ _id: v.id('tenants'), name: v.string(), ownerAuthUserId: v.string() }),
+    v.object({ _id: v.id('tenants'), name: v.string(), ownerAuthUserId: v.string() })
   ),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.tenantId);
@@ -160,10 +188,8 @@ export const getProductsForTenant = internalQuery({
     v.object({
       productId: v.string(),
       displayName: v.optional(v.string()),
-      providers: v.array(
-        v.object({ provider: v.string(), providerProductRef: v.string() }),
-      ),
-    }),
+      providers: v.array(v.object({ provider: v.string(), providerProductRef: v.string() })),
+    })
   ),
   handler: async (ctx, args) => {
     const rows = await ctx.db
@@ -173,11 +199,14 @@ export const getProductsForTenant = internalQuery({
       .collect();
 
     // Group by productId so each canonical product appears once with all its providers
-    const grouped = new Map<string, {
-      productId: string;
-      displayName?: string;
-      providers: Array<{ provider: string; providerProductRef: string }>;
-    }>();
+    const grouped = new Map<
+      string,
+      {
+        productId: string;
+        displayName?: string;
+        providers: Array<{ provider: string; providerProductRef: string }>;
+      }
+    >();
 
     for (const row of rows) {
       if (!grouped.has(row.productId)) {
@@ -189,11 +218,11 @@ export const getProductsForTenant = internalQuery({
         });
       } else {
         // If a later row for the same productId has a better name, promote it
-        const entry = grouped.get(row.productId)!;
+        const entry = grouped.get(row.productId);
         const betterName = row.displayName || row.canonicalSlug;
-        if (!entry.displayName && betterName) entry.displayName = betterName;
+        if (entry && !entry.displayName && betterName) entry.displayName = betterName;
       }
-      grouped.get(row.productId)!.providers.push({
+      grouped.get(row.productId)?.providers.push({
         provider: row.provider as string,
         providerProductRef: row.providerProductRef,
       });
@@ -208,7 +237,7 @@ export const getProductsForTenant = internalQuery({
 
     for (const rule of roleRules) {
       // Discord cross-server products have no catalog entry; their productId is synthetic
-      if (rule.catalogProductId) continue;            // skip catalog-linked rules (those are Gumroad/Jinxxy products)
+      if (rule.catalogProductId) continue; // skip catalog-linked rules (those are Gumroad/Jinxxy products)
       if (!rule.productId.startsWith('discord_role:')) continue;
 
       const guildLink = await ctx.db.get(rule.guildLinkId);
@@ -263,13 +292,10 @@ export const checkSubjectEntitlement = internalQuery({
     const entitlement = await ctx.db
       .query('entitlements')
       .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId),
+        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
       )
       .filter((q) =>
-        q.and(
-          q.eq(q.field('productId'), args.productId),
-          q.eq(q.field('status'), 'active'),
-        ),
+        q.and(q.eq(q.field('productId'), args.productId), q.eq(q.field('status'), 'active'))
       )
       .first();
     return entitlement != null;
@@ -316,7 +342,7 @@ interface GumroadVerifyResult {
 async function verifyGumroadLicense(
   licenseKey: string,
   productPermalink: string,
-  accessToken: string,
+  accessToken: string
 ): Promise<{ valid: boolean; reason?: string }> {
   const params = new URLSearchParams({
     access_token: accessToken,
@@ -343,7 +369,7 @@ async function verifyGumroadLicense(
 async function verifyJinxxyLicense(
   licenseKey: string,
   productId: string,
-  apiKey: string,
+  apiKey: string
 ): Promise<{ valid: boolean; reason?: string }> {
   const resp = await fetch(`https://jinxxy.com/api/v1/licenses/${encodeURIComponent(licenseKey)}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -453,13 +479,21 @@ export const verifyLicense = internalAction({
         if (!fallbackToken) {
           return { success: false, error: 'Gumroad credentials not configured for this product' };
         }
-        verifyResult = await verifyGumroadLicense(args.licenseKey, args.productPermalink, fallbackToken);
+        verifyResult = await verifyGumroadLicense(
+          args.licenseKey,
+          args.productPermalink,
+          fallbackToken
+        );
       } else if (args.provider === 'jinxxy') {
         const fallbackKey = process.env.JINXXY_API_KEY;
         if (!fallbackKey) {
           return { success: false, error: 'Jinxxy credentials not configured for this product' };
         }
-        verifyResult = await verifyJinxxyLicense(args.licenseKey, args.productPermalink, fallbackKey);
+        verifyResult = await verifyJinxxyLicense(
+          args.licenseKey,
+          args.productPermalink,
+          fallbackKey
+        );
       } else {
         return { success: false, error: `Unknown provider: ${args.provider}` };
       }
@@ -495,7 +529,7 @@ export const verifyLicense = internalAction({
     const token = await signLicenseJwt(claims, rootPrivateKey, keyId);
 
     console.log(
-      `[license/verify] issued token package_id=${args.packageId} provider=${args.provider} exp=${exp}`,
+      `[license/verify] issued token package_id=${args.packageId} provider=${args.provider} exp=${exp}`
     );
 
     return { success: true, token, expiresAt: exp };
