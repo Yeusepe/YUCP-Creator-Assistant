@@ -304,14 +304,24 @@ export const PROVIDER_REGISTRY = [
     providerKey: 'payhip',
     label: 'Payhip',
     category: 'commerce',
-    status: 'planned',
-    docsUrl: 'https://help.payhip.com',
+    status: 'active',
+    // Webhook doc: https://help.payhip.com/article/115-webhooks
+    // License key doc: https://help.payhip.com/article/317-software-license-keys-new
+    docsUrl: 'https://help.payhip.com/category/48-developer',
     emojiKey: 'CreditCard',
     addProductDescription: 'Sold on payhip.com',
     creatorAuthModes: ['api_key'],
     buyerVerificationMethods: ['license_key', 'account_link'],
-    capabilities: ['account_link', 'webhooks', 'reconciliation', 'orders', 'refunds'],
-    setupRequirements: ['api_key', 'webhook_secret'],
+    // Note: no separate webhook_secret — Payhip signature = SHA256(apiKey), derived from api_key
+    capabilities: [
+      'account_link',
+      'webhooks',
+      'reconciliation',
+      'license_verification',
+      'orders',
+      'refunds',
+    ],
+    setupRequirements: ['api_key', 'webhook_endpoint'],
     verificationMethods: ['license_key'],
     supportsDisconnect: true,
     supportsCredentialLogin: true,
@@ -319,6 +329,9 @@ export const PROVIDER_REGISTRY = [
     supportsWebhook: true,
     supportsLicenseVerify: true,
     supportsTestMode: false,
+    compatibility: {
+      legacyWebhookRoutes: ['/webhooks/payhip/:tenantId'],
+    },
   },
   {
     providerKey: 'vrchat',

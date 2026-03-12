@@ -25,6 +25,8 @@ const JINXXY_TEST_PREFIX = 'jinxxy_test:';
 const JINXXY_TEST_TTL_MS = 60 * 1000; // 60 seconds
 const COLLAB_TEST_PREFIX = 'collab_test:';
 const COLLAB_TEST_TTL_MS = 60 * 1000; // 60 seconds
+const PAYHIP_TEST_PREFIX = 'payhip_test:';
+const PAYHIP_TEST_TTL_MS = 60 * 1000; // 60 seconds
 
 export interface WebhookConfig {
   convexUrl: string;
@@ -60,6 +62,18 @@ async function hmacSha256(secret: string, body: string): Promise<string> {
   );
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
   return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Compute SHA-256 hash of a string and return hex-encoded result.
+ * Used for Payhip webhook signature verification (signature = SHA256(apiKey)).
+ */
+async function sha256Hex(input: string): Promise<string> {
+  const encoded = new TextEncoder().encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
@@ -112,6 +126,27 @@ export function createWebhookRoutes(config: WebhookConfig) {
         apiSecret,
         tenantId,
       });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get the encrypted Payhip API key for a tenant.
+   * Payhip signature = SHA256(apiKey), so we need the raw API key to verify.
+   */
+  async function getPayhipApiKey(tenantId: string): Promise<string | null> {
+    try {
+      const encryptedKey = await convex.query(api.providerConnections.getPayhipApiKey, {
+        apiSecret,
+        tenantId,
+      });
+      if (!encryptedKey) return null;
+      try {
+        return await decrypt(encryptedKey, encryptionSecret);
+      } catch {
+        return encryptedKey;
+      }
     } catch {
       return null;
     }
@@ -426,16 +461,110 @@ export function createWebhookRoutes(config: WebhookConfig) {
     }
   }
 
+  async function handlePayhipWebhook(request: Request, tenantId: string): Promise<Response> {
+    if (request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
+
+    try {
+      const rawBody = await request.text();
+      logger.info('Webhook received', {
+        provider: 'payhip',
+        tenantId,
+        payloadBytes: rawBody.length,
+      });
+
+      let payload: { id?: string; email?: string; type?: string; signature?: string };
+      try {
+        payload = JSON.parse(rawBody) as typeof payload;
+      } catch {
+        logger.warn('Payhip webhook: invalid JSON', { tenantId });
+        return new Response('Bad Request', { status: 400 });
+      }
+
+      // Payhip signature = SHA256(apiKey) — static, not HMAC of the body.
+      // The signature field is inside the JSON payload itself.
+      const apiKey = await getPayhipApiKey(tenantId);
+      let signatureValid = false;
+
+      if (apiKey && payload.signature) {
+        const expectedSig = await sha256Hex(apiKey);
+        signatureValid = timingSafeEqual(expectedSig, payload.signature);
+      } else if (!apiKey) {
+        logger.warn('Payhip webhook: no API key configured', { tenantId });
+      }
+
+      const eventId = payload.id ?? '';
+      const eventType = payload.type ?? 'unknown';
+
+      if (!eventId) {
+        logger.warn('Payhip webhook: missing id', { tenantId });
+        return new Response('OK', { status: 200 });
+      }
+
+      if (!signatureValid) {
+        logger.warn('Payhip webhook: rejected (invalid signature)', {
+          tenantId,
+          eventId,
+          hasApiKey: !!apiKey,
+          hasSignature: !!payload.signature,
+        });
+        return new Response('Forbidden', { status: 403 });
+      }
+
+      const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+        apiSecret,
+        tenantId,
+        provider: 'payhip',
+        providerEventId: eventId,
+        eventType,
+        rawPayload: payload,
+        signatureValid,
+      });
+
+      if (result.duplicate) {
+        logger.debug('Payhip webhook: duplicate event', { eventId, tenantId });
+      }
+
+      // Mark webhook as configured on first successful delivery
+      try {
+        await convex.mutation(api.providerConnections.markPayhipWebhookConfigured, {
+          apiSecret,
+          tenantId,
+        });
+      } catch {
+        // Non-fatal
+      }
+
+      // Set test webhook flag for connect flow polling
+      try {
+        const store = getStateStore();
+        await store.set(`${PAYHIP_TEST_PREFIX}${tenantId}`, '1', PAYHIP_TEST_TTL_MS);
+      } catch {
+        // Non-fatal
+      }
+
+      return new Response('OK', { status: 200 });
+    } catch (err) {
+      logger.error('Payhip webhook failed', {
+        error: err instanceof Error ? err.message : String(err),
+        tenantId,
+      });
+      return new Response('Internal Server Error', { status: 500 });
+    }
+  }
+
   return {
     handleGumroadWebhook,
     handleJinxxyWebhook,
     handleJinxxyCollabWebhook,
+    handlePayhipWebhook,
   };
 }
 
 /**
  * Mount webhook routes. Returns a single handler for /webhooks/* paths.
- * Path format: /webhooks/gumroad/:tenantId, /webhooks/jinxxy/:tenantId
+ * Path format: /webhooks/gumroad/:tenantId, /webhooks/jinxxy/:tenantId, /webhooks/payhip/:tenantId
  */
 export function createWebhookHandler(
   config: WebhookConfig
@@ -478,6 +607,9 @@ export function createWebhookHandler(
     }
     if (provider === 'jinxxy') {
       return routes.handleJinxxyWebhook(request, tenantId);
+    }
+    if (provider === 'payhip') {
+      return routes.handlePayhipWebhook(request, tenantId);
     }
 
     logger.warn('Webhook unknown provider', { provider, tenantId });

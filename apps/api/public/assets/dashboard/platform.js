@@ -399,6 +399,25 @@ export async function navigateLemonSqueezy() {
   }
 }
 
+export async function navigatePayhip() {
+  if (getSetupToken()) {
+    const restored = await ensureSetupSessionCookie();
+    if (!restored) {
+      redirectToExpiredLinkError();
+      return;
+    }
+  }
+  const tid = getTenantId();
+  const gid = getGuildId();
+  if (tid && gid) {
+    window.location.href = `${getApiBase()}/payhip-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
+  } else if (getHasSetupSession()) {
+    window.location.href = `${getApiBase()}/payhip-setup`;
+  } else {
+    alert('Please wait for the page to finish loading.');
+  }
+}
+
 export async function navigateProvider(providerKey) {
   if (providerKey === 'gumroad') {
     return navigateGumroad();
@@ -408,6 +427,9 @@ export async function navigateProvider(providerKey) {
   }
   if (providerKey === 'lemonsqueezy') {
     return navigateLemonSqueezy();
+  }
+  if (providerKey === 'payhip') {
+    return navigatePayhip();
   }
   return undefined;
 }
@@ -723,6 +745,7 @@ export function initPlatforms() {
   window.navigateGumroad = navigateGumroad;
   window.navigateJinxxy = navigateJinxxy;
   window.navigateLemonSqueezy = navigateLemonSqueezy;
+  window.navigatePayhip = navigatePayhip;
   window.navigateProvider = navigateProvider;
   window.dismissQuickStart = dismissQuickStart;
   window.toggleSetting = toggleSetting;

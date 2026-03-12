@@ -48,6 +48,9 @@ const DISCORD_ROLE_SETUP_PREFIX = 'discord_role_setup:';
 const DISCORD_ROLE_OAUTH_STATE_PREFIX = 'discord_role_oauth:';
 const DISCORD_ROLE_SETUP_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+const PAYHIP_TEST_PREFIX = 'payhip_test:';
+const PAYHIP_TEST_TTL_MS = 90 * 1000; // 90 seconds — longer than LemonSqueezy auto-retry
+
 const HTML_SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy':
     "default-src 'self'; " +
@@ -2999,6 +3002,173 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     );
   }
 
+  /**
+   * POST /api/connect/payhip-finish
+   * Body: { tenantId?, apiKey }
+   *
+   * Stores the Payhip API key (used for webhook signature verification) and creates
+   * the provider connection. Returns the webhook URL the creator should paste into
+   * Payhip's Settings → Developer page.
+   *
+   * Payhip webhook signature = SHA256(apiKey) — static per creator. No separate
+   * webhook secret is needed.
+   */
+  async function payhipFinish(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const setupBinding = await requireBoundSetupSession(request);
+    const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
+    const authSession = setupBinding.ok ? setupBinding.authSession : await auth.getSession(request);
+    if (!authSession && !setupSession) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    let body: { tenantId?: string; apiKey: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = setupSession?.tenantId ?? body.tenantId ?? null;
+    const { apiKey } = body;
+    if (!tenantId || !apiKey) {
+      return Response.json({ error: 'tenantId and apiKey are required' }, { status: 400 });
+    }
+
+    if (!setupSession) {
+      if (!authSession) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, tenantId);
+      if (!tenantOwned) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    try {
+      const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret);
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      await convex.mutation(api.providerConnections.upsertPayhipConnection, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        apiKeyEncrypted,
+      });
+
+      const webhookUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/payhip/${tenantId}`;
+      return Response.json({ success: true, webhookUrl });
+    } catch (err) {
+      logger.error('Payhip finish failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to save Payhip API key' }, { status: 500 });
+    }
+  }
+
+  /**
+   * POST /api/connect/payhip/product-key
+   * Body: { tenantId?, permalink, productSecretKey }
+   *
+   * Stores a per-product secret key for a Payhip product. The secret key is found
+   * on the product edit page, in the section where license keys are enabled.
+   * The `permalink` is the short ID from the product URL (e.g. "RGsF").
+   */
+  async function payhipProductKey(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const setupBinding = await requireBoundSetupSession(request);
+    const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
+    const authSession = setupBinding.ok ? setupBinding.authSession : await auth.getSession(request);
+    if (!authSession && !setupSession) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    let body: { tenantId?: string; permalink: string; productSecretKey: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const tenantId = setupSession?.tenantId ?? body.tenantId ?? null;
+    const { permalink, productSecretKey } = body;
+    if (!tenantId || !permalink || !productSecretKey) {
+      return Response.json(
+        { error: 'tenantId, permalink, and productSecretKey are required' },
+        { status: 400 }
+      );
+    }
+
+    if (!setupSession) {
+      if (!authSession) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, tenantId);
+      if (!tenantOwned) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    try {
+      const secretKeyEncrypted = await encrypt(productSecretKey, config.encryptionSecret);
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      await convex.mutation(api.providerConnections.upsertPayhipProductSecretKey, {
+        apiSecret: config.convexApiSecret,
+        tenantId,
+        permalink,
+        secretKeyEncrypted,
+      });
+      return Response.json({ success: true });
+    } catch (err) {
+      logger.error('Payhip product key store failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to save product secret key' }, { status: 500 });
+    }
+  }
+
+  /**
+   * GET /api/connect/payhip/test-webhook?tenantId=XXX
+   * Returns { received: boolean }.
+   *
+   * The webhook handler sets a short-lived flag in the state store when it processes
+   * a valid Payhip webhook for this tenant. The setup page polls this endpoint to
+   * confirm the webhook URL was correctly configured in Payhip's Developer Settings.
+   */
+  async function payhipTestWebhook(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    let tenantId = url.searchParams.get('tenantId');
+    const setupBinding = await requireBoundSetupSession(request);
+
+    if (setupBinding.ok) {
+      tenantId = setupBinding.setupSession.tenantId;
+    } else {
+      const session = await auth.getSession(request);
+      if (!session) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      if (!tenantId) {
+        return Response.json({ error: 'tenantId is required' }, { status: 400 });
+      }
+      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
+      if (!tenantOwned) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    if (!tenantId) {
+      return Response.json({ error: 'tenantId or setup token is required' }, { status: 400 });
+    }
+
+    const store = getStateStore();
+    const raw = await store.get(`${PAYHIP_TEST_PREFIX}${tenantId}`);
+    return Response.json({ received: !!raw });
+  }
+
   return {
     serveConnectPage,
     exchangeConnectBootstrap,
@@ -3014,6 +3184,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     jinxxyTestWebhook,
     jinxxyStore,
     lemonsqueezyFinish,
+    payhipFinish,
+    payhipProductKey,
+    payhipTestWebhook,
     listConnectionsHandler,
     disconnectConnectionHandler,
     getSettingsHandler,

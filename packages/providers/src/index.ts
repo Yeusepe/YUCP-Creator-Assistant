@@ -76,6 +76,23 @@ export type {
 // Re-export Jinxxy adapter (full implementation in ./jinxxy)
 import { JinxxyAdapter, type JinxxyAdapterConfig } from './jinxxy';
 export { JinxxyAdapter, JinxxyApiClient } from './jinxxy';
+
+// Re-export Payhip adapter (full implementation in ./payhip)
+import { PayhipAdapter } from './payhip';
+export { PayhipAdapter, PayhipApiClient } from './payhip';
+export type {
+  PayhipAdapterConfig,
+  PayhipEvidence,
+  PayhipLicenseVerifyData,
+  PayhipLicenseVerifyResult,
+  PayhipLicenseVerifyResponse,
+  PayhipWebhookItem,
+  PayhipPaidPayload,
+  PayhipRefundedPayload,
+  PayhipWebhookPayload,
+  PayhipProductKey,
+} from './payhip';
+export { PayhipApiError, PayhipRateLimitError } from './payhip';
 import { LemonSqueezyAdapter, type LemonSqueezyAdapterConfig } from './lemonsqueezy';
 export { LemonSqueezyAdapter, LemonSqueezyApiClient } from './lemonsqueezy';
 export { VrchatApiClient, extractVrchatAvatarId } from './vrchat';
@@ -260,7 +277,7 @@ export class ManualAdapter implements ProviderAdapter {
 
 // Factory function for creating provider adapters
 export function createProviderAdapter(
-  type: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'discord' | 'manual',
+  type: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'payhip' | 'discord' | 'manual',
   config: ProviderConfig,
   storage?: ManualLicenseStorage
 ): ProviderAdapter {
@@ -289,6 +306,8 @@ export function createProviderAdapter(
         throw new Error('Use LemonSqueezyAdapter directly with apiToken config');
       }
       return new LemonSqueezyAdapter(config as unknown as LemonSqueezyAdapterConfig);
+    case 'payhip':
+      return new PayhipAdapter(config);
     case 'discord':
       return new DiscordAdapter(config);
     case 'manual':

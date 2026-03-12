@@ -43,6 +43,20 @@ export const DASHBOARD_PROVIDER_REGISTRY = [
     serverTileHint: 'Allow users to verify Lemon Squeezy purchases and licenses in this Discord server.',
     setupState: 'ready',
   },
+  {
+    key: 'payhip',
+    label: 'Payhip',
+    iconUrl: '__API_BASE__/Icons/Payhip.png',
+    iconBg: '#3b82f6',
+    iconClassName: 'w-6 h-6 object-contain',
+    description: 'Webhooks & per-product license keys',
+    quickStartDescription: 'Connect Payhip',
+    quickStartButtonBg: 'rgba(59,130,246,0.12)',
+    quickStartButtonBorder: 'rgba(59,130,246,0.32)',
+    serverTileLabel: 'Enable Payhip for this Server',
+    serverTileHint: 'Allow users to verify Payhip purchases and license keys in this Discord server.',
+    setupState: 'ready',
+  },
 
 ];
 

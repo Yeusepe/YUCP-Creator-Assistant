@@ -990,3 +990,320 @@ export const cleanupDuplicateAccountsForSubject = mutation({
     };
   },
 });
+
+// ============================================================================
+// PAYHIP CONNECTION HELPERS
+// ============================================================================
+
+/**
+ * Get the encrypted Payhip API key for a tenant.
+ * Used by the webhook handler to verify the SHA-256 signature.
+ * The caller (webhook handler) decrypts the value.
+ *
+ * Payhip webhook signature = SHA256(apiKey). No separate webhook secret is needed.
+ */
+export const getPayhipApiKey = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+  },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant_provider', (q) =>
+        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      )
+      .first();
+    if (!conn || conn.status === 'disconnected') return null;
+    return getCredentialValue(ctx, conn._id, 'api_key');
+  },
+});
+
+/**
+ * Get all per-product secret keys stored for this tenant's Payhip connection.
+ * Returns an array of { permalink, encryptedSecretKey } objects.
+ * Credential keys follow the pattern: `product_key:{permalink}`
+ */
+export const getPayhipProductSecretKeys = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+  },
+  returns: v.array(
+    v.object({
+      permalink: v.string(),
+      encryptedSecretKey: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant_provider', (q) =>
+        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      )
+      .first();
+    if (!conn || conn.status === 'disconnected') return [];
+
+    const credentials = await ctx.db
+      .query('provider_credentials')
+      .withIndex('by_connection', (q) => q.eq('providerConnectionId', conn._id))
+      .collect();
+
+    const results: { permalink: string; encryptedSecretKey: string }[] = [];
+    for (const cred of credentials) {
+      if (cred.credentialKey.startsWith('product_key:') && cred.encryptedValue) {
+        const permalink = cred.credentialKey.slice('product_key:'.length);
+        results.push({ permalink, encryptedSecretKey: cred.encryptedValue });
+      }
+    }
+    return results;
+  },
+});
+
+/**
+ * Create or update the Payhip provider connection for a tenant.
+ * Stores the encrypted API key. Called from the connect route after the creator
+ * enters their Payhip API key.
+ */
+export const upsertPayhipConnection = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    encryptedApiKey: v.string(),
+    label: v.optional(v.string()),
+  },
+  returns: v.object({
+    connectionId: v.id('provider_connections'),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const now = Date.now();
+
+    let conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant_provider', (q) =>
+        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      )
+      .first();
+
+    const connectionLabel = args.label ?? 'Payhip Connection';
+
+    if (conn) {
+      await ctx.db.patch(conn._id, {
+        status: 'active',
+        label: connectionLabel,
+        updatedAt: now,
+      });
+    } else {
+      const id = await ctx.db.insert('provider_connections', {
+        tenantId: args.tenantId,
+        provider: 'payhip' as any,
+        providerKey: 'payhip' as any,
+        label: connectionLabel,
+        connectionType: 'setup',
+        status: 'active',
+        authMode: 'api_key',
+        webhookConfigured: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      conn = await ctx.db.get(id);
+      if (!conn) throw new Error('Failed to create Payhip connection');
+    }
+
+    await upsertCredential(ctx, {
+      tenantId: args.tenantId,
+      providerConnectionId: conn._id,
+      providerKey: 'payhip',
+      credentialKey: 'api_key',
+      kind: 'api_key',
+      encryptedValue: args.encryptedApiKey,
+    });
+
+    await upsertCapability(ctx, {
+      tenantId: args.tenantId,
+      providerConnectionId: conn._id,
+      providerKey: 'payhip',
+      capabilityKey: 'webhooks',
+      status: 'configured',
+      requiredCredentialKeys: ['api_key'],
+    });
+
+    await upsertCapability(ctx, {
+      tenantId: args.tenantId,
+      providerConnectionId: conn._id,
+      providerKey: 'payhip',
+      capabilityKey: 'license_verification',
+      status: 'pending',
+      requiredCredentialKeys: [],
+    });
+
+    return { connectionId: conn._id };
+  },
+});
+
+/**
+ * Store or update a per-product secret key for Payhip license verification.
+ * Credential key format: `product_key:{permalink}` (e.g., `product_key:RGsF`).
+ * Called when the creator adds a new Payhip product mapping.
+ */
+export const upsertPayhipProductSecretKey = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    /** Product permalink from Payhip (e.g., "RGsF") */
+    productPermalink: v.string(),
+    /** Encrypted product-secret-key value */
+    encryptedSecretKey: v.string(),
+  },
+  returns: v.object({ success: v.boolean() }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant_provider', (q) =>
+        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      )
+      .first();
+
+    if (!conn) {
+      throw new Error('Payhip connection not found. Connect Payhip first.');
+    }
+
+    await upsertCredential(ctx, {
+      tenantId: args.tenantId,
+      providerConnectionId: conn._id,
+      providerKey: 'payhip',
+      credentialKey: `product_key:${args.productPermalink}`,
+      kind: 'api_key',
+      encryptedValue: args.encryptedSecretKey,
+      metadata: { productPermalink: args.productPermalink },
+    });
+
+    // Once at least one product key is configured, mark license_verification as active.
+    await upsertCapability(ctx, {
+      tenantId: args.tenantId,
+      providerConnectionId: conn._id,
+      providerKey: 'payhip',
+      capabilityKey: 'license_verification',
+      status: 'active',
+      requiredCredentialKeys: [`product_key:${args.productPermalink}`],
+    });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Get all Payhip products known for a tenant.
+ *
+ * Merges two sources:
+ * 1. `provider_credentials` entries with key `product_key:{permalink}` — manually added at setup
+ *    time, available before any webhooks fire.
+ * 2. `provider_catalog_mappings` entries upserted from webhook events — carry human-readable
+ *    product names discovered from real purchases.
+ *
+ * Returns a deduplicated list keyed by permalink. The `hasSecretKey` flag indicates whether
+ * the creator has configured the per-product secret key required for license verification.
+ */
+export const getPayhipProducts = query({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+  },
+  returns: v.array(
+    v.object({
+      permalink: v.string(),
+      displayName: v.optional(v.string()),
+      productPermalink: v.optional(v.string()),
+      hasSecretKey: v.boolean(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant_provider', (q) =>
+        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      )
+      .first();
+
+    if (!conn) return [];
+
+    // Source 1: manually added product-secret-keys
+    const credentials = await ctx.db
+      .query('provider_credentials')
+      .withIndex('by_connection', (q) => q.eq('providerConnectionId', conn._id))
+      .collect();
+
+    const credentialPermalinks = new Map<string, boolean>();
+    for (const cred of credentials) {
+      if (cred.credentialKey?.startsWith('product_key:')) {
+        const permalink = cred.credentialKey.slice('product_key:'.length);
+        if (permalink) credentialPermalinks.set(permalink, true);
+      }
+    }
+
+    // Source 2: catalog mappings upserted from webhook events
+    const catalogMappings = await ctx.db
+      .query('provider_catalog_mappings')
+      .withIndex('by_connection', (q) => q.eq('providerConnectionId', conn._id))
+      .collect();
+
+    const catalogByPermalink = new Map<
+      string,
+      { displayName?: string; productPermalink?: string }
+    >();
+    for (const m of catalogMappings) {
+      if (m.externalProductId) {
+        catalogByPermalink.set(m.externalProductId, {
+          displayName: m.displayName,
+          productPermalink: (m.metadata as any)?.productPermalink,
+        });
+      }
+    }
+
+    // Merge: union of both sets
+    const allPermalinks = new Set([...credentialPermalinks.keys(), ...catalogByPermalink.keys()]);
+
+    return Array.from(allPermalinks).map((permalink) => {
+      const catalog = catalogByPermalink.get(permalink);
+      return {
+        permalink,
+        displayName: catalog?.displayName,
+        productPermalink: catalog?.productPermalink,
+        hasSecretKey: credentialPermalinks.has(permalink),
+      };
+    });
+  },
+});
+
+/**
+ * Mark the Payhip webhook as configured (called after first successful webhook delivery).
+ */
+export const markPayhipWebhookConfigured = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_tenant_provider', (q) =>
+        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      )
+      .first();
+
+    if (conn && !conn.webhookConfigured) {
+      await ctx.db.patch(conn._id, { webhookConfigured: true, updatedAt: Date.now() });
+    }
+    return null;
+  },
+});
