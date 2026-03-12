@@ -15,8 +15,12 @@
     "test:e2e:ci": "bun test ./test/e2e --timeout 300000"
   },
   "dependencies": {
+    "@tempojs/client": "^0.0.12",
+    "@tempojs/common": "^0.0.12",
     "@yucp/providers": "workspace:*",
+    "@yucp/private-rpc": "workspace:*",
     "@yucp/shared": "workspace:*",
+    "bebop": "3.0.4",
     "convex": "^1.32.0",
     "discord.js": "^14.15.0",
     "posthog-node": "^5.26.2"

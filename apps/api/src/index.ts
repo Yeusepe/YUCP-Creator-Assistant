@@ -4,6 +4,7 @@
 
 import { createLogger } from '@yucp/shared';
 import { type Auth, createAuth } from './auth';
+import { INTERNAL_RPC_PATH, createInternalRpcRouter } from './internalRpc/router';
 import {
   DISCORD_ROLE_SETUP_COOKIE,
   SETUP_SESSION_COOKIE,
@@ -18,8 +19,10 @@ import {
   type VerificationConfig,
   createConnectRoutes,
   createProviderPlatformRoutes,
+  createVerificationRoutes,
   createWebhookHandler,
   mountInstallRoutes,
+  mountVerificationRouteHandlers,
   mountVerificationRoutes,
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
@@ -34,12 +37,14 @@ let auth: Auth | null = null;
 // Route handlers (initialized after auth)
 let installRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
+let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
 let publicRoutes: ReturnType<typeof createPublicRoutes> | null = null;
 let suiteRoutes: ReturnType<typeof createSuiteRoutes> | null = null;
+let internalRpcRouter: ReturnType<typeof createInternalRpcRouter> | null = null;
 let allowedCorsOrigins = new Set<string>();
 
 // Resolved after initializeAuth - used for apiBase injection and CORS
@@ -103,6 +108,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   const env = loadEnv();
 
   getRequired('BETTER_AUTH_SECRET');
+  getRequired('INTERNAL_RPC_SHARED_SECRET');
   if ((env.NODE_ENV ?? 'development') === 'production') {
     getRequired('INTERNAL_SERVICE_AUTH_SECRET');
     getRequired('VRCHAT_PENDING_STATE_SECRET');
@@ -175,9 +181,10 @@ function initializeAuth(webhookBaseUrl?: string) {
     jinxxyClientSecret: env.JINXXY_SECRET_KEY,
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   };
-  verificationRoutes = mountVerificationRoutes(verificationConfig);
+  verificationHandlers = createVerificationRoutes(verificationConfig);
+  verificationRoutes = mountVerificationRouteHandlers(verificationHandlers);
 
-  connectRoutes = createConnectRoutes(auth, {
+  const connectConfig = {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
     convexSiteUrl,
@@ -189,7 +196,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
     gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
-  });
+  } satisfies Parameters<typeof createConnectRoutes>[1];
+  connectRoutes = createConnectRoutes(auth, connectConfig);
 
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
     apiBaseUrl: publicBaseUrl,
@@ -204,7 +212,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   });
 
-  collabRoutes = createCollabRoutes({
+  const collabConfig = {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
@@ -212,7 +220,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
     discordClientId: env.DISCORD_CLIENT_ID ?? '',
     discordClientSecret: env.DISCORD_CLIENT_SECRET ?? '',
-  });
+  } satisfies Parameters<typeof createCollabRoutes>[0];
+  collabRoutes = createCollabRoutes(collabConfig);
 
   suiteRoutes = createSuiteRoutes({
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
@@ -224,6 +233,21 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
+  });
+
+  internalRpcRouter = createInternalRpcRouter({
+    connectRoutes,
+    verificationHandlers,
+    collabRoutes,
+    connectConfig,
+    collabConfig,
+    config: {
+      apiBaseUrl: publicBaseUrl,
+      convexApiSecret: env.CONVEX_API_SECRET ?? '',
+      convexSiteUrl,
+      internalRpcSharedSecret: env.INTERNAL_RPC_SHARED_SECRET ?? '',
+      logLevel: env.LOG_LEVEL,
+    },
   });
 
   logger.info('Better Auth initialized', {
@@ -250,6 +274,10 @@ async function routeRequest(request: Request): Promise<Response> {
   const clientAddress = getClientAddress(request);
 
   // Basic in-memory guardrails for abuse-prone routes.
+  if (pathname === INTERNAL_RPC_PATH && internalRpcRouter) {
+    return internalRpcRouter.handle(request, undefined);
+  }
+
   if (pathname.startsWith('/api/verification/')) {
     if (isRateLimited(`verification:${clientAddress}`, 60, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {

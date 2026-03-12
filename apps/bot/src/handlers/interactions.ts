@@ -34,6 +34,7 @@ import {
 } from '../commands/setup';
 import { getApiUrls } from '../lib/apiUrls';
 import { E } from '../lib/emojis';
+import { createConnectToken } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -47,18 +48,12 @@ async function getNotConfiguredMessage(
 ): Promise<string> {
   if (forAdmin) {
     const { apiInternal, apiPublic, webPublic } = getApiUrls();
-    const apiForFetch = apiInternal ?? apiPublic;
     const linkBase = webPublic ?? apiPublic;
     if (linkBase) {
       try {
-        if (apiForFetch) {
-          const res = await fetch(`${apiForFetch}/api/connect/create-token`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ discordUserId, apiSecret }),
-          });
-          if (res.ok) {
-            const { token } = (await res.json()) as { token: string };
+        if (apiInternal ?? apiPublic) {
+          const token = await createConnectToken({ discordUserId });
+          if (token) {
             return `This server is not configured. [Sign in to configure](${linkBase}/dashboard?guild_id=${guildId}#token=${token})`;
           }
         }

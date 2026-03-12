@@ -17,6 +17,7 @@ import {
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E } from '../lib/emojis';
+import { createSetupSessionToken } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 
 const SETUP_PREFIX = 'creator_setup:';
@@ -46,25 +47,15 @@ export async function runSetupStart(
   }
 
   const apiBase = webPublic;
-  const apiForFetch = apiInternal ?? apiPublic;
 
-  // Create a secure setup session via the API (use internal URL when on Zeabur)
   let setupToken = '';
   try {
-    const res = await fetch(`${apiForFetch}/api/setup/create-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    setupToken =
+      (await createSetupSessionToken({
         tenantId: ctx.tenantId,
         guildId: ctx.guildId,
         discordUserId: interaction.user.id,
-        apiSecret,
-      }),
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { token: string };
-      setupToken = data.token;
-    }
+      })) ?? '';
   } catch (_) {
     // Handled below with a user-visible error.
   }

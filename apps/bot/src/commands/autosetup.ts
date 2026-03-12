@@ -37,6 +37,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E, Emoji } from '../lib/emojis';
+import { listGumroadProducts, listJinxxyProducts } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 import { canBotManageRole } from '../lib/roleHierarchy';
 
@@ -200,28 +201,13 @@ function formatRoleName(
   return result || 'Verified';
 }
 
-async function fetchAllProducts(tenantId: string, apiSecret: string): Promise<AutosetupProduct[]> {
-  const { apiInternal, apiPublic } = getApiUrls();
-  const apiForFetch = apiInternal ?? apiPublic;
-  if (!apiForFetch) return [];
-
+async function fetchAllProducts(tenantId: string, _apiSecret: string): Promise<AutosetupProduct[]> {
   const products: AutosetupProduct[] = [];
 
-  const [gumroadRes, jinxxyRes] = await Promise.all([
-    fetch(`${apiForFetch}/api/gumroad/products`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiSecret, tenantId }),
-    }),
-    fetch(`${apiForFetch}/api/jinxxy/products`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiSecret, tenantId }),
-    }),
+  const [gumroadData, jinxxyData] = await Promise.all([
+    listGumroadProducts(tenantId),
+    listJinxxyProducts(tenantId),
   ]);
-
-  const gumroadData = (await gumroadRes.json()) as { products?: { id: string; name: string }[] };
-  const jinxxyData = (await jinxxyRes.json()) as { products?: { id: string; name: string }[] };
 
   for (const p of gumroadData.products ?? []) {
     products.push({ id: p.id, name: p.name, provider: 'gumroad' });

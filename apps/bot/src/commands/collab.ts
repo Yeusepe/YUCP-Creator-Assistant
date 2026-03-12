@@ -22,6 +22,13 @@ import {
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E } from '../lib/emojis';
+import {
+  addCollaboratorConnectionManual,
+  createCollaboratorInvite,
+  createSetupSessionToken,
+  listCollaboratorConnections,
+  removeCollaboratorConnection,
+} from '../lib/internalRpc';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -104,49 +111,19 @@ export async function handleCollabAddModalSubmit(
     return;
   }
 
-  let sessionToken: string | null = null;
   try {
-    const res = await fetch(`${apiBase}/api/setup/create-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tenantId,
-        guildId: interaction.guildId ?? '',
-        discordUserId: interaction.user.id,
-        apiSecret,
-      }),
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { token: string };
-      sessionToken = data.token;
-    }
-  } catch (err) {
-    logger.error('Failed to create session for collab add', { err });
-  }
-
-  if (!sessionToken) {
-    await interaction.editReply({ content: 'Failed to authenticate. Please try again.' });
-    return;
-  }
-
-  try {
-    const res = await fetch(`${apiBase}/api/collab/connections/manual`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${sessionToken}`,
-      },
-      body: JSON.stringify({
-        jinxxyApiKey: apiKey,
-        serverName: interaction.guild?.name ?? 'this server',
-      }),
+    const data = await addCollaboratorConnectionManual({
+      tenantId,
+      guildId: interaction.guildId ?? '',
+      actorDiscordUserId: interaction.user.id,
+      jinxxyApiKey: apiKey,
+      serverName: interaction.guild?.name ?? 'this server',
     });
 
-    const data = (await res.json()) as { success?: boolean; displayName?: string; error?: string };
-
-    if (!res.ok) {
-      const msg = data.error ?? `HTTP ${res.status}`;
-      await interaction.editReply({ content: `${E.X_} ${msg}` });
+    if (!data.success) {
+      await interaction.editReply({
+        content: `${E.X_} ${data.error ?? 'Failed to add connection.'}`,
+      });
       return;
     }
 
@@ -178,32 +155,6 @@ export async function handleCollabList(
     return;
   }
 
-  // Fetch setup session token for auth
-  let sessionToken: string | null = null;
-  try {
-    const res = await fetch(`${apiBase}/api/setup/create-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tenantId,
-        guildId: interaction.guildId ?? '',
-        discordUserId: interaction.user.id,
-        apiSecret,
-      }),
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { token: string };
-      sessionToken = data.token;
-    }
-  } catch (err) {
-    logger.error('Failed to create session for collab list', { err });
-  }
-
-  if (!sessionToken) {
-    await interaction.editReply({ content: 'Failed to authenticate. Please try again.' });
-    return;
-  }
-
   let connections: Array<{
     id: string;
     linkType: 'account' | 'api';
@@ -216,15 +167,17 @@ export async function handleCollabList(
   }> = [];
 
   try {
-    const res = await fetch(`${apiBase}/api/collab/connections`, {
-      headers: { Authorization: `Bearer ${sessionToken}` },
+    connections = await listCollaboratorConnections({
+      tenantId,
+      guildId: interaction.guildId ?? '',
+      actorDiscordUserId: interaction.user.id,
     });
-    if (res.ok) {
-      const data = (await res.json()) as { connections: typeof connections };
-      connections = data.connections ?? [];
-    }
   } catch (err) {
     logger.error('Failed to fetch collab connections', { err });
+    await interaction.editReply({
+      content: `${E.X_} Failed to load collaborator connections. Please try again.`,
+    });
+    return;
   }
 
   if (connections.length === 0) {
@@ -287,41 +240,14 @@ export async function handleCollabRemove(
     return;
   }
 
-  // Get a session token
-  let sessionToken: string | null = null;
   try {
-    const res = await fetch(`${apiBase}/api/setup/create-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tenantId,
-        guildId: interaction.guildId ?? '',
-        discordUserId: interaction.user.id,
-        apiSecret,
-      }),
+    const response = await removeCollaboratorConnection({
+      tenantId,
+      guildId: interaction.guildId ?? '',
+      actorDiscordUserId: interaction.user.id,
+      connectionId,
     });
-    if (res.ok) {
-      const data = (await res.json()) as { token: string };
-      sessionToken = data.token;
-    }
-  } catch (err) {
-    logger.error('Failed to create session for collab remove', { err });
-  }
-
-  if (!sessionToken) {
-    await interaction.editReply({
-      content: 'Failed to authenticate. Please try again.',
-      components: [],
-    });
-    return;
-  }
-
-  try {
-    const res = await fetch(`${apiBase}/api/collab/connections/${connectionId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${sessionToken}` },
-    });
-    if (!res.ok) {
+    if (!response.success) {
       await interaction.editReply({
         content: `${E.X_} Failed to remove connection.`,
         components: [],
@@ -354,55 +280,18 @@ async function generateAndShowInviteLink(
   guildId: string,
   guildName: string
 ): Promise<void> {
-  // Get a session token for the API call
-  let sessionToken: string | null = null;
-  try {
-    const res = await fetch(`${apiBase}/api/setup/create-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tenantId,
-        guildId,
-        discordUserId: interaction.user.id,
-        apiSecret,
-      }),
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { token: string };
-      sessionToken = data.token;
-    }
-  } catch (err) {
-    logger.error('Failed to create session for collab invite', { err });
-  }
-
-  if (!sessionToken) {
-    await interaction.editReply({
-      content: 'Failed to authenticate. Please try again.',
-      components: [],
-    });
-    return;
-  }
-
   let inviteUrl: string | null = null;
   let expiresAt: number | null = null;
 
   try {
-    const res = await fetch(`${apiBase}/api/collab/invite`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${sessionToken}`,
-      },
-      body: JSON.stringify({ guildName, guildId }),
+    const data = await createCollaboratorInvite({
+      tenantId,
+      guildId,
+      guildName,
+      actorDiscordUserId: interaction.user.id,
     });
-    if (res.ok) {
-      const data = (await res.json()) as { inviteUrl: string; expiresAt: number };
-      inviteUrl = data.inviteUrl;
-      expiresAt = data.expiresAt;
-    } else {
-      const err = (await res.json()) as { error?: string };
-      logger.error('Failed to create collab invite', { status: res.status, err });
-    }
+    inviteUrl = data.inviteUrl ?? null;
+    expiresAt = data.expiresAt ? Number(data.expiresAt) : null;
   } catch (err) {
     logger.error('Failed to call collab invite API', { err });
   }
