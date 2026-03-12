@@ -163,7 +163,9 @@ class GumroadBackfillAdapter implements BackfillProviderAdapter {
             providerProductId: String(s.product_id ?? ''),
             paymentStatus: s.refunded === true || s.refunded === 'true' ? 'refunded' : 'paid',
             lifecycleStatus:
-              s.refunded === true || s.refunded === 'true' ? ('refunded' as const) : ('active' as const),
+              s.refunded === true || s.refunded === 'true'
+                ? ('refunded' as const)
+                : ('active' as const),
             purchasedAt: s.created_at
               ? new Date(s.created_at as string).getTime()
               : typeof s.sale_timestamp === 'number'
@@ -443,7 +445,12 @@ async function runBackfill(
   let totalSkipped = 0;
 
   while (true) {
-    const { facts, nextCursor } = await adapter.fetchPage(creds, providerProductRef, cursor, pageSize);
+    const { facts, nextCursor } = await adapter.fetchPage(
+      creds,
+      providerProductRef,
+      cursor,
+      pageSize
+    );
 
     if (facts.length > 0) {
       // Inject tenantId (adapters set it to '' to avoid coupling)

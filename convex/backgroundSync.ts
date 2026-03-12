@@ -11,6 +11,7 @@ import { v } from 'convex/values';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import {
+  type MutationCtx,
   internalAction,
   internalMutation,
   internalQuery,
@@ -407,16 +408,12 @@ export const scheduleBackfillThenSyncForBuyer = mutation({
         }
       );
     } else if (args.provider === 'lemonsqueezy') {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.backgroundSync.triggerBackfillThenSyncForLSBuyer,
-        {
-          tenantId: args.tenantId,
-          subjectId: args.subjectId,
-          providerUserId: args.providerUserId,
-          emailHash: args.emailHash,
-        }
-      );
+      await ctx.scheduler.runAfter(0, internal.backgroundSync.triggerBackfillThenSyncForLSBuyer, {
+        tenantId: args.tenantId,
+        subjectId: args.subjectId,
+        providerUserId: args.providerUserId,
+        emailHash: args.emailHash,
+      });
     }
     // Other providers: no-op (Gumroad has its own scheduleBackfillThenSyncForGumroadBuyer)
   },
@@ -705,7 +702,7 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
 });
 
 async function findSubjectByEmailHash(
-  ctx: any,
+  ctx: MutationCtx,
   tenantId: Id<'tenants'>,
   emailHash: string | undefined
 ): Promise<Id<'subjects'> | undefined> {
@@ -713,17 +710,17 @@ async function findSubjectByEmailHash(
 
   const externalAccounts = await ctx.db
     .query('external_accounts')
-    .withIndex('by_email_hash', (q: any) => q.eq('emailHash', emailHash))
-    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .withIndex('by_email_hash', (q) => q.eq('emailHash', emailHash))
+    .filter((q) => q.eq(q.field('status'), 'active'))
     .collect();
 
   for (const externalAccount of externalAccounts) {
     const binding = await ctx.db
       .query('bindings')
-      .withIndex('by_tenant_external', (q: any) =>
+      .withIndex('by_tenant_external', (q) =>
         q.eq('tenantId', tenantId).eq('externalAccountId', externalAccount._id)
       )
-      .filter((q: any) => q.eq(q.field('status'), 'active'))
+      .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
 
     if (binding) {
@@ -735,17 +732,17 @@ async function findSubjectByEmailHash(
 }
 
 async function findSubjectByProviderUserId(
-  ctx: any,
+  ctx: MutationCtx,
   tenantId: Id<'tenants'>,
   provider: string,
   providerUserId: string
 ): Promise<Id<'subjects'> | undefined> {
   const externalAccount = await ctx.db
     .query('external_accounts')
-    .withIndex('by_provider_user', (q: any) =>
+    .withIndex('by_provider_user', (q) =>
       q.eq('provider', provider).eq('providerUserId', providerUserId)
     )
-    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .filter((q) => q.eq(q.field('status'), 'active'))
     .first();
 
   if (!externalAccount) {
@@ -754,10 +751,10 @@ async function findSubjectByProviderUserId(
 
   const binding = await ctx.db
     .query('bindings')
-    .withIndex('by_tenant_external', (q: any) =>
+    .withIndex('by_tenant_external', (q) =>
       q.eq('tenantId', tenantId).eq('externalAccountId', externalAccount._id)
     )
-    .filter((q: any) => q.eq(q.field('status'), 'active'))
+    .filter((q) => q.eq(q.field('status'), 'active'))
     .first();
 
   return binding?.subjectId;
@@ -879,7 +876,7 @@ export const processRetroactiveRuleSyncJob = mutation({
         .map((a) => ({
           externalAccountId: a._id,
           providerUserId: a.providerUserId,
-          discordAccessTokenEncrypted: a.discordAccessTokenEncrypted!,
+          discordAccessTokenEncrypted: a.discordAccessTokenEncrypted as string,
           discordTokenExpiresAt: a.discordTokenExpiresAt,
           discordRefreshTokenEncrypted: a.discordRefreshTokenEncrypted,
         }));
