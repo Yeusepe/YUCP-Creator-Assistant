@@ -1,0 +1,10 @@
+{
+  "include": ["schema/*.bop"],
+  "exclude": ["node_modules", "**/node_modules/*"],
+  "generators": {
+    "ts": {
+      "outFile": "src/generated.ts",
+      "services": "both"
+    }
+  }
+}

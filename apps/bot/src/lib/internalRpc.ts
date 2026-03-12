@@ -1,0 +1,295 @@
+import { ConsoleLogger, TempoLogLevel } from '@tempojs/common';
+import { BearerCredential, NoStorageStrategy, TempoChannel } from '@tempojs/client';
+import {
+  CatalogClient,
+  CollaboratorClient,
+  SetupClient,
+  VerificationClient,
+  type AddCollaboratorConnectionManualResponse,
+  type CreateCollaboratorInviteResponse,
+  type DiscordRoleSetupResultResponse,
+  type ResolveVrchatAvatarNameResponse,
+  type SuccessResponse,
+  type VerificationResultResponse,
+} from '@yucp/private-rpc';
+import { getApiUrls } from './apiUrls';
+
+const INTERNAL_RPC_PATH = '/__internal/tempo';
+
+type PrivateRpcClients = {
+  catalog: CatalogClient;
+  collaborator: CollaboratorClient;
+  setup: SetupClient;
+  verification: VerificationClient;
+};
+
+let clientsPromise: Promise<PrivateRpcClients> | null = null;
+
+function getRpcBaseUrl(): string {
+  const { apiInternal, apiPublic } = getApiUrls();
+  const apiBaseUrl = apiInternal ?? apiPublic;
+  if (!apiBaseUrl) {
+    throw new Error('API_BASE_URL is not configured for the bot service');
+  }
+  return apiBaseUrl.replace(/\/$/, '');
+}
+
+async function createClients(): Promise<PrivateRpcClients> {
+  const sharedSecret = process.env.INTERNAL_RPC_SHARED_SECRET;
+  if (!sharedSecret) {
+    throw new Error('INTERNAL_RPC_SHARED_SECRET is not configured for the bot service');
+  }
+
+  const credential = BearerCredential.create(new NoStorageStrategy(), 'internal-rpc');
+  await credential.storeCredential({ token: sharedSecret });
+
+  const channel = TempoChannel.forAddress(`${getRpcBaseUrl()}${INTERNAL_RPC_PATH}`, {
+    credential,
+    logger: new ConsoleLogger('internal-rpc', TempoLogLevel.Warn),
+    unsafeUseInsecureChannelCallCredential: true,
+  });
+
+  return {
+    catalog: channel.getClient(CatalogClient),
+    collaborator: channel.getClient(CollaboratorClient),
+    setup: channel.getClient(SetupClient),
+    verification: channel.getClient(VerificationClient),
+  };
+}
+
+async function getClients(): Promise<PrivateRpcClients> {
+  clientsPromise ??= createClients();
+  return clientsPromise;
+}
+
+export async function createSetupSessionToken(params: {
+  discordUserId: string;
+  guildId: string;
+  tenantId: string;
+}): Promise<string | undefined> {
+  const response = await (await getClients()).setup.createSetupSession(params);
+  return response.token;
+}
+
+export async function createConnectToken(params: {
+  discordUserId: string;
+}): Promise<string | undefined> {
+  const response = await (await getClients()).setup.createConnectToken(params);
+  return response.token;
+}
+
+export async function createDiscordRoleSetupSessionToken(params: {
+  adminDiscordUserId: string;
+  guildId: string;
+  tenantId: string;
+}): Promise<string | undefined> {
+  const response = await (await getClients()).setup.createDiscordRoleSetupSession(params);
+  return response.token;
+}
+
+export async function getDiscordRoleSetupResult(
+  token: string
+): Promise<
+  Omit<DiscordRoleSetupResultResponse, 'requiredRoleMatchMode'> & {
+    requiredRoleMatchMode?: 'all' | 'any';
+  }
+> {
+  const response = await (await getClients()).setup.getDiscordRoleSetupResult({ token });
+  return {
+    completed: response.completed ?? false,
+    sourceGuildId: response.sourceGuildId,
+    sourceRoleId: response.sourceRoleId,
+    sourceRoleIds: response.sourceRoleIds ?? [],
+    requiredRoleMatchMode:
+      response.requiredRoleMatchMode === 'all' ? 'all' : response.requiredRoleMatchMode === 'any' ? 'any' : undefined,
+  };
+}
+
+function normalizeProducts(
+  products: Array<{ collaboratorName?: string; id?: string; name?: string }> | undefined
+): Array<{ collaboratorName?: string; id: string; name: string }> {
+  return (products ?? []).map((product) => ({
+    id: product.id ?? '',
+    name: product.name ?? product.id ?? 'Unknown product',
+    collaboratorName: product.collaboratorName,
+  }));
+}
+
+export async function listGumroadProducts(tenantId: string): Promise<{
+  error?: string;
+  products: Array<{ collaboratorName?: string; id: string; name: string }>;
+}> {
+  const response = await (await getClients()).catalog.listGumroadProducts({ tenantId });
+  return {
+    products: normalizeProducts(response.products),
+    error: response.error,
+  };
+}
+
+export async function listJinxxyProducts(tenantId: string): Promise<{
+  error?: string;
+  products: Array<{ collaboratorName?: string; id: string; name: string }>;
+}> {
+  const response = await (await getClients()).catalog.listJinxxyProducts({ tenantId });
+  return {
+    products: normalizeProducts(response.products),
+    error: response.error,
+  };
+}
+
+export async function listLemonSqueezyProducts(tenantId: string): Promise<{
+  error?: string;
+  products: Array<{ collaboratorName?: string; id: string; name: string }>;
+}> {
+  const response = await (await getClients()).catalog.listLemonSqueezyProducts({ tenantId });
+  return {
+    products: normalizeProducts(response.products),
+    error: response.error,
+  };
+}
+
+export async function resolveVrchatAvatarName(params: {
+  avatarId: string;
+  tenantId: string;
+}): Promise<ResolveVrchatAvatarNameResponse> {
+  const response = await (await getClients()).catalog.resolveVrchatAvatarName(params);
+  return {
+    name: response.name,
+  };
+}
+
+export async function bindVerifyPanel(params: {
+  applicationId: string;
+  discordUserId: string;
+  guildId: string;
+  interactionToken: string;
+  messageId: string;
+  panelToken: string;
+  tenantId: string;
+}): Promise<SuccessResponse> {
+  const response = await (await getClients()).verification.bindVerifyPanel(params);
+  return {
+    success: response.success ?? false,
+    error: response.error,
+    supportCode: response.supportCode,
+  };
+}
+
+export async function completeLicenseVerification(params: {
+  discordUserId?: string;
+  licenseKey: string;
+  productId?: string;
+  subjectId: string;
+  tenantId: string;
+}): Promise<VerificationResultResponse> {
+  const response = await (await getClients()).verification.completeLicenseVerification(params);
+  return {
+    success: response.success ?? false,
+    error: response.error,
+    provider: response.provider,
+    supportCode: response.supportCode,
+    entitlementIds: response.entitlementIds ?? [],
+  };
+}
+
+export async function completeVrchatVerification(params: {
+  password: string;
+  subjectId: string;
+  tenantId: string;
+  twoFactorCode?: string;
+  username: string;
+}): Promise<VerificationResultResponse> {
+  const response = await (await getClients()).verification.completeVrchatVerification(params);
+  return {
+    success: response.success ?? false,
+    error: response.error,
+    provider: response.provider,
+    supportCode: response.supportCode,
+    entitlementIds: response.entitlementIds ?? [],
+  };
+}
+
+export async function disconnectVerification(params: {
+  provider: string;
+  subjectId: string;
+  tenantId: string;
+}): Promise<SuccessResponse> {
+  const response = await (await getClients()).verification.disconnectVerification(params);
+  return {
+    success: response.success ?? false,
+    error: response.error,
+    supportCode: response.supportCode,
+  };
+}
+
+export async function createCollaboratorInvite(params: {
+  actorDiscordUserId: string;
+  guildId: string;
+  guildName: string;
+  tenantId: string;
+}): Promise<CreateCollaboratorInviteResponse> {
+  const response = await (await getClients()).collaborator.createInvite(params);
+  return {
+    inviteUrl: response.inviteUrl,
+    expiresAt: response.expiresAt,
+  };
+}
+
+export async function listCollaboratorConnections(params: {
+  actorDiscordUserId: string;
+  guildId: string;
+  tenantId: string;
+}): Promise<
+  Array<{
+    collaboratorDiscordUserId: string;
+    collaboratorDisplayName: string;
+    createdAt: number;
+    id: string;
+    linkType: 'account' | 'api';
+    source?: 'invite' | 'manual';
+    status: string;
+    webhookConfigured: boolean;
+  }>
+> {
+  const response = await (await getClients()).collaborator.listConnections(params);
+  return (response.connections ?? []).map((connection) => ({
+    id: connection.id ?? '',
+    linkType: connection.linkType === 'account' ? 'account' : 'api',
+    status: connection.status ?? 'unknown',
+    source: connection.source === 'manual' ? 'manual' : 'invite',
+    webhookConfigured: connection.webhookConfigured ?? false,
+    collaboratorDiscordUserId: connection.collaboratorDiscordUserId ?? 'unknown',
+    collaboratorDisplayName: connection.collaboratorDisplayName ?? 'Unknown collaborator',
+    createdAt: connection.createdAt === undefined ? Date.now() : Number(connection.createdAt),
+  }));
+}
+
+export async function addCollaboratorConnectionManual(params: {
+  actorDiscordUserId: string;
+  guildId: string;
+  jinxxyApiKey: string;
+  serverName?: string;
+  tenantId: string;
+}): Promise<AddCollaboratorConnectionManualResponse> {
+  const response = await (await getClients()).collaborator.addConnectionManual(params);
+  return {
+    success: response.success ?? false,
+    connectionId: response.connectionId,
+    displayName: response.displayName,
+    error: response.error,
+  };
+}
+
+export async function removeCollaboratorConnection(params: {
+  actorDiscordUserId: string;
+  connectionId: string;
+  guildId: string;
+  tenantId: string;
+}): Promise<SuccessResponse> {
+  const response = await (await getClients()).collaborator.removeConnection(params);
+  return {
+    success: response.success ?? false,
+    error: response.error,
+    supportCode: response.supportCode,
+  };
+}

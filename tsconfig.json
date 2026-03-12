@@ -45,7 +45,9 @@
       "@yucp/providers": ["./packages/providers/src"],
       "@yucp/providers/*": ["./packages/providers/src/*"],
       "@yucp/policy": ["./packages/policy/src"],
-      "@yucp/policy/*": ["./packages/policy/src/*"]
+      "@yucp/policy/*": ["./packages/policy/src/*"],
+      "@yucp/private-rpc": ["./packages/private-rpc/src"],
+      "@yucp/private-rpc/*": ["./packages/private-rpc/src/*"]
     }
   },
   "exclude": ["node_modules", "dist", ".convex"]

@@ -7,6 +7,7 @@
 export {
   createVerificationSessionManager,
   createVerificationRoutes,
+  mountVerificationRouteHandlers,
   mountVerificationRoutes,
   type VerificationConfig,
   type VerificationRouteHandlers,

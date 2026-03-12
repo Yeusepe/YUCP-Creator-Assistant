@@ -46,6 +46,13 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 
 import { PROVIDER_META, providerLabel } from '@yucp/providers';
 import { E, Emoji } from '../lib/emojis';
+import {
+  completeLicenseVerification,
+  completeVrchatVerification,
+  listGumroadProducts,
+  listJinxxyProducts,
+  listLemonSqueezyProducts,
+} from '../lib/internalRpc';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { buildBotVerificationErrorMessage } from '../lib/verificationSupport';
 import { buildVerifyStatusReply, rememberActiveVerifyPanel } from './verify';
@@ -217,16 +224,14 @@ function buildPickerErrorReply(message: string): {
 
 /**
  * Enrich display names for products where displayName is missing.
- * Calls /api/{provider}/products for each provider that has products needing enrichment.
+ * Uses the private internal RPC catalog service for providers that support
+ * server-side product lookup.
  */
 async function enrichDisplayNames(
   products: Product[],
   tenantId: string,
-  apiSecret: string
+  _apiSecret: string
 ): Promise<Product[]> {
-  const apiBase = process.env.API_BASE_URL;
-  if (!apiBase) return products;
-
   // Find unique providers that have products needing display name enrichment
   const providersMissingNames = [
     ...new Set(products.filter((p) => !p.displayName).map((p) => p.provider)),
@@ -237,15 +242,20 @@ async function enrichDisplayNames(
   await Promise.all(
     providersMissingNames.map(async (provider) => {
       try {
-        const res = await fetch(`${apiBase}/api/${provider}/products`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ apiSecret, tenantId }),
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as { products?: { id: string; name: string }[] };
+        let providerProducts: Array<{ id: string; name: string }> = [];
+
+        if (provider === 'gumroad') {
+          providerProducts = (await listGumroadProducts(tenantId)).products ?? [];
+        } else if (provider === 'jinxxy') {
+          providerProducts = (await listJinxxyProducts(tenantId)).products ?? [];
+        } else if (provider === 'lemonsqueezy') {
+          providerProducts = (await listLemonSqueezyProducts(tenantId)).products ?? [];
+        } else {
+          return;
+        }
+
         const nameById = Object.fromEntries(
-          (data.products ?? []).map((p) => [String(p.id), p.name])
+          providerProducts.map((product) => [String(product.id), product.name])
         );
         namesByProvider.set(provider, nameById);
       } catch (err) {
@@ -469,34 +479,20 @@ export async function handleVrchatCredentialsModal(
     return;
   }
 
-  const { getApiUrls } = await import('../lib/apiUrls');
-  const { apiInternal, apiPublic } = getApiUrls();
-  const apiForFetch = apiInternal ?? apiPublic ?? apiBaseUrl;
-  if (!apiForFetch || !apiForFetch.startsWith('https://')) {
+  const { apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
+  if (!(apiPublic ?? apiBaseUrl)?.startsWith('https://')) {
     await interaction.editReply({ content: `${E.X_} API not available. Use HTTPS.` });
     return;
   }
 
   try {
-    const res = await fetch(`${apiForFetch}/api/verification/complete-vrchat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        apiSecret,
-        tenantId,
-        subjectId,
-        username,
-        password,
-        twoFactorCode,
-      }),
+    const data = await completeVrchatVerification({
+      tenantId,
+      subjectId,
+      username,
+      password,
+      twoFactorCode,
     });
-
-    const data = (await res.json()) as {
-      success: boolean;
-      error?: string;
-      entitlementIds?: string[];
-      supportCode?: string;
-    };
 
     if (!data.success) {
       const msg = sanitizeUserFacingErrorMessage(data.error, 'Verification failed.');
@@ -617,10 +613,8 @@ export async function handleLicenseKeyModal(
   }
 
   // Call the API to verify the license key (use internal URL when on Zeabur)
-  const { getApiUrls } = await import('../lib/apiUrls');
-  const { apiInternal, apiPublic } = getApiUrls();
-  const apiForFetch = apiInternal ?? apiPublic ?? apiBaseUrl;
-  if (!apiForFetch) {
+  const { apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
+  if (!(apiPublic ?? apiBaseUrl)) {
     if (interaction.guildId && apiBaseUrl) {
       const message = await interaction.editReply(
         await buildVerifyStatusReply(
@@ -641,27 +635,13 @@ export async function handleLicenseKeyModal(
   }
 
   try {
-    const res = await fetch(`${apiForFetch}/api/verification/complete-license`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        apiSecret,
-        licenseKey,
-        provider,
-        productId: providerProductRef,
-        tenantId,
-        subjectId,
-        discordUserId,
-      }),
+    const data = await completeLicenseVerification({
+      licenseKey,
+      productId: providerProductRef,
+      tenantId,
+      subjectId,
+      discordUserId,
     });
-
-    const data = (await res.json()) as {
-      entitlementIds?: string[];
-      error?: string;
-      provider?: string;
-      supportCode?: string;
-      success: boolean;
-    };
 
     if (!data.success) {
       const msg = sanitizeUserFacingErrorMessage(data.error, 'Verification failed.');
