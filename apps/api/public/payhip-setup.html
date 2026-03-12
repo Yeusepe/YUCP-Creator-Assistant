@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
+    <title>Connect Payhip | Creator Assistant</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="./tokens.css">
+    <link rel="stylesheet" href="/assets/site/site.css">
+    <script type="module" src="/assets/site/site.js"></script>
+    <style>
+        :root {
+            --ph-blue: #3b82f6;
+            --ph-blue-dim: rgba(59,130,246,0.15);
+            --ph-blue-border: rgba(59,130,246,0.35);
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.8);
+        }
+
+        html, body {
+            overflow: hidden;
+            width: 100%; height: 100%;
+            margin: 0; padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            font-family: 'DM Sans', sans-serif;
+            color: var(--text-primary);
+        }
+
+        input, textarea, select { font-size: 16px; }
+        h1, h2, h3, .font-heading { font-family: 'Plus Jakarta Sans', sans-serif; }
+
+        /* Hide mockups on small screens */
+        @media (max-width: 1023px) {
+            .step-content > div:first-child { display: none !important; }
+            .step-content > div:last-child { grid-column: 1 / -1; }
+        }
+        @media (max-width: 479px) {
+            #page-content > main > .max-w-6xl {
+                padding: 1.25rem !important;
+                border-radius: 24px !important;
+            }
+        }
+
+        /* ── Step transitions ── */
+        .step-content {
+            display: none;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .step-content.active { display: grid; opacity: 1; transform: translateY(0); }
+        .step-content.step-exiting {
+            position: absolute; top: 0; left: 0; right: 0;
+            pointer-events: none;
+        }
+        .steps-slot { overflow: hidden; transition: height 0.35s ease-out; }
+        #steps-container.steps-transitioning { overflow: hidden !important; }
+
+        /* ── Page reveal (driven by site.js / Dot()) ── */
+        #page-loading-overlay { transition: opacity 0.35s ease; }
+        #page-loading-overlay.is-hiding { opacity: 0; pointer-events: none; }
+        #page-content { opacity: 0; transition: opacity 0.3s ease; }
+        #page-content.is-visible { opacity: 1; }
+        .page-loading-spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.08);
+            border-top-color: var(--ph-blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Copy button ── */
+        .copy-btn:active { transform: scale(0.94); }
+        .checkmark { display: none; }
+        .copied .copy-icon { display: none; }
+        .copied .checkmark { display: block; }
+
+        /* ── Step dots ── */
+        .step-dot {
+            height: 6px;
+            border-radius: 999px;
+            transition: width 0.45s cubic-bezier(.4,0,.2,1), background-color 0.35s ease;
+        }
+
+        /* ── Inputs ── */
+        .api-key-input {
+            width: 100%;
+            background: rgba(255,255,255,0.04);
+            border: 1.5px solid rgba(255,255,255,0.12);
+            border-radius: 14px;
+            padding: 14px 16px;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            letter-spacing: 0.02em;
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .api-key-input:focus {
+            border-color: var(--ph-blue);
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+        }
+        .api-key-input::placeholder {
+            color: rgba(255,255,255,0.25);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 14px;
+        }
+
+        /* ── Code display ── */
+        .code-block {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px;
+            padding: 12px 14px;
+            color: var(--ph-blue);
+            word-break: break-all;
+        }
+
+        /* ── Product rows ── */
+        .product-row { display: flex; gap: 10px; align-items: flex-end; }
+        .product-row .flex-1 { flex: 1; min-width: 0; }
+        .remove-product-btn {
+            flex-shrink: 0;
+            width: 38px; height: 38px;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px;
+            background: transparent;
+            color: rgba(255,255,255,0.4);
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.15s;
+        }
+        .remove-product-btn:hover {
+            border-color: #ef4444;
+            color: #ef4444;
+            background: rgba(239,68,68,0.08);
+        }
+
+        /* ── Payhip mockup sidebar ── */
+        .ph-sidebar-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 8px; border-radius: 6px;
+            font-size: 11px; color: #9ca3af;
+            cursor: default; margin-bottom: 2px;
+        }
+        .ph-sidebar-item.active {
+            background: rgba(59,130,246,0.12);
+            color: #3b82f6;
+            border: 1px solid rgba(59,130,246,0.25);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Loading overlay (hidden by site.js Dot() on window.load) -->
+    <div id="page-loading-overlay"
+        class="fixed inset-0 z-[100] flex flex-col items-center justify-center pointer-events-none"
+        style="background-color: var(--bg-color);">
+        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
+        <div class="page-loading-spinner"></div>
+        <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
+    </div>
+
+    <div id="page-content" class="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
+        style="display: none;">
+
+        <!-- Back button -->
+        <a id="back-to-dashboard-btn" href="#"
+            class="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
+            style="display:none; text-decoration: none;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Back to Dashboard
+        </a>
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const urlParams = new URLSearchParams(window.location.search);
+                const tId = urlParams.get('tenant_id') || urlParams.get('tenantId') || (typeof TENANT_ID !== 'undefined' ? TENANT_ID : '');
+                const gId = urlParams.get('guild_id') || urlParams.get('guildId') || (typeof GUILD_ID !== 'undefined' ? GUILD_ID : '');
+                if (tId && tId !== '__TENANT_ID__') {
+                    const btn = document.getElementById('back-to-dashboard-btn');
+                    btn.style.display = 'inline-flex';
+                    const apiBaseUrl = (typeof API_BASE !== 'undefined' && API_BASE !== '__API_BASE__') ? API_BASE : '';
+                    const dashboardUrl = new URL(apiBaseUrl + '/dashboard', window.location.origin);
+                    dashboardUrl.searchParams.set('tenant_id', tId);
+                    if (gId && gId !== '__GUILD_ID__') dashboardUrl.searchParams.set('guild_id', gId);
+                    btn.href = dashboardUrl.toString();
+                }
+            });
+        </script>
+
+        <div id="bg-canvas-root"
+            style="position: absolute; inset: 0; width: 100%; height: 100%; z-index: -20; pointer-events: none;">
+        </div>
+
+        <!-- Constants + utilities -->
+        <script>
+            const TENANT_ID = '__TENANT_ID__';
+            const GUILD_ID = '__GUILD_ID__';
+            const API_BASE = '__API_BASE__';
+            const HAS_SETUP_SESSION = '__HAS_SETUP_SESSION__' === 'true';
+
+            function redirectToExpiredLinkError() {
+                const errorUrl = new URL(`${API_BASE}/verify-error`, window.location.origin);
+                errorUrl.searchParams.set('error', 'link_expired');
+                window.location.replace(errorUrl.toString());
+            }
+        </script>
+
+        <!-- Background decorations -->
+        <div class="absolute top-10 left-10 w-64 h-64 border border-white/5 rounded-full pointer-events-none animate-[spin_60s_linear_infinite]"></div>
+        <div class="absolute bottom-10 right-10 w-96 h-96 border border-[#3b82f6]/5 rounded-full pointer-events-none animate-[spin_80s_linear_infinite_reverse]"></div>
+
+        <main class="flex flex-1 items-center justify-center p-4 lg:p-8 relative w-full max-w-7xl mx-auto min-h-0 overflow-hidden">
+
+            <div class="w-full max-w-6xl max-h-[calc(100%-2rem)] bg-black/25 backdrop-blur-xl rounded-[40px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] p-5 sm:p-8 md:p-12 relative overflow-hidden flex flex-col z-10">
+
+                <!-- Header -->
+                <div class="flex flex-wrap justify-between items-end gap-4 mb-6 md:mb-8 pb-4 flex-shrink-0">
+                    <div>
+                        <div class="inline-flex items-center gap-2 px-3 py-1 bg-[#3b82f6]/10 text-white rounded-full text-[10px] font-black uppercase tracking-widest mb-3">
+                            <span class="w-1.5 h-1.5 rounded-full bg-[#3b82f6] animate-pulse"></span>
+                            Integration Setup
+                        </div>
+                        <h1 class="text-2xl sm:text-3xl md:text-4xl font-bold text-white">Connect <span class="text-[#3b82f6]">Payhip</span></h1>
+                    </div>
+                    <div class="flex flex-col items-end gap-2">
+                        <span class="text-sm font-bold text-white/80">Step <span id="current-step-num">1</span> of 4</span>
+                        <div class="flex gap-1.5">
+                            <div class="h-1.5 w-8 rounded-full bg-[#3b82f6] transition-all duration-500 step-dot" data-index="1"></div>
+                            <div class="h-1.5 w-2 rounded-full bg-white/10 transition-all duration-500 step-dot" data-index="2"></div>
+                            <div class="h-1.5 w-2 rounded-full bg-white/10 transition-all duration-500 step-dot" data-index="3"></div>
+                            <div class="h-1.5 w-2 rounded-full bg-white/10 transition-all duration-500 step-dot" data-index="4"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Steps container -->
+                <div class="relative min-h-0 flex-1 overflow-y-auto" id="steps-container">
+                    <div id="steps-slot" class="steps-slot pr-2">
+
+                        <!-- Step 1: Find & Enter API Key -->
+                        <div class="step-content active grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-center" data-step="1">
+                            <!-- Mockup: Payhip Developer Settings -->
+                            <div class="relative bg-[#0f0f0f] rounded-2xl overflow-hidden shadow-2xl border border-gray-800 aspect-[16/10] flex items-center justify-center p-8 font-sans">
+                                <div class="w-full max-w-sm bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl flex flex-col">
+                                    <div class="border-b border-[#333] p-3 flex items-center gap-2">
+                                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                                        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                                        <span class="ml-3 text-gray-400 text-[10px] font-mono">payhip.com/account/developer</span>
+                                    </div>
+                                    <div class="p-5 space-y-4">
+                                        <div class="text-[9px] text-gray-500 uppercase font-bold tracking-wider">Developer Settings</div>
+                                        <div class="space-y-2">
+                                            <div class="text-[9px] text-gray-500 uppercase font-bold">API Key</div>
+                                            <div class="relative">
+                                                <div class="h-8 bg-[#0f0f0f] border border-[#3b82f6] rounded px-3 flex items-center text-[11px] text-[#3b82f6] font-mono gap-2">
+                                                    <div class="w-2 h-2 rounded-full bg-[#3b82f6] flex-shrink-0 animate-pulse"></div>
+                                                    ••••••••••••••••••••
+                                                </div>
+                                                <div class="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full flex items-center">
+                                                    <div class="w-10 h-[1px] bg-[#3b82f6]"></div>
+                                                    <span class="text-[#3b82f6] text-[9px] font-bold uppercase tracking-wider ml-1 whitespace-nowrap">Copy This</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-1.5 pt-1 opacity-40">
+                                            <div class="h-1.5 w-3/4 bg-gray-700 rounded"></div>
+                                            <div class="h-1.5 w-1/2 bg-gray-700 rounded"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="space-y-6">
+                                <h2 class="text-3xl font-bold text-white leading-tight">Find Your<br><span class="text-[#3b82f6]">API Key</span></h2>
+                                <div class="w-12 h-1 bg-[#3b82f6]"></div>
+                                <div class="bg-white/5 rounded-2xl p-5 space-y-4 border border-white/[0.06]">
+                                    <div class="flex items-start gap-4">
+                                        <div class="w-6 h-6 rounded-full bg-[#3b82f6]/20 flex items-center justify-center flex-shrink-0 mt-0.5 text-[#3b82f6] font-bold text-xs">1</div>
+                                        <p class="text-white/70 text-sm leading-relaxed">
+                                            Log into <strong class="text-white">payhip.com</strong>, click your account name, then go to <strong class="text-white">Settings → Developer</strong>.
+                                        </p>
+                                    </div>
+                                    <div class="flex items-start gap-4">
+                                        <div class="w-6 h-6 rounded-full bg-[#3b82f6]/10 flex items-center justify-center flex-shrink-0 mt-0.5 text-[#3b82f6] font-bold text-xs">2</div>
+                                        <p class="text-white/70 text-sm leading-relaxed">
+                                            Copy the <strong class="text-white">API Key</strong> shown on that page and paste it below.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div class="space-y-2">
+                                    <label class="block text-xs font-bold uppercase tracking-wider text-white/50">Payhip API Key</label>
+                                    <input type="password" id="payhip-api-key" autocomplete="off"
+                                        placeholder="Paste your Payhip API key"
+                                        class="api-key-input">
+                                </div>
+                                <div id="step1-error" class="hidden text-red-400 text-sm font-semibold"></div>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Configure Webhook -->
+                        <div class="step-content grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-center" data-step="2">
+                            <!-- Mockup: Payhip Developer Settings with webhook fields -->
+                            <div class="relative bg-[#0f0f0f] rounded-2xl overflow-hidden shadow-2xl border border-gray-800 aspect-[16/10] flex items-center justify-center p-6 font-sans">
+                                <div class="w-full max-w-sm bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl flex flex-col">
+                                    <div class="border-b border-[#333] p-3 flex items-center gap-2">
+                                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                                        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                                        <span class="ml-3 text-gray-400 text-[10px]">Settings → Developer</span>
+                                    </div>
+                                    <div class="p-4 space-y-4">
+                                        <div class="text-[9px] text-gray-500 uppercase font-bold tracking-wider">Webhook Endpoint</div>
+                                        <div class="h-8 bg-[#0f0f0f] border border-[#3b82f6] rounded px-3 flex items-center text-[10px] text-[#3b82f6] font-mono overflow-hidden">
+                                            <span class="truncate" id="webhook-url-mockup">https://…/webhooks/payhip/…</span>
+                                        </div>
+                                        <div class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mt-2">Webhook Events</div>
+                                        <div class="space-y-2">
+                                            <div class="flex items-center gap-2 p-2 bg-[#3b82f6]/10 border border-[#3b82f6]/30 rounded text-xs text-white">
+                                                <div class="w-4 h-4 bg-[#3b82f6] rounded flex items-center justify-center flex-shrink-0">
+                                                    <i data-lucide="check" class="w-2.5 h-2.5 text-white"></i>
+                                                </div>
+                                                paid
+                                            </div>
+                                            <div class="flex items-center gap-2 p-2 bg-[#3b82f6]/10 border border-[#3b82f6]/30 rounded text-xs text-white">
+                                                <div class="w-4 h-4 bg-[#3b82f6] rounded flex items-center justify-center flex-shrink-0">
+                                                    <i data-lucide="check" class="w-2.5 h-2.5 text-white"></i>
+                                                </div>
+                                                refunded
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="space-y-6">
+                                <h2 class="text-3xl font-bold text-white leading-tight">Configure<br><span class="text-[#3b82f6]">Webhook</span></h2>
+                                <div class="w-12 h-1 bg-[#3b82f6]"></div>
+
+                                <div id="webhook-url-loading" class="flex items-center gap-3 text-white/50 text-sm">
+                                    <div class="w-4 h-4 border-2 border-white/20 border-t-[#3b82f6] rounded-full animate-spin flex-shrink-0"></div>
+                                    Generating webhook URL…
+                                </div>
+                                <div id="webhook-url-values" class="hidden space-y-4">
+                                    <div class="space-y-2">
+                                        <div class="text-xs text-white/50 uppercase font-bold tracking-wider">Your Webhook URL</div>
+                                        <div class="flex items-center gap-2">
+                                            <div class="code-block flex-1" id="webhook-url-display"></div>
+                                            <button id="copy-webhook-btn" class="copy-btn flex-shrink-0 w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors" title="Copy">
+                                                <i data-lucide="copy" class="w-4 h-4 copy-icon"></i>
+                                                <i data-lucide="check" class="w-4 h-4 checkmark text-[#3b82f6]"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white/5 rounded-2xl p-5 space-y-4 border border-white/[0.06]">
+                                        <div class="flex items-start gap-4">
+                                            <div class="w-6 h-6 rounded-full bg-[#3b82f6]/20 flex items-center justify-center flex-shrink-0 mt-0.5 text-[#3b82f6] font-bold text-xs">1</div>
+                                            <p class="text-white/70 text-sm leading-relaxed">In Payhip, go to <strong class="text-white">Settings → Developer</strong> and paste the URL above into the <strong class="text-white">Webhook Endpoint</strong> field.</p>
+                                        </div>
+                                        <div class="flex items-start gap-4">
+                                            <div class="w-6 h-6 rounded-full bg-[#3b82f6]/10 flex items-center justify-center flex-shrink-0 mt-0.5 text-[#3b82f6] font-bold text-xs">2</div>
+                                            <p class="text-white/70 text-sm leading-relaxed">Under <strong class="text-white">Webhook Events</strong>, check <strong class="text-white">paid</strong> and <strong class="text-white">refunded</strong>. Then save.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Test Webhook -->
+                        <div class="step-content grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-center" data-step="3">
+                            <div class="relative bg-[#0f0f0f] rounded-2xl overflow-hidden shadow-2xl border border-gray-800 aspect-[16/10] flex items-center justify-center p-8">
+                                <div class="flex flex-col items-center gap-6">
+                                    <div class="relative">
+                                        <i data-lucide="bell-ring" class="w-12 h-12 text-[#3b82f6] relative z-10"></i>
+                                        <div class="absolute inset-0 bg-[#3b82f6] rounded-full blur-xl opacity-40 animate-pulse"></div>
+                                    </div>
+                                    <span class="text-gray-400 text-sm font-medium tracking-wide" id="test-webhook-mock-text">Listening for test event...</span>
+                                </div>
+                            </div>
+
+                            <div class="space-y-6">
+                                <h2 class="text-3xl font-bold text-white leading-tight">Test the<br><span class="text-[#3b82f6]">Webhook</span></h2>
+                                <div class="w-12 h-1 bg-[#3b82f6]"></div>
+                                <p class="text-white/70 text-base leading-relaxed">
+                                    Make a test purchase in your Payhip store, or trigger an event from Payhip's Developer Settings. We'll confirm the moment we receive it.
+                                </p>
+                                <p class="text-xs text-white/40">
+                                    You can skip this step — role assignment will still work automatically once the webhook is configured.
+                                </p>
+                                <div id="test-webhook-status" class="flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/[0.06]">
+                                    <div class="animate-spin h-5 w-5 border-2 border-[#3b82f6] border-t-transparent rounded-full flex-shrink-0"></div>
+                                    <span class="text-white/60 text-sm">Waiting for webhook...</span>
+                                </div>
+                                <div id="test-webhook-success"
+                                    class="hidden p-4 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 flex items-center gap-2">
+                                    <i data-lucide="check-circle" class="w-5 h-5 flex-shrink-0"></i>
+                                    <span>Webhook received! Payhip is connected.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 4: Add Product Secret Keys -->
+                        <div class="step-content grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-start" data-step="4">
+                            <!-- Mockup: Product edit page, license key section -->
+                            <div class="relative bg-[#0f0f0f] rounded-2xl overflow-hidden shadow-2xl border border-gray-800 aspect-[16/10] flex items-center justify-center p-6 font-sans">
+                                <div class="w-full max-w-sm bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl flex flex-col">
+                                    <div class="border-b border-[#333] p-3 flex items-center gap-2">
+                                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                                        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                                        <span class="ml-2 text-gray-400 text-[9px]">Edit Product → Advanced Options</span>
+                                    </div>
+                                    <div class="p-4 space-y-3">
+                                        <div class="flex items-center gap-2 text-[11px] text-gray-300">
+                                            <div class="w-4 h-4 bg-[#3b82f6] rounded-sm flex items-center justify-center flex-shrink-0">
+                                                <i data-lucide="check" class="w-2.5 h-2.5 text-white"></i>
+                                            </div>
+                                            Generate unique license keys for each sale
+                                        </div>
+                                        <div class="bg-[#0f0f0f] border border-[#333] rounded p-3 space-y-2">
+                                            <div class="text-[9px] text-gray-500 uppercase font-bold tracking-wider">Product Secret Key</div>
+                                            <div class="relative">
+                                                <div class="h-7 bg-[#1a1a1a] border border-[#3b82f6] rounded px-2 flex items-center text-[9px] text-[#3b82f6] font-mono gap-1">
+                                                    <div class="w-2 h-2 rounded-full bg-[#3b82f6] animate-pulse flex-shrink-0"></div>
+                                                    sk_••••••••••••••••••
+                                                </div>
+                                                <div class="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full flex items-center">
+                                                    <div class="w-8 h-[1px] bg-[#3b82f6]"></div>
+                                                    <span class="text-[#3b82f6] text-[8px] font-bold uppercase tracking-wider ml-1 whitespace-nowrap">Copy This</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="text-[9px] text-gray-600 leading-relaxed">
+                                            Found under: Edit Product → Advanced Options → License Keys (must be enabled).
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="space-y-5">
+                                <h2 class="text-3xl font-bold text-white leading-tight">Add Product<br><span class="text-[#3b82f6]">Secret Keys</span></h2>
+                                <div class="w-12 h-1 bg-[#3b82f6]"></div>
+                                <p class="text-white/70 text-sm leading-relaxed">
+                                    For the <code class="text-[#3b82f6] font-mono text-xs bg-[#3b82f6]/10 px-1.5 py-0.5 rounded">/verify</code> command, each product needs its own secret key — found on the product edit page under <strong class="text-white">Advanced Options → License Keys</strong>.
+                                </p>
+                                <p class="text-xs text-white/40 leading-relaxed">
+                                    The <strong class="text-white/60">permalink</strong> is the short code from your product URL.<br>
+                                    e.g. <code class="text-[#3b82f6] font-mono">payhip.com/b/<strong>RGsF</strong></code> → permalink is <code class="text-[#3b82f6] font-mono">RGsF</code>
+                                </p>
+
+                                <div id="product-rows" class="space-y-4"></div>
+
+                                <button id="add-product-row-btn"
+                                    class="flex items-center gap-2 text-sm text-[#3b82f6] hover:text-blue-300 transition-colors font-semibold">
+                                    <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                                    Add another product
+                                </button>
+
+                                <div id="step4-error" class="hidden text-red-400 text-sm font-semibold"></div>
+
+                                <p class="text-xs text-white/25 italic">
+                                    You can skip this now and add product secret keys later from the dashboard.
+                                </p>
+                            </div>
+                        </div>
+
+                    </div><!-- /steps-slot -->
+                </div><!-- /steps-container -->
+
+                <!-- Navigation -->
+                <div class="mt-auto pt-8 flex flex-col-reverse sm:flex-row justify-between items-stretch sm:items-center gap-3 flex-shrink-0 relative z-20">
+                    <button id="prev-btn"
+                        class="px-6 py-3 rounded-xl font-bold text-white/60 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:hover:text-white/60 disabled:hover:bg-transparent transition-colors flex items-center justify-center gap-2 min-h-[44px]">
+                        <i data-lucide="arrow-left" class="w-4 h-4"></i> Back
+                    </button>
+                    <button id="next-btn"
+                        class="px-8 py-3 rounded-xl bg-[#3b82f6] text-white font-bold shadow-lg shadow-[#3b82f6]/20 hover:bg-[#2563eb] hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 group min-h-[44px]">
+                        Next Step <i data-lucide="arrow-right" class="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform"></i>
+                    </button>
+                    <button id="finish-btn"
+                        class="hidden w-full sm:w-auto px-8 py-3 bg-white/[0.07] backdrop-blur-md text-white rounded-xl font-bold shadow-lg shadow-white/5 hover:scale-[1.02] transition-transform flex items-center justify-center gap-2 group min-h-[44px]">
+                        <span class="group-hover:tracking-wider transition-all">Complete Setup</span>
+                        <i data-lucide="party-popper" class="w-5 h-5 animate-bounce"></i>
+                    </button>
+                </div>
+
+            </div>
+        </main>
+
+        <script>
+            let currentStep = 1;
+            const totalSteps = 4;
+            const prevBtn = document.getElementById('prev-btn');
+            const nextBtn = document.getElementById('next-btn');
+            const finishBtn = document.getElementById('finish-btn');
+            const stepNumDisplay = document.getElementById('current-step-num');
+
+            let webhookUrl = '';
+            let testWebhookPollInterval = null;
+            let productRowCount = 0;
+
+            // ── Auth helpers ────────────────────────────────────────────
+
+            async function apiFetch(url, options = {}) {
+                return fetch(url, { credentials: 'include', ...options });
+            }
+
+            async function bootstrapSetupSession() {
+                if (HAS_SETUP_SESSION) return false;
+                const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+                const setupToken = hash.get('s');
+                if (!setupToken) return false;
+                const res = await apiFetch(`${API_BASE}/api/connect/bootstrap`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ setupToken }),
+                });
+                if (!res.ok) { redirectToExpiredLinkError(); return true; }
+                window.history.replaceState({}, '', window.location.pathname + window.location.search);
+                window.location.reload();
+                return true;
+            }
+
+            function goBackToDashboard() {
+                let url = API_BASE + '/dashboard?tenant_id=' + encodeURIComponent(TENANT_ID);
+                if (GUILD_ID) url += '&guild_id=' + encodeURIComponent(GUILD_ID);
+                window.location.href = url;
+            }
+
+            // ── Step 1: Save API key, receive webhook URL ────────────────
+
+            async function saveApiKey() {
+                const input = document.getElementById('payhip-api-key');
+                const errEl = document.getElementById('step1-error');
+                errEl.classList.add('hidden');
+                const apiKey = input?.value?.trim();
+                if (!apiKey) {
+                    errEl.textContent = 'Please enter your Payhip API key.';
+                    errEl.classList.remove('hidden');
+                    throw new Error('validation');
+                }
+                const res = await apiFetch(`${API_BASE}/api/connect/payhip-finish`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tenantId: TENANT_ID, apiKey }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    errEl.textContent = data.error ?? 'Could not save API key. Please try again.';
+                    errEl.classList.remove('hidden');
+                    throw new Error(data.error ?? 'save failed');
+                }
+                webhookUrl = data.webhookUrl ?? '';
+            }
+
+            // ── Step 2: Show webhook URL ─────────────────────────────────
+
+            function showWebhookUrl() {
+                if (!webhookUrl) return;
+                document.getElementById('webhook-url-loading').classList.add('hidden');
+                document.getElementById('webhook-url-values').classList.remove('hidden');
+                const displayEl = document.getElementById('webhook-url-display');
+                if (displayEl) displayEl.textContent = webhookUrl;
+                const mockupEl = document.getElementById('webhook-url-mockup');
+                if (mockupEl) mockupEl.textContent = webhookUrl;
+
+                document.getElementById('copy-webhook-btn')?.addEventListener('click', function () {
+                    navigator.clipboard.writeText(webhookUrl).then(() => {
+                        this.classList.add('copied');
+                        setTimeout(() => this.classList.remove('copied'), 2000);
+                        const rect = this.getBoundingClientRect();
+                        confetti({
+                            particleCount: 12, spread: 40,
+                            origin: { x: (rect.left + rect.width / 2) / window.innerWidth, y: (rect.top + rect.height / 2) / window.innerHeight },
+                            colors: ['#3b82f6', '#ffffff'],
+                            disableForReducedMotion: true, scalar: 0.6, startVelocity: 10
+                        });
+                    });
+                }, { once: true });
+
+                document.getElementById('steps-container')?.classList.add('steps-transitioning');
+                requestAnimationFrame(() => {
+                    updateStepsHeight();
+                    setTimeout(() => document.getElementById('steps-container')?.classList.remove('steps-transitioning'), 400);
+                });
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+
+            // ── Step 3: Test webhook polling ─────────────────────────────
+
+            function startTestWebhookPolling() {
+                if (testWebhookPollInterval) return;
+                testWebhookPollInterval = setInterval(async () => {
+                    try {
+                        const testUrl = HAS_SETUP_SESSION
+                            ? `${API_BASE}/api/connect/payhip/test-webhook`
+                            : `${API_BASE}/api/connect/payhip/test-webhook?tenantId=${encodeURIComponent(TENANT_ID)}`;
+                        const res = await apiFetch(testUrl);
+                        const data = await res.json();
+                        if (data.received) {
+                            clearInterval(testWebhookPollInterval);
+                            testWebhookPollInterval = null;
+                            nextBtn.disabled = false;
+                            document.getElementById('test-webhook-status').classList.add('hidden');
+                            document.getElementById('test-webhook-success').classList.remove('hidden');
+                            document.getElementById('test-webhook-mock-text').textContent = 'Received!';
+                            document.getElementById('test-webhook-mock-text').classList.add('text-green-400');
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    } catch (_) {}
+                }, 2500);
+            }
+
+            function stopTestWebhookPolling() {
+                if (testWebhookPollInterval) {
+                    clearInterval(testWebhookPollInterval);
+                    testWebhookPollInterval = null;
+                }
+            }
+
+            // ── Step 4: Product key rows ─────────────────────────────────
+
+            function addProductRow() {
+                const id = ++productRowCount;
+                const container = document.getElementById('product-rows');
+                const row = document.createElement('div');
+                row.className = 'product-row';
+                row.dataset.rowId = id;
+                row.innerHTML = `
+                    <div class="flex-1 space-y-1.5">
+                        <label class="block text-[10px] font-bold uppercase tracking-wider text-white/40">Permalink</label>
+                        <input type="text" class="api-key-input !font-sans !text-sm product-permalink" placeholder="e.g. RGsF" style="font-family:'DM Sans',sans-serif;font-size:14px;">
+                    </div>
+                    <div class="flex-1 space-y-1.5">
+                        <label class="block text-[10px] font-bold uppercase tracking-wider text-white/40">Product Secret Key</label>
+                        <input type="password" class="api-key-input !text-sm product-secret-key" placeholder="From product edit page">
+                    </div>
+                    <div style="padding-bottom:2px;">
+                        <button data-remove-id="${id}" class="remove-product-btn" title="Remove">
+                            <i data-lucide="x" class="w-4 h-4"></i>
+                        </button>
+                    </div>`;
+                container.appendChild(row);
+                row.querySelector('[data-remove-id]').addEventListener('click', () => row.remove());
+                if (typeof lucide !== 'undefined') lucide.createIcons({ el: row });
+            }
+
+            document.getElementById('add-product-row-btn').addEventListener('click', addProductRow);
+
+            async function saveProductKeys() {
+                const rows = document.querySelectorAll('#product-rows .product-row');
+                const errEl = document.getElementById('step4-error');
+                errEl.classList.add('hidden');
+                const toSave = [];
+                for (const row of rows) {
+                    const permalink = row.querySelector('.product-permalink')?.value?.trim();
+                    const secret = row.querySelector('.product-secret-key')?.value?.trim();
+                    if (permalink && secret) toSave.push({ permalink, productSecretKey: secret });
+                }
+                for (const item of toSave) {
+                    const res = await apiFetch(`${API_BASE}/api/connect/payhip/product-key`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenantId: TENANT_ID, ...item }),
+                    });
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        errEl.textContent = `Failed to save "${item.permalink}": ${data.error ?? 'unknown error'}`;
+                        errEl.classList.remove('hidden');
+                        throw new Error('save failed');
+                    }
+                }
+            }
+
+            // ── Step height animation ─────────────────────────────────────
+
+            let stepsResizeObserver = null;
+
+            function updateStepsHeight(stepNum) {
+                const slot = document.getElementById('steps-slot');
+                const target = stepNum != null
+                    ? document.querySelector(`.step-content[data-step="${stepNum}"]`)
+                    : document.querySelector('.step-content.active');
+                if (slot && target) slot.style.height = target.offsetHeight + 'px';
+            }
+
+            function observeActiveStepHeight() {
+                if (stepsResizeObserver) stepsResizeObserver.disconnect();
+                const active = document.querySelector('.step-content.active');
+                if (!active) return;
+                updateStepsHeight();
+                stepsResizeObserver = new ResizeObserver(() => updateStepsHeight());
+                stepsResizeObserver.observe(active);
+            }
+
+            // ── Step navigation ───────────────────────────────────────────
+
+            function updateStep() {
+                const stepsContainer = document.getElementById('steps-container');
+                stepsContainer?.classList.add('steps-transitioning');
+
+                document.querySelectorAll('.step-content').forEach(el => {
+                    if (parseInt(el.dataset.step) === currentStep) {
+                        el.classList.remove('step-exiting');
+                        el.style.display = 'grid';
+                        el.style.position = '';
+                        requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('active')));
+                    } else {
+                        if (el.classList.contains('active')) {
+                            el.classList.add('step-exiting');
+                            el.classList.remove('active');
+                        }
+                        setTimeout(() => {
+                            if (!el.classList.contains('active')) {
+                                el.classList.remove('step-exiting');
+                                el.style.display = 'none';
+                                el.style.position = '';
+                            }
+                        }, 320);
+                    }
+                });
+
+                document.querySelectorAll('.step-dot').forEach(dot => {
+                    const index = parseInt(dot.dataset.index);
+                    if (index <= currentStep) {
+                        dot.classList.remove('bg-white/10', 'w-2');
+                        dot.classList.add('bg-[#3b82f6]', 'w-8');
+                    } else {
+                        dot.classList.add('bg-white/10', 'w-2');
+                        dot.classList.remove('bg-[#3b82f6]', 'w-8');
+                    }
+                    if (index < currentStep) { dot.classList.remove('w-8'); dot.classList.add('w-2'); }
+                });
+
+                stepNumDisplay.textContent = currentStep;
+                prevBtn.disabled = currentStep === 1;
+
+                if (currentStep === 2) {
+                    showWebhookUrl();
+                } else if (currentStep === 3) {
+                    nextBtn.disabled = false;
+                    startTestWebhookPolling();
+                } else {
+                    stopTestWebhookPolling();
+                    nextBtn.disabled = false;
+                }
+
+                if (currentStep === totalSteps) {
+                    if (productRowCount === 0) addProductRow();
+                    nextBtn.style.display = 'none';
+                    finishBtn.classList.remove('hidden');
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    confetti({ particleCount: 30, spread: 50, origin: { y: 0.8 } });
+                } else {
+                    nextBtn.style.display = 'flex';
+                    finishBtn.classList.add('hidden');
+                    nextBtn.innerHTML = `Next Step <i data-lucide="arrow-right" class="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform"></i>`;
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                }
+
+                updateStepsHeight(currentStep);
+                requestAnimationFrame(() => observeActiveStepHeight());
+                setTimeout(() => stepsContainer?.classList.remove('steps-transitioning'), 400);
+            }
+
+            nextBtn.addEventListener('click', async () => {
+                if (currentStep === 1) {
+                    try {
+                        nextBtn.disabled = true;
+                        nextBtn.innerHTML = 'Saving…';
+                        await saveApiKey();
+                    } catch (e) {
+                        nextBtn.disabled = false;
+                        nextBtn.innerHTML = `Next Step <i data-lucide="arrow-right" class="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform"></i>`;
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                        return;
+                    }
+                }
+                if (currentStep < totalSteps) {
+                    currentStep++;
+                    updateStep();
+                }
+            });
+
+            prevBtn.addEventListener('click', () => {
+                if (currentStep > 1) { currentStep--; updateStep(); }
+            });
+
+            finishBtn.addEventListener('click', async () => {
+                document.getElementById('step4-error').classList.add('hidden');
+                const end = Date.now() + 1500;
+                (function frame() {
+                    confetti({ particleCount: 4, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#3b82f6', '#ffffff', '#22c55e'] });
+                    confetti({ particleCount: 4, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#3b82f6', '#ffffff', '#22c55e'] });
+                    if (Date.now() < end) requestAnimationFrame(frame);
+                }());
+                finishBtn.disabled = true;
+                finishBtn.innerHTML = '<span>Saving…</span>';
+                try {
+                    await saveProductKeys();
+                    finishBtn.innerHTML = '<span>Connected!</span> <i data-lucide="check-circle" class="w-5 h-5"></i>';
+                    finishBtn.classList.add('bg-green-600');
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                    setTimeout(() => goBackToDashboard(), 1500);
+                } catch (e) {
+                    finishBtn.disabled = false;
+                    finishBtn.innerHTML = '<span class="group-hover:tracking-wider transition-all">Complete Setup</span> <i data-lucide="party-popper" class="w-5 h-5 animate-bounce"></i>';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                }
+            });
+
+            window.addEventListener('beforeunload', stopTestWebhookPolling);
+
+            // ── Init ──────────────────────────────────────────────────────
+            // site.js will show the page via Dot() on window load.
+            // Show page content first so that offsetHeight calculations work,
+            // then run updateStep() after the content is visible.
+            let contentShown = false;
+            function showPageContent() {
+                if (contentShown) return;
+                contentShown = true;
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                const overlay = document.getElementById('page-loading-overlay');
+                const content = document.getElementById('page-content');
+                if (content) content.style.display = '';
+                if (overlay) {
+                    setTimeout(() => {
+                        overlay.classList.add('is-hiding');
+                        setTimeout(() => { overlay.style.display = 'none'; }, 370);
+                    }, 600);
+                }
+                if (content) {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => content.classList.add('is-visible'));
+                    });
+                }
+                requestAnimationFrame(() => {
+                    updateStep();
+                    observeActiveStepHeight();
+                });
+            }
+
+            showPageContent();
+            bootstrapSetupSession()
+                .then((handled) => { if (!handled) showPageContent(); })
+                .catch(() => { showPageContent(); });
+        </script>
+    </div>
+
+</body>
+
+</html>
