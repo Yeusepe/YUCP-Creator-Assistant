@@ -418,7 +418,9 @@ export function createAuth(config: AuthConfig) {
     },
 
     /** Sign out by calling Convex directly through the cross-domain cookie bridge. */
-    async signOut(request: Request): Promise<{ ok: boolean; status: number; setCookieHeaders: string[] }> {
+    async signOut(
+      request: Request
+    ): Promise<{ ok: boolean; status: number; setCookieHeaders: string[] }> {
       const cookie = request.headers.get('cookie') ?? '';
       if (!cookie) {
         return { ok: true, status: 200, setCookieHeaders: [] };

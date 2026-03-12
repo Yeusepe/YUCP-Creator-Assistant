@@ -8,8 +8,8 @@ import { INTERNAL_RPC_PATH, createInternalRpcRouter } from './internalRpc/router
 import {
   DISCORD_ROLE_SETUP_COOKIE,
   SETUP_SESSION_COOKIE,
-  getCookieValue,
   clearCookie,
+  getCookieValue,
 } from './lib/browserSessions';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import { resolveSetupSession } from './lib/setupSession';
@@ -1335,7 +1335,10 @@ async function routeRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/sign-in.html`;
     let html = await Bun.file(filePath).text();
     html = html.replaceAll('__SIGN_IN_URL__', JSON.stringify(signInUrl));
-    html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase.replace(/\/$/, '')));
+    html = html.replaceAll(
+      '__API_BASE__',
+      escapeForSingleQuotedJsString(browserApiBase.replace(/\/$/, ''))
+    );
     return new Response(html, {
       status: 200,
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
