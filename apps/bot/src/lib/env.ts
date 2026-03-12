@@ -55,7 +55,12 @@ function loadFromEnv(): LocalEnv {
 
 /** Validate required bot env vars. Throws if any are missing. */
 export function validateBotEnv(env: LocalEnv): void {
-  const required = ['DISCORD_BOT_TOKEN', 'CONVEX_URL', 'CONVEX_API_SECRET'] as const;
+  const required = [
+    'DISCORD_BOT_TOKEN',
+    'CONVEX_URL',
+    'CONVEX_API_SECRET',
+    'INTERNAL_RPC_SHARED_SECRET',
+  ] as const;
   const missing = required.filter((k) => !env[k]);
   if (missing.length > 0) {
     throw new Error(`Missing required env vars: ${missing.join(', ')}`);

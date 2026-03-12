@@ -121,7 +121,9 @@ export async function handleCollabAddModalSubmit(
     });
 
     if (!data.success) {
-      await interaction.editReply({ content: `${E.X_} ${data.error ?? 'Failed to add connection.'}` });
+      await interaction.editReply({
+        content: `${E.X_} ${data.error ?? 'Failed to add connection.'}`,
+      });
       return;
     }
 
@@ -172,6 +174,10 @@ export async function handleCollabList(
     });
   } catch (err) {
     logger.error('Failed to fetch collab connections', { err });
+    await interaction.editReply({
+      content: `${E.X_} Failed to load collaborator connections. Please try again.`,
+    });
+    return;
   }
 
   if (connections.length === 0) {

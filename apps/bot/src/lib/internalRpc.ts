@@ -1,15 +1,15 @@
-import { ConsoleLogger, TempoLogLevel } from '@tempojs/common';
 import { BearerCredential, NoStorageStrategy, TempoChannel } from '@tempojs/client';
+import { ConsoleLogger, TempoLogLevel } from '@tempojs/common';
 import {
+  type AddCollaboratorConnectionManualResponse,
   CatalogClient,
   CollaboratorClient,
-  SetupClient,
-  VerificationClient,
-  type AddCollaboratorConnectionManualResponse,
   type CreateCollaboratorInviteResponse,
   type DiscordRoleSetupResultResponse,
   type ResolveVrchatAvatarNameResponse,
+  SetupClient,
   type SuccessResponse,
+  VerificationClient,
   type VerificationResultResponse,
 } from '@yucp/private-rpc';
 import { getApiUrls } from './apiUrls';
@@ -29,7 +29,7 @@ function getRpcBaseUrl(): string {
   const { apiInternal, apiPublic } = getApiUrls();
   const apiBaseUrl = apiInternal ?? apiPublic;
   if (!apiBaseUrl) {
-    throw new Error('API_BASE_URL is not configured for the bot service');
+    throw new Error('API_BASE_URL or API_INTERNAL_URL is not configured for the bot service');
   }
   return apiBaseUrl.replace(/\/$/, '');
 }
@@ -43,10 +43,17 @@ async function createClients(): Promise<PrivateRpcClients> {
   const credential = BearerCredential.create(new NoStorageStrategy(), 'internal-rpc');
   await credential.storeCredential({ token: sharedSecret });
 
-  const channel = TempoChannel.forAddress(`${getRpcBaseUrl()}${INTERNAL_RPC_PATH}`, {
+  const rpcBaseUrl = getRpcBaseUrl();
+  const isSecure = rpcBaseUrl.startsWith('https://');
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (isProduction && !isSecure) {
+    throw new Error('Internal RPC must use HTTPS in production');
+  }
+
+  const channel = TempoChannel.forAddress(`${rpcBaseUrl}${INTERNAL_RPC_PATH}`, {
     credential,
     logger: new ConsoleLogger('internal-rpc', TempoLogLevel.Warn),
-    unsafeUseInsecureChannelCallCredential: true,
+    unsafeUseInsecureChannelCallCredential: !isSecure && !isProduction,
   });
 
   return {
@@ -58,7 +65,14 @@ async function createClients(): Promise<PrivateRpcClients> {
 }
 
 async function getClients(): Promise<PrivateRpcClients> {
-  clientsPromise ??= createClients();
+  if (!clientsPromise) {
+    const creationPromise = createClients();
+    clientsPromise = creationPromise.catch((error) => {
+      clientsPromise = null;
+      throw error;
+    });
+  }
+
   return clientsPromise;
 }
 
@@ -87,9 +101,7 @@ export async function createDiscordRoleSetupSessionToken(params: {
   return response.token;
 }
 
-export async function getDiscordRoleSetupResult(
-  token: string
-): Promise<
+export async function getDiscordRoleSetupResult(token: string): Promise<
   Omit<DiscordRoleSetupResultResponse, 'requiredRoleMatchMode'> & {
     requiredRoleMatchMode?: 'all' | 'any';
   }
@@ -101,7 +113,11 @@ export async function getDiscordRoleSetupResult(
     sourceRoleId: response.sourceRoleId,
     sourceRoleIds: response.sourceRoleIds ?? [],
     requiredRoleMatchMode:
-      response.requiredRoleMatchMode === 'all' ? 'all' : response.requiredRoleMatchMode === 'any' ? 'any' : undefined,
+      response.requiredRoleMatchMode === 'all'
+        ? 'all'
+        : response.requiredRoleMatchMode === 'any'
+          ? 'any'
+          : undefined,
   };
 }
 

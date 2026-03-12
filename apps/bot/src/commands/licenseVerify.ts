@@ -433,7 +433,7 @@ export async function handleVrchatCredentialsModal(
   interaction: ModalSubmitInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  apiBaseUrl: string | undefined
+  _apiBaseUrl: string | undefined
 ): Promise<void> {
   const customId = interaction.customId;
   if (!customId.startsWith('creator_verify:vrchat_modal:')) return;
@@ -476,12 +476,6 @@ export async function handleVrchatCredentialsModal(
     await interaction.editReply({
       content: `${E.X_} Failed to look up your account. Please try again.`,
     });
-    return;
-  }
-
-  const { apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
-  if (!(apiPublic ?? apiBaseUrl)?.startsWith('https://')) {
-    await interaction.editReply({ content: `${E.X_} API not available. Use HTTPS.` });
     return;
   }
 

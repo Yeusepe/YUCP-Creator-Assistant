@@ -12,15 +12,6 @@ type MethodSample = {
   durationsMs: number[];
 };
 
-function estimateBytes(payload: unknown): number {
-  if (payload === undefined) return 0;
-  try {
-    return new TextEncoder().encode(JSON.stringify(payload)).length;
-  } catch {
-    return 0;
-  }
-}
-
 function percentile(samples: number[], ratio: number): number {
   if (samples.length === 0) return 0;
   const sorted = [...samples].sort((left, right) => left - right);
@@ -33,8 +24,8 @@ export class InternalRpcTelemetry {
 
   observe(params: {
     method: string;
-    request: unknown;
-    response?: unknown;
+    requestBytes?: number;
+    responseBytes?: number;
     durationMs: number;
     error?: unknown;
   }): void {
@@ -49,8 +40,8 @@ export class InternalRpcTelemetry {
       } satisfies MethodSample);
 
     current.count += 1;
-    current.requestBytes += estimateBytes(params.request);
-    current.responseBytes += estimateBytes(params.response);
+    current.requestBytes += params.requestBytes ?? 0;
+    current.responseBytes += params.responseBytes ?? 0;
     if (params.error) current.errorCount += 1;
 
     current.durationsMs.push(params.durationMs);

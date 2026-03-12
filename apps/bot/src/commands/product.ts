@@ -260,7 +260,7 @@ export async function handleProductTypeSelect(
 
     if (!apiBase) {
       await interaction.update({
-        content: `${E.X_} API not configured. Set API_BASE_URL and CONVEX_API_SECRET for Jinxxy product selection.`,
+        content: `${E.X_} API not configured. Set API_BASE_URL or API_INTERNAL_URL for Jinxxy product selection.`,
         components: [],
       });
       return;
