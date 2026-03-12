@@ -54,7 +54,7 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const PAGE_SIZE = 20; // Leave room for filter/nav rows (max 25 per select menu)
 
-type Filter = 'all' | 'gumroad' | 'jinxxy';
+type Filter = 'all' | string;
 // biome-ignore lint/suspicious/noExplicitAny: Discord container rows mix button and select builders here.
 type ProductPickerRow = ActionRowBuilder<any>;
 
@@ -80,33 +80,32 @@ function buildProductPickerComponents(
   totalPages: number;
 } {
   // Filter
-  const filtered = products.filter((p) => {
-    if (filter === 'gumroad') return p.provider === 'gumroad';
-    if (filter === 'jinxxy') return p.provider === 'jinxxy';
-    return true;
-  });
+  const filtered = filter === 'all' ? products : products.filter((p) => p.provider === filter);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(0, page), totalPages - 1);
   const slice = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
-  // Row 1 - Filter buttons
-  const filterRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`creator_verify:lp_filter:${tenantId}:all:0`)
-      .setLabel('All')
-      .setStyle(filter === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`creator_verify:lp_filter:${tenantId}:gumroad:0`)
-      .setLabel('Gumroad')
-      .setEmoji(Emoji.Gumorad)
-      .setStyle(filter === 'gumroad' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`creator_verify:lp_filter:${tenantId}:jinxxy:0`)
-      .setLabel('Jinxxy')
-      .setEmoji(Emoji.Jinxxy)
-      .setStyle(filter === 'jinxxy' ? ButtonStyle.Primary : ButtonStyle.Secondary)
-  );
+  // Row 1 - Filter buttons: "All" + one button per unique provider present (max 4 providers)
+  const presentProviders = [...new Set(products.map((p) => p.provider))].slice(0, 4);
+  const allBtn = new ButtonBuilder()
+    .setCustomId(`creator_verify:lp_filter:${tenantId}:all:0`)
+    .setLabel('All')
+    .setStyle(filter === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary);
+
+  const providerBtns = presentProviders.map((prov) => {
+    const meta = PROVIDER_META[prov as keyof typeof PROVIDER_META];
+    const btn = new ButtonBuilder()
+      .setCustomId(`creator_verify:lp_filter:${tenantId}:${prov}:0`)
+      .setLabel(meta?.label ?? prov)
+      .setStyle(filter === prov ? ButtonStyle.Primary : ButtonStyle.Secondary);
+    if (meta?.emojiKey && Emoji[meta.emojiKey as keyof typeof Emoji]) {
+      btn.setEmoji(Emoji[meta.emojiKey as keyof typeof Emoji]);
+    }
+    return btn;
+  });
+
+  const filterRow = new ActionRowBuilder<ButtonBuilder>().addComponents(allBtn, ...providerBtns);
 
   const rows: ProductPickerRow[] = [filterRow];
 
@@ -127,7 +126,7 @@ function buildProductPickerComponents(
     .setPlaceholder('Select a product to verify…')
     .addOptions(
       slice.map((p) => {
-        const meta = PROVIDER_META[p.provider];
+        const meta = PROVIDER_META[p.provider as keyof typeof PROVIDER_META];
         const label = p.displayName ?? p.canonicalSlug ?? p.productId;
         const opt = new StringSelectMenuOptionBuilder()
           .setLabel(label.slice(0, 100))
@@ -216,38 +215,54 @@ function buildPickerErrorReply(message: string): {
 
 // ── Public: show the product picker (called from button handler) ───────────────
 
-async function enrichJinxxyDisplayNames(
+/**
+ * Enrich display names for products where displayName is missing.
+ * Calls /api/{provider}/products for each provider that has products needing enrichment.
+ */
+async function enrichDisplayNames(
   products: Product[],
   tenantId: string,
   apiSecret: string
 ): Promise<Product[]> {
-  const needsEnrichment = products.filter((p) => p.provider === 'jinxxy' && !p.displayName);
-  if (needsEnrichment.length === 0) return products;
-
   const apiBase = process.env.API_BASE_URL;
   if (!apiBase) return products;
 
-  try {
-    const res = await fetch(`${apiBase}/api/jinxxy/products`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiSecret, tenantId }),
-    });
-    const data = (await res.json()) as { products?: { id: string; name: string }[] };
-    const apiProducts = data.products ?? [];
-    const nameById = Object.fromEntries(apiProducts.map((p) => [String(p.id), p.name]));
+  // Find unique providers that have products needing display name enrichment
+  const providersMissingNames = [
+    ...new Set(products.filter((p) => !p.displayName).map((p) => p.provider)),
+  ];
+  if (providersMissingNames.length === 0) return products;
 
-    return products.map((p) => {
-      if (p.provider === 'jinxxy' && !p.displayName) {
+  const namesByProvider = new Map<string, Record<string, string>>();
+  await Promise.all(
+    providersMissingNames.map(async (provider) => {
+      try {
+        const res = await fetch(`${apiBase}/api/${provider}/products`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiSecret, tenantId }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { products?: { id: string; name: string }[] };
+        const nameById = Object.fromEntries(
+          (data.products ?? []).map((p) => [String(p.id), p.name])
+        );
+        namesByProvider.set(provider, nameById);
+      } catch (err) {
+        logger.warn('Failed to enrich display names', { provider, err });
+      }
+    })
+  );
+  return products.map((p) => {
+    if (!p.displayName) {
+      const nameById = namesByProvider.get(p.provider);
+      if (nameById) {
         const name = nameById[String(p.providerProductRef)];
         if (name) return { ...p, displayName: name };
       }
-      return p;
-    });
-  } catch (err) {
-    logger.warn('Failed to enrich Jinxxy display names', { err });
-    return products;
-  }
+    }
+    return p;
+  });
 }
 
 export async function showProductPicker(
@@ -265,7 +280,7 @@ export async function showProductPicker(
     products = (await convex.query(api.productResolution.getProductsForTenant, {
       tenantId,
     })) as Product[];
-    products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
+    products = await enrichDisplayNames(products, tenantId, apiSecret);
   } catch (err) {
     logger.error('Failed to load products for picker', { err });
   }
@@ -307,7 +322,7 @@ export async function handlePickerNavigation(
     products = (await convex.query(api.productResolution.getProductsForTenant, {
       tenantId,
     })) as Product[];
-    products = await enrichJinxxyDisplayNames(products, tenantId, apiSecret);
+    products = await enrichDisplayNames(products, tenantId, apiSecret);
   } catch (err) {
     logger.error('Failed to reload products for picker nav', { err });
   }
@@ -344,12 +359,14 @@ export async function handleProductSelected(
 
   const provider = value.slice(0, sepIdx);
   const providerProductRef = value.slice(sepIdx + 2);
-  const isGumroad = provider === 'gumroad';
+  const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
+  const providerLabel = meta?.label ?? provider;
 
   const modal = new ModalBuilder()
     .setCustomId(`creator_verify:lp_modal:${tenantId}:${providerProductRef}:${provider}`)
-    .setTitle(isGumroad ? 'Enter Gumroad License Key' : 'Enter Jinxxy License Key');
+    .setTitle(`Enter ${providerLabel} License Key`);
 
+  const isGumroad = provider === 'gumroad';
   const keyInput = new TextInputBuilder()
     .setCustomId('license_key')
     .setLabel(isGumroad ? 'License Key (XXXX-XXXX-XXXX-XXXX)' : 'License Key')
@@ -630,10 +647,11 @@ export async function handleLicenseKeyModal(
       body: JSON.stringify({
         apiSecret,
         licenseKey,
+        provider,
         productId: providerProductRef,
         tenantId,
         subjectId,
-        discordUserId, // so the API can also create the binding
+        discordUserId,
       }),
     });
 
@@ -676,7 +694,7 @@ export async function handleLicenseKeyModal(
     // (The binding creation is already handled inside completeLicense + sessionManager.)
 
     const label = providerLabel(provider);
-    const meta = PROVIDER_META[provider];
+    const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
     const emoji = meta?.emojiKey ? (E[meta.emojiKey as keyof typeof E] ?? '') : '';
     if (interaction.guildId && apiBaseUrl) {
       const message = await interaction.editReply(

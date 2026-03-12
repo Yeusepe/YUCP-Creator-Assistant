@@ -13,8 +13,8 @@
  *     https://datatracker.ietf.org/doc/html/rfc8252
  */
 
-import { internalMutation } from './_generated/server';
 import { components } from './_generated/api';
+import { internalMutation } from './_generated/server';
 
 export const seedUnityOAuthClient = internalMutation({
   args: {},
@@ -29,15 +29,12 @@ export const seedUnityOAuthClient = internalMutation({
     const callbackUrl = `${siteUrl}/api/yucp/oauth/callback`;
 
     // Check whether the client already exists
-    const existing = await ctx.runQuery(
-      components.betterAuth.adapter.findMany,
-      {
-        model: 'oauthClient',
-        where: [{ field: 'clientId', value: 'yucp-unity-editor', operator: 'eq' }],
-        limit: 1,
-        paginationOpts: { cursor: null, numItems: 1 },
-      },
-    );
+    const existing = await ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: 'oauthClient',
+      where: [{ field: 'clientId', value: 'yucp-unity-editor', operator: 'eq' }],
+      limit: 1,
+      paginationOpts: { cursor: null, numItems: 1 },
+    });
 
     if (existing.length > 0) {
       console.log('yucp-unity-editor OAuth client already exists — skipping seed.');
@@ -45,30 +42,27 @@ export const seedUnityOAuthClient = internalMutation({
     }
 
     const now = Date.now();
-    const result = await ctx.runMutation(
-      components.betterAuth.adapter.create,
-      {
-        input: {
-          model: 'oauthClient',
-          data: {
-            clientId: 'yucp-unity-editor',
-            clientSecret: null,
-            name: 'YUCP Unity Editor',
-            redirectUris: [callbackUrl],
-            scopes: ['cert:issue'],
-            grantTypes: ['authorization_code'],
-            responseTypes: ['code'],
-            tokenEndpointAuthMethod: 'none',
-            public: true,
-            type: 'public',
-            skipConsent: false,
-            disabled: false,
-            createdAt: now,
-            updatedAt: now,
-          },
+    const result = await ctx.runMutation(components.betterAuth.adapter.create, {
+      input: {
+        model: 'oauthClient',
+        data: {
+          clientId: 'yucp-unity-editor',
+          clientSecret: null,
+          name: 'YUCP Unity Editor',
+          redirectUris: [callbackUrl],
+          scopes: ['cert:issue'],
+          grantTypes: ['authorization_code'],
+          responseTypes: ['code'],
+          tokenEndpointAuthMethod: 'none',
+          public: true,
+          type: 'public',
+          skipConsent: false,
+          disabled: false,
+          createdAt: now,
+          updatedAt: now,
         },
       },
-    );
+    });
 
     console.log('Created yucp-unity-editor OAuth client:', result);
     return { created: true, result };

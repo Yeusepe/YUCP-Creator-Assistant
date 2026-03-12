@@ -11,9 +11,9 @@
  * - Revocation cascades to entitlements
  */
 
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 
 // ============================================================================
 // TYPES
@@ -22,7 +22,7 @@ import type { Id } from './_generated/dataModel';
 const BindingType = v.union(
   v.literal('ownership'),
   v.literal('verification'),
-  v.literal('manual_override'),
+  v.literal('manual_override')
 );
 
 const BindingStatus = v.union(
@@ -30,14 +30,10 @@ const BindingStatus = v.union(
   v.literal('active'),
   v.literal('revoked'),
   v.literal('transferred'),
-  v.literal('quarantined'),
+  v.literal('quarantined')
 );
 
-const ActorType = v.union(
-  v.literal('subject'),
-  v.literal('system'),
-  v.literal('admin'),
-);
+const ActorType = v.union(v.literal('subject'), v.literal('system'), v.literal('admin'));
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;
@@ -64,7 +60,7 @@ async function getTenantPolicy(
 }> {
   const tenant = await ctx.db.get(tenantId);
   const policy = tenant?.policy || {};
-  
+
   return {
     maxBindingsPerProduct: policy.maxBindingsPerProduct ?? 1,
     allowTransfer: policy.allowTransfer ?? true,
@@ -146,7 +142,7 @@ async function revokeEntitlementsForSubject(
 
 /**
  * Activate a binding - create or reactivate
- * 
+ *
  * Creates a new binding or reactivates an existing one.
  * Enforces one active ownership binding per provider account.
  */
@@ -167,10 +163,12 @@ export const activateBinding = mutation({
     bindingId: v.id('bindings'),
     isNew: v.boolean(),
     previousStatus: v.optional(BindingStatus),
-    conflict: v.optional(v.object({
-      existingBindingId: v.id('bindings'),
-      message: v.string(),
-    })),
+    conflict: v.optional(
+      v.object({
+        existingBindingId: v.id('bindings'),
+        message: v.string(),
+      })
+    ),
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -184,13 +182,10 @@ export const activateBinding = mutation({
         .withIndex('by_tenant_external', (q) =>
           q.eq('tenantId', args.tenantId).eq('externalAccountId', args.externalAccountId)
         )
-        .filter((q) => 
+        .filter((q) =>
           q.and(
             q.eq(q.field('bindingType'), 'ownership'),
-            q.or(
-              q.eq(q.field('status'), 'active'),
-              q.eq(q.field('status'), 'pending')
-            )
+            q.or(q.eq(q.field('status'), 'active'), q.eq(q.field('status'), 'pending'))
           )
         )
         .first();
@@ -222,9 +217,13 @@ export const activateBinding = mutation({
     if (existingBinding) {
       // Reactivate or update existing binding
       const previousStatus = existingBinding.status;
-      
+
       // Only update if status allows modification
-      if (previousStatus === 'revoked' || previousStatus === 'transferred' || previousStatus === 'quarantined') {
+      if (
+        previousStatus === 'revoked' ||
+        previousStatus === 'transferred' ||
+        previousStatus === 'quarantined'
+      ) {
         await ctx.db.patch(existingBinding._id, {
           status: 'active',
           bindingType: args.bindingType,
@@ -309,7 +308,7 @@ export const activateBinding = mutation({
 
 /**
  * Revoke a binding
- * 
+ *
  * Soft deletes the binding with a reason and cascades to entitlements.
  */
 export const revokeBinding = mutation({
@@ -397,7 +396,7 @@ export const revokeBinding = mutation({
 
 /**
  * Transfer a binding to a new subject
- * 
+ *
  * Moves the binding to a new subject after enforcing cooldown period.
  * The old binding is marked as 'transferred' and a new one is created.
  */
@@ -458,7 +457,7 @@ export const transferBinding = mutation({
     if (!args.bypassCooldown) {
       const cooldownMs = policy.transferCooldownHours * 60 * 60 * 1000;
       const timeSinceCreation = now - binding.createdAt;
-      
+
       if (timeSinceCreation < cooldownMs) {
         const cooldownRemaining = cooldownMs - timeSinceCreation;
         return {
@@ -477,7 +476,7 @@ export const transferBinding = mutation({
       .withIndex('by_tenant_subject', (q) =>
         q.eq('tenantId', binding.tenantId).eq('subjectId', args.newSubjectId)
       )
-      .filter((q) => 
+      .filter((q) =>
         q.and(
           q.eq(q.field('externalAccountId'), binding.externalAccountId),
           q.eq(q.field('status'), 'active')
@@ -546,7 +545,7 @@ export const transferBinding = mutation({
 
 /**
  * Quarantine a binding
- * 
+ *
  * Marks a binding for review and blocks new grants until reviewed.
  */
 export const quarantineBinding = mutation({
@@ -626,7 +625,7 @@ export const quarantineBinding = mutation({
 
 /**
  * Release a binding from quarantine
- * 
+ *
  * Restores a quarantined binding to active status after review.
  */
 export const releaseFromQuarantine = mutation({
@@ -725,11 +724,8 @@ export const getBindingsBySubject = query({
       );
 
     if (!includeInactive) {
-      query = query.filter((q) => 
-        q.or(
-          q.eq(q.field('status'), 'active'),
-          q.eq(q.field('status'), 'pending')
-        )
+      query = query.filter((q) =>
+        q.or(q.eq(q.field('status'), 'active'), q.eq(q.field('status'), 'pending'))
       );
     }
 
@@ -772,11 +768,8 @@ export const getBindingsByExternalAccount = query({
       );
 
     if (!includeInactive) {
-      query = query.filter((q) => 
-        q.or(
-          q.eq(q.field('status'), 'active'),
-          q.eq(q.field('status'), 'pending')
-        )
+      query = query.filter((q) =>
+        q.or(q.eq(q.field('status'), 'active'), q.eq(q.field('status'), 'pending'))
       );
     }
 
@@ -822,11 +815,8 @@ export const getActiveOwnershipBinding = query({
       .withIndex('by_tenant_external', (q) =>
         q.eq('tenantId', args.tenantId).eq('externalAccountId', args.externalAccountId)
       )
-      .filter((q) => 
-        q.and(
-          q.eq(q.field('bindingType'), 'ownership'),
-          q.eq(q.field('status'), 'active')
-        )
+      .filter((q) =>
+        q.and(q.eq(q.field('bindingType'), 'ownership'), q.eq(q.field('status'), 'active'))
       )
       .first();
 
@@ -898,7 +888,7 @@ export const hasActiveOwnershipBinding = query({
       .withIndex('by_tenant_subject', (q) =>
         q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
       )
-      .filter((q) => 
+      .filter((q) =>
         q.and(
           q.eq(q.field('externalAccountId'), args.externalAccountId),
           q.eq(q.field('bindingType'), 'ownership'),

@@ -14,6 +14,7 @@ export interface PurchaseRecord {
 
 export interface ProviderConfig {
   apiKey?: string;
+  apiToken?: string;
   secretKey?: string;
   webhookSecret?: string;
   clientId?: string;
@@ -75,6 +76,8 @@ export type {
 // Re-export Jinxxy adapter (full implementation in ./jinxxy)
 import { JinxxyAdapter, type JinxxyAdapterConfig } from './jinxxy';
 export { JinxxyAdapter, JinxxyApiClient } from './jinxxy';
+import { LemonSqueezyAdapter, type LemonSqueezyAdapterConfig } from './lemonsqueezy';
+export { LemonSqueezyAdapter, LemonSqueezyApiClient } from './lemonsqueezy';
 export { VrchatApiClient, extractVrchatAvatarId } from './vrchat';
 export type {
   VrchatCurrentUser,
@@ -96,6 +99,19 @@ export type {
   LicenseVerificationResult,
   PurchaseVerificationResult,
 } from './jinxxy';
+export type {
+  LemonSqueezyAdapterConfig,
+  LemonSqueezyEvidence,
+  LemonSqueezyLicenseKey,
+  LemonSqueezyLicenseValidationResult,
+  LemonSqueezyOrder,
+  LemonSqueezyStore,
+  LemonSqueezySubscription,
+  LemonSqueezyVariant,
+  LemonSqueezyWebhook,
+  LemonSqueezyWebhookCreateInput,
+} from './lemonsqueezy';
+export { LemonSqueezyApiError, LemonSqueezyRateLimitError } from './lemonsqueezy';
 
 // Discord provider adapter (placeholder)
 export class DiscordAdapter implements ProviderAdapter {
@@ -244,7 +260,7 @@ export class ManualAdapter implements ProviderAdapter {
 
 // Factory function for creating provider adapters
 export function createProviderAdapter(
-  type: 'gumroad' | 'jinxxy' | 'discord' | 'manual',
+  type: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'discord' | 'manual',
   config: ProviderConfig,
   storage?: ManualLicenseStorage
 ): ProviderAdapter {
@@ -268,6 +284,11 @@ export function createProviderAdapter(
         throw new Error('Use JinxxyAdapter directly with apiKey config');
       }
       return new JinxxyAdapter(config as unknown as JinxxyAdapterConfig);
+    case 'lemonsqueezy':
+      if (!config.apiToken) {
+        throw new Error('Use LemonSqueezyAdapter directly with apiToken config');
+      }
+      return new LemonSqueezyAdapter(config as unknown as LemonSqueezyAdapterConfig);
     case 'discord':
       return new DiscordAdapter(config);
     case 'manual':

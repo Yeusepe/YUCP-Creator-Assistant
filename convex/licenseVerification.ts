@@ -13,9 +13,9 @@
  * 5. Enqueue outbox jobs for role sync
  */
 
-import { mutation } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { mutation } from './_generated/server';
 import { LicenseProviderV } from './lib/providers';
 
 // ============================================================================
@@ -70,7 +70,7 @@ export const completeLicenseVerification = mutation({
         avatarUrl: v.optional(v.string()),
         profileUrl: v.optional(v.string()),
         rawData: v.optional(v.any()),
-      }),
+      })
     ),
     productsToGrant: v.array(ProductToGrant),
     correlationId: v.optional(v.string()),
@@ -93,7 +93,7 @@ export const completeLicenseVerification = mutation({
     const existingAccount = await ctx.db
       .query('external_accounts')
       .withIndex('by_provider_user', (q) =>
-        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId),
+        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId)
       )
       .first();
 
@@ -123,7 +123,7 @@ export const completeLicenseVerification = mutation({
     const existingBinding = await ctx.db
       .query('bindings')
       .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId),
+        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
       )
       .filter((q) => q.eq(q.field('externalAccountId'), externalAccountId))
       .first();
@@ -159,14 +159,17 @@ export const completeLicenseVerification = mutation({
     const email = args.providerMetadata?.email;
     const normalizedEmailHash = email ? hashForStorage(email) : undefined;
     const displayHints = email
-      ? { emailPrefix: email.slice(0, 3) + '***', usernamePrefix: args.providerUsername?.slice(0, 3) }
+      ? {
+          emailPrefix: email.slice(0, 3) + '***',
+          usernamePrefix: args.providerUsername?.slice(0, 3),
+        }
       : undefined;
 
     let providerCustomerId: Id<'provider_customers'> | undefined;
     const existingPc = await ctx.db
       .query('provider_customers')
       .withIndex('by_provider_user', (q) =>
-        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId),
+        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId)
       )
       .first();
 
@@ -214,7 +217,7 @@ export const completeLicenseVerification = mutation({
       const existingForProduct = await ctx.db
         .query('entitlements')
         .withIndex('by_tenant_subject', (q) =>
-          q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId),
+          q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
         )
         .filter((q) => q.eq(q.field('productId'), product.productId))
         .filter((q) => q.eq(q.field('status'), 'active'))
@@ -265,7 +268,7 @@ export const completeLicenseVerification = mutation({
       const existingEntitlement = await ctx.db
         .query('entitlements')
         .withIndex('by_tenant_subject', (q) =>
-          q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId),
+          q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
         )
         .filter((q) => q.eq(q.field('sourceReference'), product.sourceReference))
         .first();
@@ -303,7 +306,7 @@ export const completeLicenseVerification = mutation({
         const existingEntitlements = await ctx.db
           .query('entitlements')
           .withIndex('by_tenant_subject', (q) =>
-            q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId),
+            q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
           )
           .collect();
         const policySnapshotVersion = existingEntitlements.length + 1;

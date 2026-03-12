@@ -41,9 +41,9 @@ export function compareExternalAccountIdentityCandidates(
   return left.bindingId.localeCompare(right.bindingId);
 }
 
-export function selectCanonicalExternalAccountCandidates<T extends ExternalAccountIdentityCandidate>(
-  candidates: T[]
-): T[] {
+export function selectCanonicalExternalAccountCandidates<
+  T extends ExternalAccountIdentityCandidate,
+>(candidates: T[]): T[] {
   const canonicalByIdentity = new Map<string, T>();
 
   for (const candidate of candidates) {
@@ -57,9 +57,9 @@ export function selectCanonicalExternalAccountCandidates<T extends ExternalAccou
   return Array.from(canonicalByIdentity.values()).sort(compareExternalAccountIdentityCandidates);
 }
 
-export function findDuplicateExternalAccountIdentityGroups<T extends ExternalAccountIdentityCandidate>(
-  candidates: T[]
-): Array<DuplicateExternalAccountIdentityGroup<T>> {
+export function findDuplicateExternalAccountIdentityGroups<
+  T extends ExternalAccountIdentityCandidate,
+>(candidates: T[]): Array<DuplicateExternalAccountIdentityGroup<T>> {
   const groupedCandidates = new Map<string, T[]>();
 
   for (const candidate of candidates) {

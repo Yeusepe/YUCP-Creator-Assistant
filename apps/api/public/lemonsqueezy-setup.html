@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="Icons/favicon.ico" type="image/x-icon">
+    <title>Connect Lemon Squeezy® | Creator Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./tokens.css">
+    <style>
+        :root {
+            --ls-yellow: #FFD234;
+            --ls-yellow-dim: rgba(255, 210, 52, 0.15);
+            --ls-yellow-border: rgba(255, 210, 52, 0.3);
+            --ls-green: #22c55e;
+            --text-primary: #ffffff;
+            --text-muted: rgba(255,255,255,0.55);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; }
+
+        html {
+            min-height: 100vh;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        html, body {
+            overflow: hidden;
+            width: 100%; height: 100%;
+            margin: 0; padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            font-family: 'DM Sans', sans-serif;
+            color: #fff;
+        }
+
+        input, textarea, select { font-size: 16px; }
+
+        h1, h2, h3, .font-heading { font-family: 'Plus Jakarta Sans', sans-serif; }
+
+        /* ─── Responsive hide mockup ─────────────────────────────────── */
+        @media (max-width: 1023px) {
+            .step-content > .mockup-col { display: none !important; }
+            .step-content > .instructions-col { grid-column: 1 / -1; }
+        }
+        @media (max-width: 479px) {
+            .card-shell { padding: 1.25rem !important; border-radius: 1.5rem !important; }
+        }
+
+        /* ─── Step transitions ───────────────────────────────────────── */
+        .step-content {
+            display: none;
+            opacity: 0;
+            transform: translateY(12px);
+            transition: opacity 0.35s ease, transform 0.35s ease;
+        }
+        .step-content.active {
+            display: grid;
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .step-content.step-exiting {
+            position: absolute; top: 0; left: 0; right: 0;
+            pointer-events: none;
+        }
+        .steps-slot {
+            transition: height 0.4s cubic-bezier(.4,0,.2,1);
+            padding: 0 0.5rem;
+        }
+        .steps-transitioning .steps-slot { overflow: hidden; }
+        #steps-container.steps-transitioning { overflow: hidden !important; }
+        #steps-container {
+            flex-shrink: 0;
+            overflow: visible;
+            min-height: unset;
+        }
+        .step-content { overflow: visible; }
+
+        /* ─── Loading overlay ────────────────────────────────────────── */
+        #page-loading-overlay { transition: opacity 0.35s ease; }
+        #page-loading-overlay.is-hiding { opacity: 0; pointer-events: none; }
+        #page-content { opacity: 0; transition: opacity 0.3s ease 0.05s; }
+        #page-content.is-visible { opacity: 1; }
+        .page-loading-spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.08);
+            border-top-color: var(--ls-yellow);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Copy button ────────────────────────────────────────────── */
+        .copy-btn:active { transform: scale(0.94); }
+        .checkmark { display: none; }
+        .copied .copy-icon { display: none; }
+        .copied .checkmark { display: block; }
+
+        /* ─── Step dot ───────────────────────────────────────────────── */
+        .step-dot {
+            height: 6px;
+            border-radius: 999px;
+            transition: width 0.45s cubic-bezier(.4,0,.2,1),
+                        background-color 0.35s ease;
+        }
+
+        /* ─── API key input field ────────────────────────────────────── */
+        .api-key-input {
+            width: 100%;
+            background: rgba(255,255,255,0.04);
+            border: 1.5px solid rgba(255,255,255,0.12);
+            border-radius: 14px;
+            padding: 14px 16px;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            letter-spacing: 0.02em;
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .api-key-input:focus {
+            border-color: var(--ls-yellow);
+            box-shadow: 0 0 0 3px rgba(255,210,52,0.12);
+        }
+        .api-key-input::placeholder { color: rgba(255,255,255,0.25); font-family: 'DM Sans', sans-serif; font-size: 14px; }
+
+        /* ─── Connect button ─────────────────────────────────────────── */
+        .connect-btn {
+            width: 100%;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 15px;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            border: 1px solid transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .connect-btn:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124,58,237,0.3); }
+        .connect-btn:not(:disabled):active { transform: scale(0.98); }
+        .connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .connect-btn.ready {
+            background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
+            color: #ffffff;
+            border-color: rgba(255,255,255,0.1) rgba(0,0,0,0.1) rgba(0,0,0,0.2);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+        .connect-btn.success {
+            background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+            color: #fff;
+            border-color: rgba(255,255,255,0.1) rgba(0,0,0,0.1) rgba(0,0,0,0.2);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+
+        /* ─── Mockup API highlight (subtle, matches Lemon Squeezy) ──────── */
+        .mockup-shell .ls-api-highlight-zone {
+            position: relative;
+            border-radius: 8px;
+            padding: 4px;
+        }
+
+        /* ─── LS Mockup styles ───────────────────────────────────────── */
+        .mockup-shell {
+            background: #ffffff;
+            border-radius: 12px;
+            border: 1px solid rgba(0,0,0,0.08);
+            overflow: hidden;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.15), 0 1px 0 rgba(255,255,255,0.5) inset;
+            aspect-ratio: 16 / 10;
+            position: relative;
+            transition: transform 0.5s ease;
+            pointer-events: none;
+            user-select: none;
+            display: flex;
+            flex-direction: column;
+        }
+        .mockup-shell:hover { transform: none; }
+
+        /* Traffic lights – reserve space so content starts below */
+        .traffic-lights {
+            display: flex; gap: 8px; align-items: center;
+            padding: 14px 18px 12px;
+            flex-shrink: 0;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .tl { width: 12px; height: 12px; border-radius: 50%; }
+        .tl-r { background: #ff5f57; }
+        .tl-y { background: #febc2e; }
+        .tl-g { background: #28c840; }
+
+        /* LS sidebar – matches Lemon Squeezy: white bg, dark text */
+        .ls-sidebar {
+            width: 140px;
+            background: #ffffff;
+            border-right: 1px solid #e5e7eb;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 20px 12px 16px;
+            flex-shrink: 0;
+        }
+        .ls-logo-row {
+            display: flex; align-items: center; gap: 8px;
+            padding: 0 6px; margin-bottom: 20px;
+        }
+        .ls-logo-mark {
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
+        }
+        .ls-logo-text { font-size: 13px; font-weight: 600; color: #111827; }
+        .ls-nav-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 10px; border-radius: 8px;
+            font-size: 12px; color: #4b5563; font-weight: 500;
+            cursor: default; margin-bottom: 2px;
+        }
+        .ls-nav-item-left { display: flex; align-items: center; gap: 8px; }
+        .ls-nav-icon { width: 14px; height: 14px; color: #9ca3af; flex-shrink: 0; }
+        .ls-nav-chevron { width: 12px; height: 12px; color: #9ca3af; flex-shrink: 0; }
+        
+        .ls-subnav {
+            margin-left: 12px; padding-left: 12px;
+            border-left: 1px solid #f3f4f6;
+            display: flex; flex-direction: column; gap: 4px; margin-top: 4px; margin-bottom: 12px;
+        }
+        .ls-subnav-item {
+            font-size: 12px; color: #6b7280; padding: 4px 10px; border-radius: 6px; position: relative;
+        }
+        .ls-subnav-item.active {
+            background: #f3f4f6; color: #7c3aed; font-weight: 600;
+        }
+        .ls-subnav-item.active::before {
+            content: ''; position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+            width: 4px; height: 4px; border-radius: 50%; background: #7c3aed;
+        }
+        .ls-subnav-item.active { padding-left: 18px; }
+
+        /* LS main content */
+        .ls-main { flex: 1; background: #ffffff; padding: 36px 40px 20px; overflow: hidden; display: flex; flex-direction: column; }
+        .ls-page-title { font-size: 20px; font-weight: 600; color: #111827; }
+        
+        .ls-tabs {
+            display: flex; gap: 24px; border-bottom: 1px solid #e5e7eb; margin-top: 24px; padding-bottom: 0;
+            overflow-x: hidden;
+        }
+        .ls-tab {
+            font-size: 13px; color: #6b7280; padding-bottom: 12px; position: relative; white-space: nowrap; font-weight: 500;
+        }
+        .ls-tab.active {
+            color: #111827; font-weight: 600;
+        }
+        .ls-tab.active::after {
+            content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: #7c3aed;
+        }
+
+        .ls-banner {
+            margin-top: 24px; padding: 12px 16px; border-radius: 8px;
+            background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;
+            font-size: 13px; display: flex; align-items: center; gap: 8px;
+        }
+
+        .ls-section-header {
+            display: flex; justify-content: space-between; align-items: flex-start; margin-top: 20px; margin-bottom: 16px;
+        }
+        .ls-section-title { font-size: 16px; font-weight: 600; color: #111827; }
+        .ls-section-desc { font-size: 13px; color: #6b7280; margin-top: 4px; }
+        
+        /* + button: circular, pops with color + grow animation */
+        .ls-new-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 32px; height: 32px; min-width: 32px; min-height: 32px;
+            border-radius: 50%;
+            background: #f3f4f6;
+            color: #6b7280;
+            border: 1px solid #e5e7eb;
+            transition: background 0.2s, transform 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            animation: ls-plus-pop 2.5s ease-in-out infinite;
+        }
+        .ls-new-btn:hover {
+            background: #e5e7eb;
+            color: #374151;
+            animation: none;
+            transform: scale(1.15);
+        }
+        @keyframes ls-plus-pop {
+            0%, 100% {
+                transform: scale(1);
+                background: #f3f4f6;
+                color: #6b7280;
+                border-color: #e5e7eb;
+                box-shadow: none;
+            }
+            50% {
+                transform: scale(1.25);
+                background: #7c3aed;
+                color: #fff;
+                border-color: rgba(124, 58, 237, 0.5);
+                box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.3), 0 4px 12px rgba(124, 58, 237, 0.4);
+            }
+        }
+        
+        .ls-keys-table {
+            border-top: 1px solid #f3f4f6;
+            flex: 1; margin-top: 8px;
+        }
+        .ls-empty-row {
+            display: flex; align-items: center; justify-content: center;
+            height: 120px; font-size: 13px; color: #9ca3af; flex-direction: column; gap: 12px;
+        }
+
+        /* LS modal */
+        .ls-modal-overlay {
+            position: absolute; inset: 0;
+            background: rgba(17,24,39,0.4);
+            backdrop-filter: blur(2px);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 20;
+        }
+        .ls-modal {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            width: 320px;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .ls-modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 16px; font-weight: 600; color: #111827;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .ls-modal-close { color: #9ca3af; font-size: 18px; cursor: pointer; line-height: 1; }
+        .ls-modal-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+        .ls-field-label { font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px; display: block; }
+        .ls-field-input {
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 8px; padding: 8px 12px;
+            font-size: 14px; color: #111827;
+            width: 100%; outline: none; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .ls-field-input.highlighted {
+            border-color: #7c3aed;
+            box-shadow: 0 0 0 3px rgba(124,58,237,0.15);
+        }
+        .ls-modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid #f3f4f6; background: #f9fafb;
+            display: flex; justify-content: flex-end; gap: 12px;
+        }
+        .ls-btn-cancel {
+            padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
+            background: #ffffff; color: #374151; border: 1px solid #d1d5db;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer;
+        }
+        .ls-btn-create {
+            padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
+            background: #7c3aed; color: #ffffff; border: 1px solid transparent;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer;
+        }
+
+        /* ─── Revealed key mockup ────────────────────────────────────── */
+        .ls-revealed-key {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        }
+        .ls-key-text {
+            flex: 1; font-family: 'JetBrains Mono', monospace;
+            font-size: 13px; color: #111827;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .ls-copy-chip {
+            background: #ffffff;
+            color: #374151; border: 1px solid #d1d5db;
+            font-size: 12px; font-weight: 500;
+            padding: 4px 10px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        /* ─── Feature pills ──────────────────────────────────────────── */
+        .feature-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 12px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 999px;
+            font-size: 12px; color: rgba(255,255,255,0.65);
+        }
+        .feature-pill-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--ls-green);
+            box-shadow: 0 0 6px var(--ls-green);
+        }
+
+        /* ─── Error state ────────────────────────────────────────────── */
+        .error-box {
+            padding: 12px 14px;
+            background: rgba(239,68,68,0.08);
+            border: 1px solid rgba(239,68,68,0.2);
+            border-radius: 10px;
+            font-size: 13px;
+            color: #fca5a5;
+        }
+
+        /* ─── Open Lemon Squeezy® API button (CTA) ─────────────────────── */
+        .ls-open-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.625rem;
+            padding: 0.875rem 1.5rem;
+            border-radius: 14px;
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 15px;
+            letter-spacing: 0.01em;
+            text-decoration: none;
+            border: 1px solid rgba(255, 210, 52, 0.35);
+            background: rgba(255, 210, 52, 0.12);
+            color: #fff;
+            backdrop-filter: blur(12px);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+        .ls-open-btn:hover {
+            background: rgba(255, 210, 52, 0.22);
+            border-color: rgba(255, 210, 52, 0.5);
+            color: #fff;
+            transform: translateY(-1px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        }
+        .ls-open-btn:active {
+            transform: translateY(0);
+        }
+        .ls-open-btn { margin-top: 1.5rem; }
+
+        /* ─── Spinner inside button ──────────────────────────────────── */
+        .btn-spinner {
+            width: 16px; height: 16px;
+            border: 2px solid rgba(26,20,0,0.3);
+            border-top-color: #1a1400;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            display: inline-block;
+        }
+    </style>
+    <link rel="stylesheet" href="/assets/site/site.css">
+    <script type="module" src="/assets/site/site.js"></script>
+</head>
+<body>
+
+<!-- Blob background (liquid glass) -->
+<!-- ─── Loading overlay ─────────────────────────────────────────────── -->
+<div id="page-loading-overlay"
+     class="fixed inset-0 z-[100] flex flex-col items-center justify-center pointer-events-none"
+     style="background-color: var(--bg-color);">
+    <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
+    <div class="page-loading-spinner"></div>
+    <p class="mt-4" style="color: rgba(255,255,255,0.45); font-size:13px;">Loading…</p>
+</div>
+
+<!-- ─── Page content ─────────────────────────────────────────────────── -->
+<div id="page-content" class="fixed inset-0 flex flex-col items-center justify-center overflow-y-auto overflow-x-hidden" style="display:none;">
+
+    <!-- Back button -->
+    <a id="back-to-dashboard-btn" href="#"
+       class="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
+       style="display:none; text-decoration:none;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Dashboard
+    </a>
+
+    <!-- Injected by server -->
+    <script>
+        const TENANT_ID = '__TENANT_ID__';
+        const GUILD_ID  = '__GUILD_ID__';
+        const API_BASE  = '__API_BASE__';
+        const HAS_SETUP_SESSION = '__HAS_SETUP_SESSION__' === 'true';
+
+        function redirectToExpiredLinkError() {
+            const u = new URL(`${API_BASE}/verify-error`, window.location.origin);
+            u.searchParams.set('error', 'link_expired');
+            window.location.replace(u.toString());
+        }
+    </script>
+
+    <!-- bg canvas -->
+    <div id="bg-canvas-root" style="position:absolute;inset:0;width:100%;height:100%;z-index:-20;pointer-events:none;"></div>
+
+    <main class="flex flex-1 items-center justify-center p-4 lg:p-8 relative w-full max-w-7xl mx-auto min-h-0 overflow-hidden">
+
+        <!-- Background animations (match jinxxy-setup) -->
+        <div class="absolute top-10 left-10 w-64 h-64 border border-[#ffffff]/5 rounded-full pointer-events-none animate-[spin_60s_linear_infinite]"></div>
+        <div class="absolute bottom-10 right-10 w-96 h-96 border border-[#0ea5e9]/5 rounded-full pointer-events-none animate-[spin_80s_linear_infinite_reverse]"></div>
+        <svg class="absolute top-1/4 right-20 w-32 h-32 opacity-10 pointer-events-none" viewBox="0 0 100 100">
+            <rect x="0" y="0" width="100" height="100" fill="none" stroke="#ffffff" stroke-width="1"></rect>
+            <line x1="0" y1="0" x2="100" y2="100" stroke="#ffffff" stroke-width="1"></line>
+        </svg>
+
+        <!-- ─── Card ─────────────────────────────────────────────────── -->
+        <div class="card-shell w-full max-w-6xl max-h-[calc(100%-2rem)] p-5 sm:p-8 md:p-12 flex flex-col relative z-10 overflow-hidden bg-black/25 backdrop-blur-xl rounded-[40px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)]">
+
+            <!-- Top shine -->
+            <div class="absolute top-0 left-1/2 -translate-x-1/2 h-px w-2/3 pointer-events-none" style="background:linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)"></div>
+
+            <!-- ─── Header ───────────────────────────────────────────── -->
+            <div class="flex flex-wrap justify-between items-end gap-4 mb-8 pb-5 flex-shrink-0" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <div>
+                    <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-black uppercase tracking-[0.12em] mb-3"
+                         style="background:rgba(255,210,52,0.1); border:1px solid rgba(255,210,52,0.2); color:rgba(255,255,255,0.8);">
+                        <span class="w-1.5 h-1.5 rounded-full bg-[#FFD234] animate-pulse"></span>
+                        Integration Setup
+                    </div>
+                    <h1 class="text-3xl sm:text-4xl font-bold text-white leading-none tracking-tight">
+                        Connect&nbsp;<span style="color:#FFD234;">Lemon&nbsp;Squeezy®</span>
+                    </h1>
+                    <p class="mt-2 text-sm" style="color:rgba(255,255,255,0.4);">Webhook creation is handled automatically — just paste your API key.</p>
+                </div>
+                <div class="flex flex-col items-end gap-2.5">
+                    <span class="text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Step <span id="current-step-num">1</span> of 2</span>
+                    <div class="flex gap-1.5 items-center">
+                        <div class="step-dot w-8" style="background:#7c3aed;" data-index="1"></div>
+                        <div class="step-dot w-2" style="background:rgba(255,255,255,0.1);" data-index="2"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── Steps ─────────────────────────────────────────────── -->
+            <div class="relative flex-shrink-0" id="steps-container">
+                <div id="steps-slot" class="steps-slot pr-1">
+
+                    <!-- ══════════════════════════════════════════════════════ -->
+                    <!-- Step 1 – Open API Settings                            -->
+                    <!-- ══════════════════════════════════════════════════════ -->
+                    <div class="step-content active grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center" data-step="1">
+
+                        <!-- Mockup: LS Settings > API page -->
+                        <div class="mockup-col">
+                            <div class="mockup-shell">
+                                <div class="traffic-lights">
+                                    <div class="tl tl-r"></div>
+                                    <div class="tl tl-y"></div>
+                                    <div class="tl tl-g"></div>
+                                </div>
+                                <div class="flex flex-1 min-h-0">
+                                    <!-- Sidebar -->
+                                    <div class="ls-sidebar">
+                                        <div class="ls-logo-row">
+                                            <div class="ls-logo-mark" style="background:transparent;">
+                                                <img src="Icons/LemonSqueezy.png" alt="Lemon Squeezy®" style="width: 22px; height: 22px; object-fit: contain;">
+                                            </div>
+                                            <div class="ls-logo-text">Lemon Squeezy®</div>
+                                        </div>
+                                        
+                                        <div class="ls-nav-item">
+                                            <div class="ls-nav-item-left">
+                                                <i data-lucide="home" class="ls-nav-icon"></i>
+                                                <span>Home</span>
+                                            </div>
+                                        </div>
+                                        <div class="ls-nav-item">
+                                            <div class="ls-nav-item-left">
+                                                <i data-lucide="store" class="ls-nav-icon"></i>
+                                                <span>Store</span>
+                                            </div>
+                                            <i data-lucide="chevron-down" class="ls-nav-chevron"></i>
+                                        </div>
+                                        <div class="ls-nav-item">
+                                            <div class="ls-nav-item-left">
+                                                <i data-lucide="mail" class="ls-nav-icon"></i>
+                                                <span>Email</span>
+                                            </div>
+                                            <i data-lucide="chevron-down" class="ls-nav-chevron"></i>
+                                        </div>
+                                        <div class="ls-nav-item">
+                                            <div class="ls-nav-item-left">
+                                                <i data-lucide="users" class="ls-nav-icon"></i>
+                                                <span>Affiliates</span>
+                                            </div>
+                                            <i data-lucide="chevron-down" class="ls-nav-chevron"></i>
+                                        </div>
+                                        <div class="ls-nav-item">
+                                            <div class="ls-nav-item-left border-l" style="color: #111827; font-weight: 600;">
+                                                <i data-lucide="settings" class="ls-nav-icon" style="color: #6366f1;"></i>
+                                                <span>Settings</span>
+                                            </div>
+                                            <i data-lucide="chevron-up" class="ls-nav-chevron"></i>
+                                        </div>
+                                        
+                                        <div class="ls-subnav">
+                                            <div class="ls-subnav-item">General</div>
+                                            <div class="ls-subnav-item">Domains</div>
+                                            <div class="ls-subnav-item">Integrations</div>
+                                            <div class="ls-subnav-item">Webhooks</div>
+                                            <div class="ls-subnav-item">Email</div>
+                                            <div class="ls-subnav-item">Affiliates</div>
+                                            <div class="ls-subnav-item">Stores</div>
+                                            <div class="ls-subnav-item active">API</div>
+                                        </div>
+                                        
+                                        <div class="ls-nav-item">
+                                            <div class="ls-nav-item-left">
+                                                <i data-lucide="pen-tool" class="ls-nav-icon"></i>
+                                                <span>Design</span>
+                                            </div>
+                                            <i data-lucide="chevron-right" class="ls-nav-chevron"></i>
+                                        </div>
+                                        <div class="ls-nav-item">
+                                            <div class="ls-nav-item-left">
+                                                <i data-lucide="sliders" class="ls-nav-icon"></i>
+                                                <span>Setup</span>
+                                            </div>
+                                            <i data-lucide="chevron-right" class="ls-nav-chevron"></i>
+                                        </div>
+                                    </div>
+                                    <!-- Main area -->
+                                    <div class="ls-main">
+                                        <div class="ls-page-title">Settings</div>
+                                        
+                                        <div class="ls-tabs">
+                                            <div class="ls-tab">General</div>
+                                            <div class="ls-tab">Domains</div>
+                                            <div class="ls-tab">Integrations</div>
+                                            <div class="ls-tab">Webhooks</div>
+                                            <div class="ls-tab">Email</div>
+                                            <div class="ls-tab pt-1" style="flex: 1;"></div>
+                                            <div class="ls-tab">Stores</div>
+                                            <div class="ls-tab active">API</div>
+                                        </div>
+
+                                        <div class="ls-api-highlight-zone">
+                                            <div class="ls-section-header">
+                                                <div>
+                                                    <div class="ls-section-title">API keys</div>
+                                                    <div class="ls-section-desc">Create a new API key to authenticate your app · <span style="color:#7c3aed; cursor:pointer;">Help ↗</span></div>
+                                                </div>
+                                                <div class="ls-new-btn">
+                                                    <i data-lucide="plus" style="width:18px; height:18px;"></i>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="ls-keys-table">
+                                                <div class="ls-empty-row">
+                                                    No API keys yet
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Instructions -->
+                        <div class="instructions-col">
+                            <div class="p-8 rounded-3xl bg-black/25 backdrop-blur-xl">
+                                <div class="space-y-7">
+                                    <div>
+                                        <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight tracking-tight">
+                                            Open your API<br>Settings
+                                        </h2>
+                                        <div class="mt-3 w-10 h-[3px] rounded-full" style="background:#8b5cf6;"></div>
+                                    </div>
+
+                                    <p style="color:rgba(255,255,255,0.65); font-size:16px; line-height:1.7;">
+                                        Head to <strong style="color:#fff;">Settings → API</strong> in your Lemon&nbsp;Squeezy® dashboard. That's where you'll create the API key we need.
+                                    </p>
+
+                                    <div class="flex flex-wrap gap-2">
+                                        <div class="feature-pill"><div class="feature-pill-dot"></div>Webhooks created automatically</div>
+                                        <div class="feature-pill"><div class="feature-pill-dot"></div>Encrypted & stored securely</div>
+                                    </div>
+
+                                    <a href="https://app.lemonsqueezy.com/settings/api" target="_blank" rel="noopener noreferrer"
+                                    class="ls-open-btn w-full sm:w-auto">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                        Open Lemon Squeezy® API
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════════ -->
+                    <!-- Step 2 – Create key & connect                        -->
+                    <!-- ══════════════════════════════════════════════════════ -->
+                    <div class="step-content grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center" data-step="2">
+
+                        <!-- Mockup: key creation modal + revealed key -->
+                        <div class="mockup-col">
+                            <div class="mockup-shell">
+                                <div class="traffic-lights">
+                                    <div class="tl tl-r"></div>
+                                    <div class="tl tl-y"></div>
+                                    <div class="tl tl-g"></div>
+                                </div>
+                                <!-- blurred background page -->
+                                <div class="absolute inset-0 flex opacity-[0.85] pointer-events-none" style="filter: blur(3px);">
+                                    <div class="ls-sidebar" style="padding-top:36px;">
+                                        <div class="ls-logo-row">
+                                            <div class="ls-logo-mark" style="background:transparent;">
+                                                <img src="Icons/LemonSqueezy.png" alt="Lemon Squeezy®" style="width: 22px; height: 22px; object-fit: contain;">
+                                            </div>
+                                        </div>
+                                        <div class="ls-nav-item active" style="margin-top:40px;">
+                                            <div class="ls-nav-item-left">
+                                                <i data-lucide="settings" class="ls-nav-icon" style="color: #6366f1;"></i>
+                                                <span>Settings</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="ls-main">
+                                        <div class="ls-page-title">Settings</div>
+                                        <div class="ls-tabs">
+                                            <div class="ls-tab">General</div>
+                                            <div class="ls-tab pt-1" style="flex: 1;"></div>
+                                            <div class="ls-tab active">API</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Modal overlay -->
+                                <div class="ls-modal-overlay">
+                                    <div class="ls-modal">
+                                        <div class="ls-modal-header">
+                                            New API key
+                                            <span class="ls-modal-close">✕</span>
+                                        </div>
+                                        <div class="ls-modal-body">
+                                            <div>
+                                                <div class="ls-field-label">Name</div>
+                                                <div class="ls-field-input highlighted">Creator Assistant</div>
+                                            </div>
+                                            <!-- Revealed key -->
+                                            <div>
+                                                <div class="ls-field-label" style="margin-bottom:6px;">Your API key — copy it now</div>
+                                                <div class="ls-revealed-key">
+                                                    <span class="ls-key-icon">🔑</span>
+                                                    <span class="ls-key-text">eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQ...</span>
+                                                    <span class="ls-copy-chip">COPY</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="ls-modal-footer">
+                                            <div class="ls-btn-cancel">Cancel</div>
+                                            <div class="ls-btn-create">Create API key</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Instructions + input -->
+                        <div class="instructions-col">
+                            <div class="p-8 rounded-3xl bg-black/25 backdrop-blur-xl">
+                                <div class="space-y-6">
+                                    <div>
+                                        <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight tracking-tight">
+                                            Paste your<br>API Key
+                                        </h2>
+                                        <div class="mt-3 w-10 h-[3px] rounded-full" style="background:#8b5cf6;"></div>
+                                    </div>
+
+                                    <div class="space-y-1.5">
+                                        <p style="color:rgba(255,255,255,0.55); font-size:14px; line-height:1.6;">
+                                            Click <strong style="color:#fff;">+</strong> on the API page, give it any name (e.g. <em>Creator Assistant</em>), then click <strong style="color:#fff;">Create API key</strong>. Copy the key shown — it's only revealed once.
+                                        </p>
+                                    </div>
+
+                                    <div class="space-y-3">
+                                        <label class="block text-xs font-bold uppercase tracking-widest" style="color:rgba(255,255,255,0.4);">API Key</label>
+                                        <div style="position:relative;">
+                                            <input
+                                                type="password"
+                                                id="ls-api-key"
+                                                autocomplete="off"
+                                                spellcheck="false"
+                                                placeholder="eyJ0eXAiOiJKV1Qi…"
+                                                class="api-key-input"
+                                            />
+                                            <button id="toggle-visibility-btn" type="button" title="Show/hide key"
+                                                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.3);padding:4px;transition:color 0.15s ease;"
+                                                onmouseover="this.style.color='rgba(255,255,255,0.7)'"
+                                                onmouseout="this.style.color='rgba(255,255,255,0.3)'">
+                                                <i data-lucide="eye" class="w-4 h-4 show-icon"></i>
+                                                <i data-lucide="eye-off" class="w-4 h-4 hide-icon" style="display:none;"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div id="ls-error" class="error-box" style="display:none;"></div>
+
+                                    <button id="connect-btn" class="connect-btn ready" disabled>
+                                        <span id="connect-btn-label">Connect Lemon Squeezy</span>
+                                        <div id="connect-btn-spinner" class="btn-spinner" style="display:none;"></div>
+                                        <svg id="connect-btn-check" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+                                    </button>
+
+                                    <p style="color:rgba(255,255,255,0.25); font-size:12px; line-height:1.5;">
+                                        We'll automatically set up webhooks in your Lemon Squeezy store. Your key is encrypted before storage.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /steps-slot -->
+            </div><!-- /steps-container -->
+
+            <!-- ─── Nav buttons ──────────────────────────────────────── -->
+            <div class="mt-auto pt-8 pb-2 flex flex-col-reverse sm:flex-row justify-between items-stretch sm:items-center gap-4 flex-shrink-0 relative z-20" style="border-top: 1px solid rgba(255,255,255,0.05); margin-top: 1.5rem;">
+                <button id="prev-btn" disabled
+                    class="px-6 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 min-h-[44px] transition-all"
+                    style="color:rgba(255,255,255,0.5); background:transparent; border:none; cursor:pointer;"
+                    onmouseover="if(!this.disabled){this.style.color='white';this.style.background='rgba(255,255,255,0.05)'}"
+                    onmouseout="this.style.color='rgba(255,255,255,0.5)';this.style.background='transparent'">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                    Back
+                </button>
+                <button id="next-btn"
+                    class="px-8 py-3 rounded-2xl font-bold text-[15px] flex items-center justify-center gap-2 min-h-[44px] transition-all group"
+                    style="background:linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%); color:#ffffff; border:1px solid rgba(124,58,237,0.5); cursor:pointer; font-family:inherit; box-shadow:0 1px 2px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.1);">
+                    Next
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s ease;" class="next-arrow"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+
+        </div><!-- /card -->
+    </main>
+
+    <!-- ─── Inline scripts ─────────────────────────────────────────── -->
+    <script>
+    (function () {
+        let currentStep = 1;
+        const totalSteps = 2;
+        const prevBtn  = document.getElementById('prev-btn');
+        const nextBtn  = document.getElementById('next-btn');
+        const stepNum  = document.getElementById('current-step-num');
+        const connectBtn = document.getElementById('connect-btn');
+        const apiKeyInput = document.getElementById('ls-api-key');
+        const errBox   = document.getElementById('ls-error');
+
+        // ── Bootstrap session ──────────────────────────────────────
+        async function apiFetch(url, opts = {}) {
+            return fetch(url, { credentials: 'include', ...opts });
+        }
+
+        async function bootstrapSetupSession() {
+            if (HAS_SETUP_SESSION) return false;
+            const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+            const setupToken = hash.get('s');
+            if (!setupToken) return false;
+            const res = await apiFetch(`${API_BASE}/api/connect/bootstrap`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ setupToken }),
+            });
+            if (!res.ok) { redirectToExpiredLinkError(); return true; }
+            window.history.replaceState({}, '', window.location.pathname + window.location.search);
+            window.location.reload();
+            return true;
+        }
+
+        function goBackToDashboard() {
+            let url = `${API_BASE}/dashboard?tenant_id=${encodeURIComponent(TENANT_ID)}`;
+            if (GUILD_ID) url += `&guild_id=${encodeURIComponent(GUILD_ID)}`;
+            window.location.href = url;
+        }
+
+        // ── Back-to-dashboard button ───────────────────────────────
+        document.addEventListener('DOMContentLoaded', () => {
+            if (TENANT_ID && TENANT_ID !== '__TENANT_ID__') {
+                const btn = document.getElementById('back-to-dashboard-btn');
+                btn.style.display = 'inline-flex';
+                const dashboardUrl = new URL(`${API_BASE}/dashboard`, window.location.origin);
+                dashboardUrl.searchParams.set('tenant_id', TENANT_ID);
+                if (GUILD_ID && GUILD_ID !== '__GUILD_ID__') dashboardUrl.searchParams.set('guild_id', GUILD_ID);
+                btn.href = dashboardUrl.toString();
+            }
+
+            // Show/hide key toggle
+            const toggleBtn = document.getElementById('toggle-visibility-btn');
+            if (toggleBtn) {
+                toggleBtn.onclick = () => {
+                    const isPassword = apiKeyInput.type === 'password';
+                    apiKeyInput.type = isPassword ? 'text' : 'password';
+                    toggleBtn.querySelector('.show-icon').style.display = isPassword ? 'none' : '';
+                    toggleBtn.querySelector('.hide-icon').style.display = isPassword ? '' : 'none';
+                };
+            }
+        });
+
+        // ── Step height ────────────────────────────────────────────
+        let stepsResizeObserver = null;
+
+        function updateStepsHeight(stepNum_) {
+            const slot   = document.getElementById('steps-slot');
+            const target = stepNum_ != null
+                ? document.querySelector(`.step-content[data-step="${stepNum_}"]`)
+                : document.querySelector('.step-content.active');
+            if (slot && target) slot.style.height = target.offsetHeight + 'px';
+        }
+
+        function observeActiveStepHeight() {
+            if (stepsResizeObserver) stepsResizeObserver.disconnect();
+            const active = document.querySelector('.step-content.active');
+            if (!active) return;
+            updateStepsHeight();
+            stepsResizeObserver = new ResizeObserver(() => updateStepsHeight());
+            stepsResizeObserver.observe(active);
+        }
+
+        // ── Render step ────────────────────────────────────────────
+        function renderStep() {
+            const container = document.getElementById('steps-container');
+            container?.classList.add('steps-transitioning');
+
+            document.querySelectorAll('.step-content').forEach(el => {
+                const idx = parseInt(el.dataset.step);
+                if (idx === currentStep) {
+                    el.classList.remove('step-exiting');
+                    el.style.display = 'grid';
+                    el.style.position = '';
+                    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('active')));
+                } else {
+                    if (el.classList.contains('active')) {
+                        el.classList.add('step-exiting');
+                        el.classList.remove('active');
+                    }
+                    setTimeout(() => {
+                        if (!el.classList.contains('active')) {
+                            el.classList.remove('step-exiting');
+                            el.style.display = 'none';
+                            el.style.position = '';
+                        }
+                    }, 360);
+                }
+            });
+
+            // Dots
+            document.querySelectorAll('.step-dot').forEach(dot => {
+                const idx = parseInt(dot.dataset.index);
+                dot.style.width  = idx <= currentStep ? '2rem' : '0.5rem';
+                dot.style.background = idx <= currentStep ? '#7c3aed' : 'rgba(255,255,255,0.1)';
+            });
+
+            stepNum.textContent = currentStep;
+            prevBtn.disabled = (currentStep === 1);
+            prevBtn.style.opacity = (currentStep === 1) ? '0.3' : '1';
+            prevBtn.style.pointerEvents = (currentStep === 1) ? 'none' : 'auto';
+
+            // Step 2: hide Next, show Connect
+            if (currentStep === totalSteps) {
+                nextBtn.style.display = 'none';
+            } else {
+                nextBtn.style.display = 'flex';
+            }
+
+            updateStepsHeight(currentStep);
+            requestAnimationFrame(() => observeActiveStepHeight());
+            setTimeout(() => container?.classList.remove('steps-transitioning'), 420);
+
+            // Re-init icons
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        // ── API key input live validation ──────────────────────────
+        apiKeyInput?.addEventListener('input', () => {
+            const val = apiKeyInput.value.trim();
+            connectBtn.disabled = val.length < 10;
+        });
+
+        // ── Navigation ─────────────────────────────────────────────
+        nextBtn.addEventListener('click', () => {
+            if (currentStep < totalSteps) { currentStep++; renderStep(); }
+        });
+        prevBtn.addEventListener('click', () => {
+            if (currentStep > 1) { currentStep--; renderStep(); }
+        });
+
+        // ── Arrow hover effect ─────────────────────────────────────
+        nextBtn.addEventListener('mouseenter', () => {
+            const arrow = nextBtn.querySelector('.next-arrow');
+            if (arrow) arrow.style.transform = 'translateX(3px)';
+            nextBtn.style.transform = 'translateY(-1px)';
+            nextBtn.style.boxShadow = '0 8px 30px rgba(124,58,237,0.35), inset 0 1px 0 rgba(255,255,255,0.1)';
+        });
+        nextBtn.addEventListener('mouseleave', () => {
+            const arrow = nextBtn.querySelector('.next-arrow');
+            if (arrow) arrow.style.transform = 'translateX(0)';
+            nextBtn.style.transform = '';
+            nextBtn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.1)';
+        });
+
+        // ── Connect ────────────────────────────────────────────────
+        connectBtn.addEventListener('click', async () => {
+            const apiKey = apiKeyInput.value.trim();
+            errBox.style.display = 'none';
+            if (!apiKey) return;
+
+            // Loading state
+            connectBtn.disabled = true;
+            document.getElementById('connect-btn-label').textContent = 'Connecting…';
+            document.getElementById('connect-btn-spinner').style.display = '';
+            connectBtn.style.background = 'rgba(255,210,52,0.6)';
+            connectBtn.style.transform = '';
+            connectBtn.style.boxShadow = 'none';
+
+            try {
+                const body = { apiKey, tenantId: TENANT_ID };
+                const res = await apiFetch(`${API_BASE}/api/connect/lemonsqueezy-finish`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json().catch(() => ({}));
+
+                if (!res.ok) {
+                    throw new Error(data.error || 'Something went wrong. Please try again.');
+                }
+
+                // Success!
+                document.getElementById('connect-btn-spinner').style.display = 'none';
+                document.getElementById('connect-btn-label').textContent = 'Connected!';
+                document.getElementById('connect-btn-check').style.display = '';
+                connectBtn.classList.remove('ready');
+                connectBtn.classList.add('success');
+                connectBtn.style.background = '';
+                connectBtn.style.boxShadow = '';
+
+                // Confetti 🎉
+                if (typeof confetti !== 'undefined') {
+                    confetti({ particleCount: 80, spread: 60, origin: { y: 0.65 }, colors: ['#FFD234', '#ffffff', '#22c55e', '#fde68a'] });
+                    setTimeout(() => {
+                        confetti({ particleCount: 60, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#FFD234', '#fde68a'] });
+                        confetti({ particleCount: 60, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#22c55e', '#ffffff'] });
+                    }, 200);
+                }
+
+                setTimeout(() => goBackToDashboard(), 1600);
+
+            } catch (err) {
+                document.getElementById('connect-btn-spinner').style.display = 'none';
+                document.getElementById('connect-btn-label').textContent = 'Connect Lemon Squeezy';
+                connectBtn.disabled = false;
+                connectBtn.style.background = '';
+                connectBtn.style.boxShadow = '';
+                errBox.textContent = err.message || 'Something went wrong.';
+                errBox.style.display = 'block';
+            }
+        });
+
+        // ── Page reveal ────────────────────────────────────────────
+        let pageShown = false;
+        function showPage() {
+            if (pageShown) return;
+            pageShown = true;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            const overlay = document.getElementById('page-loading-overlay');
+            const content = document.getElementById('page-content');
+            if (content) content.style.display = '';
+            if (overlay) setTimeout(() => { overlay.classList.add('is-hiding'); setTimeout(() => overlay.style.display = 'none', 370); }, 500);
+            if (content) requestAnimationFrame(() => requestAnimationFrame(() => content.classList.add('is-visible')));
+            requestAnimationFrame(() => observeActiveStepHeight());
+        }
+
+        showPage();
+        bootstrapSetupSession().then(handled => { if (!handled) showPage(); }).catch(() => showPage());
+        renderStep();
+    })();
+    </script>
+
+</div><!-- /page-content -->
+</body>
+</html>

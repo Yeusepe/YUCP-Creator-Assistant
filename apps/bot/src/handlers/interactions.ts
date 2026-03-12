@@ -4,6 +4,7 @@
  * Routes interactions to command handlers. Admin subcommands require Administrator permission.
  */
 
+import { PROVIDER_META } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import {
@@ -300,7 +301,7 @@ async function handleAutocomplete(
 
     await interaction.respond(
       filtered.map((p) => ({
-        name: `${p.provider === 'gumroad' ? '🟣' : '🔷'} ${p.displayName ?? p.canonicalSlug ?? p.productId}`,
+        name: `${E[(PROVIDER_META[p.provider as keyof typeof PROVIDER_META]?.emojiKey ?? '') as keyof typeof E] ?? '🔷'} ${p.displayName ?? p.canonicalSlug ?? p.productId}`,
         value: `${p.provider}::${p.providerProductRef}`,
       }))
     );
@@ -703,7 +704,7 @@ async function handleButton(
     const parts = rest.split(':');
     // parts[0] = tenantId, parts[1] = filter, parts[2] = page
     const tenantId = parts[0] as Id<'tenants'>;
-    const filter = (parts[1] ?? 'all') as 'all' | 'gumroad' | 'jinxxy';
+    const filter = (parts[1] ?? 'all') as string;
     const page = Number.parseInt(parts[2] ?? '0', 10);
     const { handlePickerNavigation } = await import('../commands/licenseVerify');
     await handlePickerNavigation(interaction, ctx.convex, ctx.apiSecret, tenantId, filter, page);
@@ -1405,6 +1406,17 @@ async function handleSelectMenu(
     const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
     const { handleProductJinxxySelect } = await import('../commands/product');
     await handleProductJinxxySelect(interaction, userId, tenantId);
+    return;
+  }
+
+  // Product Lemon Squeezy product select: creator_product:ls_product_select:{userId}:{tenantId}
+  if (customId.startsWith('creator_product:ls_product_select:')) {
+    const rest = customId.slice('creator_product:ls_product_select:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const tenantId = rest.slice(colonIdx + 1) as Id<'tenants'>;
+    const { handleProductLemonSqueezySelect } = await import('../commands/product');
+    await handleProductLemonSqueezySelect(interaction, userId, tenantId);
     return;
   }
 

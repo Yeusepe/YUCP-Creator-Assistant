@@ -5,9 +5,9 @@
  * load entitlements, and queue role_sync if autoVerifyOnJoin. No provider API calls.
  */
 
-import { mutation } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { mutation } from './_generated/server';
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;
@@ -36,9 +36,7 @@ export const handleGuildMemberJoin = mutation({
 
     const guildLink = await ctx.db
       .query('guild_links')
-      .withIndex('by_discord_guild', (q) =>
-        q.eq('discordGuildId', args.discordGuildId)
-      )
+      .withIndex('by_discord_guild', (q) => q.eq('discordGuildId', args.discordGuildId))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
 
@@ -58,16 +56,17 @@ export const handleGuildMemberJoin = mutation({
 
     const subject = await ctx.db
       .query('subjects')
-      .withIndex('by_discord_user', (q) =>
-        q.eq('primaryDiscordUserId', args.discordUserId)
-      )
+      .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
       .first();
 
     if (!subject) {
       return { queued: false, jobCount: 0, reason: 'Subject not found (never verified)' };
     }
 
-    if (subject.primaryDiscordUserId.startsWith('gumroad:') || subject.primaryDiscordUserId.startsWith('jinxxy:')) {
+    if (
+      subject.primaryDiscordUserId.startsWith('gumroad:') ||
+      subject.primaryDiscordUserId.startsWith('jinxxy:')
+    ) {
       return { queued: false, jobCount: 0, reason: 'Subject has no real Discord ID' };
     }
 
