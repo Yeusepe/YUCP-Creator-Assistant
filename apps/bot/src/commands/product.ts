@@ -32,6 +32,13 @@ import type {
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { E, Emoji } from '../lib/emojis';
+import {
+  createDiscordRoleSetupSessionToken,
+  getDiscordRoleSetupResult,
+  listJinxxyProducts,
+  listLemonSqueezyProducts,
+  resolveVrchatAvatarName,
+} from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 import { canBotManageRole } from '../lib/roleHierarchy';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
@@ -167,10 +174,8 @@ export async function handleProductTypeSelect(
   if (selectedType === 'discord_role') {
     const { apiInternal, apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
     const apiBase = apiPublic ?? apiInternal;
-    const apiForFetch = apiInternal ?? apiBase;
-    const apiSecret = process.env.CONVEX_API_SECRET;
 
-    if (!apiBase || !apiSecret) {
+    if (!apiBase) {
       // Fallback: show modal if API_BASE_URL not configured
       const modal = new ModalBuilder()
         .setCustomId(`creator_product:discord_modal:${interaction.user.id}:${tenantId}`)
@@ -209,19 +214,12 @@ export async function handleProductTypeSelect(
     // Create a setup session on the API for the web flow (use internal URL when on Zeabur)
     await interaction.deferUpdate();
     try {
-      const res = await fetch(`${apiForFetch}/api/setup/discord-role-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenantId,
-          guildId: session.guildId,
-          adminDiscordUserId: interaction.user.id,
-          apiSecret,
-        }),
+      const token = await createDiscordRoleSetupSessionToken({
+        tenantId,
+        guildId: session.guildId,
+        adminDiscordUserId: interaction.user.id,
       });
-
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
-      const { token } = (await res.json()) as { token: string };
+      if (!token) throw new Error('Missing setup token');
       session.discordRoleSetupToken = token;
 
       const setupUrl = `${apiBase}/discord-role-setup#s=${encodeURIComponent(token)}`;
@@ -259,12 +257,10 @@ export async function handleProductTypeSelect(
   if (selectedType === 'jinxxy') {
     const { apiInternal, apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
     const apiBase = apiPublic ?? apiInternal;
-    const apiForFetch = apiInternal ?? apiBase;
-    const apiSecret = process.env.CONVEX_API_SECRET;
 
-    if (!apiBase || !apiSecret) {
+    if (!apiBase) {
       await interaction.update({
-        content: `${E.X_} API not configured. Set API_BASE_URL and CONVEX_API_SECRET for Jinxxy product selection.`,
+        content: `${E.X_} API not configured. Set API_BASE_URL or API_INTERNAL_URL for Jinxxy product selection.`,
         components: [],
       });
       return;
@@ -272,15 +268,7 @@ export async function handleProductTypeSelect(
 
     await interaction.deferUpdate();
     try {
-      const res = await fetch(`${apiForFetch}/api/jinxxy/products`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiSecret, tenantId }),
-      });
-      const data = (await res.json()) as {
-        products?: { id: string; name: string; collaboratorName?: string }[];
-        error?: string;
-      };
+      const data = await listJinxxyProducts(tenantId);
 
       if (data.error && (!data.products || data.products.length === 0)) {
         await interaction.editReply({
@@ -353,30 +341,9 @@ export async function handleProductTypeSelect(
 
   // Lemon Squeezy: fetch products from API and show select
   if (selectedType === 'lemonsqueezy') {
-    const { apiInternal, apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
-    const apiBase = apiPublic ?? apiInternal;
-    const apiForFetch = apiInternal ?? apiBase;
-    const apiSecret = process.env.CONVEX_API_SECRET;
-
-    if (!apiBase || !apiSecret) {
-      await interaction.update({
-        content: `${E.X_} API not configured. Set API_BASE_URL and CONVEX_API_SECRET for Lemon Squeezy product selection.`,
-        components: [],
-      });
-      return;
-    }
-
     await interaction.deferUpdate();
     try {
-      const res = await fetch(`${apiForFetch}/api/lemonsqueezy/products`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiSecret, tenantId }),
-      });
-      const data = (await res.json()) as {
-        products?: { id: string; name: string }[];
-        error?: string;
-      };
+      const data = await listLemonSqueezyProducts(tenantId);
 
       if (data.error && (!data.products || data.products.length === 0)) {
         await interaction.editReply({
@@ -668,7 +635,6 @@ export async function handleProductDiscordRoleDone(
 
   const { apiInternal, apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
   const apiBase = apiPublic ?? apiInternal;
-  const apiForFetch = apiInternal ?? apiBase;
   if (!apiBase) {
     await interaction.editReply({
       content: `${E.X_} API_BASE_URL not configured.`,
@@ -678,19 +644,7 @@ export async function handleProductDiscordRoleDone(
   }
 
   try {
-    const res = await fetch(`${apiForFetch}/api/setup/discord-role-result`, {
-      headers: { Authorization: `Bearer ${session.discordRoleSetupToken}` },
-    });
-    if (!res.ok) throw new Error(`API error: ${res.status}`);
-    const result = (await res.json()) as
-      | { completed: false }
-      | {
-          completed: true;
-          sourceGuildId: string;
-          sourceRoleId?: string;
-          sourceRoleIds?: string[];
-          requiredRoleMatchMode?: 'any' | 'all';
-        };
+    const result = await getDiscordRoleSetupResult(session.discordRoleSetupToken);
 
     if (!result.completed) {
       // Re-show the link button so they can go back
@@ -997,24 +951,8 @@ export async function handleProductConfirmAdd(
       // Best-effort: fetch avatar name via Convex using the tenant owner's stored VRChat session
       let vrchatDisplayName: string | undefined;
       try {
-        const convexUrl = process.env.CONVEX_URL ?? '';
-        const convexSiteUrl = convexUrl.includes('.convex.cloud')
-          ? convexUrl.replace('.convex.cloud', '.convex.site')
-          : convexUrl.replace('.convex.cloud', '.convex.site');
-        if (convexSiteUrl) {
-          const nameRes = await fetch(`${convexSiteUrl}/v1/vrchat/avatar-name`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${apiSecret}`,
-            },
-            body: JSON.stringify({ tenantId, avatarId }),
-          });
-          if (nameRes.ok) {
-            const nameData = (await nameRes.json()) as { name: string | null };
-            vrchatDisplayName = nameData.name ?? undefined;
-          }
-        }
+        const nameData = await resolveVrchatAvatarName({ tenantId, avatarId });
+        vrchatDisplayName = nameData.name ?? undefined;
       } catch {
         // Non-fatal: proceed without display name
       }

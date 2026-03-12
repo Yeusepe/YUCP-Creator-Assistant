@@ -14,6 +14,7 @@ export {
 } from './install';
 export {
   createVerificationRoutes,
+  mountVerificationRouteHandlers,
   mountVerificationRoutes,
   type VerificationConfig,
   type VerificationRouteHandlers,

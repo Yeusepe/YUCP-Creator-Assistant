@@ -4,7 +4,7 @@ import { initTheme } from './theme.js';
 import { initTabs } from './tabs.js';
 import { initSidebar } from './sidebar.js';
 import { initDropdowns } from './dropdown.js';
-import { initServerContext } from './server-context.js';
+import { initServerContext, refreshUserServers } from './server-context.js';
 import {
   initPlatforms,
   updatePlatformCards,
@@ -54,7 +54,10 @@ async function init() {
     if (!getHasSetupSession() && !getTenantId() && getGuildId()) {
       const res = await apiFetch(`${getApiBase()}/api/connect/ensure-tenant?guildId=${encodeURIComponent(getGuildId())}`);
       const data = await res.json();
-      if (data.tenantId) setTenantId(data.tenantId);
+      if (data.tenantId) {
+        setTenantId(data.tenantId);
+        await refreshUserServers(updatePlatformCards);
+      }
     }
 
     await fetchAllData();

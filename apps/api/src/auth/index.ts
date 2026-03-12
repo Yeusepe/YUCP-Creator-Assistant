@@ -391,6 +391,7 @@ export function createAuth(config: AuthConfig) {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
+            origin: config.baseUrl,
           },
           body: JSON.stringify({ token: ott }),
         });
@@ -401,19 +402,7 @@ export function createAuth(config: AuthConfig) {
           return { session: null, setCookieHeaders: [] };
         }
 
-        // Extract cookies from the response
-        const setCookieHeaders: string[] = [];
-        const betterAuthCookie = res.headers.get('set-better-auth-cookie');
-        const regularSetCookie = res.headers.get('set-cookie');
-
-        if (betterAuthCookie) {
-          const cookies = betterAuthCookie.split(', ');
-          setCookieHeaders.push(...cookies);
-        }
-        if (regularSetCookie) {
-          const cookies = regularSetCookie.split(', ');
-          setCookieHeaders.push(...cookies);
-        }
+        const setCookieHeaders = getResponseSetCookies(res.headers);
 
         let json: SessionData | null = null;
         try {
@@ -428,16 +417,32 @@ export function createAuth(config: AuthConfig) {
       }
     },
 
-    /** Sign out by calling Convex directly. */
-    async signOut(request: Request): Promise<void> {
+    /** Sign out by calling Convex directly through the cross-domain cookie bridge. */
+    async signOut(
+      request: Request
+    ): Promise<{ ok: boolean; status: number; setCookieHeaders: string[] }> {
       const cookie = request.headers.get('cookie') ?? '';
-      await fetch(`${convexAuthBase}/sign-out`, {
-        method: 'POST',
-        headers: {
-          'Better-Auth-Cookie': cookie,
-          'content-type': 'application/json',
-        },
-      });
+      if (!cookie) {
+        return { ok: true, status: 200, setCookieHeaders: [] };
+      }
+
+      try {
+        const res = await fetch(`${convexAuthBase}/sign-out`, {
+          method: 'POST',
+          headers: {
+            'Better-Auth-Cookie': cookie,
+            origin: config.baseUrl,
+          },
+        });
+
+        return {
+          ok: res.ok,
+          status: res.status,
+          setCookieHeaders: getResponseSetCookies(res.headers),
+        };
+      } catch {
+        return { ok: false, status: 0, setCookieHeaders: [] };
+      }
     },
 
     /**

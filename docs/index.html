@@ -361,7 +361,8 @@
         .pill-nav {
             display: flex;
             align-items: center;
-            padding: 5px;
+            padding: 4px 6px;
+            min-height: 36px;
             border-radius: 999px;
             background: rgba(255, 255, 255, 0.07);
             backdrop-filter: blur(48px) saturate(180%);
@@ -373,18 +374,28 @@
                 0 8px 40px rgba(0, 0, 0, 0.45),
                 0 2px 8px rgba(0, 0, 0, 0.25);
         }
+        @media (min-width: 640px) {
+            .pill-nav { padding: 5px 8px; min-height: 40px; }
+        }
+        @media (min-width: 768px) {
+            .pill-nav { padding: 6px 10px; min-height: 44px; }
+        }
 
         .pill-nav-divider {
             width: 1px;
-            height: 14px;
+            height: 12px;
             flex-shrink: 0;
             background: rgba(255, 255, 255, 0.12);
+        }
+        @media (min-width: 768px) {
+            .pill-nav-divider { height: 14px; }
         }
 
         .nav-link {
             position: relative;
             color: rgba(255, 255, 255, 0.5);
             transition: color 0.2s;
+            white-space: nowrap;
         }
 
         .nav-link:hover {
@@ -410,8 +421,8 @@
 
         .pill-cta {
             border-radius: 999px;
-            padding: 8px 18px;
-            font-size: 11px;
+            padding: 6px 12px;
+            font-size: 10px;
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 0.1em;
@@ -420,7 +431,7 @@
             border: none;
             display: flex;
             align-items: center;
-            gap: 7px;
+            gap: 5px;
             background: rgba(88, 101, 242, 0.75);
             backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.2);
@@ -428,6 +439,12 @@
                 0 1px 0 rgba(255, 255, 255, 0.25) inset,
                 0 4px 16px rgba(88, 101, 242, 0.4);
             transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+        }
+        @media (min-width: 640px) {
+            .pill-cta { padding: 7px 14px; font-size: 10px; gap: 6px; }
+        }
+        @media (min-width: 768px) {
+            .pill-cta { padding: 8px 16px; font-size: 11px; gap: 7px; }
         }
 
         .pill-cta:hover {
@@ -1033,6 +1050,12 @@
             /* Mockup max-width on mobile for better proportions */
             .mobile-mockup-cap { max-width: 480px; margin-left: auto; margin-right: auto; }
         }
+
+        /* ── Top bar: extra compact on very narrow screens ───────────────────── */
+        @media (max-width: 360px) {
+            .pill-nav { padding: 3px 4px; min-height: 32px; }
+            .pill-cta { padding: 5px 8px; gap: 4px; }
+        }
     </style>
 
     <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
@@ -1089,17 +1112,17 @@
         <div class="cursor-dot-outline hidden md:block"></div>
 
         <!-- ── Floating Pill Nav ─────────────────────────────────────────────────── -->
-        <div class="fixed top-5 inset-x-0 flex justify-center z-[100] px-3 sm:px-4" style="pointer-events: auto;">
+        <div class="fixed top-3 sm:top-4 md:top-5 inset-x-0 flex justify-center z-[100] px-2 sm:px-4 md:px-6" style="pointer-events: auto;">
             <nav
-                class="pill-nav flex items-center justify-between w-full max-w-4xl px-2 sm:px-4 py-1.5 sm:py-2 transition-all duration-300 relative box-border overflow-visible">
+                class="pill-nav flex items-center justify-between w-full max-w-4xl px-2 sm:px-3 md:px-4 transition-all duration-300 relative box-border overflow-visible min-w-0">
                 <!-- Mobile Toggle -->
                 <button type="button" id="mobile-menu-btn"
-                    class="md:hidden text-white/70 hover:text-white p-1 sm:p-2 flex-shrink-0 clickable touch-manipulation cursor-pointer"
+                    class="md:hidden text-white/70 hover:text-white p-1.5 flex-shrink-0 clickable touch-manipulation cursor-pointer"
                     style="pointer-events: auto;"
                     aria-label="Menu"
                     aria-expanded="false"
                     aria-controls="mobile-menu">
-                    <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 6h16M4 12h16M4 18h16"></path>
                     </svg>
@@ -1107,30 +1130,45 @@
 
                 <!-- Logo -->
                 <img src="Icons/MainLogo.png" alt="Creator Assistant"
-                    class="h-[14px] sm:h-[18px] w-auto max-w-[50vw] sm:max-w-none object-contain clickable cursor-pointer mx-auto md:mx-3"
+                    class="h-3.5 sm:h-4 md:h-[18px] w-auto max-w-[45vw] sm:max-w-[180px] object-contain clickable cursor-pointer mx-auto md:mx-2 flex-shrink-0"
                     onclick="window.scrollTo({top:0,behavior:'smooth'})">
 
                 <!-- Desktop Nav Links -->
-                <div class="hidden md:flex items-center">
-                    <div class="pill-nav-divider hidden md:block mx-1"></div>
+                <div class="hidden md:flex items-center flex-shrink-0 min-w-0">
+                    <div class="pill-nav-divider hidden md:block mx-0.5"></div>
                     <a href="#features"
-                        class="nav-link clickable px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em]">Features</a>
+                        class="nav-link clickable px-2.5 md:px-3 py-1.5 text-[10px] md:text-[11px] font-bold uppercase tracking-[0.08em]">Features</a>
                     <a href="#integrations"
-                        class="nav-link clickable px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em]">Integrations</a>
+                        class="nav-link clickable px-2.5 md:px-3 py-1.5 text-[10px] md:text-[11px] font-bold uppercase tracking-[0.08em]">Integrations</a>
                     <a href="#security"
-                        class="nav-link clickable px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em]">Security</a>
+                        class="nav-link clickable px-2.5 md:px-3 py-1.5 text-[10px] md:text-[11px] font-bold uppercase tracking-[0.08em]">Security</a>
                     <a href="https://creators.yucp.club/docs.html"
-                        class="nav-link clickable px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em]">Docs</a>
-                    <div class="pill-nav-divider hidden md:block mx-1"></div>
+                        class="nav-link clickable px-2.5 md:px-3 py-1.5 text-[10px] md:text-[11px] font-bold uppercase tracking-[0.08em]">Docs</a>
+                    <div class="pill-nav-divider hidden md:block mx-0.5"></div>
                 </div>
 
-                <!-- CTA -->
-                <button class="pill-cta clickable flex-shrink-0 !px-2.5 !py-1.5 sm:!px-4 sm:!py-2 ml-1"
-                    onclick="window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')">
-                    <img src="Icons/Discord.png" class="h-3.5 w-3.5 sm:h-4 sm:w-4 object-contain" alt="">
-                    <span class="hidden sm:inline font-bold tracking-widest uppercase text-[10px] sm:text-[11px]">Add to
-                        Discord®</span>
-                </button>
+                <!-- Nav CTAs -->
+                <div class="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+                    <!-- Dashboard button -->
+                    <a href="https://api.creators.yucp.club/sign-in"
+                        rel="noopener noreferrer"
+                        aria-label="Open the Creator Assistant dashboard sign-in page"
+                        class="pill-cta clickable"
+                        style="background:rgba(88,101,242,0.18);border-color:rgba(88,101,242,0.35);">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="flex-shrink-0 sm:w-3 sm:h-3 md:w-[13px] md:h-[13px]" aria-hidden="true">
+                            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                        </svg>
+                        <span class="hidden sm:inline font-bold tracking-widest uppercase">Dashboard</span>
+                    </a>
+                    <!-- Add to Discord button -->
+                    <button type="button"
+                        aria-label="Add Creator Assistant to Discord"
+                        class="pill-cta clickable"
+                        onclick="window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')">
+                        <img src="Icons/Discord.png" class="h-3 w-3 sm:h-3.5 sm:w-3.5 md:h-4 md:w-4 object-contain flex-shrink-0" alt="">
+                        <span class="hidden sm:inline font-bold tracking-widest uppercase">Add to Discord®</span>
+                    </button>
+                </div>
 
                 <!-- Mobile Menu Dropdown -->
                 <div id="mobile-menu"
@@ -1140,12 +1178,13 @@
                     <a href="#integrations" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Integrations</a>
                     <a href="#security" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Security</a>
                     <a href="https://creators.yucp.club/docs.html" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Docs</a>
+                    <a href="https://api.creators.yucp.club/sign-in" rel="noopener noreferrer" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2" style="color:rgba(88,101,242,0.9);">Dashboard</a>
                 </div>
             </nav>
         </div>
 
         <!-- ── Hero ──────────────────────────────────────────────────────────────── -->
-        <main id="hero" class="content-above-clouds min-h-screen flex items-start lg:items-center px-4 sm:px-6 lg:px-10 relative pt-24 pb-20 lg:pb-12" data-blob-index="0">
+        <main id="hero" class="content-above-clouds min-h-screen flex items-start lg:items-center px-4 sm:px-6 lg:px-10 relative pt-20 sm:pt-24 pb-20 lg:pb-12" data-blob-index="0">
 
             <div class="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-20 items-center relative z-10">
 
@@ -1194,9 +1233,10 @@
                                 </svg>
                             </span>
                         </button>
-                        <a href="https://creators.yucp.club/docs.html"
-                            class="clickable text-sm font-bold uppercase tracking-widest text-white/40 hover:text-white/90 transition-colors flex items-center gap-2">
-                            Read the docs
+                        <a href="https://api.creators.yucp.club/sign-in"
+                            rel="noopener noreferrer"
+                            class="clickable text-sm font-bold uppercase tracking-widest text-white/60 hover:text-white/95 transition-colors flex items-center gap-2">
+                            Sign in to Dashboard
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                             </svg>
