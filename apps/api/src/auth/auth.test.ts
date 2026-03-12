@@ -174,6 +174,104 @@ describe('Auth Configuration', () => {
       expect(session).toBeNull();
     });
 
+    it('signOut uses the Better Auth cross-domain cookie header and trusted origin', async () => {
+      const originalFetch = globalThis.fetch;
+      let betterAuthCookieHeader = '';
+      let originHeader = '';
+      let hasCookieHeader = false;
+
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const capturedHeaders = new Headers(init?.headers);
+        betterAuthCookieHeader = capturedHeaders.get('Better-Auth-Cookie') ?? '';
+        originHeader = capturedHeaders.get('origin') ?? '';
+        hasCookieHeader = capturedHeaders.has('cookie');
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: {
+            'set-better-auth-cookie':
+              '__Secure-yucp.session_token=; Path=/; Expires=Wed, 12 Mar 2026 10:00:00 GMT; HttpOnly',
+            'set-cookie': 'yucp.session_data=; Path=/; Max-Age=0; HttpOnly',
+          },
+        });
+      }) as typeof fetch;
+
+      try {
+        const config: AuthConfig = {
+          baseUrl: 'http://localhost:3001',
+          convexSiteUrl: 'https://test-123.convex.site',
+        };
+        const auth = createAuth(config);
+        const result = await auth.signOut(
+          new Request('http://localhost:3001/dashboard', {
+            headers: {
+              cookie: 'yucp.session_token=signed-token; yucp.session_data=cached',
+            },
+          })
+        );
+
+        expect(result.ok).toBe(true);
+        expect(result.status).toBe(200);
+        expect(result.setCookieHeaders).toHaveLength(2);
+        expect(result.setCookieHeaders).toContain(
+          '__Secure-yucp.session_token=; Path=/; Expires=Wed, 12 Mar 2026 10:00:00 GMT; HttpOnly'
+        );
+        expect(result.setCookieHeaders).toContain(
+          'yucp.session_data=; Path=/; Max-Age=0; HttpOnly'
+        );
+        expect(betterAuthCookieHeader).toBe(
+          'yucp.session_token=signed-token; yucp.session_data=cached'
+        );
+        expect(originHeader).toBe('http://localhost:3001');
+        expect(hasCookieHeader).toBe(false);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('exchangeOTT preserves Set-Cookie headers with Expires commas', async () => {
+      const originalFetch = globalThis.fetch;
+
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        expect(headers.get('origin')).toBe('http://localhost:3001');
+
+        return new Response(
+          JSON.stringify({
+            user: { id: 'user_123' },
+            session: { id: 'sess_123', expiresAt: Date.now() + 60_000, token: 'token_123' },
+          }),
+          {
+            status: 200,
+            headers: {
+              'set-better-auth-cookie':
+                '__Secure-yucp.session_token=abc; Path=/; Expires=Wed, 12 Mar 2026 10:00:00 GMT; HttpOnly',
+              'set-cookie': 'yucp.session_data=cache; Path=/; Max-Age=300; HttpOnly',
+            },
+          }
+        );
+      }) as typeof fetch;
+
+      try {
+        const config: AuthConfig = {
+          baseUrl: 'http://localhost:3001',
+          convexSiteUrl: 'https://test-123.convex.site',
+        };
+        const auth = createAuth(config);
+        const result = await auth.exchangeOTT('ott_123');
+
+        expect(result.session?.user.id).toBe('user_123');
+        expect(result.setCookieHeaders).toHaveLength(2);
+        expect(result.setCookieHeaders).toContain(
+          '__Secure-yucp.session_token=abc; Path=/; Expires=Wed, 12 Mar 2026 10:00:00 GMT; HttpOnly'
+        );
+        expect(result.setCookieHeaders).toContain(
+          'yucp.session_data=cache; Path=/; Max-Age=300; HttpOnly'
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
     it('production config uses secure cookie attributes', () => {
       const prodConfig = createCookieConfig(true);
       const devConfig = createCookieConfig(false);

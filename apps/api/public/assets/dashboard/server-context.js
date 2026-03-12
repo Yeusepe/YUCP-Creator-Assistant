@@ -1,4 +1,4 @@
-import {
+﻿import {
   getApiBase,
   getTenantId,
   getGuildId,
@@ -313,6 +313,30 @@ export function initServerContext(deps) {
     e.stopPropagation();
     _setDropdownOpen(false);
     switchDashboardContext('', deps);
+  });
+
+  const signOutBtn = document.getElementById('btn-sign-out');
+  signOutBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    _setDropdownOpen(false);
+
+    try {
+      for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+        const key = sessionStorage.key(index);
+        if (key?.startsWith('ca_servers_')) {
+          sessionStorage.removeItem(key);
+        }
+      }
+    } catch (_) {
+      // Ignore storage cleanup failures and continue with sign-out.
+    }
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `${getApiBase()}/sign-out?redirectTo=${encodeURIComponent('/sign-in')}`;
+    form.style.display = 'none';
+    document.body.appendChild(form);
+    form.submit();
   });
 
   if (!getGuildId()) {

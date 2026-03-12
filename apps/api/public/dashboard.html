@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -159,6 +159,11 @@
                                     <polyline points="9 22 9 12 15 12 15 22"></polyline>
                                 </svg>
                                 Personal Dashboard
+                            </button>
+                            <div style="height:1px;background:rgba(0,0,0,0.1);margin:2px 4px;"></div>
+                            <button type="button" class="server-dropdown-action-btn" id="btn-sign-out" style="color:rgba(239,68,68,0.85);">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                                Sign Out
                             </button>
                         </div>
                     </div>
@@ -1190,6 +1195,7 @@
         const fgRoot = document.getElementById('fg-canvas-root');
         if (fgRoot) createRoot(fgRoot).render(<ForegroundApp />);
     </script>
+
 
 </body>
 

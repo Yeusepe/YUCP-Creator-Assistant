@@ -33,6 +33,36 @@ function getTenantStorageKey(prefix) {
   return `${prefix}${getTenantId() || getGuildId() || 'unknown'}`;
 }
 
+/** Show a non-blocking toast nudging the user to select a server first. */
+function showSelectServerNotice() {
+  const TOAST_ID = 'yucp-select-server-toast';
+  if (document.getElementById(TOAST_ID)) return; // already visible
+
+  const toast = document.createElement('div');
+  toast.id = TOAST_ID;
+  toast.setAttribute('role', 'status');
+  toast.setAttribute('aria-live', 'polite');
+  toast.style.cssText = [
+    'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
+    'z-index:9999', 'display:flex', 'align-items:center', 'gap:10px',
+    'padding:12px 20px', 'border-radius:12px',
+    'background:rgba(30,31,34,0.97)', 'border:1px solid rgba(255,255,255,0.12)',
+    'box-shadow:0 8px 32px rgba(0,0,0,0.5)', 'backdrop-filter:blur(12px)',
+    'font-family:"Plus Jakarta Sans",sans-serif', 'font-size:13px',
+    'font-weight:600', 'color:rgba(255,255,255,0.88)', 'pointer-events:none',
+    'opacity:0', 'transition:opacity 0.25s ease',
+  ].join(';');
+  toast.innerHTML =
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5865F2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+    '<span>Select a server from the dropdown above first.</span>';
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+  }, 3500);
+}
+
 export function loadProgressFlags() {
   try {
     setSettingsTouched(localStorage.getItem(getTenantStorageKey(SETTINGS_TOUCHED_PREFIX)) === '1');
@@ -357,7 +387,7 @@ export async function navigateGumroad() {
   } else if (getHasSetupSession()) {
     window.location.href = `${getApiBase()}/api/connect/gumroad/begin`;
   } else {
-    alert('Please wait for the page to finish loading.');
+    showSelectServerNotice();
   }
 }
 
@@ -376,7 +406,7 @@ export async function navigateJinxxy() {
   } else if (getHasSetupSession()) {
     window.location.href = `${getApiBase()}/jinxxy-setup`;
   } else {
-    alert('Please wait for the page to finish loading.');
+    showSelectServerNotice();
   }
 }
 
@@ -395,7 +425,7 @@ export async function navigateLemonSqueezy() {
   } else if (getHasSetupSession()) {
     window.location.href = `${getApiBase()}/lemonsqueezy-setup`;
   } else {
-    alert('Please wait for the page to finish loading.');
+    showSelectServerNotice();
   }
 }
 
