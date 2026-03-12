@@ -31,6 +31,11 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E, Emoji } from '../lib/emojis';
+import {
+  bindVerifyPanel,
+  completeLicenseVerification,
+  disconnectVerification,
+} from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { buildBotVerificationErrorMessage } from '../lib/verificationSupport';
@@ -180,32 +185,61 @@ async function bindVerifyPanelToken(
     tenantId: Id<'tenants'>;
   }
 ): Promise<void> {
-  if (!apiBaseUrl) return;
+  const applicationId = interaction.applicationId?.trim();
+  const interactionToken = interaction.token?.trim();
+  const messageId = params.messageId.trim();
+  const panelToken = params.panelToken.trim();
+  const missingFields = [
+    !applicationId ? 'applicationId' : null,
+    !interactionToken ? 'interactionToken' : null,
+    !messageId ? 'messageId' : null,
+    !panelToken ? 'panelToken' : null,
+  ].filter((value): value is string => value !== null);
+
+  if (missingFields.length > 0) {
+    logger.info('Skipped verify panel token bind because interaction context is incomplete', {
+      guildId: params.guildId,
+      missingFields,
+      userId: params.discordUserId,
+    });
+    return;
+  }
 
   const apiForFetch = getApiUrls().apiInternal ?? apiBaseUrl;
+  if (!apiForFetch) return;
+
   try {
     const res = await fetch(`${apiForFetch}/api/verification/panel/bind`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         apiSecret,
-        applicationId: interaction.applicationId,
+        applicationId,
         discordUserId: params.discordUserId,
         guildId: params.guildId,
-        interactionToken: interaction.token,
-        messageId: params.messageId,
-        panelToken: params.panelToken,
+        interactionToken,
+        messageId,
+        panelToken,
         tenantId: params.tenantId,
       }),
     });
     if (!res.ok) {
-      const result = (await res.json().catch(() => ({}))) as { supportCode?: string };
-      logger.warn('Failed to bind verify panel token', {
+      const result = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        supportCode?: string;
+      };
+      const metadata = {
+        error: result.error,
         guildId: params.guildId,
         status: res.status,
         supportCode: result.supportCode,
         userId: params.discordUserId,
-      });
+      };
+      if (result.supportCode) {
+        logger.warn('Failed to bind verify panel token', metadata);
+      } else {
+        logger.info('Verify panel token was not bound', metadata);
+      }
     }
   } catch (err) {
     logger.warn('Failed to bind verify panel token', {
@@ -1034,20 +1068,12 @@ export async function handleLicenseModalSubmit(
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   }
 
-  const apiForFetch = getApiUrls().apiInternal ?? apiBaseUrl;
   try {
-    const res = await fetch(`${apiForFetch}/api/verification/complete-license`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiSecret, licenseKey, tenantId, subjectId }),
+    const result = await completeLicenseVerification({
+      licenseKey,
+      tenantId,
+      subjectId,
     });
-    const result = (await res.json()) as {
-      success?: boolean;
-      error?: string;
-      entitlementIds?: string[];
-      provider?: string;
-      supportCode?: string;
-    };
 
     if (!result.success) {
       const failureMessage =
@@ -1152,22 +1178,11 @@ export async function handleVerifyDisconnectButton(
     }
     tenantIdForError = String(guildLink.tenantId);
 
-    const res = await fetch(`${apiBaseUrl}/api/verification/disconnect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        apiSecret,
-        subjectId: subjectResult.subject._id,
-        tenantId: guildLink.tenantId,
-        provider,
-      }),
+    const result = await disconnectVerification({
+      subjectId: subjectResult.subject._id,
+      tenantId: guildLink.tenantId,
+      provider,
     });
-
-    const result = (await res.json()) as {
-      success?: boolean;
-      error?: string;
-      supportCode?: string;
-    };
 
     if (!result.success) {
       await interaction.editReply({

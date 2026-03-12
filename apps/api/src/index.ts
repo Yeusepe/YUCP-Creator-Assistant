@@ -4,9 +4,11 @@
 
 import { createLogger } from '@yucp/shared';
 import { type Auth, createAuth } from './auth';
+import { INTERNAL_RPC_PATH, createInternalRpcRouter } from './internalRpc/router';
 import {
   DISCORD_ROLE_SETUP_COOKIE,
   SETUP_SESSION_COOKIE,
+  clearCookie,
   getCookieValue,
 } from './lib/browserSessions';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
@@ -18,8 +20,10 @@ import {
   type VerificationConfig,
   createConnectRoutes,
   createProviderPlatformRoutes,
+  createVerificationRoutes,
   createWebhookHandler,
   mountInstallRoutes,
+  mountVerificationRouteHandlers,
   mountVerificationRoutes,
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
@@ -34,12 +38,14 @@ let auth: Auth | null = null;
 // Route handlers (initialized after auth)
 let installRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
+let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
 let publicRoutes: ReturnType<typeof createPublicRoutes> | null = null;
 let suiteRoutes: ReturnType<typeof createSuiteRoutes> | null = null;
+let internalRpcRouter: ReturnType<typeof createInternalRpcRouter> | null = null;
 let allowedCorsOrigins = new Set<string>();
 
 // Resolved after initializeAuth - used for apiBase injection and CORS
@@ -56,6 +62,14 @@ function escapeForSingleQuotedJsString(value: string): string {
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029')
     .replace(/<\/script/gi, '<\\/script');
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function redirectPreservingFragment(targetUrl: string): Response {
@@ -75,12 +89,93 @@ function normalizeOrigin(value: string | undefined): string | null {
   }
 }
 
+function getSafeRelativeRedirectTarget(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  if (!value.startsWith('/')) {
+    return null;
+  }
+
+  if (value.startsWith('//')) {
+    return null;
+  }
+
+  return value;
+}
+
+function getRelativeRequestTarget(url: URL): string {
+  return `${url.pathname}${url.search}`;
+}
+
+function buildSignInRouteUrl(browserBase: string, redirectTo: string): string {
+  const signInUrl = new URL('/sign-in', `${browserBase.replace(/\/$/, '')}/`);
+  signInUrl.searchParams.set('redirectTo', redirectTo);
+  return signInUrl.toString();
+}
+
+async function handleAppSignOut(request: Request, url: URL, pathname: string): Promise<Response> {
+  const signOutHeaders = new Headers({ 'Content-Type': 'application/json' });
+  let revokedOnAuthServer = false;
+
+  if (auth) {
+    const { ok, setCookieHeaders } = await auth
+      .signOut(request)
+      .catch(() => ({ ok: false, setCookieHeaders: [] as string[] }));
+    revokedOnAuthServer = ok;
+    for (const cookie of setCookieHeaders) {
+      signOutHeaders.append('Set-Cookie', cookie);
+    }
+  }
+
+  for (const name of [
+    'yucp.session_token',
+    '__Secure-yucp.session_token',
+    'yucp.session_data',
+    '__Secure-yucp.session_data',
+    'yucp.dont_remember',
+    '__Secure-yucp.dont_remember',
+  ]) {
+    signOutHeaders.append('Set-Cookie', clearCookie(name, request));
+  }
+  signOutHeaders.append('Set-Cookie', clearCookie(SETUP_SESSION_COOKIE, request));
+
+  const redirectTo =
+    getSafeRelativeRedirectTarget(url.searchParams.get('redirectTo')) ?? '/sign-in';
+  const acceptsHtml =
+    pathname === '/sign-out' || (request.headers.get('accept') ?? '').includes('text/html');
+
+  if (acceptsHtml) {
+    signOutHeaders.set('Location', redirectTo);
+    return new Response(null, {
+      status: 303,
+      headers: signOutHeaders,
+    });
+  }
+
+  return new Response(JSON.stringify({ success: revokedOnAuthServer, redirectTo }), {
+    status: revokedOnAuthServer ? 200 : 502,
+    headers: signOutHeaders,
+  });
+}
+
 function getClientAddress(request: Request): string {
+  const cloudflareConnectingIp = request.headers.get('cf-connecting-ip')?.trim();
+  if (cloudflareConnectingIp) {
+    return cloudflareConnectingIp;
+  }
+
+  const realIp = request.headers.get('x-real-ip')?.trim();
+  if (realIp) {
+    return realIp;
+  }
+
   const forwardedFor = request.headers.get('x-forwarded-for');
   if (forwardedFor) {
     return forwardedFor.split(',')[0]?.trim() || 'unknown';
   }
-  return request.headers.get('x-real-ip') ?? 'unknown';
+  return 'unknown';
 }
 
 function isRateLimited(bucketKey: string, maxRequests: number, windowMs: number): boolean {
@@ -103,6 +198,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   const env = loadEnv();
 
   getRequired('BETTER_AUTH_SECRET');
+  getRequired('INTERNAL_RPC_SHARED_SECRET');
   if ((env.NODE_ENV ?? 'development') === 'production') {
     getRequired('INTERNAL_SERVICE_AUTH_SECRET');
     getRequired('VRCHAT_PENDING_STATE_SECRET');
@@ -175,9 +271,10 @@ function initializeAuth(webhookBaseUrl?: string) {
     jinxxyClientSecret: env.JINXXY_SECRET_KEY,
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   };
-  verificationRoutes = mountVerificationRoutes(verificationConfig);
+  verificationHandlers = createVerificationRoutes(verificationConfig);
+  verificationRoutes = mountVerificationRouteHandlers(verificationHandlers);
 
-  connectRoutes = createConnectRoutes(auth, {
+  const connectConfig = {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
     convexSiteUrl,
@@ -189,7 +286,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
     gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
-  });
+  } satisfies Parameters<typeof createConnectRoutes>[1];
+  connectRoutes = createConnectRoutes(auth, connectConfig);
 
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
     apiBaseUrl: publicBaseUrl,
@@ -204,7 +302,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
   });
 
-  collabRoutes = createCollabRoutes({
+  const collabConfig = {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
@@ -212,7 +310,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     encryptionSecret: env.BETTER_AUTH_SECRET ?? '',
     discordClientId: env.DISCORD_CLIENT_ID ?? '',
     discordClientSecret: env.DISCORD_CLIENT_SECRET ?? '',
-  });
+  } satisfies Parameters<typeof createCollabRoutes>[0];
+  collabRoutes = createCollabRoutes(collabConfig);
 
   suiteRoutes = createSuiteRoutes({
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
@@ -224,6 +323,21 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
+  });
+
+  internalRpcRouter = createInternalRpcRouter({
+    connectRoutes,
+    verificationHandlers,
+    collabRoutes,
+    connectConfig,
+    collabConfig,
+    config: {
+      apiBaseUrl: publicBaseUrl,
+      convexApiSecret: env.CONVEX_API_SECRET ?? '',
+      convexSiteUrl,
+      internalRpcSharedSecret: env.INTERNAL_RPC_SHARED_SECRET ?? '',
+      logLevel: env.LOG_LEVEL,
+    },
   });
 
   logger.info('Better Auth initialized', {
@@ -250,6 +364,10 @@ async function routeRequest(request: Request): Promise<Response> {
   const clientAddress = getClientAddress(request);
 
   // Basic in-memory guardrails for abuse-prone routes.
+  if (pathname === INTERNAL_RPC_PATH && internalRpcRouter) {
+    return internalRpcRouter.handle(request, undefined);
+  }
+
   if (pathname.startsWith('/api/verification/')) {
     if (isRateLimited(`verification:${clientAddress}`, 60, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
@@ -470,6 +588,13 @@ async function routeRequest(request: Request): Promise<Response> {
     });
 
     return Response.redirect(redirectUrl, 302);
+  }
+
+  if (
+    (pathname === '/sign-out' || pathname === '/api/auth/sign-out') &&
+    request.method === 'POST'
+  ) {
+    return handleAppSignOut(request, url, pathname);
   }
 
   // Proxy /api/auth/*, /api/yucp/*, and /v1/* requests to Convex.
@@ -1096,6 +1221,19 @@ async function routeRequest(request: Request): Promise<Response> {
       return setupAuthRedirect;
     }
 
+    // Guard: regular web sessions require a valid BetterAuth session.
+    // Bot-initiated setup flows use the setup cookie and are exempt.
+    if (!setupCookieToken && auth) {
+      const webSession = await auth.getSession(request);
+      if (!webSession) {
+        const browserBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+        return Response.redirect(
+          buildSignInRouteUrl(browserBase, getRelativeRequestTarget(url)),
+          302
+        );
+      }
+    }
+
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
     html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
@@ -1158,6 +1296,19 @@ async function routeRequest(request: Request): Promise<Response> {
     );
     if (setupAuthRedirect) {
       return setupAuthRedirect;
+    }
+
+    // Guard: regular web sessions require a valid BetterAuth session.
+    // Bot-initiated setup flows use the setup cookie and are exempt.
+    if (!setupCookieToken && auth) {
+      const webSession = await auth.getSession(request);
+      if (!webSession) {
+        const browserBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+        return Response.redirect(
+          buildSignInRouteUrl(browserBase, getRelativeRequestTarget(url)),
+          302
+        );
+      }
     }
 
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
@@ -1235,6 +1386,83 @@ async function routeRequest(request: Request): Promise<Response> {
     });
   }
 
+  // ── /sign-in ──────────────────────────────────────────────────────────────
+  // Standalone sign-in entry-point for users arriving from docs/index.html.
+  // BetterAuth security model (all controls are server-side):
+  //   • callbackURL=/sign-in is validated against trustedOrigins before OAuth starts
+  //     Ref: https://better-auth.com/docs/reference/security#disableorigincheck
+  //   • PKCE + state generated and stored in DB by BetterAuth during sign-in initiation
+  //     Ref: https://better-auth.com/docs/concepts/oauth
+  //   • OTT exchange sets HttpOnly + Secure + SameSite=Strict session cookie
+  //     Ref: https://better-auth.com/docs/concepts/cookies
+  //   • Session expiry: 7d with 1d refresh window  Ref: https://better-auth.com/docs/concepts/session-management
+  if (pathname === '/sign-in') {
+    // Rate-limit the sign-in route to prevent automated abuse.
+    const clientIp = getClientAddress(request);
+    if (isRateLimited(`sign-in:${clientIp}`, 30, 60_000)) {
+      return new Response('Too many requests', { status: 429 });
+    }
+
+    // Redirect to the correct host if the frontend origin differs from the API origin
+    // (same host-normalisation pattern used by /dashboard and /jinxxy-setup etc.)
+    if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
+      const redirectUrl = new URL(request.url);
+      redirectUrl.protocol = new URL(resolvedFrontendOrigin).protocol;
+      redirectUrl.host = new URL(resolvedFrontendOrigin).host;
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
+
+    const ott = url.searchParams.get('ott');
+    const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+    const redirectTo =
+      getSafeRelativeRedirectTarget(url.searchParams.get('redirectTo')) ?? '/dashboard';
+
+    // Step 1: Exchange OTT for a session cookie.
+    // The OTT arrives here as ?ott=<token> after BetterAuth's Discord OAuth callback
+    // redirects to this callbackURL. auth.exchangeOTT() verifies the single-use token,
+    // creates the session in Convex, and returns Set-Cookie headers.
+    // On success we 302 back to /sign-in (strips ?ott from URL) so the browser
+    // stores the cookie and then lands on a clean URL.
+    if (ott && auth) {
+      const { session, setCookieHeaders } = await auth.exchangeOTT(ott);
+      if (session && setCookieHeaders.length > 0) {
+        const redirectUrl = new URL(url);
+        redirectUrl.searchParams.delete('ott');
+        const headers = new Headers({ Location: redirectUrl.toString() });
+        for (const cookie of setCookieHeaders) {
+          headers.append('Set-Cookie', cookie);
+        }
+        return new Response(null, { status: 302, headers });
+      }
+      logger.warn('OTT exchange failed for /sign-in', { clientIp });
+      // OTT was stale or already used — serve the page; client-side JS will detect
+      // the remaining ?ott= param and show the error state.
+    }
+
+    // Step 2: If the user already has a valid session, redirect straight to the requested page.
+    if (auth) {
+      const session = await auth.getSession(request);
+      if (session) {
+        return Response.redirect(`${browserApiBase}${redirectTo}`, 302);
+      }
+    }
+
+    // Step 3: No session — serve the sign-in page.
+    // The callbackURL is /sign-in so the OTT comes back here (Step 1 above),
+    // carrying the original destination through redirectTo.
+    const callbackUrl = new URL(`${browserApiBase}/sign-in`);
+    callbackUrl.searchParams.set('redirectTo', redirectTo);
+    const signInUrl = `${resolvedApiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl.toString())}`;
+    const filePath = `${import.meta.dir}/../public/sign-in.html`;
+    let html = await Bun.file(filePath).text();
+    html = html.replaceAll('__SIGN_IN_URL__', JSON.stringify(signInUrl));
+    html = html.replaceAll('__API_BASE__', escapeHtmlAttribute(browserApiBase.replace(/\/$/, '')));
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+    });
+  }
+
   if (pathname === '/dashboard' || pathname === '/dashboard.html') {
     if (resolvedFrontendOrigin && url.host !== new URL(resolvedFrontendOrigin).host) {
       const redirectUrl = new URL(request.url);
@@ -1285,6 +1513,19 @@ async function routeRequest(request: Request): Promise<Response> {
     );
     if (setupAuthRedirect) {
       return setupAuthRedirect;
+    }
+
+    // Guard: regular web sessions require a valid BetterAuth session.
+    // Bot-initiated setup flows use the setup cookie and are exempt.
+    if (!setupCookieToken && auth) {
+      const webSession = await auth.getSession(request);
+      if (!webSession) {
+        const browserBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+        return Response.redirect(
+          buildSignInRouteUrl(browserBase, getRelativeRequestTarget(url)),
+          302
+        );
+      }
     }
 
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;

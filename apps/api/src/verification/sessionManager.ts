@@ -2317,7 +2317,12 @@ export function createVerificationRoutes(config: VerificationConfig) {
 export function mountVerificationRoutes(
   config: VerificationConfig
 ): Map<string, (request: Request) => Promise<Response>> {
-  const routes = createVerificationRoutes(config);
+  return mountVerificationRouteHandlers(createVerificationRoutes(config));
+}
+
+export function mountVerificationRouteHandlers(
+  routes: VerificationRouteHandlers
+): Map<string, (request: Request) => Promise<Response>> {
   const routeMap = new Map<string, (request: Request) => Promise<Response>>();
 
   routeMap.set('/api/verification/begin', routes.beginVerification);
