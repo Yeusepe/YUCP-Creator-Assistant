@@ -395,13 +395,6 @@ export const scheduleBackfillThenSyncForBuyer = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
 
-    console.log('[backgroundSync] scheduleBackfillThenSyncForBuyer called', {
-      provider: args.provider,
-      tenantId: args.tenantId,
-      subjectId: args.subjectId,
-      emailHashPrefix: args.emailHash?.slice(0, 8) ?? '(none)',
-    });
-
     if (args.provider === 'jinxxy') {
       await ctx.scheduler.runAfter(
         0,
@@ -468,16 +461,6 @@ export const syncPastPurchasesForSubject = internalAction({
       });
     }
 
-    console.log('[backgroundSync] syncPastPurchasesForSubject: purchases found', {
-      subjectId: args.subjectId,
-      provider: args.provider,
-      lookupMode: args.emailHash ? 'emailHash' : 'providerUserId',
-      emailHashPrefix: args.emailHash ? args.emailHash.slice(0, 8) : '(none)',
-      providerUserId: args.emailHash ? '(not needed)' : args.providerUserId,
-      totalPurchases: purchases.length,
-      providerPurchases: purchases.filter((p) => p.provider === args.provider).length,
-    });
-
     for (const p of purchases) {
       if (p.lifecycleStatus !== 'active') continue;
       if (p.provider !== args.provider) continue;
@@ -492,16 +475,6 @@ export const syncPastPurchasesForSubject = internalAction({
       const catalogProductId = catalog?.catalogProductId;
       const sourceRef = buildSourceRef(args.provider, p.externalOrderId, p.externalLineItemId);
 
-      console.log('[backgroundSync] syncPastPurchasesForSubject: granting entitlement', {
-        subjectId: args.subjectId,
-        provider: args.provider,
-        externalOrderId: p.externalOrderId,
-        providerProductId: p.providerProductId,
-        productId,
-        catalogProductId,
-        sourceRef,
-      });
-
       await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,
         tenantId: p.tenantId,
@@ -515,11 +488,6 @@ export const syncPastPurchasesForSubject = internalAction({
         },
       });
     }
-
-    console.log('[backgroundSync] syncPastPurchasesForSubject: completed', {
-      subjectId: args.subjectId,
-      provider: args.provider,
-    });
   },
 });
 
