@@ -307,6 +307,7 @@ async function processJinxxyEvent(
         externalLineItemId,
         buyerEmailNormalized,
         buyerEmailHash,
+        providerUserId: jinxxyUserId,
         providerProductId,
         paymentStatus: paymentStatus.toLowerCase(),
         lifecycleStatus: 'active',
