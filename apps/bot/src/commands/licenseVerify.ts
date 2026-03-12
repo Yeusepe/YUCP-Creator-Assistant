@@ -552,7 +552,6 @@ export async function handleLicenseKeyModal(
     tenantId: String(tenantId),
     provider,
     providerProductRef,
-    licenseKeyPrefix: licenseKey.slice(0, 8),
     licenseKeyLength: licenseKey.length,
   });
 
@@ -602,28 +601,6 @@ export async function handleLicenseKeyModal(
       await interaction.editReply({
         content: `${E.X_} Failed to look up your account. Please try again.`,
       });
-    }
-    return;
-  }
-
-  // Call the API to verify the license key (use internal URL when on Zeabur)
-  const { apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
-  if (!(apiPublic ?? apiBaseUrl)) {
-    if (interaction.guildId && apiBaseUrl) {
-      const message = await interaction.editReply(
-        await buildVerifyStatusReply(
-          interaction.user.id,
-          tenantId,
-          interaction.guildId,
-          convex,
-          apiSecret,
-          apiBaseUrl,
-          { bannerMessage: `${E.X_} API not available right now.` }
-        )
-      );
-      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
-    } else {
-      await interaction.editReply({ content: `${E.X_} API not available right now.` });
     }
     return;
   }
