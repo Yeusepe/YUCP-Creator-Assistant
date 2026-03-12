@@ -7,16 +7,16 @@
  * Requires CONVEX_API_SECRET for API-to-Convex calls.
  */
 
-import { mutation, query, internalQuery } from './_generated/server';
-import { components } from './_generated/api';
 import { v } from 'convex/values';
+import { components } from './_generated/api';
 import type { Id } from './_generated/dataModel';
+import { internalQuery, mutation, query } from './_generated/server';
 
 const SubjectStatus = v.union(
   v.literal('active'),
   v.literal('suspended'),
   v.literal('quarantined'),
-  v.literal('deleted'),
+  v.literal('deleted')
 );
 
 const PolicyInput = v.optional(
@@ -41,17 +41,17 @@ const PolicyInput = v.optional(
     shareVerificationWithServers: v.optional(v.boolean()),
     shareVerificationScope: v.optional(v.string()),
     duplicateVerificationBehavior: v.optional(
-      v.union(v.literal('block'), v.literal('notify'), v.literal('allow')),
+      v.union(v.literal('block'), v.literal('notify'), v.literal('allow'))
     ),
     duplicateVerificationNotifyChannelId: v.optional(v.string()),
     suspiciousAccountBehavior: v.optional(
-      v.union(v.literal('quarantine'), v.literal('notify'), v.literal('revoke')),
+      v.union(v.literal('quarantine'), v.literal('notify'), v.literal('revoke'))
     ),
     suspiciousNotifyChannelId: v.optional(v.string()),
     enableDiscordRoleFromOtherServers: v.optional(v.boolean()),
     allowedSourceGuildIds: v.optional(v.array(v.string())),
     allowMismatchedEmails: v.optional(v.boolean()),
-  }),
+  })
 );
 
 function requireApiSecret(apiSecret: string | undefined): void {

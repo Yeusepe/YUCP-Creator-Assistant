@@ -8,9 +8,9 @@
  * - Dead letter queue for permanently failed jobs
  */
 
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 
 /** Outbox job status values */
 export const OutboxJobStatus = v.union(
@@ -18,7 +18,7 @@ export const OutboxJobStatus = v.union(
   v.literal('in_progress'),
   v.literal('completed'),
   v.literal('failed'),
-  v.literal('dead_letter'),
+  v.literal('dead_letter')
 );
 
 /** Outbox job types */
@@ -29,7 +29,7 @@ export const OutboxJobType = v.union(
   v.literal('revocation'),
   v.literal('notification'),
   v.literal('creator_alert'),
-  v.literal('retroactive_rule_sync'),
+  v.literal('retroactive_rule_sync')
 );
 
 function requireApiSecret(apiSecret: string | undefined): void {
@@ -60,7 +60,7 @@ export const getPendingJobs = query({
     const now = Date.now();
 
     // Get pending jobs
-    let pendingQuery = ctx.db
+    const pendingQuery = ctx.db
       .query('outbox_jobs')
       .withIndex('by_status', (q) => q.eq('status', 'pending'));
 
@@ -68,9 +68,7 @@ export const getPendingJobs = query({
     if (args.jobTypes && args.jobTypes.length > 0) {
       // We need to filter after fetching since we can't combine index filters
       const allPending = await pendingQuery.collect();
-      const filtered = allPending.filter((job) =>
-        args.jobTypes!.includes(job.jobType as any)
-      );
+      const filtered = allPending.filter((job) => args.jobTypes!.includes(job.jobType as any));
       return filtered.slice(0, limit);
     }
 
@@ -79,9 +77,7 @@ export const getPendingJobs = query({
     // Also get jobs ready for retry (in_progress with nextRetryAt in the past)
     const retryJobs = await ctx.db
       .query('outbox_jobs')
-      .withIndex('by_status_next_retry', (q) =>
-        q.eq('status', 'pending').lt('nextRetryAt', now)
-      )
+      .withIndex('by_status_next_retry', (q) => q.eq('status', 'pending').lt('nextRetryAt', now))
       .take(limit - pendingJobs.length);
 
     return [...pendingJobs, ...retryJobs];
@@ -104,7 +100,7 @@ export const getByIdempotencyKey = query({
     v.object({
       found: v.literal(false),
       job: v.null(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const job = await ctx.db
@@ -165,10 +161,7 @@ export const getFailedRoleSyncForUser = query({
       .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
       .filter((q) => q.eq(q.field('jobType'), 'role_sync'))
       .filter((q) =>
-        q.or(
-          q.eq(q.field('status'), 'pending'),
-          q.eq(q.field('status'), 'dead_letter')
-        )
+        q.or(q.eq(q.field('status'), 'pending'), q.eq(q.field('status'), 'dead_letter'))
       )
       .collect();
 
@@ -176,9 +169,7 @@ export const getFailedRoleSyncForUser = query({
     return jobs
       .filter((j) => {
         const payload = j.payload as { discordUserId?: string; guildId?: string };
-        const matchGuild =
-          j.targetGuildId === args.guildId ||
-          payload?.guildId === args.guildId;
+        const matchGuild = j.targetGuildId === args.guildId || payload?.guildId === args.guildId;
         const matchUser =
           j.targetDiscordUserId === args.discordUserId ||
           payload?.discordUserId === args.discordUserId;

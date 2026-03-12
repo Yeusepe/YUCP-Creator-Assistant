@@ -21,3 +21,4 @@ export {
 export { createConnectRoutes, type ConnectConfig } from './connect';
 export { createPublicRoutes, type PublicRouteConfig } from './public';
 export { createWebhookHandler } from './webhooks';
+export { createProviderPlatformRoutes } from './providerPlatform';

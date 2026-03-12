@@ -72,9 +72,7 @@ export class VrchatWebClient {
 
     const authToken = extractCookieValue(response.headers, AUTH_COOKIE);
     if (!authToken) {
-      throw new Error(
-        `Verification failed: missing auth cookie (status ${response.status})`
-      );
+      throw new Error(`Verification failed: missing auth cookie (status ${response.status})`);
     }
 
     if (requiresTwoFactorAuth(data)) {
@@ -187,7 +185,9 @@ export class VrchatWebClient {
     );
   }
 
-  async getOwnershipFromSession(session: VrchatSessionTokens): Promise<VrchatOwnershipResult | null> {
+  async getOwnershipFromSession(
+    session: VrchatSessionTokens
+  ): Promise<VrchatOwnershipResult | null> {
     const user = await this.getCurrentUser(session);
     if (!user) {
       return null;

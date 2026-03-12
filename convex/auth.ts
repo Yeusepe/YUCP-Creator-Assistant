@@ -129,7 +129,11 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
 
   const legacyBetterAuthOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
   const authOrigin = normalizeOrigin(convexSiteUrl);
-  if (legacyBetterAuthOrigin && legacyBetterAuthOrigin !== authOrigin && !hasLoggedIgnoredBetterAuthUrl) {
+  if (
+    legacyBetterAuthOrigin &&
+    legacyBetterAuthOrigin !== authOrigin &&
+    !hasLoggedIgnoredBetterAuthUrl
+  ) {
     hasLoggedIgnoredBetterAuthUrl = true;
     console.warn(
       `BETTER_AUTH_URL (${legacyBetterAuthOrigin}) is ignored; Better Auth runs on ${authOrigin}`

@@ -14,6 +14,8 @@ type ConvexServerClient = {
   action: (functionReference: unknown, args?: unknown) => Promise<any>;
 };
 
+export type { ConvexServerClient };
+
 let client: ConvexServerClient | null = null;
 
 /**

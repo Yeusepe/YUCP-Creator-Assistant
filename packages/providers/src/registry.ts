@@ -15,10 +15,11 @@
  * ```
  */
 
+import type { ProviderKey } from '@yucp/shared';
 import type { ProviderAdapter } from './index';
 
 /** Supported provider types in the system */
-export type ProviderType = 'gumroad' | 'discord_role' | 'jinxxy' | 'manual' | 'vrchat';
+export type ProviderType = ProviderKey | 'discord_role';
 
 /** Provider mode that a tenant can enable */
 export type ProviderMode = ProviderType;

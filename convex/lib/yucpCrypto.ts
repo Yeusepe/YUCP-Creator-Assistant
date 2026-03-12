@@ -17,7 +17,10 @@ import * as ed from '@noble/ed25519';
 ed.etc.sha512Async = async (...messages: Uint8Array[]) => {
   const data = ed.etc.concatBytes(...messages);
   // Copy to a plain ArrayBuffer to satisfy Web Crypto's BufferSource type
-  const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+  const buffer = data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength
+  ) as ArrayBuffer;
   const hash = await crypto.subtle.digest('SHA-512', buffer);
   return new Uint8Array(hash);
 };
@@ -50,11 +53,11 @@ export interface IdentityAnchors {
 /** CertData for schemaVersion 2 (identity-anchored). */
 export interface CertData {
   devPublicKey: string;
-  expiresAt: string;    // ISO 8601
+  expiresAt: string; // ISO 8601
   /** Better Auth user ID of the certificate owner */
   yucpUserId: string;
   identityAnchors: IdentityAnchors;
-  issuedAt: string;     // ISO 8601
+  issuedAt: string; // ISO 8601
   issuer: string;
   nonce: string;
   publisherId: string;
@@ -108,7 +111,7 @@ export function canonicalizeCert(certData: CertData): string {
 export async function signCertData(
   certData: CertData,
   privateKeyBase64: string,
-  keyId: string,
+  keyId: string
 ): Promise<CertEnvelope> {
   const canonical = canonicalizeCert(certData);
   const messageBytes = new TextEncoder().encode(canonical);
@@ -132,7 +135,7 @@ export async function signCertData(
  */
 export async function verifyCertEnvelope(
   envelope: CertEnvelope,
-  publicKeyBase64: string,
+  publicKeyBase64: string
 ): Promise<boolean> {
   try {
     const canonical = canonicalizeCert(envelope.cert);
@@ -193,7 +196,7 @@ function base64urlEncode(data: Uint8Array | string): string {
 export async function signLicenseJwt(
   claims: LicenseClaims,
   privateKeyBase64: string,
-  keyId: string,
+  keyId: string
 ): Promise<string> {
   const header = { alg: 'EdDSA', crv: 'Ed25519', kid: keyId };
   const headerB64 = base64urlEncode(JSON.stringify(header));

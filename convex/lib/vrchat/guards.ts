@@ -7,17 +7,21 @@
 import type { RequiresTwoFactorAuth, TwoFactorAuthType, VrchatCurrentUser } from './types';
 
 export function requiresTwoFactorAuth(data?: unknown): data is RequiresTwoFactorAuth {
-  return !!data
-    && typeof data === 'object'
-    && 'requiresTwoFactorAuth' in data
-    && Array.isArray((data as { requiresTwoFactorAuth?: unknown }).requiresTwoFactorAuth);
+  return (
+    !!data &&
+    typeof data === 'object' &&
+    'requiresTwoFactorAuth' in data &&
+    Array.isArray((data as { requiresTwoFactorAuth?: unknown }).requiresTwoFactorAuth)
+  );
 }
 
 export function isUser(data?: unknown): data is VrchatCurrentUser {
-  return !!data
-    && typeof data === 'object'
-    && 'id' in data
-    && typeof (data as { id?: unknown }).id === 'string';
+  return (
+    !!data &&
+    typeof data === 'object' &&
+    'id' in data &&
+    typeof (data as { id?: unknown }).id === 'string'
+  );
 }
 
 export function sanitizeTwoFactorMethods(methods: readonly string[]): TwoFactorAuthType[] {

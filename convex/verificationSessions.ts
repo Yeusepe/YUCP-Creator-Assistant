@@ -12,9 +12,9 @@
  * 5. cleanupExpiredSessions - removes old expired sessions
  */
 
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { mutation, query } from './_generated/server';
 import { VerificationModeV } from './lib/providers';
 
 // ============================================================================
@@ -67,6 +67,8 @@ export const getVerificationSessionByState = query({
         tenantId: v.id('tenants'),
         subjectId: v.optional(v.id('subjects')),
         mode: VerificationModeV,
+        providerKey: v.optional(v.string()),
+        verificationMethod: v.optional(v.string()),
         productId: v.optional(v.id('product_catalog')),
         state: v.string(),
         pkceVerifierHash: v.optional(v.string()),
@@ -82,7 +84,7 @@ export const getVerificationSessionByState = query({
           v.literal('completed'),
           v.literal('failed'),
           v.literal('expired'),
-          v.literal('cancelled'),
+          v.literal('cancelled')
         ),
         errorMessage: v.optional(v.string()),
         createdAt: v.number(),
@@ -92,15 +94,13 @@ export const getVerificationSessionByState = query({
     v.object({
       found: v.literal(false),
       session: v.null(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const session = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_tenant_state', (q) =>
-        q.eq('tenantId', args.tenantId).eq('state', args.state)
-      )
+      .withIndex('by_tenant_state', (q) => q.eq('tenantId', args.tenantId).eq('state', args.state))
       .first();
 
     if (!session) {
@@ -141,6 +141,8 @@ export const getVerificationSessionByNonce = query({
         tenantId: v.id('tenants'),
         subjectId: v.optional(v.id('subjects')),
         mode: VerificationModeV,
+        providerKey: v.optional(v.string()),
+        verificationMethod: v.optional(v.string()),
         productId: v.optional(v.id('product_catalog')),
         state: v.string(),
         pkceVerifierHash: v.optional(v.string()),
@@ -154,7 +156,7 @@ export const getVerificationSessionByNonce = query({
           v.literal('completed'),
           v.literal('failed'),
           v.literal('expired'),
-          v.literal('cancelled'),
+          v.literal('cancelled')
         ),
         errorMessage: v.optional(v.string()),
         createdAt: v.number(),
@@ -164,7 +166,7 @@ export const getVerificationSessionByNonce = query({
     v.object({
       found: v.literal(false),
       session: v.null(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -207,7 +209,7 @@ export const getPendingSessionsForTenant = query({
       mode: VerificationModeV,
       expiresAt: v.number(),
       createdAt: v.number(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -243,6 +245,8 @@ export const createVerificationSession = mutation({
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
     mode: VerificationMode,
+    providerKey: v.optional(v.string()),
+    verificationMethod: v.optional(v.string()),
     state: v.string(),
     pkceVerifierHash: v.optional(v.string()),
     pkceVerifier: v.optional(v.string()),
@@ -266,9 +270,7 @@ export const createVerificationSession = mutation({
     // Check for existing session with same state (replay protection)
     const existingSession = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_tenant_state', (q) =>
-        q.eq('tenantId', args.tenantId).eq('state', args.state)
-      )
+      .withIndex('by_tenant_state', (q) => q.eq('tenantId', args.tenantId).eq('state', args.state))
       .first();
 
     if (existingSession && existingSession.status === 'pending') {
@@ -292,6 +294,8 @@ export const createVerificationSession = mutation({
     const sessionId = await ctx.db.insert('verification_sessions', {
       tenantId: args.tenantId,
       mode: args.mode,
+      providerKey: args.providerKey,
+      verificationMethod: args.verificationMethod ?? args.mode,
       state: args.state,
       pkceVerifierHash: args.pkceVerifierHash,
       pkceVerifier: args.pkceVerifier,
@@ -351,9 +355,7 @@ export const completeVerificationSession = mutation({
 
     // Check for expired/failed/cancelled sessions
     if (session.status !== 'pending') {
-      throw new Error(
-        `Verification session is not pending: ${session.status}`
-      );
+      throw new Error(`Verification session is not pending: ${session.status}`);
     }
 
     // Check expiry
@@ -396,7 +398,7 @@ export const expireVerificationSession = mutation({
       v.literal('completed'),
       v.literal('failed'),
       v.literal('expired'),
-      v.literal('cancelled'),
+      v.literal('cancelled')
     ),
   }),
   handler: async (ctx, args) => {
@@ -523,9 +525,7 @@ export const cleanupExpiredSessions = mutation({
     // Also mark any pending sessions that have expired
     const newlyExpired = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_status_expires', (q) =>
-        q.eq('status', 'pending').lt('expiresAt', now)
-      )
+      .withIndex('by_status_expires', (q) => q.eq('status', 'pending').lt('expiresAt', now))
       .collect();
 
     for (const session of newlyExpired) {
@@ -548,6 +548,8 @@ export const getOrCreateSessionByNonce = mutation({
     apiSecret: v.string(),
     tenantId: v.id('tenants'),
     mode: VerificationMode,
+    providerKey: v.optional(v.string()),
+    verificationMethod: v.optional(v.string()),
     nonce: v.string(),
     redirectUri: v.string(),
     productId: v.optional(v.id('product_catalog')),
@@ -589,6 +591,8 @@ export const getOrCreateSessionByNonce = mutation({
     const sessionId = await ctx.db.insert('verification_sessions', {
       tenantId: args.tenantId,
       mode: args.mode,
+      providerKey: args.providerKey,
+      verificationMethod: args.verificationMethod ?? args.mode,
       state,
       nonce: args.nonce,
       redirectUri: args.redirectUri,

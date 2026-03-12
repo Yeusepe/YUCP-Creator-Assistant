@@ -99,7 +99,9 @@ export function extractCookieValue(headers: Headers, name: string): string | und
 }
 
 export function buildCookieHeader(session: VrchatSessionTokens): string {
-  const cookies: Cookie[] = [{ name: AUTH_COOKIE, value: session.authToken, expires: null, options: {} }];
+  const cookies: Cookie[] = [
+    { name: AUTH_COOKIE, value: session.authToken, expires: null, options: {} },
+  ];
   if (session.twoFactorAuthToken) {
     cookies.push({
       name: TWO_FACTOR_AUTH_COOKIE,

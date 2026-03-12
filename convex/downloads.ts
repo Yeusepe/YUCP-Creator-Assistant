@@ -1,16 +1,13 @@
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
+import { mutation, query } from './_generated/server';
 
 const RoleLogic = v.union(v.literal('all'), v.literal('any'));
 const DownloadArtifactStatus = v.union(
   v.literal('active'),
   v.literal('deleted'),
-  v.literal('failed'),
+  v.literal('failed')
 );
-const DownloadArtifactSourceMode = v.union(
-  v.literal('reply'),
-  v.literal('webhook'),
-);
+const DownloadArtifactSourceMode = v.union(v.literal('reply'), v.literal('webhook'));
 
 const DownloadFile = v.object({
   filename: v.string(),
@@ -39,7 +36,7 @@ export const listRoutesByGuild = query({
     return await ctx.db
       .query('download_routes')
       .withIndex('by_tenant_guild', (q) =>
-        q.eq('tenantId', args.tenantId).eq('guildId', args.guildId),
+        q.eq('tenantId', args.tenantId).eq('guildId', args.guildId)
       )
       .order('asc')
       .collect();
@@ -76,7 +73,7 @@ export const getActiveRoutesForChannel = query({
       const routes = await ctx.db
         .query('download_routes')
         .withIndex('by_guild_source_channel', (q) =>
-          q.eq('guildId', args.guildId).eq('sourceChannelId', channelId),
+          q.eq('guildId', args.guildId).eq('sourceChannelId', channelId)
         )
         .collect();
       for (const route of routes) {
@@ -111,8 +108,12 @@ export const createRoute = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const now = Date.now();
-    const normalizedExtensions = [...new Set(args.allowedExtensions.map((ext) => ext.trim().toLowerCase()).filter(Boolean))];
-    const normalizedRoleIds = [...new Set(args.requiredRoleIds.map((roleId) => roleId.trim()).filter(Boolean))];
+    const normalizedExtensions = [
+      ...new Set(args.allowedExtensions.map((ext) => ext.trim().toLowerCase()).filter(Boolean)),
+    ];
+    const normalizedRoleIds = [
+      ...new Set(args.requiredRoleIds.map((roleId) => roleId.trim()).filter(Boolean)),
+    ];
     const messageTitle = args.messageTitle.trim();
     const messageBody = args.messageBody.trim();
 

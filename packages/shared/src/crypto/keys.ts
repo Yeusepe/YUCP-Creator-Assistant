@@ -8,7 +8,7 @@
 /**
  * Supported token providers for encryption AAD binding
  */
-export type TokenProvider = 'discord' | 'gumroad' | 'jinxxy' | 'manual';
+export type TokenProvider = import('../providers').ProviderKey | 'discord_role';
 
 /**
  * Supported token types for encryption AAD binding
@@ -107,11 +107,9 @@ export async function generateDEK(): Promise<CryptoKey> {
  * Import a DEK from raw bytes (used after unwrapping).
  */
 export async function importDEK(rawKey: Uint8Array): Promise<CryptoKey> {
-  // Ensure the data is a concrete ArrayBuffer-backed copy to satisfy Web Crypto types
-  const buffer = new Uint8Array(rawKey as any).slice().buffer as ArrayBuffer;
   return crypto.subtle.importKey(
     'raw',
-    buffer,
+    rawKey.slice(),
     {
       name: 'AES-GCM',
       length: 256,
@@ -134,10 +132,9 @@ export async function exportDEK(key: CryptoKey): Promise<Uint8Array> {
  * The KEK is used to wrap/unwrap DEKs.
  */
 export async function importKEK(rawKey: Uint8Array): Promise<CryptoKey> {
-  const buffer = new Uint8Array(rawKey as any).slice().buffer as ArrayBuffer;
   return crypto.subtle.importKey(
     'raw',
-    buffer,
+    rawKey.slice(),
     {
       name: 'AES-KW', // AES Key Wrap for wrapping DEKs
       length: 256,
@@ -152,10 +149,9 @@ export async function importKEK(rawKey: Uint8Array): Promise<CryptoKey> {
  * Some environments prefer AES-GCM for wrapping with AAD.
  */
 export async function importKEKForGCM(rawKey: Uint8Array): Promise<CryptoKey> {
-  const buffer = new Uint8Array(rawKey as any).slice().buffer as ArrayBuffer;
   return crypto.subtle.importKey(
     'raw',
-    buffer,
+    rawKey.slice(),
     {
       name: 'AES-GCM',
       length: 256,
@@ -177,10 +173,9 @@ export async function wrapDEK(dek: CryptoKey, kek: CryptoKey): Promise<Uint8Arra
  * Unwrap a DEK using a KEK with AES-KW algorithm.
  */
 export async function unwrapDEK(wrappedDek: Uint8Array, kek: CryptoKey): Promise<CryptoKey> {
-  const buffer = new Uint8Array(wrappedDek as any).slice().buffer as ArrayBuffer;
   return crypto.subtle.unwrapKey(
     'raw',
-    buffer,
+    wrappedDek.slice(),
     kek,
     'AES-KW',
     { name: 'AES-GCM', length: 256 },
@@ -197,10 +192,9 @@ export async function wrapDEKWithGCM(
   kek: CryptoKey,
   iv: Uint8Array
 ): Promise<Uint8Array> {
-  const ivBuf = new Uint8Array(iv as any).slice().buffer as ArrayBuffer;
   const wrapped = await crypto.subtle.wrapKey('raw', dek, kek, {
     name: 'AES-GCM',
-    iv: ivBuf,
+    iv: iv.slice(),
   });
   return new Uint8Array(wrapped);
 }
@@ -213,13 +207,11 @@ export async function unwrapDEKWithGCM(
   kek: CryptoKey,
   iv: Uint8Array
 ): Promise<CryptoKey> {
-  const wrappedBuf = new Uint8Array(wrappedDek as any).slice().buffer as ArrayBuffer;
-  const ivBuf = new Uint8Array(iv as any).slice().buffer as ArrayBuffer;
   return crypto.subtle.unwrapKey(
     'raw',
-    wrappedBuf,
+    wrappedDek.slice(),
     kek,
-    { name: 'AES-GCM', iv: ivBuf },
+    { name: 'AES-GCM', iv: iv.slice() },
     { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt', 'decrypt']

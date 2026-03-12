@@ -26,7 +26,7 @@ export const getEntry = internalQuery({
     return await ctx.db
       .query('signing_log')
       .withIndex('by_content_and_package', (q) =>
-        q.eq('contentHash', args.contentHash).eq('packageId', args.packageId),
+        q.eq('contentHash', args.contentHash).eq('packageId', args.packageId)
       )
       .first();
   },
@@ -48,7 +48,7 @@ export const getEntriesByContentHash = internalQuery({
 
 export type WriteEntryResult =
   | { written: true; conflict: false }
-  | { written: false; conflict: false }  // Same identity, same content: no-op
+  | { written: false; conflict: false } // Same identity, same content: no-op
   | { written: false; conflict: true; existingYucpUserId: string; existingPublisherId: string };
 
 export const writeEntry = internalMutation({
@@ -65,7 +65,7 @@ export const writeEntry = internalMutation({
     const existing = await ctx.db
       .query('signing_log')
       .withIndex('by_content_and_package', (q) =>
-        q.eq('contentHash', args.contentHash).eq('packageId', args.packageId),
+        q.eq('contentHash', args.contentHash).eq('packageId', args.packageId)
       )
       .first();
 

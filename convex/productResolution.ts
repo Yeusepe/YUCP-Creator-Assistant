@@ -5,9 +5,9 @@
  * we normalize it, hash it, and look up in catalog_product_links.
  */
 
-import { query } from './_generated/server';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
+import { query } from './_generated/server';
 import { ProviderV } from './lib/providers';
 
 /**
@@ -18,7 +18,7 @@ function normalizeProductUrl(url: string): string {
   try {
     const parsed = new URL(url.trim().toLowerCase());
     // Remove trailing slash from pathname
-    let path = parsed.pathname.replace(/\/+$/, '') || '/';
+    const path = parsed.pathname.replace(/\/+$/, '') || '/';
     // Rebuild with just origin + path (ignore query/hash for product identity)
     return `${parsed.origin}${path}`;
   } catch {
@@ -55,7 +55,7 @@ export const resolveProductByUrl = query({
       providerProductRef: v.string(),
       tenantId: v.id('tenants'),
       status: v.string(),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const normalized = normalizeProductUrl(args.url);
@@ -99,7 +99,7 @@ export const getProductsForTenant = query({
       providerProductRef: v.string(),
       canonicalSlug: v.optional(v.string()),
       displayName: v.optional(v.string()),
-    }),
+    })
   ),
   handler: async (ctx, args) => {
     const products = await ctx.db
@@ -108,15 +108,13 @@ export const getProductsForTenant = query({
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
 
-    return products
-      .filter((p) => p.provider === 'gumroad' || p.provider === 'jinxxy')
-      .map((p) => ({
-        _id: p._id,
-        productId: p.productId,
-        provider: p.provider,
-        providerProductRef: p.providerProductRef,
-        canonicalSlug: p.canonicalSlug,
-        displayName: p.displayName,
-      }));
+    return products.map((p) => ({
+      _id: p._id,
+      productId: p.productId,
+      provider: p.provider,
+      providerProductRef: p.providerProductRef,
+      canonicalSlug: p.canonicalSlug,
+      displayName: p.displayName,
+    }));
   },
 });

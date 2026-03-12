@@ -5,7 +5,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { providerLabel } from '@yucp/providers';
+import { PROVIDER_META, providerLabel } from '@yucp/providers';
 import { createLogger, formatVerificationSupportMessage } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import {
@@ -91,10 +91,8 @@ interface VerifyData {
   guildProductDisplayList: Array<{ displayName: string }>;
   /** Total count of verified products in this server (for "and X more") */
   guildProductCount: number;
-  hasGumroad: boolean;
-  hasJinxxy: boolean;
-  hasDiscord: boolean;
-  hasVrchat: boolean;
+  /** Set of provider keys the user has at least one active account for */
+  connectedProviders: Set<string>;
 }
 
 function getVerifyPanelKey(userId: string, guildId: string): string {
@@ -290,10 +288,9 @@ async function fetchVerifyData(
       .map((id) => ({ displayName: (guildProductMap.get(id) ?? id) as string }));
   }
 
-  const hasGumroad = linkedAccounts.some((a) => a.provider === 'gumroad' && a.status === 'active');
-  const hasJinxxy = linkedAccounts.some((a) => a.provider === 'jinxxy' && a.status === 'active');
-  const hasDiscord = linkedAccounts.some((a) => a.provider === 'discord' && a.status === 'active');
-  const hasVrchat = linkedAccounts.some((a) => a.provider === 'vrchat' && a.status === 'active');
+  const connectedProviders = new Set(
+    linkedAccounts.filter((a) => a.status === 'active').map((a) => a.provider)
+  );
   const activeAccounts = linkedAccounts.filter((a) => a.status === 'active');
 
   let state: VerifyState;
@@ -311,10 +308,7 @@ async function fetchVerifyData(
     productIds,
     guildProductDisplayList,
     guildProductCount: inGuildCount,
-    hasGumroad,
-    hasJinxxy,
-    hasDiscord,
-    hasVrchat,
+    connectedProviders,
   };
 }
 
@@ -345,38 +339,44 @@ async function getRoleSyncBanner(
   return `${E.Wrench} Could not assign role: ${err.slice(0, 120)}${err.length > 120 ? '…' : ''}`;
 }
 
-interface EnabledProviders {
-  gumroad: boolean;
-  jinxxy: boolean;
-  discord: boolean;
-  vrchat: boolean;
-}
-
 /** Build context-aware prompt based on which verification methods are available. */
-function getVerifyPrompt(enabled: EnabledProviders): string {
+function getVerifyPrompt(enabledSet: Set<string>): string {
   const methods: string[] = [];
-  if (enabled.gumroad) methods.push(`${E.Gumorad} Gumroad`);
-  if (enabled.jinxxy) methods.push(`${E.Jinxxy} Jinxxy`);
-  if (enabled.vrchat) methods.push(`${E.VRC} VRChat`);
-  if (enabled.discord) methods.push(`${E.Discord} another server`);
+  for (const provider of enabledSet) {
+    if (provider === 'discord') {
+      methods.push(`${E.Discord} another server`);
+      continue;
+    }
+    const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
+    if (meta) {
+      const emoji = meta.emojiKey ? (E[meta.emojiKey as keyof typeof E] ?? '') : '';
+      methods.push(`${emoji} ${meta.label}`);
+    }
+  }
   if (methods.length === 0) return '';
   if (methods.length === 1) {
-    if (enabled.discord) {
+    if (enabledSet.size === 1 && enabledSet.has('discord')) {
       return `${E.Touch} Verify your role from another server:`;
     }
-    const name = enabled.gumroad ? 'Gumroad' : 'Jinxxy';
+    const nonDiscord = [...enabledSet].find((p) => p !== 'discord');
+    const meta = nonDiscord ? PROVIDER_META[nonDiscord as keyof typeof PROVIDER_META] : undefined;
+    const name = meta?.label ?? nonDiscord ?? 'store';
     return `${E.Touch} Choose how to verify your ${name} purchase:`;
   }
   return `${E.Touch} Choose how to verify your purchase:`;
 }
 
 /** Build context-aware message for connected_no_products state. */
-function getConnectedNoProductsPrompt(enabled: EnabledProviders): string {
+function getConnectedNoProductsPrompt(enabledSet: Set<string>): string {
   const methods: string[] = [];
-  if (enabled.gumroad) methods.push('Gumroad');
-  if (enabled.jinxxy) methods.push('Jinxxy');
-  if (enabled.vrchat) methods.push('VRChat');
-  if (enabled.discord) methods.push('another server');
+  for (const provider of enabledSet) {
+    if (provider === 'discord') {
+      methods.push('another server');
+      continue;
+    }
+    const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
+    if (meta) methods.push(meta.label);
+  }
   if (methods.length === 0) return '';
   const hint =
     methods.length === 1 ? `try connecting via ${methods[0]}` : 'try another verification method';
@@ -385,25 +385,17 @@ function getConnectedNoProductsPrompt(enabled: EnabledProviders): string {
 
 function getUniqueActiveEnabledProviders(
   linkedAccounts: LinkedAccountSummary[],
-  enabledProviders: EnabledProviders
+  enabledSet: Set<string>
 ): string[] {
   const seen = new Set<string>();
   const orderedProviders: string[] = [];
-
-  const providerEnabled = (provider: string) =>
-    (provider === 'gumroad' && enabledProviders.gumroad) ||
-    (provider === 'jinxxy' && enabledProviders.jinxxy) ||
-    (provider === 'discord' && enabledProviders.discord) ||
-    (provider === 'vrchat' && enabledProviders.vrchat);
-
   for (const account of linkedAccounts) {
     if (account.status !== 'active') continue;
-    if (!providerEnabled(account.provider)) continue;
+    if (!enabledSet.has(account.provider)) continue;
     if (seen.has(account.provider)) continue;
     seen.add(account.provider);
     orderedProviders.push(account.provider);
   }
-
   return orderedProviders;
 }
 
@@ -418,21 +410,13 @@ function buildStatusContainer(
   tenantId: Id<'tenants'>,
   guildId: string,
   apiBaseUrl: string | undefined,
-  enabledProviders: EnabledProviders,
+  enabledSet: Set<string>,
   panelToken?: string,
   userId?: string,
   bannerMessage?: string
 ): ContainerBuilder {
-  const {
-    state,
-    linkedAccounts,
-    guildProductDisplayList,
-    guildProductCount,
-    hasGumroad,
-    hasJinxxy,
-    hasDiscord,
-    hasVrchat,
-  } = data;
+  const { state, linkedAccounts, guildProductDisplayList, guildProductCount, connectedProviders } =
+    data;
 
   const accentColor =
     state === 'nothing'
@@ -466,23 +450,25 @@ function buildStatusContainer(
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
-  // Connected accounts - filter by enabledProviders (server-relevant only)
+  // Connected accounts — driven by enabledSet + PROVIDER_META
   const lines: string[] = [];
   const getConnectionLabel = (provider: string, label: string, emoji: string) => {
     const activeCount = getActiveProviderCount(linkedAccounts, provider);
-    if (activeCount === 0) {
-      return `${emoji} ${label} - Not connected`;
-    }
-    if (activeCount === 1) {
-      return `${emoji} ${label} - ${E.Checkmark} Connected`;
-    }
+    if (activeCount === 0) return `${emoji} ${label} - Not connected`;
+    if (activeCount === 1) return `${emoji} ${label} - ${E.Checkmark} Connected`;
     return `${emoji} ${label} - ${E.Checkmark} ${activeCount} accounts connected`;
   };
-  if (enabledProviders.gumroad) lines.push(getConnectionLabel('gumroad', 'Gumroad', E.Gumorad));
-  if (enabledProviders.jinxxy) lines.push(getConnectionLabel('jinxxy', 'Jinxxy', E.Jinxxy));
-  if (enabledProviders.vrchat) lines.push(getConnectionLabel('vrchat', 'VRChat', E.VRC));
-  if (enabledProviders.discord)
-    lines.push(getConnectionLabel('discord', 'Discord (other server)', E.Discord));
+  for (const provider of enabledSet) {
+    if (provider === 'discord') {
+      lines.push(getConnectionLabel('discord', 'Discord (other server)', E.Discord));
+      continue;
+    }
+    const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
+    if (meta) {
+      const emoji = meta.emojiKey ? (E[meta.emojiKey as keyof typeof E] ?? '') : '';
+      lines.push(getConnectionLabel(provider, meta.label, emoji));
+    }
+  }
   if (lines.length > 0) {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(`**Connected Accounts**\n${lines.join('\n')}`)
@@ -513,41 +499,46 @@ function buildStatusContainer(
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
-  // Build OAuth URLs
+  // Build shared redirect URI
   const returnTo = `https://discord.com/channels/${guildId}`;
   const successParams = new URLSearchParams({ returnTo });
-  if (panelToken) {
-    successParams.set('panelToken', panelToken);
-  }
+  if (panelToken) successParams.set('panelToken', panelToken);
   const redirectUri = apiBaseUrl ? `${apiBaseUrl}/verify-success?${successParams.toString()}` : '';
-  // discordUserId MUST be passed so the verification session can link the
-  // Gumroad account to this Discord user. Without it, syncUserFromProvider
-  // stores it under a synthetic 'gumroad:xxx' subject, not the Discord one.
-  const gumroadParams = new URLSearchParams({ tenantId, mode: 'gumroad', redirectUri });
-  if (userId) gumroadParams.set('discordUserId', userId);
-  const gumroadUrl = apiBaseUrl
-    ? `${apiBaseUrl}/api/verification/begin?${gumroadParams.toString()}`
-    : null;
-  const discordRoleParams = new URLSearchParams({ tenantId, mode: 'discord_role', redirectUri });
-  if (userId) discordRoleParams.set('discordUserId', userId);
-  const discordRoleUrl = apiBaseUrl
-    ? `${apiBaseUrl}/api/verification/begin?${discordRoleParams.toString()}`
-    : null;
+
+  /** Build a verification begin URL for a given mode/provider key */
+  const buildBeginUrl = (mode: string): string | null => {
+    if (!apiBaseUrl) return null;
+    const params = new URLSearchParams({ tenantId, mode, redirectUri });
+    if (userId) params.set('discordUserId', userId);
+    return `${apiBaseUrl}/api/verification/begin?${params.toString()}`;
+  };
+
+  /** True if any enabled provider supports license key verification */
+  const hasLicenseProviders = [...enabledSet].some(
+    (p) => PROVIDER_META[p as keyof typeof PROVIDER_META]?.supportsLicenseVerify
+  );
 
   if (state === 'nothing') {
     const buttons: ButtonBuilder[] = [];
 
-    if (gumroadUrl && enabledProviders.gumroad) {
-      buttons.push(
-        new ButtonBuilder()
-          .setLabel('Connect Gumroad')
-          .setEmoji(Emoji.Gumorad)
-          .setStyle(ButtonStyle.Link)
-          .setURL(gumroadUrl)
-      );
+    // OAuth "Connect" buttons for each enabled OAuth provider (not Discord/VRChat — handled separately)
+    for (const provider of enabledSet) {
+      if (provider === 'discord' || provider === 'vrchat') continue;
+      const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
+      if (!meta?.supportsOAuth) continue;
+      const url = buildBeginUrl(provider);
+      if (!url) continue;
+      const emoji = meta.emojiKey ? Emoji[meta.emojiKey as keyof typeof Emoji] : undefined;
+      const btn = new ButtonBuilder()
+        .setLabel(`Connect ${meta.label}`)
+        .setStyle(ButtonStyle.Link)
+        .setURL(url);
+      if (emoji) btn.setEmoji(emoji);
+      buttons.push(btn);
     }
 
-    if (enabledProviders.gumroad || enabledProviders.jinxxy) {
+    // License key button (single button covering all supportsLicenseVerify providers)
+    if (hasLicenseProviders) {
       buttons.push(
         new ButtonBuilder()
           .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
@@ -557,46 +548,51 @@ function buildStatusContainer(
       );
     }
 
-    if (enabledProviders.vrchat && apiBaseUrl) {
-      const vrchatParams = new URLSearchParams({ tenantId, mode: 'vrchat', redirectUri });
-      if (userId) vrchatParams.set('discordUserId', userId);
-      const vrchatUrl = `${apiBaseUrl}/api/verification/begin?${vrchatParams.toString()}`;
-      buttons.push(
-        new ButtonBuilder()
-          .setLabel('Verify with VRChat')
-          .setEmoji(Emoji.VRC)
-          .setStyle(ButtonStyle.Link)
-          .setURL(vrchatUrl)
-      );
+    // VRChat credential login button
+    if (enabledSet.has('vrchat') && apiBaseUrl) {
+      const url = buildBeginUrl('vrchat');
+      if (url) {
+        buttons.push(
+          new ButtonBuilder()
+            .setLabel('Verify with VRChat')
+            .setEmoji(Emoji.VRC)
+            .setStyle(ButtonStyle.Link)
+            .setURL(url)
+        );
+      }
     }
 
-    if (discordRoleUrl && enabledProviders.discord) {
-      buttons.push(
-        new ButtonBuilder()
-          .setLabel('Use Another Server')
-          .setEmoji(Emoji.Discord)
-          .setStyle(ButtonStyle.Link)
-          .setURL(discordRoleUrl)
-      );
+    // Discord role button
+    if (enabledSet.has('discord')) {
+      const url = buildBeginUrl('discord_role');
+      if (url) {
+        buttons.push(
+          new ButtonBuilder()
+            .setLabel('Use Another Server')
+            .setEmoji(Emoji.Discord)
+            .setStyle(ButtonStyle.Link)
+            .setURL(url)
+        );
+      }
     }
 
     if (buttons.length > 0) {
-      const prompt = getVerifyPrompt(enabledProviders);
+      const prompt = getVerifyPrompt(enabledSet);
       if (prompt) {
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(prompt));
       }
       container.addActionRowComponents(
-        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)
+        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(0, 5))
       );
     } else {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `${E.Wrench} No products have been added to this server for verification. Contact the server admin to set up Gumroad, Jinxxy, or Discord role products.`
+          `${E.Wrench} No products have been added to this server for verification. Contact the server admin to add products.`
         )
       );
     }
   } else if (state === 'connected_no_products') {
-    const connectedPrompt = getConnectedNoProductsPrompt(enabledProviders);
+    const connectedPrompt = getConnectedNoProductsPrompt(enabledSet);
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         connectedPrompt ||
@@ -606,17 +602,25 @@ function buildStatusContainer(
 
     const buttons: ButtonBuilder[] = [];
 
-    if (gumroadUrl && enabledProviders.gumroad && !hasGumroad) {
-      buttons.push(
-        new ButtonBuilder()
-          .setLabel('Connect Gumroad')
-          .setEmoji(Emoji.Gumorad)
-          .setStyle(ButtonStyle.Link)
-          .setURL(gumroadUrl)
-      );
+    // OAuth "Connect" buttons for providers the user hasn't connected yet
+    for (const provider of enabledSet) {
+      if (provider === 'discord' || provider === 'vrchat') continue;
+      const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
+      if (!meta?.supportsOAuth) continue;
+      if (connectedProviders.has(provider)) continue; // already connected
+      const url = buildBeginUrl(provider);
+      if (!url) continue;
+      const emoji = meta.emojiKey ? Emoji[meta.emojiKey as keyof typeof Emoji] : undefined;
+      const btn = new ButtonBuilder()
+        .setLabel(`Connect ${meta.label}`)
+        .setStyle(ButtonStyle.Link)
+        .setURL(url);
+      if (emoji) btn.setEmoji(emoji);
+      buttons.push(btn);
     }
 
-    if (enabledProviders.gumroad || enabledProviders.jinxxy) {
+    // License key button
+    if (hasLicenseProviders) {
       buttons.push(
         new ButtonBuilder()
           .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
@@ -626,36 +630,41 @@ function buildStatusContainer(
       );
     }
 
-    if (enabledProviders.vrchat && !hasVrchat && apiBaseUrl) {
-      const vrchatParams = new URLSearchParams({ tenantId, mode: 'vrchat', redirectUri });
-      if (userId) vrchatParams.set('discordUserId', userId);
-      const vrchatUrl = `${apiBaseUrl}/api/verification/begin?${vrchatParams.toString()}`;
-      buttons.push(
-        new ButtonBuilder()
-          .setLabel('Verify with VRChat')
-          .setEmoji(Emoji.VRC)
-          .setStyle(ButtonStyle.Link)
-          .setURL(vrchatUrl)
-      );
+    // VRChat button if not yet connected
+    if (enabledSet.has('vrchat') && !connectedProviders.has('vrchat') && apiBaseUrl) {
+      const url = buildBeginUrl('vrchat');
+      if (url) {
+        buttons.push(
+          new ButtonBuilder()
+            .setLabel('Verify with VRChat')
+            .setEmoji(Emoji.VRC)
+            .setStyle(ButtonStyle.Link)
+            .setURL(url)
+        );
+      }
     }
 
-    if (discordRoleUrl && enabledProviders.discord && !hasDiscord) {
-      buttons.push(
-        new ButtonBuilder()
-          .setLabel('Use Another Server')
-          .setEmoji(Emoji.Discord)
-          .setStyle(ButtonStyle.Link)
-          .setURL(discordRoleUrl)
-      );
+    // Discord role button if not yet connected
+    if (enabledSet.has('discord') && !connectedProviders.has('discord')) {
+      const url = buildBeginUrl('discord_role');
+      if (url) {
+        buttons.push(
+          new ButtonBuilder()
+            .setLabel('Use Another Server')
+            .setEmoji(Emoji.Discord)
+            .setStyle(ButtonStyle.Link)
+            .setURL(url)
+        );
+      }
     }
 
     if (buttons.length > 0) {
       container.addActionRowComponents(
-        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(0, 3))
+        new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(0, 5))
       );
     }
 
-    const disconnectButtons = getUniqueActiveEnabledProviders(linkedAccounts, enabledProviders).map(
+    const disconnectButtons = getUniqueActiveEnabledProviders(linkedAccounts, enabledSet).map(
       (provider) =>
         new ButtonBuilder()
           .setCustomId(`${VERIFY_PREFIX}disconnect:${provider}`)
@@ -682,7 +691,7 @@ function buildStatusContainer(
         .setLabel('Add another account')
         .setEmoji(Emoji.Refresh)
         .setStyle(ButtonStyle.Secondary),
-      ...getUniqueActiveEnabledProviders(linkedAccounts, enabledProviders).map((provider) =>
+      ...getUniqueActiveEnabledProviders(linkedAccounts, enabledSet).map((provider) =>
         new ButtonBuilder()
           .setCustomId(`${VERIFY_PREFIX}disconnect:${provider}`)
           .setLabel(`Disconnect ${providerLabel(provider)}`)
@@ -711,7 +720,7 @@ export async function buildVerifyStatusReply(
     stateOverride?: VerifyState;
   }
 ): Promise<VerifyStatusReply> {
-  const [data, enabledProviders] = await Promise.all([
+  const [data, providersResult] = await Promise.all([
     fetchVerifyData(userId, tenantId, guildId, convex, apiSecret),
     convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
       apiSecret,
@@ -719,6 +728,7 @@ export async function buildVerifyStatusReply(
       guildId,
     }),
   ]);
+  const enabledSet = new Set<string>((providersResult as { providers: string[] }).providers);
 
   const bannerMessage =
     options?.bannerMessage ??
@@ -731,7 +741,7 @@ export async function buildVerifyStatusReply(
     tenantId,
     guildId,
     apiBaseUrl,
-    enabledProviders,
+    enabledSet,
     options?.panelToken,
     userId,
     bannerMessage
@@ -965,7 +975,7 @@ export function buildLicenseModal(tenantId: Id<'tenants'>): ModalBuilder {
         new TextInputBuilder()
           .setCustomId('license_key')
           .setLabel('License Key')
-          .setPlaceholder('Paste your Gumroad or Jinxxy license key here')
+          .setPlaceholder('Paste your license key here')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true)
           .setMaxLength(500)
@@ -1058,13 +1068,8 @@ export async function handleLicenseModalSubmit(
     if (guildId && apiBaseUrl) {
       const panelToken =
         getActiveVerifyPanel(interaction.user.id, guildId)?.panelToken ?? createVerifyPanelToken();
-      const providerLabel =
-        result.provider === 'gumroad'
-          ? 'Gumroad'
-          : result.provider === 'jinxxy'
-            ? 'Jinxxy'
-            : (result.provider ?? 'account');
-      const bannerMessage = `${E.ClapStars} **Connected!** Your ${providerLabel} account is linked. Your roles will be updated shortly. ${E.Dance}`;
+      const connectedProviderLabel = result.provider ? providerLabel(result.provider) : 'account';
+      const bannerMessage = `${E.ClapStars} **Connected!** Your ${connectedProviderLabel} account is linked. Your roles will be updated shortly. ${E.Dance}`;
       const reply = await buildVerifyStatusReply(
         interaction.user.id,
         tenantId,
@@ -1261,7 +1266,7 @@ export async function handleRefreshCommand(
     const apiBaseUrl = process.env.API_BASE_URL;
 
     if (apiBaseUrl) {
-      const [data, enabledProviders] = await Promise.all([
+      const [data, providersResult] = await Promise.all([
         fetchVerifyData(interaction.user.id, ctx.tenantId, guildId, convex, apiSecret),
         convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
           apiSecret,
@@ -1269,6 +1274,7 @@ export async function handleRefreshCommand(
           guildId,
         }),
       ]);
+      const enabledSet = new Set<string>((providersResult as { providers: string[] }).providers);
 
       const bannerMessage = `${E.Checkmark} Queued ${result.jobsCreated} role sync jobs! Your roles in this server will be updated momentarily.`;
       const container = buildStatusContainer(
@@ -1276,7 +1282,8 @@ export async function handleRefreshCommand(
         ctx.tenantId,
         guildId,
         apiBaseUrl,
-        enabledProviders,
+        enabledSet,
+        undefined,
         interaction.user.id,
         bannerMessage
       );

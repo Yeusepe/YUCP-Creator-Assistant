@@ -87,7 +87,9 @@ async function encryptStoredToken(value: string): Promise<string> {
   )}`;
 }
 
-async function maybeDecryptStoredToken(value: unknown): Promise<{ token?: string; legacy: boolean }> {
+async function maybeDecryptStoredToken(
+  value: unknown
+): Promise<{ token?: string; legacy: boolean }> {
   if (typeof value !== 'string' || !value) {
     return { token: undefined, legacy: false };
   }
@@ -113,11 +115,7 @@ async function maybeDecryptStoredToken(value: unknown): Promise<{ token?: string
     }
 
     return {
-      token: await decryptForPurpose(
-        ciphertext,
-        fallbackSecret,
-        PROVIDER_SESSION_PURPOSE
-      ),
+      token: await decryptForPurpose(ciphertext, fallbackSecret, PROVIDER_SESSION_PURPOSE),
       legacy: true,
     };
   }
@@ -191,11 +189,7 @@ async function createVrchatSession(
   const displayName = vrchatUser.displayName || vrchatUser.username || vrchatUserId;
   const email = `${vrchatUserId}@vrchat.invalid`;
   const encryptedSession = await serializeStoredSession(providerSession);
-  const existing = await ctx.context.internalAdapter.findOAuthUser(
-    email,
-    vrchatUserId,
-    'vrchat'
-  );
+  const existing = await ctx.context.internalAdapter.findOAuthUser(email, vrchatUserId, 'vrchat');
 
   let user: any;
   if (existing) {

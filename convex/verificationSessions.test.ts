@@ -33,7 +33,7 @@ describe('Verification Session Status Validator', () => {
     v.literal('completed'),
     v.literal('failed'),
     v.literal('expired'),
-    v.literal('cancelled'),
+    v.literal('cancelled')
   );
 
   it('should have correct status values', () => {
@@ -53,7 +53,7 @@ describe('Create Verification Session Input', () => {
       v.literal('gumroad'),
       v.literal('discord_role'),
       v.literal('jinxxy'),
-      v.literal('manual'),
+      v.literal('manual')
     ),
     state: v.string(),
     pkceVerifierHash: v.optional(v.string()),
