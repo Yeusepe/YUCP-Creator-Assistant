@@ -446,52 +446,39 @@ export function updatePlatformCards() {
   renderQuickStart();
 }
 
-const PROVIDER_META = {
-  gumroad: {
-    name: 'Gumroad®',
-    icon: 'https://cdn.brandfetch.io/idMw8qr5lW/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1667593186460',
-    iconBg: '#000',
-    navigate: () => navigateGumroad(),
-  },
-  jinxxy: {
-    name: 'Jinxxy™',
-    icon: 'https://cdn.brandfetch.io/id5SOeZxOy/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1770481661483',
-    iconBg: '#9146FF',
-    navigate: () => navigateJinxxy(),
-  },
-  lemonsqueezy: {
-    name: 'Lemon Squeezy',
-    icon: 'https://www.lemonsqueezy.com/favicon.ico',
-    iconBg: '#FFC233',
-    comingSoon: true,
-  },
-};
+/**
+ * PROVIDER_META is derived from the DASHBOARD_PROVIDER_REGISTRY (providers.js).
+ * Adding a new provider to that registry automatically includes it here.
+ */
+const PROVIDER_META = Object.fromEntries(
+  platformProviders.map((p) => [
+    p.key,
+    {
+      name: p.label,
+      icon: p.iconUrl,
+      iconBg: p.iconBg,
+      navigate: () => navigateProvider(p.key),
+    },
+  ])
+);
 
 function renderAddButtons() {
   const container = document.getElementById('add-account-buttons');
   if (!container) return;
 
-  container.innerHTML = Object.entries(PROVIDER_META)
-    .map(([key, meta]) => {
-      if (meta.comingSoon) {
-        return `<button class="card-action-btn link" disabled data-provider="${key}"
-            style="flex:1;min-width:160px;display:flex;align-items:center;justify-content:center;gap:8px;opacity:0.45;cursor:not-allowed;">
-            <img src="${meta.icon}" style="width:16px;border-radius:3px;" alt="">
-            ${meta.name} <span style="font-size:10px;margin-left:4px;opacity:0.7;">(soon)</span>
-          </button>`;
-      }
-      return `<button class="card-action-btn link" data-provider="${key}"
+  container.innerHTML = platformProviders
+    .map(
+      (p) => `<button class="card-action-btn link" data-provider="${p.key}"
           style="flex:1;min-width:160px;display:flex;align-items:center;justify-content:center;gap:8px;">
-          <img src="${meta.icon}" style="width:16px;border-radius:3px;" alt="">
-          Add ${meta.name} Account
-        </button>`;
-    })
+          <img src="${p.iconUrl}" style="width:16px;border-radius:3px;" alt="">
+          Add ${p.label} Account
+        </button>`
+    )
     .join('');
 
-  container.querySelectorAll('[data-provider]:not([disabled])').forEach((btn) => {
+  container.querySelectorAll('[data-provider]').forEach((btn) => {
     const key = btn.getAttribute('data-provider');
-    const meta = PROVIDER_META[key];
-    if (meta?.navigate) btn.addEventListener('click', () => meta.navigate());
+    btn.addEventListener('click', () => navigateProvider(key));
   });
 }
 
