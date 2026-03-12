@@ -526,6 +526,7 @@ export class LemonSqueezyApiClient {
   async getSubscriptions(params?: {
     storeId?: string;
     userEmail?: string;
+    productId?: string;
     page?: number;
     perPage?: number;
   }): Promise<{ subscriptions: LemonSqueezySubscription[]; pagination: LemonSqueezyPagination }> {
@@ -535,6 +536,7 @@ export class LemonSqueezyApiClient {
       {
         'filter[store_id]': params?.storeId,
         'filter[user_email]': params?.userEmail,
+        'filter[product_id]': params?.productId,
         'page[number]': params?.page ?? 1,
         'page[size]': params?.perPage ?? DEFAULT_PAGE_SIZE,
       }
@@ -546,6 +548,69 @@ export class LemonSqueezyApiClient {
       ),
       pagination: this.mapPagination(response),
     };
+  }
+
+  async getOrderItems(params?: {
+    productId?: string;
+    storeId?: string;
+    page?: number;
+    perPage?: number;
+  }): Promise<{
+    orderItems: Array<{
+      id: string;
+      orderId: string;
+      productId: string;
+      variantId: string;
+      productName: string | null;
+      variantName: string | null;
+      createdAt: string | undefined;
+    }>;
+    pagination: LemonSqueezyPagination;
+  }> {
+    const response = await this.request<
+      LemonSqueezyListResponse<
+        JsonApiResource<{
+          order_id?: number;
+          product_id?: number;
+          variant_id?: number;
+          product_name?: string;
+          variant_name?: string;
+          created_at?: string;
+          updated_at?: string;
+        }>
+      >
+    >('GET', '/order-items', {
+      'filter[product_id]': params?.productId,
+      'filter[store_id]': params?.storeId,
+      'page[number]': params?.page ?? 1,
+      'page[size]': params?.perPage ?? DEFAULT_PAGE_SIZE,
+    });
+
+    return {
+      orderItems: response.data.map((resource) => ({
+        id: resource.id,
+        orderId: resource.attributes.order_id ? String(resource.attributes.order_id) : '',
+        productId: resource.attributes.product_id ? String(resource.attributes.product_id) : '',
+        variantId: resource.attributes.variant_id ? String(resource.attributes.variant_id) : '',
+        productName: resource.attributes.product_name ?? null,
+        variantName: resource.attributes.variant_name ?? null,
+        createdAt: resource.attributes.created_at,
+      })),
+      pagination: this.mapPagination(response),
+    };
+  }
+
+  async getOrder(orderId: string): Promise<LemonSqueezyOrder | null> {
+    try {
+      const response = await this.request<{ data: JsonApiResource }>(
+        'GET',
+        `/orders/${orderId}`
+      );
+      return this.mapOrder(response.data);
+    } catch (err) {
+      if (err instanceof LemonSqueezyApiError && err.statusCode === 404) return null;
+      throw err;
+    }
   }
 
   async getLicenseKeys(params?: { storeId?: string; page?: number; perPage?: number }): Promise<{

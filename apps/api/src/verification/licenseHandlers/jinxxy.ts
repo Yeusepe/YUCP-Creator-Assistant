@@ -10,6 +10,19 @@ import type { LicenseVerificationHandler } from './index';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
+async function sha256Hex(input: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 async function resolveJinxxyApiKey(
   convex: ConvexServerClient,
   config: VerificationConfig,
@@ -105,6 +118,30 @@ export const jinxxyHandler: LicenseVerificationHandler = {
     );
 
     if (mutationResult.success) {
+      // Retroactively sync all purchases for this buyer across all of the tenant's Jinxxy products
+      try {
+        const orderId = license.order_id;
+        if (orderId) {
+          const order = await jinxxyClient.getOrder(orderId);
+          if (order?.email) {
+            const emailHash = await sha256Hex(normalizeEmail(order.email));
+            await convex.mutation(api.backgroundSync.scheduleBackfillThenSyncForBuyer, {
+              apiSecret: config.convexApiSecret,
+              tenantId,
+              subjectId,
+              provider: 'jinxxy',
+              emailHash,
+              providerUserId: customerId,
+            });
+          }
+        }
+      } catch (syncErr) {
+        logger.warn('[jinxxyHandler] Post-verify buyer sync scheduling failed (non-fatal)', {
+          tenantId,
+          subjectId,
+          error: syncErr instanceof Error ? syncErr.message : String(syncErr),
+        });
+      }
       return { success: true, provider: 'jinxxy', entitlementIds: mutationResult.entitlementIds };
     }
 

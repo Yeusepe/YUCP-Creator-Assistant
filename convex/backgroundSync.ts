@@ -41,6 +41,19 @@ const BackfillPurchaseRecord = v.object({
 });
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+/**
+ * Build a provider-agnostic source reference string for entitlement evidence.
+ * Gumroad uses a simple format; all other providers use provider:orderId[:lineItemId].
+ */
+function buildSourceRef(provider: string, orderId: string, lineItemId?: string): string {
+  if (provider === 'gumroad') return `gumroad:${orderId}`;
+  return lineItemId ? `${provider}:${orderId}:${lineItemId}` : `${provider}:${orderId}`;
+}
+
+// ============================================================================
 // 1. HISTORICAL BACKFILL
 // ============================================================================
 
@@ -248,6 +261,167 @@ export const getGumroadProductsForTenant = internalQuery({
   },
 });
 
+/** Internal query: Get Jinxxy products for a tenant */
+export const getJinxxyProductsForTenant = internalQuery({
+  args: { tenantId: v.id('tenants') },
+  returns: v.array(
+    v.object({
+      productId: v.string(),
+      providerProductRef: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const catalog = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('provider'), 'jinxxy'))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    return catalog.map((c) => ({
+      productId: c.productId,
+      providerProductRef: c.providerProductRef,
+    }));
+  },
+});
+
+/** Internal query: Get LemonSqueezy products for a tenant */
+export const getLSProductsForTenant = internalQuery({
+  args: { tenantId: v.id('tenants') },
+  returns: v.array(
+    v.object({
+      productId: v.string(),
+      providerProductRef: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const catalog = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .filter((q) => q.eq(q.field('provider'), 'lemonsqueezy'))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    return catalog.map((c) => ({
+      productId: c.productId,
+      providerProductRef: c.providerProductRef,
+    }));
+  },
+});
+
+/**
+ * Internal action: Trigger backfill for tenant's Jinxxy products, then sync past purchases.
+ * Mirrors triggerBackfillThenSyncForGumroadBuyer for Jinxxy.
+ */
+export const triggerBackfillThenSyncForJinxxyBuyer = internalAction({
+  args: {
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    providerUserId: v.string(),
+    emailHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const products = await ctx.runQuery(internal.backgroundSync.getJinxxyProductsForTenant, {
+      tenantId: args.tenantId,
+    });
+
+    for (const p of products) {
+      await ctx.runAction(internal.backgroundSync.backfillProductPurchases, {
+        tenantId: args.tenantId,
+        productId: p.productId,
+        provider: 'jinxxy',
+        providerProductRef: p.providerProductRef,
+      });
+    }
+
+    await ctx.runAction(internal.backgroundSync.syncPastPurchasesForSubject, {
+      subjectId: args.subjectId,
+      provider: 'jinxxy',
+      providerUserId: args.providerUserId,
+      emailHash: args.emailHash,
+    });
+  },
+});
+
+/**
+ * Internal action: Trigger backfill for tenant's LemonSqueezy products, then sync past purchases.
+ * Mirrors triggerBackfillThenSyncForGumroadBuyer for LemonSqueezy.
+ */
+export const triggerBackfillThenSyncForLSBuyer = internalAction({
+  args: {
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    providerUserId: v.string(),
+    emailHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const products = await ctx.runQuery(internal.backgroundSync.getLSProductsForTenant, {
+      tenantId: args.tenantId,
+    });
+
+    for (const p of products) {
+      await ctx.runAction(internal.backgroundSync.backfillProductPurchases, {
+        tenantId: args.tenantId,
+        productId: p.productId,
+        provider: 'lemonsqueezy',
+        providerProductRef: p.providerProductRef,
+      });
+    }
+
+    await ctx.runAction(internal.backgroundSync.syncPastPurchasesForSubject, {
+      subjectId: args.subjectId,
+      provider: 'lemonsqueezy',
+      providerUserId: args.providerUserId,
+      emailHash: args.emailHash,
+    });
+  },
+});
+
+/**
+ * Public mutation: Generic schedule for buyer backfill+sync after license key verification.
+ * Dispatches to the correct provider-specific internal action.
+ * Both Jinxxy and LemonSqueezy license handlers call this after successful verification.
+ * Adding a new provider = add one internalAction above + one dispatch case here.
+ */
+export const scheduleBackfillThenSyncForBuyer = mutation({
+  args: {
+    apiSecret: v.string(),
+    tenantId: v.id('tenants'),
+    subjectId: v.id('subjects'),
+    provider: v.string(),
+    providerUserId: v.string(),
+    emailHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    if (args.provider === 'jinxxy') {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.backgroundSync.triggerBackfillThenSyncForJinxxyBuyer,
+        {
+          tenantId: args.tenantId,
+          subjectId: args.subjectId,
+          providerUserId: args.providerUserId,
+          emailHash: args.emailHash,
+        }
+      );
+    } else if (args.provider === 'lemonsqueezy') {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.backgroundSync.triggerBackfillThenSyncForLSBuyer,
+        {
+          tenantId: args.tenantId,
+          subjectId: args.subjectId,
+          providerUserId: args.providerUserId,
+          emailHash: args.emailHash,
+        }
+      );
+    }
+    // Other providers: no-op (Gumroad has its own scheduleBackfillThenSyncForGumroadBuyer)
+  },
+});
+
 /**
  * Internal action: Sync past purchases for a subject who just linked Gumroad/Jinxxy.
  * Queries purchase_facts by emailHash, resolves productId, grants entitlements.
@@ -283,10 +457,7 @@ export const syncPastPurchasesForSubject = internalAction({
 
       const productId = catalog?.productId ?? p.providerProductId;
       const catalogProductId = catalog?.catalogProductId;
-      const sourceRef =
-        args.provider === 'gumroad'
-          ? `gumroad:${p.externalOrderId}`
-          : `jinxxy:${p.externalOrderId}:${p.externalLineItemId ?? p.externalOrderId}`;
+      const sourceRef = buildSourceRef(args.provider, p.externalOrderId, p.externalLineItemId);
 
       await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,
@@ -449,10 +620,11 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
         linkedToSubject++;
       }
 
-      const sourceReference =
-        args.provider === 'gumroad'
-          ? `gumroad:${purchaseFact.externalOrderId}`
-          : `jinxxy:${purchaseFact.externalOrderId}:${purchaseFact.externalLineItemId ?? purchaseFact.externalOrderId}`;
+      const sourceReference = buildSourceRef(
+        args.provider,
+        purchaseFact.externalOrderId,
+        purchaseFact.externalLineItemId
+      );
 
       const grantResult = await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,

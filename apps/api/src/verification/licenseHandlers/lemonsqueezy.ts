@@ -10,6 +10,15 @@ import type { LicenseVerificationHandler } from './index';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
+async function sha256Hex(input: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -179,6 +188,27 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
         ],
       }
     );
+
+    // Retroactively sync all purchases for this buyer across all of the tenant's LS products
+    if (mutationResult.success && normalizedEmail) {
+      try {
+        const emailHash = await sha256Hex(normalizedEmail);
+        await convex.mutation(api.backgroundSync.scheduleBackfillThenSyncForBuyer, {
+          apiSecret: config.convexApiSecret,
+          tenantId,
+          subjectId,
+          provider: 'lemonsqueezy',
+          emailHash,
+          providerUserId: String(customerId ?? licenseId),
+        });
+      } catch (syncErr) {
+        logger.warn('[lemonSqueezyHandler] Post-verify buyer sync scheduling failed (non-fatal)', {
+          tenantId,
+          subjectId,
+          error: syncErr instanceof Error ? syncErr.message : String(syncErr),
+        });
+      }
+    }
 
     return {
       success: mutationResult.success,
