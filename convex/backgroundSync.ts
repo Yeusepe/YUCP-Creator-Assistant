@@ -318,7 +318,7 @@ export const triggerBackfillThenSyncForJinxxyBuyer = internalAction({
     tenantId: v.id('tenants'),
     subjectId: v.id('subjects'),
     providerUserId: v.string(),
-    emailHash: v.string(),
+    emailHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const products = await ctx.runQuery(internal.backgroundSync.getJinxxyProductsForTenant, {
@@ -352,7 +352,7 @@ export const triggerBackfillThenSyncForLSBuyer = internalAction({
     tenantId: v.id('tenants'),
     subjectId: v.id('subjects'),
     providerUserId: v.string(),
-    emailHash: v.string(),
+    emailHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const products = await ctx.runQuery(internal.backgroundSync.getLSProductsForTenant, {
@@ -390,10 +390,17 @@ export const scheduleBackfillThenSyncForBuyer = mutation({
     subjectId: v.id('subjects'),
     provider: v.string(),
     providerUserId: v.string(),
-    emailHash: v.string(),
+    emailHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+
+    console.log('[backgroundSync] scheduleBackfillThenSyncForBuyer called', {
+      provider: args.provider,
+      tenantId: args.tenantId,
+      subjectId: args.subjectId,
+      emailHashPrefix: args.emailHash?.slice(0, 8) ?? '(none)',
+    });
 
     if (args.provider === 'jinxxy') {
       await ctx.scheduler.runAfter(
@@ -434,15 +441,41 @@ export const syncPastPurchasesForSubject = internalAction({
     emailHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (!args.emailHash) return;
-
     const apiSecret = process.env.CONVEX_API_SECRET;
     if (!apiSecret) {
       throw new Error('CONVEX_API_SECRET required for syncPastPurchasesForSubject');
     }
 
-    const purchases = await ctx.runQuery(internal.backgroundSync.getPurchasesByEmailHash, {
-      emailHash: args.emailHash,
+    // Fetch purchase facts: by emailHash if available, otherwise by providerUserId
+    type PurchaseFact = {
+      tenantId: Id<'tenants'>;
+      provider: string;
+      externalOrderId: string;
+      externalLineItemId?: string;
+      providerProductId: string;
+      lifecycleStatus: string;
+      purchasedAt: number;
+    };
+    let purchases: PurchaseFact[];
+    if (args.emailHash) {
+      purchases = await ctx.runQuery(internal.backgroundSync.getPurchasesByEmailHash, {
+        emailHash: args.emailHash,
+      });
+    } else {
+      purchases = await ctx.runQuery(internal.backgroundSync.getPurchasesByProviderUserId, {
+        provider: args.provider,
+        providerUserId: args.providerUserId,
+      });
+    }
+
+    console.log('[backgroundSync] syncPastPurchasesForSubject: purchases found', {
+      subjectId: args.subjectId,
+      provider: args.provider,
+      lookupMode: args.emailHash ? 'emailHash' : 'providerUserId',
+      emailHashPrefix: args.emailHash ? args.emailHash.slice(0, 8) : '(none)',
+      providerUserId: args.emailHash ? '(not needed)' : args.providerUserId,
+      totalPurchases: purchases.length,
+      providerPurchases: purchases.filter((p) => p.provider === args.provider).length,
     });
 
     for (const p of purchases) {
@@ -459,6 +492,16 @@ export const syncPastPurchasesForSubject = internalAction({
       const catalogProductId = catalog?.catalogProductId;
       const sourceRef = buildSourceRef(args.provider, p.externalOrderId, p.externalLineItemId);
 
+      console.log('[backgroundSync] syncPastPurchasesForSubject: granting entitlement', {
+        subjectId: args.subjectId,
+        provider: args.provider,
+        externalOrderId: p.externalOrderId,
+        providerProductId: p.providerProductId,
+        productId,
+        catalogProductId,
+        sourceRef,
+      });
+
       await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,
         tenantId: p.tenantId,
@@ -472,6 +515,11 @@ export const syncPastPurchasesForSubject = internalAction({
         },
       });
     }
+
+    console.log('[backgroundSync] syncPastPurchasesForSubject: completed', {
+      subjectId: args.subjectId,
+      provider: args.provider,
+    });
   },
 });
 
@@ -493,6 +541,40 @@ export const getPurchasesByEmailHash = internalQuery({
     const facts = await ctx.db
       .query('purchase_facts')
       .withIndex('by_email_hash', (q) => q.eq('buyerEmailHash', args.emailHash))
+      .collect();
+
+    return facts.map((f) => ({
+      tenantId: f.tenantId,
+      provider: f.provider,
+      externalOrderId: f.externalOrderId,
+      externalLineItemId: f.externalLineItemId,
+      providerProductId: f.providerProductId,
+      lifecycleStatus: f.lifecycleStatus,
+      purchasedAt: f.purchasedAt,
+    }));
+  },
+});
+
+/** Internal query: Get purchases by providerUserId (for providers without email, e.g. Jinxxy) */
+export const getPurchasesByProviderUserId = internalQuery({
+  args: { provider: v.string(), providerUserId: v.string() },
+  returns: v.array(
+    v.object({
+      tenantId: v.id('tenants'),
+      provider: v.string(),
+      externalOrderId: v.string(),
+      externalLineItemId: v.optional(v.string()),
+      providerProductId: v.string(),
+      lifecycleStatus: v.string(),
+      purchasedAt: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const facts = await ctx.db
+      .query('purchase_facts')
+      .withIndex('by_provider_user', (q) =>
+        q.eq('provider', args.provider).eq('providerUserId', args.providerUserId)
+      )
       .collect();
 
     return facts.map((f) => ({

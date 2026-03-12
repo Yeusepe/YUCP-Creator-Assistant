@@ -118,28 +118,58 @@ export const jinxxyHandler: LicenseVerificationHandler = {
     );
 
     if (mutationResult.success) {
-      // Retroactively sync all purchases for this buyer across all of the tenant's Jinxxy products
+      // Retroactively sync all purchases for this buyer across all of the tenant's Jinxxy products.
+      // Jinxxy API doesn't return email on orders, so we match by providerUserId (customerId).
+      // If the order happens to have email, we also use emailHash for broader matching.
       try {
         const orderId = license.order_id;
+        logger.info('[jinxxyHandler] Post-verify sync: starting', {
+          tenantId,
+          subjectId,
+          licenseId: license.id,
+          orderId: orderId ?? '(null)',
+          customerId,
+        });
+
+        let emailHash: string | undefined;
+
         if (orderId) {
+          logger.info('[jinxxyHandler] Post-verify sync: fetching order for email', { orderId });
           const order = await jinxxyClient.getOrder(orderId);
           if (order?.email) {
-            const emailHash = await sha256Hex(normalizeEmail(order.email));
-            await convex.mutation(api.backgroundSync.scheduleBackfillThenSyncForBuyer, {
-              apiSecret: config.convexApiSecret,
-              tenantId,
-              subjectId,
-              provider: 'jinxxy',
-              emailHash,
-              providerUserId: customerId,
+            emailHash = await sha256Hex(normalizeEmail(order.email));
+            logger.info('[jinxxyHandler] Post-verify sync: got email from order', {
+              orderId,
+              emailHashPrefix: emailHash.slice(0, 8),
             });
+          } else {
+            logger.info('[jinxxyHandler] Post-verify sync: order has no email, using providerUserId only', { orderId, customerId });
           }
         }
+
+        logger.info('[jinxxyHandler] Post-verify sync: scheduling backfill', {
+          tenantId,
+          subjectId,
+          providerUserId: customerId,
+          hasEmailHash: !!emailHash,
+        });
+
+        await convex.mutation(api.backgroundSync.scheduleBackfillThenSyncForBuyer, {
+          apiSecret: config.convexApiSecret,
+          tenantId,
+          subjectId,
+          provider: 'jinxxy',
+          emailHash,
+          providerUserId: customerId,
+        });
+
+        logger.info('[jinxxyHandler] Post-verify sync: scheduled successfully', { tenantId, subjectId });
       } catch (syncErr) {
         logger.warn('[jinxxyHandler] Post-verify buyer sync scheduling failed (non-fatal)', {
           tenantId,
           subjectId,
           error: syncErr instanceof Error ? syncErr.message : String(syncErr),
+          stack: syncErr instanceof Error ? syncErr.stack : undefined,
         });
       }
       return { success: true, provider: 'jinxxy', entitlementIds: mutationResult.entitlementIds };

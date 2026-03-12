@@ -810,6 +810,7 @@ const purchase_facts = defineTable({
   .index('by_tenant_provider_order', ['tenantId', 'provider', 'externalOrderId'])
   .index('by_tenant_product', ['tenantId', 'providerProductId'])
   .index('by_email_hash', ['buyerEmailHash'])
+  .index('by_provider_user', ['provider', 'providerUserId'])
   .index('by_subject', ['subjectId']);
 
 /**
