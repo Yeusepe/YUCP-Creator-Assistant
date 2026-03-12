@@ -1,0 +1,31 @@
+{
+  "name": "@yucp/private-rpc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./generated": "./src/generated.ts"
+  },
+  "scripts": {
+    "generate": "bebopc -c ./bebop.json build && bun run ./scripts/postprocess-generated.ts",
+    "check:generated": "bun run generate && git diff --exit-code -- src/generated.ts",
+    "build": "bun run generate && tsc",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src",
+    "test:ci": "bun test ./src --coverage"
+  },
+  "dependencies": {
+    "@tempojs/client": "^0.0.12",
+    "@tempojs/common": "^0.0.12",
+    "@tempojs/server": "^0.0.12",
+    "bebop": "3.0.4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "bebop-tools": "^3.2.3",
+    "bun-types": "^1.1.0"
+  }
+}

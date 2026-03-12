@@ -1,0 +1,187 @@
+message EmptyResponse {
+}
+
+message TokenResponse {
+  1 -> string token;
+}
+
+message SuccessResponse {
+  1 -> bool success;
+  2 -> string error;
+  3 -> string supportCode;
+}
+
+message ProductRecord {
+  1 -> string id;
+  2 -> string name;
+  3 -> string collaboratorName;
+}
+
+message ProductsResponse {
+  1 -> ProductRecord[] products;
+  2 -> string error;
+}
+
+message CreateSetupSessionRequest {
+  1 -> string tenantId;
+  2 -> string guildId;
+  3 -> string discordUserId;
+}
+
+message CreateConnectTokenRequest {
+  1 -> string discordUserId;
+}
+
+message CreateDiscordRoleSetupSessionRequest {
+  1 -> string tenantId;
+  2 -> string guildId;
+  3 -> string adminDiscordUserId;
+}
+
+message GetDiscordRoleSetupResultRequest {
+  1 -> string token;
+}
+
+message DiscordRoleSetupResultResponse {
+  1 -> bool completed;
+  2 -> string sourceGuildId;
+  3 -> string sourceRoleId;
+  4 -> string[] sourceRoleIds;
+  5 -> string requiredRoleMatchMode;
+}
+
+message BindVerifyPanelRequest {
+  1 -> string applicationId;
+  2 -> string discordUserId;
+  3 -> string guildId;
+  4 -> string interactionToken;
+  5 -> string messageId;
+  6 -> string panelToken;
+  7 -> string tenantId;
+}
+
+message CompleteLicenseVerificationRequest {
+  1 -> string licenseKey;
+  2 -> string productId;
+  3 -> string tenantId;
+  4 -> string subjectId;
+  5 -> string discordUserId;
+}
+
+message CompleteVrchatVerificationRequest {
+  1 -> string tenantId;
+  2 -> string subjectId;
+  3 -> string username;
+  4 -> string password;
+  5 -> string twoFactorCode;
+}
+
+message DisconnectVerificationRequest {
+  1 -> string tenantId;
+  2 -> string subjectId;
+  3 -> string provider;
+}
+
+message VerificationResultResponse {
+  1 -> bool success;
+  2 -> string error;
+  3 -> string provider;
+  4 -> string supportCode;
+  5 -> string[] entitlementIds;
+}
+
+message ListProductsRequest {
+  1 -> string tenantId;
+}
+
+message ResolveVrchatAvatarNameRequest {
+  1 -> string tenantId;
+  2 -> string avatarId;
+}
+
+message ResolveVrchatAvatarNameResponse {
+  1 -> string name;
+}
+
+message CreateCollaboratorInviteRequest {
+  1 -> string tenantId;
+  2 -> string guildId;
+  3 -> string guildName;
+  4 -> string actorDiscordUserId;
+}
+
+message CreateCollaboratorInviteResponse {
+  1 -> string inviteUrl;
+  2 -> uint64 expiresAt;
+}
+
+message ListCollaboratorConnectionsRequest {
+  1 -> string tenantId;
+  2 -> string guildId;
+  3 -> string actorDiscordUserId;
+}
+
+message CollaboratorConnectionRecord {
+  1 -> string id;
+  2 -> string linkType;
+  3 -> string status;
+  4 -> string source;
+  5 -> bool webhookConfigured;
+  6 -> string collaboratorDiscordUserId;
+  7 -> string collaboratorDisplayName;
+  8 -> uint64 createdAt;
+}
+
+message ListCollaboratorConnectionsResponse {
+  1 -> CollaboratorConnectionRecord[] connections;
+}
+
+message AddCollaboratorConnectionManualRequest {
+  1 -> string tenantId;
+  2 -> string guildId;
+  3 -> string actorDiscordUserId;
+  4 -> string jinxxyApiKey;
+  5 -> string serverName;
+}
+
+message AddCollaboratorConnectionManualResponse {
+  1 -> bool success;
+  2 -> string connectionId;
+  3 -> string displayName;
+  4 -> string error;
+}
+
+message RemoveCollaboratorConnectionRequest {
+  1 -> string tenantId;
+  2 -> string guildId;
+  3 -> string actorDiscordUserId;
+  4 -> string connectionId;
+}
+
+service Catalog {
+  listGumroadProducts(ListProductsRequest): ProductsResponse;
+  listJinxxyProducts(ListProductsRequest): ProductsResponse;
+  listLemonSqueezyProducts(ListProductsRequest): ProductsResponse;
+  resolveVrchatAvatarName(ResolveVrchatAvatarNameRequest): ResolveVrchatAvatarNameResponse;
+}
+
+service Setup {
+  createSetupSession(CreateSetupSessionRequest): TokenResponse;
+  createConnectToken(CreateConnectTokenRequest): TokenResponse;
+  createDiscordRoleSetupSession(CreateDiscordRoleSetupSessionRequest): TokenResponse;
+  getDiscordRoleSetupResult(GetDiscordRoleSetupResultRequest): DiscordRoleSetupResultResponse;
+}
+
+service Verification {
+  bindVerifyPanel(BindVerifyPanelRequest): SuccessResponse;
+  completeLicenseVerification(CompleteLicenseVerificationRequest): VerificationResultResponse;
+  completeVrchatVerification(CompleteVrchatVerificationRequest): VerificationResultResponse;
+  disconnectVerification(DisconnectVerificationRequest): SuccessResponse;
+}
+
+service Collaborator {
+  createInvite(CreateCollaboratorInviteRequest): CreateCollaboratorInviteResponse;
+  listConnections(ListCollaboratorConnectionsRequest): ListCollaboratorConnectionsResponse;
+  addConnectionManual(AddCollaboratorConnectionManualRequest): AddCollaboratorConnectionManualResponse;
+  removeConnection(RemoveCollaboratorConnectionRequest): SuccessResponse;
+}

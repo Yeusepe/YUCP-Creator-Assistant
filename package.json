@@ -6,9 +6,14 @@
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "bebop": "3.0.4"
+  },
   "scripts": {
+    "bebop:regenerate": "bun run --filter @yucp/private-rpc generate",
     "lint": "bun run --filter '*' lint",
-    "typecheck": "bun run --filter '*' typecheck",
+    "contracts:check": "bun run --filter @yucp/private-rpc check:generated",
+    "typecheck": "bun run contracts:check && bun run --filter '*' typecheck",
     "test": "bun run test:fast",
     "test:fast": "bun run --filter '@yucp/api' test && bun run --filter '@yucp/policy' test && bun run --filter '@yucp/providers' test && bun run --filter '@yucp/shared' test",
     "test:infisical": "bun run --env-file=.env.infisical test",
@@ -39,6 +44,7 @@
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^25.4.0",
     "@types/three": "^0.183.1",
+    "bebop-tools": "^3.2.3",
     "bun-types": "^1.3.10",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
@@ -54,6 +60,10 @@
     "@better-auth/oauth-provider": "1.4.9",
     "@convex-dev/better-auth": "^0.10.13",
     "@noble/ed25519": "^2.2.3",
+    "@tempojs/client": "^0.0.12",
+    "@tempojs/cloudflare-worker-router": "^0.0.12",
+    "@tempojs/server": "^0.0.12",
+    "bebop": "3.0.4",
     "better-auth": "1.4.9",
     "convex": "^1.32.0",
     "dotenv": "^17.3.1"
