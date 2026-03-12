@@ -46,7 +46,7 @@ export const DASHBOARD_PROVIDER_REGISTRY = [
   {
     key: 'payhip',
     label: 'Payhip',
-    iconUrl: '__API_BASE__/Icons/Payhip.png',
+    iconUrl: '__API_BASE__/Icons/PayHip.png',
     iconBg: '#3b82f6',
     iconClassName: 'w-6 h-6 object-contain',
     description: 'Webhooks & per-product license keys',
