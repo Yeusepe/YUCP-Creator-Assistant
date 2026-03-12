@@ -27,11 +27,15 @@ let clientsPromise: Promise<PrivateRpcClients> | null = null;
 
 function getRpcBaseUrl(): string {
   const { apiInternal, apiPublic } = getApiUrls();
-  const apiBaseUrl = apiInternal ?? apiPublic;
-  if (!apiBaseUrl) {
+  const candidates = [apiInternal, apiPublic]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.replace(/\/$/, ''));
+  if (candidates.length === 0) {
     throw new Error('API_BASE_URL or API_INTERNAL_URL is not configured for the bot service');
   }
-  return apiBaseUrl.replace(/\/$/, '');
+
+  const secureCandidate = candidates.find((value) => value.startsWith('https://'));
+  return secureCandidate ?? candidates[0];
 }
 
 async function createClients(): Promise<PrivateRpcClients> {
