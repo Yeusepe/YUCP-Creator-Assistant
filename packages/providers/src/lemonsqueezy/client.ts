@@ -602,10 +602,7 @@ export class LemonSqueezyApiClient {
 
   async getOrder(orderId: string): Promise<LemonSqueezyOrder | null> {
     try {
-      const response = await this.request<{ data: JsonApiResource }>(
-        'GET',
-        `/orders/${orderId}`
-      );
+      const response = await this.request<{ data: JsonApiResource }>('GET', `/orders/${orderId}`);
       return this.mapOrder(response.data);
     } catch (err) {
       if (err instanceof LemonSqueezyApiError && err.statusCode === 404) return null;

@@ -143,7 +143,10 @@ export const jinxxyHandler: LicenseVerificationHandler = {
               emailHashPrefix: emailHash.slice(0, 8),
             });
           } else {
-            logger.info('[jinxxyHandler] Post-verify sync: order has no email, using providerUserId only', { orderId, customerId });
+            logger.info(
+              '[jinxxyHandler] Post-verify sync: order has no email, using providerUserId only',
+              { orderId, customerId }
+            );
           }
         }
 
@@ -163,7 +166,10 @@ export const jinxxyHandler: LicenseVerificationHandler = {
           providerUserId: customerId,
         });
 
-        logger.info('[jinxxyHandler] Post-verify sync: scheduled successfully', { tenantId, subjectId });
+        logger.info('[jinxxyHandler] Post-verify sync: scheduled successfully', {
+          tenantId,
+          subjectId,
+        });
       } catch (syncErr) {
         logger.warn('[jinxxyHandler] Post-verify buyer sync scheduling failed (non-fatal)', {
           tenantId,
