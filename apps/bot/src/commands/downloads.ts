@@ -1263,7 +1263,11 @@ export async function handleDownloadsManageToggle(
   }
 
   const routeId = panel.selectedRouteId;
-  const route = await convex.query(api.downloads.getRouteById, { apiSecret, routeId, authUserId: panel.authUserId });
+  const route = await convex.query(api.downloads.getRouteById, {
+    apiSecret,
+    routeId,
+    authUserId: panel.authUserId,
+  });
   if (!route || route.authUserId !== panel.authUserId || route.guildId !== interaction.guildId) {
     await interaction.update({
       content: `${E.X_} This route is no longer available.`,
@@ -1340,7 +1344,11 @@ export async function handleDownloadsManageRemovePrompt(
   }
 
   const routeId = panel.selectedRouteId;
-  const route = await convex.query(api.downloads.getRouteById, { apiSecret, routeId, authUserId: panel.authUserId });
+  const route = await convex.query(api.downloads.getRouteById, {
+    apiSecret,
+    routeId,
+    authUserId: panel.authUserId,
+  });
   if (!route || route.authUserId !== panel.authUserId || route.guildId !== interaction.guildId) {
     await interaction.update({
       content: `${E.X_} This route is no longer available.`,
@@ -1418,7 +1426,11 @@ export async function handleDownloadsManageRemoveConfirm(
   }
 
   const routeId = panel.selectedRouteId;
-  const route = await convex.query(api.downloads.getRouteById, { apiSecret, routeId, authUserId: panel.authUserId });
+  const route = await convex.query(api.downloads.getRouteById, {
+    apiSecret,
+    routeId,
+    authUserId: panel.authUserId,
+  });
   if (!route || route.authUserId !== panel.authUserId || route.guildId !== interaction.guildId) {
     await interaction.update({
       content: `${E.X_} This route is no longer available.`,
@@ -1428,7 +1440,11 @@ export async function handleDownloadsManageRemoveConfirm(
     return;
   }
 
-  await convex.mutation(api.downloads.deleteRoute, { apiSecret, routeId, authUserId: panel.authUserId });
+  await convex.mutation(api.downloads.deleteRoute, {
+    apiSecret,
+    routeId,
+    authUserId: panel.authUserId,
+  });
   const guildContext = getGuildContext(interaction);
   if (!guildContext) {
     await interaction.update({

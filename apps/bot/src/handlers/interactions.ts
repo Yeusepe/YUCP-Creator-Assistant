@@ -1032,7 +1032,14 @@ async function handleButton(
     const authUserId = rest2.slice(0, secondColon);
     const routeId = rest2.slice(secondColon + 1) as Id<'download_routes'>;
     const { handleDownloadsAutofixPrompt } = await import('../commands/downloads');
-    await handleDownloadsAutofixPrompt(interaction, ctx.convex, ctx.apiSecret, userId, authUserId, routeId);
+    await handleDownloadsAutofixPrompt(
+      interaction,
+      ctx.convex,
+      ctx.apiSecret,
+      userId,
+      authUserId,
+      routeId
+    );
     return;
   }
 
@@ -1045,7 +1052,14 @@ async function handleButton(
     const authUserId = rest2.slice(0, secondColon);
     const routeId = rest2.slice(secondColon + 1) as Id<'download_routes'>;
     const { handleDownloadsAutofixRun } = await import('../commands/downloads');
-    await handleDownloadsAutofixRun(interaction, ctx.convex, ctx.apiSecret, userId, authUserId, routeId);
+    await handleDownloadsAutofixRun(
+      interaction,
+      ctx.convex,
+      ctx.apiSecret,
+      userId,
+      authUserId,
+      routeId
+    );
     return;
   }
 

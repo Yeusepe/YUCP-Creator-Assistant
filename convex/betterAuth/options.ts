@@ -8,7 +8,7 @@ const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 
 export const createSchemaAuthOptions = (): BetterAuthOptions =>
   ({
-    secret: process.env.BETTER_AUTH_SECRET ?? (() => { throw new Error('BETTER_AUTH_SECRET must be set'); })(),
+    secret: process.env.BETTER_AUTH_SECRET ?? 'MISSING_BETTER_AUTH_SECRET_CONFIGURE_CONVEX_ENV',
     baseURL: 'https://example.convex.site',
     database: {} as never,
     plugins: [
