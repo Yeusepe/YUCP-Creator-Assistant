@@ -106,15 +106,10 @@ export const getCreatorBySlug = query({
     v.null(),
     v.object({
       _id: v.id('creator_profiles'),
-      _creationTime: v.number(),
-      authUserId: v.string(),
-      name: v.string(),
-      ownerDiscordUserId: v.string(),
       slug: v.optional(v.string()),
+      name: v.string(),
       status: v.string(),
-      policy: v.optional(v.any()),
       createdAt: v.number(),
-      updatedAt: v.number(),
     })
   ),
   handler: async (ctx, args) => {
@@ -123,7 +118,14 @@ export const getCreatorBySlug = query({
       .query('creator_profiles')
       .withIndex('by_slug', (q) => q.eq('slug', args.slug))
       .first();
-    return profile ?? null;
+    if (!profile) return null;
+    return {
+      _id: profile._id,
+      slug: profile.slug,
+      name: profile.name,
+      status: profile.status,
+      createdAt: profile.createdAt,
+    };
   },
 });
 

@@ -46,14 +46,14 @@ export const listRoutesByGuild = query({
 export const getRouteById = query({
   args: {
     apiSecret: v.string(),
-    authUserId: v.string(),
+    authUserId: v.optional(v.string()),
     routeId: v.id('download_routes'),
   },
   returns: v.union(v.any(), v.null()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const doc = await ctx.db.get(args.routeId);
-    if (!doc || doc.authUserId !== args.authUserId) return null;
+    if (!doc || (args.authUserId !== undefined && doc.authUserId !== args.authUserId)) return null;
     return doc;
   },
 });
@@ -67,6 +67,9 @@ export const getActiveRoutesForChannel = query({
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    if (args.channelIds.length > 50) {
+      throw new ConvexError('channelIds cannot exceed 50 entries');
+    }
     const uniqueChannelIds = [...new Set(args.channelIds.filter(Boolean))];
     if (uniqueChannelIds.length === 0) return [];
 
@@ -265,6 +268,11 @@ export const createArtifact = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    for (const file of args.files) {
+      if (!file.url.startsWith('https://')) {
+        throw new ConvexError('Download URLs must use HTTPS');
+      }
+    }
     const now = Date.now();
     const artifactId = await ctx.db.insert('download_artifacts', {
       authUserId: args.authUserId,

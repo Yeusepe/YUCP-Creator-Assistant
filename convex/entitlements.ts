@@ -339,9 +339,10 @@ export const getVerifiedUsersPaginated = query({
         bySubject.set(e.subjectId, { productIds: new Set([e.productId]) });
       }
     }
-    const subjectIds = Array.from(bySubject.keys());
+    const subjectIds = Array.from(bySubject.keys()).sort();
     const totalCount = subjectIds.length;
-    const start = args.cursor ? subjectIds.indexOf(args.cursor) + 1 : 0;
+    const cursorIndex = args.cursor ? subjectIds.indexOf(args.cursor) : -1;
+    const start = cursorIndex >= 0 ? cursorIndex + 1 : 0;
     const slice = subjectIds.slice(start, start + limit);
     const users: Array<{
       subjectId: Id<'subjects'>;
@@ -361,8 +362,7 @@ export const getVerifiedUsersPaginated = query({
         });
       }
     }
-    const nextCursor =
-      start + limit < subjectIds.length ? subjectIds[start + limit - 1] : undefined;
+    const nextCursor = start + limit < subjectIds.length ? subjectIds[start + limit - 1] : undefined;
     return { users, nextCursor, totalCount };
   },
 });
@@ -538,6 +538,16 @@ export const grantEntitlement = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const now = Date.now();
+
+    // Validate purchasedAt timestamp if provided
+    if (args.evidence.purchasedAt !== undefined) {
+      if (args.evidence.purchasedAt > now + 5 * 60 * 1000) {
+        throw new ConvexError('purchasedAt cannot be more than 5 minutes in the future');
+      }
+      if (args.evidence.purchasedAt < now - 30 * 24 * 60 * 60 * 1000) {
+        throw new ConvexError('purchasedAt cannot be more than 30 days in the past');
+      }
+    }
 
     // Get creator profile for policy snapshot
     const profile = await ctx.db

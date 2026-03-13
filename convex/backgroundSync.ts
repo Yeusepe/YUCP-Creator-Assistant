@@ -134,10 +134,18 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
       throw new ConvexError('Invalid provider');
     }
     const now = Date.now();
+    const MAX_FUTURE_MS = 5 * 60 * 1000;
+    const MAX_PAST_MS = 30 * 24 * 60 * 60 * 1000;
     let inserted = 0;
     let skipped = 0;
 
     for (const p of args.purchases) {
+      if (p.purchasedAt > now + MAX_FUTURE_MS) {
+        throw new ConvexError('purchasedAt cannot be more than 5 minutes in the future');
+      }
+      if (p.purchasedAt < now - MAX_PAST_MS) {
+        throw new ConvexError('purchasedAt cannot be more than 30 days in the past');
+      }
       const existing = await ctx.db
         .query('purchase_facts')
         .withIndex('by_auth_user_provider_order', (q) =>
