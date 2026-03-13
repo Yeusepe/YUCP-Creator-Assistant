@@ -1250,7 +1250,7 @@ const webhook_events = defineTable({
   status: WebhookEventStatus,
   // Error message if processing failed
   errorMessage: v.optional(v.string()),
-  // Related creator user ID (if determined from payload). Optional for platform-level events.
+  // Related creator user ID. Resolved from route; falls back to routeId for unknown connections.
   authUserId: v.string(),
   // Related subject (if determined from payload)
   subjectId: v.optional(v.id('subjects')),

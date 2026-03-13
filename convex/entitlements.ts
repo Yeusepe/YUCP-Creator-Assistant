@@ -1390,7 +1390,7 @@ async function emitRoleSyncJob(
   // Get subject to find Discord user ID
   const subject = await (ctx as any).db.get(subjectId);
 
-  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}:${now}`;
+  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}`;
 
   const outboxJobId = await (ctx as any).db.insert('outbox_jobs', {
     authUserId,
@@ -1442,7 +1442,7 @@ async function emitRoleRemovalJobs(
     const roleIds = rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
 
     for (const roleId of roleIds) {
-      const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${roleId}:${now}`;
+      const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${roleId}`;
 
       const outboxJobId = await (ctx as any).db.insert('outbox_jobs', {
         authUserId,

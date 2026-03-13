@@ -113,8 +113,8 @@ const EXTENSION_PRESETS: Record<
   },
 };
 
-function getSessionKey(userId: string, authUserId: string): string {
-  return `${userId}:${authUserId}`;
+function getSessionKey(userId: string, authUserId: string, guildId: string): string {
+  return `${userId}:${authUserId}:${guildId}`;
 }
 
 function cleanExpiredSessions(): void {
@@ -538,9 +538,13 @@ function buildManageRemoveConfirmComponents(
   ];
 }
 
-function requireSession(userId: string, authUserId: string): DownloadRouteSession | null {
+function requireSession(
+  userId: string,
+  authUserId: string,
+  guildId: string
+): DownloadRouteSession | null {
   cleanExpiredSessions();
-  const session = downloadSessions.get(getSessionKey(userId, authUserId));
+  const session = downloadSessions.get(getSessionKey(userId, authUserId, guildId));
   if (!session || Date.now() > session.expiresAt) return null;
   return session;
 }
@@ -624,7 +628,7 @@ export async function handleDownloadsAdd(
 ): Promise<void> {
   cleanExpiredSessions();
 
-  const sessionKey = getSessionKey(interaction.user.id, ctx.authUserId);
+  const sessionKey = getSessionKey(interaction.user.id, ctx.authUserId, ctx.guildId);
   const session: DownloadRouteSession = {
     authUserId: ctx.authUserId,
     guildLinkId: ctx.guildLinkId,
@@ -650,7 +654,7 @@ export async function handleDownloadsSourceSelect(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.reply({
       content: `${E.Timer} Setup expired. Start again with \`/creator-admin downloads add\`.`,
@@ -671,7 +675,7 @@ export async function handleDownloadsArchiveSelect(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.reply({
       content: `${E.Timer} Setup expired. Start again with \`/creator-admin downloads add\`.`,
@@ -692,7 +696,7 @@ export async function handleDownloadsGoToAccess(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.update({
       content: `${E.Timer} Setup expired. Start again with \`/creator-admin downloads add\`.`,
@@ -729,7 +733,7 @@ export async function handleDownloadsRoleSelect(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.editReply({
       content: `${E.Timer} Setup expired. Start again with \`/creator-admin downloads add\`.`,
@@ -749,7 +753,7 @@ export async function handleDownloadsLogicSelect(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.reply({
       content: `${E.Timer} Setup expired. Start again with \`/creator-admin downloads add\`.`,
@@ -770,7 +774,7 @@ export async function handleDownloadsExtensionSelect(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.reply({
       content: `${E.Timer} Session expired. Run \`/creator-admin downloads add\` again.`,
@@ -800,7 +804,7 @@ export async function handleDownloadsBackToChannels(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.update({
       content: `${E.Timer} Setup expired. Start again with \`/creator-admin downloads add\`.`,
@@ -821,7 +825,7 @@ export async function handleDownloadsGoToConfirm(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.update({
       content: `${E.Timer} Setup expired. Start again with \`/creator-admin downloads add\`.`,
@@ -852,8 +856,8 @@ export async function handleDownloadsConfirmAdd(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const sessionKey = getSessionKey(userId, authUserId);
-  const session = requireSession(userId, authUserId);
+  const sessionKey = getSessionKey(userId, authUserId, interaction.guildId ?? '');
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.update({
       content: `${E.Timer} Setup expired. Start again with \`/creator-admin downloads add\`.`,
@@ -970,7 +974,6 @@ export async function handleDownloadsConfirmAdd(
   } catch (err) {
     logger.error('Failed to create Liened Downloads route', {
       error: err instanceof Error ? err.message : String(err),
-      authUserId,
       guildId: session.guildId,
       sourceChannelId: session.sourceChannelId,
       archiveChannelId: session.archiveChannelId,
@@ -992,7 +995,7 @@ export async function handleDownloadsCancelAdd(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  downloadSessions.delete(getSessionKey(userId, authUserId));
+  downloadSessions.delete(getSessionKey(userId, authUserId, interaction.guildId ?? ''));
   await interaction.update({
     content: `${E.Home} Setup canceled.`,
     embeds: [],
@@ -1005,7 +1008,7 @@ export async function handleDownloadsCustomizeMessage(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.reply({
       content: `${E.Timer} This setup expired. Start again with \`/creator-admin downloads setup\`.`,
@@ -1022,7 +1025,7 @@ export async function handleDownloadsMessageModal(
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const session = requireSession(userId, authUserId);
+  const session = requireSession(userId, authUserId, interaction.guildId ?? '');
   if (!session) {
     await interaction.reply({
       content: `${E.Timer} This setup expired. Start again with \`/creator-admin downloads setup\`.`,

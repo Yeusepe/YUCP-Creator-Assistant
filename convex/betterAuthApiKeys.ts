@@ -49,15 +49,26 @@ function serializeApiKeyRecord(
     return null;
   }
 
-  const metadata =
+  const meta =
     value.metadata &&
     typeof value.metadata === 'object' &&
-    !Array.isArray(value.metadata) &&
-    typeof (value.metadata as Record<string, unknown>).kind === 'string' &&
-    typeof (value.metadata as Record<string, unknown>).authUserId === 'string'
+    !Array.isArray(value.metadata)
+      ? (value.metadata as Record<string, unknown>)
+      : null;
+
+  // Accept authUserId directly; fall back to tenantId for keys issued before migration.
+  const resolvedAuthUserId =
+    meta && typeof meta.authUserId === 'string'
+      ? meta.authUserId
+      : meta && typeof meta.tenantId === 'string'
+        ? meta.tenantId
+        : null;
+
+  const metadata =
+    meta && typeof meta.kind === 'string' && resolvedAuthUserId !== null
       ? {
-          kind: (value.metadata as Record<string, unknown>).kind as string,
-          authUserId: (value.metadata as Record<string, unknown>).authUserId as string,
+          kind: meta.kind as string,
+          authUserId: resolvedAuthUserId,
         }
       : null;
 

@@ -1200,12 +1200,14 @@ async function routeRequest(request: Request): Promise<Response> {
     }
 
     // Resolve setup token if present
+    let resolvedSetupSession = false;
     if (setupCookieToken) {
       const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
-      const session = await resolveSetupSession(setupCookieToken, encryptionSecret);
-      if (session) {
-        authUserId = session.authUserId;
-        guildId = session.guildId;
+      const setupSession = await resolveSetupSession(setupCookieToken, encryptionSecret);
+      if (setupSession) {
+        authUserId = setupSession.authUserId;
+        guildId = setupSession.guildId;
+        resolvedSetupSession = true;
       }
     }
 
@@ -1222,7 +1224,7 @@ async function routeRequest(request: Request): Promise<Response> {
 
     // Guard: regular web sessions require a valid BetterAuth session.
     // Bot-initiated setup flows use the setup cookie and are exempt.
-    if (!setupCookieToken && auth) {
+    if (!resolvedSetupSession && auth) {
       const webSession = await auth.getSession(request);
       if (!webSession) {
         const browserBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
@@ -1238,7 +1240,7 @@ async function routeRequest(request: Request): Promise<Response> {
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', '');
-    html = html.replaceAll('__HAS_SETUP_SESSION__', setupCookieToken ? 'true' : 'false');
+    html = html.replaceAll('__HAS_SETUP_SESSION__', resolvedSetupSession ? 'true' : 'false');
     return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
     });
@@ -1299,7 +1301,7 @@ async function routeRequest(request: Request): Promise<Response> {
 
     // Guard: regular web sessions require a valid BetterAuth session.
     // Bot-initiated setup flows use the setup cookie and are exempt.
-    if (!setupCookieToken && auth) {
+    if (!resolvedSetupSession && auth) {
       const webSession = await auth.getSession(request);
       if (!webSession) {
         const browserBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
@@ -1376,7 +1378,7 @@ async function routeRequest(request: Request): Promise<Response> {
 
     // Guard: regular web sessions require a valid BetterAuth session.
     // Bot-initiated setup flows use the setup cookie and are exempt.
-    if (!setupCookieToken && auth) {
+    if (!resolvedSetupSession && auth) {
       const webSession = await auth.getSession(request);
       if (!webSession) {
         const browserBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
@@ -1507,12 +1509,14 @@ async function routeRequest(request: Request): Promise<Response> {
       });
     }
 
+    let resolvedSetupSession = false;
     if (setupCookieToken) {
       const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
-      const session = await resolveSetupSession(setupCookieToken, encryptionSecret);
-      if (session) {
-        authUserId = session.authUserId;
-        guildId = session.guildId;
+      const setupSession = await resolveSetupSession(setupCookieToken, encryptionSecret);
+      if (setupSession) {
+        authUserId = setupSession.authUserId;
+        guildId = setupSession.guildId;
+        resolvedSetupSession = true;
       }
     }
 
@@ -1529,7 +1533,7 @@ async function routeRequest(request: Request): Promise<Response> {
 
     // Guard: regular web sessions require a valid BetterAuth session.
     // Bot-initiated setup flows use the setup cookie and are exempt.
-    if (!setupCookieToken && auth) {
+    if (!resolvedSetupSession && auth) {
       const webSession = await auth.getSession(request);
       if (!webSession) {
         const browserBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
@@ -1544,7 +1548,7 @@ async function routeRequest(request: Request): Promise<Response> {
     html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(authUserId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
-    html = html.replaceAll('__HAS_SETUP_SESSION__', setupCookieToken ? 'true' : 'false');
+    html = html.replaceAll('__HAS_SETUP_SESSION__', resolvedSetupSession ? 'true' : 'false');
     return new Response(html, {
       headers: { 'Content-Type': 'text/html', ...DASHBOARD_HTML_SECURITY_HEADERS },
     });

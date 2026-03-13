@@ -1229,7 +1229,9 @@ export async function handleProductConfirmRemove(
   const notFoundIds: string[] = [];
 
   for (const productId of productIds) {
-    const matching = rules.filter((r) => r.productId === productId);
+    const matching = rules.filter(
+      (r) => r.productId === productId && r.guildId === session.guildId
+    );
 
     if (matching.length === 0) {
       notFoundIds.push(productId);
