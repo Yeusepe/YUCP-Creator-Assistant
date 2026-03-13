@@ -314,7 +314,7 @@ export function createProviderAdapter(
     case 'payhip':
       return new PayhipAdapter(config);
     case 'discord':
-      return new DiscordAdapter(config);
+      return new DiscordAdapter();
     case 'manual':
       return new ManualAdapter(config, storage);
     default:
