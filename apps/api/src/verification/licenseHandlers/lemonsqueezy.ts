@@ -3,6 +3,7 @@ import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
 import { decrypt } from '../../lib/encrypt';
+import { PURPOSES as LEMONSQUEEZY } from '../../providers/lemonsqueezy';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
 import type { VerificationConfig } from '../sessionManager';
@@ -83,7 +84,7 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
 
     let apiToken: string;
     try {
-      apiToken = await decrypt(encryptedApiToken, config.encryptionSecret, 'lemonsqueezy-api-token');
+      apiToken = await decrypt(encryptedApiToken, config.encryptionSecret, LEMONSQUEEZY.credential);
     } catch (err) {
       logger.error('Failed to decrypt Lemon Squeezy API token', { authUserId, err });
       return {

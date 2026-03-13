@@ -3,6 +3,7 @@ import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
 import { decrypt } from '../../lib/encrypt';
+import { PURPOSES as JINXXY } from '../../providers/jinxxy';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
 import type { VerificationConfig } from '../sessionManager';
@@ -59,7 +60,7 @@ async function resolveJinxxyApiKey(
   }
 
   try {
-    const key = await decrypt(encrypted, config.encryptionSecret, 'jinxxy-api-key');
+    const key = await decrypt(encrypted, config.encryptionSecret, JINXXY.credential);
     return { key };
   } catch (err) {
     logger.error('Failed to decrypt creator Jinxxy API key', { authUserId, err });
@@ -193,7 +194,7 @@ export const jinxxyHandler: LicenseVerificationHandler = {
         const collabKey = await decrypt(
           collab.jinxxyApiKeyEncrypted,
           config.encryptionSecret ?? '',
-          'jinxxy-api-key'
+          JINXXY.credential
         );
         const collabClient = new JinxxyApiClient({
           apiKey: collabKey,

@@ -18,6 +18,10 @@ import { api } from '../../../../convex/_generated/api';
 import { JINXXY_PENDING_WEBHOOK_PREFIX } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt } from '../lib/encrypt';
+import { PURPOSES as JINXXY } from '../providers/jinxxy';
+import { PURPOSES as PAYHIP } from '../providers/payhip';
+
+const COLLAB_WEBHOOK_SECRET_PURPOSE = 'collab-webhook-signing-secret' as const;
 import { getStateStore } from '../lib/stateStore';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -92,7 +96,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       const raw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as { signingSecretEncrypted: string };
-      return await decrypt(parsed.signingSecretEncrypted, encryptionSecret, 'webhook-signing-secret');
+      return await decrypt(parsed.signingSecretEncrypted, encryptionSecret, JINXXY.webhookSecret);
     } catch {
       return null;
     }
@@ -109,7 +113,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
         authUserId,
       });
       if (!encryptedKey) return null;
-      return await decrypt(encryptedKey, encryptionSecret, 'payhip-api-key');
+      return await decrypt(encryptedKey, encryptionSecret, PAYHIP.credential);
     } catch {
       return null;
     }
@@ -122,7 +126,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
         inviteId,
       });
       if (!encryptedSecret) return null;
-      return await decrypt(encryptedSecret, encryptionSecret, 'webhook-signing-secret');
+      return await decrypt(encryptedSecret, encryptionSecret, COLLAB_WEBHOOK_SECRET_PURPOSE);
     } catch {
       return null;
     }
@@ -365,7 +369,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       const signature = request.headers.get('x-signature');
       // Look up secret by routeId — works for authUserId (user-scoped).
       const secretRef = await getJinxxyWebhookSecretByRouteId(routeId);
-      const convexSecret = secretRef ? await decrypt(secretRef, encryptionSecret, 'webhook-signing-secret') : null;
+      const convexSecret = secretRef ? await decrypt(secretRef, encryptionSecret, JINXXY.webhookSecret) : null;
       const pendingSecret = await getPendingJinxxyWebhookSecret(routeId);
       const webhookSecret = convexSecret ?? pendingSecret;
       let signatureValid = false;
@@ -532,7 +536,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
         apiSecret,
         routeId,
       });
-      const apiKey = encryptedKey ? await decrypt(encryptedKey, encryptionSecret, 'payhip-api-key') : null;
+      const apiKey = encryptedKey ? await decrypt(encryptedKey, encryptionSecret, PAYHIP.credential) : null;
       let signatureValid = false;
 
       if (apiKey && payload.signature) {

@@ -14,9 +14,15 @@ import type {
   ProductRecord,
   ProviderContext,
   ProviderPlugin,
+  ProviderPurposes,
 } from './types';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+
+export const PURPOSES = {
+  credential: 'gumroad-oauth-access-token',
+  refreshToken: 'gumroad-oauth-refresh-token',
+} as const satisfies ProviderPurposes;
 
 const GUMROAD_API_BASE = 'https://api.gumroad.com/v2';
 const MAX_RATE_LIMIT_RETRIES = 10;
@@ -101,6 +107,7 @@ const backfill: BackfillPlugin = {
 const gumroadProvider: ProviderPlugin = {
   id: 'gumroad',
   needsCredential: true,
+  purposes: PURPOSES,
 
   async getCredential(ctx: ProviderContext) {
     const conn = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
@@ -109,7 +116,7 @@ const gumroadProvider: ProviderPlugin = {
       provider: 'gumroad',
     });
     if (!conn?.gumroadAccessTokenEncrypted) return null;
-    return decrypt(conn.gumroadAccessTokenEncrypted, ctx.encryptionSecret, 'gumroad-oauth-access-token');
+    return decrypt(conn.gumroadAccessTokenEncrypted, ctx.encryptionSecret, PURPOSES.credential);
   },
 
   async fetchProducts(credential) {

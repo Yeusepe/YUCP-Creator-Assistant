@@ -6,6 +6,9 @@ import type { Auth } from '../auth';
 import { getCookieValue, SETUP_SESSION_COOKIE } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt, encrypt } from '../lib/encrypt';
+import { PURPOSES as LEMONSQUEEZY } from '../providers/lemonsqueezy';
+
+const PROVIDER_PLATFORM_CREDENTIAL_PURPOSE = 'provider-platform-credential' as const;
 import { resolveSetupSession } from '../lib/setupSession';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -315,7 +318,7 @@ async function buildLemonClientForConnection(
   });
   const encryptedApiToken = secrets?.lemonApiTokenEncrypted;
   if (!encryptedApiToken) throw new Error('Lemon Squeezy API token not configured');
-  const apiToken = await decrypt(encryptedApiToken, config.encryptionSecret, 'lemonsqueezy-api-token');
+  const apiToken = await decrypt(encryptedApiToken, config.encryptionSecret, LEMONSQUEEZY.credential);
   return new LemonSqueezyApiClient({ apiToken });
 }
 
@@ -660,7 +663,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
           credentialKey: credential.credentialKey,
           kind: credential.kind,
           encryptedValue: credential.value
-            ? await encrypt(credential.value, config.encryptionSecret, 'provider-platform-credential')
+            ? await encrypt(credential.value, config.encryptionSecret, PROVIDER_PLATFORM_CREDENTIAL_PURPOSE)
             : undefined,
           metadata: credential.metadata,
         });
@@ -710,8 +713,8 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       secret: webhookSecret,
       testMode: Boolean(body.testMode ?? selectedStore.testMode ?? false),
     });
-    const encryptedApiToken = await encrypt(apiToken, config.encryptionSecret, 'lemonsqueezy-api-token');
-    const encryptedWebhookSecret = await encrypt(webhookSecret, config.encryptionSecret, 'lemonsqueezy-webhook-secret');
+    const encryptedApiToken = await encrypt(apiToken, config.encryptionSecret, LEMONSQUEEZY.credential);
+    const encryptedWebhookSecret = await encrypt(webhookSecret, config.encryptionSecret, LEMONSQUEEZY.webhookSecret);
 
     for (const credential of [
       {
@@ -1055,7 +1058,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       return jsonResponse({ error: 'Webhook secret not configured' }, requestId, 409);
 
     const rawBody = await request.text();
-    const webhookSecret = await decrypt(encryptedWebhookSecret, config.encryptionSecret, 'lemonsqueezy-webhook-secret');
+    const webhookSecret = await decrypt(encryptedWebhookSecret, config.encryptionSecret, LEMONSQUEEZY.webhookSecret);
     const signature = request.headers.get('x-signature')?.trim() ?? '';
     const expected = await hmacSha256(webhookSecret, rawBody);
     if (!signature || !timingSafeStringEqual(expected, signature)) {

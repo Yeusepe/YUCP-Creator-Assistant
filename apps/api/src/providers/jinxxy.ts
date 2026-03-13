@@ -15,9 +15,15 @@ import type {
   ProductRecord,
   ProviderContext,
   ProviderPlugin,
+  ProviderPurposes,
 } from './types';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+
+export const PURPOSES = {
+  credential: 'jinxxy-api-key',
+  webhookSecret: 'jinxxy-webhook-signing-secret',
+} as const satisfies ProviderPurposes;
 
 const MAX_RATE_LIMIT_RETRIES = 10;
 const HARD_PAGE_LIMIT = 100;
@@ -73,6 +79,7 @@ const backfill: BackfillPlugin = {
 const jinxxyProvider: ProviderPlugin = {
   id: 'jinxxy',
   needsCredential: true,
+  purposes: PURPOSES,
 
   async getCredential(ctx: ProviderContext) {
     const conn = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
@@ -81,7 +88,7 @@ const jinxxyProvider: ProviderPlugin = {
       provider: 'jinxxy',
     });
     if (conn?.jinxxyApiKeyEncrypted) {
-      return decrypt(conn.jinxxyApiKeyEncrypted, ctx.encryptionSecret, 'jinxxy-api-key');
+      return decrypt(conn.jinxxyApiKeyEncrypted, ctx.encryptionSecret, PURPOSES.credential);
     }
 
     // Legacy fallback: check tenant_provider_config table
@@ -89,7 +96,7 @@ const jinxxyProvider: ProviderPlugin = {
       apiSecret: ctx.apiSecret,
       authUserId: ctx.authUserId,
     });
-    if (legacyKey) return decrypt(legacyKey, ctx.encryptionSecret, 'jinxxy-api-key');
+    if (legacyKey) return decrypt(legacyKey, ctx.encryptionSecret, PURPOSES.credential);
 
     return null;
   },
@@ -127,7 +134,7 @@ const jinxxyProvider: ProviderPlugin = {
       for (const collab of collabConnections) {
         if (!collab.jinxxyApiKeyEncrypted) continue;
         try {
-          const collabKey = await decrypt(collab.jinxxyApiKeyEncrypted, ctx.encryptionSecret, 'jinxxy-api-key');
+          const collabKey = await decrypt(collab.jinxxyApiKeyEncrypted, ctx.encryptionSecret, PURPOSES.credential);
           const collabClient = new JinxxyApiClient({
             apiKey: collabKey,
             apiBaseUrl: process.env.JINXXY_API_BASE_URL,
