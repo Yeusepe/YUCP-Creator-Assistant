@@ -6,8 +6,8 @@ info:
     Public verification endpoints for third-party integrations.
 
     **Choosing authentication:**
-    - **OAuth** — For third-party apps that need user resources. Authorize URL: `{convexSite}/api/auth/oauth2/authorize`, Token URL: `{convexSite}/api/auth/oauth2/token`
-    - **API Key** — For your server. Use `x-api-key` header or `Authorization: Bearer <key>` (both supported)
+    - **OAuth**, For third-party apps that need user resources. Authorize URL: `{convexSite}/api/auth/oauth2/authorize`, Token URL: `{convexSite}/api/auth/oauth2/token`
+    - **API Key**, For your server. Use `x-api-key` header or `Authorization: Bearer <key>` (both supported)
 
     **Auth topology:**
     - Better Auth runs on `CONVEX_SITE_URL`
@@ -78,7 +78,7 @@ paths:
           $ref: '#/components/responses/VerificationStatus'
   /api/public/verification/verify:
     post:
-      summary: Simple verification — does this user have product X?
+      summary: Simple verification, does this user have product X?
       description: |
         Gumroad-style endpoint. Provide exactly one identity field (whichever you have).
         Supports API key or OAuth Bearer token.

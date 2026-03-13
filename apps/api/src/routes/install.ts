@@ -10,7 +10,7 @@
  *
  * Flow:
  * 1. Creator clicks "Install Bot" in dashboard
- * 2. GET /api/install/bot?tenantId=xxx -> redirects to Discord OAuth
+ * 2. GET /api/install/bot?authUserId=xxx -> redirects to Discord OAuth
  * 3. Creator selects guild and authorizes
  * 4. Discord redirects to /api/install/bot/callback
  * 5. Store guild_link in Convex
@@ -41,7 +41,6 @@ export const BOT_PERMISSIONS = 268435456n;
  */
 interface InstallState {
   state: string;
-  tenantId: string;
   authUserId: string;
   createdAt: number;
   expiresAt: number;
@@ -83,20 +82,18 @@ export function generateState(): string {
  */
 export async function storeInstallState(
   state: string,
-  tenantId: string,
   authUserId: string
 ): Promise<void> {
   const now = Date.now();
   const data: InstallState = {
     state,
-    tenantId,
     authUserId,
     createdAt: now,
     expiresAt: now + STATE_EXPIRY_MS,
   };
   const store = getStateStore();
   await store.set(`${INSTALL_STATE_PREFIX}${state}`, JSON.stringify(data), STATE_EXPIRY_MS);
-  logger.debug('Install state stored', { state, tenantId });
+  logger.debug('Install state stored', { state, authUserId });
 }
 
 /**
@@ -159,7 +156,7 @@ export type GuildLinkStatus = 'active' | 'uninstalled' | 'suspended';
  * Guild link data for Convex storage
  */
 export interface GuildLinkData {
-  tenantId: string;
+  authUserId: string;
   discordGuildId: string;
   discordGuildName?: string;
   discordGuildIcon?: string;
@@ -181,7 +178,7 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
    * Initiates Discord bot installation flow
    *
    * Query params:
-   * - tenantId: The tenant to link the guild to
+   * - authUserId: The creator profile to link the guild to
    * - guildId (optional): Pre-select a specific guild
    */
   async function initiateBotInstall(request: Request): Promise<Response> {
@@ -199,16 +196,16 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
     }
 
     const url = new URL(request.url);
-    const tenantId = url.searchParams.get('tenantId');
+    const authUserId = url.searchParams.get('authUserId');
     const guildId = url.searchParams.get('guildId');
 
-    if (!tenantId) {
-      return Response.json({ error: 'tenantId is required' }, { status: 400 });
+    if (!authUserId) {
+      return Response.json({ error: 'authUserId is required' }, { status: 400 });
     }
 
     // Generate state for CSRF protection
     const state = generateState();
-    await storeInstallState(state, tenantId, session.user.id);
+    await storeInstallState(state, authUserId);
 
     // Build Discord bot install OAuth URL
     const discordAuthUrl = new URL('https://discord.com/api/oauth2/authorize');
@@ -225,8 +222,7 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
     }
 
     logger.info('Initiating bot install', {
-      tenantId,
-      authUserId: session.user.id,
+      authUserId,
       guildId: guildId ?? 'not specified',
     });
 
@@ -316,7 +312,7 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
         logger.error('Bot install guild mismatch', {
           callbackGuildId: guildId,
           tokenGuildId,
-          tenantId: installState.tenantId,
+          authUserId: installState.authUserId,
         });
         const errorUrl = new URL('/install/error', config.frontendUrl);
         errorUrl.searchParams.set('error', 'guild_mismatch');
@@ -325,7 +321,6 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
 
       logger.info('Bot installed to guild', {
         guildId,
-        tenantId: installState.tenantId,
         authUserId: installState.authUserId,
       });
 
@@ -350,7 +345,7 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
       }
 
       await storeGuildLink(config.convexApiSecret, {
-        tenantId: installState.tenantId,
+        authUserId: installState.authUserId,
         discordGuildId: guildId,
         discordGuildName: guildName,
         discordGuildIcon: guildIcon,
@@ -362,7 +357,7 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
       // Redirect to success page
       const successUrl = new URL('/install/success', config.frontendUrl);
       successUrl.searchParams.set('guild_id', guildId);
-      successUrl.searchParams.set('tenant_id', installState.tenantId);
+      successUrl.searchParams.set('auth_user_id', installState.authUserId);
 
       return Response.redirect(successUrl.toString(), 302);
     } catch (err) {
@@ -557,7 +552,7 @@ async function storeGuildLink(apiSecret: string, data: GuildLinkData): Promise<v
   const convex = getConvexClient();
   await convex.mutation(api.guildLinks.upsertGuildLink, {
     apiSecret,
-    tenantId: data.tenantId,
+    authUserId: data.authUserId,
     discordGuildId: data.discordGuildId,
     ...(data.discordGuildName !== undefined && { discordGuildName: data.discordGuildName }),
     ...(data.discordGuildIcon !== undefined && { discordGuildIcon: data.discordGuildIcon }),

@@ -1,20 +1,20 @@
 /**
- * Tenant Scoping Helpers
+ * Creator Scoping Helpers
  *
- * Type utilities and helper functions for working with tenant-scoped data.
- * All tenant-scoped tables should use these types and helpers for consistency.
+ * Type utilities and helper functions for working with creator-scoped data.
+ * All creator-scoped tables use authUserId (Better Auth user ID string) for isolation.
  */
 
 import type { ProviderKey } from '../packages/shared/src/providers';
 import type { Id } from './_generated/dataModel';
 
 // ============================================================================
-// TENANT-SCOPED TABLE TYPES
+// CREATOR-SCOPED TABLE TYPES
 // ============================================================================
 
-/** Tables that require tenantId for tenant isolation */
-export type TenantScopedTable =
-  | 'tenants'
+/** Tables that require authUserId for creator isolation */
+export type CreatorScopedTable =
+  | 'creator_profiles'
   | 'bindings'
   | 'verification_sessions'
   | 'entitlements'
@@ -26,7 +26,7 @@ export type TenantScopedTable =
   | 'audit_events'
   | 'product_catalog';
 
-/** Tables that are platform-level (no tenantId) */
+/** Tables that are platform-level (no authUserId) */
 export type PlatformTable =
   | 'subjects'
   | 'external_accounts'
@@ -35,32 +35,32 @@ export type PlatformTable =
   | 'webhook_events';
 
 // ============================================================================
-// TENANT ID TYPE
+// AUTH USER ID TYPE
 // ============================================================================
 
-/** Strongly-typed tenant ID for use in queries and mutations */
-export type TenantId = Id<'tenants'>;
+/** Better Auth user ID — primary creator identity */
+export type AuthUserId = string;
 
 // ============================================================================
-// TENANT-SCOPED DOCUMENT TYPES
+// CREATOR-SCOPED DOCUMENT TYPES
 // ============================================================================
 
 /**
- * Base type for documents that are tenant-scoped.
- * All tenant-scoped documents have a tenantId field.
+ * Base type for documents that are creator-scoped.
+ * All creator-scoped documents have an authUserId field.
  */
-export interface TenantScopedDocument {
-  tenantId: TenantId;
+export interface CreatorScopedDocument {
+  authUserId: AuthUserId;
   createdAt: number;
   updatedAt: number;
 }
 
 /**
- * Documents that optionally have tenantId (like audit_events).
- * Platform-level events may not have a tenant context.
+ * Documents that optionally have authUserId (like audit_events).
+ * Platform-level events may not have a creator context.
  */
-export interface OptionallyTenantScopedDocument {
-  tenantId?: TenantId;
+export interface OptionallyCreatorScopedDocument {
+  authUserId?: AuthUserId;
   createdAt: number;
 }
 
@@ -69,36 +69,34 @@ export interface OptionallyTenantScopedDocument {
 // ============================================================================
 
 /**
- * Index names for tenant-scoped queries.
- * These are the standard index patterns used across tenant-scoped tables.
+ * Index names for creator-scoped queries.
  */
-export type TenantIndexPattern =
-  | 'by_tenant'
-  | 'by_tenant_subject'
-  | 'by_tenant_status'
-  | 'by_tenant_guild'
-  | 'by_tenant_product'
-  | 'by_tenant_type';
+export type CreatorIndexPattern =
+  | 'by_auth_user'
+  | 'by_auth_user_subject'
+  | 'by_auth_user_status'
+  | 'by_auth_user_guild'
+  | 'by_auth_user_product'
+  | 'by_auth_user_type';
 
 /**
- * Standard query filter for tenant isolation.
- * Use this to ensure queries are always scoped to a tenant.
+ * Standard query filter for creator isolation.
  */
-export interface TenantQueryFilter {
-  tenantId: TenantId;
+export interface CreatorQueryFilter {
+  authUserId: AuthUserId;
 }
 
 /**
- * Query filter with subject for tenant+subject scoped data.
+ * Query filter with subject for creator+subject scoped data.
  */
-export interface TenantSubjectQueryFilter extends TenantQueryFilter {
+export interface CreatorSubjectQueryFilter extends CreatorQueryFilter {
   subjectId: Id<'subjects'>;
 }
 
 /**
- * Query filter with status for tenant+status scoped data.
+ * Query filter with status for creator+status scoped data.
  */
-export interface TenantStatusQueryFilter extends TenantQueryFilter {
+export interface CreatorStatusQueryFilter extends CreatorQueryFilter {
   status: string;
 }
 
@@ -159,10 +157,10 @@ export type OutboxJobStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
 // ============================================================================
 
 /**
- * Policy configuration for a tenant.
+ * Policy configuration for a creator.
  * Controls verification, binding, and entitlement behavior.
  */
-export interface TenantPolicy {
+export interface CreatorPolicy {
   maxBindingsPerProduct?: number;
   allowTransfer?: boolean;
   transferCooldownHours?: number;
@@ -217,8 +215,8 @@ export type AuditEventType =
   | 'unity.assertion.revoked'
   | 'secret.accessed'
   | 'creator.policy.updated'
-  | 'tenant.created'
-  | 'tenant.updated'
+  | 'creator.created'
+  | 'creator.updated'
   | 'guild.linked'
   | 'guild.unlinked'
   | 'subject.status.updated';
@@ -228,32 +226,49 @@ export type AuditEventType =
 // ============================================================================
 
 /**
- * Type guard to check if a document has a tenantId.
- * Useful for filtering audit events that may or may not be tenant-scoped.
+ * Type guard to check if a document has an authUserId.
  */
-export function hasTenantId(doc: unknown): doc is { tenantId: TenantId } {
+export function hasAuthUserId(doc: unknown): doc is { authUserId: AuthUserId } {
   return (
     typeof doc === 'object' &&
     doc !== null &&
-    'tenantId' in doc &&
-    typeof (doc as { tenantId: unknown }).tenantId === 'string'
+    'authUserId' in doc &&
+    typeof (doc as { authUserId: unknown }).authUserId === 'string'
   );
 }
 
 /**
- * Creates a tenant query filter object.
- * Use this to ensure consistent filter structure.
+ * Creates a creator query filter object.
  */
-export function tenantFilter(tenantId: TenantId): TenantQueryFilter {
-  return { tenantId };
+export function creatorFilter(authUserId: AuthUserId): CreatorQueryFilter {
+  return { authUserId };
 }
 
 /**
- * Creates a tenant+subject query filter object.
+ * Creates a creator+subject query filter object.
  */
-export function tenantSubjectFilter(
-  tenantId: TenantId,
+export function creatorSubjectFilter(
+  authUserId: AuthUserId,
   subjectId: Id<'subjects'>
-): TenantSubjectQueryFilter {
-  return { tenantId, subjectId };
+): CreatorSubjectQueryFilter {
+  return { authUserId, subjectId };
 }
+
+// ============================================================================
+// BACKWARD COMPATIBILITY ALIASES (remove after full migration)
+// ============================================================================
+
+/** @deprecated Use AuthUserId */
+export type TenantId = AuthUserId;
+/** @deprecated Use CreatorScopedDocument */
+export type TenantScopedDocument = CreatorScopedDocument;
+/** @deprecated Use CreatorQueryFilter */
+export type TenantQueryFilter = CreatorQueryFilter;
+/** @deprecated Use creatorFilter */
+export const tenantFilter = creatorFilter;
+/** @deprecated Use creatorSubjectFilter */
+export const tenantSubjectFilter = creatorSubjectFilter;
+/** @deprecated Use CreatorPolicy */
+export type TenantPolicy = CreatorPolicy;
+/** @deprecated Use hasAuthUserId */
+export const hasTenantId = hasAuthUserId;

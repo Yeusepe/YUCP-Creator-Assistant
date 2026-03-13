@@ -2,7 +2,7 @@
  * Gumroad Products API Route
  *
  * POST /api/gumroad/products
- * Fetches products from Gumroad API for a tenant (for autosetup and product add flow).
+ * Fetches products from Gumroad API for a creator (for autosetup and product add flow).
  * Uses decrypted Gumroad OAuth token; returns product.id and product.name.
  */
 
@@ -29,7 +29,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 export interface GumroadProductsRequest {
   apiSecret: string;
-  tenantId: string;
+  authUserId: string;
 }
 
 export interface GumroadProductItem {
@@ -64,11 +64,11 @@ export async function handleGumroadProducts(request: Request): Promise<Response>
 
   try {
     const body = (await request.json()) as GumroadProductsRequest;
-    const { apiSecret, tenantId } = body;
+    const { apiSecret, authUserId } = body;
 
-    if (!apiSecret || !tenantId) {
+    if (!apiSecret || !authUserId) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: apiSecret, tenantId' }),
+        JSON.stringify({ error: 'Missing required fields: apiSecret, authUserId' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -101,7 +101,7 @@ export async function handleGumroadProducts(request: Request): Promise<Response>
 
     const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret,
-      tenantId,
+      authUserId,
       provider: 'gumroad',
     });
 
@@ -119,7 +119,7 @@ export async function handleGumroadProducts(request: Request): Promise<Response>
     try {
       accessToken = await decrypt(conn.gumroadAccessTokenEncrypted, encryptionSecret);
     } catch (err) {
-      logger.error('Failed to decrypt Gumroad access token', { tenantId, err });
+      logger.error('Failed to decrypt Gumroad access token', { authUserId, err });
       return new Response(
         JSON.stringify({
           products: [],

@@ -7,7 +7,7 @@
  * Usage:
  * ```ts
  * const adapter = new GumroadAdapter(config, encryptionService);
- * const authUrl = await adapter.beginVerification(tenantId, subjectId);
+ * const authUrl = await adapter.beginVerification(authUserId, subjectId);
  * // Redirect user to authUrl, then handle callback
  * const result = await adapter.completeVerification(code, state);
  * ```
@@ -35,7 +35,7 @@ import { getSaleStatus, isSaleValid, normalizeSaleToEvidence } from './types';
 export interface TokenStorage {
   /** Store encrypted tokens for a user */
   storeTokens(
-    tenantId: string,
+    authUserId: string,
     gumroadUserId: string,
     accessToken: unknown,
     refreshToken: unknown,
@@ -44,7 +44,7 @@ export interface TokenStorage {
 
   /** Retrieve tokens for a user */
   getTokens(
-    tenantId: string,
+    authUserId: string,
     gumroadUserId: string
   ): Promise<{
     accessToken: unknown;
@@ -53,7 +53,7 @@ export interface TokenStorage {
   } | null>;
 
   /** Delete tokens for a user */
-  deleteTokens(tenantId: string, gumroadUserId: string): Promise<void>;
+  deleteTokens(authUserId: string, gumroadUserId: string): Promise<void>;
 }
 
 /**
@@ -61,12 +61,12 @@ export interface TokenStorage {
  */
 export interface EncryptionService {
   /** Encrypt a token using envelope encryption */
-  encryptToken(token: string, tenantId: string, tokenType: 'access' | 'refresh'): Promise<unknown>;
+  encryptToken(token: string, authUserId: string, tokenType: 'access' | 'refresh'): Promise<unknown>;
 
   /** Decrypt a token using envelope encryption */
   decryptToken(
     encryptedToken: unknown,
-    tenantId: string,
+    authUserId: string,
     tokenType: 'access' | 'refresh'
   ): Promise<string>;
 }
@@ -78,13 +78,13 @@ export interface StateStorage {
   /** Store OAuth state */
   storeState(
     state: string,
-    data: { tenantId: string; subjectId?: string; codeVerifier: string }
+    data: { authUserId: string; subjectId?: string; codeVerifier: string }
   ): Promise<void>;
 
   /** Retrieve and delete OAuth state */
   consumeState(
     state: string
-  ): Promise<{ tenantId: string; subjectId?: string; codeVerifier: string } | null>;
+  ): Promise<{ authUserId: string; subjectId?: string; codeVerifier: string } | null>;
 }
 
 /**
@@ -93,13 +93,13 @@ export interface StateStorage {
 export class InMemoryStateStorage implements StateStorage {
   private states = new Map<
     string,
-    { tenantId: string; subjectId?: string; codeVerifier: string; createdAt: number }
+    { authUserId: string; subjectId?: string; codeVerifier: string; createdAt: number }
   >();
   private readonly maxAgeMs = 600000; // 10 minutes
 
   async storeState(
     state: string,
-    data: { tenantId: string; subjectId?: string; codeVerifier: string }
+    data: { authUserId: string; subjectId?: string; codeVerifier: string }
   ): Promise<void> {
     this.states.set(state, { ...data, createdAt: Date.now() });
     // Clean up expired states
@@ -112,7 +112,7 @@ export class InMemoryStateStorage implements StateStorage {
 
   async consumeState(
     state: string
-  ): Promise<{ tenantId: string; subjectId?: string; codeVerifier: string } | null> {
+  ): Promise<{ authUserId: string; subjectId?: string; codeVerifier: string } | null> {
     const data = this.states.get(state);
     if (!data) return null;
 
@@ -123,7 +123,7 @@ export class InMemoryStateStorage implements StateStorage {
     }
 
     this.states.delete(state);
-    return { tenantId: data.tenantId, subjectId: data.subjectId, codeVerifier: data.codeVerifier };
+    return { authUserId: data.authUserId, subjectId: data.subjectId, codeVerifier: data.codeVerifier };
   }
 }
 
@@ -177,23 +177,23 @@ export class GumroadAdapter implements ProviderAdapter {
    * Begin the OAuth verification flow.
    * Returns an authorization URL to redirect the user to.
    *
-   * @param tenantId - The tenant ID for multi-tenant context
+   * @param authUserId - The creator's auth user ID
    * @param subjectId - Optional subject ID (YUCP user)
    * @param options - Additional options (scope)
    */
   async beginVerification(
-    tenantId: string,
+    authUserId: string,
     subjectId?: string,
     options?: { scope?: string }
   ): Promise<AuthorizationUrlResult> {
-    const result = await this.oauthClient.getAuthorizationUrl(tenantId, {
+    const result = await this.oauthClient.getAuthorizationUrl(authUserId, {
       scope: options?.scope,
       subjectId,
     });
 
     // Store state for later verification
     await this.stateStorage.storeState(result.state, {
-      tenantId,
+      authUserId,
       subjectId,
       codeVerifier: result.codeVerifier ?? '',
     });
@@ -211,7 +211,7 @@ export class GumroadAdapter implements ProviderAdapter {
   async completeVerification(
     code: string,
     state: string
-  ): Promise<OAuthCompletionResult & { tenantId?: string; subjectId?: string }> {
+  ): Promise<OAuthCompletionResult & { authUserId?: string; subjectId?: string }> {
     // Retrieve and validate state
     const stateData = await this.stateStorage.consumeState(state);
     if (!stateData) {
@@ -225,24 +225,24 @@ export class GumroadAdapter implements ProviderAdapter {
     const result = await this.oauthClient.completeOAuthFlow(code, stateData.codeVerifier);
 
     if (!result.success) {
-      return { ...result, tenantId: stateData.tenantId, subjectId: stateData.subjectId };
+      return { ...result, authUserId: stateData.authUserId, subjectId: stateData.subjectId };
     }
 
     // Encrypt and store tokens if encryption service is available
     if (this.encryptionService && this.tokenStorage && result.gumroadUserId) {
       const encryptedAccess = await this.encryptionService.encryptToken(
         result.encryptedAccessToken as string,
-        stateData.tenantId,
+        stateData.authUserId,
         'access'
       );
       const encryptedRefresh = await this.encryptionService.encryptToken(
         result.encryptedRefreshToken as string,
-        stateData.tenantId,
+        stateData.authUserId,
         'refresh'
       );
 
       await this.tokenStorage.storeTokens(
-        stateData.tenantId,
+        stateData.authUserId,
         result.gumroadUserId,
         encryptedAccess,
         encryptedRefresh,
@@ -254,7 +254,7 @@ export class GumroadAdapter implements ProviderAdapter {
       ...result,
       encryptedAccessToken: undefined, // Don't return raw tokens
       encryptedRefreshToken: undefined,
-      tenantId: stateData.tenantId,
+      authUserId: stateData.authUserId,
       subjectId: stateData.subjectId,
     };
   }
@@ -521,12 +521,12 @@ export class GumroadAdapter implements ProviderAdapter {
   /**
    * Revoke access for a user by deleting their tokens.
    *
-   * @param tenantId - The tenant ID
+   * @param authUserId - The creator's auth user ID
    * @param gumroadUserId - The Gumroad user ID
    */
-  async revokeAccess(tenantId: string, gumroadUserId: string): Promise<void> {
+  async revokeAccess(authUserId: string, gumroadUserId: string): Promise<void> {
     if (this.tokenStorage) {
-      await this.tokenStorage.deleteTokens(tenantId, gumroadUserId);
+      await this.tokenStorage.deleteTokens(authUserId, gumroadUserId);
     }
   }
 }

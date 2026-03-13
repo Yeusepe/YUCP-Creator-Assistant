@@ -15,7 +15,6 @@ import {
 } from 'discord.js';
 import type { ButtonInteraction, ChatInputCommandInteraction } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { E } from '../lib/emojis';
 
 /** /creator-admin settings cross-server - shows status + enable/disable buttons */
@@ -23,13 +22,13 @@ export async function handleDiscordRoleVerification(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'> }
+  ctx: { authUserId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const tenant = await convex.query(api.tenants.getTenant, {
     apiSecret,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
   });
 
   if (!tenant) {
@@ -67,7 +66,7 @@ export async function handleDiscordRoleVerification(
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`creator_settings:${enabled ? 'disable' : 'enable'}:${ctx.tenantId}`)
+      .setCustomId(`creator_settings:${enabled ? 'disable' : 'enable'}:${ctx.authUserId}`)
       .setLabel(enabled ? 'Disable' : 'Enable')
       .setStyle(enabled ? ButtonStyle.Danger : ButtonStyle.Success)
   );
@@ -80,13 +79,13 @@ export async function handleSettingsEnable(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
   await convex.mutation(api.tenants.updateTenantPolicy, {
     apiSecret,
-    tenantId,
+    authUserId,
     policy: { enableDiscordRoleFromOtherServers: true },
   });
 
@@ -99,7 +98,7 @@ export async function handleSettingsEnable(
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`creator_settings:disable:${tenantId}`)
+      .setCustomId(`creator_settings:disable:${authUserId}`)
       .setLabel('Disable')
       .setStyle(ButtonStyle.Danger)
   );
@@ -112,13 +111,13 @@ export async function handleSettingsDisable(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
   await convex.mutation(api.tenants.updateTenantPolicy, {
     apiSecret,
-    tenantId,
+    authUserId,
     policy: { enableDiscordRoleFromOtherServers: false },
   });
 
@@ -129,7 +128,7 @@ export async function handleSettingsDisable(
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`creator_settings:enable:${tenantId}`)
+      .setCustomId(`creator_settings:enable:${authUserId}`)
       .setLabel('Enable')
       .setStyle(ButtonStyle.Success)
   );

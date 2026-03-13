@@ -20,7 +20,7 @@ export interface User {
   id: string;
   discordId: string;
   email?: string;
-  tenantId: string;
+  authUserId: string;
   role: 'admin' | 'creator' | 'buyer';
 }
 

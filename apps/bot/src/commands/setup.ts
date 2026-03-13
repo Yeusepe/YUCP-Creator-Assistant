@@ -23,7 +23,7 @@ import { track } from '../lib/posthog';
 const SETUP_PREFIX = 'creator_setup:';
 
 export interface SetupContext {
-  tenantId: Id<'tenants'>;
+  authUserId: string;
   guildLinkId: Id<'guild_links'>;
   guildId: string;
 }
@@ -52,7 +52,7 @@ export async function runSetupStart(
   try {
     setupToken =
       (await createSetupSessionToken({
-        tenantId: ctx.tenantId,
+        authUserId: ctx.authUserId,
         guildId: ctx.guildId,
         discordUserId: interaction.user.id,
       })) ?? '';
@@ -70,7 +70,7 @@ export async function runSetupStart(
     return;
   }
 
-  const dashboardUrl = `${apiBase}/dashboard?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}#s=${encodeURIComponent(setupToken)}`;
+  const dashboardUrl = `${apiBase}/dashboard?tenant_id=${ctx.authUserId}&guild_id=${ctx.guildId}#s=${encodeURIComponent(setupToken)}`;
 
   const embed = new EmbedBuilder()
     .setTitle(`${E.Wrench} Creator Setup`)
@@ -112,7 +112,7 @@ export async function runSetupStart(
   });
 
   track(interaction.user.id, 'setup_started', {
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     guildId: ctx.guildId,
   });
 }
@@ -144,10 +144,10 @@ export async function handleSetupJinxxyModal(
   });
 }
 
-export function buildSetupStep2Components(_tenantId: Id<'tenants'>) {
+export function buildSetupStep2Components(_authUserId: string) {
   return { logChannelSelect: null, jinxxyButton: null };
 }
 
-export function buildJinxxyModal(_tenantId: Id<'tenants'>) {
+export function buildJinxxyModal(_authUserId: string) {
   return null;
 }

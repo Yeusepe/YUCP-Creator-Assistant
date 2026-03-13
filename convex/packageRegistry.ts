@@ -1,5 +1,5 @@
 /**
- * YUCP Package Name Registry — Layer 1 defense.
+ * YUCP Package Name Registry, Layer 1 defense.
  *
  * Enforces namespace ownership: the first verified publisher to sign a
  * packageId owns that name permanently. Subsequent signers with a different
@@ -7,7 +7,7 @@
  * package by creating a new account.
  *
  * Identity is anchored to the Better Auth user ID (yucpUserId), not to any
- * specific storefront account — so creators with multiple stores all bind to
+ * specific storefront account, so creators with multiple stores all bind to
  * the same stable identity.
  *
  * References:
@@ -65,10 +65,10 @@ export const registerPackage = internalMutation({
 
     if (existing) {
       if (existing.yucpUserId !== args.yucpUserId) {
-        // Different creator claims this namespace — ownership conflict
+        // Different creator claims this namespace, ownership conflict
         return { registered: false, conflict: true, ownedBy: existing.yucpUserId };
       }
-      // Same owner, potentially different publisherId (key rotation) — update
+      // Same owner, potentially different publisherId (key rotation), update
       await ctx.db.patch(existing._id, {
         publisherId: args.publisherId,
         updatedAt: Date.now(),

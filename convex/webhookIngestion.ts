@@ -6,7 +6,6 @@
  */
 
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
 import { ProviderV, WebhookProviderV } from './lib/providers';
 
@@ -18,13 +17,13 @@ function requireApiSecret(apiSecret: string | undefined): void {
 }
 
 /**
- * Insert a webhook event from Gumroad or Jinxxy.
- * Idempotent: (tenantId, provider, providerEventId) deduplication.
+ * Insert a webhook event from any provider.
+ * Idempotent: deduplication by (authUserId, provider, providerEventId).
  */
 export const insertWebhookEvent = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.optional(v.string()),
     provider: WebhookProviderV,
     providerKey: v.optional(ProviderV),
     providerConnectionId: v.optional(v.id('provider_connections')),
@@ -41,19 +40,17 @@ export const insertWebhookEvent = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
 
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant) {
-      throw new Error(`Tenant not found: ${args.tenantId}`);
+    if (!args.authUserId) {
+      throw new Error('authUserId must be provided');
     }
 
     const now = Date.now();
 
-    // Check for duplicate (tenantId, provider, providerEventId)
     const existing = await ctx.db
       .query('webhook_events')
-      .withIndex('by_tenant_provider_event', (q) =>
+      .withIndex('by_auth_user_provider_event', (q) =>
         q
-          .eq('tenantId', args.tenantId)
+          .eq('authUserId', args.authUserId)
           .eq('provider', args.provider)
           .eq('providerEventId', args.providerEventId)
       )
@@ -72,7 +69,7 @@ export const insertWebhookEvent = mutation({
       rawPayload: args.rawPayload,
       signatureValid: args.signatureValid,
       status: 'pending',
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       receivedAt: now,
     });
 
@@ -116,7 +113,7 @@ export const getPendingWebhookEvents = query({
   returns: v.array(
     v.object({
       _id: v.id('webhook_events'),
-      tenantId: v.optional(v.id('tenants')),
+      authUserId: v.optional(v.string()),
       provider: ProviderV,
       providerKey: v.optional(ProviderV),
       providerConnectionId: v.optional(v.id('provider_connections')),
@@ -141,33 +138,24 @@ export const getPendingWebhookEvents = query({
 });
 
 /**
- * Resolves a webhook route ID to one or more tenant IDs.
- * Supports both direct tenant IDs (legacy) and Better Auth user IDs (user-scoped connections).
- * Returns an empty array if the routeId doesn't match any tenant or user.
+ * Resolves a webhook route ID to one or more creator authUserIds.
+ * Returns an empty array if the routeId doesn't match any creator profile.
  */
 export const resolveWebhookTenantIds = query({
   args: {
     apiSecret: v.string(),
     routeId: v.string(),
   },
-  returns: v.array(v.id('tenants')),
+  returns: v.array(v.string()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
 
-    // Try as a direct tenant ID first (most common case)
-    try {
-      const tenant = await ctx.db.get(args.routeId as Id<'tenants'>);
-      if (tenant) return [args.routeId as Id<'tenants'>];
-    } catch {
-      // Not a valid Convex document ID — fall through to authUserId lookup
-    }
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.routeId))
+      .first();
+    if (profile) return [args.routeId];
 
-    // Try as a Better Auth user ID — return all tenants owned by this user
-    const tenants = await ctx.db
-      .query('tenants')
-      .filter((q) => q.eq(q.field('ownerAuthUserId'), args.routeId))
-      .collect();
-
-    return tenants.map((t) => t._id);
+    return [];
   },
 });

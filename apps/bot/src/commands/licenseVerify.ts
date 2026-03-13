@@ -1,4 +1,4 @@
-/**
+﻿/**
  * License Key Verification - Product Picker Flow
  *
  * Flow:
@@ -14,11 +14,11 @@
  *         - Refreshes the verify status panel
  *
  * Custom ID conventions:
- *   Button (open picker):   creator_verify:license:{tenantId}
- *   Button (filter):        creator_verify:lp_filter:{tenantId}:{filter}:{page}
- *   Button (page):          creator_verify:lp_page:{tenantId}:{filter}:{page}
- *   Select menu:            creator_verify:lp_select:{tenantId}:{filter}:{page}
- *   Modal:                  creator_verify:lp_modal:{tenantId}:{productRef}:{provider}
+ *   Button (open picker):   creator_verify:license:{authUserId}
+ *   Button (filter):        creator_verify:lp_filter:{authUserId}:{filter}:{page}
+ *   Button (page):          creator_verify:lp_page:{authUserId}:{filter}:{page}
+ *   Select menu:            creator_verify:lp_select:{authUserId}:{filter}:{page}
+ *   Modal:                  creator_verify:lp_modal:{authUserId}:{productRef}:{provider}
  */
 
 import { createLogger, formatVerificationSupportMessage } from '@yucp/shared';
@@ -42,7 +42,6 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
-import type { Id } from '../../../../convex/_generated/dataModel';
 
 import { PROVIDER_META, providerLabel } from '@yucp/providers';
 import { E, Emoji } from '../lib/emojis';
@@ -78,7 +77,7 @@ interface Product {
 
 function buildProductPickerComponents(
   products: Product[],
-  tenantId: string,
+  authUserId: string,
   filter: Filter,
   page: number
 ): {
@@ -96,14 +95,14 @@ function buildProductPickerComponents(
   // Row 1 - Filter buttons: "All" + one button per unique provider present (max 4 providers)
   const presentProviders = [...new Set(products.map((p) => p.provider))].slice(0, 4);
   const allBtn = new ButtonBuilder()
-    .setCustomId(`creator_verify:lp_filter:${tenantId}:all:0`)
+    .setCustomId(`creator_verify:lp_filter:${authUserId}:all:0`)
     .setLabel('All')
     .setStyle(filter === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary);
 
   const providerBtns = presentProviders.map((prov) => {
     const meta = PROVIDER_META[prov as keyof typeof PROVIDER_META];
     const btn = new ButtonBuilder()
-      .setCustomId(`creator_verify:lp_filter:${tenantId}:${prov}:0`)
+      .setCustomId(`creator_verify:lp_filter:${authUserId}:${prov}:0`)
       .setLabel(meta?.label ?? prov)
       .setStyle(filter === prov ? ButtonStyle.Primary : ButtonStyle.Secondary);
     if (meta?.emojiKey && Emoji[meta.emojiKey as keyof typeof Emoji]) {
@@ -119,7 +118,7 @@ function buildProductPickerComponents(
   if (slice.length === 0) {
     // No products for this filter - still render but disabled
     const emptyMenu = new StringSelectMenuBuilder()
-      .setCustomId(`creator_verify:lp_select:${tenantId}:${filter}:${safePage}`)
+      .setCustomId(`creator_verify:lp_select:${authUserId}:${filter}:${safePage}`)
       .setPlaceholder('No products found for this filter')
       .setDisabled(true)
       .addOptions(new StringSelectMenuOptionBuilder().setLabel('(empty)').setValue('__empty__'));
@@ -129,7 +128,7 @@ function buildProductPickerComponents(
 
   // Row 2 - Product select menu
   const selectMenu = new StringSelectMenuBuilder()
-    .setCustomId(`creator_verify:lp_select:${tenantId}:${filter}:${safePage}`)
+    .setCustomId(`creator_verify:lp_select:${authUserId}:${filter}:${safePage}`)
     .setPlaceholder('Select a product to verify…')
     .addOptions(
       slice.map((p) => {
@@ -152,12 +151,12 @@ function buildProductPickerComponents(
   if (totalPages > 1) {
     const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`creator_verify:lp_page:${tenantId}:${filter}:${safePage - 1}`)
+        .setCustomId(`creator_verify:lp_page:${authUserId}:${filter}:${safePage - 1}`)
         .setLabel('◀ Previous')
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(safePage === 0),
       new ButtonBuilder()
-        .setCustomId(`creator_verify:lp_page:${tenantId}:${filter}:${safePage + 1}`)
+        .setCustomId(`creator_verify:lp_page:${authUserId}:${filter}:${safePage + 1}`)
         .setLabel('Next ▶')
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(safePage >= totalPages - 1)
@@ -170,7 +169,7 @@ function buildProductPickerComponents(
 
 function buildProductPickerReply(
   products: Product[],
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   filter: Filter,
   page: number
 ): {
@@ -179,7 +178,7 @@ function buildProductPickerReply(
 } {
   const { components, total, totalPages } = buildProductPickerComponents(
     products,
-    tenantId,
+    authUserId,
     filter,
     page
   );
@@ -229,7 +228,7 @@ function buildPickerErrorReply(message: string): {
  */
 async function enrichDisplayNames(
   products: Product[],
-  tenantId: string,
+  authUserId: string,
   _apiSecret: string
 ): Promise<Product[]> {
   // Find unique providers that have products needing display name enrichment
@@ -245,11 +244,11 @@ async function enrichDisplayNames(
         let providerProducts: Array<{ id: string; name: string }> = [];
 
         if (provider === 'gumroad') {
-          providerProducts = (await listGumroadProducts(tenantId)).products ?? [];
+          providerProducts = (await listGumroadProducts(authUserId)).products ?? [];
         } else if (provider === 'jinxxy') {
-          providerProducts = (await listJinxxyProducts(tenantId)).products ?? [];
+          providerProducts = (await listJinxxyProducts(authUserId)).products ?? [];
         } else if (provider === 'lemonsqueezy') {
-          providerProducts = (await listLemonSqueezyProducts(tenantId)).products ?? [];
+          providerProducts = (await listLemonSqueezyProducts(authUserId)).products ?? [];
         } else {
           return;
         }
@@ -279,7 +278,7 @@ export async function showProductPicker(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   filter: Filter = 'all',
   page = 0
 ) {
@@ -288,9 +287,9 @@ export async function showProductPicker(
   let products: Product[] = [];
   try {
     products = (await convex.query(api.productResolution.getProductsForTenant, {
-      tenantId,
+      authUserId,
     })) as Product[];
-    products = await enrichDisplayNames(products, tenantId, apiSecret);
+    products = await enrichDisplayNames(products, authUserId, apiSecret);
   } catch (err) {
     logger.error('Failed to load products for picker', { err });
   }
@@ -302,16 +301,16 @@ export async function showProductPicker(
       )
     );
     if (interaction.guildId) {
-      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+      rememberActiveVerifyPanel(interaction, authUserId, interaction.guildId, message.id);
     }
     return;
   }
 
   const message = await interaction.editReply(
-    buildProductPickerReply(products, tenantId, filter, page)
+    buildProductPickerReply(products, authUserId, filter, page)
   );
   if (interaction.guildId) {
-    rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+    rememberActiveVerifyPanel(interaction, authUserId, interaction.guildId, message.id);
   }
 }
 
@@ -321,7 +320,7 @@ export async function handlePickerNavigation(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   filter: Filter,
   page: number
 ) {
@@ -330,18 +329,18 @@ export async function handlePickerNavigation(
   let products: Product[] = [];
   try {
     products = (await convex.query(api.productResolution.getProductsForTenant, {
-      tenantId,
+      authUserId,
     })) as Product[];
-    products = await enrichDisplayNames(products, tenantId, apiSecret);
+    products = await enrichDisplayNames(products, authUserId, apiSecret);
   } catch (err) {
     logger.error('Failed to reload products for picker nav', { err });
   }
 
   const message = await interaction.editReply(
-    buildProductPickerReply(products, tenantId, filter, page)
+    buildProductPickerReply(products, authUserId, filter, page)
   );
   if (interaction.guildId) {
-    rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+    rememberActiveVerifyPanel(interaction, authUserId, interaction.guildId, message.id);
   }
 }
 
@@ -349,7 +348,7 @@ export async function handlePickerNavigation(
 
 export async function handleProductSelected(
   interaction: StringSelectMenuInteraction,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ) {
   // Value format: "{provider}::{providerProductRef}"
   const value = interaction.values[0];
@@ -373,7 +372,7 @@ export async function handleProductSelected(
   const providerLabel = meta?.label ?? provider;
 
   const modal = new ModalBuilder()
-    .setCustomId(`creator_verify:lp_modal:${tenantId}:${providerProductRef}:${provider}`)
+    .setCustomId(`creator_verify:lp_modal:${authUserId}:${providerProductRef}:${provider}`)
     .setTitle(`Enter ${providerLabel} License Key`);
 
   const isGumroad = provider === 'gumroad';
@@ -394,9 +393,9 @@ export async function handleProductSelected(
 
 const VRC_DISCLAIMER = 'We never store your password, username, or 2FA code.';
 
-export function buildVrchatCredentialsModal(tenantId: Id<'tenants'>): ModalBuilder {
+export function buildVrchatCredentialsModal(authUserId: string): ModalBuilder {
   return new ModalBuilder()
-    .setCustomId(`creator_verify:vrchat_modal:${tenantId}`)
+    .setCustomId(`creator_verify:vrchat_modal:${authUserId}`)
     .setTitle('Verify with VRChat')
     .addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -438,7 +437,7 @@ export async function handleVrchatCredentialsModal(
   const customId = interaction.customId;
   if (!customId.startsWith('creator_verify:vrchat_modal:')) return;
 
-  const tenantId = customId.slice('creator_verify:vrchat_modal:'.length) as Id<'tenants'>;
+  const authUserId = customId.slice('creator_verify:vrchat_modal:'.length) as string;
   const username = interaction.fields.getTextInputValue('vrchat_username')?.trim() ?? '';
   const password = interaction.fields.getTextInputValue('vrchat_password') ?? '';
   const twoFactorCode = interaction.fields.getTextInputValue('vrchat_2fa')?.trim() || undefined;
@@ -481,7 +480,7 @@ export async function handleVrchatCredentialsModal(
 
   try {
     const data = await completeVrchatVerification({
-      tenantId,
+      authUserId,
       subjectId,
       username,
       password,
@@ -513,7 +512,7 @@ export async function handleVrchatCredentialsModal(
         guildId: interaction.guildId ?? undefined,
         provider: 'vrchat',
         stage: 'vrchat_verify_request',
-        tenantId,
+        authUserId,
       }),
     });
   }
@@ -527,10 +526,10 @@ export async function handleLicenseKeyModal(
   apiSecret: string,
   apiBaseUrl: string | undefined
 ) {
-  // customId: creator_verify:lp_modal:{tenantId}:{providerProductRef}:{provider}
+  // customId: creator_verify:lp_modal:{authUserId}:{providerProductRef}:{provider}
   const rest = interaction.customId.slice('creator_verify:lp_modal:'.length);
-  // tenantId is first segment, providerProductRef can contain colons in edge cases,
-  // so provider is the final segment, tenantId is the first, middle is providerProductRef
+  // authUserId is first segment, providerProductRef can contain colons in edge cases,
+  // so provider is the final segment, authUserId is the first, middle is providerProductRef
   const firstColon = rest.indexOf(':');
   const lastColon = rest.lastIndexOf(':');
   if (firstColon === -1 || lastColon === firstColon) {
@@ -541,7 +540,7 @@ export async function handleLicenseKeyModal(
     return;
   }
 
-  const tenantId = rest.slice(0, firstColon) as Id<'tenants'>;
+  const authUserId = rest.slice(0, firstColon) as string;
   const provider = rest.slice(lastColon + 1);
   const providerProductRef = rest.slice(firstColon + 1, lastColon);
   const licenseKey = interaction.fields.getTextInputValue('license_key').trim();
@@ -549,7 +548,7 @@ export async function handleLicenseKeyModal(
   // DEBUG: log all parsed values so we can see what productId goes to Gumroad
   logger.info('[licenseVerify] Modal submitted', {
     rawCustomId: interaction.customId,
-    tenantId: String(tenantId),
+    authUserId: String(authUserId),
     provider,
     providerProductRef,
     licenseKeyLength: licenseKey.length,
@@ -588,7 +587,7 @@ export async function handleLicenseKeyModal(
       const message = await interaction.editReply(
         await buildVerifyStatusReply(
           interaction.user.id,
-          tenantId,
+          authUserId,
           interaction.guildId,
           convex,
           apiSecret,
@@ -596,7 +595,7 @@ export async function handleLicenseKeyModal(
           { bannerMessage: `${E.X_} Failed to look up your account. Please try again.` }
         )
       );
-      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+      rememberActiveVerifyPanel(interaction, authUserId, interaction.guildId, message.id);
     } else {
       await interaction.editReply({
         content: `${E.X_} Failed to look up your account. Please try again.`,
@@ -609,7 +608,7 @@ export async function handleLicenseKeyModal(
     const data = await completeLicenseVerification({
       licenseKey,
       productId: providerProductRef,
-      tenantId,
+      authUserId,
       subjectId,
       discordUserId,
     });
@@ -619,12 +618,12 @@ export async function handleLicenseKeyModal(
       const bannerMessage = data.supportCode
         ? formatVerificationSupportMessage(`${E.X_} ${msg}`, data.supportCode)
         : `${E.X_} ${msg}`;
-      logger.warn('License verification failed', { msg, tenantId, provider });
+      logger.warn('License verification failed', { msg, authUserId, provider });
       if (interaction.guildId && apiBaseUrl) {
         const message = await interaction.editReply(
           await buildVerifyStatusReply(
             interaction.user.id,
-            tenantId,
+            authUserId,
             interaction.guildId,
             convex,
             apiSecret,
@@ -632,7 +631,7 @@ export async function handleLicenseKeyModal(
             { bannerMessage }
           )
         );
-        rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+        rememberActiveVerifyPanel(interaction, authUserId, interaction.guildId, message.id);
       } else {
         await interaction.editReply({ content: bannerMessage });
       }
@@ -651,7 +650,7 @@ export async function handleLicenseKeyModal(
       const message = await interaction.editReply(
         await buildVerifyStatusReply(
           interaction.user.id,
-          tenantId,
+          authUserId,
           interaction.guildId,
           convex,
           apiSecret,
@@ -661,7 +660,7 @@ export async function handleLicenseKeyModal(
           }
         )
       );
-      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+      rememberActiveVerifyPanel(interaction, authUserId, interaction.guildId, message.id);
     } else {
       await interaction.editReply({
         content: `${E.ClapStars} ${emoji} **${label} license verified!**\nYour account has been linked. Run \`/creator\` to see your updated verification status.`,
@@ -672,7 +671,7 @@ export async function handleLicenseKeyModal(
       const message = await interaction.editReply(
         await buildVerifyStatusReply(
           interaction.user.id,
-          tenantId,
+          authUserId,
           interaction.guildId,
           convex,
           apiSecret,
@@ -685,12 +684,12 @@ export async function handleLicenseKeyModal(
               guildId: interaction.guildId,
               provider,
               stage: 'license_key_verify_request',
-              tenantId,
+              authUserId,
             }),
           }
         )
       );
-      rememberActiveVerifyPanel(interaction, tenantId, interaction.guildId, message.id);
+      rememberActiveVerifyPanel(interaction, authUserId, interaction.guildId, message.id);
     } else {
       await interaction.editReply({
         content: await buildBotVerificationErrorMessage(logger, {
@@ -700,7 +699,7 @@ export async function handleLicenseKeyModal(
           guildId: interaction.guildId ?? undefined,
           provider,
           stage: 'license_key_verify_request',
-          tenantId,
+          authUserId,
         }),
       });
     }

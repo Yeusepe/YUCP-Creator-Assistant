@@ -59,7 +59,7 @@ function hashForStorage(value: string): string {
 export const completeLicenseVerification = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     provider: Provider,
     providerUserId: v.string(),
@@ -122,8 +122,8 @@ export const completeLicenseVerification = mutation({
     // 2. Create or activate binding (verification type - links subject to provider account)
     const existingBinding = await ctx.db
       .query('bindings')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .filter((q) => q.eq(q.field('externalAccountId'), externalAccountId))
       .first();
@@ -142,7 +142,7 @@ export const completeLicenseVerification = mutation({
       }
     } else {
       bindingId = await ctx.db.insert('bindings', {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         subjectId: args.subjectId,
         externalAccountId,
         bindingType: 'verification',
@@ -198,9 +198,12 @@ export const completeLicenseVerification = mutation({
     }
 
     // 4. Grant entitlements for each product and emit role sync jobs
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant) {
-      throw new Error(`Tenant not found: ${args.tenantId}`);
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    if (!profile) {
+      throw new Error(`Creator profile not found: ${args.authUserId}`);
     }
 
     const subject = await ctx.db.get(args.subjectId);
@@ -208,16 +211,16 @@ export const completeLicenseVerification = mutation({
       throw new Error(`Subject not found: ${args.subjectId}`);
     }
 
-    const duplicateBehavior = tenant.policy?.duplicateVerificationBehavior ?? 'allow';
-    const notifyChannelId = tenant.policy?.duplicateVerificationNotifyChannelId;
+    const duplicateBehavior = profile.policy?.duplicateVerificationBehavior ?? 'allow';
+    const notifyChannelId = profile.policy?.duplicateVerificationNotifyChannelId;
 
     // Check for duplicate verification (user already owns product)
     const duplicateProductIds: string[] = [];
     for (const product of args.productsToGrant) {
       const existingForProduct = await ctx.db
         .query('entitlements')
-        .withIndex('by_tenant_subject', (q) =>
-          q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
         )
         .filter((q) => q.eq(q.field('productId'), product.productId))
         .filter((q) => q.eq(q.field('status'), 'active'))
@@ -240,7 +243,7 @@ export const completeLicenseVerification = mutation({
       }
       if (duplicateBehavior === 'notify' && notifyChannelId) {
         const jobId = await ctx.db.insert('outbox_jobs', {
-          tenantId: args.tenantId,
+          authUserId: args.authUserId,
           jobType: 'creator_alert',
           payload: {
             channelId: notifyChannelId,
@@ -250,7 +253,7 @@ export const completeLicenseVerification = mutation({
             subjectId: args.subjectId,
           },
           status: 'pending',
-          idempotencyKey: `dup_notify:${args.tenantId}:${args.subjectId}:${duplicateProductIds.join(',')}:${now}`,
+          idempotencyKey: `dup_notify:${args.authUserId}:${args.subjectId}:${duplicateProductIds.join(',')}:${now}`,
           retryCount: 0,
           maxRetries: 3,
           createdAt: now,
@@ -267,8 +270,8 @@ export const completeLicenseVerification = mutation({
       // Check for existing entitlement (idempotency)
       const existingEntitlement = await ctx.db
         .query('entitlements')
-        .withIndex('by_tenant_subject', (q) =>
-          q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
         )
         .filter((q) => q.eq(q.field('sourceReference'), product.sourceReference))
         .first();
@@ -284,7 +287,7 @@ export const completeLicenseVerification = mutation({
           });
           // Emit role sync for reactivated entitlement
           const jobId = await ctx.db.insert('outbox_jobs', {
-            tenantId: args.tenantId,
+            authUserId: args.authUserId,
             jobType: 'role_sync',
             payload: {
               subjectId: args.subjectId,
@@ -292,7 +295,7 @@ export const completeLicenseVerification = mutation({
               discordUserId: subject.primaryDiscordUserId,
             },
             status: 'pending',
-            idempotencyKey: `role_sync:${args.tenantId}:${args.subjectId}:${entitlementId}:${now}`,
+            idempotencyKey: `role_sync:${args.authUserId}:${args.subjectId}:${entitlementId}:${now}`,
             targetDiscordUserId: subject.primaryDiscordUserId,
             retryCount: 0,
             maxRetries: 5,
@@ -305,14 +308,14 @@ export const completeLicenseVerification = mutation({
         // Create new entitlement
         const existingEntitlements = await ctx.db
           .query('entitlements')
-          .withIndex('by_tenant_subject', (q) =>
-            q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+          .withIndex('by_auth_user_subject', (q) =>
+            q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
           )
           .collect();
         const policySnapshotVersion = existingEntitlements.length + 1;
 
         entitlementId = await ctx.db.insert('entitlements', {
-          tenantId: args.tenantId,
+          authUserId: args.authUserId,
           subjectId: args.subjectId,
           productId: product.productId,
           sourceProvider: args.provider,
@@ -327,7 +330,7 @@ export const completeLicenseVerification = mutation({
 
         // Emit role sync job
         const jobId = await ctx.db.insert('outbox_jobs', {
-          tenantId: args.tenantId,
+          authUserId: args.authUserId,
           jobType: 'role_sync',
           payload: {
             subjectId: args.subjectId,
@@ -335,7 +338,7 @@ export const completeLicenseVerification = mutation({
             discordUserId: subject.primaryDiscordUserId,
           },
           status: 'pending',
-          idempotencyKey: `role_sync:${args.tenantId}:${args.subjectId}:${entitlementId}:${now}`,
+          idempotencyKey: `role_sync:${args.authUserId}:${args.subjectId}:${entitlementId}:${now}`,
           targetDiscordUserId: subject.primaryDiscordUserId,
           retryCount: 0,
           maxRetries: 5,
@@ -346,7 +349,7 @@ export const completeLicenseVerification = mutation({
 
         // Audit event
         await ctx.db.insert('audit_events', {
-          tenantId: args.tenantId,
+          authUserId: args.authUserId,
           eventType: 'entitlement.granted',
           actorType: 'system',
           subjectId: args.subjectId,
@@ -367,7 +370,7 @@ export const completeLicenseVerification = mutation({
 
     // Audit event for license verification
     await ctx.db.insert('audit_events', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       eventType: 'binding.created',
       actorType: 'system',
       subjectId: args.subjectId,

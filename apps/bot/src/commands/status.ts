@@ -6,14 +6,13 @@ import type { ConvexHttpClient } from 'convex/browser';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { E } from '../lib/emojis';
 
 export async function handleStatus(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -31,7 +30,7 @@ export async function handleStatus(
 
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject, {
     apiSecret,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     subjectId: subjectResult.subject._id,
     includeInactive: false,
   });

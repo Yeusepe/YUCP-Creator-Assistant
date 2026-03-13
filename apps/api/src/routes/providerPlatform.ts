@@ -175,11 +175,11 @@ async function isTenantOwnedBySessionUser(
   convex: ConvexClient,
   apiSecret: string,
   authUserId: string,
-  tenantId: string
+  authUserId: string
 ): Promise<boolean> {
-  const tenant = (await convex.query(api.tenants.getTenant, {
+  const tenant = (await convex.query(api.creatorProfiles.getCreatorProfile, {
     apiSecret,
-    tenantId,
+    authUserId,
   })) as { ownerAuthUserId?: string } | null;
   return tenant?.ownerAuthUserId === authUserId;
 }
@@ -198,7 +198,7 @@ async function requireTenantAccess(
   convex: ConvexClient,
   config: ProviderPlatformConfig,
   request: Request,
-  tenantId: string
+  authUserId: string
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
   const setupSession = await resolveSetupSessionFromRequest(request, config.encryptionSecret);
   if (setupSession) {
@@ -210,7 +210,7 @@ async function requireTenantAccess(
         response: jsonResponse({ error: 'Authentication required' }, newRequestId(), 401),
       };
     }
-    if (authDiscordUserId !== setupSession.discordUserId || setupSession.tenantId !== tenantId) {
+    if (authDiscordUserId !== setupSession.discordUserId || setupSession.authUserId !== authUserId) {
       return {
         ok: false,
         response: jsonResponse({ error: 'Forbidden' }, newRequestId(), 403),
@@ -231,7 +231,7 @@ async function requireTenantAccess(
     convex,
     config.convexApiSecret,
     session.user.id,
-    tenantId
+    authUserId
   );
   if (!owned) {
     return {
@@ -262,7 +262,7 @@ async function requireConnectionAccess(
     };
   }
 
-  const access = await requireTenantAccess(auth, convex, config, request, connection.tenantId);
+  const access = await requireTenantAccess(auth, convex, config, request, connection.authUserId);
   if (!access.ok) {
     return access;
   }
@@ -299,11 +299,11 @@ function resolveCatalogMatch(
 async function buildLemonClientForConnection(
   convex: ConvexClient,
   config: ProviderPlatformConfig,
-  tenantId: string
+  authUserId: string
 ) {
   const secrets = await convex.query(api.providerConnections.getConnectionForBackfill, {
     apiSecret: config.convexApiSecret,
-    tenantId,
+    authUserId,
     provider: 'lemonsqueezy',
   });
   const encryptedApiToken = secrets?.lemonApiTokenEncrypted;
@@ -315,15 +315,15 @@ async function buildLemonClientForConnection(
 async function syncLemonCatalog(
   convex: ConvexClient,
   config: ProviderPlatformConfig,
-  connection: { connectionId: string; tenantId: string; externalShopId?: string }
+  connection: { connectionId: string; authUserId: string; externalShopId?: string }
 ) {
-  const client = await buildLemonClientForConnection(convex, config, connection.tenantId);
+  const client = await buildLemonClientForConnection(convex, config, connection.authUserId);
   if (!connection.externalShopId) throw new Error('No Lemon Squeezy store selected');
 
   const [catalogProducts, products] = await Promise.all([
     convex.query(api.providerPlatform.listCatalogProductsForTenant, {
       apiSecret: config.convexApiSecret,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
     }),
     client.getAllProducts(connection.externalShopId),
   ]);
@@ -338,7 +338,7 @@ async function syncLemonCatalog(
       );
       await convex.mutation(api.providerPlatform.upsertCatalogMapping, {
         apiSecret: config.convexApiSecret,
-        tenantId: connection.tenantId,
+        authUserId: connection.authUserId,
         providerConnectionId: connection.connectionId,
         providerKey: 'lemonsqueezy',
         catalogProductId: match?._id,
@@ -359,7 +359,7 @@ async function syncLemonCatalog(
       );
       await convex.mutation(api.providerPlatform.upsertCatalogMapping, {
         apiSecret: config.convexApiSecret,
-        tenantId: connection.tenantId,
+        authUserId: connection.authUserId,
         providerConnectionId: connection.connectionId,
         providerKey: 'lemonsqueezy',
         catalogProductId: match?._id,
@@ -382,7 +382,7 @@ async function syncLemonCatalog(
   });
   await convex.mutation(api.providerConnections.upsertConnectionCapability, {
     apiSecret: config.convexApiSecret,
-    tenantId: connection.tenantId,
+    authUserId: connection.authUserId,
     providerConnectionId: connection.connectionId,
     capabilityKey: 'catalog_sync',
     status: 'active',
@@ -394,9 +394,9 @@ async function syncLemonCatalog(
 async function reconcileLemonConnection(
   convex: ConvexClient,
   config: ProviderPlatformConfig,
-  connection: { connectionId: string; tenantId: string; externalShopId?: string }
+  connection: { connectionId: string; authUserId: string; externalShopId?: string }
 ) {
-  const client = await buildLemonClientForConnection(convex, config, connection.tenantId);
+  const client = await buildLemonClientForConnection(convex, config, connection.authUserId);
   if (!connection.externalShopId) throw new Error('No Lemon Squeezy store selected');
 
   const [mappings, catalogProducts, orders, subscriptions, licenseKeys] = await Promise.all([
@@ -406,7 +406,7 @@ async function reconcileLemonConnection(
     }),
     convex.query(api.providerPlatform.listCatalogProductsForTenant, {
       apiSecret: config.convexApiSecret,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
     }),
     listAllOrders(client, connection.externalShopId),
     listAllSubscriptions(client, connection.externalShopId),
@@ -422,7 +422,7 @@ async function reconcileLemonConnection(
     ]);
     const transactionId = await convex.mutation(api.providerPlatform.upsertProviderTransaction, {
       apiSecret: config.convexApiSecret,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
       providerConnectionId: connection.connectionId,
       providerKey: 'lemonsqueezy',
       externalTransactionId: order.id,
@@ -449,13 +449,13 @@ async function reconcileLemonConnection(
     const subjectId = emailHash
       ? await convex.query(api.providerPlatform.resolveTenantSubjectByEmailHash, {
           apiSecret: config.convexApiSecret,
-          tenantId: connection.tenantId,
+          authUserId: connection.authUserId,
           emailHash,
         })
       : undefined;
     await convex.mutation(api.providerPlatform.upsertEntitlementEvidence, {
       apiSecret: config.convexApiSecret,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
       subjectId,
       providerKey: 'lemonsqueezy',
       providerConnectionId: connection.connectionId,
@@ -471,7 +471,7 @@ async function reconcileLemonConnection(
     if (subjectId && match.productId && !order.refunded) {
       await convex.mutation(api.entitlements.grantEntitlement, {
         apiSecret: config.convexApiSecret,
-        tenantId: connection.tenantId,
+        authUserId: connection.authUserId,
         subjectId,
         productId: match.productId,
         catalogProductId: match.catalogProductId,
@@ -487,7 +487,7 @@ async function reconcileLemonConnection(
     } else if (order.refunded && subjectId) {
       await convex.mutation(api.entitlements.revokeEntitlementBySourceRef, {
         apiSecret: config.convexApiSecret,
-        tenantId: connection.tenantId,
+        authUserId: connection.authUserId,
         subjectId,
         sourceReference: `lemonsqueezy:order:${order.id}`,
         reason: 'refunded',
@@ -506,7 +506,7 @@ async function reconcileLemonConnection(
     ]);
     await convex.mutation(api.providerPlatform.upsertProviderMembership, {
       apiSecret: config.convexApiSecret,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
       providerConnectionId: connection.connectionId,
       providerKey: 'lemonsqueezy',
       externalMembershipId: subscription.id,
@@ -543,7 +543,7 @@ async function reconcileLemonConnection(
     const emailHash = normalizedEmail ? await sha256Hex(normalizedEmail) : undefined;
     await convex.mutation(api.providerPlatform.upsertProviderLicense, {
       apiSecret: config.convexApiSecret,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
       providerConnectionId: connection.connectionId,
       providerKey: 'lemonsqueezy',
       externalLicenseId: license.id,
@@ -588,9 +588,9 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
   async function handleCreateProviderConnection(
     request: Request,
     requestId: string,
-    tenantId: string
+    authUserId: string
   ) {
-    const access = await requireTenantAccess(auth, convex, config, request, tenantId);
+    const access = await requireTenantAccess(auth, convex, config, request, authUserId);
     if (!access.ok) return access.response;
     const body = await jsonFromRequest<{
       providerKey: string;
@@ -605,7 +605,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     }
     const connectionId = await convex.mutation(api.providerConnections.createProviderConnection, {
       apiSecret: config.convexApiSecret,
-      tenantId,
+      authUserId,
       providerKey: body.providerKey,
       label: body.label,
       authMode: body.authMode,
@@ -648,7 +648,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       for (const credential of credentials) {
         await convex.mutation(api.providerConnections.putProviderCredential, {
           apiSecret: config.convexApiSecret,
-          tenantId: connection.tenantId,
+          authUserId: connection.authUserId,
           providerConnectionId: connection.connectionId,
           credentialKey: credential.credentialKey,
           kind: credential.kind,
@@ -738,7 +738,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     ] as const) {
       await convex.mutation(api.providerConnections.putProviderCredential, {
         apiSecret: config.convexApiSecret,
-        tenantId: connection.tenantId,
+        authUserId: connection.authUserId,
         providerConnectionId: connection.connectionId,
         credentialKey: credential.credentialKey,
         kind: credential.kind,
@@ -775,7 +775,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     ]) {
       await convex.mutation(api.providerConnections.upsertConnectionCapability, {
         apiSecret: config.convexApiSecret,
-        tenantId: connection.tenantId,
+        authUserId: connection.authUserId,
         providerConnectionId: connection.connectionId,
         capabilityKey,
         status: 'active',
@@ -784,7 +784,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
 
     const sync = await syncLemonCatalog(convex, config, {
       connectionId: connection.connectionId,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
       externalShopId: selectedStore.id,
     });
     return jsonResponse(
@@ -810,7 +810,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       );
     const stats = await syncLemonCatalog(convex, config, {
       connectionId: access.connection.connectionId,
-      tenantId: access.connection.tenantId,
+      authUserId: access.connection.authUserId,
       externalShopId: access.connection.externalShopId,
     });
     return jsonResponse({ success: true, stats }, requestId, 202);
@@ -831,7 +831,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       );
     const stats = await reconcileLemonConnection(convex, config, {
       connectionId: access.connection.connectionId,
-      tenantId: access.connection.tenantId,
+      authUserId: access.connection.authUserId,
       externalShopId: access.connection.externalShopId,
     });
     return jsonResponse({ success: true, stats }, requestId, 202);
@@ -839,7 +839,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
 
   async function handleCreateVerificationSession(request: Request, requestId: string) {
     const body = await jsonFromRequest<{
-      tenantId: string;
+      authUserId: string;
       providerKey: string;
       verificationMethod?: string;
       redirectUri?: string;
@@ -852,7 +852,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     const state = randomBytes(16).toString('hex');
     const result = await convex.mutation(api.verificationSessions.createVerificationSession, {
       apiSecret: config.convexApiSecret,
-      tenantId: body.tenantId,
+      authUserId: body.authUserId,
       mode: body.providerKey,
       providerKey: body.providerKey,
       verificationMethod: body.verificationMethod ?? 'license_key',
@@ -879,14 +879,14 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     sessionId: string
   ) {
     const body = await jsonFromRequest<{
-      tenantId: string;
+      authUserId: string;
       providerKey: string;
       licenseKey?: string;
       connectionId?: string;
       subjectId?: string;
       discordUserId?: string;
     }>(request);
-    const access = await requireTenantAccess(auth, convex, config, request, body.tenantId);
+    const access = await requireTenantAccess(auth, convex, config, request, body.authUserId);
     if (!access.ok) return access.response;
     if (body.providerKey !== 'lemonsqueezy')
       return jsonResponse(
@@ -899,7 +899,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
 
     const connections = await convex.query(api.providerConnections.listConnections, {
       apiSecret: config.convexApiSecret,
-      tenantId: body.tenantId,
+      authUserId: body.authUserId,
     });
     const connection = connections.connections.find(
       (entry: { id: string; providerKey?: string; provider?: string }) =>
@@ -910,7 +910,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     if (!connection)
       return jsonResponse({ error: 'Lemon Squeezy connection not found' }, requestId, 404);
 
-    const client = await buildLemonClientForConnection(convex, config, body.tenantId);
+    const client = await buildLemonClientForConnection(convex, config, body.authUserId);
     const validation = await client.validateLicenseKey(String(body.licenseKey).trim());
     if (!validation.valid || !validation.license_key)
       return jsonResponse(
@@ -950,7 +950,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       }),
       convex.query(api.providerPlatform.listCatalogProductsForTenant, {
         apiSecret: config.convexApiSecret,
-        tenantId: body.tenantId,
+        authUserId: body.authUserId,
       }),
     ]);
     const match = resolveCatalogMatch(mappings, catalogProducts, [
@@ -969,7 +969,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       api.licenseVerification.completeLicenseVerification,
       {
         apiSecret: config.convexApiSecret,
-        tenantId: body.tenantId,
+        authUserId: body.authUserId,
         subjectId: ensuredSubject.subjectId,
         provider: 'lemonsqueezy',
         providerUserId: String(
@@ -991,7 +991,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
 
     await convex.mutation(api.providerPlatform.upsertEntitlementEvidence, {
       apiSecret: config.convexApiSecret,
-      tenantId: body.tenantId,
+      authUserId: body.authUserId,
       subjectId: ensuredSubject.subjectId,
       providerKey: 'lemonsqueezy',
       providerConnectionId: connection.id,
@@ -1037,7 +1037,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
 
     const secrets = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret: config.convexApiSecret,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
       provider: 'lemonsqueezy',
     });
     const encryptedWebhookSecret =
@@ -1052,7 +1052,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     if (!signature || !timingSafeEqual(expected, signature)) {
       logger.warn('Lemon webhook rejected', {
         connectionId,
-        tenantId: connection.tenantId,
+        authUserId: connection.authUserId,
         hasSignature: !!signature,
         signatureLength: signature.length,
         expectedLength: expected.length,
@@ -1068,7 +1068,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     const providerEventId = `${String(data.id ?? 'unknown')}:${eventType}`;
     const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
       apiSecret: config.convexApiSecret,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
       provider: 'lemonsqueezy',
       providerKey: 'lemonsqueezy',
       providerConnectionId: connection.connectionId,

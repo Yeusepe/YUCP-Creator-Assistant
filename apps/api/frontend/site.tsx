@@ -337,17 +337,21 @@ function bootClouds() {
   }
 }
 
+// Expose window.lucide at module-evaluation time so any DOMContentLoaded handler
+// (including those in setup pages loaded as plain <script> blocks) can call
+// lucide.createIcons() safely.  The actual DOM scan is deferred to window.load
+// so all markup is present.
+const _lucideApply: (options?: Parameters<typeof createIcons>[0]) => void = (options = {}) =>
+  createIcons({ icons, ...options });
+(
+  window as Window & {
+    lucide?: { createIcons: typeof _lucideApply };
+  }
+).lucide = { createIcons: _lucideApply };
+
 function bootLucide() {
-  const apply = (options: Parameters<typeof createIcons>[0] = {}) =>
-    createIcons({ icons, ...options });
-
-  (
-    window as Window & {
-      lucide?: { createIcons: typeof apply };
-    }
-  ).lucide = { createIcons: apply };
-
-  apply();
+  // Re-scan after full page load in case markup was inserted late.
+  _lucideApply();
 }
 
 function bootConfetti() {

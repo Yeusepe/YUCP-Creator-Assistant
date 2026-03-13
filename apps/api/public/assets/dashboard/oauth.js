@@ -378,7 +378,7 @@ function showOAuthCredentialsReveal(clientId, clientSecret, appName) {
       <div class="inline-panel-body" style="text-align:center;">
         <div style="margin-bottom:20px;">
           <h3 style="font-size:20px; font-weight:800; font-family:'Plus Jakarta Sans',sans-serif; margin:0 0 8px; color:white;">${escHtml(appName || 'App')} credentials</h3>
-          <p style="font-size:14px; color:rgba(255,255,255,0.7); margin:0;">Copy your credentials — the secret won't appear again</p>
+          <p style="font-size:14px; color:rgba(255,255,255,0.7); margin:0;">Copy your credentials, the secret won't appear again</p>
         </div>
         <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px; margin-bottom:12px; text-align:left;">
           <div style="font-size:12px; color:rgba(255,255,255,0.5); font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">Client ID</div>
@@ -398,7 +398,7 @@ function showOAuthCredentialsReveal(clientId, clientSecret, appName) {
           <input type="checkbox" id="oauth-copied-check" style="width:18px; height:18px; accent-color:#0ea5e9; cursor:pointer;" aria-label="Confirm copy">
           <label for="oauth-copied-check" style="font-size:14px; color:#e2e8f0; cursor:pointer; user-select:none; font-family:'DM Sans',sans-serif; margin:0;">I have securely copied this secret</label>
         </div>
-        <button id="oauth-reveal-done" style="width:100%; justify-content:center; background:#0ea5e9; color:#fff; border:none; padding:12px 24px; font-size:15px; font-weight:700; border-radius:12px; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; transition:all 0.2s; opacity:0.5; pointer-events:none; display:flex; align-items:center;">Done — Close window</button>
+        <button id="oauth-reveal-done" style="width:100%; justify-content:center; background:#0ea5e9; color:#fff; border:none; padding:12px 24px; font-size:15px; font-weight:700; border-radius:12px; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; transition:all 0.2s; opacity:0.5; pointer-events:none; display:flex; align-items:center;">Done, Close window</button>
       </div>
     </div>
   `;

@@ -16,7 +16,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
 const OAuthAppRecord = v.object({
   _id: v.id('creator_oauth_apps'),
   _creationTime: v.number(),
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
   name: v.string(),
   clientId: v.string(),
   clientSecretHash: v.optional(v.string()),
@@ -30,14 +30,14 @@ const OAuthAppRecord = v.object({
 export const listOAuthApps = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.array(OAuthAppRecord),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     return ctx.db
       .query('creator_oauth_apps')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .order('desc')
       .collect();
   },
@@ -46,14 +46,14 @@ export const listOAuthApps = query({
 export const getOAuthApp = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     appId: v.id('creator_oauth_apps'),
   },
   returns: v.union(v.null(), OAuthAppRecord),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const app = await ctx.db.get(args.appId);
-    if (!app || app.tenantId !== args.tenantId) {
+    if (!app || app.authUserId !== args.authUserId) {
       return null;
     }
     return app;
@@ -63,7 +63,7 @@ export const getOAuthApp = query({
 export const createOAuthAppMapping = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     name: v.string(),
     clientId: v.string(),
     redirectUris: v.array(v.string()),
@@ -75,7 +75,7 @@ export const createOAuthAppMapping = mutation({
     requireApiSecret(args.apiSecret);
     const now = Date.now();
     const appId = await ctx.db.insert('creator_oauth_apps', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       name: args.name.trim(),
       clientId: args.clientId,
       redirectUris: args.redirectUris,
@@ -97,7 +97,7 @@ export const createOAuthAppMapping = mutation({
 export const updateOAuthAppMapping = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     appId: v.id('creator_oauth_apps'),
     name: v.optional(v.string()),
     redirectUris: v.optional(v.array(v.string())),
@@ -107,7 +107,7 @@ export const updateOAuthAppMapping = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const app = await ctx.db.get(args.appId);
-    if (!app || app.tenantId !== args.tenantId) {
+    if (!app || app.authUserId !== args.authUserId) {
       throw new Error('OAuth app not found');
     }
 
@@ -142,14 +142,14 @@ export const updateOAuthAppMapping = mutation({
 export const deleteOAuthAppMapping = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     appId: v.id('creator_oauth_apps'),
   },
   returns: v.object({ success: v.boolean() }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const app = await ctx.db.get(args.appId);
-    if (!app || app.tenantId !== args.tenantId) {
+    if (!app || app.authUserId !== args.authUserId) {
       throw new Error('OAuth app not found');
     }
 

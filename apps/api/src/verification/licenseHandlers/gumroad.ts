@@ -15,7 +15,7 @@ export const gumroadHandler: LicenseVerificationHandler = {
     config: VerificationConfig,
     convex: ConvexServerClient
   ): Promise<CompleteLicenseResult> {
-    const { licenseKey, productId, tenantId, subjectId } = input;
+    const { licenseKey, productId, authUserId, subjectId } = input;
 
     if (!productId) {
       return { success: false, error: 'Product ID is required for Gumroad verification' };
@@ -31,7 +31,7 @@ export const gumroadHandler: LicenseVerificationHandler = {
       productId,
       licenseKeyPrefix: licenseKey.slice(0, 8),
       licenseKeyLength: licenseKey.length,
-      tenantId,
+      authUserId,
     });
 
     const result = await gumroadAdapter.verifyLicense(licenseKey, productId);
@@ -59,7 +59,7 @@ export const gumroadHandler: LicenseVerificationHandler = {
       api.licenseVerification.completeLicenseVerification,
       {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         subjectId,
         provider: 'gumroad',
         providerUserId,

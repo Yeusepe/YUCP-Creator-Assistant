@@ -23,7 +23,7 @@ message ProductsResponse {
 }
 
 message CreateSetupSessionRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
   2 -> string guildId;
   3 -> string discordUserId;
 }
@@ -33,7 +33,7 @@ message CreateConnectTokenRequest {
 }
 
 message CreateDiscordRoleSetupSessionRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
   2 -> string guildId;
   3 -> string adminDiscordUserId;
 }
@@ -57,19 +57,19 @@ message BindVerifyPanelRequest {
   4 -> string interactionToken;
   5 -> string messageId;
   6 -> string panelToken;
-  7 -> string tenantId;
+  7 -> string authUserId;
 }
 
 message CompleteLicenseVerificationRequest {
   1 -> string licenseKey;
   2 -> string productId;
-  3 -> string tenantId;
+  3 -> string authUserId;
   4 -> string subjectId;
   5 -> string discordUserId;
 }
 
 message CompleteVrchatVerificationRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
   2 -> string subjectId;
   3 -> string username;
   4 -> string password;
@@ -77,7 +77,7 @@ message CompleteVrchatVerificationRequest {
 }
 
 message DisconnectVerificationRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
   2 -> string subjectId;
   3 -> string provider;
 }
@@ -91,11 +91,11 @@ message VerificationResultResponse {
 }
 
 message ListProductsRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
 }
 
 message ResolveVrchatAvatarNameRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
   2 -> string avatarId;
 }
 
@@ -104,7 +104,7 @@ message ResolveVrchatAvatarNameResponse {
 }
 
 message CreateCollaboratorInviteRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
   2 -> string guildId;
   3 -> string guildName;
   4 -> string actorDiscordUserId;
@@ -116,7 +116,7 @@ message CreateCollaboratorInviteResponse {
 }
 
 message ListCollaboratorConnectionsRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
   2 -> string guildId;
   3 -> string actorDiscordUserId;
 }
@@ -137,7 +137,7 @@ message ListCollaboratorConnectionsResponse {
 }
 
 message AddCollaboratorConnectionManualRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
   2 -> string guildId;
   3 -> string actorDiscordUserId;
   4 -> string jinxxyApiKey;
@@ -152,7 +152,7 @@ message AddCollaboratorConnectionManualResponse {
 }
 
 message RemoveCollaboratorConnectionRequest {
-  1 -> string tenantId;
+  1 -> string authUserId;
   2 -> string guildId;
   3 -> string actorDiscordUserId;
   4 -> string connectionId;

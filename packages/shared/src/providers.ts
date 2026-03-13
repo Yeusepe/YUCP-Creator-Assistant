@@ -147,7 +147,7 @@ export const PROVIDER_REGISTRY = [
     supportsTestMode: false,
     compatibility: {
       legacyConnectRoutes: ['/api/connect/gumroad/begin', '/api/connect/gumroad/callback'],
-      legacyWebhookRoutes: ['/webhooks/gumroad/:tenantId'],
+      legacyWebhookRoutes: ['/webhooks/gumroad/:authUserId'],
     },
   },
   {
@@ -179,7 +179,7 @@ export const PROVIDER_REGISTRY = [
     supportsTestMode: false,
     compatibility: {
       legacyConnectRoutes: ['/api/connect/jinxxy/webhook-config', '/api/connect/jinxxy-store'],
-      legacyWebhookRoutes: ['/webhooks/jinxxy/:tenantId'],
+      legacyWebhookRoutes: ['/webhooks/jinxxy/:authUserId'],
     },
   },
   {
@@ -330,7 +330,7 @@ export const PROVIDER_REGISTRY = [
     supportsLicenseVerify: true,
     supportsTestMode: false,
     compatibility: {
-      legacyWebhookRoutes: ['/webhooks/payhip/:tenantId'],
+      legacyWebhookRoutes: ['/webhooks/payhip/:authUserId'],
     },
   },
   {

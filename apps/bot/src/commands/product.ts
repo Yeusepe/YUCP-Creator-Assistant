@@ -47,7 +47,7 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 // In-memory session store for multi-step product add flow
 interface ProductSession {
-  tenantId: Id<'tenants'>;
+  authUserId: string;
   guildLinkId: Id<'guild_links'>;
   guildId: string;
   type?: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'license' | 'discord_role' | 'vrchat';
@@ -71,8 +71,8 @@ interface ProductSession {
 
 const productSessions = new Map<string, ProductSession>();
 
-function getSessionKey(userId: string, tenantId: string): string {
-  return `${userId}:${tenantId}`;
+function getSessionKey(userId: string, authUserId: string): string {
+  return `${userId}:${authUserId}`;
 }
 
 function cleanExpiredSessions(): void {
@@ -95,20 +95,20 @@ function parseGumroadProductId(urlOrId: string): string | null {
 /** Step 1: /creator-admin product add - show type select menu */
 export async function handleProductAddInteractive(
   interaction: ChatInputCommandInteraction,
-  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
+  ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   cleanExpiredSessions();
 
-  const sessionKey = getSessionKey(interaction.user.id, ctx.tenantId);
+  const sessionKey = getSessionKey(interaction.user.id, ctx.authUserId);
   productSessions.set(sessionKey, {
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     guildLinkId: ctx.guildLinkId,
     guildId: ctx.guildId,
     expiresAt: Date.now() + 10 * 60 * 1000,
   });
 
   const select = new StringSelectMenuBuilder()
-    .setCustomId(`creator_product:type_select:${ctx.tenantId}`)
+    .setCustomId(`creator_product:type_select:${ctx.authUserId}`)
     .setPlaceholder('Select product type...')
     .addOptions(
       new StringSelectMenuOptionBuilder()
@@ -155,10 +155,10 @@ export async function handleProductAddInteractive(
 /** Step 2: Type selected - show relevant modal */
 export async function handleProductTypeSelect(
   interaction: StringSelectMenuInteraction,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   const selectedType = interaction.values[0] as ProductSession['type'];
-  const sessionKey = getSessionKey(interaction.user.id, tenantId);
+  const sessionKey = getSessionKey(interaction.user.id, authUserId);
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
@@ -178,7 +178,7 @@ export async function handleProductTypeSelect(
     if (!apiBase) {
       // Fallback: show modal if API_BASE_URL not configured
       const modal = new ModalBuilder()
-        .setCustomId(`creator_product:discord_modal:${interaction.user.id}:${tenantId}`)
+        .setCustomId(`creator_product:discord_modal:${interaction.user.id}:${authUserId}`)
         .setTitle('Step 2 of 3: Discord Role Details')
         .addComponents(
           new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -215,7 +215,7 @@ export async function handleProductTypeSelect(
     await interaction.deferUpdate();
     try {
       const token = await createDiscordRoleSetupSessionToken({
-        tenantId,
+        authUserId,
         guildId: session.guildId,
         adminDiscordUserId: interaction.user.id,
       });
@@ -223,7 +223,7 @@ export async function handleProductTypeSelect(
       session.discordRoleSetupToken = token;
 
       const setupUrl = `${apiBase}/discord-role-setup#s=${encodeURIComponent(token)}`;
-      const doneButtonId = `creator_product:discord_role_done:${interaction.user.id}:${tenantId}`;
+      const doneButtonId = `creator_product:discord_role_done:${interaction.user.id}:${authUserId}`;
 
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setLabel('Open Setup Page').setStyle(ButtonStyle.Link).setURL(setupUrl),
@@ -242,7 +242,7 @@ export async function handleProductTypeSelect(
     } catch (err) {
       logger.error('Failed to start Discord role setup', {
         error: err instanceof Error ? err.message : String(err),
-        tenantId,
+        authUserId,
         guildId: session.guildId,
       });
       await interaction.editReply({
@@ -268,7 +268,7 @@ export async function handleProductTypeSelect(
 
     await interaction.deferUpdate();
     try {
-      const data = await listJinxxyProducts(tenantId);
+      const data = await listJinxxyProducts(authUserId);
 
       if (data.error && (!data.products || data.products.length === 0)) {
         await interaction.editReply({
@@ -297,7 +297,7 @@ export async function handleProductTypeSelect(
       const toShow = products.slice(0, MAX_OPTIONS);
       const hasCollabProducts = products.some((p) => p.collaboratorName);
       const select = new StringSelectMenuBuilder()
-        .setCustomId(`creator_product:jinxxy_product_select:${interaction.user.id}:${tenantId}`)
+        .setCustomId(`creator_product:jinxxy_product_select:${interaction.user.id}:${authUserId}`)
         .setPlaceholder('Select a Jinxxy product...')
         .addOptions(
           toShow.map((p) => {
@@ -329,7 +329,7 @@ export async function handleProductTypeSelect(
     } catch (err) {
       logger.error('Failed to load Jinxxy products for product setup', {
         error: err instanceof Error ? err.message : String(err),
-        tenantId,
+        authUserId,
       });
       await interaction.editReply({
         content: `${E.X_} Couldn’t load Jinxxy products right now. Run \`/creator-admin product add\` again in a moment.`,
@@ -343,7 +343,7 @@ export async function handleProductTypeSelect(
   if (selectedType === 'lemonsqueezy') {
     await interaction.deferUpdate();
     try {
-      const data = await listLemonSqueezyProducts(tenantId);
+      const data = await listLemonSqueezyProducts(authUserId);
 
       if (data.error && (!data.products || data.products.length === 0)) {
         await interaction.editReply({
@@ -367,7 +367,7 @@ export async function handleProductTypeSelect(
       const MAX_OPTIONS = 25;
       const toShow = products.slice(0, MAX_OPTIONS);
       const select = new StringSelectMenuBuilder()
-        .setCustomId(`creator_product:ls_product_select:${interaction.user.id}:${tenantId}`)
+        .setCustomId(`creator_product:ls_product_select:${interaction.user.id}:${authUserId}`)
         .setPlaceholder('Select a Lemon Squeezy product...')
         .addOptions(
           toShow.map((p) => {
@@ -391,7 +391,7 @@ export async function handleProductTypeSelect(
     } catch (err) {
       logger.error('Failed to load Lemon Squeezy products for product setup', {
         error: err instanceof Error ? err.message : String(err),
-        tenantId,
+        authUserId,
       });
       await interaction.editReply({
         content: `${E.X_} Couldn't load Lemon Squeezy products right now. Run \`/creator-admin product add\` again in a moment.`,
@@ -414,7 +414,7 @@ export async function handleProductTypeSelect(
   };
 
   const modal = new ModalBuilder()
-    .setCustomId(`creator_product:url_modal:${interaction.user.id}:${tenantId}`)
+    .setCustomId(`creator_product:url_modal:${interaction.user.id}:${authUserId}`)
     .setTitle('Step 2 of 3: Product Details')
     .addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -434,10 +434,10 @@ export async function handleProductTypeSelect(
 export async function handleProductJinxxySelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   const productId = interaction.values[0];
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
@@ -451,7 +451,7 @@ export async function handleProductJinxxySelect(
   session.urlOrId = productId;
 
   const roleSelect = new RoleSelectMenuBuilder()
-    .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
     .setMinValues(1)
     .setMaxValues(25)
     .setPlaceholder('Select role(s) to assign when verified (1–25)');
@@ -470,10 +470,10 @@ export async function handleProductJinxxySelect(
 export async function handleProductLemonSqueezySelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   const productId = interaction.values[0];
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
@@ -487,7 +487,7 @@ export async function handleProductLemonSqueezySelect(
   session.urlOrId = productId;
 
   const roleSelect = new RoleSelectMenuBuilder()
-    .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
     .setMinValues(1)
     .setMaxValues(25)
     .setPlaceholder('Select role(s) to assign when verified (1–25)');
@@ -506,10 +506,10 @@ export async function handleProductLemonSqueezySelect(
 export async function handleProductUrlModal(
   interaction: ModalSubmitInteraction,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   const urlOrId = interaction.fields.getTextInputValue('url_or_id')?.trim();
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
@@ -523,7 +523,7 @@ export async function handleProductUrlModal(
   session.urlOrId = urlOrId;
 
   const roleSelect = new RoleSelectMenuBuilder()
-    .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
     .setMinValues(1)
     .setMaxValues(25)
     .setPlaceholder('Select role(s) to assign when verified (1–25)');
@@ -549,14 +549,14 @@ function parseRoleIdsFromInput(input: string): string[] {
 export async function handleProductDiscordModal(
   interaction: ModalSubmitInteraction,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   const sourceGuildId = interaction.fields.getTextInputValue('source_guild_id')?.trim();
   const roleIdsRaw =
     interaction.fields.getTextInputValue('source_role_ids')?.trim() ??
     interaction.fields.getTextInputValue('source_role_id')?.trim();
   const matchModeRaw = interaction.fields.getTextInputValue('match_mode')?.trim().toLowerCase();
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
@@ -591,7 +591,7 @@ export async function handleProductDiscordModal(
   session.requiredRoleMatchMode = matchModeRaw === 'all' ? 'all' : 'any';
 
   const roleSelect = new RoleSelectMenuBuilder()
-    .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
     .setMinValues(1)
     .setMaxValues(25)
     .setPlaceholder('Select role(s) to assign in THIS server (1–25)');
@@ -610,9 +610,9 @@ export async function handleProductDiscordModal(
 export async function handleProductDiscordRoleDone(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
@@ -652,7 +652,7 @@ export async function handleProductDiscordRoleDone(
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setLabel('Open Setup Page').setStyle(ButtonStyle.Link).setURL(setupUrl),
         new ButtonBuilder()
-          .setCustomId(`creator_product:discord_role_done:${userId}:${tenantId}`)
+          .setCustomId(`creator_product:discord_role_done:${userId}:${authUserId}`)
           .setLabel("Done, I've selected it")
           .setEmoji(Emoji.Checkmark)
           .setStyle(ButtonStyle.Success)
@@ -672,7 +672,7 @@ export async function handleProductDiscordRoleDone(
     session.discordRoleSetupToken = undefined;
 
     const roleSelect = new RoleSelectMenuBuilder()
-      .setCustomId(`creator_product:role_select:${userId}:${tenantId}`)
+      .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
       .setMinValues(1)
       .setMaxValues(25)
       .setPlaceholder('Select role(s) to assign in THIS server (1–25)');
@@ -687,7 +687,7 @@ export async function handleProductDiscordRoleDone(
   } catch (err) {
     logger.error('Failed to retrieve Discord role setup result', {
       error: err instanceof Error ? err.message : String(err),
-      tenantId,
+      authUserId,
       tokenPresent: Boolean(session.discordRoleSetupToken),
     });
     await interaction.editReply({
@@ -701,10 +701,10 @@ export async function handleProductDiscordRoleDone(
 export async function handleProductRoleSelect(
   interaction: RoleSelectMenuInteraction,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   const roleIds = interaction.values;
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
@@ -767,11 +767,11 @@ export async function handleProductRoleSelect(
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`creator_product:confirm_add:${userId}:${tenantId}`)
+      .setCustomId(`creator_product:confirm_add:${userId}:${authUserId}`)
       .setLabel('Add Product')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId(`creator_product:cancel_add:${tenantId}`)
+      .setCustomId(`creator_product:cancel_add:${authUserId}`)
       .setLabel('Cancel')
       .setStyle(ButtonStyle.Secondary)
   );
@@ -785,9 +785,9 @@ export async function handleProductConfirmAdd(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
@@ -826,7 +826,7 @@ export async function handleProductConfirmAdd(
       if (!sourceGuildId || reqIds.length === 0) throw new Error('Source guild/role ID missing');
       const result = await convex.mutation(api.role_rules.addProductFromDiscordRole, {
         apiSecret,
-        tenantId,
+        authUserId,
         sourceGuildId,
         requiredRoleIds: reqIds,
         requiredRoleMatchMode: requiredRoleMatchMode ?? 'any',
@@ -838,16 +838,16 @@ export async function handleProductConfirmAdd(
 
       // Enable cross-server Discord role verification via OAuth (user authorizes guilds.members.read)
       // so buyers can verify via "Use Another Server" without manual /creator-admin settings
-      const tenant = await convex.query(api.tenants.getTenant, {
+      const tenant = await convex.query(api.creatorProfiles.getCreatorProfile, {
         apiSecret,
-        tenantId,
+        authUserId,
       });
       const policy = tenant?.policy ?? {};
       const allowed = new Set((policy.allowedSourceGuildIds as string[]) ?? []);
       allowed.add(sourceGuildId);
-      await convex.mutation(api.tenants.updateTenantPolicy, {
+      await convex.mutation(api.creatorProfiles.updateCreatorPolicy, {
         apiSecret,
-        tenantId,
+        authUserId,
         policy: {
           enableDiscordRoleFromOtherServers: true,
           allowedSourceGuildIds: [...allowed],
@@ -858,7 +858,7 @@ export async function handleProductConfirmAdd(
 
       const modeLabel = requiredRoleMatchMode === 'all' ? 'all' : 'any';
       const rolesMsg = verifiedRoleIds.map((id) => `<@&${id}>`).join(', ');
-      track(interaction.user.id, 'product_added', { tenantId, guildId, productId });
+      track(interaction.user.id, 'product_added', { authUserId, guildId, productId });
       await interaction.editReply({
         content: `${E.Checkmark} Discord role rule added! Users with ${modeLabel} of the source roles will receive ${rolesMsg}.`,
         components: [],
@@ -889,7 +889,7 @@ export async function handleProductConfirmAdd(
 
       const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
         apiSecret,
-        tenantId,
+        authUserId,
         productId: resolvedProductId,
         providerProductRef: resolvedProductId,
         canonicalSlug: slug,
@@ -910,7 +910,7 @@ export async function handleProductConfirmAdd(
         : undefined;
       const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
         apiSecret,
-        tenantId,
+        authUserId,
         productId: productIdFromApi,
         providerProductRef: productIdFromApi,
         displayName: displayName ?? undefined,
@@ -923,7 +923,7 @@ export async function handleProductConfirmAdd(
       const displayName = session.lsProductNames?.[productIdFromApi];
       const result = await convex.mutation(api.role_rules.addProductFromLemonSqueezy, {
         apiSecret,
-        tenantId,
+        authUserId,
         productId: productIdFromApi,
         providerProductRef: productIdFromApi,
         displayName,
@@ -934,7 +934,7 @@ export async function handleProductConfirmAdd(
       const parsed = urlOrId?.trim() ?? 'license';
       const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
         apiSecret,
-        tenantId,
+        authUserId,
         productId: parsed,
         providerProductRef: parsed,
       });
@@ -951,7 +951,7 @@ export async function handleProductConfirmAdd(
       // Best-effort: fetch avatar name via Convex using the tenant owner's stored VRChat session
       let vrchatDisplayName: string | undefined;
       try {
-        const nameData = await resolveVrchatAvatarName({ tenantId, avatarId });
+        const nameData = await resolveVrchatAvatarName({ authUserId, avatarId });
         vrchatDisplayName = nameData.name ?? undefined;
       } catch {
         // Non-fatal: proceed without display name
@@ -959,7 +959,7 @@ export async function handleProductConfirmAdd(
 
       const result = await convex.mutation(api.role_rules.addProductFromVrchat, {
         apiSecret,
-        tenantId,
+        authUserId,
         productId: avatarId,
         providerProductRef: avatarId,
         displayName: vrchatDisplayName,
@@ -972,7 +972,7 @@ export async function handleProductConfirmAdd(
 
     const { ruleId } = await convex.mutation(api.role_rules.createRoleRule, {
       apiSecret,
-      tenantId,
+      authUserId,
       guildId,
       guildLinkId,
       productId,
@@ -980,7 +980,7 @@ export async function handleProductConfirmAdd(
       verifiedRoleIds,
     });
     productSessions.delete(sessionKey);
-    track(interaction.user.id, 'product_added', { tenantId, guildId, productId, ruleId });
+    track(interaction.user.id, 'product_added', { authUserId, guildId, productId, ruleId });
 
     let finalProductLabel = productId;
     if (session.type === 'jinxxy' && session.jinxxyProductNames?.[productId]) {
@@ -999,7 +999,7 @@ export async function handleProductConfirmAdd(
   } catch (err) {
     logger.error('Failed to create product mapping', {
       error: err instanceof Error ? err.message : String(err),
-      tenantId,
+      authUserId,
       guildId: session.guildId,
       type: session.type,
     });
@@ -1016,9 +1016,9 @@ export async function handleProductConfirmAdd(
 export async function handleProductCancelAdd(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   productSessions.delete(sessionKey);
 
   await interaction.update({
@@ -1033,12 +1033,12 @@ export async function handleProductList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   _apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const rules = await convex.query(api.role_rules.getByGuildWithProductNames, {
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     guildId: ctx.guildId,
   });
 
@@ -1086,12 +1086,12 @@ export async function handleProductRemove(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const rules = await convex.query(api.role_rules.getByGuildWithProductNames, {
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     guildId: ctx.guildId,
   });
 
@@ -1112,7 +1112,7 @@ export async function handleProductRemove(
   const toShow = rules.slice(0, 25);
 
   const select = new StringSelectMenuBuilder()
-    .setCustomId(`creator_product:remove_select:${ctx.tenantId}`)
+    .setCustomId(`creator_product:remove_select:${ctx.authUserId}`)
     .setPlaceholder('Select product(s) to remove (1-25)')
     .setMinValues(1)
     .setMaxValues(toShow.length)
@@ -1142,7 +1142,7 @@ export async function handleProductRemoveSelect(
   interaction: StringSelectMenuInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   const productIds = interaction.values;
   if (!productIds || productIds.length === 0) {
@@ -1154,11 +1154,11 @@ export async function handleProductRemoveSelect(
     return;
   }
 
-  const sessionKey = getSessionKey(interaction.user.id, tenantId);
+  const sessionKey = getSessionKey(interaction.user.id, authUserId);
   let session = productSessions.get(sessionKey);
   if (!session) {
     session = {
-      tenantId,
+      authUserId,
       guildId: interaction.guildId ?? '',
       guildLinkId: '' as Id<'guild_links'>,
       expiresAt: Date.now() + 10 * 60 * 1000,
@@ -1178,11 +1178,11 @@ export async function handleProductRemoveSelect(
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`creator_product:confirm_remove:${interaction.user.id}:${tenantId}`)
+      .setCustomId(`creator_product:confirm_remove:${interaction.user.id}:${authUserId}`)
       .setLabel('Remove Products')
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
-      .setCustomId(`creator_product:cancel_remove:${interaction.user.id}:${tenantId}`)
+      .setCustomId(`creator_product:cancel_remove:${interaction.user.id}:${authUserId}`)
       .setLabel('Cancel')
       .setStyle(ButtonStyle.Secondary)
   );
@@ -1200,12 +1200,12 @@ export async function handleProductConfirmRemove(
   convex: ConvexHttpClient,
   apiSecret: string,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   // Use discordjs loading function (deferUpdate tells Discord to show a loading state on the button!)
   await interaction.deferUpdate();
 
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   const session = productSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt || !session.removeProductIds) {
@@ -1220,7 +1220,7 @@ export async function handleProductConfirmRemove(
   const productIds = session.removeProductIds;
 
   const rules = await convex.query(api.role_rules.getByTenant, {
-    tenantId,
+    authUserId,
   });
 
   let removedCount = 0;
@@ -1292,9 +1292,9 @@ export async function handleProductConfirmRemove(
 export async function handleProductCancelRemove(
   interaction: ButtonInteraction,
   userId: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
-  const sessionKey = getSessionKey(userId, tenantId);
+  const sessionKey = getSessionKey(userId, authUserId);
   productSessions.delete(sessionKey);
 
   await interaction.update({
@@ -1309,7 +1309,7 @@ export async function handleProductAdd(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
+  ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   return handleProductAddInteractive(interaction, ctx);
 }

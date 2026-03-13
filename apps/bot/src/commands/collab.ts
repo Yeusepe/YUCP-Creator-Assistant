@@ -40,7 +40,7 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 export async function handleCollabInvite(
   interaction: ChatInputCommandInteraction,
   apiSecret: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -56,7 +56,7 @@ export async function handleCollabInvite(
     interaction,
     apiBase,
     apiSecret,
-    tenantId,
+    authUserId,
     interaction.guildId ?? '',
     interaction.guild?.name ?? 'this server'
   );
@@ -69,10 +69,10 @@ export async function handleCollabInvite(
 export async function handleCollabAdd(
   interaction: ChatInputCommandInteraction,
   apiSecret: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   const modal = new ModalBuilder()
-    .setCustomId(`creator_collab:add_modal:${tenantId}`)
+    .setCustomId(`creator_collab:add_modal:${authUserId}`)
     .setTitle('Add Collaborator by API Key');
 
   const keyInput = new TextInputBuilder()
@@ -93,7 +93,7 @@ export async function handleCollabAdd(
 export async function handleCollabAddModalSubmit(
   interaction: ModalSubmitInteraction,
   apiSecret: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -113,7 +113,7 @@ export async function handleCollabAddModalSubmit(
 
   try {
     const data = await addCollaboratorConnectionManual({
-      tenantId,
+      authUserId,
       guildId: interaction.guildId ?? '',
       actorDiscordUserId: interaction.user.id,
       jinxxyApiKey: apiKey,
@@ -143,7 +143,7 @@ export async function handleCollabAddModalSubmit(
 export async function handleCollabList(
   interaction: ChatInputCommandInteraction,
   apiSecret: string,
-  tenantId: Id<'tenants'>
+  authUserId: string
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -168,7 +168,7 @@ export async function handleCollabList(
 
   try {
     connections = await listCollaboratorConnections({
-      tenantId,
+      authUserId,
       guildId: interaction.guildId ?? '',
       actorDiscordUserId: interaction.user.id,
     });
@@ -207,7 +207,7 @@ export async function handleCollabList(
     content += `${collaboratorLabel} - ${typeBadge}${manualBadge}${webhookStatus}\n`;
 
     const removeBtn = new ButtonBuilder()
-      .setCustomId(`creator_collab:remove:${tenantId}:${conn.id}`)
+      .setCustomId(`creator_collab:remove:${authUserId}:${conn.id}`)
       .setLabel(`Remove ${conn.collaboratorDisplayName || conn.collaboratorDiscordUserId}`)
       .setStyle(ButtonStyle.Danger);
 
@@ -227,7 +227,7 @@ export async function handleCollabList(
 export async function handleCollabRemove(
   interaction: ButtonInteraction,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   connectionId: string
 ): Promise<void> {
   await interaction.deferUpdate();
@@ -242,7 +242,7 @@ export async function handleCollabRemove(
 
   try {
     const response = await removeCollaboratorConnection({
-      tenantId,
+      authUserId,
       guildId: interaction.guildId ?? '',
       actorDiscordUserId: interaction.user.id,
       connectionId,
@@ -276,7 +276,7 @@ async function generateAndShowInviteLink(
   interaction: ChatInputCommandInteraction | ButtonInteraction,
   apiBase: string,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string,
   guildName: string
 ): Promise<void> {
@@ -285,7 +285,7 @@ async function generateAndShowInviteLink(
 
   try {
     const data = await createCollaboratorInvite({
-      tenantId,
+      authUserId,
       guildId,
       guildName,
       actorDiscordUserId: interaction.user.id,

@@ -93,7 +93,7 @@ interface VerifiedPublicApiKey {
   id: string;
   lastUsedAt?: number;
   scopes: string[];
-  tenantId: string;
+  authUserId: string;
 }
 
 function jsonResponse(body: object, status = 200): Response {
@@ -108,12 +108,12 @@ async function errorResponseWithSupportCode(
   realError: string | Error,
   genericMessage: string,
   status: number,
-  options: { stage: string; tenantId?: string }
+  options: { stage: string; authUserId?: string }
 ): Promise<Response> {
   const support = await createPublicApiSupportError(logger, {
     error: typeof realError === 'string' ? new Error(realError) : realError,
     stage: options.stage,
-    tenantId: options.tenantId,
+    authUserId: options.authUserId,
   });
   const errorCode =
     status === 401
@@ -253,7 +253,7 @@ function toTimestamp(value: unknown): number | undefined {
   return undefined;
 }
 
-function parseApiKeyMetadata(metadata: unknown): { kind?: string; tenantId?: string } | null {
+function parseApiKeyMetadata(metadata: unknown): { kind?: string; authUserId?: string } | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
     return null;
   }
@@ -261,7 +261,7 @@ function parseApiKeyMetadata(metadata: unknown): { kind?: string; tenantId?: str
   const record = metadata as Record<string, unknown>;
   return {
     kind: typeof record.kind === 'string' ? record.kind : undefined,
-    tenantId: typeof record.tenantId === 'string' ? record.tenantId : undefined,
+    authUserId: typeof record.authUserId === 'string' ? record.authUserId : undefined,
   };
 }
 
@@ -314,7 +314,7 @@ async function defaultVerifyApiKey(
         prefix: string | null;
         enabled: boolean;
         permissions: BetterAuthPermissionStatements | null;
-        metadata: { kind: string; tenantId: string } | null;
+        metadata: { kind: string; authUserId: string } | null;
         lastRequestAt: number | null;
         expiresAt: number | null;
         createdAt: number | null;
@@ -348,12 +348,12 @@ async function defaultVerifyApiKey(
 async function getVerificationStatusResponse(
   convex: ReturnType<typeof getConvexClientFromUrl>,
   config: PublicRouteConfig,
-  tenantId: string,
+  authUserId: string,
   subjectId: string
 ): Promise<Response> {
   const entitlements = (await convex.query(api.entitlements.getEntitlementsBySubject, {
     apiSecret: config.convexApiSecret,
-    tenantId,
+    authUserId,
     subjectId,
     includeInactive: false,
   })) as PublicEntitlement[];
@@ -375,13 +375,13 @@ async function getVerificationStatusResponse(
 async function resolveSubjectOrResponse(
   convex: ReturnType<typeof getConvexClientFromUrl>,
   config: PublicRouteConfig,
-  tenantId: string,
+  authUserId: string,
   selector: SubjectSelector,
   notFoundStatus = 404
 ): Promise<{ subject: PublicSubject } | { response: Response }> {
   const resolved = (await convex.query(api.subjects.resolveSubjectForPublicApi, {
     apiSecret: config.convexApiSecret,
-    tenantId,
+    authUserId,
     selector,
   })) as { found?: boolean; subject?: PublicSubject | null } | null;
 
@@ -391,7 +391,7 @@ async function resolveSubjectOrResponse(
         'Subject not found',
         'Resource not found',
         notFoundStatus,
-        { stage: 'resolve_subject', tenantId }
+        { stage: 'resolve_subject', authUserId }
       ),
     };
   }
@@ -400,7 +400,7 @@ async function resolveSubjectOrResponse(
     return {
       response: await errorResponseWithSupportCode('Subject is not active', 'Access denied', 403, {
         stage: 'resolve_subject',
-        tenantId,
+        authUserId,
       }),
     };
   }
@@ -411,7 +411,7 @@ async function resolveSubjectOrResponse(
 async function authenticateServiceKey(
   request: Request,
   config: PublicRouteConfig,
-  tenantId: string,
+  authUserId: string,
   requiredScopes: string[],
   verifyApiKey: (apiKey: string, cfg: PublicRouteConfig) => Promise<BetterAuthVerifiedApiKey | null>
 ): Promise<{ key: VerifiedPublicApiKey } | { response: Response }> {
@@ -422,7 +422,7 @@ async function authenticateServiceKey(
         'Missing API key (x-api-key header or Authorization: Bearer)',
         'Authentication failed',
         401,
-        { stage: 'auth', tenantId }
+        { stage: 'auth', authUserId }
       ),
     };
   }
@@ -434,19 +434,19 @@ async function authenticateServiceKey(
         'Invalid API key',
         'Authentication failed',
         401,
-        { stage: 'auth', tenantId }
+        { stage: 'auth', authUserId }
       ),
     };
   }
 
   const metadata = parseApiKeyMetadata(verified.metadata);
-  if (metadata?.kind !== 'public-api' || metadata.tenantId !== tenantId) {
+  if (metadata?.kind !== 'public-api' || metadata.authUserId !== authUserId) {
     return {
       response: await errorResponseWithSupportCode(
         'API key is not valid for this tenant',
         'Access denied',
         403,
-        { stage: 'auth', tenantId }
+        { stage: 'auth', authUserId }
       ),
     };
   }
@@ -458,7 +458,7 @@ async function authenticateServiceKey(
         'Insufficient API key scope',
         'Access denied',
         403,
-        { stage: 'auth', tenantId }
+        { stage: 'auth', authUserId }
       ),
     };
   }
@@ -470,7 +470,7 @@ async function authenticateServiceKey(
         'API key expired',
         'Authentication failed',
         401,
-        { stage: 'auth', tenantId }
+        { stage: 'auth', authUserId }
       ),
     };
   }
@@ -478,7 +478,7 @@ async function authenticateServiceKey(
   return {
     key: {
       id: verified.id,
-      tenantId,
+      authUserId,
       scopes,
       expiresAt,
       lastUsedAt: toTimestamp(verified.lastRequest),
@@ -490,14 +490,14 @@ async function authenticateVerifyRequest(
   request: Request,
   config: PublicRouteConfig,
   convex: ReturnType<typeof getConvexClientFromUrl>,
-  tenantId: string,
+  authUserId: string,
   verifyAccessToken: (
     token: string,
     cfg: PublicRouteConfig,
     scopes: string[]
   ) => Promise<{ sub: string } | null>,
   verifyApiKey: (apiKey: string, cfg: PublicRouteConfig) => Promise<BetterAuthVerifiedApiKey | null>
-): Promise<{ tenantId: string } | { response: Response }> {
+): Promise<{ authUserId: string } | { response: Response }> {
   const apiKey = extractApiKey(request);
   const bearerToken = extractBearerToken(request);
 
@@ -505,12 +505,12 @@ async function authenticateVerifyRequest(
     const auth = await authenticateServiceKey(
       request,
       config,
-      tenantId,
+      authUserId,
       [VERIFICATION_SCOPE],
       verifyApiKey
     );
     if ('response' in auth) return auth;
-    return { tenantId };
+    return { authUserId };
   }
 
   if (bearerToken) {
@@ -525,7 +525,7 @@ async function authenticateVerifyRequest(
         ),
       };
     }
-    return { tenantId };
+    return { authUserId };
   }
 
   return {
@@ -557,7 +557,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     }
 
     return jsonResponse({
-      tenantId: tenant._id,
+      authUserId: tenant._id,
       name: tenant.name,
       slug: tenant.slug,
     });
@@ -584,10 +584,10 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       );
     }
 
-    const tenantId = new URL(request.url).searchParams.get('tenantId');
-    if (!tenantId) {
+    const authUserId = new URL(request.url).searchParams.get('authUserId');
+    if (!authUserId) {
       return await errorResponseWithSupportCode(
-        'tenantId query parameter is required',
+        'authUserId query parameter is required',
         'Bad request',
         400,
         { stage: 'me_verification_status' }
@@ -595,7 +595,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     }
 
     const convex = createConvexClient(config.convexUrl);
-    const resolved = await resolveSubjectOrResponse(convex, config, tenantId, {
+    const resolved = await resolveSubjectOrResponse(convex, config, authUserId, {
       authUserId: verified.sub,
     });
 
@@ -603,11 +603,11 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       return resolved.response;
     }
 
-    return getVerificationStatusResponse(convex, config, tenantId, resolved.subject._id);
+    return getVerificationStatusResponse(convex, config, authUserId, resolved.subject._id);
   }
 
   async function getVerificationStatus(request: Request): Promise<Response> {
-    let body: { tenantId?: string; subject?: unknown };
+    let body: { authUserId?: string; subject?: unknown };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -616,9 +616,9 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       });
     }
 
-    const tenantId = body.tenantId?.trim();
-    if (!tenantId) {
-      return await errorResponseWithSupportCode('tenantId is required', 'Bad request', 400, {
+    const authUserId = body.authUserId?.trim();
+    if (!authUserId) {
+      return await errorResponseWithSupportCode('authUserId is required', 'Bad request', 400, {
         stage: 'verification_status',
       });
     }
@@ -637,7 +637,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     const auth = await authenticateServiceKey(
       request,
       config,
-      tenantId,
+      authUserId,
       [VERIFICATION_SCOPE],
       verifyApiKey
     );
@@ -645,16 +645,16 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       return auth.response;
     }
 
-    const resolved = await resolveSubjectOrResponse(convex, config, tenantId, subject);
+    const resolved = await resolveSubjectOrResponse(convex, config, authUserId, subject);
     if ('response' in resolved) {
       return resolved.response;
     }
 
-    return getVerificationStatusResponse(convex, config, tenantId, resolved.subject._id);
+    return getVerificationStatusResponse(convex, config, authUserId, resolved.subject._id);
   }
 
   async function checkVerification(request: Request): Promise<Response> {
-    let body: { tenantId?: string; subject?: unknown; productIds?: string[] };
+    let body: { authUserId?: string; subject?: unknown; productIds?: string[] };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -663,9 +663,9 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       });
     }
 
-    const tenantId = body.tenantId?.trim();
-    if (!tenantId) {
-      return await errorResponseWithSupportCode('tenantId is required', 'Bad request', 400, {
+    const authUserId = body.authUserId?.trim();
+    if (!authUserId) {
+      return await errorResponseWithSupportCode('authUserId is required', 'Bad request', 400, {
         stage: 'verification_check',
       });
     }
@@ -700,7 +700,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     const auth = await authenticateServiceKey(
       request,
       config,
-      tenantId,
+      authUserId,
       [VERIFICATION_SCOPE],
       verifyApiKey
     );
@@ -708,7 +708,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       return auth.response;
     }
 
-    const resolved = await resolveSubjectOrResponse(convex, config, tenantId, subject, 200);
+    const resolved = await resolveSubjectOrResponse(convex, config, authUserId, subject, 200);
     if ('response' in resolved) {
       return jsonResponse({
         results: body.productIds.map((productId) => ({ productId, verified: false })),
@@ -719,7 +719,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       body.productIds.map(async (productId) => {
         const verified = await convex.query(api.entitlements.hasActiveEntitlement, {
           apiSecret: config.convexApiSecret,
-          tenantId,
+          authUserId,
           subjectId: resolved.subject._id,
           productId,
         });
@@ -741,9 +741,9 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       });
     }
 
-    const tenantId = typeof body.tenantId === 'string' ? body.tenantId.trim() : '';
-    if (!tenantId) {
-      return await errorResponseWithSupportCode('tenantId is required', 'Bad request', 400, {
+    const authUserId = typeof body.authUserId === 'string' ? body.authUserId.trim() : '';
+    if (!authUserId) {
+      return await errorResponseWithSupportCode('authUserId is required', 'Bad request', 400, {
         stage: 'verification_verify',
       });
     }
@@ -770,7 +770,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       request,
       config,
       convex,
-      tenantId,
+      authUserId,
       verifyAccessToken,
       verifyApiKey
     );
@@ -778,7 +778,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       return auth.response;
     }
 
-    const resolved = await resolveSubjectOrResponse(convex, config, tenantId, selector, 200);
+    const resolved = await resolveSubjectOrResponse(convex, config, authUserId, selector, 200);
     if ('response' in resolved) {
       return jsonResponse({
         verified: false,
@@ -788,7 +788,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
 
     const hasEntitlement = (await convex.query(api.entitlements.hasActiveEntitlement, {
       apiSecret: config.convexApiSecret,
-      tenantId,
+      authUserId,
       subjectId: resolved.subject._id,
       productId,
     })) as boolean;
@@ -801,7 +801,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
   }
 
   async function resolveSubject(request: Request): Promise<Response> {
-    let body: { tenantId?: string; subject?: unknown };
+    let body: { authUserId?: string; subject?: unknown };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -810,9 +810,9 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       });
     }
 
-    const tenantId = body.tenantId?.trim();
-    if (!tenantId) {
-      return await errorResponseWithSupportCode('tenantId is required', 'Bad request', 400, {
+    const authUserId = body.authUserId?.trim();
+    if (!authUserId) {
+      return await errorResponseWithSupportCode('authUserId is required', 'Bad request', 400, {
         stage: 'subjects_resolve',
       });
     }
@@ -831,7 +831,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     const auth = await authenticateServiceKey(
       request,
       config,
-      tenantId,
+      authUserId,
       [SUBJECTS_SCOPE],
       verifyApiKey
     );
@@ -839,7 +839,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       return auth.response;
     }
 
-    const resolved = await resolveSubjectOrResponse(convex, config, tenantId, subjectSelector);
+    const resolved = await resolveSubjectOrResponse(convex, config, authUserId, subjectSelector);
     if ('response' in resolved) {
       return resolved.response;
     }
@@ -847,7 +847,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     const subjectWithAccounts = (await convex.query(api.subjects.getSubjectWithAccounts, {
       apiSecret: config.convexApiSecret,
       subjectId: resolved.subject._id,
-      tenantId,
+      authUserId,
     })) as {
       externalAccounts: unknown[];
       found?: boolean;
@@ -861,7 +861,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     if (!subjectWithAccounts?.found || !subjectWithAccounts.subject) {
       return await errorResponseWithSupportCode('Subject not found', 'Resource not found', 404, {
         stage: 'subjects_resolve',
-        tenantId,
+        authUserId,
       });
     }
 

@@ -25,8 +25,8 @@ export interface CompleteLicenseInput {
   provider?: string;
   /** Provider product reference - required for Gumroad */
   productId?: string;
-  /** Tenant ID */
-  tenantId: string;
+  /** Creator's auth user ID */
+  authUserId: string;
   /** Subject ID (from Discord session) */
   subjectId: string;
 }
@@ -46,10 +46,10 @@ export async function handleCompleteLicense(
   config: VerificationConfig,
   input: CompleteLicenseInput
 ): Promise<CompleteLicenseResult> {
-  const { licenseKey, tenantId, subjectId } = input;
+  const { licenseKey, authUserId, subjectId } = input;
 
   if (!licenseKey?.trim()) return { success: false, error: 'Missing license key' };
-  if (!tenantId) return { success: false, error: 'Missing tenant ID' };
+  if (!authUserId) return { success: false, error: 'Missing auth user ID' };
   if (!subjectId) return { success: false, error: 'Missing subject ID' };
 
   if (!config.convexUrl || !config.convexApiSecret) {
@@ -71,7 +71,7 @@ export async function handleCompleteLicense(
 
   logger.info('[completeLicense] Dispatching to provider handler', {
     providerKey,
-    tenantId,
+    authUserId,
     licenseKeyPrefix: licenseKey.trim().slice(0, 8),
   });
 
@@ -83,7 +83,7 @@ export async function handleCompleteLicense(
     logger.error('License verification handler threw', {
       error: err instanceof Error ? err.message : String(err),
       providerKey,
-      tenantId,
+      authUserId,
     });
     return {
       success: false,

@@ -585,7 +585,7 @@
                 if (data.success) {
                     showSuccess();
                 } else if (data.needsCredentials || data.sessionExpired) {
-                    // No stored session (or expired) — show the credentials form
+                    // No stored session (or expired), show the credentials form
                     if (data.sessionExpired) {
                         showError('Your previous VRChat session has expired. Please sign in again.');
                     }
@@ -600,7 +600,7 @@
                 }
             })
             .catch(() => {
-                // Network error — fall back to manual form
+                // Network error, fall back to manual form
                 showCredentialStep();
                 submitBtn.disabled = false;
                 submitBtn.setAttribute('aria-busy', 'false');

@@ -4,7 +4,7 @@
  * Run once with:
  *   npx convex run seedYucpOAuthClient:seedUnityOAuthClient
  *
- * This is safe to run again — it checks for an existing client first.
+ * This is safe to run again, it checks for an existing client first.
  *
  * References:
  *   - Better Auth oauthProvider plugin docs:
@@ -25,7 +25,7 @@ export const seedUnityOAuthClient = internalMutation({
     // The fixed callback URL that the loopback proxy normalises to.
     // Unity actually sends redirect_uri=http://127.0.0.1:PORT/callback,
     // but our /api/yucp/oauth/authorize handler rewrites it to this fixed URL
-    // before passing to Better Auth — so this is what Better Auth validates.
+    // before passing to Better Auth, so this is what Better Auth validates.
     const callbackUrl = `${siteUrl}/api/yucp/oauth/callback`;
 
     // Check whether the client already exists
@@ -37,7 +37,7 @@ export const seedUnityOAuthClient = internalMutation({
     });
 
     if (existing.length > 0) {
-      console.log('yucp-unity-editor OAuth client already exists — skipping seed.');
+      console.log('yucp-unity-editor OAuth client already exists, skipping seed.');
       return { created: false };
     }
 
@@ -82,7 +82,7 @@ export const purgeJwks = internalMutation({
       input: { model: 'jwks' },
       paginationOpts: { cursor: null, numItems: 1000 },
     } as any);
-    console.log('Purged all JWKS keys — they will be regenerated as ES256 on next request.');
+    console.log('Purged all JWKS keys, they will be regenerated as ES256 on next request.');
     return { purged: true };
   },
 });

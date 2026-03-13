@@ -58,7 +58,7 @@ type SendableTextChannel = TextBasedChannel & {
 
 type DownloadRoute = {
   _id: string;
-  tenantId: string;
+  authUserId: string;
   guildId: string;
   guildLinkId: string;
   sourceChannelId: string;
@@ -758,7 +758,7 @@ export class LienedDownloadsService {
     }
     const artifact = (await this.convex.mutation(api.downloads.createArtifact, {
       apiSecret: this.apiSecret,
-      tenantId: route.tenantId,
+      authUserId: route.authUserId,
       guildId: route.guildId,
       routeId: route._id,
       sourceChannelId: message.channelId,

@@ -16,7 +16,7 @@ export async function handleLink(
   convex: ConvexHttpClient,
   apiSecret: string,
   apiBaseUrl: string | undefined,
-  ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
+  ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   const provider = interaction.options.getString('provider', true);
 
@@ -25,7 +25,7 @@ export async function handleLink(
       ? `${apiBaseUrl}/verify-success?returnTo=${encodeURIComponent(`https://discord.com/channels/${ctx.guildId}`)}`
       : '';
     const gumroadUrl = apiBaseUrl
-      ? `${apiBaseUrl}/api/verification/begin?tenantId=${ctx.tenantId}&mode=gumroad&redirectUri=${encodeURIComponent(redirectUri)}`
+      ? `${apiBaseUrl}/api/verification/begin?authUserId=${ctx.authUserId}&mode=gumroad&redirectUri=${encodeURIComponent(redirectUri)}`
       : null;
     if (!gumroadUrl) {
       await interaction.reply({
@@ -47,7 +47,7 @@ export async function handleLink(
   }
 
   if (provider === 'license') {
-    await interaction.showModal(buildLicenseModal(ctx.tenantId));
+    await interaction.showModal(buildLicenseModal(ctx.authUserId));
     return;
   }
 
@@ -56,7 +56,7 @@ export async function handleLink(
       ? `${apiBaseUrl}/verify-success?returnTo=${encodeURIComponent(`https://discord.com/channels/${ctx.guildId}`)}`
       : '';
     const discordUrl = apiBaseUrl
-      ? `${apiBaseUrl}/api/verification/begin?tenantId=${ctx.tenantId}&mode=discord_role&redirectUri=${encodeURIComponent(redirectUri)}`
+      ? `${apiBaseUrl}/api/verification/begin?authUserId=${ctx.authUserId}&mode=discord_role&redirectUri=${encodeURIComponent(redirectUri)}`
       : null;
     if (!discordUrl) {
       await interaction.reply({

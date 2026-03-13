@@ -6,14 +6,13 @@ import type { ConvexHttpClient } from 'convex/browser';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { track } from '../lib/posthog';
 
 export async function handleSuspiciousMark(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
   const reason = interaction.options.getString('reason') ?? 'No reason provided';
@@ -34,12 +33,12 @@ export async function handleSuspiciousMark(
     subjectId: subjectResult.subject._id,
     reason,
     actorId: interaction.user.id,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     quarantine: true,
   });
 
   track(interaction.user.id, 'suspicious_marked', {
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     subjectId: subjectResult.subject._id,
     targetUserId: targetUser.id,
   });
@@ -53,13 +52,13 @@ export async function handleSuspiciousList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const list = await convex.query(api.identitySync.listSuspiciousSubjects, {
     apiSecret,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     limit: 25,
   });
 
@@ -84,7 +83,7 @@ export async function handleSuspiciousClear(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -103,7 +102,7 @@ export async function handleSuspiciousClear(
     apiSecret,
     subjectId: subjectResult.subject._id,
     actorId: interaction.user.id,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
   });
 
   await interaction.editReply({

@@ -2,8 +2,8 @@
  * Jinxxy Products API Route
  *
  * POST /api/jinxxy/products
- * Fetches products from Jinxxy API for a tenant (for product add flow).
- * Uses decrypted tenant API key; returns product.id and product.name (jinx-master style).
+ * Fetches products from Jinxxy API for a creator (for product add flow).
+ * Uses decrypted creator API key; returns product.id and product.name (jinx-master style).
  */
 
 import { JinxxyApiClient } from '@yucp/providers/jinxxy';
@@ -29,7 +29,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 export interface JinxxyProductsRequest {
   apiSecret: string;
-  tenantId: string;
+  authUserId: string;
 }
 
 export interface JinxxyProductItem {
@@ -54,11 +54,11 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
 
   try {
     const body = (await request.json()) as JinxxyProductsRequest;
-    const { apiSecret, tenantId } = body;
+    const { apiSecret, authUserId } = body;
 
-    if (!apiSecret || !tenantId) {
+    if (!apiSecret || !authUserId) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: apiSecret, tenantId' }),
+        JSON.stringify({ error: 'Missing required fields: apiSecret, authUserId' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -94,7 +94,7 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
 
     const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret,
-      tenantId,
+      authUserId,
       provider: 'jinxxy',
     });
     if (conn?.jinxxyApiKeyEncrypted) {
@@ -102,11 +102,11 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
     }
 
     if (!apiKeyEncrypted) {
-      const tenantKey = await convex.query(api.tenantConfig.getJinxxyApiKeyForVerification, {
+      const creatorKey = await convex.query(api.tenantConfig.getJinxxyApiKeyForVerification, {
         apiSecret,
-        tenantId,
+        authUserId,
       });
-      if (tenantKey) apiKeyEncrypted = tenantKey;
+      if (creatorKey) apiKeyEncrypted = creatorKey;
     }
 
     if (!apiKeyEncrypted) {
@@ -123,7 +123,7 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
     try {
       apiKey = await decrypt(apiKeyEncrypted, encryptionSecret);
     } catch (err) {
-      logger.error('Failed to decrypt tenant Jinxxy API key', { tenantId, err });
+      logger.error('Failed to decrypt creator Jinxxy API key', { authUserId, err });
       return new Response(
         JSON.stringify({
           products: [],
@@ -163,7 +163,7 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
         api.collaboratorInvites.getCollabConnectionsForVerification,
         {
           apiSecret,
-          ownerTenantId: tenantId,
+          ownerAuthUserId: authUserId,
         }
       )) as Array<{ id: string; jinxxyApiKeyEncrypted?: string; collaboratorDisplayName?: string }>;
 

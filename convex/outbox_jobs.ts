@@ -146,7 +146,7 @@ export const getByGuildAndUser = query({
  */
 export const getFailedRoleSyncForUser = query({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     discordUserId: v.string(),
     guildId: v.string(),
   },
@@ -158,7 +158,7 @@ export const getFailedRoleSyncForUser = query({
   handler: async (ctx, args) => {
     const jobs = await ctx.db
       .query('outbox_jobs')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('jobType'), 'role_sync'))
       .filter((q) =>
         q.or(q.eq(q.field('status'), 'pending'), q.eq(q.field('status'), 'dead_letter'))
@@ -189,7 +189,7 @@ export const getFailedRoleSyncForUser = query({
 export const getDeadLetterJobs = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     limit: v.optional(v.number()),
   },
   returns: v.array(v.any()),
@@ -199,7 +199,7 @@ export const getDeadLetterJobs = query({
 
     const jobs = await ctx.db
       .query('outbox_jobs')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('status'), 'dead_letter'))
       .order('desc')
       .take(limit);
@@ -219,7 +219,7 @@ export const getDeadLetterJobs = query({
 export const createJob = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     jobType: OutboxJobType,
     payload: v.any(),
     idempotencyKey: v.string(),
@@ -247,7 +247,7 @@ export const createJob = mutation({
     const now = Date.now();
 
     const jobId = await ctx.db.insert('outbox_jobs', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       jobType: args.jobType,
       payload: args.payload,
       status: 'pending',

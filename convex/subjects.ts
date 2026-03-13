@@ -145,7 +145,7 @@ export const getSubjectByDiscordId = query({
 export const resolveSubjectForPublicApi = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     selector: PublicSubjectSelector,
   },
   returns: v.union(
@@ -222,8 +222,8 @@ export const resolveSubjectForPublicApi = query({
 
     const binding = await ctx.db
       .query('bindings')
-      .withIndex('by_tenant_external', (q) =>
-        q.eq('tenantId', args.tenantId).eq('externalAccountId', account._id)
+      .withIndex('by_auth_user_external', (q) =>
+        q.eq('authUserId', args.authUserId).eq('externalAccountId', account._id)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
@@ -245,8 +245,8 @@ export const getSubjectWithAccounts = query({
   args: {
     apiSecret: v.string(),
     subjectId: v.id('subjects'),
-    /** When provided, only return accounts linked in this tenant (for verify panel). */
-    tenantId: v.optional(v.id('tenants')),
+    /** When provided, only return accounts linked via this user (for verify panel). */
+    authUserId: v.optional(v.string()),
   },
   returns: v.union(
     v.object({
@@ -304,14 +304,14 @@ export const getSubjectWithAccounts = query({
     }
 
     // Look up active external accounts linked to this subject via bindings.
-    // When tenantId is provided (e.g. from verify panel), only return accounts in that tenant.
+    // When authUserId is provided (e.g. from verify panel), only return accounts for that user.
     const bindingsQuery = ctx.db
       .query('bindings')
       .withIndex('by_subject', (q) => q.eq('subjectId', args.subjectId))
       .filter((q) => q.eq(q.field('status'), 'active'));
 
-    const activeBindings = args.tenantId
-      ? (await bindingsQuery.collect()).filter((b) => b.tenantId === args.tenantId)
+    const activeBindings = args.authUserId
+      ? (await bindingsQuery.collect()).filter((b) => b.authUserId === args.authUserId)
       : await bindingsQuery.collect();
 
     const externalAccountCandidates: Array<

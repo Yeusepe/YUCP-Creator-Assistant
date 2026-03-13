@@ -48,7 +48,7 @@ describe('Verification Session Status Validator', () => {
 
 describe('Create Verification Session Input', () => {
   const CreateVerificationSessionInput = v.object({
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     mode: v.union(
       v.literal('gumroad'),
       v.literal('discord_role'),
@@ -64,8 +64,8 @@ describe('Create Verification Session Input', () => {
   });
 
   it('should have required fields', () => {
-    const requiredFields = ['tenantId', 'mode', 'state', 'redirectUri'];
-    expect(requiredFields).toContain('tenantId');
+    const requiredFields = ['authUserId', 'mode', 'state', 'redirectUri'];
+    expect(requiredFields).toContain('authUserId');
     expect(requiredFields).toContain('mode');
     expect(requiredFields).toContain('state');
     expect(requiredFields).toContain('redirectUri');
@@ -81,12 +81,12 @@ describe('Create Verification Session Input', () => {
 
   it('should accept minimal input', () => {
     const minimalInput = {
-      tenantId: 'tenants_abc123',
+      authUserId: 'user_abc123',
       mode: 'gumroad',
       state: 'abc123def456',
       redirectUri: 'http://localhost:3000/callback',
     };
-    expect(minimalInput.tenantId).toBeDefined();
+    expect(minimalInput.authUserId).toBeDefined();
     expect(minimalInput.mode).toBeDefined();
     expect(minimalInput.state).toBeDefined();
     expect(minimalInput.redirectUri).toBeDefined();
@@ -94,7 +94,7 @@ describe('Create Verification Session Input', () => {
 
   it('should accept full input', () => {
     const fullInput = {
-      tenantId: 'tenants_abc123',
+      authUserId: 'user_abc123',
       mode: 'gumroad',
       state: 'abc123def456',
       pkceVerifierHash: 'hash_of_verifier',
@@ -187,7 +187,7 @@ describe('Convex Integration', () => {
   it('createVerificationSession returns session document when deployment and tenant configured', async () => {
     const { loadTestSecrets } = await import('../packages/shared/test/loadTestSecrets');
     const secrets = await loadTestSecrets();
-    if (!secrets?.convex?.deploymentUrl || !secrets.convex.testTenantId) {
+    if (!secrets?.convex?.deploymentUrl || !secrets.convex.testAuthUserId) {
       return; // Skip when not configured
     }
     const { ConvexHttpClient } = await import('convex/browser');
@@ -206,7 +206,7 @@ describe('Convex Integration', () => {
     }
     const result = await client.mutation(createVerificationSession as any, {
       apiSecret,
-      tenantId: secrets.convex.testTenantId as import('./_generated/dataModel').Id<'tenants'>,
+      authUserId: secrets.convex.testAuthUserId as string,
       mode: 'gumroad',
       state,
       redirectUri,
@@ -216,7 +216,7 @@ describe('Convex Integration', () => {
     expect(result.expiresAt).toBeGreaterThan(Date.now());
     const sessionResult = await client.query(getVerificationSessionByState as any, {
       apiSecret,
-      tenantId: secrets.convex.testTenantId as import('./_generated/dataModel').Id<'tenants'>,
+      authUserId: secrets.convex.testAuthUserId as string,
       state,
     });
     expect(sessionResult.found).toBe(true);
@@ -238,13 +238,13 @@ describe('Convex Integration', () => {
 // ============================================================================
 
 describe('Index Usage', () => {
-  it('documents the by_tenant_state index usage', () => {
+  it('documents the by_auth_user_state index usage', () => {
     // This index is used for:
     // 1. OAuth callback to find session by state
-    // 2. Must include tenantId for tenant isolation
-    // Index: by_tenant_state on (tenantId, state)
-    const indexFields = ['tenantId', 'state'];
-    expect(indexFields).toContain('tenantId');
+    // 2. Must include authUserId for user isolation
+    // Index: by_user_state on (authUserId, state)
+    const indexFields = ['authUserId', 'state'];
+    expect(indexFields).toContain('authUserId');
     expect(indexFields).toContain('state');
   });
 

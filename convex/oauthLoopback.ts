@@ -1,5 +1,5 @@
 /**
- * RFC 8252 loopback redirect URI proxy — server-side session storage.
+ * RFC 8252 loopback redirect URI proxy, server-side session storage.
  *
  * Stores {state → originalRedirectUri} for 10 minutes while the OAuth flow
  * runs. The httpAction in http.ts calls these to proxy ephemeral loopback

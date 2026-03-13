@@ -6,7 +6,6 @@
  */
 
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
 import { query } from './_generated/server';
 import { ProviderV } from './lib/providers';
 
@@ -53,7 +52,7 @@ export const resolveProductByUrl = query({
       productId: v.string(),
       provider: v.string(),
       providerProductRef: v.string(),
-      tenantId: v.id('tenants'),
+      authUserId: v.string(),
       status: v.string(),
     })
   ),
@@ -76,7 +75,7 @@ export const resolveProductByUrl = query({
       productId: catalogProduct.productId,
       provider: catalogProduct.provider,
       providerProductRef: catalogProduct.providerProductRef,
-      tenantId: catalogProduct.tenantId,
+      authUserId: catalogProduct.authUserId,
       status: catalogProduct.status,
     };
   },
@@ -89,7 +88,7 @@ export const resolveProductByUrl = query({
  */
 export const getProductsForTenant = query({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.array(
     v.object({
@@ -104,7 +103,7 @@ export const getProductsForTenant = query({
   handler: async (ctx, args) => {
     const products = await ctx.db
       .query('product_catalog')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
 

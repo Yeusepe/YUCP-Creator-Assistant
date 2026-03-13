@@ -50,9 +50,9 @@ export interface ManualProviderAdapter extends ProviderAdapter {
   bulkImport(
     input: import('./manual/types').BulkImportInput
   ): Promise<import('./manual/types').BulkImportResult>;
-  /** List licenses for a tenant/product */
+  /** List licenses for a creator/product */
   listLicenses(
-    tenantId: string,
+    authUserId: string,
     productId?: string
   ): Promise<Array<Omit<import('./manual/types').ManualLicense, 'licenseKeyHash'>>>;
 }
@@ -183,11 +183,11 @@ export class ManualAdapter implements ProviderAdapter {
   /**
    * Verify a purchase by validating the license key.
    * @param licenseKey - The plaintext license key to verify
-   * @param context - Context containing productId and tenantId
+   * @param context - Context containing productId and authUserId
    */
   async verifyPurchase(
     licenseKey: string,
-    context?: { productId: string; tenantId: string }
+    context?: { productId: string; authUserId: string }
   ): Promise<Verification | null> {
     if (!context || !this.manager) {
       // Fallback for basic interface - cannot validate without context
@@ -197,7 +197,7 @@ export class ManualAdapter implements ProviderAdapter {
     const result = await this.manager.validateLicense({
       licenseKey,
       productId: context.productId,
-      tenantId: context.tenantId,
+      authUserId: context.authUserId,
     });
 
     if (!result.valid || !result.license) {
@@ -260,13 +260,13 @@ export class ManualAdapter implements ProviderAdapter {
   }
 
   /**
-   * List licenses for a tenant/product.
+   * List licenses for a creator/product.
    */
   async listLicenses(
-    tenantId: string,
+    authUserId: string,
     productId?: string
   ): Promise<Array<Omit<import('./manual/types').ManualLicense, 'licenseKeyHash'>>> {
-    return this.getManager().listLicenses(tenantId, productId);
+    return this.getManager().listLicenses(authUserId, productId);
   }
 
   async getRecentPurchases(_limit?: number): Promise<PurchaseRecord[]> {

@@ -13,7 +13,7 @@ interface BotVerificationSupportInput {
   hadActivePanel?: boolean;
   provider?: string;
   stage: string;
-  tenantId?: string;
+  authUserId?: string;
 }
 
 export async function buildBotVerificationErrorMessage(
@@ -24,7 +24,7 @@ export async function buildBotVerificationErrorMessage(
   const support = await encodeVerificationSupportToken({
     surface: 'bot',
     stage: input.stage,
-    tenantId: input.tenantId,
+    authUserId: input.authUserId,
     guildId: input.guildId,
     discordUserId: input.discordUserId,
     provider: input.provider,
@@ -36,7 +36,7 @@ export async function buildBotVerificationErrorMessage(
     supportCode: support.supportCode,
     supportCodeMode: support.mode,
     stage: input.stage,
-    tenantId: input.tenantId,
+    authUserId: input.authUserId,
     guildId: input.guildId,
     discordUserId: input.discordUserId,
     provider: input.provider,

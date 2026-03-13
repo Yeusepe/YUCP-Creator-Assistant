@@ -57,7 +57,6 @@ async function getCredentialValue(
 async function upsertCredential(
   ctx: MutationCtx,
   args: {
-    tenantId?: Id<'tenants'>;
     providerConnectionId: Id<'provider_connections'>;
     providerKey: string;
     credentialKey: string;
@@ -95,7 +94,6 @@ async function upsertCredential(
   }
 
   return await ctx.db.insert('provider_credentials', {
-    tenantId: args.tenantId,
     providerConnectionId: args.providerConnectionId,
     providerKey: args.providerKey as any,
     credentialKey: args.credentialKey,
@@ -112,7 +110,6 @@ async function upsertCredential(
 async function upsertCapability(
   ctx: MutationCtx,
   args: {
-    tenantId?: Id<'tenants'>;
     providerConnectionId: Id<'provider_connections'>;
     providerKey: string;
     capabilityKey: string;
@@ -145,7 +142,6 @@ async function upsertCapability(
   }
 
   return await ctx.db.insert('provider_connection_capabilities', {
-    tenantId: args.tenantId,
     providerConnectionId: args.providerConnectionId,
     providerKey: args.providerKey as any,
     capabilityKey: args.capabilityKey,
@@ -178,12 +174,12 @@ async function deleteExternalAccountIfOrphaned(
 
 async function getSubjectTenantExternalAccountCandidates(
   ctx: MutationCtx,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   subjectId: Id<'subjects'>
 ): Promise<ExternalAccountIdentityCandidate[]> {
   const bindings = await ctx.db
     .query('bindings')
-    .withIndex('by_tenant_subject', (q) => q.eq('tenantId', tenantId).eq('subjectId', subjectId))
+    .withIndex('by_auth_user_subject', (q) => q.eq('authUserId', authUserId).eq('subjectId', subjectId))
     .collect();
 
   const candidates: ExternalAccountIdentityCandidate[] = [];
@@ -214,15 +210,39 @@ async function getSubjectTenantExternalAccountCandidates(
 export const getJinxxyWebhookSecret = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.union(v.string(), v.null()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const conn = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', 'jinxxy')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'jinxxy')
+      )
+      .first();
+    if (!conn || conn.status === 'disconnected') return null;
+    const credentialSecret = await getCredentialValue(ctx, conn._id, 'webhook_secret');
+    return credentialSecret ?? conn.webhookSecretRef ?? null;
+  },
+});
+
+/**
+ * Get Jinxxy webhook secret by routeId (authUserId).
+ * Used by webhook handler for HMAC signature verification.
+ */
+export const getJinxxyWebhookSecretByRouteId = query({
+  args: {
+    apiSecret: v.string(),
+    routeId: v.string(),
+  },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.routeId).eq('provider', 'jinxxy')
       )
       .first();
     if (!conn || conn.status === 'disconnected') return null;
@@ -238,15 +258,15 @@ export const getJinxxyWebhookSecret = query({
 export const getGumroadWebhookSecret = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.union(v.string(), v.null()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const conn = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', 'gumroad')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'gumroad')
       )
       .first();
     if (!conn) return null;
@@ -256,9 +276,33 @@ export const getGumroadWebhookSecret = query({
 });
 
 /**
+ * Get Gumroad webhook secret by routeId (authUserId).
+ * Used by webhook handler for signature verification.
+ */
+export const getGumroadWebhookSecretByRouteId = query({
+  args: {
+    apiSecret: v.string(),
+    routeId: v.string(),
+  },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.routeId).eq('provider', 'gumroad')
+      )
+      .first();
+    if (!conn || conn.status === 'disconnected') return null;
+    const credentialSecret = await getCredentialValue(ctx, conn._id, 'webhook_secret');
+    return credentialSecret ?? conn.gumroadWebhookSecretRef ?? null;
+  },
+});
+
+/**
  * Maps authMode (stored on each connection) to the corresponding credential key
  * in the provider_credentials table. Adding support for a new auth mode only
- * requires adding an entry here — no per-provider hardcoding needed.
+ * requires adding an entry here, no per-provider hardcoding needed.
  */
 const AUTH_MODE_CREDENTIAL_KEY: Record<string, string> = {
   oauth: 'oauth_access_token',
@@ -273,14 +317,14 @@ const AUTH_MODE_CREDENTIAL_KEY: Record<string, string> = {
 export const getConnectionStatus = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.record(v.string(), v.boolean()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const connections = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .collect();
 
     const result: Record<string, boolean> = {};
@@ -308,16 +352,16 @@ export const getConnectionStatus = query({
 export const listConnections = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const tenant = await ctx.db.get(args.tenantId);
-    const allowMismatchedEmails = tenant?.policy?.allowMismatchedEmails ?? false;
+    const profile = await ctx.db.query('creator_profiles').withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId)).first();
+    const allowMismatchedEmails = profile?.policy?.allowMismatchedEmails ?? false;
 
     const connections = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .collect();
 
     return {
@@ -374,7 +418,7 @@ export const getProviderConnection = query({
   args: {
     apiSecret: v.string(),
     connectionId: v.id('provider_connections'),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.union(
     v.null(),
@@ -399,7 +443,7 @@ export const getProviderConnection = query({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const connection = await ctx.db.get(args.connectionId);
-    if (!connection || connection.tenantId !== args.tenantId) {
+    if (!connection || connection.authUserId !== args.authUserId) {
       return null;
     }
 
@@ -431,7 +475,7 @@ export const getProviderConnection = query({
 export const getConnectionForBackfill = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     provider: ProviderV,
   },
   returns: v.union(
@@ -447,55 +491,26 @@ export const getConnectionForBackfill = query({
     requireApiSecret(args.apiSecret);
     const conn = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', args.provider)
-      )
-      .first();
-
-    if (conn) {
-      const apiKey = await getCredentialValue(ctx, conn._id, 'api_key');
-      const apiToken = await getCredentialValue(ctx, conn._id, 'api_token');
-      const accessToken = await getCredentialValue(ctx, conn._id, 'oauth_access_token');
-      const webhookSecret = await getCredentialValue(ctx, conn._id, 'webhook_secret');
-
-      return {
-        gumroadAccessTokenEncrypted: accessToken ?? conn.gumroadAccessTokenEncrypted,
-        jinxxyApiKeyEncrypted: apiKey ?? conn.jinxxyApiKeyEncrypted,
-        lemonApiTokenEncrypted: apiToken ?? undefined,
-        webhookSecretEncrypted:
-          webhookSecret ??
-          conn.remoteWebhookSecretRef ??
-          conn.webhookSecretRef ??
-          conn.gumroadWebhookSecretRef,
-      };
-    }
-
-    // Fall back to user-scoped connection for this tenant's owner
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant?.ownerAuthUserId) return null;
-    const ownerAuthUserId = tenant.ownerAuthUserId;
-
-    const userConn = await ctx.db
-      .query('provider_connections')
       .withIndex('by_auth_user_provider', (q) =>
-        q.eq('authUserId', ownerAuthUserId).eq('provider', args.provider)
+        q.eq('authUserId', args.authUserId).eq('provider', args.provider)
       )
       .first();
 
-    if (!userConn) return null;
-    const apiKey = await getCredentialValue(ctx, userConn._id, 'api_key');
-    const apiToken = await getCredentialValue(ctx, userConn._id, 'api_token');
-    const accessToken = await getCredentialValue(ctx, userConn._id, 'oauth_access_token');
-    const webhookSecret = await getCredentialValue(ctx, userConn._id, 'webhook_secret');
+    if (!conn) return null;
+    const apiKey = await getCredentialValue(ctx, conn._id, 'api_key');
+    const apiToken = await getCredentialValue(ctx, conn._id, 'api_token');
+    const accessToken = await getCredentialValue(ctx, conn._id, 'oauth_access_token');
+    const webhookSecret = await getCredentialValue(ctx, conn._id, 'webhook_secret');
+
     return {
-      gumroadAccessTokenEncrypted: accessToken ?? userConn.gumroadAccessTokenEncrypted,
-      jinxxyApiKeyEncrypted: apiKey ?? userConn.jinxxyApiKeyEncrypted,
+      gumroadAccessTokenEncrypted: accessToken ?? conn.gumroadAccessTokenEncrypted,
+      jinxxyApiKeyEncrypted: apiKey ?? conn.jinxxyApiKeyEncrypted,
       lemonApiTokenEncrypted: apiToken ?? undefined,
       webhookSecretEncrypted:
         webhookSecret ??
-        userConn.remoteWebhookSecretRef ??
-        userConn.webhookSecretRef ??
-        userConn.gumroadWebhookSecretRef,
+        conn.remoteWebhookSecretRef ??
+        conn.webhookSecretRef ??
+        conn.gumroadWebhookSecretRef,
     };
   },
 });
@@ -503,7 +518,7 @@ export const getConnectionForBackfill = query({
 export const createProviderConnection = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.optional(v.string()),
     providerKey: ProviderV,
     label: v.optional(v.string()),
     authMode: v.optional(v.string()),
@@ -515,14 +530,20 @@ export const createProviderConnection = mutation({
   returns: v.id('provider_connections'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    if (!args.authUserId) {
+      throw new Error('authUserId must be provided');
+    }
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', args.providerKey)
-      )
-      .first();
+    let existing = null;
+    if (args.authUserId) {
+      existing = await ctx.db
+        .query('provider_connections')
+        .withIndex('by_auth_user_provider', (q) =>
+          q.eq('authUserId', args.authUserId).eq('provider', args.providerKey)
+        )
+        .first();
+    }
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -540,7 +561,7 @@ export const createProviderConnection = mutation({
     }
 
     return await ctx.db.insert('provider_connections', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       provider: args.providerKey,
       providerKey: args.providerKey,
       label: args.label ?? getDefaultConnectionLabel(args.providerKey),
@@ -561,7 +582,7 @@ export const createProviderConnection = mutation({
 export const putProviderCredential = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.optional(v.string()),
     providerConnectionId: v.id('provider_connections'),
     credentialKey: v.string(),
     kind: v.union(
@@ -579,14 +600,21 @@ export const putProviderCredential = mutation({
   returns: v.id('provider_credentials'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    if (!args.authUserId) {
+      throw new Error('authUserId must be provided');
+    }
     const connection = await ctx.db.get(args.providerConnectionId);
-    if (!connection || connection.tenantId !== args.tenantId) {
+    let ownedByUser = args.authUserId && connection?.authUserId === args.authUserId;
+    if (!ownedByUser && args.authUserId && !connection?.authUserId && connection?.tenantId) {
+      const tenant = await ctx.db.get(connection.tenantId);
+      if (tenant?.ownerAuthUserId === args.authUserId) ownedByUser = true;
+    }
+    if (!connection || !ownedByUser) {
       throw new Error('Connection not found or access denied');
     }
 
     const providerKey = getConnectionProviderKey(connection);
     const credentialId = await upsertCredential(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: args.providerConnectionId,
       providerKey,
       credentialKey: args.credentialKey,
@@ -608,7 +636,7 @@ export const putProviderCredential = mutation({
 export const upsertConnectionCapability = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.optional(v.string()),
     providerConnectionId: v.id('provider_connections'),
     capabilityKey: v.string(),
     status: v.union(
@@ -626,13 +654,20 @@ export const upsertConnectionCapability = mutation({
   returns: v.id('provider_connection_capabilities'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    if (!args.authUserId) {
+      throw new Error('authUserId must be provided');
+    }
     const connection = await ctx.db.get(args.providerConnectionId);
-    if (!connection || connection.tenantId !== args.tenantId) {
+    let ownedByUser = args.authUserId && connection?.authUserId === args.authUserId;
+    if (!ownedByUser && args.authUserId && !connection?.authUserId && connection?.tenantId) {
+      const tenant = await ctx.db.get(connection.tenantId);
+      if (tenant?.ownerAuthUserId === args.authUserId) ownedByUser = true;
+    }
+    if (!connection || !ownedByUser) {
       throw new Error('Connection not found or access denied');
     }
 
     return await upsertCapability(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: args.providerConnectionId,
       providerKey: getConnectionProviderKey(connection),
       capabilityKey: args.capabilityKey,
@@ -652,17 +687,12 @@ export const disconnectConnection = mutation({
   args: {
     apiSecret: v.string(),
     connectionId: v.id('provider_connections'),
-    tenantId: v.optional(v.id('tenants')),
     authUserId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    if (!args.tenantId && !args.authUserId) {
-      throw new Error('Either tenantId or authUserId must be provided');
-    }
     const conn = await ctx.db.get(args.connectionId);
     if (!conn) throw new Error('Connection not found');
-    const ownedByTenant = args.tenantId && conn.tenantId === args.tenantId;
     let ownedByUser = args.authUserId && conn.authUserId === args.authUserId;
     // Legacy rows lack authUserId; fall back to checking tenant ownership
     if (!ownedByUser && args.authUserId && !conn.authUserId && conn.tenantId) {
@@ -671,7 +701,7 @@ export const disconnectConnection = mutation({
         ownedByUser = true;
       }
     }
-    if (!ownedByTenant && !ownedByUser) {
+    if (!ownedByUser) {
       throw new Error('Connection not found or access denied');
     }
     await ctx.db.patch(args.connectionId, {
@@ -688,19 +718,22 @@ export const disconnectConnection = mutation({
 export const updateTenantSetting = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     key: v.string(),
     value: v.any(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const tenant = await ctx.db.get(args.tenantId);
+    const tenant = await ctx.db
+      .query('tenants')
+      .filter((q) => q.eq(q.field('ownerAuthUserId'), args.authUserId))
+      .first();
     if (!tenant) throw new Error('Tenant not found');
 
     const policy = tenant.policy ?? {};
     const updatedPolicy = { ...policy, [args.key]: args.value };
 
-    await ctx.db.patch(args.tenantId, {
+    await ctx.db.patch(tenant._id, {
       policy: updatedPolicy,
       updatedAt: Date.now(),
     });
@@ -710,12 +743,11 @@ export const updateTenantSetting = mutation({
 
 /**
  * Upsert Gumroad provider connection (OAuth tokens).
- * tenantId is optional — omit when creating a user-scoped personal connection.
+ * authUserId is optional, omit only for system-level setup without user scope.
  */
-export const upsertGumroadConnection = mutation({
+export const upsertGumroadConnection= mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.optional(v.id('tenants')),
     authUserId: v.optional(v.string()),
     gumroadAccessTokenEncrypted: v.string(),
     gumroadRefreshTokenEncrypted: v.optional(v.string()),
@@ -724,30 +756,19 @@ export const upsertGumroadConnection = mutation({
   returns: v.id('provider_connections'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    if (!args.tenantId && !args.authUserId) {
-      throw new Error('Either tenantId or authUserId must be provided');
+    if (!args.authUserId) {
+      throw new Error('authUserId must be provided');
     }
     const now = Date.now();
 
-    // Look up existing connection by the most specific scope available.
-    const tenantId = args.tenantId;
     const authUserId = args.authUserId;
-    let existing = tenantId
-      ? await ctx.db
-          .query('provider_connections')
-          .withIndex('by_tenant_provider', (q) =>
-            q.eq('tenantId', tenantId).eq('provider', 'gumroad')
-          )
-          .first()
-      : null;
-
-    if (!existing && authUserId) {
+    let existing = null;
+    if (authUserId) {
       existing = await ctx.db
         .query('provider_connections')
         .withIndex('by_auth_user_provider', (q) =>
           q.eq('authUserId', authUserId).eq('provider', 'gumroad')
         )
-        .filter((q) => q.eq(q.field('tenantId'), undefined))
         .first();
     }
 
@@ -764,7 +785,6 @@ export const upsertGumroadConnection = mutation({
         updatedAt: now,
       });
       await upsertCredential(ctx, {
-        tenantId: args.tenantId,
         providerConnectionId: existing._id,
         providerKey: 'gumroad',
         credentialKey: 'oauth_access_token',
@@ -773,7 +793,6 @@ export const upsertGumroadConnection = mutation({
       });
       if (args.gumroadRefreshTokenEncrypted) {
         await upsertCredential(ctx, {
-          tenantId: args.tenantId,
           providerConnectionId: existing._id,
           providerKey: 'gumroad',
           credentialKey: 'oauth_refresh_token',
@@ -782,7 +801,6 @@ export const upsertGumroadConnection = mutation({
         });
       }
       await upsertCapability(ctx, {
-        tenantId: args.tenantId,
         providerConnectionId: existing._id,
         providerKey: 'gumroad',
         capabilityKey: 'account_link',
@@ -792,7 +810,6 @@ export const upsertGumroadConnection = mutation({
     }
 
     const connectionId = await ctx.db.insert('provider_connections', {
-      tenantId: args.tenantId,
       authUserId: args.authUserId,
       provider: 'gumroad',
       providerKey: 'gumroad',
@@ -808,7 +825,6 @@ export const upsertGumroadConnection = mutation({
       updatedAt: now,
     });
     await upsertCredential(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: connectionId,
       providerKey: 'gumroad',
       credentialKey: 'oauth_access_token',
@@ -817,7 +833,6 @@ export const upsertGumroadConnection = mutation({
     });
     if (args.gumroadRefreshTokenEncrypted) {
       await upsertCredential(ctx, {
-        tenantId: args.tenantId,
         providerConnectionId: connectionId,
         providerKey: 'gumroad',
         credentialKey: 'oauth_refresh_token',
@@ -826,7 +841,6 @@ export const upsertGumroadConnection = mutation({
       });
     }
     await upsertCapability(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: connectionId,
       providerKey: 'gumroad',
       capabilityKey: 'account_link',
@@ -838,12 +852,11 @@ export const upsertGumroadConnection = mutation({
 
 /**
  * Upsert Jinxxy provider connection (API key, webhook secret).
- * tenantId is optional — omit when creating a user-scoped personal connection.
+ * authUserId is optional, omit only for system-level setup without user scope.
  */
-export const upsertJinxxyConnection = mutation({
+export const upsertJinxxyConnection= mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.optional(v.id('tenants')),
     authUserId: v.optional(v.string()),
     jinxxyApiKeyEncrypted: v.optional(v.string()),
     webhookSecretRef: v.optional(v.string()),
@@ -852,29 +865,19 @@ export const upsertJinxxyConnection = mutation({
   returns: v.id('provider_connections'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    if (!args.tenantId && !args.authUserId) {
-      throw new Error('Either tenantId or authUserId must be provided');
+    if (!args.authUserId) {
+      throw new Error('authUserId must be provided');
     }
     const now = Date.now();
 
-    const tenantId = args.tenantId;
     const authUserId = args.authUserId;
-    let existing = tenantId
-      ? await ctx.db
-          .query('provider_connections')
-          .withIndex('by_tenant_provider', (q) =>
-            q.eq('tenantId', tenantId).eq('provider', 'jinxxy')
-          )
-          .first()
-      : null;
-
-    if (!existing && authUserId) {
+    let existing = null;
+    if (authUserId) {
       existing = await ctx.db
         .query('provider_connections')
         .withIndex('by_auth_user_provider', (q) =>
           q.eq('authUserId', authUserId).eq('provider', 'jinxxy')
         )
-        .filter((q) => q.eq(q.field('tenantId'), undefined))
         .first();
     }
 
@@ -894,7 +897,6 @@ export const upsertJinxxyConnection = mutation({
       });
       if (args.jinxxyApiKeyEncrypted) {
         await upsertCredential(ctx, {
-          tenantId: args.tenantId,
           providerConnectionId: existing._id,
           providerKey: 'jinxxy',
           credentialKey: 'api_key',
@@ -904,7 +906,6 @@ export const upsertJinxxyConnection = mutation({
       }
       if (args.webhookSecretRef) {
         await upsertCredential(ctx, {
-          tenantId: args.tenantId,
           providerConnectionId: existing._id,
           providerKey: 'jinxxy',
           credentialKey: 'webhook_secret',
@@ -913,7 +914,6 @@ export const upsertJinxxyConnection = mutation({
         });
       }
       await upsertCapability(ctx, {
-        tenantId: args.tenantId,
         providerConnectionId: existing._id,
         providerKey: 'jinxxy',
         capabilityKey: 'catalog_sync',
@@ -921,7 +921,6 @@ export const upsertJinxxyConnection = mutation({
         requiredCredentialKeys: ['api_key'],
       });
       await upsertCapability(ctx, {
-        tenantId: args.tenantId,
         providerConnectionId: existing._id,
         providerKey: 'jinxxy',
         capabilityKey: 'webhooks',
@@ -932,7 +931,6 @@ export const upsertJinxxyConnection = mutation({
     }
 
     const connectionId = await ctx.db.insert('provider_connections', {
-      tenantId: args.tenantId,
       authUserId: args.authUserId,
       provider: 'jinxxy',
       providerKey: 'jinxxy',
@@ -949,7 +947,6 @@ export const upsertJinxxyConnection = mutation({
     });
     if (args.jinxxyApiKeyEncrypted) {
       await upsertCredential(ctx, {
-        tenantId: args.tenantId,
         providerConnectionId: connectionId,
         providerKey: 'jinxxy',
         credentialKey: 'api_key',
@@ -959,7 +956,6 @@ export const upsertJinxxyConnection = mutation({
     }
     if (args.webhookSecretRef) {
       await upsertCredential(ctx, {
-        tenantId: args.tenantId,
         providerConnectionId: connectionId,
         providerKey: 'jinxxy',
         credentialKey: 'webhook_secret',
@@ -968,7 +964,6 @@ export const upsertJinxxyConnection = mutation({
       });
     }
     await upsertCapability(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: connectionId,
       providerKey: 'jinxxy',
       capabilityKey: 'catalog_sync',
@@ -976,7 +971,6 @@ export const upsertJinxxyConnection = mutation({
       requiredCredentialKeys: ['api_key'],
     });
     await upsertCapability(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: connectionId,
       providerKey: 'jinxxy',
       capabilityKey: 'webhooks',
@@ -990,7 +984,7 @@ export const upsertJinxxyConnection = mutation({
 export const removeAccountForSubject = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     provider: v.string(),
   },
@@ -999,8 +993,8 @@ export const removeAccountForSubject = mutation({
 
     const bindings = await ctx.db
       .query('bindings')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .collect();
 
@@ -1031,7 +1025,7 @@ export const removeAccountForSubject = mutation({
 export const cleanupDuplicateAccountsForSubject = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
   },
   returns: v.object({
@@ -1044,7 +1038,7 @@ export const cleanupDuplicateAccountsForSubject = mutation({
 
     const candidates = await getSubjectTenantExternalAccountCandidates(
       ctx,
-      args.tenantId,
+      args.authUserId,
       args.subjectId
     );
     const duplicateGroups = findDuplicateExternalAccountIdentityGroups(candidates);
@@ -1090,15 +1084,39 @@ export const cleanupDuplicateAccountsForSubject = mutation({
 export const getPayhipApiKey = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.union(v.string(), v.null()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const conn = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
+      )
+      .first();
+    if (!conn || conn.status === 'disconnected') return null;
+    return getCredentialValue(ctx, conn._id, 'api_key');
+  },
+});
+
+/**
+ * Get the encrypted Payhip API key by routeId.
+ * routeId is the Better Auth authUserId (user-scoped).
+ * Used by the webhook handler for signature verification.
+ */
+export const getPayhipApiKeyByRouteId = query({
+  args: {
+    apiSecret: v.string(),
+    routeId: v.string(),
+  },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.routeId).eq('provider', 'payhip')
       )
       .first();
     if (!conn || conn.status === 'disconnected') return null;
@@ -1120,7 +1138,6 @@ const ConnectionSummaryV = v.object({
   hasApiKey: v.boolean(),
   hasAccessToken: v.boolean(),
   authUserId: v.optional(v.string()),
-  tenantId: v.optional(v.id('tenants')),
   createdAt: v.number(),
   updatedAt: v.number(),
 });
@@ -1178,7 +1195,6 @@ export const listConnectionsForUser = query({
       hasApiKey: !!c.jinxxyApiKeyEncrypted,
       hasAccessToken: !!c.gumroadAccessTokenEncrypted,
       authUserId: c.authUserId,
-      tenantId: c.tenantId,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     }));
@@ -1193,7 +1209,7 @@ export const listConnectionsForUser = query({
 export const getPayhipProductSecretKeys = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.array(
     v.object({
@@ -1205,8 +1221,8 @@ export const getPayhipProductSecretKeys = query({
     requireApiSecret(args.apiSecret);
     const conn = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
       )
       .first();
     if (!conn || conn.status === 'disconnected') return [];
@@ -1235,7 +1251,7 @@ export const getPayhipProductSecretKeys = query({
 export const upsertPayhipConnection = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.optional(v.string()),
     encryptedApiKey: v.string(),
     label: v.optional(v.string()),
   },
@@ -1244,12 +1260,15 @@ export const upsertPayhipConnection = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    if (!args.authUserId) {
+      throw new Error('authUserId must be provided');
+    }
     const now = Date.now();
 
     let conn = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
       )
       .first();
 
@@ -1263,7 +1282,7 @@ export const upsertPayhipConnection = mutation({
       });
     } else {
       const id = await ctx.db.insert('provider_connections', {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         provider: 'payhip' as any,
         providerKey: 'payhip' as any,
         label: connectionLabel,
@@ -1279,7 +1298,6 @@ export const upsertPayhipConnection = mutation({
     }
 
     await upsertCredential(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: conn._id,
       providerKey: 'payhip',
       credentialKey: 'api_key',
@@ -1288,7 +1306,6 @@ export const upsertPayhipConnection = mutation({
     });
 
     await upsertCapability(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: conn._id,
       providerKey: 'payhip',
       capabilityKey: 'webhooks',
@@ -1297,7 +1314,6 @@ export const upsertPayhipConnection = mutation({
     });
 
     await upsertCapability(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: conn._id,
       providerKey: 'payhip',
       capabilityKey: 'license_verification',
@@ -1317,7 +1333,7 @@ export const upsertPayhipConnection = mutation({
 export const upsertPayhipProductSecretKey = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.optional(v.string()),
     /** Product permalink from Payhip (e.g., "RGsF") */
     productPermalink: v.string(),
     /** Encrypted product-secret-key value */
@@ -1327,10 +1343,14 @@ export const upsertPayhipProductSecretKey = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
 
+    if (!args.authUserId) {
+      throw new Error('authUserId must be provided');
+    }
+
     const conn = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
       )
       .first();
 
@@ -1339,7 +1359,6 @@ export const upsertPayhipProductSecretKey = mutation({
     }
 
     await upsertCredential(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: conn._id,
       providerKey: 'payhip',
       credentialKey: `product_key:${args.productPermalink}`,
@@ -1350,7 +1369,6 @@ export const upsertPayhipProductSecretKey = mutation({
 
     // Once at least one product key is configured, mark license_verification as active.
     await upsertCapability(ctx, {
-      tenantId: args.tenantId,
       providerConnectionId: conn._id,
       providerKey: 'payhip',
       capabilityKey: 'license_verification',
@@ -1366,9 +1384,9 @@ export const upsertPayhipProductSecretKey = mutation({
  * Get all Payhip products known for a tenant.
  *
  * Merges two sources:
- * 1. `provider_credentials` entries with key `product_key:{permalink}` — manually added at setup
+ * 1. `provider_credentials` entries with key `product_key:{permalink}`, manually added at setup
  *    time, available before any webhooks fire.
- * 2. `provider_catalog_mappings` entries upserted from webhook events — carry human-readable
+ * 2. `provider_catalog_mappings` entries upserted from webhook events, carry human-readable
  *    product names discovered from real purchases.
  *
  * Returns a deduplicated list keyed by permalink. The `hasSecretKey` flag indicates whether
@@ -1377,7 +1395,7 @@ export const upsertPayhipProductSecretKey = mutation({
 export const getPayhipProducts = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.array(
     v.object({
@@ -1392,8 +1410,8 @@ export const getPayhipProducts = query({
 
     const conn = await ctx.db
       .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
       )
       .first();
 
@@ -1526,17 +1544,22 @@ export const getConnectionStatusForUser = query({
 export const markPayhipWebhookConfigured = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const conn = await ctx.db
-      .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', 'payhip')
-      )
-      .first();
+
+    let conn = null;
+
+    if (args.authUserId) {
+      conn = await ctx.db
+        .query('provider_connections')
+        .withIndex('by_auth_user_provider', (q) =>
+          q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
+        )
+        .first();
+    }
 
     if (conn && !conn.webhookConfigured) {
       await ctx.db.patch(conn._id, { webhookConfigured: true, updatedAt: Date.now() });
@@ -1547,7 +1570,7 @@ export const markPayhipWebhookConfigured = mutation({
 
 /**
  * Data migration: backfill authUserId on existing tenant-scoped connections.
- * Idempotent — safe to run multiple times. Processes up to batchSize per call.
+ * Idempotent, safe to run multiple times. Processes up to batchSize per call.
  */
 export const backfillConnectionAuthUserId = mutation({
   args: {

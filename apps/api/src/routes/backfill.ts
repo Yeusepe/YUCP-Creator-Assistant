@@ -49,7 +49,7 @@ async function sha256Hex(input: string): Promise<string> {
 // ============================================================================
 
 export interface BackfillRecord {
-  tenantId: string;
+  authUserId: string;
   provider: string;
   externalOrderId: string;
   externalLineItemId?: string;
@@ -83,7 +83,7 @@ interface BackfillProviderAdapter {
   getCredential(
     convex: ReturnType<typeof getConvexClientFromUrl>,
     apiSecret: string,
-    tenantId: string,
+    authUserId: string,
     encryptionSecret: string
   ): Promise<string | null>;
 
@@ -101,12 +101,12 @@ class GumroadBackfillAdapter implements BackfillProviderAdapter {
   async getCredential(
     convex: ReturnType<typeof getConvexClientFromUrl>,
     apiSecret: string,
-    tenantId: string,
+    authUserId: string,
     encryptionSecret: string
   ): Promise<string | null> {
     const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret,
-      tenantId,
+      authUserId,
       provider: 'gumroad',
     });
     if (!conn?.gumroadAccessTokenEncrypted) return null;
@@ -161,7 +161,7 @@ class GumroadBackfillAdapter implements BackfillProviderAdapter {
           const email = (s.email ?? '') as string;
           const normalized = email ? normalizeEmail(email) : undefined;
           return {
-            tenantId: '', // injected by runBackfill
+            authUserId: '', // injected by runBackfill
             provider: 'gumroad',
             externalOrderId: String(s.sale_id ?? s.id ?? ''),
             buyerEmailHash: normalized ? await sha256Hex(normalized) : undefined,
@@ -198,12 +198,12 @@ class JinxxyBackfillAdapter implements BackfillProviderAdapter {
   async getCredential(
     convex: ReturnType<typeof getConvexClientFromUrl>,
     apiSecret: string,
-    tenantId: string,
+    authUserId: string,
     encryptionSecret: string
   ): Promise<string | null> {
     const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret,
-      tenantId,
+      authUserId,
       provider: 'jinxxy',
     });
     if (!conn?.jinxxyApiKeyEncrypted) return null;
@@ -232,7 +232,7 @@ class JinxxyBackfillAdapter implements BackfillProviderAdapter {
         const filtered = licenses.filter((l) => l.product_id === productRef);
 
         const facts: BackfillRecord[] = filtered.map((license) => ({
-          tenantId: '',
+          authUserId: '',
           provider: 'jinxxy',
           externalOrderId: license.order_id ?? license.id,
           buyerEmailHash: undefined,
@@ -279,12 +279,12 @@ class LemonSqueezyBackfillAdapter implements BackfillProviderAdapter {
   async getCredential(
     convex: ReturnType<typeof getConvexClientFromUrl>,
     apiSecret: string,
-    tenantId: string,
+    authUserId: string,
     encryptionSecret: string
   ): Promise<string | null> {
     const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret,
-      tenantId,
+      authUserId,
       provider: 'lemonsqueezy',
     });
     if (!conn?.lemonApiTokenEncrypted) return null;
@@ -319,7 +319,7 @@ class LemonSqueezyBackfillAdapter implements BackfillProviderAdapter {
               const normalized = email ? normalizeEmail(email) : undefined;
               const isCancelled = sub.status === 'cancelled' || sub.status === 'expired';
               return {
-                tenantId: '',
+                authUserId: '',
                 provider: 'lemonsqueezy',
                 externalOrderId: sub.orderId ?? sub.id,
                 buyerEmailHash: normalized ? await sha256Hex(normalized) : undefined,
@@ -393,7 +393,7 @@ class LemonSqueezyBackfillAdapter implements BackfillProviderAdapter {
             const email = order.userEmail ?? '';
             const normalized = email ? normalizeEmail(email) : undefined;
             facts.push({
-              tenantId: '',
+              authUserId: '',
               provider: 'lemonsqueezy',
               externalOrderId: item.orderId,
               externalLineItemId: item.id,
@@ -438,7 +438,7 @@ class LemonSqueezyBackfillAdapter implements BackfillProviderAdapter {
 }
 
 // ============================================================================
-// ADAPTER REGISTRY — add new providers here
+// ADAPTER REGISTRY, add new providers here
 // ============================================================================
 
 const ADAPTERS: Record<string, BackfillProviderAdapter> = {
@@ -455,7 +455,7 @@ async function runBackfill(
   adapter: BackfillProviderAdapter,
   convex: ReturnType<typeof getConvexClientFromUrl>,
   apiSecret: string,
-  tenantId: string,
+  authUserId: string,
   provider: string,
   productId: string,
   providerProductRef: string,
@@ -475,14 +475,14 @@ async function runBackfill(
     );
 
     if (facts.length > 0) {
-      // Inject tenantId (adapters set it to '' to avoid coupling)
-      const withTenant = facts.map((f) => ({ ...f, tenantId }));
+      // Inject authUserId (adapters set it to '' to avoid coupling)
+      const withUser = facts.map((f) => ({ ...f, authUserId }));
 
       const result = await convex.mutation(api.backgroundSync.ingestBackfillPurchaseFactsBatch, {
         apiSecret,
-        tenantId,
+        authUserId,
         provider,
-        purchases: withTenant,
+        purchases: withUser,
       });
       totalInserted += result.inserted;
       totalSkipped += result.skipped;
@@ -504,7 +504,7 @@ export type BackfillProvider = keyof typeof ADAPTERS;
 
 export interface BackfillRequest {
   apiSecret: string;
-  tenantId: string;
+  authUserId: string;
   productId: string;
   provider: string;
   providerProductRef: string;
@@ -520,13 +520,13 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
 
   try {
     const body = (await request.json()) as BackfillRequest;
-    const { apiSecret, tenantId, productId, provider, providerProductRef } = body;
+    const { apiSecret, authUserId, productId, provider, providerProductRef } = body;
 
-    if (!apiSecret || !tenantId || !productId || !provider || !providerProductRef) {
+    if (!apiSecret || !authUserId || !productId || !provider || !providerProductRef) {
       return new Response(
         JSON.stringify({
           error:
-            'Missing required fields: apiSecret, tenantId, productId, provider, providerProductRef',
+            'Missing required fields: apiSecret, authUserId, productId, provider, providerProductRef',
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
@@ -565,7 +565,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
       });
     }
 
-    const creds = await adapter.getCredential(convex, apiSecret, tenantId, encryptionSecret);
+    const creds = await adapter.getCredential(convex, apiSecret, authUserId, encryptionSecret);
     if (!creds) {
       return new Response(
         JSON.stringify({ error: `${provider} credentials not found for tenant` }),
@@ -577,7 +577,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
       adapter,
       convex,
       apiSecret,
-      tenantId,
+      authUserId,
       provider,
       productId,
       providerProductRef,
@@ -587,7 +587,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
 
     logger.info('Backfill complete', {
       provider,
-      tenantId,
+      authUserId,
       providerProductRef,
       totalInserted,
       totalSkipped,

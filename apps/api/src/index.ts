@@ -1061,7 +1061,7 @@ async function routeRequest(request: Request): Promise<Response> {
   async function maybeServeSetupAuthRedirect(
     request: Request,
     pathname: string,
-    tenantId: string,
+    authUserId: string,
     guildId: string,
     setupCookieToken: string
   ): Promise<Response | null> {
@@ -1077,7 +1077,7 @@ async function routeRequest(request: Request): Promise<Response> {
 
     const authSession = await auth.getSession(request);
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
-    const callbackUrl = `${browserApiBase}${pathname}?tenant_id=${encodeURIComponent(tenantId)}&guild_id=${encodeURIComponent(guildId)}`;
+    const callbackUrl = `${browserApiBase}${pathname}?tenant_id=${encodeURIComponent(authUserId)}&guild_id=${encodeURIComponent(guildId)}`;
 
     if (!authSession) {
       const filePath = `${import.meta.dir}/../public/sign-in-redirect.html`;
@@ -1179,7 +1179,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/jinxxy-setup.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    let authUserId = url.searchParams.get('tenant_id') ?? url.searchParams.get('authUserId') ?? '';
     let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
     const ott = url.searchParams.get('ott');
     const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
@@ -1196,7 +1196,7 @@ async function routeRequest(request: Request): Promise<Response> {
         return new Response(null, { status: 302, headers });
       }
       logger.warn('OTT exchange failed for jinxxy setup page', {
-        tenantId: tenantId || undefined,
+        authUserId: authUserId || undefined,
         guildId: guildId || undefined,
       });
     }
@@ -1206,7 +1206,7 @@ async function routeRequest(request: Request): Promise<Response> {
       const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
       const session = await resolveSetupSession(setupCookieToken, encryptionSecret);
       if (session) {
-        tenantId = session.tenantId;
+        authUserId = session.authUserId;
         guildId = session.guildId;
       }
     }
@@ -1214,7 +1214,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const setupAuthRedirect = await maybeServeSetupAuthRedirect(
       request,
       '/jinxxy-setup',
-      tenantId,
+      authUserId,
       guildId,
       setupCookieToken
     );
@@ -1236,7 +1236,7 @@ async function routeRequest(request: Request): Promise<Response> {
     }
 
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
-    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
+    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(authUserId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', '');
@@ -1256,7 +1256,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/lemonsqueezy-setup.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    let authUserId = url.searchParams.get('tenant_id') ?? url.searchParams.get('authUserId') ?? '';
     let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
     const ott = url.searchParams.get('ott');
     const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
@@ -1273,7 +1273,7 @@ async function routeRequest(request: Request): Promise<Response> {
         return new Response(null, { status: 302, headers });
       }
       logger.warn('OTT exchange failed for lemonsqueezy setup page', {
-        tenantId: tenantId || undefined,
+        authUserId: authUserId || undefined,
         guildId: guildId || undefined,
       });
     }
@@ -1283,7 +1283,7 @@ async function routeRequest(request: Request): Promise<Response> {
       const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
       resolvedSetupSession = await resolveSetupSession(setupCookieToken, encryptionSecret);
       if (resolvedSetupSession) {
-        tenantId = resolvedSetupSession.tenantId;
+        authUserId = resolvedSetupSession.authUserId;
         guildId = resolvedSetupSession.guildId;
       }
     }
@@ -1291,7 +1291,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const setupAuthRedirect = await maybeServeSetupAuthRedirect(
       request,
       '/lemonsqueezy-setup',
-      tenantId,
+      authUserId,
       guildId,
       setupCookieToken
     );
@@ -1313,7 +1313,7 @@ async function routeRequest(request: Request): Promise<Response> {
     }
 
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
-    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
+    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(authUserId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', '');
@@ -1333,7 +1333,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/payhip-setup.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    let authUserId = url.searchParams.get('tenant_id') ?? url.searchParams.get('authUserId') ?? '';
     let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
     const ott = url.searchParams.get('ott');
     const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
@@ -1350,7 +1350,7 @@ async function routeRequest(request: Request): Promise<Response> {
         return new Response(null, { status: 302, headers });
       }
       logger.warn('OTT exchange failed for payhip setup page', {
-        tenantId: tenantId || undefined,
+        authUserId: authUserId || undefined,
         guildId: guildId || undefined,
       });
     }
@@ -1360,7 +1360,7 @@ async function routeRequest(request: Request): Promise<Response> {
       const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
       resolvedSetupSession = await resolveSetupSession(setupCookieToken, encryptionSecret);
       if (resolvedSetupSession) {
-        tenantId = resolvedSetupSession.tenantId;
+        authUserId = resolvedSetupSession.authUserId;
         guildId = resolvedSetupSession.guildId;
       }
     }
@@ -1368,7 +1368,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const setupAuthRedirect = await maybeServeSetupAuthRedirect(
       request,
       '/payhip-setup',
-      tenantId,
+      authUserId,
       guildId,
       setupCookieToken
     );
@@ -1390,7 +1390,7 @@ async function routeRequest(request: Request): Promise<Response> {
     }
 
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
-    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
+    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(authUserId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__SETUP_TOKEN__', '');
@@ -1487,7 +1487,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const filePath = `${import.meta.dir}/../public/dashboard.html`;
     const file = Bun.file(filePath);
     let html = await file.text();
-    let tenantId = url.searchParams.get('tenant_id') ?? url.searchParams.get('tenantId') ?? '';
+    let authUserId = url.searchParams.get('tenant_id') ?? url.searchParams.get('authUserId') ?? '';
     let guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
     const ott = url.searchParams.get('ott');
     const setupCookieToken = getCookieValue(request, SETUP_SESSION_COOKIE) ?? '';
@@ -1504,7 +1504,7 @@ async function routeRequest(request: Request): Promise<Response> {
         return new Response(null, { status: 302, headers });
       }
       logger.warn('OTT exchange failed for dashboard page', {
-        tenantId: tenantId || undefined,
+        authUserId: authUserId || undefined,
         guildId: guildId || undefined,
       });
     }
@@ -1513,7 +1513,7 @@ async function routeRequest(request: Request): Promise<Response> {
       const encryptionSecret = loadEnv().BETTER_AUTH_SECRET ?? '';
       const session = await resolveSetupSession(setupCookieToken, encryptionSecret);
       if (session) {
-        tenantId = session.tenantId;
+        authUserId = session.authUserId;
         guildId = session.guildId;
       }
     }
@@ -1521,7 +1521,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const setupAuthRedirect = await maybeServeSetupAuthRedirect(
       request,
       '/dashboard',
-      tenantId,
+      authUserId,
       guildId,
       setupCookieToken
     );
@@ -1543,7 +1543,7 @@ async function routeRequest(request: Request): Promise<Response> {
     }
 
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
-    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(tenantId));
+    html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(authUserId));
     html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
     html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
     html = html.replaceAll('__HAS_SETUP_SESSION__', setupCookieToken ? 'true' : 'false');

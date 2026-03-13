@@ -27,7 +27,7 @@ export interface DiscordOAuthConfig {
   /** Key version for encryption */
   keyVersion: number;
   /** Tenant ID for AAD binding */
-  tenantId: string;
+  authUserId: string;
 }
 
 /**

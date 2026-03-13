@@ -244,8 +244,8 @@ export interface GumroadAdapterConfig {
 export interface OAuthState {
   /** Random state token */
   state: string;
-  /** Tenant ID for multi-tenant context */
-  tenantId: string;
+  /** Auth user ID for user-first context */
+  authUserId: string;
   /** Subject ID (YUCP user) */
   subjectId?: string;
   /** Timestamp when state was created */

@@ -9,8 +9,8 @@ export type ManualLicenseStatus = 'active' | 'revoked' | 'expired' | 'exhausted'
 export interface ManualLicense {
   /** Unique identifier */
   _id: string;
-  /** Tenant scope */
-  tenantId: string;
+  /** Creator scope */
+  authUserId: string;
   /** SHA-256 hash of the license key (never store plaintext) */
   licenseKeyHash: string;
   /** Product this license is for */
@@ -37,8 +37,8 @@ export interface ManualLicense {
 
 /** Input for creating a new manual license */
 export interface CreateLicenseInput {
-  /** Tenant scope */
-  tenantId: string;
+  /** Creator scope */
+  authUserId: string;
   /** Product this license is for */
   productId: string;
   /** Optional catalog product reference */
@@ -69,8 +69,8 @@ export interface ValidateLicenseInput {
   licenseKey: string;
   /** Product to validate against */
   productId: string;
-  /** Tenant scope */
-  tenantId: string;
+  /** Creator scope */
+  authUserId: string;
 }
 
 /** Result of license validation */
@@ -89,8 +89,8 @@ export interface UseLicenseInput {
   licenseKey: string;
   /** Product to use against */
   productId: string;
-  /** Tenant scope */
-  tenantId: string;
+  /** Creator scope */
+  authUserId: string;
 }
 
 /** Result of license usage */
@@ -107,16 +107,16 @@ export interface UseLicenseResult {
 export interface RevokeLicenseInput {
   /** The license ID to revoke */
   licenseId: string;
-  /** Tenant scope (for authorization) */
-  tenantId: string;
+  /** Creator scope (for authorization) */
+  authUserId: string;
   /** Optional reason for revocation */
   reason?: string;
 }
 
 /** Input for bulk importing licenses */
 export interface BulkImportInput {
-  /** Tenant scope */
-  tenantId: string;
+  /** Creator scope */
+  authUserId: string;
   /** Product to create licenses for */
   productId: string;
   /** Licenses to import */
@@ -184,8 +184,8 @@ export interface ManualLicenseStorage {
     status: ManualLicenseStatus,
     reason?: string
   ): Promise<ManualLicense>;
-  /** List licenses for a tenant/product */
-  list(tenantId: string, productId?: string): Promise<ManualLicense[]>;
+  /** List licenses for a creator/product */
+  list(authUserId: string, productId?: string): Promise<ManualLicense[]>;
   /** Bulk create licenses */
   bulkCreate(
     licenses: Array<Omit<CreateLicenseInput, 'licenseKey'> & { licenseKeyHash: string }>

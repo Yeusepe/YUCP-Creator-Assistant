@@ -427,10 +427,9 @@ export async function navigateLemonSqueezy() {
   const gid = getGuildId();
   if (tid && gid) {
     window.location.href = `${getApiBase()}/lemonsqueezy-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
-  } else if (getHasSetupSession()) {
-    window.location.href = `${getApiBase()}/lemonsqueezy-setup`;
   } else {
-    showSelectServerNotice();
+    // User-scoped: navigate without server context; session auth is sufficient.
+    window.location.href = `${getApiBase()}/lemonsqueezy-setup`;
   }
 }
 
@@ -446,10 +445,9 @@ export async function navigatePayhip() {
   const gid = getGuildId();
   if (tid && gid) {
     window.location.href = `${getApiBase()}/payhip-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
-  } else if (getHasSetupSession()) {
-    window.location.href = `${getApiBase()}/payhip-setup`;
   } else {
-    showSelectServerNotice();
+    // User-scoped: navigate without server context; session auth is sufficient.
+    window.location.href = `${getApiBase()}/payhip-setup`;
   }
 }
 
@@ -497,11 +495,7 @@ function renderAddButtons() {
   const container = document.getElementById('add-account-buttons');
   if (!container) return;
 
-  // When no server is selected, only show providers that support auth-only (user-scoped) connections.
-  const hasServer = !!getTenantId();
-  const visibleProviders = platformProviders.filter((p) => hasServer || p.authOnlySupported);
-
-  container.innerHTML = visibleProviders
+  container.innerHTML = platformProviders
     .map(
       (p) => `<button class="card-action-btn link" data-provider="${p.key}"
           style="flex:1;min-width:160px;display:flex;align-items:center;justify-content:center;gap:8px;">

@@ -74,8 +74,8 @@ export interface PolicyConfig {
  * Context for policy evaluation
  */
 export interface PolicyContext {
-  /** Tenant ID */
-  tenantId: string;
+  /** Auth user ID of the creator */
+  authUserId: string;
 
   /** Subject ID (user) */
   subjectId: string;
@@ -376,11 +376,10 @@ export function shouldAutoDiscoverProducts(
 // ============================================================================
 
 /**
- * Generate a support URL for the tenant
+ * Generate a support URL for the creator
  */
-function generateSupportUrl(context: Pick<PolicyContext, 'tenantId'>): string {
-  // In production, this would generate a proper support URL
-  return `https://support.yucp.io/t/${context.tenantId}`;
+function generateSupportUrl(context: Pick<PolicyContext, 'authUserId'>): string {
+  return `https://support.yucp.io/t/${context.authUserId}`;
 }
 
 /**

@@ -1,12 +1,12 @@
 /**
- * YUCP Signing Log — Layer 2 defense.
+ * YUCP Signing Log, Layer 2 defense.
  *
  * Append-only transparency log recording every (contentHash, packageId, identity) triple.
  * If the same content hash is submitted by a different YUCP user, a conflict is detected
- * and the signing endpoint returns IDENTITY_CONFLICT — blocking the re-sign.
+ * and the signing endpoint returns IDENTITY_CONFLICT, blocking the re-sign.
  *
  * Identity is anchored to the Better Auth user ID (yucpUserId), not to any specific
- * storefront — so this works regardless of which stores a creator connects.
+ * storefront, so this works regardless of which stores a creator connects.
  *
  * Design inspired by:
  *   Sigstore Rekor (append-only, tamper-evident)  https://docs.sigstore.dev/logging/overview/
@@ -79,7 +79,7 @@ export const writeEntry = internalMutation({
           existingPublisherId: existing.publisherId,
         };
       }
-      // Same identity, same content → legitimate re-sign (key rotation, etc.) — no-op
+      // Same identity, same content → legitimate re-sign (key rotation, etc.), no-op
       return { written: false, conflict: false };
     }
 

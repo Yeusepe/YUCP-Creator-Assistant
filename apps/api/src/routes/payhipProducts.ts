@@ -2,12 +2,12 @@
  * Payhip Products API Route
  *
  * POST /api/payhip/products
- * Returns the list of Payhip products known for a tenant.
+ * Returns the list of Payhip products known for a creator.
  *
  * Products are discovered from two sources:
- * 1. Manually added product-secret-keys (via POST /api/connect/payhip/product-key) —
+ * 1. Manually added product-secret-keys (via POST /api/connect/payhip/product-key),
  *    available immediately at setup time, before any webhooks fire.
- * 2. provider_catalog_mappings entries upserted from past webhook events —
+ * 2. provider_catalog_mappings entries upserted from past webhook events,
  *    include the human-readable product name from the webhook payload.
  *
  * The `permalink` (product_key, e.g., "RGsF") is the canonical product identifier
@@ -33,11 +33,11 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 export interface PayhipProductsRequest {
   apiSecret: string;
-  tenantId: string;
+  authUserId: string;
 }
 
 export interface PayhipProductItem {
-  /** Product permalink / product_key (e.g., "RGsF") — canonical Payhip product identifier */
+  /** Product permalink / product_key (e.g., "RGsF"), canonical Payhip product identifier */
   id: string;
   /** Human-readable product name (populated once a purchase webhook has been received) */
   name?: string;
@@ -62,11 +62,11 @@ export async function handlePayhipProducts(request: Request): Promise<Response> 
 
   try {
     const body = (await request.json()) as PayhipProductsRequest;
-    const { apiSecret, tenantId } = body;
+    const { apiSecret, authUserId } = body;
 
-    if (!apiSecret || !tenantId) {
+    if (!apiSecret || !authUserId) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: apiSecret, tenantId' }),
+        JSON.stringify({ error: 'Missing required fields: apiSecret, authUserId' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -90,8 +90,7 @@ export async function handlePayhipProducts(request: Request): Promise<Response> 
     const convex = getConvexClientFromUrl(convexUrl);
     const entries = await convex.query(api.providerConnections.getPayhipProducts, {
       apiSecret,
-      // biome-ignore lint/suspicious/noExplicitAny: Convex Id<'tenants'> is a string at runtime
-      tenantId: tenantId as any,
+      authUserId,
     });
 
     const products: PayhipProductItem[] = entries.map(

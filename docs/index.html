@@ -105,7 +105,7 @@
             inset: 0;
             -webkit-backdrop-filter: blur(calc(var(--scroll-blur, 0) * 1px)) saturate(160%);
             backdrop-filter: blur(calc(var(--scroll-blur, 0) * 1px)) saturate(160%);
-            /* filter: url(#lg-dist) removed — displacement caused hero graphic to fade in/out of sharpness */
+            /* filter: url(#lg-dist) removed, displacement caused hero graphic to fade in/out of sharpness */
             transition: backdrop-filter 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
         }
         .scroll-blur-overlay .lg-tint {
@@ -2709,7 +2709,7 @@
             window.addEventListener('page-content-visible', updateScrollBlur);
         })();
 
-        // Blob background: section-aware — anchor latches onto graphic, others dance around
+        // Blob background: section-aware, anchor latches onto graphic, others dance around
         (function () {
             const blobs = Array.from(document.querySelectorAll('.blob'));
             if (!blobs.length) return;

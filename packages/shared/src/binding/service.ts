@@ -58,7 +58,7 @@ export const DEFAULT_BINDING_POLICY: Required<BindingPolicy> = {
  * Input for activating a binding
  */
 export interface ActivateBindingInput {
-  tenantId: string;
+  authUserId: string;
   subjectId: string;
   externalAccountId: string;
   bindingType: BindingType;
@@ -143,7 +143,7 @@ export interface BindingQuarantineResult {
  */
 export interface BindingLookup {
   bindingId: string;
-  tenantId: string;
+  authUserId: string;
   subjectId: string;
   externalAccountId: string;
   bindingType: BindingType;
@@ -267,8 +267,8 @@ export function isValidBindingStatus(status: string): status is BindingStatus {
 export function validateActivateInput(input: ActivateBindingInput): string[] {
   const errors: string[] = [];
 
-  if (!input.tenantId) {
-    errors.push('tenantId is required');
+  if (!input.authUserId) {
+    errors.push('authUserId is required');
   }
   if (!input.subjectId) {
     errors.push('subjectId is required');

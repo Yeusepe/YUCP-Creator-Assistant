@@ -62,7 +62,7 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* ── Card — matches oauth-login.html / dashboard modal style ─ */
+        /* ── Card, matches oauth-login.html / dashboard modal style ─ */
         #page-content {
             position: relative;
             z-index: 10;
@@ -447,7 +447,7 @@
     </div><!-- #page-content -->
 
     <script>
-        // Server-injected — never contains secrets, only public URLs.
+        // Server-injected, never contains secrets, only public URLs.
         // callbackURL origin is validated by BetterAuth trustedOrigins server-side.
         // Ref: https://better-auth.com/docs/reference/security#disableorigincheck
         const SIGN_IN_URL = __SIGN_IN_URL__;

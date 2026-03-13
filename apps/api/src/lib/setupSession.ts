@@ -2,7 +2,7 @@
  * Setup Session Management
  *
  * Creates and resolves HMAC-signed opaque tokens for the setup flow.
- * Tokens map to server-side state (tenantId, guildId, discordUserId).
+ * Tokens map to server-side state (authUserId, guildId, discordUserId).
  * No internal IDs are exposed in URLs.
  */
 
@@ -15,7 +15,7 @@ const SETUP_SESSION_PREFIX = 'setup_session:';
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface SetupSessionData {
-  tenantId: string;
+  authUserId: string;
   guildId: string;
   discordUserId: string;
   createdAt: number;
@@ -56,7 +56,7 @@ async function hmacSign(token: string, secret: string): Promise<string> {
  * Returns the opaque token string to use in `?s=TOKEN`.
  */
 export async function createSetupSession(
-  tenantId: string,
+  authUserId: string,
   guildId: string,
   discordUserId: string,
   secret: string
@@ -67,7 +67,7 @@ export async function createSetupSession(
 
   const now = Date.now();
   const data: SetupSessionData = {
-    tenantId,
+    authUserId,
     guildId,
     discordUserId,
     createdAt: now,
@@ -79,7 +79,7 @@ export async function createSetupSession(
 
   logger.info('Setup session created', {
     tokenPrefix: `${signedToken.slice(0, 8)}...`,
-    tenantId,
+    authUserId,
     guildId,
   });
 

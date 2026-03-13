@@ -79,7 +79,7 @@ describe('shared', () => {
   describe('validateActivateInput', () => {
     it('returns errors for invalid bindingType', () => {
       const errors = validateActivateInput({
-        tenantId: 't1',
+        authUserId: 'user_test1',
         subjectId: 's1',
         externalAccountId: 'e1',
         bindingType: 'invalid' as never,

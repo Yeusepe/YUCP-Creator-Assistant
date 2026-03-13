@@ -28,7 +28,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
 
 /** Normalized purchase record for batch ingestion */
 const BackfillPurchaseRecord = v.object({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
   provider: v.string(),
   externalOrderId: v.string(),
   externalLineItemId: v.optional(v.string()),
@@ -70,7 +70,7 @@ function buildSourceRef(provider: string, orderId: string, lineItemId?: string):
  */
 export const backfillProductPurchases = internalAction({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     productId: v.string(),
     provider: v.string(),
     providerProductRef: v.string(),
@@ -92,7 +92,7 @@ export const backfillProductPurchases = internalAction({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         apiSecret,
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         productId: args.productId,
         provider: args.provider,
         providerProductRef: args.providerProductRef,
@@ -105,7 +105,7 @@ export const backfillProductPurchases = internalAction({
     }
 
     await ctx.runMutation(internal.backgroundSync.projectBackfilledPurchasesForProduct, {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       productId: args.productId,
       provider: args.provider,
       providerProductRef: args.providerProductRef,
@@ -115,12 +115,12 @@ export const backfillProductPurchases = internalAction({
 
 /**
  * Public mutation: Ingest a batch of purchase records into purchase_facts.
- * Called by the backfill API route. Idempotent via by_tenant_provider_order.
+ * Called by the backfill API route. Idempotent via by_auth_user_provider_order.
  */
 export const ingestBackfillPurchaseFactsBatch = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     provider: v.string(),
     purchases: v.array(BackfillPurchaseRecord),
   },
@@ -137,9 +137,9 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
     for (const p of args.purchases) {
       const existing = await ctx.db
         .query('purchase_facts')
-        .withIndex('by_tenant_provider_order', (q) =>
+        .withIndex('by_auth_user_provider_order', (q) =>
           q
-            .eq('tenantId', args.tenantId)
+            .eq('authUserId', args.authUserId)
             .eq('provider', args.provider)
             .eq('externalOrderId', p.externalOrderId)
         )
@@ -156,7 +156,7 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
       }
 
       await ctx.db.insert('purchase_facts', {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         provider: args.provider,
         externalOrderId: p.externalOrderId,
         externalLineItemId: p.externalLineItemId,
@@ -188,19 +188,19 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
  */
 export const triggerBackfillThenSyncForGumroadBuyer = internalAction({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     providerUserId: v.string(),
     emailHash: v.string(),
   },
   handler: async (ctx, args) => {
     const products = await ctx.runQuery(internal.backgroundSync.getGumroadProductsForTenant, {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
     });
 
     for (const p of products) {
       await ctx.runAction(internal.backgroundSync.backfillProductPurchases, {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         productId: p.productId,
         provider: 'gumroad',
         providerProductRef: p.providerProductRef,
@@ -223,7 +223,7 @@ export const triggerBackfillThenSyncForGumroadBuyer = internalAction({
 export const scheduleBackfillThenSyncForGumroadBuyer = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     providerUserId: v.string(),
     emailHash: v.string(),
@@ -234,7 +234,7 @@ export const scheduleBackfillThenSyncForGumroadBuyer = mutation({
       0,
       internal.backgroundSync.triggerBackfillThenSyncForGumroadBuyer,
       {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         subjectId: args.subjectId,
         providerUserId: args.providerUserId,
         emailHash: args.emailHash,
@@ -245,7 +245,7 @@ export const scheduleBackfillThenSyncForGumroadBuyer = mutation({
 
 /** Internal query: Get Gumroad products for a tenant */
 export const getGumroadProductsForTenant = internalQuery({
-  args: { tenantId: v.id('tenants') },
+  args: { authUserId: v.string() },
   returns: v.array(
     v.object({
       productId: v.string(),
@@ -255,7 +255,7 @@ export const getGumroadProductsForTenant = internalQuery({
   handler: async (ctx, args) => {
     const catalog = await ctx.db
       .query('product_catalog')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('provider'), 'gumroad'))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
@@ -267,9 +267,9 @@ export const getGumroadProductsForTenant = internalQuery({
   },
 });
 
-/** Internal query: Get Jinxxy products for a tenant */
+/** Internal query: Get Jinxxy products for a creator */
 export const getJinxxyProductsForTenant = internalQuery({
-  args: { tenantId: v.id('tenants') },
+  args: { authUserId: v.string() },
   returns: v.array(
     v.object({
       productId: v.string(),
@@ -279,7 +279,7 @@ export const getJinxxyProductsForTenant = internalQuery({
   handler: async (ctx, args) => {
     const catalog = await ctx.db
       .query('product_catalog')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('provider'), 'jinxxy'))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
@@ -291,9 +291,9 @@ export const getJinxxyProductsForTenant = internalQuery({
   },
 });
 
-/** Internal query: Get LemonSqueezy products for a tenant */
+/** Internal query: Get LemonSqueezy products for a creator */
 export const getLSProductsForTenant = internalQuery({
-  args: { tenantId: v.id('tenants') },
+  args: { authUserId: v.string() },
   returns: v.array(
     v.object({
       productId: v.string(),
@@ -303,7 +303,7 @@ export const getLSProductsForTenant = internalQuery({
   handler: async (ctx, args) => {
     const catalog = await ctx.db
       .query('product_catalog')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('provider'), 'lemonsqueezy'))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
@@ -321,19 +321,19 @@ export const getLSProductsForTenant = internalQuery({
  */
 export const triggerBackfillThenSyncForJinxxyBuyer = internalAction({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     providerUserId: v.string(),
     emailHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const products = await ctx.runQuery(internal.backgroundSync.getJinxxyProductsForTenant, {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
     });
 
     for (const p of products) {
       await ctx.runAction(internal.backgroundSync.backfillProductPurchases, {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         productId: p.productId,
         provider: 'jinxxy',
         providerProductRef: p.providerProductRef,
@@ -355,19 +355,19 @@ export const triggerBackfillThenSyncForJinxxyBuyer = internalAction({
  */
 export const triggerBackfillThenSyncForLSBuyer = internalAction({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     providerUserId: v.string(),
     emailHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const products = await ctx.runQuery(internal.backgroundSync.getLSProductsForTenant, {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
     });
 
     for (const p of products) {
       await ctx.runAction(internal.backgroundSync.backfillProductPurchases, {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         productId: p.productId,
         provider: 'lemonsqueezy',
         providerProductRef: p.providerProductRef,
@@ -392,7 +392,7 @@ export const triggerBackfillThenSyncForLSBuyer = internalAction({
 export const scheduleBackfillThenSyncForBuyer = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     provider: v.string(),
     providerUserId: v.string(),
@@ -406,7 +406,7 @@ export const scheduleBackfillThenSyncForBuyer = mutation({
         0,
         internal.backgroundSync.triggerBackfillThenSyncForJinxxyBuyer,
         {
-          tenantId: args.tenantId,
+          authUserId: args.authUserId,
           subjectId: args.subjectId,
           providerUserId: args.providerUserId,
           emailHash: args.emailHash,
@@ -414,7 +414,7 @@ export const scheduleBackfillThenSyncForBuyer = mutation({
       );
     } else if (args.provider === 'lemonsqueezy') {
       await ctx.scheduler.runAfter(0, internal.backgroundSync.triggerBackfillThenSyncForLSBuyer, {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         subjectId: args.subjectId,
         providerUserId: args.providerUserId,
         emailHash: args.emailHash,
@@ -443,7 +443,7 @@ export const syncPastPurchasesForSubject = internalAction({
 
     // Fetch purchase facts: by emailHash if available, otherwise by providerUserId
     type PurchaseFact = {
-      tenantId: Id<'tenants'>;
+      authUserId: string;
       provider: string;
       externalOrderId: string;
       externalLineItemId?: string;
@@ -468,7 +468,7 @@ export const syncPastPurchasesForSubject = internalAction({
       if (p.provider !== args.provider) continue;
 
       const catalog = await ctx.runQuery(internal.backgroundSync.resolveCatalogProduct, {
-        tenantId: p.tenantId,
+        authUserId: p.authUserId,
         provider: args.provider,
         providerProductId: p.providerProductId,
       });
@@ -479,7 +479,7 @@ export const syncPastPurchasesForSubject = internalAction({
 
       await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,
-        tenantId: p.tenantId,
+        authUserId: p.authUserId,
         subjectId: args.subjectId,
         productId,
         catalogProductId,
@@ -498,7 +498,7 @@ export const getPurchasesByEmailHash = internalQuery({
   args: { emailHash: v.string() },
   returns: v.array(
     v.object({
-      tenantId: v.id('tenants'),
+      authUserId: v.string(),
       provider: v.string(),
       externalOrderId: v.string(),
       externalLineItemId: v.optional(v.string()),
@@ -514,7 +514,7 @@ export const getPurchasesByEmailHash = internalQuery({
       .collect();
 
     return facts.map((f) => ({
-      tenantId: f.tenantId,
+      authUserId: f.authUserId,
       provider: f.provider,
       externalOrderId: f.externalOrderId,
       externalLineItemId: f.externalLineItemId,
@@ -530,7 +530,7 @@ export const getPurchasesByProviderUserId = internalQuery({
   args: { provider: v.string(), providerUserId: v.string() },
   returns: v.array(
     v.object({
-      tenantId: v.id('tenants'),
+      authUserId: v.string(),
       provider: v.string(),
       externalOrderId: v.string(),
       externalLineItemId: v.optional(v.string()),
@@ -548,7 +548,7 @@ export const getPurchasesByProviderUserId = internalQuery({
       .collect();
 
     return facts.map((f) => ({
-      tenantId: f.tenantId,
+      authUserId: f.authUserId,
       provider: f.provider,
       externalOrderId: f.externalOrderId,
       externalLineItemId: f.externalLineItemId,
@@ -562,7 +562,7 @@ export const getPurchasesByProviderUserId = internalQuery({
 /** Internal query: Resolve catalog product by tenant + provider ref */
 export const resolveCatalogProduct = internalQuery({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     provider: v.string(),
     providerProductId: v.string(),
   },
@@ -576,7 +576,7 @@ export const resolveCatalogProduct = internalQuery({
   handler: async (ctx, args) => {
     const catalog = await ctx.db
       .query('product_catalog')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('provider'), args.provider))
       .filter((q) => q.eq(q.field('providerProductRef'), args.providerProductId))
       .filter((q) => q.eq(q.field('status'), 'active'))
@@ -597,7 +597,7 @@ export const resolveCatalogProduct = internalQuery({
  */
 export const projectBackfilledPurchasesForProduct = internalMutation({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     productId: v.string(),
     provider: v.string(),
     providerProductRef: v.string(),
@@ -617,15 +617,15 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
 
     const purchaseFacts = await ctx.db
       .query('purchase_facts')
-      .withIndex('by_tenant_product', (q) =>
-        q.eq('tenantId', args.tenantId).eq('providerProductId', args.providerProductRef)
+      .withIndex('by_auth_user_product', (q) =>
+        q.eq('authUserId', args.authUserId).eq('providerProductId', args.providerProductRef)
       )
       .filter((q) => q.eq(q.field('provider'), args.provider))
       .collect();
 
     const catalog = await ctx.db
       .query('product_catalog')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('provider'), args.provider))
       .filter((q) => q.eq(q.field('providerProductRef'), args.providerProductRef))
       .filter((q) => q.eq(q.field('status'), 'active'))
@@ -647,13 +647,13 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
 
       let subjectId = purchaseFact.subjectId;
       if (!subjectId) {
-        subjectId = await findSubjectByEmailHash(ctx, args.tenantId, purchaseFact.buyerEmailHash);
+        subjectId = await findSubjectByEmailHash(ctx, args.authUserId, purchaseFact.buyerEmailHash);
       }
 
       if (!subjectId && purchaseFact.providerUserId) {
         subjectId = await findSubjectByProviderUserId(
           ctx,
-          args.tenantId,
+          args.authUserId,
           args.provider,
           purchaseFact.providerUserId
         );
@@ -680,7 +680,7 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
 
       const grantResult = await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         subjectId,
         productId,
         catalogProductId,
@@ -708,7 +708,7 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
 
 async function findSubjectByEmailHash(
   ctx: MutationCtx,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   emailHash: string | undefined
 ): Promise<Id<'subjects'> | undefined> {
   if (!emailHash) return undefined;
@@ -722,8 +722,8 @@ async function findSubjectByEmailHash(
   for (const externalAccount of externalAccounts) {
     const binding = await ctx.db
       .query('bindings')
-      .withIndex('by_tenant_external', (q) =>
-        q.eq('tenantId', tenantId).eq('externalAccountId', externalAccount._id)
+      .withIndex('by_auth_user_external', (q) =>
+        q.eq('authUserId', authUserId).eq('externalAccountId', externalAccount._id)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
@@ -738,7 +738,7 @@ async function findSubjectByEmailHash(
 
 async function findSubjectByProviderUserId(
   ctx: MutationCtx,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   provider: string,
   providerUserId: string
 ): Promise<Id<'subjects'> | undefined> {
@@ -756,8 +756,8 @@ async function findSubjectByProviderUserId(
 
   const binding = await ctx.db
     .query('bindings')
-    .withIndex('by_tenant_external', (q) =>
-      q.eq('tenantId', tenantId).eq('externalAccountId', externalAccount._id)
+    .withIndex('by_auth_user_external', (q) =>
+      q.eq('authUserId', authUserId).eq('externalAccountId', externalAccount._id)
     )
     .filter((q) => q.eq(q.field('status'), 'active'))
     .first();
@@ -778,7 +778,7 @@ export const processRetroactiveRuleSyncJob = mutation({
   args: {
     apiSecret: v.string(),
     jobId: v.id('outbox_jobs'),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     productId: v.string(),
   },
   returns: v.object({
@@ -806,8 +806,8 @@ export const processRetroactiveRuleSyncJob = mutation({
 
     const entitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_product', (q) =>
-        q.eq('tenantId', args.tenantId).eq('productId', args.productId)
+      .withIndex('by_auth_user_product', (q) =>
+        q.eq('authUserId', args.authUserId).eq('productId', args.productId)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
@@ -840,7 +840,7 @@ export const processRetroactiveRuleSyncJob = mutation({
       }
 
       await ctx.db.insert('outbox_jobs', {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         jobType: 'role_sync',
         payload: {
           subjectId: ent.subjectId,

@@ -2,8 +2,8 @@
  * Lemon Squeezy Products API Route
  *
  * POST /api/lemonsqueezy/products
- * Fetches products from the Lemon Squeezy API for a tenant (for product add flow).
- * Uses the decrypted tenant API token; returns product id and name.
+ * Fetches products from the Lemon Squeezy API for a creator (for product add flow).
+ * Uses the decrypted creator API token; returns product id and name.
  */
 
 import { LemonSqueezyApiClient } from '@yucp/providers/lemonsqueezy';
@@ -27,7 +27,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 export interface LemonSqueezyProductsRequest {
   apiSecret: string;
-  tenantId: string;
+  authUserId: string;
 }
 
 export interface LemonSqueezyProductItem {
@@ -50,11 +50,11 @@ export async function handleLemonSqueezyProducts(request: Request): Promise<Resp
 
   try {
     const body = (await request.json()) as LemonSqueezyProductsRequest;
-    const { apiSecret, tenantId } = body;
+    const { apiSecret, authUserId } = body;
 
-    if (!apiSecret || !tenantId) {
+    if (!apiSecret || !authUserId) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: apiSecret, tenantId' }),
+        JSON.stringify({ error: 'Missing required fields: apiSecret, authUserId' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -87,7 +87,7 @@ export async function handleLemonSqueezyProducts(request: Request): Promise<Resp
 
     const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret,
-      tenantId,
+      authUserId,
       provider: 'lemonsqueezy',
     });
 
@@ -106,7 +106,7 @@ export async function handleLemonSqueezyProducts(request: Request): Promise<Resp
     try {
       apiToken = await decrypt(conn.lemonApiTokenEncrypted, encryptionSecret);
     } catch (err) {
-      logger.error('Failed to decrypt Lemon Squeezy API token', { tenantId, err });
+      logger.error('Failed to decrypt Lemon Squeezy API token', { authUserId, err });
       return new Response(
         JSON.stringify({
           products: [],

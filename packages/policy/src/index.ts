@@ -18,7 +18,7 @@
  * import { evaluatePolicy, STRICT_DEFAULT_POLICY } from '@yucp/policy';
  *
  * const decision = evaluatePolicy(STRICT_DEFAULT_POLICY, {
- *   tenantId: 'tenant-123',
+ *   authUserId: 'user_abc123',
  *   subjectId: 'user-456',
  *   productId: 'product-789',
  *   currentBindingCount: 0,

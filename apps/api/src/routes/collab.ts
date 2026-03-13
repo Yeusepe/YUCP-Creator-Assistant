@@ -106,7 +106,7 @@ function clearCookie(name: string, request: Request): string {
 async function resolveSetupToken(
   request: Request,
   encryptionSecret: string
-): Promise<{ tenantId: string; guildId: string; discordUserId: string } | null> {
+): Promise<{ authUserId: string; guildId: string; discordUserId: string } | null> {
   const authHeader = request.headers.get('authorization');
   const token = authHeader?.startsWith('Bearer ')
     ? authHeader.slice(7)
@@ -204,7 +204,7 @@ export function createCollabRoutes(config: CollabConfig) {
     try {
       await convex.mutation(api.collaboratorInvites.createCollaboratorInvite, {
         apiSecret,
-        ownerTenantId: session.tenantId,
+        ownerAuthUserId: session.authUserId,
         ownerDisplayName: body.guildName ?? 'Unknown Server',
         ownerGuildId: body.guildId,
         tokenHash,
@@ -637,7 +637,7 @@ export function createCollabRoutes(config: CollabConfig) {
 
     const connections = await convex.query(api.collaboratorInvites.listCollaboratorConnections, {
       apiSecret,
-      ownerTenantId: session.tenantId,
+      ownerAuthUserId: session.authUserId,
     });
     return Response.json({ connections });
   }
@@ -692,7 +692,7 @@ export function createCollabRoutes(config: CollabConfig) {
         api.collaboratorInvites.addCollaboratorConnectionManual,
         {
           apiSecret,
-          ownerTenantId: session.tenantId,
+          ownerAuthUserId: session.authUserId,
           jinxxyApiKeyEncrypted,
           collaboratorDisplayName: user.username,
           collaboratorIdentity,
@@ -737,7 +737,7 @@ export function createCollabRoutes(config: CollabConfig) {
       await convex.mutation(api.collaboratorInvites.removeCollaboratorConnection, {
         apiSecret,
         connectionId,
-        ownerTenantId: session.tenantId,
+        ownerAuthUserId: session.authUserId,
       });
     } catch (e) {
       return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });

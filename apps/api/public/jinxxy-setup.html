@@ -857,7 +857,7 @@
 
             async function fetchWebhookConfig() {
                 try {
-                    const configUrl = HAS_SETUP_SESSION
+                    const configUrl = (HAS_SETUP_SESSION || !TENANT_ID)
                         ? API_BASE + '/api/connect/jinxxy/webhook-config'
                         : API_BASE + '/api/connect/jinxxy/webhook-config?tenantId=' + encodeURIComponent(TENANT_ID);
                     const res = await apiFetch(configUrl);
@@ -981,7 +981,7 @@
 
                 testWebhookPollInterval = setInterval(async () => {
                     try {
-                        const testUrl = HAS_SETUP_SESSION
+                        const testUrl = (HAS_SETUP_SESSION || !TENANT_ID)
                             ? API_BASE + '/api/connect/jinxxy/test-webhook'
                             : API_BASE + '/api/connect/jinxxy/test-webhook?tenantId=' + encodeURIComponent(TENANT_ID);
                         const res = await apiFetch(testUrl);
@@ -1202,7 +1202,7 @@
                 try {
                     const secretInput = document.getElementById('signing-secret-input');
                     const webhookSecret = secretInput?.value?.trim();
-                    const body = { tenantId: TENANT_ID, apiKey };
+                    const body = Object.assign({ apiKey }, TENANT_ID ? { tenantId: TENANT_ID } : {});
                     if (webhookSecret && webhookSecret.length >= SIGNING_SECRET_MIN && webhookSecret.length <= SIGNING_SECRET_MAX) {
                         body.webhookSecret = webhookSecret;
                     }
@@ -1231,7 +1231,9 @@
                 }
             });
 
-            updateStep();
+            // Defer initial render until DOMContentLoaded so that site.js has had
+            // a chance to expose window.lucide (module scripts run before DOMContentLoaded).
+            document.addEventListener('DOMContentLoaded', function() { updateStep(); });
             window.addEventListener('beforeunload', stopTestWebhookPolling);
         </script>
     </div>

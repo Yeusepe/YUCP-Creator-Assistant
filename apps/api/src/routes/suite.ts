@@ -88,7 +88,7 @@ async function getSubjectIdByAuthUserId(
 }
 
 /**
- * GET /api/suite/verification/status?tenantId=xxx
+ * GET /api/suite/verification/status?authUserId=xxx
  */
 export async function getVerificationStatus(
   request: Request,
@@ -100,9 +100,9 @@ export async function getVerificationStatus(
   }
 
   const url = new URL(request.url);
-  const tenantId = url.searchParams.get('tenantId');
-  if (!tenantId) {
-    return errorResponse('bad_request', 'tenantId query parameter is required', 400);
+  const authUserId = url.searchParams.get('authUserId');
+  if (!authUserId) {
+    return errorResponse('bad_request', 'authUserId query parameter is required', 400);
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
@@ -113,7 +113,7 @@ export async function getVerificationStatus(
 
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject, {
     apiSecret: config.convexApiSecret,
-    tenantId,
+    authUserId,
     subjectId: subjectResult.subjectId,
     includeInactive: false,
   });
@@ -134,7 +134,7 @@ export async function getVerificationStatus(
 }
 
 /**
- * GET /api/suite/verification/products?tenantId=xxx
+ * GET /api/suite/verification/products?authUserId=xxx
  */
 export async function getVerifiedProducts(
   request: Request,
@@ -146,9 +146,9 @@ export async function getVerifiedProducts(
   }
 
   const url = new URL(request.url);
-  const tenantId = url.searchParams.get('tenantId');
-  if (!tenantId) {
-    return errorResponse('bad_request', 'tenantId query parameter is required', 400);
+  const authUserId = url.searchParams.get('authUserId');
+  if (!authUserId) {
+    return errorResponse('bad_request', 'authUserId query parameter is required', 400);
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
@@ -159,7 +159,7 @@ export async function getVerifiedProducts(
 
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject, {
     apiSecret: config.convexApiSecret,
-    tenantId,
+    authUserId,
     subjectId: subjectResult.subjectId,
     includeInactive: false,
   });
@@ -172,7 +172,7 @@ export async function getVerifiedProducts(
 
 /**
  * POST /api/suite/verification/check
- * Body: { tenantId: string, productIds: string[] }
+ * Body: { authUserId: string, productIds: string[] }
  */
 export async function checkVerification(request: Request, config: SuiteConfig): Promise<Response> {
   const auth = await authenticateSuiteRequest(request, config);
@@ -180,16 +180,16 @@ export async function checkVerification(request: Request, config: SuiteConfig): 
     return auth;
   }
 
-  let body: { tenantId?: string; productIds?: string[] };
+  let body: { authUserId?: string; productIds?: string[] };
   try {
-    body = (await request.json()) as { tenantId?: string; productIds?: string[] };
+    body = (await request.json()) as { authUserId?: string; productIds?: string[] };
   } catch {
     return errorResponse('bad_request', 'Invalid JSON body', 400);
   }
 
-  const { tenantId, productIds } = body;
-  if (!tenantId) {
-    return errorResponse('bad_request', 'tenantId is required', 400);
+  const { authUserId, productIds } = body;
+  if (!authUserId) {
+    return errorResponse('bad_request', 'authUserId is required', 400);
   }
   if (!Array.isArray(productIds) || productIds.length === 0) {
     return errorResponse('bad_request', 'productIds must be a non-empty array', 400);
@@ -214,7 +214,7 @@ export async function checkVerification(request: Request, config: SuiteConfig): 
     productIds.map(async (productId: string) => {
       const verified = await convex.query(api.entitlements.hasActiveEntitlement, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         subjectId: subjectResult.subjectId,
         productId,
       });
@@ -249,7 +249,7 @@ export async function getTenantBySlug(
   }
 
   return jsonResponse({
-    tenantId: tenant._id,
+    authUserId: tenant._id,
     name: tenant.name,
     slug: tenant.slug,
   });

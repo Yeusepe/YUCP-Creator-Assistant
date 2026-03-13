@@ -69,7 +69,7 @@ const HTML_SECURITY_HEADERS: Record<string, string> = {
 };
 
 interface DiscordRoleSetupSession {
-  tenantId: string;
+  authUserId: string;
   guildId: string;
   adminDiscordUserId: string;
   guilds?: Array<{
@@ -120,7 +120,7 @@ interface BetterAuthOAuthClient {
 interface OAuthAppMappingRecord {
   _id: string;
   _creationTime: number;
-  tenantId: string;
+  authUserId: string;
   name: string;
   clientId: string;
   redirectUris: string[];
@@ -164,7 +164,7 @@ function normalizePublicApiScopes(scopes: unknown): string[] {
   return Array.from(new Set(values));
 }
 
-function parsePublicApiKeyMetadata(value: unknown): { kind?: string; tenantId?: string } | null {
+function parsePublicApiKeyMetadata(value: unknown): { kind?: string; authUserId?: string } | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
   }
@@ -172,7 +172,7 @@ function parsePublicApiKeyMetadata(value: unknown): { kind?: string; tenantId?: 
   const metadata = value as Record<string, unknown>;
   return {
     kind: typeof metadata.kind === 'string' ? metadata.kind : undefined,
-    tenantId: typeof metadata.tenantId === 'string' ? metadata.tenantId : undefined,
+    authUserId: typeof metadata.authUserId === 'string' ? metadata.authUserId : undefined,
   };
 }
 
@@ -216,7 +216,7 @@ async function createManagedPublicApiKey(
   input: {
     name: string;
     scopes: string[];
-    tenantId: string;
+    authUserId: string;
     expiresAt?: number | null;
   }
 ): Promise<{
@@ -228,7 +228,7 @@ async function createManagedPublicApiKey(
     const result = (await convex.mutation(api.betterAuthApiKeys.createApiKey, {
       apiSecret: config.convexApiSecret,
       userId: ownerUserId,
-      tenantId: input.tenantId,
+      authUserId: input.authUserId,
       name: input.name,
       scopes: input.scopes,
       expiresIn: getPublicApiKeyExpiresIn(input.expiresAt),
@@ -241,7 +241,7 @@ async function createManagedPublicApiKey(
         prefix: string | null;
         enabled: boolean;
         permissions: BetterAuthPermissionStatements | null;
-        metadata: { kind: string; tenantId: string } | null;
+        metadata: { kind: string; authUserId: string } | null;
         lastRequestAt: number | null;
         expiresAt: number | null;
         createdAt: number | null;
@@ -266,7 +266,7 @@ async function createManagedPublicApiKey(
     };
   } catch (error) {
     logger.error('Create API key via Convex failed', {
-      tenantId: input.tenantId,
+      authUserId: input.authUserId,
       userId: ownerUserId,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -422,7 +422,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function resolveSetupSessionFromRequest(
     request: Request
-  ): Promise<{ tenantId: string; guildId: string; discordUserId: string } | null> {
+  ): Promise<{ authUserId: string; guildId: string; discordUserId: string } | null> {
     const token = getSetupSessionTokenFromRequest(request);
     if (!token) return null;
     return resolveSetupSession(token, config.encryptionSecret);
@@ -450,14 +450,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    */
   async function resolveToken(
     request: Request
-  ): Promise<{ tenantId: string; guildId: string; discordUserId: string } | null> {
+  ): Promise<{ authUserId: string; guildId: string; discordUserId: string } | null> {
     return resolveSetupSessionFromRequest(request);
   }
 
   async function requireBoundSetupSession(request: Request): Promise<
     | {
         ok: true;
-        setupSession: { tenantId: string; guildId: string; discordUserId: string };
+        setupSession: { authUserId: string; guildId: string; discordUserId: string };
         authSession: NonNullable<Awaited<ReturnType<typeof auth.getSession>>>;
         authDiscordUserId: string;
       }
@@ -492,7 +492,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         expectedDiscordUserId: setupSession.discordUserId,
         actualDiscordUserId: authDiscordUserId,
         guildId: setupSession.guildId,
-        tenantId: setupSession.tenantId,
+        authUserId: setupSession.authUserId,
       });
       return {
         ok: false,
@@ -506,9 +506,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     return { ok: true, setupSession, authSession, authDiscordUserId };
   }
 
-  function buildFrontendCallbackUrl(pathname: string, tenantId: string, guildId: string): string {
+  function buildFrontendCallbackUrl(pathname: string, authUserId: string, guildId: string): string {
     const callbackUrl = new URL(`${config.frontendBaseUrl.replace(/\/$/, '')}${pathname}`);
-    if (tenantId) callbackUrl.searchParams.set('tenant_id', tenantId);
+    if (authUserId) callbackUrl.searchParams.set('tenant_id', authUserId);
     if (guildId) callbackUrl.searchParams.set('guild_id', guildId);
     return callbackUrl.toString();
   }
@@ -525,7 +525,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const callbackUrl = buildFrontendCallbackUrl(
       '/dashboard',
-      setupSession.tenantId,
+      setupSession.authUserId,
       setupSession.guildId
     );
     const signInUrl = buildDiscordSignInUrl(callbackUrl);
@@ -535,7 +535,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         {
           hasSetupSession: true,
           authenticated: false,
-          tenantId: setupSession.tenantId,
+          authUserId: setupSession.authUserId,
           guildId: setupSession.guildId,
           signInUrl,
           callbackUrl,
@@ -551,7 +551,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         {
           hasSetupSession: true,
           authenticated: false,
-          tenantId: setupSession.tenantId,
+          authUserId: setupSession.authUserId,
           guildId: setupSession.guildId,
           signInUrl,
           callbackUrl,
@@ -566,7 +566,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         {
           hasSetupSession: true,
           authenticated: false,
-          tenantId: setupSession.tenantId,
+          authUserId: setupSession.authUserId,
           guildId: setupSession.guildId,
           error: 'This setup link belongs to a different Discord account',
         },
@@ -577,7 +577,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     return Response.json({
       hasSetupSession: true,
       authenticated: true,
-      tenantId: setupSession.tenantId,
+      authUserId: setupSession.authUserId,
       guildId: setupSession.guildId,
       discordUserId: authDiscordUserId,
       authUserId: authSession.user.id,
@@ -617,27 +617,27 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function isTenantOwnedBySessionUser(
     authUserId: string,
-    tenantId: string
+    authUserId: string
   ): Promise<boolean> {
     const convex = getConvexClientFromUrl(config.convexUrl);
     const tenant = (await convex.query(api.tenants.getTenant, {
       apiSecret: config.convexApiSecret,
-      tenantId,
+      authUserId,
     })) as { ownerAuthUserId?: string } | null;
     return tenant?.ownerAuthUserId === authUserId;
   }
 
   async function requireOwnerSessionForTenant(
     request: Request,
-    tenantId: string | undefined
+    authUserId: string | undefined
   ): Promise<
     | { ok: true; session: NonNullable<Awaited<ReturnType<Auth['getSession']>>> }
     | { ok: false; response: Response }
   > {
-    if (!tenantId) {
+    if (!authUserId) {
       return {
         ok: false,
-        response: Response.json({ error: 'tenantId is required' }, { status: 400 }),
+        response: Response.json({ error: 'authUserId is required' }, { status: 400 }),
       };
     }
 
@@ -649,7 +649,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       };
     }
 
-    const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
+    const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, authUserId);
     if (!tenantOwned) {
       return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
     }
@@ -660,13 +660,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   /**
    * POST /api/setup/create-session
    * Creates a setup session and returns the token. Called by the bot.
-   * Body: { tenantId, guildId, discordUserId, apiSecret }
+   * Body: { authUserId, guildId, discordUserId, apiSecret }
    */
   async function createSessionEndpoint(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    let body: { tenantId: string; guildId: string; discordUserId: string; apiSecret: string };
+    let body: { authUserId: string; guildId: string; discordUserId: string; apiSecret: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -675,14 +675,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (body.apiSecret !== config.convexApiSecret) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!body.tenantId || !body.guildId || !body.discordUserId) {
+    if (!body.authUserId || !body.guildId || !body.discordUserId) {
       return Response.json(
-        { error: 'tenantId, guildId, and discordUserId are required' },
+        { error: 'authUserId, guildId, and discordUserId are required' },
         { status: 400 }
       );
     }
     const token = await createSetupSession(
-      body.tenantId,
+      body.authUserId,
       body.guildId,
       body.discordUserId,
       config.encryptionSecret
@@ -739,18 +739,18 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
     }
     const legacyGuildId = url.searchParams.get('guild_id');
-    const legacyTenantId = url.searchParams.get('tenant_id');
+    const legacyAuthUserId = url.searchParams.get('tenant_id');
     const ott = url.searchParams.get('ott');
 
     // Resolve setup token if present
     let resolvedGuildId = legacyGuildId ?? '';
-    let resolvedTenantId = legacyTenantId ?? '';
+    let resolvedAuthUserId = legacyAuthUserId ?? '';
     let hasSetupSession = false;
 
     const setupSession = await resolveSetupSessionFromRequest(request);
     if (setupSession) {
       resolvedGuildId = setupSession.guildId;
-      resolvedTenantId = setupSession.tenantId;
+      resolvedAuthUserId = setupSession.authUserId;
       hasSetupSession = true;
     }
 
@@ -782,7 +782,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     if (!session) {
       // Build callback URL preserving the setup token
-      const callbackParams = `guild_id=${encodeURIComponent(resolvedGuildId)}${resolvedTenantId ? `&tenant_id=${encodeURIComponent(resolvedTenantId)}` : ''}`;
+      const callbackParams = `guild_id=${encodeURIComponent(resolvedGuildId)}${resolvedAuthUserId ? `&tenant_id=${encodeURIComponent(resolvedAuthUserId)}` : ''}`;
       const callbackUrl = `${config.frontendBaseUrl}/connect?${callbackParams}`;
       const filePath = `${import.meta.dir}/../../public/sign-in-redirect.html`;
       let html = await Bun.file(filePath).text();
@@ -792,7 +792,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       logger.info('Serving connect sign-in redirect', {
         requestUrl: request.url,
         guildId: resolvedGuildId || undefined,
-        tenantId: resolvedTenantId || undefined,
+        authUserId: resolvedAuthUserId || undefined,
         hasSetupToken: hasSetupSession,
         frontendBaseUrl: config.frontendBaseUrl,
         apiBaseUrl: config.apiBaseUrl,
@@ -821,7 +821,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       __API_BASE__: apiBase,
       __SETUP_TOKEN__: '',
       __HAS_SETUP_SESSION__: hasSetupSession ? 'true' : 'false',
-      __TENANT_ID__: resolvedTenantId,
+      __TENANT_ID__: resolvedAuthUserId,
     };
     for (const [placeholder, rawValue] of Object.entries(templateValues)) {
       html = html.replaceAll(placeholder, escapeForSingleQuotedJsString(rawValue));
@@ -967,7 +967,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      let tenantId: string;
+      let authUserId: string;
 
       if (!existing) {
         if (!discordUserId) {
@@ -976,19 +976,19 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
             { status: 400 }
           );
         }
-        tenantId = await convex.mutation(api.tenants.createTenant, {
+        authUserId = await convex.mutation(api.tenants.createTenant, {
           apiSecret,
           name: `Creator ${discordUserId.slice(0, 8)}`,
           ownerDiscordUserId: discordUserId,
           ownerAuthUserId: session.user.id,
         });
       } else {
-        tenantId = existing._id;
+        authUserId = existing._id;
       }
 
       await convex.mutation(api.guildLinks.upsertGuildLink, {
         apiSecret,
-        tenantId,
+        authUserId,
         discordGuildId: guildId,
         ...(await fetchGuildMeta(guildId)),
         installedByAuthUserId: session.user.id,
@@ -998,12 +998,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       logger.info('Connect flow completed', {
         guildId,
-        tenantId,
+        authUserId,
         authUserId: session.user.id,
       });
 
       const clearedCookie = clearCookie(CONNECT_TOKEN_COOKIE, request);
-      return new Response(JSON.stringify({ success: true, tenantId, isFirstTime: !existing }), {
+      return new Response(JSON.stringify({ success: true, authUserId, isFirstTime: !existing }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', 'Set-Cookie': clearedCookie },
       });
@@ -1017,7 +1017,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   /**
    * GET /api/connect/ensure-tenant?guildId=XXX&token=XXX
-   * Returns { tenantId }, creating tenant + guild link if missing.
+   * Returns { authUserId }, creating tenant + guild link if missing.
    */
   async function ensureTenant(request: Request): Promise<Response> {
     const session = await auth.getSession(request);
@@ -1082,7 +1082,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      let tenantId: string;
+      let authUserId: string;
 
       if (!existing) {
         if (!discordUserId) {
@@ -1094,19 +1094,19 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
             { status: 400 }
           );
         }
-        tenantId = await convex.mutation(api.tenants.createTenant, {
+        authUserId = await convex.mutation(api.tenants.createTenant, {
           apiSecret,
           name: `Creator ${discordUserId.slice(0, 8)}`,
           ownerDiscordUserId: discordUserId,
           ownerAuthUserId: session.user.id,
         });
       } else {
-        tenantId = existing._id;
+        authUserId = existing._id;
       }
 
       await convex.mutation(api.guildLinks.upsertGuildLink, {
         apiSecret,
-        tenantId,
+        authUserId,
         discordGuildId: guildId,
         ...(await fetchGuildMeta(guildId)),
         installedByAuthUserId: session.user.id,
@@ -1114,7 +1114,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         status: 'active',
       });
 
-      return Response.json({ tenantId });
+      return Response.json({ authUserId });
     } catch (err) {
       logger.error('Ensure tenant failed', {
         error: err instanceof Error ? err.message : String(err),
@@ -1124,13 +1124,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * GET /api/connect/gumroad/begin?tenantId=XXX&guildId=XXX
+   * GET /api/connect/gumroad/begin?authUserId=XXX&guildId=XXX
    * Redirects to Gumroad OAuth.
-   * tenantId and guildId are optional when the user is connecting at the personal/user level.
+   * authUserId and guildId are optional when the user is connecting at the personal/user level.
    */
   async function gumroadBegin(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    let tenantId = url.searchParams.get('tenantId');
+    let authUserId = url.searchParams.get('authUserId');
     let guildId = url.searchParams.get('guildId');
 
     const setupBinding = await requireBoundSetupSession(request);
@@ -1138,7 +1138,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const session = setupBinding.ok ? setupBinding.authSession : await auth.getSession(request);
     const authenticatedViaSetupToken = Boolean(setupSession);
     if (setupSession) {
-      tenantId = tenantId || setupSession.tenantId;
+      authUserId = authUserId || setupSession.authUserId;
       guildId = guildId || setupSession.guildId;
     }
 
@@ -1154,9 +1154,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Gumroad OAuth not configured' }, { status: 400 });
     }
 
-    // If a tenantId is provided, verify ownership.
-    if (tenantId && !authenticatedViaSetupToken && session) {
-      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
+    // If a authUserId is provided, verify ownership.
+    if (authUserId && !authenticatedViaSetupToken && session) {
+      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -1164,14 +1164,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const authUserId = session?.user?.id ?? null;
 
-    const state = `connect_gumroad:${tenantId ?? authUserId ?? 'personal'}:${generateSecureRandom(48)}`;
+    const state = `connect_gumroad:${authUserId ?? 'personal'}:${generateSecureRandom(48)}`;
     const store = getStateStore();
     await store.set(
       `${GUMROAD_STATE_PREFIX}${state}`,
       JSON.stringify({
-        tenantId: tenantId ?? null,
-        guildId: guildId ?? null,
         authUserId: authUserId ?? null,
+        guildId: guildId ?? null,
         setupToken: getSetupSessionTokenFromRequest(request) ?? '',
       }),
       GUMROAD_STATE_EXPIRY_MS
@@ -1228,14 +1227,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     await store.delete(`${GUMROAD_STATE_PREFIX}${state}`);
 
     const {
-      tenantId,
+      authUserId,
       guildId,
-      authUserId: storedAuthUserId,
       setupToken: storedSetupToken,
     } = JSON.parse(raw) as {
-      tenantId: string | null;
-      guildId: string | null;
       authUserId: string | null;
+      guildId: string | null;
       setupToken?: string;
     };
     const gumroadClientId = config.gumroadClientId;
@@ -1246,7 +1243,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.redirect(
           buildDashboardRedirect(
             {
-              ...(tenantId ? { tenant_id: tenantId } : {}),
+              ...(authUserId ? { tenant_id: authUserId } : {}),
               ...(guildId ? { guild_id: guildId } : {}),
               error: 'gumroad_not_configured',
             },
@@ -1274,7 +1271,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.redirect(
           buildDashboardRedirect(
             {
-              ...(tenantId ? { tenant_id: tenantId } : {}),
+              ...(authUserId ? { tenant_id: authUserId } : {}),
               ...(guildId ? { guild_id: guildId } : {}),
               error: 'token_exchange_failed',
             },
@@ -1294,7 +1291,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.redirect(
           buildDashboardRedirect(
             {
-              ...(tenantId ? { tenant_id: tenantId } : {}),
+              ...(authUserId ? { tenant_id: authUserId } : {}),
               ...(guildId ? { guild_id: guildId } : {}),
               error: 'no_access_token',
             },
@@ -1311,7 +1308,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.redirect(
           buildDashboardRedirect(
             {
-              ...(tenantId ? { tenant_id: tenantId } : {}),
+              ...(authUserId ? { tenant_id: authUserId } : {}),
               ...(guildId ? { guild_id: guildId } : {}),
               error: 'failed_to_fetch_user',
             },
@@ -1334,16 +1331,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertGumroadConnection, {
         apiSecret: config.convexApiSecret,
-        tenantId: tenantId ?? undefined,
-        authUserId: storedAuthUserId ?? undefined,
+        authUserId: authUserId ?? undefined,
         gumroadAccessTokenEncrypted: accessEncrypted,
         gumroadRefreshTokenEncrypted: refreshEncrypted,
         gumroadUserId,
       });
 
       // Register Gumroad resource_subscriptions for webhook delivery.
-      // Use tenantId-scoped URL if available, otherwise use authUserId-scoped URL.
-      const webhookTarget = tenantId ?? storedAuthUserId;
+      // Use authUserId as the webhook routing key.
+      const webhookTarget = authUserId;
       const postUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/gumroad/${webhookTarget}`;
       for (const resourceName of ['sale', 'refund']) {
         try {
@@ -1376,7 +1372,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       const redirectParams: Record<string, string> = { gumroad: 'connected' };
       if (guildId) redirectParams.guild_id = guildId;
-      if (tenantId) redirectParams.tenant_id = tenantId;
+      if (authUserId) redirectParams.tenant_id = authUserId;
       return Response.redirect(buildDashboardRedirect(redirectParams, storedSetupToken), 302);
     } catch (err) {
       logger.error('Gumroad callback failed', {
@@ -1385,7 +1381,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.redirect(
         buildDashboardRedirect(
           {
-            ...(tenantId ? { tenant_id: tenantId } : {}),
+            ...(authUserId ? { tenant_id: authUserId } : {}),
             ...(guildId ? { guild_id: guildId } : {}),
             error: 'internal_error',
           },
@@ -1397,9 +1393,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * GET /api/connect/status?tenantId=XXX
+   * GET /api/connect/status?authUserId=XXX
    * Returns { gumroad: boolean, jinxxy: boolean }.
-   * When tenantId is omitted, returns status for the authenticated user across all their connections.
+   * When authUserId is omitted, returns status for the authenticated user across all their connections.
    */
   async function getStatus(request: Request): Promise<Response> {
     const session = await auth.getSession(request);
@@ -1408,12 +1404,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     const url = new URL(request.url);
-    const tenantId = url.searchParams.get('tenantId');
+    const authUserId = url.searchParams.get('authUserId');
 
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
 
-      if (!tenantId) {
+      if (!authUserId) {
         // User-scoped status: check all connections owned by this user
         const status = await convex.query(api.providerConnections.getConnectionStatusForUser, {
           apiSecret: config.convexApiSecret,
@@ -1422,14 +1418,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.json(status);
       }
 
-      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
+      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
 
       const status = await convex.query(api.providerConnections.getConnectionStatus, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
       });
       return Response.json(status);
     } catch (err) {
@@ -1441,36 +1437,39 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * GET /api/connect/jinxxy/webhook-config?tenantId=XXX
+   * GET /api/connect/jinxxy/webhook-config?authUserId=XXX
    * Returns { callbackUrl }.
    * POST /api/connect/jinxxy/webhook-config
-   * Body: { tenantId?, webhookSecret }
+   * Body: { authUserId?, webhookSecret }
    * Stores a pending encrypted webhook secret for test delivery.
    */
   async function jinxxyWebhookConfig(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    let tenantId: string | null = null;
+    // routeId is either a authUserId (server mode) or authUserId (user-scoped mode).
+    let routeId: string | null = null;
     const setupBinding = await requireBoundSetupSession(request);
     if (setupBinding.ok) {
-      tenantId = setupBinding.setupSession.tenantId;
+      routeId = setupBinding.setupSession.authUserId;
     } else {
       const session = await auth.getSession(request);
       if (!session) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const requestedTenantId = url.searchParams.get('tenantId');
-      if (!requestedTenantId) {
-        return Response.json({ error: 'tenantId is required' }, { status: 400 });
+      const requestedAuthUserId = url.searchParams.get('authUserId');
+      if (requestedAuthUserId) {
+        const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, requestedAuthUserId);
+        if (!tenantOwned) {
+          return Response.json({ error: 'Forbidden' }, { status: 403 });
+        }
+        routeId = requestedAuthUserId;
+      } else {
+        // User-scoped: no server selected — use authUserId as the webhook route.
+        routeId = session.user.id;
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, requestedTenantId);
-      if (!tenantOwned) {
-        return Response.json({ error: 'Forbidden' }, { status: 403 });
-      }
-      tenantId = requestedTenantId;
     }
 
     try {
-      const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${tenantId}`;
+      const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${routeId}`;
       if (request.method === 'GET') {
         return Response.json({ callbackUrl });
       }
@@ -1501,7 +1500,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       const store = getStateStore();
       await store.set(
-        `${JINXXY_PENDING_WEBHOOK_PREFIX}${tenantId}`,
+        `${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`,
         JSON.stringify({
           callbackUrl,
           signingSecretEncrypted: await encrypt(webhookSecret, config.encryptionSecret),
@@ -1518,42 +1517,45 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * GET /api/connect/jinxxy/test-webhook?tenantId=XXX
+   * GET /api/connect/jinxxy/test-webhook?authUserId=XXX
    * Returns { received: boolean }.
    */
   async function jinxxyTestWebhook(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    let tenantId = url.searchParams.get('tenantId');
+    // routeId is either a authUserId (server mode) or authUserId (user-scoped mode).
+    let routeId = url.searchParams.get('authUserId');
     const setupBinding = await requireBoundSetupSession(request);
 
     if (setupBinding.ok) {
-      tenantId = setupBinding.setupSession.tenantId;
+      routeId = setupBinding.setupSession.authUserId;
     } else {
       const session = await auth.getSession(request);
       if (!session) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      if (!tenantId) {
-        return Response.json({ error: 'tenantId is required' }, { status: 400 });
-      }
-      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
-      if (!tenantOwned) {
-        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      if (routeId) {
+        const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, routeId);
+        if (!tenantOwned) {
+          return Response.json({ error: 'Forbidden' }, { status: 403 });
+        }
+      } else {
+        // User-scoped: no server selected — poll by authUserId.
+        routeId = session.user.id;
       }
     }
 
-    if (!tenantId) {
-      return Response.json({ error: 'tenantId or setup token is required' }, { status: 400 });
+    if (!routeId) {
+      return Response.json({ error: 'authUserId or setup token is required' }, { status: 400 });
     }
 
     const store = getStateStore();
-    const raw = await store.get(`${JINXXY_TEST_PREFIX}${tenantId}`);
+    const raw = await store.get(`${JINXXY_TEST_PREFIX}${routeId}`);
     return Response.json({ received: !!raw });
   }
 
   /**
    * POST /api/connect/jinxxy-store
-   * Body: { tenantId?, apiKey }
+   * Body: { authUserId?, apiKey }
    */
   async function jinxxyStore(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
@@ -1567,38 +1569,38 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    let body: { tenantId?: string; apiKey: string; webhookSecret?: string };
+    let body: { authUserId?: string; apiKey: string; webhookSecret?: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = setupSession?.tenantId ?? body.tenantId ?? null;
+    const authUserId = setupSession?.authUserId ?? body.authUserId ?? null;
     const { apiKey } = body;
-    // apiKey is required; tenantId is optional (user-level connection if absent)
+    // apiKey is required; authUserId is optional (user-level connection if absent)
     if (!apiKey) {
       return Response.json({ error: 'apiKey is required' }, { status: 400 });
     }
 
     const authUserId = authSession?.user?.id ?? null;
 
-    if (tenantId && !setupSession) {
+    if (authUserId && !setupSession) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, tenantId);
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
     }
 
-    if (!tenantId && !authUserId) {
+    if (!authUserId && !authUserId) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    // At this point either tenantId or authUserId is set (checked above)
-    const webhookTarget = tenantId ?? (authUserId as string);
+    // At this point either authUserId or authUserId is set (checked above)
+    const webhookTarget = authUserId ?? (authUserId as string);
 
     try {
       const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret);
@@ -1627,7 +1629,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertJinxxyConnection, {
         apiSecret: config.convexApiSecret,
-        tenantId: tenantId ?? undefined,
+        authUserId: authUserId ?? undefined,
         authUserId: authUserId ?? undefined,
         jinxxyApiKeyEncrypted: apiKeyEncrypted,
         webhookSecretRef,
@@ -1663,7 +1665,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   /**
    * POST /api/connect/lemonsqueezy-finish
-   * Body: { tenantId?, apiKey }
+   * Body: { authUserId?, apiKey }
    * Validates the API key, automatically creates the webhook, and stores all credentials.
    */
   async function lemonsqueezyFinish(request: Request): Promise<Response> {
@@ -1678,24 +1680,30 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    let body: { tenantId?: string; apiKey: string };
+    let body: { authUserId?: string; apiKey: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = setupSession?.tenantId ?? body.tenantId ?? null;
+    const authUserId = setupSession?.authUserId ?? body.authUserId ?? null;
     const { apiKey } = body;
-    if (!tenantId || !apiKey) {
-      return Response.json({ error: 'tenantId and apiKey are required' }, { status: 400 });
+    if (!apiKey) {
+      return Response.json({ error: 'apiKey is required' }, { status: 400 });
     }
 
-    if (!setupSession) {
+    const authUserId = authSession?.user.id ?? null;
+
+    if (!authUserId && !authUserId) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    if (authUserId && !setupSession) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, tenantId);
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -1715,7 +1723,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const connectionId = await convex.mutation(api.providerConnections.createProviderConnection, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId: authUserId ?? undefined,
+        authUserId: authUserId ?? undefined,
         providerKey: 'lemonsqueezy',
       });
 
@@ -1780,7 +1789,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       ] as const) {
         await convex.mutation(api.providerConnections.putProviderCredential, {
           apiSecret: config.convexApiSecret,
-          tenantId,
+          authUserId: authUserId ?? undefined,
+          authUserId: authUserId ?? undefined,
           providerConnectionId: connectionId,
           credentialKey: credential.credentialKey,
           kind: credential.kind,
@@ -1817,7 +1827,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       ]) {
         await convex.mutation(api.providerConnections.upsertConnectionCapability, {
           apiSecret: config.convexApiSecret,
-          tenantId,
+          authUserId: authUserId ?? undefined,
+          authUserId: authUserId ?? undefined,
           providerConnectionId: connectionId,
           capabilityKey,
           status: 'active',
@@ -1860,7 +1871,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const result = (await convex.query(api.providerConnections.listConnections, {
         apiSecret: config.convexApiSecret,
-        tenantId: session.tenantId,
+        authUserId: session.authUserId,
       })) as { allowMismatchedEmails: boolean; connections: unknown[] };
       return Response.json(result);
     } catch (err) {
@@ -1894,7 +1905,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       await convex.mutation(api.providerConnections.disconnectConnection, {
         apiSecret: config.convexApiSecret,
         connectionId,
-        tenantId: session.tenantId,
+        authUserId: session.authUserId,
       });
       return Response.json({ success: true });
     } catch (err) {
@@ -1919,7 +1930,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const tenant = (await convex.query(api.tenants.getTenant, {
         apiSecret: config.convexApiSecret,
-        tenantId: session.tenantId,
+        authUserId: session.authUserId,
       })) as { policy?: Record<string, unknown> };
       return Response.json({ policy: tenant?.policy ?? {} });
     } catch (err) {
@@ -1963,7 +1974,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.updateTenantSetting, {
         apiSecret: config.convexApiSecret,
-        tenantId: session.tenantId,
+        authUserId: session.authUserId,
         key: body.key,
         value: body.value,
       });
@@ -1977,8 +1988,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   async function listPublicApiKeys(request: Request): Promise<Response> {
-    const tenantId = new URL(request.url).searchParams.get('tenantId') ?? undefined;
-    const required = await requireOwnerSessionForTenant(request, tenantId);
+    const authUserId = new URL(request.url).searchParams.get('authUserId') ?? undefined;
+    const required = await requireOwnerSessionForTenant(request, authUserId);
     if ('response' in required) {
       return required.response;
     }
@@ -1998,12 +2009,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const keys = (Array.isArray(data) ? data : [])
         .filter((key) => {
           const metadata = parsePublicApiKeyMetadata(key.metadata);
-          return metadata?.kind === PUBLIC_API_KEY_METADATA_KIND && metadata.tenantId === tenantId;
+          return metadata?.kind === PUBLIC_API_KEY_METADATA_KIND && metadata.authUserId === authUserId;
         })
         .map((key) => ({
           _id: key.id,
           _creationTime: toTimestamp(key.createdAt) ?? Date.now(),
-          tenantId,
+          authUserId,
           name: key.name ?? 'Unnamed',
           prefix: key.start ?? key.prefix ?? PUBLIC_API_KEY_PREFIX,
           status: key.enabled === false ? ('revoked' as const) : ('active' as const),
@@ -2024,7 +2035,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function createPublicApiKey(request: Request): Promise<Response> {
     let body: {
-      tenantId?: string;
+      authUserId?: string;
       name?: string;
       scopes?: string[];
       expiresAt?: number | null;
@@ -2035,13 +2046,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = body.tenantId?.trim();
-    const required = await requireOwnerSessionForTenant(request, tenantId);
+    const authUserId = body.authUserId?.trim();
+    const required = await requireOwnerSessionForTenant(request, authUserId);
     if ('response' in required) {
       return required.response;
     }
-    if (!tenantId) {
-      return Response.json({ error: 'tenantId is required' }, { status: 400 });
+    if (!authUserId) {
+      return Response.json({ error: 'authUserId is required' }, { status: 400 });
     }
 
     const name = body.name?.trim();
@@ -2058,13 +2069,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const { response, data } = await createManagedPublicApiKey(config, required.session.user.id, {
         name,
         scopes,
-        tenantId,
+        authUserId,
         expiresAt,
       });
 
       if (!response.ok || !data?.id || !data.key) {
         logger.warn('Create API key rejected by Better Auth', {
-          tenantId,
+          authUserId,
           userId: required.session.user.id,
           status: response.status,
           error: getBetterAuthErrorMessage(data, 'Failed to create API key'),
@@ -2096,20 +2107,20 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   async function revokePublicApiKey(request: Request, keyId: string): Promise<Response> {
-    let body: { tenantId?: string };
+    let body: { authUserId?: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = body.tenantId?.trim();
-    const required = await requireOwnerSessionForTenant(request, tenantId);
+    const authUserId = body.authUserId?.trim();
+    const required = await requireOwnerSessionForTenant(request, authUserId);
     if ('response' in required) {
       return required.response;
     }
-    if (!tenantId) {
-      return Response.json({ error: 'tenantId is required' }, { status: 400 });
+    if (!authUserId) {
+      return Response.json({ error: 'authUserId is required' }, { status: 400 });
     }
 
     try {
@@ -2126,7 +2137,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       }
 
       const metadata = parsePublicApiKeyMetadata(existing.data.metadata);
-      if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.tenantId !== tenantId) {
+      if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.authUserId !== authUserId) {
         return Response.json({ error: 'API key not found' }, { status: 404 });
       }
 
@@ -2156,8 +2167,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   async function listOAuthApps(request: Request): Promise<Response> {
-    const tenantId = new URL(request.url).searchParams.get('tenantId') ?? undefined;
-    const required = await requireOwnerSessionForTenant(request, tenantId);
+    const authUserId = new URL(request.url).searchParams.get('authUserId') ?? undefined;
+    const required = await requireOwnerSessionForTenant(request, authUserId);
     if ('response' in required) {
       return required.response;
     }
@@ -2166,7 +2177,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const mappings = (await convex.query(api.oauthApps.listOAuthApps, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
       })) as OAuthAppMappingRecord[];
       const { response, data } = await auth.callEndpoint<BetterAuthOAuthClient[] | null>(
         '/oauth2/get-clients',
@@ -2193,7 +2204,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
             logger.warn('OAuth app mapping missing Better Auth client', {
               appId: mapping._id,
               clientId: mapping.clientId,
-              tenantId,
+              authUserId,
             });
             return null;
           }
@@ -2203,7 +2214,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           return {
             _id: mapping._id,
             _creationTime: mapping._creationTime,
-            tenantId: mapping.tenantId,
+            authUserId: mapping.authUserId,
             name: client.client_name ?? mapping.name,
             clientId: mapping.clientId,
             redirectUris: client.redirect_uris ?? mapping.redirectUris,
@@ -2227,7 +2238,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function createOAuthApp(request: Request): Promise<Response> {
     let body: {
-      tenantId?: string;
+      authUserId?: string;
       name?: string;
       redirectUris?: string[];
       scopes?: string[];
@@ -2238,8 +2249,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = body.tenantId?.trim();
-    const required = await requireOwnerSessionForTenant(request, tenantId);
+    const authUserId = body.authUserId?.trim();
+    const required = await requireOwnerSessionForTenant(request, authUserId);
     if ('response' in required) {
       return required.response;
     }
@@ -2284,7 +2295,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       try {
         const result = await convex.mutation(api.oauthApps.createOAuthAppMapping, {
           apiSecret: config.convexApiSecret,
-          tenantId,
+          authUserId,
           name,
           clientId: createdClient.data.client_id,
           redirectUris,
@@ -2322,15 +2333,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   async function regenerateOAuthAppSecret(request: Request, appId: string): Promise<Response> {
-    let body: { tenantId?: string };
+    let body: { authUserId?: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = body.tenantId?.trim();
-    const required = await requireOwnerSessionForTenant(request, tenantId);
+    const authUserId = body.authUserId?.trim();
+    const required = await requireOwnerSessionForTenant(request, authUserId);
     if ('response' in required) {
       return required.response;
     }
@@ -2339,7 +2350,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const mapping = await convex.query(api.oauthApps.getOAuthApp, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         appId,
       });
 
@@ -2378,7 +2389,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function updateOAuthApp(request: Request, appId: string): Promise<Response> {
     let body: {
-      tenantId?: string;
+      authUserId?: string;
       name?: string;
       redirectUris?: string[];
       scopes?: string[];
@@ -2389,8 +2400,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = body.tenantId?.trim();
-    const required = await requireOwnerSessionForTenant(request, tenantId);
+    const authUserId = body.authUserId?.trim();
+    const required = await requireOwnerSessionForTenant(request, authUserId);
     if ('response' in required) {
       return required.response;
     }
@@ -2399,7 +2410,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const mapping = await convex.query(api.oauthApps.getOAuthApp, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         appId,
       });
 
@@ -2447,7 +2458,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       await convex.mutation(api.oauthApps.updateOAuthAppMapping, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         appId,
         name: nextName,
         redirectUris: nextRedirectUris,
@@ -2467,15 +2478,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   async function deleteOAuthApp(request: Request, appId: string): Promise<Response> {
-    let body: { tenantId?: string };
+    let body: { authUserId?: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = body.tenantId?.trim();
-    const required = await requireOwnerSessionForTenant(request, tenantId);
+    const authUserId = body.authUserId?.trim();
+    const required = await requireOwnerSessionForTenant(request, authUserId);
     if ('response' in required) {
       return required.response;
     }
@@ -2484,7 +2495,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const mapping = await convex.query(api.oauthApps.getOAuthApp, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         appId,
       });
 
@@ -2509,7 +2520,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       await convex.mutation(api.oauthApps.deleteOAuthAppMapping, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         appId,
       });
 
@@ -2527,7 +2538,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function rotatePublicApiKey(request: Request, keyId: string): Promise<Response> {
     let body: {
-      tenantId?: string;
+      authUserId?: string;
       name?: string;
       scopes?: string[];
       expiresAt?: number | null;
@@ -2538,13 +2549,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = body.tenantId?.trim();
-    const required = await requireOwnerSessionForTenant(request, tenantId);
+    const authUserId = body.authUserId?.trim();
+    const required = await requireOwnerSessionForTenant(request, authUserId);
     if ('response' in required) {
       return required.response;
     }
-    if (!tenantId) {
-      return Response.json({ error: 'tenantId is required' }, { status: 400 });
+    if (!authUserId) {
+      return Response.json({ error: 'authUserId is required' }, { status: 400 });
     }
 
     try {
@@ -2561,7 +2572,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       }
 
       const metadata = parsePublicApiKeyMetadata(existing.data.metadata);
-      if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.tenantId !== tenantId) {
+      if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.authUserId !== authUserId) {
         return Response.json({ error: 'API key not found' }, { status: 404 });
       }
 
@@ -2579,13 +2590,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const created = await createManagedPublicApiKey(config, required.session.user.id, {
         name: nextName,
         scopes,
-        tenantId,
+        authUserId,
         expiresAt: resolvedExpiresAt,
       });
 
       if (!created.response.ok || !created.data?.id || !created.data.key) {
         logger.warn('Rotate API key rejected by Better Auth', {
-          tenantId,
+          authUserId,
           keyId,
           userId: required.session.user.id,
           status: created.response.status,
@@ -2637,13 +2648,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   /**
    * POST /api/setup/discord-role-session
    * Called by the bot. Creates a short-lived setup session for Discord Role admin flow.
-   * Body: { tenantId, guildId, adminDiscordUserId, apiSecret }
+   * Body: { authUserId, guildId, adminDiscordUserId, apiSecret }
    */
   async function createDiscordRoleSession(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    let body: { tenantId: string; guildId: string; adminDiscordUserId: string; apiSecret: string };
+    let body: { authUserId: string; guildId: string; adminDiscordUserId: string; apiSecret: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -2652,16 +2663,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (body.apiSecret !== config.convexApiSecret) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!body.tenantId || !body.guildId || !body.adminDiscordUserId) {
+    if (!body.authUserId || !body.guildId || !body.adminDiscordUserId) {
       return Response.json(
-        { error: 'tenantId, guildId, and adminDiscordUserId are required' },
+        { error: 'authUserId, guildId, and adminDiscordUserId are required' },
         { status: 400 }
       );
     }
 
     const token = generateToken();
     const session: DiscordRoleSetupSession = {
-      tenantId: body.tenantId,
+      authUserId: body.authUserId,
       guildId: body.guildId,
       adminDiscordUserId: body.adminDiscordUserId,
       completed: false,
@@ -2812,7 +2823,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           expectedDiscordUserId: session.adminDiscordUserId,
           actualDiscordUserId: oauthDiscordUserId,
           guildId: session.guildId,
-          tenantId: session.tenantId,
+          authUserId: session.authUserId,
         });
         return Response.redirect(
           `${config.frontendBaseUrl}/discord-role-setup?error=account_mismatch`,
@@ -3108,7 +3119,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   /**
    * POST /api/connect/payhip-finish
-   * Body: { tenantId?, apiKey }
+   * Body: { authUserId?, apiKey }
    *
    * Stores the Payhip API key (used for webhook signature verification) and creates
    * the provider connection. Returns the webhook URL the creator should paste into
@@ -3129,24 +3140,30 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    let body: { tenantId?: string; apiKey: string };
+    let body: { authUserId?: string; apiKey: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = setupSession?.tenantId ?? body.tenantId ?? null;
+    const authUserId = setupSession?.authUserId ?? body.authUserId ?? null;
     const { apiKey } = body;
-    if (!tenantId || !apiKey) {
-      return Response.json({ error: 'tenantId and apiKey are required' }, { status: 400 });
+    if (!apiKey) {
+      return Response.json({ error: 'apiKey is required' }, { status: 400 });
     }
 
-    if (!setupSession) {
+    const authUserId = authSession?.user?.id ?? null;
+
+    if (!authUserId && !authUserId) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    if (authUserId && !setupSession) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, tenantId);
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -3157,11 +3174,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertPayhipConnection, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId: authUserId ?? undefined,
+        authUserId: authUserId ?? undefined,
         encryptedApiKey: apiKeyEncrypted,
       });
 
-      const webhookUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/payhip/${tenantId}`;
+      // Webhook route: authUserId for server-scoped, authUserId for user-scoped.
+      const webhookRoute = authUserId ?? (authUserId as string);
+      const webhookUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/payhip/${webhookRoute}`;
       return Response.json({ success: true, webhookUrl });
     } catch (err) {
       logger.error('Payhip finish failed', {
@@ -3173,7 +3193,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   /**
    * POST /api/connect/payhip/product-key
-   * Body: { tenantId?, permalink, productSecretKey }
+   * Body: { authUserId?, permalink, productSecretKey }
    *
    * Stores a per-product secret key for a Payhip product. The secret key is found
    * on the product edit page, in the section where license keys are enabled.
@@ -3191,27 +3211,31 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    let body: { tenantId?: string; permalink: string; productSecretKey: string };
+    let body: { authUserId?: string; permalink: string; productSecretKey: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const tenantId = setupSession?.tenantId ?? body.tenantId ?? null;
+    const authUserId = setupSession?.authUserId ?? body.authUserId ?? null;
+    const authUserId = authSession?.user?.id ?? null;
     const { permalink, productSecretKey } = body;
-    if (!tenantId || !permalink || !productSecretKey) {
+    if (!permalink || !productSecretKey) {
       return Response.json(
-        { error: 'tenantId, permalink, and productSecretKey are required' },
+        { error: 'permalink and productSecretKey are required' },
         { status: 400 }
       );
     }
+    if (!authUserId && !authUserId) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
 
-    if (!setupSession) {
+    if (authUserId && !setupSession) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, tenantId);
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -3222,7 +3246,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertPayhipProductSecretKey, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId: authUserId ?? undefined,
+        authUserId: authUserId ?? undefined,
         productPermalink: permalink,
         encryptedSecretKey: secretKeyEncrypted,
       });
@@ -3236,7 +3261,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * GET /api/connect/payhip/test-webhook?tenantId=XXX
+   * GET /api/connect/payhip/test-webhook?authUserId=XXX
    * Returns { received: boolean }.
    *
    * The webhook handler sets a short-lived flag in the state store when it processes
@@ -3245,31 +3270,33 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    */
   async function payhipTestWebhook(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    let tenantId = url.searchParams.get('tenantId');
+    let routeId: string | null = url.searchParams.get('authUserId');
     const setupBinding = await requireBoundSetupSession(request);
 
     if (setupBinding.ok) {
-      tenantId = setupBinding.setupSession.tenantId;
+      routeId = setupBinding.setupSession.authUserId;
     } else {
       const session = await auth.getSession(request);
       if (!session) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      if (!tenantId) {
-        return Response.json({ error: 'tenantId is required' }, { status: 400 });
-      }
-      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, tenantId);
-      if (!tenantOwned) {
-        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      if (routeId) {
+        const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, routeId);
+        if (!tenantOwned) {
+          return Response.json({ error: 'Forbidden' }, { status: 403 });
+        }
+      } else {
+        // User-scoped: no server selected — poll by authUserId.
+        routeId = session.user.id;
       }
     }
 
-    if (!tenantId) {
-      return Response.json({ error: 'tenantId or setup token is required' }, { status: 400 });
+    if (!routeId) {
+      return Response.json({ error: 'authUserId or setup token is required' }, { status: 400 });
     }
 
     const store = getStateStore();
-    const raw = await store.get(`${PAYHIP_TEST_PREFIX}${tenantId}`);
+    const raw = await store.get(`${PAYHIP_TEST_PREFIX}${routeId}`);
     return Response.json({ received: !!raw });
   }
 

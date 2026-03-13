@@ -219,7 +219,7 @@ describe('VerificationSessionManager', () => {
     it('fails with unknown mode', async () => {
       const manager = createVerificationSessionManager(testConfig);
       const result = await manager.beginSession({
-        tenantId: 'test-tenant',
+        authUserId: 'user_test123',
         mode: 'unknown' as 'gumroad',
         redirectUri: 'http://localhost:3000/callback',
       });
@@ -233,7 +233,7 @@ describe('VerificationSessionManager', () => {
         gumroadClientId: undefined,
       });
       const result = await manager.beginSession({
-        tenantId: 'test-tenant',
+        authUserId: 'user_test123',
         mode: 'gumroad',
         redirectUri: 'http://localhost:3000/callback',
       });
@@ -244,7 +244,7 @@ describe('VerificationSessionManager', () => {
     it('creates session with gumroad mode', async () => {
       const manager = createVerificationSessionManager(testConfig);
       const result = await manager.beginSession({
-        tenantId: 'test-tenant',
+        authUserId: 'user_test123',
         mode: 'gumroad',
         redirectUri: 'http://localhost:3000/callback',
       });
@@ -260,7 +260,7 @@ describe('VerificationSessionManager', () => {
     it('creates session with discord_role mode', async () => {
       const manager = createVerificationSessionManager(testConfig);
       const result = await manager.beginSession({
-        tenantId: 'test-tenant',
+        authUserId: 'user_test123',
         mode: 'discord_role',
         redirectUri: 'http://localhost:3000/callback',
       });
@@ -271,7 +271,7 @@ describe('VerificationSessionManager', () => {
     it('creates session with jinxxy mode', async () => {
       const manager = createVerificationSessionManager(testConfig);
       const result = await manager.beginSession({
-        tenantId: 'test-tenant',
+        authUserId: 'user_test123',
         mode: 'jinxxy',
         redirectUri: 'http://localhost:3000/callback',
       });
@@ -282,7 +282,7 @@ describe('VerificationSessionManager', () => {
     it('includes PKCE parameters in auth URL', async () => {
       const manager = createVerificationSessionManager(testConfig);
       const result = await manager.beginSession({
-        tenantId: 'test-tenant',
+        authUserId: 'user_test123',
         mode: 'gumroad',
         redirectUri: 'http://localhost:3000/callback',
       });

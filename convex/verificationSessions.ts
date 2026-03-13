@@ -55,7 +55,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
 export const getVerificationSessionByState = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     state: v.string(),
   },
   returns: v.union(
@@ -64,7 +64,7 @@ export const getVerificationSessionByState = query({
       session: v.object({
         _id: v.id('verification_sessions'),
         _creationTime: v.number(),
-        tenantId: v.id('tenants'),
+        authUserId: v.string(),
         subjectId: v.optional(v.id('subjects')),
         mode: VerificationModeV,
         providerKey: v.optional(v.string()),
@@ -100,7 +100,7 @@ export const getVerificationSessionByState = query({
     requireApiSecret(args.apiSecret);
     const session = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_tenant_state', (q) => q.eq('tenantId', args.tenantId).eq('state', args.state))
+      .withIndex('by_auth_user_state', (q) => q.eq('authUserId', args.authUserId).eq('state', args.state))
       .first();
 
     if (!session) {
@@ -138,7 +138,7 @@ export const getVerificationSessionByNonce = query({
       session: v.object({
         _id: v.id('verification_sessions'),
         _creationTime: v.number(),
-        tenantId: v.id('tenants'),
+        authUserId: v.string(),
         subjectId: v.optional(v.id('subjects')),
         mode: VerificationModeV,
         providerKey: v.optional(v.string()),
@@ -200,7 +200,7 @@ export const getVerificationSessionByNonce = query({
 export const getPendingSessionsForTenant = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.array(
     v.object({
@@ -216,7 +216,7 @@ export const getPendingSessionsForTenant = query({
     const now = Date.now();
     const sessions = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('status'), 'pending'))
       .filter((q) => q.gt(q.field('expiresAt'), now))
       .collect();
@@ -237,13 +237,13 @@ export const getPendingSessionsForTenant = query({
 
 /**
  * Create a new verification session.
- * Stores state, nonce, PKCE verifier hash, mode, tenantId, and expiry.
+ * Stores state, nonce, PKCE verifier hash, mode, authUserId, and expiry.
  * Requires apiSecret - called by API server only.
  */
 export const createVerificationSession = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     mode: VerificationMode,
     providerKey: v.optional(v.string()),
     verificationMethod: v.optional(v.string()),
@@ -270,7 +270,7 @@ export const createVerificationSession = mutation({
     // Check for existing session with same state (replay protection)
     const existingSession = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_tenant_state', (q) => q.eq('tenantId', args.tenantId).eq('state', args.state))
+      .withIndex('by_auth_user_state', (q) => q.eq('authUserId', args.authUserId).eq('state', args.state))
       .first();
 
     if (existingSession && existingSession.status === 'pending') {
@@ -292,7 +292,7 @@ export const createVerificationSession = mutation({
     }
 
     const sessionId = await ctx.db.insert('verification_sessions', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       mode: args.mode,
       providerKey: args.providerKey,
       verificationMethod: args.verificationMethod ?? args.mode,
@@ -546,7 +546,7 @@ export const cleanupExpiredSessions = mutation({
 export const getOrCreateSessionByNonce = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     mode: VerificationMode,
     providerKey: v.optional(v.string()),
     verificationMethod: v.optional(v.string()),
@@ -589,7 +589,7 @@ export const getOrCreateSessionByNonce = mutation({
     const expiresAt = now + SESSION_EXPIRY_MS;
 
     const sessionId = await ctx.db.insert('verification_sessions', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       mode: args.mode,
       providerKey: args.providerKey,
       verificationMethod: args.verificationMethod ?? args.mode,

@@ -13,7 +13,6 @@
 
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
-import type { Doc } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
 import { ProviderV } from './lib/providers';
 
@@ -90,7 +89,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
 export const getEntitlementsBySubject = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     includeInactive: v.optional(v.boolean()),
   },
@@ -98,7 +97,7 @@ export const getEntitlementsBySubject = query({
     v.object({
       _id: v.id('entitlements'),
       _creationTime: v.number(),
-      tenantId: v.id('tenants'),
+      authUserId: v.string(),
       subjectId: v.id('subjects'),
       productId: v.string(),
       sourceProvider: EntitlementProvider,
@@ -116,8 +115,8 @@ export const getEntitlementsBySubject = query({
     requireApiSecret(args.apiSecret);
     let query = ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       );
 
     if (!args.includeInactive) {
@@ -136,7 +135,7 @@ export const getEntitlementsBySubject = query({
 export const getEntitlementsByProduct = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     productId: v.string(),
     includeInactive: v.optional(v.boolean()),
   },
@@ -144,7 +143,7 @@ export const getEntitlementsByProduct = query({
     v.object({
       _id: v.id('entitlements'),
       _creationTime: v.number(),
-      tenantId: v.id('tenants'),
+      authUserId: v.string(),
       subjectId: v.id('subjects'),
       productId: v.string(),
       sourceProvider: EntitlementProvider,
@@ -162,8 +161,8 @@ export const getEntitlementsByProduct = query({
     requireApiSecret(args.apiSecret);
     let query = ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_product', (q) =>
-        q.eq('tenantId', args.tenantId).eq('productId', args.productId)
+      .withIndex('by_auth_user_product', (q) =>
+        q.eq('authUserId', args.authUserId).eq('productId', args.productId)
       );
 
     if (!args.includeInactive) {
@@ -182,7 +181,7 @@ export const getEntitlementsByProduct = query({
 export const getActiveEntitlement = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     productId: v.string(),
   },
@@ -192,7 +191,7 @@ export const getActiveEntitlement = query({
       entitlement: v.object({
         _id: v.id('entitlements'),
         _creationTime: v.number(),
-        tenantId: v.id('tenants'),
+        authUserId: v.string(),
         subjectId: v.id('subjects'),
         productId: v.string(),
         sourceProvider: EntitlementProvider,
@@ -215,8 +214,8 @@ export const getActiveEntitlement = query({
     requireApiSecret(args.apiSecret);
     const entitlement = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .filter((q) => q.eq(q.field('productId'), args.productId))
       .filter((q) => q.eq(q.field('status'), 'active'))
@@ -234,7 +233,7 @@ export const getActiveEntitlement = query({
  * Stats overview for bot /yucp stats.
  */
 export const getStatsOverview = query({
-  args: { apiSecret: v.string(), tenantId: v.id('tenants') },
+  args: { apiSecret: v.string(), authUserId: v.string() },
   returns: v.object({
     totalVerified: v.number(),
     totalProducts: v.number(),
@@ -244,7 +243,7 @@ export const getStatsOverview = query({
     requireApiSecret(args.apiSecret);
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_status', (q) => q.eq('tenantId', args.tenantId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
       .collect();
     const uniqueSubjects = new Set(activeEntitlements.map((e) => e.subjectId));
     const uniqueProducts = new Set(activeEntitlements.map((e) => e.productId));
@@ -262,7 +261,7 @@ export const getStatsOverview = query({
  * Extended stats overview with 24h, 7d, 30d verification counts.
  */
 export const getStatsOverviewExtended = query({
-  args: { apiSecret: v.string(), tenantId: v.id('tenants') },
+  args: { apiSecret: v.string(), authUserId: v.string() },
   returns: v.object({
     totalVerified: v.number(),
     totalProducts: v.number(),
@@ -274,7 +273,7 @@ export const getStatsOverviewExtended = query({
     requireApiSecret(args.apiSecret);
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_status', (q) => q.eq('tenantId', args.tenantId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
       .collect();
     const uniqueSubjects = new Set(activeEntitlements.map((e) => e.subjectId));
     const uniqueProducts = new Set(activeEntitlements.map((e) => e.productId));
@@ -301,7 +300,7 @@ export const getStatsOverviewExtended = query({
 export const getVerifiedUsersPaginated = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     limit: v.optional(v.number()),
     cursor: v.optional(v.string()),
   },
@@ -322,7 +321,7 @@ export const getVerifiedUsersPaginated = query({
     const limit = Math.min(args.limit ?? 25, 50);
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_status', (q) => q.eq('tenantId', args.tenantId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
       .collect();
     const bySubject = new Map<string, { productIds: Set<string> }>();
     for (const e of activeEntitlements) {
@@ -365,7 +364,7 @@ export const getVerifiedUsersPaginated = query({
  * Product verification counts for /yucp stats products.
  */
 export const getProductStats = query({
-  args: { apiSecret: v.string(), tenantId: v.id('tenants') },
+  args: { apiSecret: v.string(), authUserId: v.string() },
   returns: v.array(
     v.object({
       productId: v.string(),
@@ -376,7 +375,7 @@ export const getProductStats = query({
     requireApiSecret(args.apiSecret);
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_status', (q) => q.eq('tenantId', args.tenantId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
       .collect();
     const byProduct = new Map<string, number>();
     for (const e of activeEntitlements) {
@@ -396,7 +395,7 @@ export const getProductStats = query({
 export const hasActiveEntitlement = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     productId: v.string(),
   },
@@ -405,8 +404,8 @@ export const hasActiveEntitlement = query({
     requireApiSecret(args.apiSecret);
     const entitlement = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .filter((q) => q.eq(q.field('productId'), args.productId))
       .filter((q) => q.eq(q.field('status'), 'active'))
@@ -430,7 +429,7 @@ export const getEntitlement = query({
       entitlement: v.object({
         _id: v.id('entitlements'),
         _creationTime: v.number(),
-        tenantId: v.id('tenants'),
+        authUserId: v.string(),
         subjectId: v.id('subjects'),
         productId: v.string(),
         sourceProvider: EntitlementProvider,
@@ -474,7 +473,7 @@ export const getEntitlementsByProviderCustomer = query({
     v.object({
       _id: v.id('entitlements'),
       _creationTime: v.number(),
-      tenantId: v.id('tenants'),
+      authUserId: v.string(),
       subjectId: v.id('subjects'),
       productId: v.string(),
       sourceProvider: EntitlementProvider,
@@ -517,7 +516,7 @@ export const getEntitlementsByProviderCustomer = query({
 export const grantEntitlement = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     productId: v.string(),
     evidence: ProviderEvidence,
@@ -529,17 +528,20 @@ export const grantEntitlement = mutation({
     requireApiSecret(args.apiSecret);
     const now = Date.now();
 
-    // Get tenant for policy snapshot
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant) {
-      throw new Error(`Tenant not found: ${args.tenantId}`);
+    // Get creator profile for policy snapshot
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    if (!profile) {
+      throw new Error(`Creator profile not found: ${args.authUserId}`);
     }
 
     // Check for existing entitlement with same sourceReference (idempotency)
     const existingEntitlement = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .filter((q) => q.eq(q.field('sourceReference'), args.evidence.sourceReference))
       .first();
@@ -568,7 +570,7 @@ export const grantEntitlement = mutation({
       // Emit role sync job
       const outboxJobId = await emitRoleSyncJob(
         ctx,
-        args.tenantId,
+        args.authUserId,
         args.subjectId,
         existingEntitlement._id,
         args.correlationId
@@ -576,7 +578,7 @@ export const grantEntitlement = mutation({
 
       // Create audit event
       await createAuditEvent(ctx, {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         eventType: 'entitlement.granted',
         subjectId: args.subjectId,
         entitlementId: existingEntitlement._id,
@@ -601,11 +603,11 @@ export const grantEntitlement = mutation({
 
     // Calculate policy snapshot version
     // Use a simple counter based on tenant policy updates
-    const policySnapshotVersion = await getPolicySnapshotVersion(ctx, args.tenantId, tenant);
+    const policySnapshotVersion = await getPolicySnapshotVersion(ctx, args.authUserId);
 
     // Create new entitlement
     const entitlementId = await ctx.db.insert('entitlements', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       subjectId: args.subjectId,
       productId: args.productId,
       sourceProvider: args.evidence.provider,
@@ -621,7 +623,7 @@ export const grantEntitlement = mutation({
     // Emit role sync job
     const outboxJobId = await emitRoleSyncJob(
       ctx,
-      args.tenantId,
+      args.authUserId,
       args.subjectId,
       entitlementId,
       args.correlationId
@@ -629,7 +631,7 @@ export const grantEntitlement = mutation({
 
     // Create audit event
     await createAuditEvent(ctx, {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       eventType: 'entitlement.granted',
       subjectId: args.subjectId,
       entitlementId,
@@ -707,7 +709,7 @@ export const revokeEntitlement = mutation({
     // Find all role rules for this product and emit role removal jobs
     const outboxJobIds = await emitRoleRemovalJobs(
       ctx,
-      entitlement.tenantId,
+      entitlement.authUserId,
       entitlement.subjectId,
       entitlement.productId,
       args.entitlementId,
@@ -716,7 +718,7 @@ export const revokeEntitlement = mutation({
 
     // Create audit event
     await createAuditEvent(ctx, {
-      tenantId: entitlement.tenantId,
+      authUserId: entitlement.authUserId,
       eventType: 'entitlement.revoked',
       subjectId: entitlement.subjectId,
       entitlementId: args.entitlementId,
@@ -748,7 +750,7 @@ export const revokeEntitlement = mutation({
 export const revokeEntitlementBySourceRef = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     sourceReference: v.string(),
     reason: v.optional(RevocationReason),
@@ -761,8 +763,8 @@ export const revokeEntitlementBySourceRef = mutation({
 
     const entitlement = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .filter((q) => q.eq(q.field('sourceReference'), args.sourceReference))
       .filter((q) => q.eq(q.field('status'), 'active'))
@@ -780,7 +782,7 @@ export const revokeEntitlementBySourceRef = mutation({
 
     await emitRoleRemovalJobs(
       ctx,
-      args.tenantId,
+      args.authUserId,
       args.subjectId,
       entitlement.productId,
       entitlement._id,
@@ -788,7 +790,7 @@ export const revokeEntitlementBySourceRef = mutation({
     );
 
     await createAuditEvent(ctx, {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       eventType: 'entitlement.revoked',
       subjectId: args.subjectId,
       entitlementId: entitlement._id,
@@ -813,7 +815,7 @@ export const revokeEntitlementBySourceRef = mutation({
 export const revokeAllEntitlementsForSubject = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
   },
   returns: v.object({
@@ -827,8 +829,8 @@ export const revokeAllEntitlementsForSubject = mutation({
 
     const entitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
@@ -842,7 +844,7 @@ export const revokeAllEntitlementsForSubject = mutation({
 
       const jobIds = await emitRoleRemovalJobs(
         ctx,
-        args.tenantId,
+        args.authUserId,
         args.subjectId,
         entitlement.productId,
         entitlement._id,
@@ -851,7 +853,7 @@ export const revokeAllEntitlementsForSubject = mutation({
       outboxJobIds.push(...jobIds);
 
       await createAuditEvent(ctx, {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         eventType: 'entitlement.revoked',
         subjectId: args.subjectId,
         entitlementId: entitlement._id,
@@ -879,7 +881,7 @@ export const revokeAllEntitlementsForSubject = mutation({
 export const revokeEntitlementsForProviderDisconnect = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     provider: v.string(),
   },
@@ -894,8 +896,8 @@ export const revokeEntitlementsForProviderDisconnect = mutation({
 
     const entitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .filter((q) => q.eq(q.field('sourceProvider'), args.provider))
@@ -910,7 +912,7 @@ export const revokeEntitlementsForProviderDisconnect = mutation({
 
       const jobIds = await emitRoleRemovalJobs(
         ctx,
-        args.tenantId,
+        args.authUserId,
         args.subjectId,
         entitlement.productId,
         entitlement._id,
@@ -919,7 +921,7 @@ export const revokeEntitlementsForProviderDisconnect = mutation({
       outboxJobIds.push(...jobIds);
 
       await createAuditEvent(ctx, {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         eventType: 'entitlement.revoked',
         subjectId: args.subjectId,
         entitlementId: entitlement._id,
@@ -946,7 +948,7 @@ export const revokeEntitlementsForProviderDisconnect = mutation({
 export const revokeEntitlementsByProduct = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     discordUserId: v.string(),
     productId: v.string(),
   },
@@ -969,8 +971,8 @@ export const revokeEntitlementsByProduct = mutation({
 
     const entitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', subject._id)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', subject._id)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .filter((q) => q.eq(q.field('productId'), args.productId))
@@ -992,7 +994,7 @@ export const revokeEntitlementsByProduct = mutation({
 
       await emitRoleRemovalJobs(
         ctx,
-        args.tenantId,
+        args.authUserId,
         subject._id,
         args.productId,
         ent._id,
@@ -1000,7 +1002,7 @@ export const revokeEntitlementsByProduct = mutation({
       );
 
       await createAuditEvent(ctx, {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         eventType: 'entitlement.revoked',
         subjectId: subject._id,
         entitlementId: ent._id,
@@ -1053,7 +1055,7 @@ export const refreshEntitlement = mutation({
 
     // Create audit event
     await createAuditEvent(ctx, {
-      tenantId: entitlement.tenantId,
+      authUserId: entitlement.authUserId,
       eventType: 'entitlement.granted', // Using granted as "refresh" for audit trail
       subjectId: entitlement.subjectId,
       entitlementId: args.entitlementId,
@@ -1082,7 +1084,7 @@ export const refreshEntitlement = mutation({
 export const grantEntitlementsForPurchaser = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     providerCustomerId: v.id('provider_customers'),
     products: v.array(
@@ -1108,20 +1110,23 @@ export const grantEntitlementsForPurchaser = mutation({
     let grantedCount = 0;
     let skippedCount = 0;
 
-    // Get tenant for policy snapshot
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant) {
-      throw new Error(`Tenant not found: ${args.tenantId}`);
+    // Get creator profile for policy snapshot
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    if (!profile) {
+      throw new Error(`Creator profile not found: ${args.authUserId}`);
     }
 
-    const policySnapshotVersion = await getPolicySnapshotVersion(ctx, args.tenantId, tenant);
+    const policySnapshotVersion = await getPolicySnapshotVersion(ctx, args.authUserId);
 
     for (const product of args.products) {
       // Check for existing entitlement
       const existing = await ctx.db
         .query('entitlements')
-        .withIndex('by_tenant_subject', (q) =>
-          q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
         )
         .filter((q) => q.eq(q.field('productId'), product.productId))
         .filter((q) => q.eq(q.field('status'), 'active'))
@@ -1134,7 +1139,7 @@ export const grantEntitlementsForPurchaser = mutation({
 
       // Create entitlement
       const entitlementId = await ctx.db.insert('entitlements', {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         subjectId: args.subjectId,
         productId: product.productId,
         sourceProvider: 'gumroad', // Default for purchaser discovery
@@ -1151,13 +1156,13 @@ export const grantEntitlementsForPurchaser = mutation({
       grantedCount++;
 
       // Emit role sync job for each
-      await emitRoleSyncJob(ctx, args.tenantId, args.subjectId, entitlementId, args.correlationId);
+      await emitRoleSyncJob(ctx, args.authUserId, args.subjectId, entitlementId, args.correlationId);
     }
 
     // Create single audit event for batch
     if (grantedCount > 0) {
       await createAuditEvent(ctx, {
-        tenantId: args.tenantId,
+        authUserId: args.authUserId,
         eventType: 'entitlement.granted',
         subjectId: args.subjectId,
         metadata: {
@@ -1186,7 +1191,7 @@ export const grantEntitlementsForPurchaser = mutation({
 export const enqueueRoleSyncsForUser = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     discordUserId: v.string(),
   },
   returns: v.object({
@@ -1209,8 +1214,8 @@ export const enqueueRoleSyncsForUser = mutation({
     // Find active entitlements
     const entitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', subject._id)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', subject._id)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
@@ -1219,7 +1224,7 @@ export const enqueueRoleSyncsForUser = mutation({
     const correlationId = `refresh:${Date.now()}`;
 
     for (const ent of entitlements) {
-      await emitRoleSyncJob(ctx, args.tenantId, subject._id, ent._id, correlationId);
+      await emitRoleSyncJob(ctx, args.authUserId, subject._id, ent._id, correlationId);
       jobsCreated++;
     }
 
@@ -1238,7 +1243,7 @@ export const enqueueRoleSyncsForUser = mutation({
 export const expireEntitlements = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     expirationThreshold: v.number(),
   },
   returns: v.object({
@@ -1252,12 +1257,15 @@ export const expireEntitlements = mutation({
     const entitlementIds: Id<'entitlements'>[] = [];
     let expiredCount = 0;
 
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant) {
-      throw new Error(`Tenant not found: ${args.tenantId}`);
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    if (!profile) {
+      throw new Error(`Creator profile not found: ${args.authUserId}`);
     }
 
-    const { gracePeriodHours } = tenant.policy ?? {};
+    const { gracePeriodHours } = profile.policy ?? {};
     // revocationBehavior is available via tenant.policy.revocationBehavior if needed for role removal behavior
 
     // If no grace period is configured, skip expiration (entitlements never expire via this job)
@@ -1271,7 +1279,7 @@ export const expireEntitlements = mutation({
 
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_status', (q) => q.eq('tenantId', args.tenantId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
       .collect();
 
     const gracePeriodMs = gracePeriodHours * 3600000;
@@ -1292,7 +1300,7 @@ export const expireEntitlements = mutation({
 
         await emitRoleRemovalJobs(
           ctx,
-          entitlement.tenantId,
+          entitlement.authUserId,
           entitlement.subjectId,
           entitlement.productId,
           entitlement._id,
@@ -1319,14 +1327,13 @@ export const expireEntitlements = mutation({
  */
 async function getPolicySnapshotVersion(
   ctx: { db: { query: Function } },
-  tenantId: Id<'tenants'>,
-  tenant: Doc<'tenants'>
+  authUserId: string
 ): Promise<number> {
   // Simple hash-based versioning
   // Count existing entitlements to get a rough version number
   const existingEntitlements = await (ctx as any).db
     .query('entitlements')
-    .withIndex('by_tenant', (q: any) => q.eq('tenantId', tenantId))
+    .withIndex('by_auth_user', (q: any) => q.eq('authUserId', authUserId))
     .collect();
 
   // Use the count as a simple version increment
@@ -1357,7 +1364,7 @@ function mapReasonToStatus(
  */
 async function emitRoleSyncJob(
   ctx: { db: { insert: Function; query: Function } },
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   subjectId: Id<'subjects'>,
   entitlementId: Id<'entitlements'>,
   correlationId?: string
@@ -1367,10 +1374,10 @@ async function emitRoleSyncJob(
   // Get subject to find Discord user ID
   const subject = await (ctx as any).db.get(subjectId);
 
-  const idempotencyKey = `role_sync:${tenantId}:${subjectId}:${entitlementId}:${now}`;
+  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}:${now}`;
 
   const outboxJobId = await (ctx as any).db.insert('outbox_jobs', {
-    tenantId,
+    authUserId,
     jobType: 'role_sync',
     payload: {
       subjectId,
@@ -1394,7 +1401,7 @@ async function emitRoleSyncJob(
  */
 async function emitRoleRemovalJobs(
   ctx: { db: { insert: Function; query: Function } },
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   subjectId: Id<'subjects'>,
   productId: string,
   entitlementId: Id<'entitlements'>,
@@ -1406,7 +1413,7 @@ async function emitRoleRemovalJobs(
   // Find all role rules for this product
   const roleRules = await (ctx as any).db
     .query('role_rules')
-    .withIndex('by_tenant', (q: any) => q.eq('tenantId', tenantId))
+    .withIndex('by_auth_user', (q: any) => q.eq('authUserId', authUserId))
     .filter((q: any) => q.eq(q.field('productId'), productId))
     .filter((q: any) => q.eq(q.field('enabled'), true))
     .filter((q: any) => q.eq(q.field('removeOnRevoke'), true))
@@ -1419,10 +1426,10 @@ async function emitRoleRemovalJobs(
     const roleIds = rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
 
     for (const roleId of roleIds) {
-      const idempotencyKey = `role_removal:${tenantId}:${subjectId}:${rule.guildId}:${productId}:${roleId}:${now}`;
+      const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${roleId}:${now}`;
 
       const outboxJobId = await (ctx as any).db.insert('outbox_jobs', {
-        tenantId,
+        authUserId,
         jobType: 'role_removal',
         payload: {
           subjectId,
@@ -1454,7 +1461,7 @@ async function emitRoleRemovalJobs(
 async function createAuditEvent(
   ctx: { db: { insert: Function } },
   params: {
-    tenantId: Id<'tenants'>;
+    authUserId: string;
     eventType: 'entitlement.granted' | 'entitlement.revoked' | 'discord.role.sync.requested';
     subjectId?: Id<'subjects'>;
     entitlementId?: Id<'entitlements'>;
@@ -1463,7 +1470,7 @@ async function createAuditEvent(
   }
 ): Promise<void> {
   await (ctx as any).db.insert('audit_events', {
-    tenantId: params.tenantId,
+    authUserId: params.authUserId,
     eventType: params.eventType,
     actorType: 'system',
     subjectId: params.subjectId,

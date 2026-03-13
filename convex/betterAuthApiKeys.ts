@@ -54,10 +54,10 @@ function serializeApiKeyRecord(
     typeof value.metadata === 'object' &&
     !Array.isArray(value.metadata) &&
     typeof (value.metadata as Record<string, unknown>).kind === 'string' &&
-    typeof (value.metadata as Record<string, unknown>).tenantId === 'string'
+    typeof (value.metadata as Record<string, unknown>).authUserId === 'string'
       ? {
           kind: (value.metadata as Record<string, unknown>).kind as string,
-          tenantId: (value.metadata as Record<string, unknown>).tenantId as string,
+          authUserId: (value.metadata as Record<string, unknown>).authUserId as string,
         }
       : null;
 
@@ -88,7 +88,7 @@ const SerializedApiKey = v.object({
   metadata: v.union(
     v.object({
       kind: v.string(),
-      tenantId: v.string(),
+      authUserId: v.string(),
     }),
     v.null()
   ),
@@ -107,7 +107,7 @@ interface BetterAuthServerApi {
       expiresIn?: number | null;
       metadata: {
         kind: string;
-        tenantId: string;
+        authUserId: string;
       };
       permissions: Record<string, string[]>;
     };
@@ -155,7 +155,7 @@ export const createApiKey = mutation({
   args: {
     apiSecret: v.string(),
     userId: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     name: v.string(),
     scopes: v.array(v.string()),
     expiresIn: v.optional(v.union(v.number(), v.null())),
@@ -176,7 +176,7 @@ export const createApiKey = mutation({
         expiresIn: args.expiresIn,
         metadata: {
           kind: PUBLIC_API_KEY_METADATA_KIND,
-          tenantId: args.tenantId,
+          authUserId: args.authUserId,
         },
         permissions: {
           [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: args.scopes,

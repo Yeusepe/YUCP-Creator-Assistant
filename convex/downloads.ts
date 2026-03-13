@@ -27,7 +27,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
 export const listRoutesByGuild = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     guildId: v.string(),
   },
   returns: v.array(v.any()),
@@ -35,8 +35,8 @@ export const listRoutesByGuild = query({
     requireApiSecret(args.apiSecret);
     return await ctx.db
       .query('download_routes')
-      .withIndex('by_tenant_guild', (q) =>
-        q.eq('tenantId', args.tenantId).eq('guildId', args.guildId)
+      .withIndex('by_auth_user_guild', (q) =>
+        q.eq('authUserId', args.authUserId).eq('guildId', args.guildId)
       )
       .order('asc')
       .collect();
@@ -90,7 +90,7 @@ export const getActiveRoutesForChannel = query({
 export const createRoute = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     guildId: v.string(),
     guildLinkId: v.id('guild_links'),
     sourceChannelId: v.string(),
@@ -131,7 +131,7 @@ export const createRoute = mutation({
     }
 
     const routeId = await ctx.db.insert('download_routes', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       guildId: args.guildId,
       guildLinkId: args.guildLinkId,
       sourceChannelId: args.sourceChannelId,
@@ -234,7 +234,7 @@ export const deleteRoute = mutation({
 export const createArtifact = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     guildId: v.string(),
     routeId: v.id('download_routes'),
     sourceChannelId: v.string(),
@@ -258,7 +258,7 @@ export const createArtifact = mutation({
     requireApiSecret(args.apiSecret);
     const now = Date.now();
     const artifactId = await ctx.db.insert('download_artifacts', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       guildId: args.guildId,
       routeId: args.routeId,
       sourceChannelId: args.sourceChannelId,

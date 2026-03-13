@@ -30,7 +30,7 @@ export const purge = mutation({
       // just in case old rules don't have catalogProductId set
       const refsByStringId = await ctx.db
         .query('role_rules')
-        .withIndex('by_tenant', (q) => q.eq('tenantId', prod.tenantId))
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', prod.authUserId))
         .filter((q) => q.eq(q.field('productId'), prod.productId))
         .first();
 

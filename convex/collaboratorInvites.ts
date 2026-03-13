@@ -22,7 +22,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
 export const createCollaboratorInvite = mutation({
   args: {
     apiSecret: v.string(),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
     ownerDisplayName: v.string(),
     ownerGuildId: v.optional(v.string()),
     tokenHash: v.string(),
@@ -32,7 +32,7 @@ export const createCollaboratorInvite = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     return await ctx.db.insert('collaborator_invites', {
-      ownerTenantId: args.ownerTenantId,
+      ownerAuthUserId: args.ownerAuthUserId,
       tokenHash: args.tokenHash,
       status: 'pending',
       ownerDisplayName: args.ownerDisplayName,
@@ -54,7 +54,7 @@ export const getCollaboratorInviteByTokenHash = query({
   returns: v.union(
     v.object({
       _id: v.id('collaborator_invites'),
-      ownerTenantId: v.id('tenants'),
+      ownerAuthUserId: v.string(),
       tokenHash: v.string(),
       status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('revoked')),
       ownerDisplayName: v.string(),
@@ -73,7 +73,7 @@ export const getCollaboratorInviteByTokenHash = query({
     if (!invite) return null;
     return {
       _id: invite._id,
-      ownerTenantId: invite.ownerTenantId,
+      ownerAuthUserId: invite.ownerAuthUserId,
       tokenHash: invite.tokenHash,
       status: invite.status,
       ownerDisplayName: invite.ownerDisplayName,
@@ -95,7 +95,7 @@ export const getCollaboratorInviteById = query({
   returns: v.union(
     v.object({
       _id: v.id('collaborator_invites'),
-      ownerTenantId: v.id('tenants'),
+      ownerAuthUserId: v.string(),
       tokenHash: v.string(),
       status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('revoked')),
       ownerDisplayName: v.string(),
@@ -111,7 +111,7 @@ export const getCollaboratorInviteById = query({
     if (!invite) return null;
     return {
       _id: invite._id,
-      ownerTenantId: invite.ownerTenantId,
+      ownerAuthUserId: invite.ownerAuthUserId,
       tokenHash: invite.tokenHash,
       status: invite.status,
       ownerDisplayName: invite.ownerDisplayName,
@@ -191,7 +191,7 @@ export const acceptCollaboratorInvite = mutation({
     const webhookConfigured = !!(args.webhookSecretRef && args.webhookEndpoint);
 
     return await ctx.db.insert('collaborator_connections', {
-      ownerTenantId: invite.ownerTenantId,
+      ownerAuthUserId: invite.ownerAuthUserId,
       inviteId: args.inviteId,
       provider: 'jinxxy',
       jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
@@ -216,7 +216,7 @@ export const acceptCollaboratorInvite = mutation({
 export const addCollaboratorConnectionManual = mutation({
   args: {
     apiSecret: v.string(),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
     jinxxyApiKeyEncrypted: v.string(),
     collaboratorDisplayName: v.string(),
     collaboratorIdentity: v.string(),
@@ -226,7 +226,7 @@ export const addCollaboratorConnectionManual = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     return await ctx.db.insert('collaborator_connections', {
-      ownerTenantId: args.ownerTenantId,
+      ownerAuthUserId: args.ownerAuthUserId,
       provider: 'jinxxy',
       jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
       webhookConfigured: false,
@@ -248,12 +248,12 @@ export const revokeCollaboratorInvite = mutation({
   args: {
     apiSecret: v.string(),
     inviteId: v.id('collaborator_invites'),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const invite = await ctx.db.get(args.inviteId);
-    if (!invite || invite.ownerTenantId !== args.ownerTenantId) {
+    if (!invite || invite.ownerAuthUserId !== args.ownerAuthUserId) {
       throw new Error('Invite not found or access denied');
     }
     await ctx.db.patch(args.inviteId, { status: 'revoked' });
@@ -266,13 +266,13 @@ export const revokeCollaboratorInvite = mutation({
 export const listCollaboratorConnections = query({
   args: {
     apiSecret: v.string(),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const connections = await ctx.db
       .query('collaborator_connections')
-      .withIndex('by_owner', (q) => q.eq('ownerTenantId', args.ownerTenantId))
+      .withIndex('by_owner', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId))
       .collect();
 
     return connections.map((c) => ({
@@ -297,12 +297,12 @@ export const removeCollaboratorConnection = mutation({
   args: {
     apiSecret: v.string(),
     connectionId: v.id('collaborator_connections'),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const conn = await ctx.db.get(args.connectionId);
-    if (!conn || conn.ownerTenantId !== args.ownerTenantId) {
+    if (!conn || conn.ownerAuthUserId !== args.ownerAuthUserId) {
       throw new Error('Connection not found or access denied');
     }
     await ctx.db.patch(args.connectionId, { status: 'disconnected' });
@@ -316,7 +316,7 @@ export const removeCollaboratorConnection = mutation({
 export const getCollabConnectionsForVerification = query({
   args: {
     apiSecret: v.string(),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
   },
   returns: v.array(
     v.object({
@@ -329,7 +329,7 @@ export const getCollabConnectionsForVerification = query({
     const connections = await ctx.db
       .query('collaborator_connections')
       .withIndex('by_owner_status', (q) =>
-        q.eq('ownerTenantId', args.ownerTenantId).eq('status', 'active')
+        q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('status', 'active')
       )
       .collect();
 
@@ -369,7 +369,7 @@ export const getCollabWebhookSecret = query({
  */
 export const getActiveByCollaboratorDiscord = internalQuery({
   args: { collaboratorDiscordUserId: v.string() },
-  returns: v.array(v.object({ ownerTenantId: v.id('tenants') })),
+  returns: v.array(v.object({ ownerAuthUserId: v.string() })),
   handler: async (ctx, args) => {
     const connections = await ctx.db
       .query('collaborator_connections')
@@ -378,6 +378,6 @@ export const getActiveByCollaboratorDiscord = internalQuery({
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
-    return connections.map((c) => ({ ownerTenantId: c.ownerTenantId }));
+    return connections.map((c) => ({ ownerAuthUserId: c.ownerAuthUserId }));
   },
 });

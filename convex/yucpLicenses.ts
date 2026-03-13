@@ -6,7 +6,7 @@
  * The JWT is machine-fingerprint-bound so it cannot be shared between machines.
  *
  * Credential resolution order:
- *   1. Look up product in product_catalog by providerProductRef -> get owner tenantId
+ *   1. Look up product in product_catalog by providerProductRef -> get owner authUserId
  *   2. Decrypt owner's credentials from provider_connections via Better Auth symmetricDecrypt
  *   3. For Jinxxy: fall through to collaborator_connections if primary credential missing/invalid
  *   4. Fall back to global env vars (GUMROAD_ACCESS_TOKEN / JINXXY_API_KEY) for YUCP's own products
@@ -51,7 +51,7 @@ export const getProductByProviderRef = internalQuery({
   returns: v.union(
     v.null(),
     v.object({
-      tenantId: v.id('tenants'),
+      authUserId: v.string(),
       productId: v.string(),
       displayName: v.optional(v.string()),
     })
@@ -67,16 +67,14 @@ export const getProductByProviderRef = internalQuery({
       .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
     if (!row) return null;
-    return { tenantId: row.tenantId, productId: row.productId, displayName: row.displayName };
+    return { authUserId: row.authUserId, productId: row.productId, displayName: row.displayName };
   },
 });
 
-/** Get the encrypted provider connection for a tenant.
- * Falls back to user-scoped connections if no tenant-scoped one is found.
- */
+/** Get the encrypted provider connection for a user. */
 export const getProviderConnection = internalQuery({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     provider: v.string(),
   },
   returns: v.union(
@@ -87,50 +85,30 @@ export const getProviderConnection = internalQuery({
     })
   ),
   handler: async (ctx, args) => {
-    // First try tenant-scoped connection (fastest path for existing setups)
-    const tenantConn = await ctx.db
-      .query('provider_connections')
-      .withIndex('by_tenant_provider', (q) =>
-        q.eq('tenantId', args.tenantId).eq('provider', args.provider as 'gumroad' | 'jinxxy')
-      )
-      .filter((q) => q.neq(q.field('status'), 'disconnected'))
-      .first();
-    if (tenantConn) {
-      return {
-        gumroadAccessTokenEncrypted: tenantConn.gumroadAccessTokenEncrypted,
-        jinxxyApiKeyEncrypted: tenantConn.jinxxyApiKeyEncrypted,
-      };
-    }
-
-    // Fall back to user-scoped connection owned by the tenant owner
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant?.ownerAuthUserId) return null;
-    const ownerAuthUserId = tenant.ownerAuthUserId;
-
-    const userConn = await ctx.db
+    const conn = await ctx.db
       .query('provider_connections')
       .withIndex('by_auth_user_provider', (q) =>
-        q.eq('authUserId', ownerAuthUserId).eq('provider', args.provider as 'gumroad' | 'jinxxy')
+        q.eq('authUserId', args.authUserId).eq('provider', args.provider as 'gumroad' | 'jinxxy')
       )
       .filter((q) => q.neq(q.field('status'), 'disconnected'))
       .first();
-    if (!userConn) return null;
+    if (!conn) return null;
     return {
-      gumroadAccessTokenEncrypted: userConn.gumroadAccessTokenEncrypted,
-      jinxxyApiKeyEncrypted: userConn.jinxxyApiKeyEncrypted,
+      gumroadAccessTokenEncrypted: conn.gumroadAccessTokenEncrypted,
+      jinxxyApiKeyEncrypted: conn.jinxxyApiKeyEncrypted,
     };
   },
 });
 
-/** Get active collaborator Jinxxy API keys for a tenant owner. */
+/** Get active collaborator Jinxxy API keys for a creator owner. */
 export const getCollaboratorConnections = internalQuery({
-  args: { ownerTenantId: v.id('tenants') },
+  args: { ownerAuthUserId: v.string() },
   returns: v.array(v.object({ jinxxyApiKeyEncrypted: v.optional(v.string()) })),
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query('collaborator_connections')
       .withIndex('by_owner_status', (q) =>
-        q.eq('ownerTenantId', args.ownerTenantId).eq('status', 'active')
+        q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('status', 'active')
       )
       .collect();
     return rows
@@ -139,51 +117,57 @@ export const getCollaboratorConnections = internalQuery({
   },
 });
 
-/** Get tenant by ownerAuthUserId (internal only -- no API secret needed). */
+/** Get creator profile by ownerAuthUserId (internal only -- no API secret needed). */
 export const getTenantByAuthUser = internalQuery({
   args: { ownerAuthUserId: v.string() },
   returns: v.union(
     v.null(),
-    v.object({ _id: v.id('tenants'), name: v.string(), slug: v.optional(v.string()) })
+    v.object({ _id: v.id('creator_profiles'), name: v.string(), slug: v.optional(v.string()) })
   ),
   handler: async (ctx, args) => {
     const row = await ctx.db
-      .query('tenants')
-      .withIndex('by_owner_auth', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId))
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.ownerAuthUserId))
       .first();
     if (!row) return null;
     return { _id: row._id, name: row.name, slug: row.slug };
   },
 });
 
-/** Get a tenant by its document ID (used for collab product attribution). */
+/** Get a creator profile by authUserId (used for collab product attribution). */
 export const getTenantById = internalQuery({
-  args: { tenantId: v.id('tenants') },
-  returns: v.union(v.null(), v.object({ _id: v.id('tenants'), name: v.string() })),
+  args: { authUserId: v.string() },
+  returns: v.union(v.null(), v.object({ authUserId: v.string(), name: v.string() })),
   handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.tenantId);
+    const row = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
     if (!row) return null;
-    return { _id: row._id, name: row.name };
+    return { authUserId: row.authUserId, name: row.name };
   },
 });
 
-/** Get a tenant by its document ID, including ownerAuthUserId (for internal auth lookups). */
+/** Get a creator profile by authUserId (for internal auth lookups). */
 export const getTenantOwnerById = internalQuery({
-  args: { tenantId: v.id('tenants') },
+  args: { authUserId: v.string() },
   returns: v.union(
     v.null(),
-    v.object({ _id: v.id('tenants'), name: v.string(), ownerAuthUserId: v.string() })
+    v.object({ authUserId: v.string(), name: v.string() })
   ),
   handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.tenantId);
+    const row = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
     if (!row) return null;
-    return { _id: row._id, name: row.name, ownerAuthUserId: row.ownerAuthUserId };
+    return { authUserId: row.authUserId, name: row.name };
   },
 });
 
-/** List active products for a tenant, grouped by canonical productId. */
+/** List active products for a creator, grouped by canonical productId. */
 export const getProductsForTenant = internalQuery({
-  args: { tenantId: v.id('tenants') },
+  args: { authUserId: v.string() },
   returns: v.array(
     v.object({
       productId: v.string(),
@@ -194,7 +178,7 @@ export const getProductsForTenant = internalQuery({
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query('product_catalog')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
 
@@ -231,7 +215,7 @@ export const getProductsForTenant = internalQuery({
     // ── Add pure Discord cross-server products (discord_role: entries, no catalog product) ──
     const roleRules = await ctx.db
       .query('role_rules')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('enabled'), true))
       .collect();
 
@@ -283,7 +267,7 @@ export const getSubjectByDiscordUser = internalQuery({
  */
 export const checkSubjectEntitlement = internalQuery({
   args: {
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.id('subjects'),
     productId: v.string(),
   },
@@ -291,8 +275,8 @@ export const checkSubjectEntitlement = internalQuery({
   handler: async (ctx, args) => {
     const entitlement = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', args.tenantId).eq('subjectId', args.subjectId)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .filter((q) =>
         q.and(q.eq(q.field('productId'), args.productId), q.eq(q.field('status'), 'active'))
@@ -435,7 +419,7 @@ export const verifyLicense = internalAction({
 
     if (product) {
       const conn = await ctx.runQuery(internal.yucpLicenses.getProviderConnection, {
-        tenantId: product.tenantId,
+        authUserId: product.authUserId,
         provider: args.provider,
       });
 
@@ -456,7 +440,7 @@ export const verifyLicense = internalAction({
         // If primary failed or missing, try collaborator connections
         if (!verifyResult?.valid) {
           const collabConns = await ctx.runQuery(internal.yucpLicenses.getCollaboratorConnections, {
-            ownerTenantId: product.tenantId,
+            ownerAuthUserId: product.authUserId,
           });
           for (const collab of collabConns) {
             if (!collab.jinxxyApiKeyEncrypted) continue;

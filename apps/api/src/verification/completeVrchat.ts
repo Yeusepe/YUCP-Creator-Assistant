@@ -17,7 +17,7 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const GENERIC_ERROR = 'Verification failed. Please try again.';
 
 export interface CompleteVrchatInput {
-  tenantId: string;
+  authUserId: string;
   subjectId: string;
   productId?: string;
   vrchatUserId: string;
@@ -39,9 +39,9 @@ export async function handleCompleteVrchat(
   config: VerificationConfig,
   input: CompleteVrchatInput
 ): Promise<CompleteVrchatResult> {
-  const { tenantId, subjectId, vrchatUserId, displayName, ownedAvatarIds } = input;
+  const { authUserId, subjectId, vrchatUserId, displayName, ownedAvatarIds } = input;
 
-  if (!tenantId) return { success: false, error: 'Missing tenant ID' };
+  if (!authUserId) return { success: false, error: 'Missing auth user ID' };
   if (!subjectId) return { success: false, error: 'Missing subject ID' };
   if (!vrchatUserId) return { success: false, error: 'Missing VRChat user ID' };
   if (!displayName) return { success: false, error: 'Missing VRChat display name' };
@@ -57,7 +57,7 @@ export async function handleCompleteVrchat(
     const convex = getConvexClientFromUrl(config.convexUrl);
     const matches = await convex.query(api.role_rules.getVrchatCatalogProductsMatchingAvatars, {
       apiSecret: config.convexApiSecret,
-      tenantId,
+      authUserId,
       ownedAvatarIds,
     });
 
@@ -77,7 +77,7 @@ export async function handleCompleteVrchat(
       api.licenseVerification.completeLicenseVerification,
       {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         subjectId,
         provider: 'vrchat',
         providerUserId: vrchatUserId,
@@ -88,7 +88,7 @@ export async function handleCompleteVrchat(
 
     if (productsToGrant.length === 0) {
       logger.info('[completeVrchat] Linked VRChat account with no matching catalog products', {
-        tenantId,
+        authUserId,
         subjectId,
         provider: 'vrchat',
         ownedCount: ownedAvatarIds.length,
@@ -103,7 +103,7 @@ export async function handleCompleteVrchat(
 
     if (mutationResult.success) {
       logger.info('[completeVrchat] Success', {
-        tenantId,
+        authUserId,
         subjectId,
         provider: 'vrchat',
         productCount: productsToGrant.length,
@@ -119,7 +119,7 @@ export async function handleCompleteVrchat(
   } catch (err) {
     logger.error('Complete VRChat verification failed', {
       error: err instanceof Error ? err.message : String(err),
-      tenantId,
+      authUserId,
       subjectId,
       provider: 'vrchat',
     });

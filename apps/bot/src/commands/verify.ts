@@ -72,7 +72,7 @@ interface ActiveVerifyPanel {
   guildId: string;
   messageId: string;
   panelToken?: string;
-  tenantId: Id<'tenants'>;
+  authUserId: string;
   updatedAt: number;
   userId: string;
   webhook: ChatInputCommandInteraction['webhook'];
@@ -125,7 +125,7 @@ function createVerifyPanelToken(): string {
 
 export function rememberActiveVerifyPanel(
   interaction: ButtonInteraction | ChatInputCommandInteraction | ModalSubmitInteraction,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string,
   messageId: string,
   options?: {
@@ -138,7 +138,7 @@ export function rememberActiveVerifyPanel(
     guildId,
     messageId,
     panelToken: options?.panelToken ?? existing?.panelToken,
-    tenantId,
+    authUserId,
     updatedAt: Date.now(),
     userId: interaction.user.id,
     webhook: interaction.webhook,
@@ -182,7 +182,7 @@ async function bindVerifyPanelToken(
     guildId: string;
     messageId: string;
     panelToken: string;
-    tenantId: Id<'tenants'>;
+    authUserId: string;
   }
 ): Promise<void> {
   const applicationId = interaction.applicationId?.trim();
@@ -220,7 +220,7 @@ async function bindVerifyPanelToken(
         interactionToken,
         messageId,
         panelToken,
-        tenantId: params.tenantId,
+        authUserId: params.authUserId,
       }),
     });
     if (!res.ok) {
@@ -252,7 +252,7 @@ async function bindVerifyPanelToken(
 
 async function fetchVerifyData(
   userId: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string,
   convex: ConvexHttpClient,
   apiSecret: string
@@ -271,14 +271,14 @@ async function fetchVerifyData(
       await convex.mutation(api.providerConnections.cleanupDuplicateAccountsForSubject, {
         apiSecret,
         subjectId: subjectResult.subject._id,
-        tenantId,
+        authUserId,
       });
     } catch (error) {
       logger.warn('Failed to clean up duplicate linked accounts before rendering verify panel', {
         discordUserId: userId,
         error: error instanceof Error ? error.message : String(error),
         subjectId: subjectResult.subject._id,
-        tenantId,
+        authUserId,
       });
     }
 
@@ -286,16 +286,16 @@ async function fetchVerifyData(
       convex.query(api.subjects.getSubjectWithAccounts, {
         apiSecret,
         subjectId: subjectResult.subject._id,
-        tenantId,
+        authUserId,
       }),
       convex.query(api.entitlements.getEntitlementsBySubject, {
         apiSecret,
-        tenantId,
+        authUserId,
         subjectId: subjectResult.subject._id,
         includeInactive: false,
       }),
       convex.query(api.role_rules.getByGuildWithProductNames, {
-        tenantId,
+        authUserId,
         guildId,
       }),
     ]);
@@ -348,13 +348,13 @@ async function fetchVerifyData(
 
 /** Get user-friendly banner message from failed role_sync jobs (role hierarchy, permissions, etc.). */
 async function getRoleSyncBanner(
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string,
   discordUserId: string,
   convex: ConvexHttpClient
 ): Promise<string | undefined> {
   const jobs = await convex.query(api.outbox_jobs.getFailedRoleSyncForUser, {
-    tenantId,
+    authUserId,
     discordUserId,
     guildId,
   });
@@ -441,7 +441,7 @@ function getActiveProviderCount(linkedAccounts: LinkedAccountSummary[], provider
 
 function buildStatusContainer(
   data: VerifyData,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string,
   apiBaseUrl: string | undefined,
   enabledSet: Set<string>,
@@ -484,7 +484,7 @@ function buildStatusContainer(
     new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
   );
 
-  // Connected accounts — driven by enabledSet + PROVIDER_META
+  // Connected accounts, driven by enabledSet + PROVIDER_META
   const lines: string[] = [];
   const getConnectionLabel = (provider: string, label: string, emoji: string) => {
     const activeCount = getActiveProviderCount(linkedAccounts, provider);
@@ -542,7 +542,7 @@ function buildStatusContainer(
   /** Build a verification begin URL for a given mode/provider key */
   const buildBeginUrl = (mode: string): string | null => {
     if (!apiBaseUrl) return null;
-    const params = new URLSearchParams({ tenantId, mode, redirectUri });
+    const params = new URLSearchParams({ authUserId, mode, redirectUri });
     if (userId) params.set('discordUserId', userId);
     return `${apiBaseUrl}/api/verification/begin?${params.toString()}`;
   };
@@ -555,7 +555,7 @@ function buildStatusContainer(
   if (state === 'nothing') {
     const buttons: ButtonBuilder[] = [];
 
-    // OAuth "Connect" buttons for each enabled OAuth provider (not Discord/VRChat — handled separately)
+    // OAuth "Connect" buttons for each enabled OAuth provider (not Discord/VRChat, handled separately)
     for (const provider of enabledSet) {
       if (provider === 'discord' || provider === 'vrchat') continue;
       const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
@@ -575,7 +575,7 @@ function buildStatusContainer(
     if (hasLicenseProviders) {
       buttons.push(
         new ButtonBuilder()
-          .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
+          .setCustomId(`${VERIFY_PREFIX}license:${authUserId}`)
           .setLabel('Use License Key')
           .setEmoji(Emoji.KeyCloud)
           .setStyle(ButtonStyle.Secondary)
@@ -657,7 +657,7 @@ function buildStatusContainer(
     if (hasLicenseProviders) {
       buttons.push(
         new ButtonBuilder()
-          .setCustomId(`${VERIFY_PREFIX}license:${tenantId}`)
+          .setCustomId(`${VERIFY_PREFIX}license:${authUserId}`)
           .setLabel('Use License Key')
           .setEmoji(Emoji.Key)
           .setStyle(ButtonStyle.Secondary)
@@ -721,7 +721,7 @@ function buildStatusContainer(
 
     const primaryButtons = [
       new ButtonBuilder()
-        .setCustomId(`${VERIFY_PREFIX}add_more:${tenantId}`)
+        .setCustomId(`${VERIFY_PREFIX}add_more:${authUserId}`)
         .setLabel('Add another account')
         .setEmoji(Emoji.Refresh)
         .setStyle(ButtonStyle.Secondary),
@@ -743,7 +743,7 @@ function buildStatusContainer(
 
 export async function buildVerifyStatusReply(
   userId: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string,
   convex: ConvexHttpClient,
   apiSecret: string,
@@ -755,10 +755,10 @@ export async function buildVerifyStatusReply(
   }
 ): Promise<VerifyStatusReply> {
   const [data, providersResult] = await Promise.all([
-    fetchVerifyData(userId, tenantId, guildId, convex, apiSecret),
+    fetchVerifyData(userId, authUserId, guildId, convex, apiSecret),
     convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
       apiSecret,
-      tenantId,
+      authUserId,
       guildId,
     }),
   ]);
@@ -767,12 +767,12 @@ export async function buildVerifyStatusReply(
   const bannerMessage =
     options?.bannerMessage ??
     (!options?.stateOverride && data.state === 'verified'
-      ? await getRoleSyncBanner(tenantId, guildId, userId, convex)
+      ? await getRoleSyncBanner(authUserId, guildId, userId, convex)
       : undefined);
 
   const container = buildStatusContainer(
     options?.stateOverride ? { ...data, state: options.stateOverride } : data,
-    tenantId,
+    authUserId,
     guildId,
     apiBaseUrl,
     enabledSet,
@@ -793,14 +793,14 @@ export async function handleCreatorCommand(
   convex: ConvexHttpClient,
   apiSecret: string,
   apiBaseUrl: string | undefined,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   track(interaction.user.id, 'command_used', {
     command: 'creator',
     guildId: ctx.guildId,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     userId: interaction.user.id,
   });
 
@@ -810,7 +810,7 @@ export async function handleCreatorCommand(
       createVerifyPanelToken();
     const reply = await buildVerifyStatusReply(
       interaction.user.id,
-      ctx.tenantId,
+      ctx.authUserId,
       ctx.guildId,
       convex,
       apiSecret,
@@ -824,7 +824,7 @@ export async function handleCreatorCommand(
     }
 
     const message = await interaction.editReply(reply);
-    rememberActiveVerifyPanel(interaction, ctx.tenantId, ctx.guildId, message.id, {
+    rememberActiveVerifyPanel(interaction, ctx.authUserId, ctx.guildId, message.id, {
       panelToken,
     });
     await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
@@ -832,7 +832,7 @@ export async function handleCreatorCommand(
       guildId: ctx.guildId,
       messageId: message.id,
       panelToken,
-      tenantId: ctx.tenantId,
+      authUserId: ctx.authUserId,
     });
   } catch (err) {
     await interaction.editReply({
@@ -842,7 +842,7 @@ export async function handleCreatorCommand(
         error: err,
         guildId: ctx.guildId,
         stage: 'creator_command_panel',
-        tenantId: ctx.tenantId,
+        authUserId: ctx.authUserId,
       }),
     });
   }
@@ -854,7 +854,7 @@ export async function handleVerifyStartButton(
   convex: ConvexHttpClient,
   apiSecret: string,
   apiBaseUrl: string | undefined,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   track(interaction.user.id, 'spawn_button_clicked', {
     guildId: ctx.guildId,
@@ -869,7 +869,7 @@ export async function handleVerifyStartButton(
     const panelToken = createVerifyPanelToken();
     const reply = await buildVerifyStatusReply(
       interaction.user.id,
-      ctx.tenantId,
+      ctx.authUserId,
       ctx.guildId,
       convex,
       apiSecret,
@@ -878,7 +878,7 @@ export async function handleVerifyStartButton(
     );
 
     const message = await interaction.editReply(reply);
-    rememberActiveVerifyPanel(interaction, ctx.tenantId, ctx.guildId, message.id, {
+    rememberActiveVerifyPanel(interaction, ctx.authUserId, ctx.guildId, message.id, {
       panelToken,
     });
     await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
@@ -886,7 +886,7 @@ export async function handleVerifyStartButton(
       guildId: ctx.guildId,
       messageId: message.id,
       panelToken,
-      tenantId: ctx.tenantId,
+      authUserId: ctx.authUserId,
     });
   } catch (err) {
     await interaction.editReply({
@@ -896,7 +896,7 @@ export async function handleVerifyStartButton(
         error: err,
         guildId: ctx.guildId,
         stage: 'verify_start_button',
-        tenantId: ctx.tenantId,
+        authUserId: ctx.authUserId,
       }),
     });
   }
@@ -908,7 +908,7 @@ export async function handleVerifyAddMore(
   convex: ConvexHttpClient,
   apiSecret: string,
   apiBaseUrl: string | undefined,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferUpdate();
 
@@ -918,7 +918,7 @@ export async function handleVerifyAddMore(
       createVerifyPanelToken();
     const reply = await buildVerifyStatusReply(
       interaction.user.id,
-      ctx.tenantId,
+      ctx.authUserId,
       ctx.guildId,
       convex,
       apiSecret,
@@ -926,7 +926,7 @@ export async function handleVerifyAddMore(
       { panelToken, stateOverride: 'nothing' }
     );
     const message = await interaction.editReply(reply);
-    rememberActiveVerifyPanel(interaction, ctx.tenantId, ctx.guildId, message.id, {
+    rememberActiveVerifyPanel(interaction, ctx.authUserId, ctx.guildId, message.id, {
       panelToken,
     });
     await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
@@ -934,7 +934,7 @@ export async function handleVerifyAddMore(
       guildId: ctx.guildId,
       messageId: message.id,
       panelToken,
-      tenantId: ctx.tenantId,
+      authUserId: ctx.authUserId,
     });
   } catch (err) {
     await interaction.editReply({
@@ -944,7 +944,7 @@ export async function handleVerifyAddMore(
         error: err,
         guildId: ctx.guildId,
         stage: 'verify_add_more',
-        tenantId: ctx.tenantId,
+        authUserId: ctx.authUserId,
       }),
     });
   }
@@ -955,7 +955,7 @@ export async function handleVerifySpawn(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
   _apiBaseUrl: string | undefined,
-  _ctx: { tenantId: Id<'tenants'>; guildLinkId: Id<'guild_links'>; guildId: string }
+  _ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   const title = interaction.options.getString('title') ?? DEFAULT_SPAWN_TITLE;
   const description = interaction.options.getString('description') ?? DEFAULT_SPAWN_DESCRIPTION;
@@ -1000,9 +1000,9 @@ export async function handleVerifySpawn(
   }
 }
 
-export function buildLicenseModal(tenantId: Id<'tenants'>): ModalBuilder {
+export function buildLicenseModal(authUserId: string): ModalBuilder {
   return new ModalBuilder()
-    .setCustomId(`${VERIFY_PREFIX}license_modal:${tenantId}`)
+    .setCustomId(`${VERIFY_PREFIX}license_modal:${authUserId}`)
     .setTitle('Enter License Key')
     .addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -1026,7 +1026,7 @@ export async function handleLicenseModalSubmit(
   const customId = interaction.customId;
   if (!customId.startsWith(`${VERIFY_PREFIX}license_modal:`)) return;
 
-  const tenantId = customId.slice(`${VERIFY_PREFIX}license_modal:`.length) as Id<'tenants'>;
+  const authUserId = customId.slice(`${VERIFY_PREFIX}license_modal:`.length) as string;
   const licenseKey = interaction.fields.getTextInputValue('license_key')?.trim();
 
   if (!licenseKey) {
@@ -1071,7 +1071,7 @@ export async function handleLicenseModalSubmit(
   try {
     const result = await completeLicenseVerification({
       licenseKey,
-      tenantId,
+      authUserId,
       subjectId,
     });
 
@@ -1084,11 +1084,11 @@ export async function handleLicenseModalSubmit(
           ? formatVerificationSupportMessage(failureMessage, result.supportCode)
           : failureMessage,
       });
-      track(interaction.user.id, 'verification_failed', { error: result.error, tenantId });
+      track(interaction.user.id, 'verification_failed', { error: result.error, authUserId });
       return;
     }
 
-    track(interaction.user.id, 'verification_completed', { tenantId, provider: result.provider });
+    track(interaction.user.id, 'verification_completed', { authUserId, provider: result.provider });
 
     const guildId = interaction.guildId;
     if (guildId && apiBaseUrl) {
@@ -1098,7 +1098,7 @@ export async function handleLicenseModalSubmit(
       const bannerMessage = `${E.ClapStars} **Connected!** Your ${connectedProviderLabel} account is linked. Your roles will be updated shortly. ${E.Dance}`;
       const reply = await buildVerifyStatusReply(
         interaction.user.id,
-        tenantId,
+        authUserId,
         guildId,
         convex,
         apiSecret,
@@ -1106,13 +1106,13 @@ export async function handleLicenseModalSubmit(
         { bannerMessage, panelToken }
       );
       const message = await interaction.editReply(reply);
-      rememberActiveVerifyPanel(interaction, tenantId, guildId, message.id, { panelToken });
+      rememberActiveVerifyPanel(interaction, authUserId, guildId, message.id, { panelToken });
       await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
         discordUserId: interaction.user.id,
         guildId,
         messageId: message.id,
         panelToken,
-        tenantId,
+        authUserId,
       });
     } else {
       await interaction.editReply({
@@ -1127,7 +1127,7 @@ export async function handleLicenseModalSubmit(
         error: err,
         guildId: interaction.guildId ?? undefined,
         stage: 'verification_flow',
-        tenantId,
+        authUserId,
       }),
     });
   }
@@ -1141,7 +1141,7 @@ export async function handleVerifyDisconnectButton(
   provider: string
 ): Promise<void> {
   const guildId = interaction.guildId;
-  let tenantIdForError: string | undefined;
+  let authUserIdForError: string | undefined;
   if (!guildId) {
     await interaction.reply({ content: 'Use this in a server.', flags: MessageFlags.Ephemeral });
     return;
@@ -1176,11 +1176,11 @@ export async function handleVerifyDisconnectButton(
       await interaction.editReply({ content: 'Server not configured.' });
       return;
     }
-    tenantIdForError = String(guildLink.tenantId);
+    authUserIdForError = String(guildLink.authUserId);
 
     const result = await disconnectVerification({
       subjectId: subjectResult.subject._id,
-      tenantId: guildLink.tenantId,
+      authUserId: guildLink.authUserId,
       provider,
     });
 
@@ -1203,7 +1203,7 @@ export async function handleVerifyDisconnectButton(
     }
 
     track(interaction.user.id, 'verification_disconnected', {
-      tenantId: guildLink.tenantId,
+      authUserId: guildLink.authUserId,
       provider,
     });
 
@@ -1212,7 +1212,7 @@ export async function handleVerifyDisconnectButton(
       getActiveVerifyPanel(interaction.user.id, guildId)?.panelToken ?? createVerifyPanelToken();
     const reply = await buildVerifyStatusReply(
       interaction.user.id,
-      guildLink.tenantId,
+      guildLink.authUserId,
       guildId,
       convex,
       apiSecret,
@@ -1223,13 +1223,13 @@ export async function handleVerifyDisconnectButton(
       }
     );
     const message = await interaction.editReply(reply);
-    rememberActiveVerifyPanel(interaction, guildLink.tenantId, guildId, message.id, { panelToken });
+    rememberActiveVerifyPanel(interaction, guildLink.authUserId, guildId, message.id, { panelToken });
     await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
       discordUserId: interaction.user.id,
       guildId,
       messageId: message.id,
       panelToken,
-      tenantId: guildLink.tenantId,
+      authUserId: guildLink.authUserId,
     });
   } catch (err) {
     // Error path: use plain content (no IsComponentsV2) - legacy content is allowed
@@ -1241,7 +1241,7 @@ export async function handleVerifyDisconnectButton(
         guildId,
         provider,
         stage: 'verify_disconnect',
-        tenantId: tenantIdForError,
+        authUserId: authUserIdForError,
       }),
     });
   }
@@ -1251,7 +1251,7 @@ export async function handleRefreshCommand(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'> }
+  ctx: { authUserId: string }
 ): Promise<void> {
   const guildId = interaction.guildId;
   if (!guildId) {
@@ -1267,7 +1267,7 @@ export async function handleRefreshCommand(
   try {
     const result = await convex.mutation(api.entitlements.enqueueRoleSyncsForUser, {
       apiSecret,
-      tenantId: ctx.tenantId,
+      authUserId: ctx.authUserId,
       discordUserId: interaction.user.id,
     });
 
@@ -1282,10 +1282,10 @@ export async function handleRefreshCommand(
 
     if (apiBaseUrl) {
       const [data, providersResult] = await Promise.all([
-        fetchVerifyData(interaction.user.id, ctx.tenantId, guildId, convex, apiSecret),
+        fetchVerifyData(interaction.user.id, ctx.authUserId, guildId, convex, apiSecret),
         convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
           apiSecret,
-          tenantId: ctx.tenantId,
+          authUserId: ctx.authUserId,
           guildId,
         }),
       ]);
@@ -1294,7 +1294,7 @@ export async function handleRefreshCommand(
       const bannerMessage = `${E.Checkmark} Queued ${result.jobsCreated} role sync jobs! Your roles in this server will be updated momentarily.`;
       const container = buildStatusContainer(
         data,
-        ctx.tenantId,
+        ctx.authUserId,
         guildId,
         apiBaseUrl,
         enabledSet,
@@ -1320,7 +1320,7 @@ export async function handleRefreshCommand(
         error: err,
         guildId,
         stage: 'verify_refresh',
-        tenantId: ctx.tenantId,
+        authUserId: ctx.authUserId,
       }),
     });
   }

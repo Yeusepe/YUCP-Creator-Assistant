@@ -527,7 +527,7 @@
                     <h1 class="text-3xl sm:text-4xl font-bold text-white leading-none tracking-tight">
                         Connect&nbsp;<span style="color:#FFD234;">Lemon&nbsp;Squeezy®</span>
                     </h1>
-                    <p class="mt-2 text-sm" style="color:rgba(255,255,255,0.4);">Webhook creation is handled automatically — just paste your API key.</p>
+                    <p class="mt-2 text-sm" style="color:rgba(255,255,255,0.4);">Webhook creation is handled automatically, just paste your API key.</p>
                 </div>
                 <div class="flex flex-col items-end gap-2.5">
                     <span class="text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Step <span id="current-step-num">1</span> of 2</span>
@@ -744,7 +744,7 @@
                                             </div>
                                             <!-- Revealed key -->
                                             <div>
-                                                <div class="ls-field-label" style="margin-bottom:6px;">Your API key — copy it now</div>
+                                                <div class="ls-field-label" style="margin-bottom:6px;">Your API key, copy it now</div>
                                                 <div class="ls-revealed-key">
                                                     <span class="ls-key-icon">🔑</span>
                                                     <span class="ls-key-text">eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQ...</span>
@@ -774,7 +774,7 @@
 
                                     <div class="space-y-1.5">
                                         <p style="color:rgba(255,255,255,0.55); font-size:14px; line-height:1.6;">
-                                            Click <strong style="color:#fff;">+</strong> on the API page, give it any name (e.g. <em>Creator Assistant</em>), then click <strong style="color:#fff;">Create API key</strong>. Copy the key shown — it's only revealed once.
+                                            Click <strong style="color:#fff;">+</strong> on the API page, give it any name (e.g. <em>Creator Assistant</em>), then click <strong style="color:#fff;">Create API key</strong>. Copy the key shown, it's only revealed once.
                                         </p>
                                     </div>
 
@@ -1018,7 +1018,7 @@
             connectBtn.style.boxShadow = 'none';
 
             try {
-                const body = { apiKey, tenantId: TENANT_ID };
+                const body = Object.assign({ apiKey }, TENANT_ID ? { tenantId: TENANT_ID } : {});
                 const res = await apiFetch(`${API_BASE}/api/connect/lemonsqueezy-finish`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

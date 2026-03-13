@@ -4,7 +4,7 @@
  * POST /webhooks/gumroad/:routeId - Gumroad Ping format (x-www-form-urlencoded)
  * POST /webhooks/jinxxy/:routeId - Jinxxy JSON format with x-signature
  *
- * routeId is either a tenantId (legacy) or a Better Auth user ID (user-scoped connections).
+ * routeId is an authUserId (Better Auth user ID, user-scoped connections).
  *
  * Returns 200 quickly after inserting into webhook_events.
  * Normalization runs asynchronously.
@@ -93,27 +93,21 @@ export function createWebhookRoutes(config: WebhookConfig) {
     redirectUri: '',
   });
 
-  async function getJinxxyWebhookSecret(tenantId: string): Promise<string | null> {
+  async function getJinxxyWebhookSecretByRouteId(routeId: string): Promise<string | null> {
     try {
-      const secretRef = await convex.query(api.providerConnections.getJinxxyWebhookSecret, {
+      return await convex.query(api.providerConnections.getJinxxyWebhookSecretByRouteId, {
         apiSecret,
-        tenantId,
+        routeId,
       });
-      if (!secretRef) return null;
-      try {
-        return await decrypt(secretRef, encryptionSecret);
-      } catch {
-        return secretRef;
-      }
     } catch {
       return null;
     }
   }
 
-  async function getPendingJinxxyWebhookSecret(tenantId: string): Promise<string | null> {
+  async function getPendingJinxxyWebhookSecret(routeId: string): Promise<string | null> {
     try {
       const store = getStateStore();
-      const raw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${tenantId}`);
+      const raw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as { signingSecretEncrypted: string };
       return await decrypt(parsed.signingSecretEncrypted, encryptionSecret);
@@ -122,11 +116,11 @@ export function createWebhookRoutes(config: WebhookConfig) {
     }
   }
 
-  async function getGumroadWebhookSecret(tenantId: string): Promise<string | null> {
+  async function getGumroadWebhookSecretByRouteId(routeId: string): Promise<string | null> {
     try {
-      return await convex.query(api.providerConnections.getGumroadWebhookSecret, {
+      return await convex.query(api.providerConnections.getGumroadWebhookSecretByRouteId, {
         apiSecret,
-        tenantId,
+        routeId,
       });
     } catch {
       return null;
@@ -137,11 +131,11 @@ export function createWebhookRoutes(config: WebhookConfig) {
    * Get the encrypted Payhip API key for a tenant.
    * Payhip signature = SHA256(apiKey), so we need the raw API key to verify.
    */
-  async function getPayhipApiKey(tenantId: string): Promise<string | null> {
+  async function getPayhipApiKey(authUserId: string): Promise<string | null> {
     try {
       const encryptedKey = await convex.query(api.providerConnections.getPayhipApiKey, {
         apiSecret,
-        tenantId,
+        authUserId,
       });
       if (!encryptedKey) return null;
       try {
@@ -169,7 +163,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
 
   async function handleJinxxyCollabWebhook(
     request: Request,
-    ownerTenantId: string,
+    ownerAuthUserId: string,
     inviteId: string
   ): Promise<Response> {
     if (request.method !== 'POST') {
@@ -180,7 +174,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       const rawBody = await request.text();
       logger.info('Webhook received', {
         provider: 'jinxxy-collab',
-        ownerTenantId,
+        ownerAuthUserId,
         inviteId,
         payloadBytes: rawBody.length,
       });
@@ -193,7 +187,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
         const expectedSig = await hmacSha256(webhookSecret, rawBody);
         signatureValid = timingSafeEqual(expectedSig, signature);
       } else if (!webhookSecret) {
-        logger.warn('Collab webhook: no secret configured', { ownerTenantId, inviteId });
+        logger.warn('Collab webhook: no secret configured', { ownerAuthUserId, inviteId });
         signatureValid = false;
       }
 
@@ -201,7 +195,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       try {
         payload = JSON.parse(rawBody) as { event_id?: string; event_type?: string };
       } catch {
-        logger.warn('Collab webhook: invalid JSON', { ownerTenantId, inviteId });
+        logger.warn('Collab webhook: invalid JSON', { ownerAuthUserId, inviteId });
         return new Response('Bad Request', { status: 400 });
       }
 
@@ -209,18 +203,18 @@ export function createWebhookRoutes(config: WebhookConfig) {
       const eventType = payload.event_type ?? 'unknown';
 
       if (!eventId) {
-        logger.warn('Collab webhook: missing event_id', { ownerTenantId, inviteId });
+        logger.warn('Collab webhook: missing event_id', { ownerAuthUserId, inviteId });
         return new Response('OK', { status: 200 });
       }
 
       if (!signatureValid) {
-        logger.warn('Collab webhook: rejected (unverified)', { ownerTenantId, inviteId, eventId });
+        logger.warn('Collab webhook: rejected (unverified)', { ownerAuthUserId, inviteId, eventId });
         return new Response('Forbidden', { status: 403 });
       }
 
       const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
         apiSecret,
-        tenantId: ownerTenantId,
+        authUserId: ownerAuthUserId,
         provider: 'jinxxy',
         providerEventId: eventId,
         eventType,
@@ -229,7 +223,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       });
 
       if (result.duplicate) {
-        logger.debug('Collab webhook: duplicate event', { eventId, ownerTenantId, inviteId });
+        logger.debug('Collab webhook: duplicate event', { eventId, ownerAuthUserId, inviteId });
       }
 
       // Set test webhook flag for collab invite polling
@@ -244,48 +238,36 @@ export function createWebhookRoutes(config: WebhookConfig) {
     } catch (err) {
       logger.error('Collab webhook failed', {
         error: err instanceof Error ? err.message : String(err),
-        ownerTenantId,
+        ownerAuthUserId,
         inviteId,
       });
       return new Response('Internal Server Error', { status: 500 });
     }
   }
 
-  async function handleGumroadWebhook(request: Request, tenantId: string): Promise<Response> {
+  async function handleGumroadWebhook(request: Request, routeId: string): Promise<Response> {
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
 
     try {
-      const contentType = request.headers.get('content-type') ?? '';
-      if (!contentType.includes('application/x-www-form-urlencoded')) {
-        const body = await request.text();
-        if (body && contentType.includes('application/x-www-form-urlencoded')) {
-          // Some clients send without proper header
-        } else {
-          logger.warn('Gumroad webhook: unexpected content-type', {
-            contentType,
-            tenantId,
-          });
-        }
-      }
-
       const rawBody = await request.text();
       logger.info('Webhook received', {
         provider: 'gumroad',
-        tenantId,
+        routeId,
         payloadBytes: rawBody.length,
       });
+
       const incomingSig = request.headers.get('x-gumroad-signature');
-      const webhookSecret = await getGumroadWebhookSecret(tenantId);
+      // Look up secret by routeId — works for authUserId (user-scoped).
+      const webhookSecret = await getGumroadWebhookSecretByRouteId(routeId);
       let signatureValid = false;
 
       if (webhookSecret && incomingSig) {
         const expectedSig = await hmacSha256(webhookSecret, rawBody);
         signatureValid = timingSafeEqual(expectedSig, incomingSig);
       } else if (!webhookSecret) {
-        logger.warn('Gumroad webhook: no secret configured', { tenantId });
-        signatureValid = false;
+        logger.warn('Gumroad webhook: no secret configured', { routeId });
       }
 
       const params = new URLSearchParams(rawBody);
@@ -295,32 +277,41 @@ export function createWebhookRoutes(config: WebhookConfig) {
       const providerEventId = `${saleId}:${eventType}`;
 
       if (!saleId) {
-        logger.warn('Gumroad webhook: missing sale_id/order_number', {
-          tenantId,
-        });
+        logger.warn('Gumroad webhook: missing sale_id/order_number', { routeId });
         return new Response('OK', { status: 200 });
+      }
+
+      // Resolve routeId → authUserIds (supports authUserId routing)
+      let authUserIds: string[];
+      try {
+        authUserIds = await convex.query(api.webhookIngestion.resolveWebhookTenantIds, {
+          apiSecret,
+          routeId,
+        });
+      } catch {
+        authUserIds = [routeId];
       }
 
       // API verification: resource_subscriptions webhooks have no secret.
       // Verify sale exists via Gumroad API when signature is not valid.
-      if (!signatureValid && encryptionSecret) {
+      if (!signatureValid && encryptionSecret && authUserIds.length > 0) {
         try {
           const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
             apiSecret,
-            tenantId,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            authUserId: authUserIds[0] as any,
             provider: 'gumroad',
           });
           if (conn?.gumroadAccessTokenEncrypted) {
             const accessToken = await decrypt(conn.gumroadAccessTokenEncrypted, encryptionSecret);
             const sale = await gumroadAdapter.getSale(accessToken, saleId);
             if (sale) {
-              // Sanity check: refunded status should match
               const apiRefunded = sale.refunded === true;
               if (apiRefunded === refunded) {
                 signatureValid = true;
               } else {
                 logger.warn('Gumroad webhook: refunded mismatch', {
-                  tenantId,
+                  routeId,
                   saleId,
                   webhookRefunded: refunded,
                   apiRefunded,
@@ -330,46 +321,81 @@ export function createWebhookRoutes(config: WebhookConfig) {
           }
         } catch (err) {
           logger.warn('Gumroad webhook: API verification failed', {
-            tenantId,
+            routeId,
             saleId,
             error: err instanceof Error ? err.message : String(err),
           });
         }
       }
 
-      // Reject unverified webhooks (no signature and API verification failed)
       if (!signatureValid) {
-        logger.warn('Gumroad webhook: rejected (unverified)', { tenantId, saleId });
+        logger.warn('Gumroad webhook: rejected (unverified)', { routeId, saleId });
         return new Response('Forbidden', { status: 403 });
       }
 
       const payload = Object.fromEntries(params.entries());
 
-      const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
-        apiSecret,
-        tenantId,
-        provider: 'gumroad',
-        providerEventId,
-        eventType,
-        rawPayload: payload,
-        signatureValid,
-      });
-
-      if (result.duplicate) {
-        logger.debug('Gumroad webhook: duplicate event', { saleId, tenantId });
+      if (authUserIds.length > 0) {
+        // Fan out to all resolved authUserIds
+        for (const authUserId of authUserIds) {
+          try {
+            const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+              apiSecret,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              authUserId: authUserId as any,
+              provider: 'gumroad',
+              providerEventId,
+              eventType,
+              rawPayload: payload,
+              signatureValid,
+            });
+            if (result.duplicate) {
+              logger.debug('Gumroad webhook: duplicate event', { saleId, authUserId });
+            }
+          } catch (err) {
+            logger.warn('Gumroad webhook: failed to insert event for tenant', {
+              authUserId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      } else {
+        // User-scoped: no Discord servers yet — store under authUserId
+        try {
+          const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+            apiSecret,
+            authUserId: routeId,
+            provider: 'gumroad',
+            providerEventId,
+            eventType,
+            rawPayload: payload,
+            signatureValid,
+          });
+          if (result.duplicate) {
+            logger.debug('Gumroad webhook: duplicate event (user-scoped)', {
+              saleId,
+              routeId,
+            });
+          }
+        } catch (err) {
+          logger.warn('Gumroad webhook: failed to insert user-scoped event', {
+            routeId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
 
       return new Response('OK', { status: 200 });
     } catch (err) {
       logger.error('Gumroad webhook failed', {
         error: err instanceof Error ? err.message : String(err),
-        tenantId,
+        routeId,
       });
       return new Response('Internal Server Error', { status: 500 });
     }
   }
 
-  async function handleJinxxyWebhook(request: Request, tenantId: string): Promise<Response> {
+  async function handleJinxxyWebhook(request: Request, routeId: string): Promise<Response> {
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
@@ -378,12 +404,17 @@ export function createWebhookRoutes(config: WebhookConfig) {
       const rawBody = await request.text();
       logger.info('Webhook received', {
         provider: 'jinxxy',
-        tenantId,
+        routeId,
         payloadBytes: rawBody.length,
       });
+
       const signature = request.headers.get('x-signature');
-      const convexSecret = await getJinxxyWebhookSecret(tenantId);
-      const pendingSecret = await getPendingJinxxyWebhookSecret(tenantId);
+      // Look up secret by routeId — works for authUserId (user-scoped).
+      const secretRef = await getJinxxyWebhookSecretByRouteId(routeId);
+      const convexSecret = secretRef
+        ? await decrypt(secretRef, encryptionSecret).catch(() => secretRef)
+        : null;
+      const pendingSecret = await getPendingJinxxyWebhookSecret(routeId);
       const webhookSecret = convexSecret ?? pendingSecret;
       let signatureValid = false;
 
@@ -395,15 +426,14 @@ export function createWebhookRoutes(config: WebhookConfig) {
         }
         signatureValid = timingSafeEqual(expectedSig, incomingSig);
       } else if (!webhookSecret) {
-        logger.warn('Jinxxy webhook: no secret configured', { tenantId });
-        signatureValid = false;
+        logger.warn('Jinxxy webhook: no secret configured', { routeId });
       }
 
       let payload: { event_id?: string; event_type?: string };
       try {
         payload = JSON.parse(rawBody) as { event_id?: string; event_type?: string };
       } catch {
-        logger.warn('Jinxxy webhook: invalid JSON', { tenantId });
+        logger.warn('Jinxxy webhook: invalid JSON', { routeId });
         return new Response('Bad Request', { status: 400 });
       }
 
@@ -411,14 +441,13 @@ export function createWebhookRoutes(config: WebhookConfig) {
       const eventType = payload.event_type ?? 'unknown';
 
       if (!eventId) {
-        logger.warn('Jinxxy webhook: missing event_id', { tenantId });
+        logger.warn('Jinxxy webhook: missing event_id', { routeId });
         return new Response('OK', { status: 200 });
       }
 
-      // Reject unverified webhooks before ingestion.
       if (!signatureValid) {
         logger.warn('Jinxxy webhook: rejected (unverified)', {
-          tenantId,
+          routeId,
           eventId,
           hasConvexSecret: !!convexSecret,
           hasPendingSecret: !!pendingSecret,
@@ -428,27 +457,67 @@ export function createWebhookRoutes(config: WebhookConfig) {
         return new Response('Forbidden', { status: 403 });
       }
 
-      const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
-        apiSecret,
-        tenantId,
-        provider: 'jinxxy',
-        providerEventId: eventId,
-        eventType,
-        rawPayload: payload,
-        signatureValid,
-      });
-
-      if (result.duplicate) {
-        logger.debug('Jinxxy webhook: duplicate event', {
-          eventId,
-          tenantId,
+      // Resolve routeId → authUserIds (supports authUserId routing)
+      let authUserIds: string[];
+      try {
+        authUserIds = await convex.query(api.webhookIngestion.resolveWebhookTenantIds, {
+          apiSecret,
+          routeId,
         });
+      } catch {
+        authUserIds = [routeId];
       }
 
-      // Set test webhook flag for connect flow polling
+      if (authUserIds.length > 0) {
+        for (const authUserId of authUserIds) {
+          try {
+            const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+              apiSecret,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              authUserId: authUserId as any,
+              provider: 'jinxxy',
+              providerEventId: eventId,
+              eventType,
+              rawPayload: payload,
+              signatureValid,
+            });
+            if (result.duplicate) {
+              logger.debug('Jinxxy webhook: duplicate event', { eventId, authUserId });
+            }
+          } catch (err) {
+            logger.warn('Jinxxy webhook: failed to insert event for tenant', {
+              authUserId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      } else {
+        // User-scoped: no Discord servers yet — store under authUserId
+        try {
+          const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+            apiSecret,
+            authUserId: routeId,
+            provider: 'jinxxy',
+            providerEventId: eventId,
+            eventType,
+            rawPayload: payload,
+            signatureValid,
+          });
+          if (result.duplicate) {
+            logger.debug('Jinxxy webhook: duplicate event (user-scoped)', { eventId, routeId });
+          }
+        } catch (err) {
+          logger.warn('Jinxxy webhook: failed to insert user-scoped event', {
+            routeId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      // Set test webhook flag for connect flow polling (keyed by routeId)
       try {
         const store = getStateStore();
-        await store.set(`${JINXXY_TEST_PREFIX}${tenantId}`, '1', JINXXY_TEST_TTL_MS);
+        await store.set(`${JINXXY_TEST_PREFIX}${routeId}`, '1', JINXXY_TEST_TTL_MS);
       } catch {
         // Non-fatal
       }
@@ -457,13 +526,13 @@ export function createWebhookRoutes(config: WebhookConfig) {
     } catch (err) {
       logger.error('Jinxxy webhook failed', {
         error: err instanceof Error ? err.message : String(err),
-        tenantId,
+        routeId,
       });
       return new Response('Internal Server Error', { status: 500 });
     }
   }
 
-  async function handlePayhipWebhook(request: Request, tenantId: string): Promise<Response> {
+  async function handlePayhipWebhook(request: Request, routeId: string): Promise<Response> {
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
@@ -472,7 +541,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       const rawBody = await request.text();
       logger.info('Webhook received', {
         provider: 'payhip',
-        tenantId,
+        routeId,
         payloadBytes: rawBody.length,
       });
 
@@ -480,33 +549,38 @@ export function createWebhookRoutes(config: WebhookConfig) {
       try {
         payload = JSON.parse(rawBody) as typeof payload;
       } catch {
-        logger.warn('Payhip webhook: invalid JSON', { tenantId });
+        logger.warn('Payhip webhook: invalid JSON', { routeId });
         return new Response('Bad Request', { status: 400 });
       }
 
       // Payhip signature = SHA256(apiKey) — static, not HMAC of the body.
       // The signature field is inside the JSON payload itself.
-      const apiKey = await getPayhipApiKey(tenantId);
+      // routeId is an authUserId (user-scoped).
+      const encryptedKey = await convex.query(api.providerConnections.getPayhipApiKeyByRouteId, {
+        apiSecret,
+        routeId,
+      });
+      const apiKey = encryptedKey ? await decrypt(encryptedKey, encryptionSecret).catch(() => encryptedKey) : null;
       let signatureValid = false;
 
       if (apiKey && payload.signature) {
         const expectedSig = await sha256Hex(apiKey);
         signatureValid = timingSafeEqual(expectedSig, payload.signature);
       } else if (!apiKey) {
-        logger.warn('Payhip webhook: no API key configured', { tenantId });
+        logger.warn('Payhip webhook: no API key configured', { routeId });
       }
 
       const eventId = payload.id ?? '';
       const eventType = payload.type ?? 'unknown';
 
       if (!eventId) {
-        logger.warn('Payhip webhook: missing id', { tenantId });
+        logger.warn('Payhip webhook: missing id', { routeId });
         return new Response('OK', { status: 200 });
       }
 
       if (!signatureValid) {
         logger.warn('Payhip webhook: rejected (invalid signature)', {
-          tenantId,
+          routeId,
           eventId,
           hasApiKey: !!apiKey,
           hasSignature: !!payload.signature,
@@ -514,25 +588,68 @@ export function createWebhookRoutes(config: WebhookConfig) {
         return new Response('Forbidden', { status: 403 });
       }
 
-      const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
-        apiSecret,
-        tenantId,
-        provider: 'payhip',
-        providerEventId: eventId,
-        eventType,
-        rawPayload: payload,
-        signatureValid,
-      });
-
-      if (result.duplicate) {
-        logger.debug('Payhip webhook: duplicate event', { eventId, tenantId });
+      // Resolve routeId → authUserIds (supports authUserId routing)
+      let authUserIds: string[];
+      try {
+        authUserIds = await convex.query(api.webhookIngestion.resolveWebhookTenantIds, {
+          apiSecret,
+          routeId,
+        });
+      } catch {
+        authUserIds = [routeId];
       }
 
-      // Mark webhook as configured on first successful delivery
+      if (authUserIds.length > 0) {
+        for (const authUserId of authUserIds) {
+          try {
+            const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+              apiSecret,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              authUserId: authUserId as any,
+              provider: 'payhip',
+              providerEventId: eventId,
+              eventType,
+              rawPayload: payload,
+              signatureValid,
+            });
+            if (result.duplicate) {
+              logger.debug('Payhip webhook: duplicate event', { eventId, authUserId });
+            }
+          } catch (err) {
+            logger.warn('Payhip webhook: failed to insert event for tenant', {
+              authUserId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      } else {
+        // User-scoped: no Discord servers yet — store under authUserId
+        try {
+          const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
+            apiSecret,
+            authUserId: routeId,
+            provider: 'payhip',
+            providerEventId: eventId,
+            eventType,
+            rawPayload: payload,
+            signatureValid,
+          });
+          if (result.duplicate) {
+            logger.debug('Payhip webhook: duplicate event (user-scoped)', { eventId, routeId });
+          }
+        } catch (err) {
+          logger.warn('Payhip webhook: failed to insert user-scoped event', {
+            routeId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      // Mark webhook configured on the user-scoped connection (routeId = authUserId)
       try {
         await convex.mutation(api.providerConnections.markPayhipWebhookConfigured, {
           apiSecret,
-          tenantId,
+          authUserId: routeId,
         });
       } catch {
         // Non-fatal
@@ -541,7 +658,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       // Set test webhook flag for connect flow polling
       try {
         const store = getStateStore();
-        await store.set(`${PAYHIP_TEST_PREFIX}${tenantId}`, '1', PAYHIP_TEST_TTL_MS);
+        await store.set(`${PAYHIP_TEST_PREFIX}${routeId}`, '1', PAYHIP_TEST_TTL_MS);
       } catch {
         // Non-fatal
       }
@@ -550,7 +667,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
     } catch (err) {
       logger.error('Payhip webhook failed', {
         error: err instanceof Error ? err.message : String(err),
-        tenantId,
+        routeId,
       });
       return new Response('Internal Server Error', { status: 500 });
     }
@@ -567,13 +684,12 @@ export function createWebhookRoutes(config: WebhookConfig) {
 /**
  * Mount webhook routes. Returns a single handler for /webhooks/* paths.
  * Path format: /webhooks/gumroad/:routeId, /webhooks/jinxxy/:routeId, /webhooks/payhip/:routeId
- * where routeId is either a tenantId (legacy) or an authUserId (user-scoped connections).
+ * where routeId is an authUserId (Better Auth user ID, user-scoped connections).
  */
 export function createWebhookHandler(
   config: WebhookConfig
 ): (request: Request) => Promise<Response> {
   const routes = createWebhookRoutes(config);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
@@ -593,7 +709,7 @@ export function createWebhookHandler(
       routeId: routeId || undefined,
     });
 
-    // /webhooks/jinxxy-collab/:ownerTenantId/:inviteId
+    // /webhooks/jinxxy-collab/:ownerAuthUserId/:inviteId
     if (provider === 'jinxxy-collab') {
       const inviteId = pathParts[3];
       if (!routeId || !inviteId) {
@@ -606,68 +722,18 @@ export function createWebhookHandler(
       return new Response('Not Found', { status: 404 });
     }
 
-    // Payhip uses direct tenantId routing (no fan-out needed)
+    // All providers use routeId-based routing with internal fan-out (user-scoped).
     if (provider === 'payhip') {
       return routes.handlePayhipWebhook(request, routeId);
     }
-
-    if (provider !== 'gumroad' && provider !== 'jinxxy') {
-      logger.warn('Webhook unknown provider', { provider, routeId });
-      return new Response('Not Found', { status: 404 });
+    if (provider === 'jinxxy') {
+      return routes.handleJinxxyWebhook(request, routeId);
+    }
+    if (provider === 'gumroad') {
+      return routes.handleGumroadWebhook(request, routeId);
     }
 
-    // Resolve routeId → one or more tenantIds (supports both direct tenantId and authUserId)
-    let tenantIds: string[];
-    try {
-      tenantIds = await convex.query(api.webhookIngestion.resolveWebhookTenantIds, {
-        apiSecret: config.convexApiSecret,
-        routeId,
-      });
-    } catch (err) {
-      logger.warn('Failed to resolve webhook tenantIds', {
-        routeId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      // Fall back to treating routeId as a direct tenantId (for backward compat)
-      tenantIds = [routeId];
-    }
-
-    if (tenantIds.length === 0) {
-      logger.warn('Webhook: no tenants resolved for routeId', { routeId, provider });
-      return new Response('Not Found', { status: 404 });
-    }
-
-    if (tenantIds.length === 1) {
-      // Fast path: single tenant (most common)
-      if (provider === 'gumroad') return routes.handleGumroadWebhook(request, tenantIds[0]);
-      return routes.handleJinxxyWebhook(request, tenantIds[0]);
-    }
-
-    // Fan-out: clone the request body once, then dispatch to all tenants
-    const body = await request.text();
-    const headers = Object.fromEntries(request.headers.entries());
-    const results = await Promise.allSettled(
-      tenantIds.map((tenantId) => {
-        const clonedRequest = new Request(request.url, {
-          method: request.method,
-          headers,
-          body: body || undefined,
-        });
-        if (provider === 'gumroad') return routes.handleGumroadWebhook(clonedRequest, tenantId);
-        return routes.handleJinxxyWebhook(clonedRequest, tenantId);
-      })
-    );
-
-    // If any succeeded, return 200; otherwise return the first error
-    const anySuccess = results.some((r) => r.status === 'fulfilled' && r.value.ok);
-    if (anySuccess) return new Response('OK', { status: 200 });
-
-    const firstFailed = results.find((r) => r.status === 'rejected') as
-      | PromiseRejectedResult
-      | undefined;
-    if (firstFailed) {
-      logger.error('Webhook fan-out error', { routeId, error: String(firstFailed.reason) });
-    }
-    return new Response('Internal Server Error', { status: 500 });
+    logger.warn('Webhook unknown provider', { provider, routeId });
+    return new Response('Not Found', { status: 404 });
   };
 }

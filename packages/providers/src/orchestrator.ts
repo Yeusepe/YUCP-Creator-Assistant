@@ -8,7 +8,7 @@
  * @example
  * ```ts
  * const orchestrator = new VerificationOrchestrator(registry, {
- *   getTenantConfig: async (tenantId) => ({
+ *   getTenantConfig: async (authUserId) => ({
  *     enabledModes: ['gumroad', 'jinxxy'],
  *   }),
  * });
@@ -156,14 +156,14 @@ export interface TenantVerificationConfig {
 }
 
 /** Function to get tenant configuration */
-export type GetTenantConfig = (tenantId: string) => Promise<TenantVerificationConfig | null>;
+export type GetTenantConfig = (authUserId: string) => Promise<TenantVerificationConfig | null>;
 
 /** Verification session stored during OAuth flow */
 export interface VerificationSession {
   /** Session ID */
   id: string;
-  /** Tenant ID */
-  tenantId: string;
+  /** Auth user ID */
+  authUserId: string;
   /** Provider mode */
   mode: ProviderMode;
   /** Subject ID (YUCP user) */
@@ -197,7 +197,7 @@ export interface VerificationBindingStorage {
   /** Get binding by ID */
   get(bindingId: string): Promise<{
     id: string;
-    tenantId: string;
+    authUserId: string;
     mode: ProviderMode;
     providerUserId?: string;
     verification: Verification;
@@ -302,23 +302,23 @@ export class VerificationOrchestrator {
   /**
    * Begin a verification flow for a tenant.
    *
-   * @param tenantId - Tenant ID
+   * @param authUserId - Auth user ID
    * @param mode - Provider mode to use
    * @param context - Verification context
    */
   async beginVerification(
-    tenantId: string,
+    authUserId: string,
     mode: ProviderMode,
     context: BeginVerificationContext
   ): Promise<BeginVerificationResult> {
     // Get tenant configuration
-    const tenantConfig = await this.options.getTenantConfig(tenantId);
+    const tenantConfig = await this.options.getTenantConfig(authUserId);
     if (!tenantConfig) {
       return {
         success: false,
         verificationSessionId: '',
         mode,
-        error: 'Tenant not found',
+        error: 'Creator not found',
       };
     }
 
@@ -337,7 +337,7 @@ export class VerificationOrchestrator {
       const health = await this.registry.healthCheck(mode);
       if (!health.healthy) {
         // Try fallback providers
-        const fallbackResult = await this.tryFallbackBegin(tenantId, mode, tenantConfig, context);
+        const fallbackResult = await this.tryFallbackBegin(authUserId, mode, tenantConfig, context);
         if (fallbackResult) {
           return fallbackResult;
         }
@@ -368,7 +368,7 @@ export class VerificationOrchestrator {
 
     const session: VerificationSession = {
       id: verificationSessionId,
-      tenantId,
+      authUserId,
       mode,
       subjectId: context.subjectId,
       createdAt: now,
@@ -574,21 +574,21 @@ export class VerificationOrchestrator {
   /**
    * Get enabled provider modes for a tenant.
    *
-   * @param tenantId - Tenant ID
+   * @param authUserId - Auth user ID
    */
-  async getEnabledModes(tenantId: string): Promise<ProviderMode[]> {
-    const config = await this.options.getTenantConfig(tenantId);
+  async getEnabledModes(authUserId: string): Promise<ProviderMode[]> {
+    const config = await this.options.getTenantConfig(authUserId);
     return config?.enabledModes ?? [];
   }
 
   /**
    * Check if a specific mode is enabled for a tenant.
    *
-   * @param tenantId - Tenant ID
+   * @param authUserId - Auth user ID
    * @param mode - Provider mode
    */
-  async isModeEnabled(tenantId: string, mode: ProviderMode): Promise<boolean> {
-    const config = await this.options.getTenantConfig(tenantId);
+  async isModeEnabled(authUserId: string, mode: ProviderMode): Promise<boolean> {
+    const config = await this.options.getTenantConfig(authUserId);
     return config?.enabledModes.includes(mode) ?? false;
   }
 
@@ -608,7 +608,7 @@ export class VerificationOrchestrator {
         // GumroadAdapter has beginVerification
         const gumroadAdapter = adapter as unknown as {
           beginVerification?: (
-            tenantId: string,
+            authUserId: string,
             subjectId?: string,
             options?: { scope?: string }
           ) => Promise<{ authorizationUrl: string; state: string }>;
@@ -616,7 +616,7 @@ export class VerificationOrchestrator {
 
         if (gumroadAdapter.beginVerification) {
           const result = await gumroadAdapter.beginVerification(
-            session.tenantId,
+            session.authUserId,
             context.subjectId,
             { scope: context.scope }
           );
@@ -781,7 +781,7 @@ export class VerificationOrchestrator {
             validateLicense?: (input: {
               licenseKey: string;
               productId: string;
-              tenantId: string;
+              authUserId: string;
             }) => Promise<{
               valid: boolean;
               license?: { _id: string; createdAt: string };
@@ -793,7 +793,7 @@ export class VerificationOrchestrator {
             const result = await manualAdapter.validateLicense({
               licenseKey: context.licenseKey,
               productId: context.productId,
-              tenantId: session.tenantId,
+              authUserId: session.authUserId,
             });
 
             if (result.valid && result.license) {
@@ -833,7 +833,7 @@ export class VerificationOrchestrator {
     mode: ProviderMode,
     binding: {
       id: string;
-      tenantId: string;
+      authUserId: string;
       mode: ProviderMode;
       providerUserId?: string;
       verification: Verification;
@@ -901,7 +901,7 @@ export class VerificationOrchestrator {
           validateLicense?: (input: {
             licenseKey: string;
             productId: string;
-            tenantId: string;
+            authUserId: string;
           }) => Promise<{ valid: boolean }>;
         };
 
@@ -925,7 +925,7 @@ export class VerificationOrchestrator {
     mode: ProviderMode,
     binding: {
       id: string;
-      tenantId: string;
+      authUserId: string;
       mode: ProviderMode;
       providerUserId?: string;
     },
@@ -936,11 +936,11 @@ export class VerificationOrchestrator {
     switch (mode) {
       case 'gumroad': {
         const gumroadAdapter = adapter as unknown as {
-          revokeAccess?: (tenantId: string, gumroadUserId: string) => Promise<void>;
+          revokeAccess?: (authUserId: string, gumroadUserId: string) => Promise<void>;
         };
 
         if (notifyProvider && gumroadAdapter.revokeAccess && binding.providerUserId) {
-          await gumroadAdapter.revokeAccess(binding.tenantId, binding.providerUserId);
+          await gumroadAdapter.revokeAccess(binding.authUserId, binding.providerUserId);
         }
         return { success: true };
       }
@@ -965,7 +965,7 @@ export class VerificationOrchestrator {
         const manualAdapter = adapter as unknown as {
           revokeLicense?: (input: {
             licenseId: string;
-            tenantId: string;
+            authUserId: string;
             reason?: string;
           }) => Promise<unknown>;
         };
@@ -973,7 +973,7 @@ export class VerificationOrchestrator {
         if (manualAdapter.revokeLicense) {
           await manualAdapter.revokeLicense({
             licenseId: binding.id,
-            tenantId: binding.tenantId,
+            authUserId: binding.authUserId,
             reason: context?.reason,
           });
         }
@@ -989,7 +989,7 @@ export class VerificationOrchestrator {
   // ============================================================================
 
   private async tryFallbackBegin(
-    tenantId: string,
+    authUserId: string,
     failedMode: ProviderMode,
     tenantConfig: TenantVerificationConfig,
     context: BeginVerificationContext
@@ -1004,7 +1004,7 @@ export class VerificationOrchestrator {
       if (!health.healthy) continue;
 
       // Try to begin verification with fallback
-      const result = await this.beginVerification(tenantId, fallbackMode, context);
+      const result = await this.beginVerification(authUserId, fallbackMode, context);
       if (result.success) {
         return result;
       }

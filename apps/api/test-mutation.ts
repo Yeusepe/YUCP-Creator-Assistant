@@ -29,7 +29,7 @@ async function test() {
       // biome-ignore lint/suspicious/noExplicitAny: test helper script bypasses Convex function reference types
       await (convex as any).mutation('providerConnections:updateTenantSetting' as any, {
         apiSecret,
-        tenantId: 'kd70v9q3g218hbgxykrt2cxsv978rth0',
+        authUserId: 'kd70v9q3g218hbgxykrt2cxsv978rth0',
         key: 'allowMismatchedEmails',
         value: true,
       })

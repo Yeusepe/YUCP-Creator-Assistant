@@ -140,7 +140,7 @@ describe('provider platform routes', () => {
       if (ref === apiMock.providerPlatform.getProviderConnectionAdmin) {
         return {
           connectionId: 'conn_1',
-          tenantId: 'tenant_1',
+          authUserId: 'user_abc1',
           providerKey: 'lemonsqueezy',
           provider: 'lemonsqueezy',
           webhookConfigured: false,
@@ -405,7 +405,7 @@ describe('provider platform routes', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tenantId: 'tenant_1',
+          authUserId: 'user_abc1',
           providerKey: 'lemonsqueezy',
           verificationMethod: 'license_key',
         }),
@@ -429,7 +429,7 @@ describe('provider platform routes', () => {
       if (ref === apiMock.providerPlatform.getProviderConnectionAdmin) {
         return {
           connectionId: 'conn_1',
-          tenantId: 'tenant_1',
+          authUserId: 'user_abc1',
           providerKey: 'lemonsqueezy',
           provider: 'lemonsqueezy',
           externalShopId: 'store_1',
@@ -503,7 +503,7 @@ describe('provider platform routes', () => {
       if (ref === apiMock.providerPlatform.getProviderConnectionAdmin) {
         return {
           connectionId: 'conn_1',
-          tenantId: 'tenant_1',
+          authUserId: 'user_abc1',
           providerKey: 'lemonsqueezy',
           provider: 'lemonsqueezy',
           remoteWebhookSecretRef: 'enc:webhook-secret',

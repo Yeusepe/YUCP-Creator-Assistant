@@ -75,7 +75,7 @@ describe('DiscordOAuthProvider', () => {
       kekBytes,
       keyId: 'test-kek-v1',
       keyVersion: 1,
-      tenantId: 'test-tenant-123',
+      authUserId: 'user_test123',
     };
 
     storage = new MockTokenStorage();
@@ -325,7 +325,7 @@ describe('DiscordOAuthProvider', () => {
         keyId: config.keyId,
         keyVersion: config.keyVersion,
         kekBytes: config.kekBytes,
-        aad: createAAD(config.tenantId, 'discord', 'access'),
+        aad: createAAD(config.authUserId, 'discord', 'access'),
       });
 
       const encryptedTokens: EncryptedDiscordTokens = {
@@ -422,7 +422,7 @@ describe('DiscordOAuthProvider', () => {
         keyId: config.keyId,
         keyVersion: config.keyVersion,
         kekBytes: config.kekBytes,
-        aad: createAAD(config.tenantId, 'discord', 'access'),
+        aad: createAAD(config.authUserId, 'discord', 'access'),
       });
 
       const encryptedTokens: EncryptedDiscordTokens = {
@@ -459,7 +459,7 @@ describe('DiscordOAuthProvider', () => {
         keyId: config.keyId,
         keyVersion: config.keyVersion,
         kekBytes: config.kekBytes,
-        aad: createAAD(config.tenantId, 'discord', 'access'),
+        aad: createAAD(config.authUserId, 'discord', 'access'),
       });
 
       const encryptedTokens: EncryptedDiscordTokens = {
@@ -539,7 +539,7 @@ describe('DiscordOAuthProvider', () => {
         keyId: config.keyId,
         keyVersion: config.keyVersion,
         kekBytes: config.kekBytes,
-        aad: createAAD(config.tenantId, 'discord', 'access'),
+        aad: createAAD(config.authUserId, 'discord', 'access'),
       });
 
       const expiredTokens: EncryptedDiscordTokens = {
@@ -569,13 +569,13 @@ describe('DiscordOAuthProvider', () => {
         keyId: config.keyId,
         keyVersion: config.keyVersion,
         kekBytes: config.kekBytes,
-        aad: createAAD(config.tenantId, 'discord', 'access'),
+        aad: createAAD(config.authUserId, 'discord', 'access'),
       });
       const encryptedRefreshToken = await encrypt(refreshToken, {
         keyId: config.keyId,
         keyVersion: config.keyVersion,
         kekBytes: config.kekBytes,
-        aad: createAAD(config.tenantId, 'discord', 'refresh'),
+        aad: createAAD(config.authUserId, 'discord', 'refresh'),
       });
 
       const initialTokens: EncryptedDiscordTokens = {
@@ -613,7 +613,7 @@ describe('DiscordOAuthProvider', () => {
       const decryptedAccess = await decrypt({
         kekBytes: config.kekBytes,
         payload: refreshed.encryptedAccessToken,
-        aad: createAAD(config.tenantId, 'discord', 'access'),
+        aad: createAAD(config.authUserId, 'discord', 'access'),
       });
       expect(decryptedAccess).toBe('new-access-token');
     });
@@ -625,7 +625,7 @@ describe('DiscordOAuthProvider', () => {
         keyId: config.keyId,
         keyVersion: config.keyVersion,
         kekBytes: config.kekBytes,
-        aad: createAAD(config.tenantId, 'discord', 'access'),
+        aad: createAAD(config.authUserId, 'discord', 'access'),
       });
 
       const tokens: EncryptedDiscordTokens = {
@@ -685,7 +685,7 @@ describe('Token encryption', () => {
       kekBytes,
       keyId: 'test-key',
       keyVersion: 1,
-      tenantId: 'tenant-123',
+      authUserId: 'user_test123',
     };
 
     const accessToken = 'discord-access-token-abc123';
@@ -695,7 +695,7 @@ describe('Token encryption', () => {
       keyId: config.keyId,
       keyVersion: config.keyVersion,
       kekBytes: config.kekBytes,
-      aad: createAAD(config.tenantId, 'discord', 'access'),
+      aad: createAAD(config.authUserId, 'discord', 'access'),
     });
 
     expect(encrypted).toBeDefined();
@@ -707,7 +707,7 @@ describe('Token encryption', () => {
     const decrypted = await decrypt({
       kekBytes: config.kekBytes,
       payload: encrypted,
-      aad: createAAD(config.tenantId, 'discord', 'access'),
+      aad: createAAD(config.authUserId, 'discord', 'access'),
     });
 
     expect(decrypted).toBe(accessToken);
@@ -721,14 +721,14 @@ describe('Token encryption', () => {
       keyId: 'key-1',
       keyVersion: 1,
       kekBytes,
-      aad: createAAD('tenant-a', 'discord', 'access'),
+      aad: createAAD('user_test_a', 'discord', 'access'),
     });
 
     await expect(
       decrypt({
         kekBytes,
         payload: encrypted,
-        aad: createAAD('tenant-b', 'discord', 'access'),
+        aad: createAAD('user_test_b', 'discord', 'access'),
       })
     ).rejects.toThrow('AAD mismatch');
   });
