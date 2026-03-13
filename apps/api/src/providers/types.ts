@@ -61,10 +61,26 @@ export interface BackfillPlugin {
   ): Promise<{ facts: BackfillRecord[]; nextCursor: string | null }>;
 }
 
+/**
+ * Named HKDF domain-separation labels for every credential type a provider encrypts/decrypts.
+ * Providers export these as a named `PURPOSES` const so callers import the string from here
+ * rather than duplicating magic literals. `credential` is the primary API key / access token.
+ */
+export interface ProviderPurposes {
+  /** The primary credential used in getCredential() / the connect flow */
+  readonly credential: string;
+  readonly [key: string]: string;
+}
+
 /** The main contract every provider module must satisfy */
 export interface ProviderPlugin {
   /** Provider identifier — must match the provider key used in Convex and Gumroad/Jinxxy/etc. */
   readonly id: string;
+  /**
+   * HKDF purpose strings for every credential type this provider manages.
+   * Callers import `PURPOSES` from the provider module and reference e.g. `PURPOSES.credential`.
+   */
+  readonly purposes: ProviderPurposes;
   /**
    * Whether this provider requires an external API credential.
    * Set to false for providers that only query Convex (e.g. Payhip).

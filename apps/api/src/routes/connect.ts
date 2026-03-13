@@ -26,6 +26,10 @@ import {
 } from '../lib/browserSessions';
 import { getConvexApiSecret, getConvexClient, getConvexClientFromUrl } from '../lib/convex';
 import { encrypt } from '../lib/encrypt';
+import { PURPOSES as GUMROAD } from '../providers/gumroad';
+import { PURPOSES as JINXXY } from '../providers/jinxxy';
+import { PURPOSES as LEMONSQUEEZY } from '../providers/lemonsqueezy';
+import { PURPOSES as PAYHIP } from '../providers/payhip';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
@@ -1375,9 +1379,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       };
       const gumroadUserId = me.user?.user_id ?? '';
 
-      const accessEncrypted = await encrypt(accessToken, config.encryptionSecret, 'gumroad-oauth-access-token');
+      const accessEncrypted = await encrypt(accessToken, config.encryptionSecret, GUMROAD.credential);
       const refreshEncrypted = refreshToken
-        ? await encrypt(refreshToken, config.encryptionSecret, 'gumroad-oauth-refresh-token')
+        ? await encrypt(refreshToken, config.encryptionSecret, GUMROAD.refreshToken)
         : undefined;
 
       const convex = getConvexClientFromUrl(config.convexUrl);
@@ -1601,7 +1605,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         `${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`,
         JSON.stringify({
           callbackUrl,
-          signingSecretEncrypted: await encrypt(webhookSecret, config.encryptionSecret, 'webhook-signing-secret'),
+          signingSecretEncrypted: await encrypt(webhookSecret, config.encryptionSecret, JINXXY.webhookSecret),
         }),
         JINXXY_PENDING_WEBHOOK_TTL_MS
       );
@@ -1698,7 +1702,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const webhookTarget = authUserId;
 
     try {
-      const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret, 'jinxxy-api-key');
+      const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret, JINXXY.credential);
       const store = getStateStore();
       const pendingWebhookRaw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${webhookTarget}`);
       let webhookSecretRef: string | undefined;
@@ -1718,7 +1722,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
             { status: 400 }
           );
         }
-        webhookSecretRef = await encrypt(webhookSecret, config.encryptionSecret, 'webhook-signing-secret');
+        webhookSecretRef = await encrypt(webhookSecret, config.encryptionSecret, JINXXY.webhookSecret);
         webhookEndpoint = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${webhookTarget}`;
       }
       const convex = getConvexClientFromUrl(config.convexUrl);
@@ -1845,8 +1849,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         testMode: Boolean(selectedStore.testMode ?? false),
       });
 
-      const encryptedApiToken = await encrypt(apiKey, config.encryptionSecret, 'lemonsqueezy-api-token');
-      const encryptedWebhookSecret = await encrypt(webhookSecretPlain, config.encryptionSecret, 'lemonsqueezy-webhook-secret');
+      const encryptedApiToken = await encrypt(apiKey, config.encryptionSecret, LEMONSQUEEZY.credential);
+      const encryptedWebhookSecret = await encrypt(webhookSecretPlain, config.encryptionSecret, LEMONSQUEEZY.webhookSecret);
 
       for (const credential of [
         {
@@ -3264,7 +3268,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret, 'payhip-api-key');
+      const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret, PAYHIP.credential);
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertPayhipConnection, {
         apiSecret: config.convexApiSecret,
@@ -3343,7 +3347,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const encryptedSecretKey = await encrypt(productSecretKey, config.encryptionSecret, 'payhip-product-secret');
+      const encryptedSecretKey = await encrypt(productSecretKey, config.encryptionSecret, PAYHIP.productSecret);
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertProductCredential, {
         apiSecret: config.convexApiSecret,
@@ -3498,7 +3502,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       };
     }
     try {
-      const encryptedSecretKey = await encrypt(params.plaintextSecretKey, config.encryptionSecret, 'payhip-product-secret');
+      const encryptedSecretKey = await encrypt(params.plaintextSecretKey, config.encryptionSecret, PAYHIP.productSecret);
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertProductCredential, {
         apiSecret: config.convexApiSecret,

@@ -16,9 +16,15 @@ import type {
   ProductRecord,
   ProviderContext,
   ProviderPlugin,
+  ProviderPurposes,
 } from './types';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+
+export const PURPOSES = {
+  credential: 'lemonsqueezy-api-token',
+  webhookSecret: 'lemonsqueezy-webhook-secret',
+} as const satisfies ProviderPurposes;
 
 const MAX_RATE_LIMIT_RETRIES = 10;
 
@@ -171,6 +177,7 @@ const backfill: BackfillPlugin = {
 const lemonSqueezyProvider: ProviderPlugin = {
   id: 'lemonsqueezy',
   needsCredential: true,
+  purposes: PURPOSES,
 
   async getCredential(ctx: ProviderContext) {
     const conn = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
@@ -179,7 +186,7 @@ const lemonSqueezyProvider: ProviderPlugin = {
       provider: 'lemonsqueezy',
     });
     if (!conn?.lemonApiTokenEncrypted) return null;
-    return decrypt(conn.lemonApiTokenEncrypted, ctx.encryptionSecret, 'lemonsqueezy-api-token');
+    return decrypt(conn.lemonApiTokenEncrypted, ctx.encryptionSecret, PURPOSES.credential);
   },
 
   async fetchProducts(credential) {

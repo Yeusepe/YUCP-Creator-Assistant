@@ -10,11 +10,17 @@
  */
 
 import { api } from '../../../../convex/_generated/api';
-import type { ProductRecord, ProviderContext, ProviderPlugin } from './types';
+import type { ProductRecord, ProviderContext, ProviderPlugin, ProviderPurposes } from './types';
+
+export const PURPOSES = {
+  credential: 'payhip-api-key',
+  productSecret: 'payhip-product-secret',
+} as const satisfies ProviderPurposes;
 
 const payhipProvider: ProviderPlugin = {
   id: 'payhip',
   needsCredential: false,
+  purposes: PURPOSES,
 
   async getCredential(_ctx: ProviderContext) {
     return null;
