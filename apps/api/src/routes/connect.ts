@@ -1381,18 +1381,42 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         : undefined;
 
       const convex = getConvexClientFromUrl(config.convexUrl);
-      await convex.mutation(api.providerConnections.upsertGumroadConnection, {
-        apiSecret: config.convexApiSecret,
-        authUserId: authUserId ?? undefined,
-        gumroadAccessTokenEncrypted: accessEncrypted,
-        gumroadRefreshTokenEncrypted: refreshEncrypted,
-        gumroadUserId,
-      });
 
       // Register Gumroad resource_subscriptions for webhook delivery.
-      // Use authUserId as the webhook routing key.
+      // First delete any existing subscriptions pointing at our webhook base URL
+      // to prevent stale entries from firing after a reconnect or account change.
+      const webhookBase = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/gumroad/`;
+      try {
+        const listRes = await fetch(
+          `https://api.gumroad.com/v2/resource_subscriptions?access_token=${encodeURIComponent(accessToken)}`
+        );
+        if (listRes.ok) {
+          const listData = (await listRes.json()) as {
+            success: boolean;
+            resource_subscriptions?: Array<{ id: string; resource_name: string; post_url: string }>;
+          };
+          for (const sub of listData.resource_subscriptions ?? []) {
+            if (sub.post_url.startsWith(webhookBase)) {
+              await fetch(
+                `https://api.gumroad.com/v2/resource_subscriptions/${sub.id}?access_token=${encodeURIComponent(accessToken)}`,
+                { method: 'DELETE' }
+              );
+              logger.info('Gumroad: deleted stale resource_subscription', {
+                id: sub.id,
+                post_url: sub.post_url,
+              });
+            }
+          }
+        }
+      } catch (cleanupErr) {
+        logger.warn('Gumroad: failed to clean up old resource_subscriptions', {
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        });
+      }
+
       const webhookTarget = authUserId;
-      const postUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/gumroad/${webhookTarget}`;
+      const postUrl = `${webhookBase}${webhookTarget}`;
+      const resourceSubscriptionIds: string[] = [];
       for (const resourceName of ['sale', 'refund']) {
         try {
           const subRes = await fetch('https://api.gumroad.com/v2/resource_subscriptions', {
@@ -1404,7 +1428,20 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
               post_url: postUrl,
             }).toString(),
           });
-          if (!subRes.ok) {
+          if (subRes.ok) {
+            const subData = (await subRes.json()) as {
+              success: boolean;
+              resource_subscription?: { id: string };
+            };
+            if (subData.success && subData.resource_subscription?.id) {
+              resourceSubscriptionIds.push(subData.resource_subscription.id);
+              logger.info('Gumroad: registered resource_subscription', {
+                resourceName,
+                id: subData.resource_subscription.id,
+                webhookTarget,
+              });
+            }
+          } else {
             const errText = await subRes.text();
             logger.warn('Gumroad resource_subscription failed', {
               resourceName,
@@ -1421,6 +1458,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           });
         }
       }
+
+      await convex.mutation(api.providerConnections.upsertGumroadConnection, {
+        apiSecret: config.convexApiSecret,
+        authUserId: authUserId ?? undefined,
+        gumroadAccessTokenEncrypted: accessEncrypted,
+        gumroadRefreshTokenEncrypted: refreshEncrypted,
+        gumroadUserId,
+        resourceSubscriptionIds,
+      });
 
       const redirectParams: Record<string, string> = { gumroad: 'connected' };
       if (guildId) redirectParams.guild_id = guildId;

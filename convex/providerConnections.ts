@@ -793,6 +793,7 @@ export const upsertGumroadConnection = mutation({
     gumroadAccessTokenEncrypted: v.string(),
     gumroadRefreshTokenEncrypted: v.optional(v.string()),
     gumroadUserId: v.optional(v.string()),
+    resourceSubscriptionIds: v.optional(v.array(v.string())),
   },
   returns: v.id('provider_connections'),
   handler: async (ctx, args) => {
@@ -823,6 +824,9 @@ export const upsertGumroadConnection = mutation({
           args.gumroadRefreshTokenEncrypted ?? existing.gumroadRefreshTokenEncrypted,
         gumroadUserId: args.gumroadUserId ?? existing.gumroadUserId,
         authUserId: args.authUserId ?? existing.authUserId,
+        ...(args.resourceSubscriptionIds !== undefined
+          ? { resourceSubscriptionIds: args.resourceSubscriptionIds, webhookConfigured: true }
+          : {}),
         updatedAt: now,
       });
       await upsertCredential(ctx, {
@@ -861,7 +865,8 @@ export const upsertGumroadConnection = mutation({
       gumroadAccessTokenEncrypted: args.gumroadAccessTokenEncrypted,
       gumroadRefreshTokenEncrypted: args.gumroadRefreshTokenEncrypted,
       gumroadUserId: args.gumroadUserId,
-      webhookConfigured: false,
+      resourceSubscriptionIds: args.resourceSubscriptionIds,
+      webhookConfigured: (args.resourceSubscriptionIds?.length ?? 0) > 0,
       createdAt: now,
       updatedAt: now,
     });
