@@ -616,15 +616,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   async function isTenantOwnedBySessionUser(
-    authUserId: string,
-    authUserId: string
+    sessionUserId: string,
+    profileAuthUserId: string
   ): Promise<boolean> {
     const convex = getConvexClientFromUrl(config.convexUrl);
-    const tenant = (await convex.query(api.tenants.getTenant, {
+    const profile = await convex.query(api.creatorProfiles.getCreatorProfile, {
       apiSecret: config.convexApiSecret,
-      authUserId,
-    })) as { ownerAuthUserId?: string } | null;
-    return tenant?.ownerAuthUserId === authUserId;
+      authUserId: profileAuthUserId,
+    });
+    return !!profile && profile.authUserId === sessionUserId;
   }
 
   async function requireOwnerSessionForTenant(
@@ -954,9 +954,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const convex = getConvexClient();
     const apiSecret = getConvexApiSecret();
-    const existing = await convex.query(api.tenants.getTenantByOwnerAuth, {
+    const existing = await convex.query(api.creatorProfiles.getCreatorByAuthUser, {
       apiSecret,
-      ownerAuthUserId: session.user.id,
+      authUserId: session.user.id,
     });
 
     if (!existing && !discordUserId) {
@@ -967,8 +967,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      let authUserId: string;
-
       if (!existing) {
         if (!discordUserId) {
           return Response.json(
@@ -976,15 +974,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
             { status: 400 }
           );
         }
-        authUserId = await convex.mutation(api.tenants.createTenant, {
+        await convex.mutation(api.creatorProfiles.createCreatorProfile, {
           apiSecret,
           name: `Creator ${discordUserId.slice(0, 8)}`,
           ownerDiscordUserId: discordUserId,
-          ownerAuthUserId: session.user.id,
+          authUserId: session.user.id,
+          policy: {},
         });
-      } else {
-        authUserId = existing._id;
       }
+      const authUserId = session.user.id;
 
       await convex.mutation(api.guildLinks.upsertGuildLink, {
         apiSecret,
@@ -998,7 +996,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       logger.info('Connect flow completed', {
         guildId,
-        authUserId,
         authUserId: session.user.id,
       });
 
@@ -1065,44 +1062,42 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const discordUserId: string | null = connectDiscordUserId ?? sessionDiscordUserId;
 
     const apiSecret = getConvexApiSecret();
-    const existing = await convex.query(api.tenants.getTenantByOwnerAuth, {
+    const existing = await convex.query(api.creatorProfiles.getCreatorByAuthUser, {
       apiSecret,
-      ownerAuthUserId: session.user.id,
+      authUserId: session.user.id,
     });
 
-    // 4. If we STILL don't have a discordUserId and no existing tenant, we can't create one
+    // 4. If we STILL don't have a discordUserId and no existing profile, we can't create one
     if (!existing && !discordUserId) {
       return Response.json(
         {
           error: 'Session expired or Discord link lost. Please sign in again from Discord.',
-          details: 'Cannot create tenant: missing Discord ID',
+          details: 'Cannot create profile: missing Discord ID',
         },
         { status: 400 }
       );
     }
 
     try {
-      let authUserId: string;
-
       if (!existing) {
         if (!discordUserId) {
           return Response.json(
             {
               error: 'Session expired or Discord link lost. Please sign in again from Discord.',
-              details: 'Cannot create tenant: missing Discord ID',
+              details: 'Cannot create profile: missing Discord ID',
             },
             { status: 400 }
           );
         }
-        authUserId = await convex.mutation(api.tenants.createTenant, {
+        await convex.mutation(api.creatorProfiles.createCreatorProfile, {
           apiSecret,
           name: `Creator ${discordUserId.slice(0, 8)}`,
           ownerDiscordUserId: discordUserId,
-          ownerAuthUserId: session.user.id,
+          authUserId: session.user.id,
+          policy: {},
         });
-      } else {
-        authUserId = existing._id;
       }
+      const authUserId = session.user.id;
 
       await convex.mutation(api.guildLinks.upsertGuildLink, {
         apiSecret,
@@ -1928,7 +1923,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const session = setupBinding.setupSession;
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const tenant = (await convex.query(api.tenants.getTenant, {
+      const tenant = (await convex.query(api.creatorProfiles.getCreatorProfile, {
         apiSecret: config.convexApiSecret,
         authUserId: session.authUserId,
       })) as { policy?: Record<string, unknown> };

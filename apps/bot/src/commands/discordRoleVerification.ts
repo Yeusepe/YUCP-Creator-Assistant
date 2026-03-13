@@ -26,7 +26,7 @@ export async function handleDiscordRoleVerification(
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const tenant = await convex.query(api.tenants.getTenant, {
+  const tenant = await convex.query(api.creatorProfiles.getCreatorProfile, {
     apiSecret,
     authUserId: ctx.authUserId,
   });
@@ -83,7 +83,7 @@ export async function handleSettingsEnable(
 ): Promise<void> {
   await interaction.deferUpdate();
 
-  await convex.mutation(api.tenants.updateTenantPolicy, {
+  await convex.mutation(api.creatorProfiles.updateCreatorPolicy, {
     apiSecret,
     authUserId,
     policy: { enableDiscordRoleFromOtherServers: true },
@@ -115,7 +115,7 @@ export async function handleSettingsDisable(
 ): Promise<void> {
   await interaction.deferUpdate();
 
-  await convex.mutation(api.tenants.updateTenantPolicy, {
+  await convex.mutation(api.creatorProfiles.updateCreatorPolicy, {
     apiSecret,
     authUserId,
     policy: { enableDiscordRoleFromOtherServers: false },

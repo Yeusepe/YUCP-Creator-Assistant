@@ -468,14 +468,14 @@ export class DiscordBotE2EHarness {
   }
 
   async getTenant(): Promise<TenantRecord | null> {
-    return await this.convexQuery<TenantRecord | null>('tenants:getTenant', {
+    return await this.convexQuery<TenantRecord | null>('creatorProfiles:getCreatorProfile', {
       apiSecret: this.secrets.convexApiSecret,
       authUserId: this.secrets.authUserId,
     });
   }
 
   async updateTenantPolicy(policy: Record<string, unknown>): Promise<void> {
-    await this.convexMutation('tenants:updateTenantPolicy', {
+    await this.convexMutation('creatorProfiles:updateCreatorPolicy', {
       apiSecret: this.secrets.convexApiSecret,
       authUserId: this.secrets.authUserId,
       policy,

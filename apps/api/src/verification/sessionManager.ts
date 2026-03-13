@@ -750,7 +750,7 @@ export function createVerificationSessionManager(
         }
 
         // Now check if the user has any matching roles for current rules
-        const tenant = await convex.query(api.tenants.getTenant, {
+        const tenant = await convex.query(api.creatorProfiles.getCreatorProfile, {
           apiSecret,
           authUserId,
         });

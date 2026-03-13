@@ -239,7 +239,7 @@ export async function getTenantBySlug(
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const tenant = await convex.query(api.tenants.getTenantBySlug, {
+  const tenant = await convex.query(api.creatorProfiles.getCreatorBySlug, {
     apiSecret: config.convexApiSecret,
     slug,
   });
@@ -249,15 +249,13 @@ export async function getTenantBySlug(
   }
 
   return jsonResponse({
-    authUserId: tenant._id,
+    authUserId: tenant.authUserId,
     name: tenant.name,
     slug: tenant.slug,
   });
 }
 
 /**
- * Create suite route handlers for the given config.
- */
 export function createSuiteRoutes(config: SuiteConfig) {
   return {
     async handleRequest(request: Request, pathname: string): Promise<Response | null> {

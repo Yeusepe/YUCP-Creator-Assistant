@@ -545,25 +545,25 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
 
   async function getTenantBySlug(_request: Request, slug: string): Promise<Response> {
     const convex = createConvexClient(config.convexUrl);
-    const tenant = (await convex.query(api.tenants.getTenantBySlug, {
+    const tenant = (await convex.query(api.creatorProfiles.getCreatorBySlug, {
       apiSecret: config.convexApiSecret,
       slug,
-    })) as { _id: string; name: string; slug: string } | null;
+    })) as { _id: string; authUserId: string; name: string; slug: string } | null;
 
     if (!tenant) {
       return await errorResponseWithSupportCode('Tenant not found', 'Resource not found', 404, {
-        stage: 'tenants',
+        stage: 'creator_profiles',
       });
     }
 
     return jsonResponse({
-      authUserId: tenant._id,
+      authUserId: tenant.authUserId,
       name: tenant.name,
       slug: tenant.slug,
     });
   }
 
-  async function getMeVerificationStatus(request: Request): Promise<Response> {
+
     const token = extractBearerToken(request);
     if (!token) {
       return await errorResponseWithSupportCode(

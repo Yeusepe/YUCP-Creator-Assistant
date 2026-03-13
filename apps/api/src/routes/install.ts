@@ -508,7 +508,7 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
         discordGuildId: guildId,
       });
 
-      if (!guildLink || guildLink.ownerAuthUserId !== session.user.id) {
+      if (!guildLink || guildLink.authUserId !== session.user.id) {
         return Response.json({ error: 'Forbidden: you do not own this guild' }, { status: 403 });
       }
 

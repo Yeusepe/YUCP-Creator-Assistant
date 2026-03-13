@@ -174,14 +174,14 @@ async function listAllLicenseKeys(client: LemonSqueezyApiClient, storeId: string
 async function isTenantOwnedBySessionUser(
   convex: ConvexClient,
   apiSecret: string,
-  authUserId: string,
-  authUserId: string
+  profileAuthUserId: string,
+  sessionUserId: string
 ): Promise<boolean> {
-  const tenant = (await convex.query(api.creatorProfiles.getCreatorProfile, {
+  const profile = (await convex.query(api.creatorProfiles.getCreatorProfile, {
     apiSecret,
-    authUserId,
-  })) as { ownerAuthUserId?: string } | null;
-  return tenant?.ownerAuthUserId === authUserId;
+    authUserId: profileAuthUserId,
+  })) as { authUserId?: string } | null;
+  return !!profile && profile.authUserId === sessionUserId;
 }
 
 async function resolveSetupSessionFromRequest(request: Request, encryptionSecret: string) {

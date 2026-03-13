@@ -537,10 +537,11 @@ export const createProviderConnection = mutation({
 
     let existing = null;
     if (args.authUserId) {
+      const authUserId = args.authUserId;
       existing = await ctx.db
         .query('provider_connections')
         .withIndex('by_auth_user_provider', (q) =>
-          q.eq('authUserId', args.authUserId).eq('provider', args.providerKey)
+          q.eq('authUserId', authUserId).eq('provider', args.providerKey)
         )
         .first();
     }
@@ -604,11 +605,7 @@ export const putProviderCredential = mutation({
       throw new Error('authUserId must be provided');
     }
     const connection = await ctx.db.get(args.providerConnectionId);
-    let ownedByUser = args.authUserId && connection?.authUserId === args.authUserId;
-    if (!ownedByUser && args.authUserId && !connection?.authUserId && connection?.tenantId) {
-      const tenant = await ctx.db.get(connection.tenantId);
-      if (tenant?.ownerAuthUserId === args.authUserId) ownedByUser = true;
-    }
+    const ownedByUser = args.authUserId && connection?.authUserId === args.authUserId;
     if (!connection || !ownedByUser) {
       throw new Error('Connection not found or access denied');
     }
@@ -658,16 +655,12 @@ export const upsertConnectionCapability = mutation({
       throw new Error('authUserId must be provided');
     }
     const connection = await ctx.db.get(args.providerConnectionId);
-    let ownedByUser = args.authUserId && connection?.authUserId === args.authUserId;
-    if (!ownedByUser && args.authUserId && !connection?.authUserId && connection?.tenantId) {
-      const tenant = await ctx.db.get(connection.tenantId);
-      if (tenant?.ownerAuthUserId === args.authUserId) ownedByUser = true;
-    }
+    const ownedByUser = args.authUserId && connection?.authUserId === args.authUserId;
     if (!connection || !ownedByUser) {
       throw new Error('Connection not found or access denied');
     }
 
-    return await upsertCapability(ctx, {
+    return await upsertCapability(ctx,{
       providerConnectionId: args.providerConnectionId,
       providerKey: getConnectionProviderKey(connection),
       capabilityKey: args.capabilityKey,
@@ -681,7 +674,7 @@ export const upsertConnectionCapability = mutation({
 
 /**
  * Disconnect a provider connection (soft delete - sets status to 'disconnected').
- * Access is checked via authUserId (preferred) or tenantId (legacy).
+ * Access is checked via authUserId.
  */
 export const disconnectConnection = mutation({
   args: {
@@ -693,14 +686,7 @@ export const disconnectConnection = mutation({
     requireApiSecret(args.apiSecret);
     const conn = await ctx.db.get(args.connectionId);
     if (!conn) throw new Error('Connection not found');
-    let ownedByUser = args.authUserId && conn.authUserId === args.authUserId;
-    // Legacy rows lack authUserId; fall back to checking tenant ownership
-    if (!ownedByUser && args.authUserId && !conn.authUserId && conn.tenantId) {
-      const tenant = await ctx.db.get(conn.tenantId);
-      if (tenant?.ownerAuthUserId === args.authUserId) {
-        ownedByUser = true;
-      }
-    }
+    const ownedByUser = args.authUserId && conn.authUserId === args.authUserId;
     if (!ownedByUser) {
       throw new Error('Connection not found or access denied');
     }
@@ -724,16 +710,16 @@ export const updateTenantSetting = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const tenant = await ctx.db
-      .query('tenants')
-      .filter((q) => q.eq(q.field('ownerAuthUserId'), args.authUserId))
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .first();
-    if (!tenant) throw new Error('Tenant not found');
+    if (!profile) throw new Error('Creator profile not found');
 
-    const policy = tenant.policy ?? {};
+    const policy = profile.policy ?? {};
     const updatedPolicy = { ...policy, [args.key]: args.value };
 
-    await ctx.db.patch(tenant._id, {
+    await ctx.db.patch(profile._id, {
       policy: updatedPolicy,
       updatedAt: Date.now(),
     });
@@ -1125,7 +1111,7 @@ export const getPayhipApiKeyByRouteId = query({
 });
 
 // ============================================================================
-// USER-SCOPED QUERIES (no tenantId required)
+// USER-SCOPED QUERIES
 // ============================================================================
 
 const ConnectionSummaryV = v.object({
@@ -1143,9 +1129,7 @@ const ConnectionSummaryV = v.object({
 });
 
 /**
- * List all active connections for a user, regardless of tenant scope.
- * Returns user-scoped connections plus legacy tenant-scoped connections
- * for tenants owned by this user.
+ * List all active connections for a user.
  */
 export const listConnectionsForUser = query({
   args: {
@@ -1156,32 +1140,11 @@ export const listConnectionsForUser = query({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
 
-    // Direct user-scoped connections
-    const userConnections = await ctx.db
+    const allConnections = await ctx.db
       .query('provider_connections')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.neq(q.field('status'), 'disconnected'))
       .collect();
-
-    // Legacy tenant-scoped connections (pre-migration, no authUserId set)
-    const ownedTenants = await ctx.db
-      .query('tenants')
-      .filter((q) => q.eq(q.field('ownerAuthUserId'), args.authUserId))
-      .collect();
-
-    const legacyConnections = [];
-    for (const tenant of ownedTenants) {
-      const tenantConns = await ctx.db
-        .query('provider_connections')
-        .withIndex('by_tenant', (q) => q.eq('tenantId', tenant._id))
-        .filter((q) =>
-          q.and(q.neq(q.field('status'), 'disconnected'), q.eq(q.field('authUserId'), undefined))
-        )
-        .collect();
-      legacyConnections.push(...tenantConns);
-    }
-
-    const allConnections = [...userConnections, ...legacyConnections];
 
     return allConnections.map((c) => ({
       id: c._id,
@@ -1263,12 +1226,13 @@ export const upsertPayhipConnection = mutation({
     if (!args.authUserId) {
       throw new Error('authUserId must be provided');
     }
+    const authUserId = args.authUserId;
     const now = Date.now();
 
     let conn = await ctx.db
       .query('provider_connections')
       .withIndex('by_auth_user_provider', (q) =>
-        q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
+        q.eq('authUserId', authUserId).eq('provider', 'payhip')
       )
       .first();
 
@@ -1346,11 +1310,12 @@ export const upsertPayhipProductSecretKey = mutation({
     if (!args.authUserId) {
       throw new Error('authUserId must be provided');
     }
+    const authUserId = args.authUserId;
 
     const conn = await ctx.db
       .query('provider_connections')
       .withIndex('by_auth_user_provider', (q) =>
-        q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
+        q.eq('authUserId', authUserId).eq('provider', 'payhip')
       )
       .first();
 
@@ -1498,42 +1463,6 @@ export const getConnectionStatusForUser = query({
     let hasGumroad = !!gumroadUser?.gumroadAccessTokenEncrypted;
     let hasJinxxy = !!jinxxyUser?.jinxxyApiKeyEncrypted;
 
-    if (hasGumroad && hasJinxxy) return { gumroad: hasGumroad, jinxxy: hasJinxxy };
-
-    // Fall back to legacy tenant-scoped lookup for unmigrated connections
-    const ownedTenants = await ctx.db
-      .query('tenants')
-      .filter((q) => q.eq(q.field('ownerAuthUserId'), args.authUserId))
-      .collect();
-
-    for (const tenant of ownedTenants) {
-      if (hasGumroad && hasJinxxy) break;
-      if (!hasGumroad) {
-        const g = await ctx.db
-          .query('provider_connections')
-          .withIndex('by_tenant_provider', (q) =>
-            q.eq('tenantId', tenant._id).eq('provider', 'gumroad')
-          )
-          .filter((q) =>
-            q.and(q.neq(q.field('status'), 'disconnected'), q.eq(q.field('authUserId'), undefined))
-          )
-          .first();
-        if (g?.gumroadAccessTokenEncrypted) hasGumroad = true;
-      }
-      if (!hasJinxxy) {
-        const j = await ctx.db
-          .query('provider_connections')
-          .withIndex('by_tenant_provider', (q) =>
-            q.eq('tenantId', tenant._id).eq('provider', 'jinxxy')
-          )
-          .filter((q) =>
-            q.and(q.neq(q.field('status'), 'disconnected'), q.eq(q.field('authUserId'), undefined))
-          )
-          .first();
-        if (j?.jinxxyApiKeyEncrypted) hasJinxxy = true;
-      }
-    }
-
     return { gumroad: hasGumroad, jinxxy: hasJinxxy };
   },
 });
@@ -1553,10 +1482,11 @@ export const markPayhipWebhookConfigured = mutation({
     let conn = null;
 
     if (args.authUserId) {
+      const authUserId = args.authUserId;
       conn = await ctx.db
         .query('provider_connections')
         .withIndex('by_auth_user_provider', (q) =>
-          q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
+          q.eq('authUserId', authUserId).eq('provider', 'payhip')
         )
         .first();
     }
@@ -1568,45 +1498,5 @@ export const markPayhipWebhookConfigured = mutation({
   },
 });
 
-/**
- * Data migration: backfill authUserId on existing tenant-scoped connections.
- * Idempotent, safe to run multiple times. Processes up to batchSize per call.
- */
-export const backfillConnectionAuthUserId = mutation({
-  args: {
-    apiSecret: v.string(),
-    batchSize: v.optional(v.number()),
-  },
-  returns: v.object({ processed: v.number(), skipped: v.number(), remaining: v.boolean() }),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    const limit = args.batchSize ?? 50;
 
-    const connections = await ctx.db
-      .query('provider_connections')
-      .filter((q) => q.eq(q.field('authUserId'), undefined))
-      .take(limit + 1);
 
-    const remaining = connections.length > limit;
-    const batch = connections.slice(0, limit);
-
-    let processed = 0;
-    let skipped = 0;
-
-    for (const conn of batch) {
-      if (!conn.tenantId) {
-        skipped++;
-        continue;
-      }
-      const tenant = await ctx.db.get(conn.tenantId);
-      if (!tenant?.ownerAuthUserId) {
-        skipped++;
-        continue;
-      }
-      await ctx.db.patch(conn._id, { authUserId: tenant.ownerAuthUserId });
-      processed++;
-    }
-
-    return { processed, skipped, remaining };
-  },
-});

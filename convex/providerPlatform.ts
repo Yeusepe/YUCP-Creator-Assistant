@@ -447,7 +447,6 @@ export const getProviderConnectionAdmin = query({
     v.null(),
     v.object({
       connectionId: v.id('provider_connections'),
-      tenantId: v.optional(v.id('tenants')),
       providerKey: ProviderV,
       provider: v.string(),
       label: v.optional(v.string()),
@@ -474,7 +473,6 @@ export const getProviderConnectionAdmin = query({
 
     return {
       connectionId: connection._id,
-      tenantId: connection.tenantId,
       providerKey: (connection.providerKey ?? connection.provider) as any,
       provider: connection.provider,
       label: connection.label,

@@ -157,16 +157,9 @@ export const getGuildLinkForUninstall = query({
 
     if (!link) return null;
 
-    const profile = await ctx.db
-      .query('creator_profiles')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', link.authUserId))
-      .first();
-    if (!profile) return null;
-
     return {
       guildLinkId: link._id,
       authUserId: link.authUserId,
-      ownerAuthUserId: profile.authUserId,
     };
   },
 });

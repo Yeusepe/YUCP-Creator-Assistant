@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { buildVerifyStatusReply, handleRefreshCommand, handleVerifyStartButton } from './verify';
 
 const originalWarn = console.warn;
@@ -152,7 +151,7 @@ describe('verification support codes in bot handlers', () => {
 
     const reply = await buildVerifyStatusReply(
       'user_123',
-      'tenant_123' as Id<'tenants'>,
+      'user_test123' as string,
       'guild_123',
       convex as unknown as VerifyStatusConvex,
       'api-secret',

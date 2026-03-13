@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Auth } from '../auth';
 
 const apiMock = {
-  tenants: {
-    getTenant: 'tenants.getTenant',
+  creatorProfiles: {
+    getCreatorProfile: 'creatorProfiles.getCreatorProfile',
   },
   providerConnections: {
     createProviderConnection: 'providerConnections.createProviderConnection',
@@ -134,8 +134,8 @@ describe('provider platform routes', () => {
     resolveSetupSessionMock.mockClear();
 
     queryImpl = async (ref, args) => {
-      if (ref === apiMock.tenants.getTenant) {
-        return { ownerAuthUserId: 'owner-user' };
+      if (ref === apiMock.creatorProfiles.getCreatorProfile) {
+        return { authUserId: 'owner-user', ownerDiscordUserId: 'discord_owner' };
       }
       if (ref === apiMock.providerPlatform.getProviderConnectionAdmin) {
         return {
@@ -425,7 +425,7 @@ describe('provider platform routes', () => {
 
   it('runs reconciliation jobs and persists canonical Lemon records', async () => {
     queryImpl = async (ref, args) => {
-      if (ref === apiMock.tenants.getTenant) return { ownerAuthUserId: 'owner-user' };
+      if (ref === apiMock.creatorProfiles.getCreatorProfile) return { authUserId: 'owner-user', ownerDiscordUserId: 'discord_owner' };
       if (ref === apiMock.providerPlatform.getProviderConnectionAdmin) {
         return {
           connectionId: 'conn_1',
