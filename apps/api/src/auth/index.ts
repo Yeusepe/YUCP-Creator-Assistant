@@ -412,7 +412,7 @@ export function createAuth(config: AuthConfig) {
         }
 
         return { session: json, setCookieHeaders };
-      } catch (err) {
+      } catch (_err) {
         return { session: null, setCookieHeaders: [] };
       }
     },
@@ -528,10 +528,10 @@ export function createAuth(config: AuthConfig) {
   };
 }
 
+export { createDiscordProvider, validateDiscordConfig } from './discord';
 // Re-export types and utilities
-export type { SessionManager, SessionInfo } from './session';
+export type { SessionInfo, SessionManager } from './session';
 export { createSessionManager } from './session';
-export { validateDiscordConfig, createDiscordProvider } from './discord';
 
 /**
  * Auth instance type

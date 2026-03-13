@@ -5,10 +5,16 @@
       "**",
       "!**/dist",
       "!**/convex/_generated",
+      "!**/convex/betterAuth/_generated",
+      "!**/convex/betterAuth",
       "!**/packages/private-rpc/src/generated.ts",
       "!**/*.tsbuildinfo",
-      "!**/public/assets/**",
-      "!**/frontend/*.css"
+      "!**/public/assets",
+      "!**/public/**/*.html",
+      "!**/public/**/*.js",
+      "!**/public/**/*.css",
+      "!**/frontend/*.css",
+      "!**/docs/**/*.html"
     ]
   },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },

@@ -32,12 +32,7 @@
 
 import type { Verification } from '@yucp/shared';
 import type { ProviderAdapter, ProviderConfig, PurchaseRecord } from './index';
-import type {
-  ProviderHealthStatus,
-  ProviderMode,
-  ProviderRegistry,
-  ProviderType,
-} from './registry';
+import type { ProviderMode, ProviderRegistry } from './registry';
 
 // ============================================================================
 // Types
@@ -841,7 +836,7 @@ export class VerificationOrchestrator {
   ): Promise<RefreshVerificationResult> {
     switch (mode) {
       case 'gumroad': {
-        const gumroadAdapter = adapter as unknown as {
+        const _gumroadAdapter = adapter as unknown as {
           checkPurchaseStatus?: (
             accessToken: string,
             saleId: string
@@ -897,7 +892,7 @@ export class VerificationOrchestrator {
       }
 
       case 'manual': {
-        const manualAdapter = adapter as unknown as {
+        const _manualAdapter = adapter as unknown as {
           validateLicense?: (input: {
             licenseKey: string;
             productId: string;

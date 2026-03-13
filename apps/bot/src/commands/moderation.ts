@@ -8,6 +8,11 @@
 
 import { createLogger } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  StringSelectMenuInteraction,
+} from 'discord.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -16,11 +21,6 @@ import {
   MessageFlags,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
-} from 'discord.js';
-import type {
-  ButtonInteraction,
-  ChatInputCommandInteraction,
-  StringSelectMenuInteraction,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import { Emoji } from '../lib/emojis';

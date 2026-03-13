@@ -1383,7 +1383,7 @@ async function emitRoleSyncJob(
   authUserId: string,
   subjectId: Id<'subjects'>,
   entitlementId: Id<'entitlements'>,
-  correlationId?: string
+  _correlationId?: string
 ): Promise<Id<'outbox_jobs'>> {
   const now = Date.now();
 
@@ -1421,7 +1421,7 @@ async function emitRoleRemovalJobs(
   subjectId: Id<'subjects'>,
   productId: string,
   entitlementId: Id<'entitlements'>,
-  correlationId?: string
+  _correlationId?: string
 ): Promise<Id<'outbox_jobs'>[]> {
   const now = Date.now();
   const outboxJobIds: Id<'outbox_jobs'>[] = [];

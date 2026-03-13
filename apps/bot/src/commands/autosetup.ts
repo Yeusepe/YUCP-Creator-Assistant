@@ -7,6 +7,13 @@
 
 import { createLogger } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  ModalSubmitInteraction,
+  RoleSelectMenuInteraction,
+  StringSelectMenuInteraction,
+} from 'discord.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -24,14 +31,6 @@ import {
   TextDisplayBuilder,
   TextInputBuilder,
   TextInputStyle,
-} from 'discord.js';
-import type {
-  ButtonInteraction,
-  ChannelSelectMenuInteraction,
-  ChatInputCommandInteraction,
-  ModalSubmitInteraction,
-  RoleSelectMenuInteraction,
-  StringSelectMenuInteraction,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -231,8 +230,8 @@ async function fetchAllProducts(
 /** Entry: /creator-admin autosetup */
 export async function handleAutosetupStart(
   interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   cleanExpiredSessions();
@@ -528,7 +527,7 @@ export async function handleAutosetupRoleModalSubmit(
 async function showProductSelectStep(
   interaction: StringSelectMenuInteraction | ButtonInteraction,
   convex: ConvexHttpClient,
-  apiSecret: string,
+  _apiSecret: string,
   session: AutosetupSession,
   userId: string
 ): Promise<void> {
@@ -556,7 +555,7 @@ async function showProductSelectStep(
     }
     toShow = Array.from(byName.entries())
       .slice(0, 25)
-      .map(([name, list]) => {
+      .map(([_name, list]) => {
         const value = list.map((p) => productKey(p)).join(',');
         const label = list[0].name.length > 100 ? `${list[0].name.slice(0, 97)}...` : list[0].name;
         const providers = [...new Set(list.map((p) => p.provider))].join(' + ');
@@ -607,7 +606,7 @@ async function showProductSelectStep(
 
 async function handleRolesFlowStart(
   interaction: StringSelectMenuInteraction,
-  convex: ConvexHttpClient,
+  _convex: ConvexHttpClient,
   apiSecret: string,
   session: AutosetupSession
 ): Promise<void> {
@@ -880,8 +879,8 @@ export async function handleAutosetupProductsSelect(
 
 async function handleChannelsFlowStart(
   interaction: StringSelectMenuInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   session: AutosetupSession
 ): Promise<void> {
   await interaction.deferUpdate();
@@ -923,8 +922,8 @@ async function handleChannelsFlowStart(
 /** Create verify channel and spawn button */
 export async function handleAutosetupCreateVerify(
   interaction: ButtonInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   userId: string,
   authUserId: string
 ): Promise<void> {
@@ -1030,8 +1029,8 @@ export async function handleAutosetupCreateVerify(
 /** Spawn verify button in current channel */
 export async function handleAutosetupSpawnHere(
   interaction: ButtonInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   userId: string,
   authUserId: string
 ): Promise<void> {
@@ -1151,7 +1150,7 @@ export async function handleAutosetupChannelsNext(
 
 async function handleMigrateFlowStart(
   interaction: StringSelectMenuInteraction,
-  convex: ConvexHttpClient,
+  _convex: ConvexHttpClient,
   apiSecret: string,
   session: AutosetupSession
 ): Promise<void> {
@@ -1213,7 +1212,7 @@ async function handleMigrateFlowStart(
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.Refresh} Migrate: map role to product\n\nSelect a role from your server. Next, we\'ll ask which product it corresponds to.`
+      `## ${E.Refresh} Migrate: map role to product\n\nSelect a role from your server. Next, we'll ask which product it corresponds to.`
     )
   );
   container.addActionRowComponents(
@@ -1229,8 +1228,8 @@ async function handleMigrateFlowStart(
 /** Role selected for migration - show product picker */
 export async function handleAutosetupMigrateRoleSelect(
   interaction: RoleSelectMenuInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   userId: string,
   authUserId: string
 ): Promise<void> {
@@ -1442,8 +1441,8 @@ export async function handleAutosetupMigrateDone(
 /** Migrate confirmation - Map another button */
 export async function handleAutosetupMigrateMapAnother(
   interaction: ButtonInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   userId: string,
   authUserId: string
 ): Promise<void> {
@@ -1467,7 +1466,7 @@ export async function handleAutosetupMigrateMapAnother(
   const container = new ContainerBuilder().setAccentColor(0x5865f2);
   container.addTextDisplayComponents(
     new TextDisplayBuilder().setContent(
-      `## ${E.Refresh} Map another role\n\nSelect a role from your server. Next, we\'ll ask which product it corresponds to.`
+      `## ${E.Refresh} Map another role\n\nSelect a role from your server. Next, we'll ask which product it corresponds to.`
     )
   );
   container.addActionRowComponents(
@@ -1483,8 +1482,8 @@ export async function handleAutosetupMigrateMapAnother(
 /** Migrate confirmation - Map all button */
 export async function handleAutosetupMigrateMapAll(
   interaction: ButtonInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   userId: string,
   authUserId: string
 ): Promise<void> {

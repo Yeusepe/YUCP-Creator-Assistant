@@ -4,7 +4,6 @@
  * Re-run until it returns { done: true }.
  */
 
-import { v } from 'convex/values';
 import { internalMutation } from './_generated/server';
 
 const LEGACY_TABLES = [
@@ -49,7 +48,6 @@ export const purgeLegacyTenantDocuments = internalMutation({
     const PER_TABLE = 200;
 
     for (const table of LEGACY_TABLES) {
-      // @ts-ignore - dynamic table access
       const docs = await ctx.db.query(table).take(PER_TABLE);
       for (const doc of docs) {
         const hasAuthUserId =

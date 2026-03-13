@@ -9,7 +9,6 @@
  */
 
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
 
 /** Outbox job status values */
@@ -68,7 +67,7 @@ export const getPendingJobs = query({
     if (args.jobTypes && args.jobTypes.length > 0) {
       // We need to filter after fetching since we can't combine index filters
       const allPending = await pendingQuery.collect();
-      const filtered = allPending.filter((job) => args.jobTypes!.includes(job.jobType as any));
+      const filtered = allPending.filter((job) => args.jobTypes?.includes(job.jobType as any));
       return filtered.slice(0, limit);
     }
 

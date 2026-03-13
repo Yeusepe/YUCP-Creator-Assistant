@@ -1,6 +1,6 @@
 // Provider adapters for Gumroad, Jinxxy, Discord, and manual licenses
 
-import type { User, Verification, VerificationStatus } from '@yucp/shared';
+import type { Verification } from '@yucp/shared';
 import { ManualLicenseManager } from './manual/manager';
 import type { ManualLicenseStorage } from './manual/types';
 
@@ -59,59 +59,56 @@ export interface ManualProviderAdapter extends ProviderAdapter {
 
 // Re-export Gumroad adapter (full implementation in ./gumroad)
 import { GumroadAdapter } from './gumroad';
-export { GumroadAdapter, resolveGumroadProductId, resolveGumroadProduct } from './gumroad';
+
+export { GumroadAdapter, resolveGumroadProduct, resolveGumroadProductId } from './gumroad';
+
 import type { GumroadAdapterConfig } from './gumroad/types';
+
 export type {
+  AuthorizationUrlResult,
+  EncryptionService,
   GumroadAdapterConfig,
+  GumroadProduct,
   GumroadPurchaseEvidence,
   GumroadSale,
-  GumroadProduct,
-  AuthorizationUrlResult,
   OAuthCompletionResult,
-  TokenStorage,
-  EncryptionService,
   StateStorage,
+  TokenStorage,
 } from './gumroad';
 
 // Re-export Jinxxy adapter (full implementation in ./jinxxy)
 import { JinxxyAdapter, type JinxxyAdapterConfig } from './jinxxy';
+
 export { JinxxyAdapter, JinxxyApiClient } from './jinxxy';
 
 // Re-export Payhip adapter (full implementation in ./payhip)
 import { PayhipAdapter } from './payhip';
-export { PayhipAdapter, PayhipApiClient } from './payhip';
+
 export type {
   PayhipAdapterConfig,
   PayhipEvidence,
   PayhipLicenseVerifyData,
-  PayhipLicenseVerifyResult,
   PayhipLicenseVerifyResponse,
-  PayhipWebhookItem,
+  PayhipLicenseVerifyResult,
   PayhipPaidPayload,
-  PayhipRefundedPayload,
-  PayhipWebhookPayload,
   PayhipProductKey,
+  PayhipRefundedPayload,
+  PayhipWebhookItem,
+  PayhipWebhookPayload,
 } from './payhip';
-export { PayhipApiError, PayhipRateLimitError } from './payhip';
+export { PayhipAdapter, PayhipApiClient, PayhipApiError, PayhipRateLimitError } from './payhip';
+
 import { LemonSqueezyAdapter, type LemonSqueezyAdapterConfig } from './lemonsqueezy';
-export { LemonSqueezyAdapter, LemonSqueezyApiClient } from './lemonsqueezy';
-export { VrchatApiClient, extractVrchatAvatarId } from './vrchat';
-export type {
-  VrchatCurrentUser,
-  VrchatLicensedAvatar,
-  VrchatVerifyOwnershipResult,
-  TwoFactorAuthType,
-  RequiresTwoFactorAuth,
-} from './vrchat';
+
 export type {
   JinxxyAdapterConfig,
+  JinxxyApiError,
+  JinxxyCustomer,
   JinxxyEvidence,
   JinxxyLicense,
   JinxxyOrder,
-  JinxxyCustomer,
-  JinxxyProduct,
   JinxxyPagination,
-  JinxxyApiError,
+  JinxxyProduct,
   JinxxyRateLimitError,
   LicenseVerificationResult,
   PurchaseVerificationResult,
@@ -128,13 +125,26 @@ export type {
   LemonSqueezyWebhook,
   LemonSqueezyWebhookCreateInput,
 } from './lemonsqueezy';
-export { LemonSqueezyApiError, LemonSqueezyRateLimitError } from './lemonsqueezy';
+export {
+  LemonSqueezyAdapter,
+  LemonSqueezyApiClient,
+  LemonSqueezyApiError,
+  LemonSqueezyRateLimitError,
+} from './lemonsqueezy';
+export type {
+  RequiresTwoFactorAuth,
+  TwoFactorAuthType,
+  VrchatCurrentUser,
+  VrchatLicensedAvatar,
+  VrchatVerifyOwnershipResult,
+} from './vrchat';
+export { extractVrchatAvatarId, VrchatApiClient } from './vrchat';
 
 // Discord provider adapter (placeholder)
 export class DiscordAdapter implements ProviderAdapter {
   readonly name = 'discord';
 
-  constructor(private config: ProviderConfig) {}
+  constructor(_config: ProviderConfig) {}
 
   async verifyPurchase(_discordId: string): Promise<Verification | null> {
     // Placeholder - Discord verification via OAuth/bot
@@ -153,10 +163,7 @@ export class ManualAdapter implements ProviderAdapter {
 
   private manager: ManualLicenseManager | null = null;
 
-  constructor(
-    private config: ProviderConfig,
-    storage?: ManualLicenseStorage
-  ) {
+  constructor(_config: ProviderConfig, storage?: ManualLicenseStorage) {
     if (storage) {
       this.manager = new ManualLicenseManager(storage);
     }
@@ -329,18 +336,15 @@ export function createManualAdapter(
 
 // Discord OAuth provider for buyer verification
 export * from './discord';
-
-// Manual license management module
-export * from './manual';
+export type { LicenseFormat } from './licenseFormat';
 
 // License format detection
 export { detectLicenseFormat } from './licenseFormat';
-export type { LicenseFormat } from './licenseFormat';
-
+// Manual license management module
+export * from './manual';
+export type { ProviderMeta } from './meta';
+// Provider metadata
+export { LICENSE_PROVIDERS, PROVIDER_META, providerLabel } from './meta';
+export * from './orchestrator';
 // Provider registry and orchestration layer
 export * from './registry';
-export * from './orchestrator';
-
-// Provider metadata
-export { PROVIDER_META, LICENSE_PROVIDERS, providerLabel } from './meta';
-export type { ProviderMeta } from './meta';

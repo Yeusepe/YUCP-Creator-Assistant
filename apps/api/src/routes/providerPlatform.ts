@@ -3,7 +3,7 @@ import { LemonSqueezyApiClient } from '@yucp/providers';
 import { createLogger, getProviderDescriptor } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
-import { SETUP_SESSION_COOKIE, getCookieValue } from '../lib/browserSessions';
+import { getCookieValue, SETUP_SESSION_COOKIE } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt, encrypt } from '../lib/encrypt';
 import { resolveSetupSession } from '../lib/setupSession';

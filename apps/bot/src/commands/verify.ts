@@ -8,6 +8,11 @@ import { randomBytes } from 'node:crypto';
 import { PROVIDER_META, providerLabel } from '@yucp/providers';
 import { createLogger, formatVerificationSupportMessage } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  ModalSubmitInteraction,
+} from 'discord.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -22,20 +27,11 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import type {
-  ButtonInteraction,
-  ChatInputCommandInteraction,
-  ModalSubmitInteraction,
-} from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E, Emoji } from '../lib/emojis';
-import {
-  bindVerifyPanel,
-  completeLicenseVerification,
-  disconnectVerification,
-} from '../lib/internalRpc';
+import { completeLicenseVerification, disconnectVerification } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { buildBotVerificationErrorMessage } from '../lib/verificationSupport';

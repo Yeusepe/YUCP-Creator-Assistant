@@ -26,24 +26,24 @@
 
 /* Holographic Sticker Transparency Fix */
 .sticker-card {
-  aspect-ratio: auto !important;
-  max-width: none !important;
-  max-height: none !important;
+  aspect-ratio: auto;
+  max-width: none;
+  max-height: none;
 }
 
 .sticker-content > :not(.sticker-debug) {
-  clip-path: none !important;
-  border-radius: 0 !important;
+  clip-path: none;
+  border-radius: 0;
 }
 
 .sticker-pattern::before,
 .sticker-watermark::before {
-  background: transparent !important;
+  background: transparent;
 }
 
 .sticker-emboss::after,
 .sticker-emboss::before {
-  display: none !important;
+  display: none;
 }
 
 .sticker {

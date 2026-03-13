@@ -43,7 +43,7 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 async function getNotConfiguredMessage(
   guildId: string,
   discordUserId: string,
-  apiSecret: string,
+  _apiSecret: string,
   forAdmin = false
 ): Promise<string> {
   if (forAdmin) {

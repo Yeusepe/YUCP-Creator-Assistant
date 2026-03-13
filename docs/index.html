@@ -460,9 +460,9 @@
         /* ── Primary Button ──────────────────────────────────────────────────── */
         .btn-primary {
             position: relative;
-            background: rgba(255, 255, 255, 0.07) !important;
+            background: rgba(255, 255, 255, 0.07);
             backdrop-filter: blur(8px);
-            border: 1.5px solid rgba(255, 255, 255, 0.2) !important;
+            border: 1.5px solid rgba(255, 255, 255, 0.2);
             transition: all 0.3s ease;
             overflow: hidden;
             border-radius: 999px;
@@ -480,7 +480,7 @@
         }
 
         .btn-primary:hover {
-            border-color: transparent !important;
+            border-color: transparent;
             box-shadow: 0 8px 30px rgba(14, 165, 233, 0.4);
             transform: translateY(-2px);
         }
@@ -490,7 +490,7 @@
         }
 
         .btn-primary:active {
-            transform: scale(0.96) !important;
+            transform: scale(0.96);
         }
 
         /* Hero CTA: aurora background on hover (same as Done text) */
@@ -2204,7 +2204,7 @@
 
     <script>
     /* ── Mobile Menu: Blur Fade animation (Magic UI inspired) ───────────────── */
-    (function () {
+    (() => {
         var btn = document.getElementById('mobile-menu-btn');
         var menu = document.getElementById('mobile-menu');
         if (!btn || !menu) return;
@@ -2212,28 +2212,28 @@
 
         function closeMenu() {
             menu.classList.remove('mobile-menu-open');
-            setTimeout(function () {
+            setTimeout(() => {
                 menu.style.display = 'none';
             }, ANIM_DURATION);
             btn.setAttribute('aria-expanded', 'false');
         }
 
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', () => {
             var isOpen = menu.classList.contains('mobile-menu-open');
             if (isOpen) {
                 closeMenu();
             } else {
                 menu.style.display = 'flex';
                 btn.setAttribute('aria-expanded', 'true');
-                requestAnimationFrame(function () {
-                    requestAnimationFrame(function () {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
                         menu.classList.add('mobile-menu-open');
                     });
                 });
             }
         });
 
-        menu.querySelectorAll('.mobile-menu-item').forEach(function (link) {
+        menu.querySelectorAll('.mobile-menu-item').forEach((link) => {
             link.addEventListener('click', closeMenu);
         });
     })();
@@ -2241,7 +2241,7 @@
     /* ── Mockup Interactivity ───────────────────────────────────────────── */
 
     // ── Verify Purchase Button ───────────────────────────────────────────────
-    (function () {
+    (() => {
         var btn = document.getElementById('mockup-verify-btn');
         var userMsg = document.getElementById('mockup-user-verify');
         var verifyResp = document.getElementById('mockup-verify-response');
@@ -2249,7 +2249,7 @@
         if (!btn) return;
 
         function resetAnimated() {
-            [userMsg, verifyResp, sysLine].forEach(function (el) {
+            [userMsg, verifyResp, sysLine].forEach((el) => {
                 if (!el) return;
                 el.style.transition = 'none';
                 el.style.opacity = '0';
@@ -2257,31 +2257,31 @@
             });
         }
 
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', () => {
             if (btn.dataset.busy) return;
             btn.dataset.busy = '1';
             var origText = btn.textContent.trim();
             btn.textContent = 'Verifying...';
             btn.style.opacity = '0.65';
             resetAnimated();
-            setTimeout(function () {
+            setTimeout(() => {
                 if (userMsg) {
                     userMsg.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-                    requestAnimationFrame(function () { userMsg.style.opacity = '1'; userMsg.style.transform = 'translateY(0)'; });
+                    requestAnimationFrame(() => { userMsg.style.opacity = '1'; userMsg.style.transform = 'translateY(0)'; });
                 }
-                setTimeout(function () {
+                setTimeout(() => {
                     if (verifyResp) {
                         verifyResp.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
-                        requestAnimationFrame(function () { verifyResp.style.opacity = '1'; verifyResp.style.transform = 'translateY(0)'; });
+                        requestAnimationFrame(() => { verifyResp.style.opacity = '1'; verifyResp.style.transform = 'translateY(0)'; });
                     }
                     btn.textContent = 'Verified!';
                     btn.style.background = '#00e676';
                     btn.style.color = '#000';
                     btn.style.opacity = '1';
-                    setTimeout(function () {
+                    setTimeout(() => {
                         if (sysLine) {
                             sysLine.style.transition = 'opacity 0.3s ease';
-                            requestAnimationFrame(function () { sysLine.style.opacity = '1'; });
+                            requestAnimationFrame(() => { sysLine.style.opacity = '1'; });
                         }
                         var mockup = btn.closest ? btn.closest('.discord-mockup') : null;
                         if (mockup) { var area = mockup.querySelector('.overflow-y-auto'); if (area) area.scrollTop = area.scrollHeight; }
@@ -2289,7 +2289,7 @@
                             var r = btn.getBoundingClientRect();
                             confetti({ particleCount: 55, spread: 45, origin: { x: (r.left + r.width / 2) / window.innerWidth, y: (r.top + r.height / 2) / window.innerHeight }, colors: ['#00e676', '#5865F2', '#fff', '#ffeb3b'], disableForReducedMotion: true, zIndex: 9999 });
                         }
-                        setTimeout(function () {
+                        setTimeout(() => {
                             btn.textContent = origText;
                             btn.style.background = '#5865F2';
                             btn.style.color = '#fff';
@@ -2302,28 +2302,28 @@
     })();
 
     // ── Download Button ───────────────────────────────────────────────────────
-    (function () {
+    (() => {
         var btn = document.getElementById('mockup-download-btn');
         if (!btn) return;
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', () => {
             if (btn.dataset.busy) return;
             btn.dataset.busy = '1';
             var orig = btn.textContent.trim();
             btn.textContent = 'Checking...';
             btn.style.background = '#6b7280';
             btn.style.transition = 'background 0.2s ease';
-            setTimeout(function () {
+            setTimeout(() => {
                 btn.textContent = 'Access Granted!';
                 btn.style.background = '#059669';
                 var card = btn.parentElement;
-                if (card) { card.style.transition = 'box-shadow 0.3s ease'; card.style.boxShadow = '0 0 22px rgba(52,211,153,0.45)'; setTimeout(function () { card.style.boxShadow = ''; }, 700); }
-                setTimeout(function () { btn.textContent = orig; btn.style.background = '#10b981'; delete btn.dataset.busy; }, 1600);
+                if (card) { card.style.transition = 'box-shadow 0.3s ease'; card.style.boxShadow = '0 0 22px rgba(52,211,153,0.45)'; setTimeout(() => { card.style.boxShadow = ''; }, 700); }
+                setTimeout(() => { btn.textContent = orig; btn.style.background = '#10b981'; delete btn.dataset.busy; }, 1600);
             }, 550);
         });
     })();
 
     // ── Security Toggle Switches ──────────────────────────────────────────────
-    window.mockupToggle = function (wrapper) {
+    window.mockupToggle = (wrapper) => {
         var track = wrapper.querySelector('.w-11');
         var thumb = wrapper.querySelector('.w-5.h-5');
         var label = wrapper.querySelector('span');
@@ -2347,16 +2347,16 @@
     };
 
     // ── Bento Badge Pairs ─────────────────────────────────────────────────────
-    window.mockupBadge = function (badge) {
+    window.mockupBadge = (badge) => {
         var group = badge.dataset.badgeGroup;
         if (!group) return;
-        document.querySelectorAll('[data-badge-group="' + group + '"]').forEach(function (b) {
+        document.querySelectorAll(`[data-badge-group="${group}"]`).forEach((b) => {
             b.style.transition = 'all 0.15s ease';
             if (b === badge) {
                 b.style.opacity = '1';
                 b.style.outline = '1.5px solid rgba(255,255,255,0.4)';
                 b.style.transform = 'scale(1.07)';
-                setTimeout(function () { b.style.transform = 'scale(1)'; }, 150);
+                setTimeout(() => { b.style.transform = 'scale(1)'; }, 150);
             } else {
                 b.style.opacity = '0.35';
                 b.style.outline = '';
@@ -2365,10 +2365,10 @@
     };
 
     // ── Sidebar Channel Switching ─────────────────────────────────────────────
-    window.mockupSidebarChannel = function (el) {
+    window.mockupSidebarChannel = (el) => {
         var sidebar = el.parentElement;
         if (!sidebar) return;
-        sidebar.querySelectorAll('.discord-sidebar-channel').forEach(function (ch) { ch.classList.remove('active'); });
+        sidebar.querySelectorAll('.discord-sidebar-channel').forEach((ch) => { ch.classList.remove('active'); });
         el.classList.add('active');
     };
     </script>
@@ -2386,7 +2386,7 @@
         /* Mobile menu: handled by inline onclick on the button */
 
         /* Mouse parallax: hero gets tilt/rotate; others get translate-only depth; reset when mouse exits zone */
-        (function () {
+        (() => {
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
             const HERO_PARALLAX = 14;
             const HERO_CHIP = 7;
@@ -2484,7 +2484,7 @@
         (function initTextAnimate() {
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
             const hero = document.getElementById('hero');
-            const heroHeadline = hero && hero.querySelector('h1');
+            const heroHeadline = hero?.querySelector('h1');
             if (!heroHeadline) return;
             const run = () => {
                 hero.classList.add('hero-visible');
@@ -2527,7 +2527,7 @@
         });
 
         /* Hero button: parallax on text/icon so they hover above the button */
-        (function () {
+        (() => {
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
             const btn = document.querySelector('#hero .btn-primary');
             const content = btn?.querySelector('.btn-hero-content');
@@ -2543,7 +2543,7 @@
             btn.addEventListener('mouseleave', () => { content.style.transform = ''; });
         })();
 
-        function fireConfetti(element) {
+        function _fireConfetti(element) {
             const rect = element.getBoundingClientRect();
             confetti({
                 particleCount: 150, spread: 80,
@@ -2554,23 +2554,23 @@
         }
 
         /* Failsafe: show page if Babel/React bundle is slow or fails */
-        (function () {
+        (() => {
             function revealPage() {
                 const overlay = document.getElementById('page-loading-overlay');
                 const content = document.getElementById('page-content');
                 if (!content || content.style.display !== 'none') return;
                 content.style.display = '';
-                requestAnimationFrame(function () {
+                requestAnimationFrame(() => {
                     if (overlay) overlay.classList.add('is-hiding');
                     content.classList.add('is-visible');
                     window.dispatchEvent(new CustomEvent('page-content-visible'));
                 });
             }
             window._revealFallbackTimer = setTimeout(revealPage, 1500);
-            window.addEventListener('page-content-visible', function () {
+            window.addEventListener('page-content-visible', () => {
                 clearTimeout(window._revealFallbackTimer);
             }, { once: true });
-            window.addEventListener('load', function () {
+            window.addEventListener('load', () => {
                 setTimeout(revealPage, 400);
             });
         })();

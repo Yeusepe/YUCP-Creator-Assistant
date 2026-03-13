@@ -1,12 +1,12 @@
-export { VrchatApiClient, extractVrchatAvatarId } from './client';
+export { extractVrchatAvatarId, VrchatApiClient } from './client';
 export type {
+  RequiresTwoFactorAuth,
+  TwoFactorAuthType,
+  VrchatApiError,
   VrchatBeginLoginResult,
   VrchatCurrentUser,
   VrchatLicensedAvatar,
   VrchatPendingLoginState,
   VrchatSessionTokens,
   VrchatVerifyOwnershipResult,
-  VrchatApiError,
-  TwoFactorAuthType,
-  RequiresTwoFactorAuth,
 } from './types';

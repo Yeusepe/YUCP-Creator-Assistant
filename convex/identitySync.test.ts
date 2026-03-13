@@ -16,7 +16,7 @@ import { v } from 'convex/values';
 
 describe('Discord Account Data Validator', () => {
   // Recreate the validator locally for testing
-  const DiscordAccountData = v.object({
+  const _DiscordAccountData = v.object({
     discordUserId: v.string(),
     username: v.string(),
     discriminator: v.optional(v.string()),
@@ -63,7 +63,7 @@ describe('Discord Account Data Validator', () => {
 });
 
 describe('Sync User Input Validator', () => {
-  const SyncUserInput = v.object({
+  const _SyncUserInput = v.object({
     authUserId: v.string(),
     discord: v.object({
       discordUserId: v.string(),
@@ -120,7 +120,7 @@ describe('Sync User Input Validator', () => {
 });
 
 describe('Sync Result Validator', () => {
-  const SyncResult = v.object({
+  const _SyncResult = v.object({
     success: v.boolean(),
     subjectId: v.id('subjects'),
     externalAccountId: v.optional(v.id('external_accounts')),

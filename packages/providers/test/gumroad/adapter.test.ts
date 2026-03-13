@@ -4,7 +4,7 @@
  * Tests the OAuth flow, token management, and purchase verification.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   type EncryptionService,
   GumroadAdapter,
@@ -14,11 +14,7 @@ import {
   OAuthError,
   type TokenStorage,
 } from '../../src/gumroad/index';
-import type {
-  AuthorizationUrlResult,
-  GumroadPurchaseEvidence,
-  GumroadSale,
-} from '../../src/gumroad/types';
+import type { GumroadSale } from '../../src/gumroad/types';
 import { getSaleStatus, isSaleValid, normalizeSaleToEvidence } from '../../src/gumroad/types';
 
 // Test configuration

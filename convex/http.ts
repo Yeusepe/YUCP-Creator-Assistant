@@ -58,10 +58,10 @@ import { httpAction } from './_generated/server';
 import { authComponent, createAuth } from './auth';
 import { decryptForPurpose } from './lib/vrchat/crypto';
 import {
-  type CertEnvelope,
-  type LicenseClaims,
   base64ToBytes,
+  type CertEnvelope,
   getPublicKeyFromPrivate,
+  type LicenseClaims,
   signLicenseJwt,
   verifyCertEnvelope,
 } from './lib/yucpCrypto';
@@ -211,7 +211,7 @@ async function verifyOAuthToken(
     const claims = verified as Record<string, unknown>;
     const scope: string = (claims.scope as string) ?? '';
     const scopes = scope.split(' ');
-    console.log('[verifyOAuthToken] verified ok, scopes=' + scope);
+    console.log(`[verifyOAuthToken] verified ok, scopes=${scope}`);
     if (!scopes.includes(requiredScope)) {
       return { ok: false, error: `Token missing required scope: ${requiredScope}` };
     }
@@ -229,7 +229,7 @@ async function verifyOAuthToken(
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Token verification failed';
     const errName = err instanceof Error ? err.name : 'unknown';
-    console.log('[verifyOAuthToken] FAILED err=' + errName + ' msg=' + msg);
+    console.log(`[verifyOAuthToken] FAILED err=${errName} msg=${msg}`);
     return { ok: false, error: msg };
   }
 }
@@ -249,7 +249,7 @@ async function verifyOAuthToken(
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
-const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const _SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 function isLoopback(uri: string): boolean {
   try {

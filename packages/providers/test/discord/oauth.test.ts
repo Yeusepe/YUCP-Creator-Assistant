@@ -306,7 +306,7 @@ describe('DiscordOAuthProvider', () => {
     };
 
     it('should get user info with access token', async () => {
-      global.fetch = mock(async (input: string | URL | Request) => {
+      global.fetch = mock(async (_input: string | URL | Request) => {
         return new Response(JSON.stringify(mockUser), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },

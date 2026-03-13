@@ -510,7 +510,7 @@
             .overview-step { padding: 0.75rem 0.25rem; flex-direction: row; text-align: left; gap: 1rem; align-items: center; }
             .overview-num { flex-shrink: 0; margin-bottom: 0; }
         }
-        @media (min-width: 901px) { .hamburger-btn { display: none !important; } }
+        @media (min-width: 901px) { .hamburger-btn { display: none; } }
     </style>
 </head>
 
@@ -1142,7 +1142,7 @@
         // Each blob floats on an independent Lissajous-style path using sin/cos
         // with different frequencies, amplitudes, and phase offsets so they
         // never repeat in sync. Positions are in pixels from top-left of viewport.
-        (function () {
+        (() => {
             const blobs = document.querySelectorAll('.blob');
             const W = () => window.innerWidth;
             const H = () => window.innerHeight;
@@ -1184,7 +1184,7 @@
         }
 
         // Copy command to clipboard
-        function copyCmd(btn, text) {
+        function _copyCmd(btn, text) {
             navigator.clipboard.writeText(text).then(() => {
                 const isSm = btn.classList.contains('copy-btn-sm');
                 const sz = isSm ? 11 : 13;
@@ -1229,7 +1229,7 @@
             entries.forEach(e => {
                 if (e.isIntersecting) {
                     links.forEach(l => l.classList.toggle('active', l.dataset.section === e.target.id));
-                    history.replaceState(null, '', '#' + e.target.id);
+                    history.replaceState(null, '', `#${e.target.id}`);
                 }
             });
         }, { rootMargin: `-${NAV_OFFSET}px 0px -60% 0px`, threshold: 0 });

@@ -222,7 +222,7 @@ async function fetchAttachmentBufferWithRetry(
   );
 }
 
-async function buildRelayFiles(
+async function _buildRelayFiles(
   message: Message,
   matchedFiles: MatchedFile[]
 ): Promise<AttachmentBuilder[]> {

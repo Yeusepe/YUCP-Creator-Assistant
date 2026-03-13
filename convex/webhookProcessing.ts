@@ -147,7 +147,7 @@ async function processGumroadEvent(
   const productId = (payload.product_id ?? payload.short_product_id ?? '') as string;
   const email = (payload.email ?? '') as string;
   const refunded = payload.refunded === true || payload.refunded === 'true';
-  const eventType = event.eventType as string;
+  const _eventType = event.eventType as string;
 
   if (!saleId || !productId) {
     throw new Error('Gumroad: missing sale_id or product_id');

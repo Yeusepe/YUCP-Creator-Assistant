@@ -42,7 +42,7 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const COLLAB_TEST_PREFIX = 'collab_test:';
-const COLLAB_TEST_TTL_MS = 60 * 1000;
+const _COLLAB_TEST_TTL_MS = 60 * 1000;
 const COLLAB_DISCORD_PREFIX = 'collab_discord:'; // keyed by inviteId
 const COLLAB_DISCORD_TTL_MS = 30 * 60 * 1000; // 30 minutes to complete setup after OAuth
 const COLLAB_SESSION_PREFIX = 'collab_session:'; // keyed by collab session id

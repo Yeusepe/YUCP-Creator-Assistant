@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { cwd } from 'node:process';
 import { type BotE2ESecrets, requireBotE2ESecrets } from '@yucp/shared/test/loadBotE2ESecrets';
 import { ConvexHttpClient } from 'convex/browser';
-import { type Browser, type BrowserContext, type Page, chromium } from 'playwright';
+import { type Browser, type BrowserContext, chromium, type Page } from 'playwright';
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const ARTIFACT_DIR = join(cwd(), 'apps', 'bot', 'test', 'e2e', '.artifacts');

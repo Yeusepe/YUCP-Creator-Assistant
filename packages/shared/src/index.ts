@@ -35,26 +35,22 @@ export interface Verification {
   createdAt: Date;
 }
 
-export * from './providers';
-
+// Binding module exports
+export * from './binding';
+// Crypto module exports
+export * from './crypto';
+// Entitlement module exports
+export * from './entitlement';
 export {
   createLogger,
   createStructuredLogger,
-  type StructuredLogger,
-  type StructuredLogger as Logger,
   type LogEntry,
   type LoggerConfig,
+  type StructuredLogger,
+  type StructuredLogger as Logger,
 } from './logging';
+export * from './logging/audit';
 export * from './logging/correlation';
 export * from './logging/redaction';
-export * from './logging/audit';
+export * from './providers';
 export * from './verificationSupport';
-
-// Crypto module exports
-export * from './crypto';
-
-// Entitlement module exports
-export * from './entitlement';
-
-// Binding module exports
-export * from './binding';

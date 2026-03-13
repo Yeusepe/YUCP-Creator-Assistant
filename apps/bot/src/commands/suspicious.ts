@@ -3,8 +3,8 @@
  */
 
 import type { ConvexHttpClient } from 'convex/browser';
-import { EmbedBuilder, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
+import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import { track } from '../lib/posthog';
 

@@ -131,7 +131,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
    * Get the encrypted Payhip API key for a tenant.
    * Payhip signature = SHA256(apiKey), so we need the raw API key to verify.
    */
-  async function getPayhipApiKey(authUserId: string): Promise<string | null> {
+  async function _getPayhipApiKey(authUserId: string): Promise<string | null> {
     try {
       const encryptedKey = await convex.query(api.providerConnections.getPayhipApiKey, {
         apiSecret,

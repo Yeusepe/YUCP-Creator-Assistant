@@ -4,12 +4,11 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Verification } from '@yucp/shared';
-import type { ProviderAdapter, PurchaseRecord } from '../src/index';
+import type { PurchaseRecord } from '../src/index';
 import {
+  getGlobalRegistry,
   type HealthCheckableAdapter,
   ProviderRegistry,
-  type ProviderType,
-  getGlobalRegistry,
   resetGlobalRegistry,
 } from '../src/registry';
 

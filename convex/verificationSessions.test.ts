@@ -28,7 +28,7 @@ describe('Verification Mode Validator', () => {
 });
 
 describe('Verification Session Status Validator', () => {
-  const VerificationSessionStatus = v.union(
+  const _VerificationSessionStatus = v.union(
     v.literal('pending'),
     v.literal('completed'),
     v.literal('failed'),
@@ -47,7 +47,7 @@ describe('Verification Session Status Validator', () => {
 });
 
 describe('Create Verification Session Input', () => {
-  const CreateVerificationSessionInput = v.object({
+  const _CreateVerificationSessionInput = v.object({
     authUserId: v.string(),
     mode: v.union(
       v.literal('gumroad'),
@@ -111,7 +111,7 @@ describe('Create Verification Session Input', () => {
 });
 
 describe('Complete Verification Session Input', () => {
-  const CompleteVerificationSessionInput = v.object({
+  const _CompleteVerificationSessionInput = v.object({
     sessionId: v.id('verification_sessions'),
     subjectId: v.id('subjects'),
   });

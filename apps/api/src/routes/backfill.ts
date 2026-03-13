@@ -457,7 +457,7 @@ async function runBackfill(
   apiSecret: string,
   authUserId: string,
   provider: string,
-  productId: string,
+  _productId: string,
   providerProductRef: string,
   creds: string,
   pageSize: number

@@ -21,6 +21,7 @@
  *   Modal:                  creator_verify:lp_modal:{authUserId}:{productRef}:{provider}
  */
 
+import { PROVIDER_META, providerLabel } from '@yucp/providers';
 import { createLogger, formatVerificationSupportMessage } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import {
@@ -42,8 +43,6 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
-
-import { PROVIDER_META, providerLabel } from '@yucp/providers';
 import { E, Emoji } from '../lib/emojis';
 import {
   completeLicenseVerification,
@@ -391,7 +390,7 @@ export async function handleProductSelected(
 
 // ── VRChat credentials modal ──────────────────────────────────────────────────
 
-const VRC_DISCLAIMER = 'We never store your password, username, or 2FA code.';
+const _VRC_DISCLAIMER = 'We never store your password, username, or 2FA code.';
 
 export function buildVrchatCredentialsModal(authUserId: string): ModalBuilder {
   return new ModalBuilder()

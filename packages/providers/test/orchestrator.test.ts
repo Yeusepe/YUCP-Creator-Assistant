@@ -2,12 +2,10 @@
  * Tests for Verification Orchestrator
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import type { Verification } from '@yucp/shared';
-import type { ProviderAdapter, PurchaseRecord } from '../src/index';
+import type { PurchaseRecord } from '../src/index';
 import {
-  type BeginVerificationContext,
-  type CompleteVerificationContext,
   type HealthCheckableAdapter,
   InMemorySessionStorage,
   type ProviderMode,
@@ -15,7 +13,6 @@ import {
   type TenantVerificationConfig,
   type VerificationBindingStorage,
   VerificationOrchestrator,
-  type VerificationSessionStorage,
 } from '../src/index';
 
 // Mock adapter for testing

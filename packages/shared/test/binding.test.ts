@@ -7,11 +7,10 @@
 import { describe, expect, it } from 'bun:test';
 import {
   type BindingPolicy,
-  type BindingStatus,
-  DEFAULT_BINDING_POLICY,
   calculateRemainingCooldown,
   canModifyBinding,
   canTransferBinding,
+  DEFAULT_BINDING_POLICY,
   getEffectivePolicy,
   isBindingActive,
   isTransferAllowed,

@@ -31,7 +31,7 @@ export interface SetupContext {
 export async function runSetupStart(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
-  apiSecret: string,
+  _apiSecret: string,
   ctx: SetupContext
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });

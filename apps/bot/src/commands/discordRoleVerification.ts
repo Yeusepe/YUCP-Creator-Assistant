@@ -6,6 +6,7 @@
  */
 
 import type { ConvexHttpClient } from 'convex/browser';
+import type { ButtonInteraction, ChatInputCommandInteraction } from 'discord.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -13,7 +14,6 @@ import {
   EmbedBuilder,
   MessageFlags,
 } from 'discord.js';
-import type { ButtonInteraction, ChatInputCommandInteraction } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import { E } from '../lib/emojis';
 

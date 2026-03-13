@@ -6,13 +6,12 @@
 
 import {
   AUTH_COOKIE,
-  TWO_FACTOR_AUTH_COOKIE,
   buildCookieHeader,
   extractCookieValue,
+  TWO_FACTOR_AUTH_COOKIE,
 } from './cookie';
 import { isUser, requiresTwoFactorAuth, sanitizeTwoFactorMethods } from './guards';
 import type {
-  RequiresTwoFactorAuth,
   TwoFactorAuthType,
   VrchatCurrentUser,
   VrchatLicensedAvatar,

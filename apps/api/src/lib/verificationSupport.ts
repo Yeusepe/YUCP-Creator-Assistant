@@ -1,7 +1,7 @@
 import {
-  type StructuredLogger,
   encodeVerificationSupportToken,
   getVerificationSupportErrorDetails,
+  type StructuredLogger,
 } from '@yucp/shared';
 
 export interface PublicApiSupportErrorInput {
