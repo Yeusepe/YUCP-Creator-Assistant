@@ -715,6 +715,56 @@ export const updateTenantSetting = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+
+    // Per-key type validation
+    type PolicyKeySpec = { type: 'boolean' | 'number' | 'string' | 'string[]'; enum?: string[] };
+    const KNOWN_POLICY_KEYS: Record<string, PolicyKeySpec> = {
+      maxBindingsPerProduct: { type: 'number' },
+      allowTransfer: { type: 'boolean' },
+      transferCooldownHours: { type: 'number' },
+      allowSharedUse: { type: 'boolean' },
+      maxUnityInstallations: { type: 'number' },
+      autoVerifyOnJoin: { type: 'boolean' },
+      revocationBehavior: { type: 'string', enum: ['immediate', 'grace_period', 'manual'] },
+      gracePeriodHours: { type: 'number' },
+      requireFullProductLinkSetOnSetup: { type: 'boolean' },
+      allowCatalogLinkResolution: { type: 'boolean' },
+      manualReviewRequired: { type: 'boolean' },
+      discordRoleFreshnessMinutes: { type: 'number' },
+      allowCatalogBackedVerification: { type: 'boolean' },
+      autoDiscoverSupportedProductsForRememberedPurchaser: { type: 'boolean' },
+      logChannelId: { type: 'string' },
+      verificationScope: { type: 'string', enum: ['account', 'license'] },
+      shareVerificationWithServers: { type: 'boolean' },
+      shareVerificationScope: { type: 'string' },
+      duplicateVerificationBehavior: { type: 'string', enum: ['block', 'notify', 'allow'] },
+      duplicateVerificationNotifyChannelId: { type: 'string' },
+      suspiciousAccountBehavior: { type: 'string', enum: ['quarantine', 'notify', 'revoke'] },
+      suspiciousNotifyChannelId: { type: 'string' },
+      enableDiscordRoleFromOtherServers: { type: 'boolean' },
+      allowedSourceGuildIds: { type: 'string[]' },
+      allowMismatchedEmails: { type: 'boolean' },
+    };
+
+    const spec = KNOWN_POLICY_KEYS[args.key];
+    if (!spec) {
+      throw new Error(`Unknown policy key: ${args.key}`);
+    }
+    if (spec.type === 'boolean' && typeof args.value !== 'boolean') {
+      throw new Error(`Policy key '${args.key}' must be a boolean`);
+    } else if (spec.type === 'number' && typeof args.value !== 'number') {
+      throw new Error(`Policy key '${args.key}' must be a number`);
+    } else if (spec.type === 'string' && typeof args.value !== 'string') {
+      throw new Error(`Policy key '${args.key}' must be a string`);
+    } else if (spec.type === 'string[]') {
+      if (!Array.isArray(args.value) || args.value.some((v: unknown) => typeof v !== 'string')) {
+        throw new Error(`Policy key '${args.key}' must be an array of strings`);
+      }
+    }
+    if (spec.enum && typeof args.value === 'string' && !spec.enum.includes(args.value)) {
+      throw new Error(`Policy key '${args.key}' must be one of: ${spec.enum.join(', ')}`);
+    }
+
     const profile = await ctx.db
       .query('creator_profiles')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
@@ -1154,7 +1204,17 @@ export const listConnectionsForUser = query({
     return allConnections.map((c) => ({
       id: c._id,
       provider: c.provider,
-      label: c.label ?? (c.provider === 'gumroad' ? 'Gumroad Store' : 'Jinxxy Store'),
+      label:
+        c.label ??
+        (c.provider === 'gumroad'
+          ? 'Gumroad Store'
+          : c.provider === 'jinxxy'
+            ? 'Jinxxy Store'
+            : c.provider === 'lemonsqueezy'
+              ? 'Lemon Squeezy Store'
+              : c.provider === 'payhip'
+                ? 'Payhip Store'
+                : `${c.provider} Store`),
       connectionType: c.connectionType ?? 'setup',
       status:
         c.status ??
@@ -1385,7 +1445,7 @@ export const getPayhipProducts = query({
       )
       .first();
 
-    if (!conn) return [];
+    if (!conn || conn.status === 'disconnected') return [];
 
     // Source 1: manually added product-secret-keys
     const credentials = await ctx.db

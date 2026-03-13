@@ -109,15 +109,7 @@ async function maybeDecryptStoredToken(
       legacy: false,
     };
   } catch {
-    const fallbackSecret = process.env.BETTER_AUTH_SECRET;
-    if (!fallbackSecret || fallbackSecret === getProviderSessionSecret()) {
-      throw new APIError('UNAUTHORIZED', { message: 'Stored VRChat session is invalid' });
-    }
-
-    return {
-      token: await decryptForPurpose(ciphertext, fallbackSecret, PROVIDER_SESSION_PURPOSE),
-      legacy: true,
-    };
+    throw new APIError('UNAUTHORIZED', { message: 'Stored VRChat session is invalid' });
   }
 }
 

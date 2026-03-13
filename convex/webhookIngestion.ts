@@ -5,7 +5,7 @@
  * Normalization to purchase_facts and entitlements is handled by separate pipeline.
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { ProviderV, WebhookProviderV } from './lib/providers';
 
@@ -90,6 +90,9 @@ export const resetWebhookForReprocessing = mutation({
     const event = await ctx.db.get(args.eventId);
     if (!event) {
       return { success: false, message: 'Event not found' };
+    }
+    if (event.signatureValid !== true) {
+      throw new ConvexError('Cannot requeue an unverified webhook event');
     }
     if (event.status !== 'processed') {
       return { success: false, message: `Event status is ${event.status}, expected processed` };

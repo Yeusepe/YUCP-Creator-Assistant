@@ -304,8 +304,8 @@ http.route({
 
     if (!state) return errorResponse('Missing state parameter', 400);
 
-    // Look up the original loopback redirect URI
-    const session = await ctx.runQuery(internal.oauthLoopback.getSession, {
+    // Atomically look up and consume the loopback session (prevents TOCTOU)
+    const session = await ctx.runMutation(internal.oauthLoopback.consumeSession, {
       oauthState: state,
     });
 
@@ -315,9 +315,6 @@ http.route({
         { status: 400, headers: { 'Content-Type': 'text/html' } }
       );
     }
-
-    // Clean up the session record
-    await ctx.runMutation(internal.oauthLoopback.deleteSession, { oauthState: state });
 
     // Build the redirect back to the Unity local server
     const target = new URL(session.originalRedirectUri);
@@ -580,6 +577,12 @@ http.route({
     );
     if (!body.devPublicKey || !body.publisherName) {
       return errorResponse('devPublicKey and publisherName are required', 400);
+    }
+
+    // Validate publisherName against allowlist: alphanumeric, spaces, underscore, dash, dot (1-100 chars)
+    const PUBLISHER_NAME_RE = /^[a-zA-Z0-9 _\-.]{1,100}$/;
+    if (!PUBLISHER_NAME_RE.test(body.publisherName)) {
+      return errorResponse('Invalid publisherName', 400);
     }
 
     // Validate devPublicKey is a 32-byte Ed25519 key
