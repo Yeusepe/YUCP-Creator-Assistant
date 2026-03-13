@@ -577,7 +577,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     return Response.json({
       hasSetupSession: true,
       authenticated: true,
-      authUserId: setupSession.authUserId,
       guildId: setupSession.guildId,
       discordUserId: authDiscordUserId,
       authUserId: authSession.user.id,
@@ -1157,7 +1156,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       }
     }
 
-    const authUserId = session?.user?.id ?? null;
+    authUserId = session?.user?.id ?? null;
 
     const state = `connect_gumroad:${authUserId ?? 'personal'}:${generateSecureRandom(48)}`;
     const store = getStateStore();
@@ -1571,31 +1570,28 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const authUserId = setupSession?.authUserId ?? body.authUserId ?? null;
+    const authUserId = setupSession?.authUserId ?? body.authUserId ?? authSession?.user?.id ?? null;
     const { apiKey } = body;
     // apiKey is required; authUserId is optional (user-level connection if absent)
     if (!apiKey) {
       return Response.json({ error: 'apiKey is required' }, { status: 400 });
     }
 
-    const authUserId = authSession?.user?.id ?? null;
-
-    if (authUserId && !setupSession) {
+    if (body.authUserId && !setupSession) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId);
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId!);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
     }
 
-    if (!authUserId && !authUserId) {
+    if (!authUserId) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    // At this point either authUserId or authUserId is set (checked above)
-    const webhookTarget = authUserId ?? (authUserId as string);
+    const webhookTarget = authUserId;
 
     try {
       const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret);
@@ -1624,7 +1620,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertJinxxyConnection, {
         apiSecret: config.convexApiSecret,
-        authUserId: authUserId ?? undefined,
         authUserId: authUserId ?? undefined,
         jinxxyApiKeyEncrypted: apiKeyEncrypted,
         webhookSecretRef,
@@ -1682,19 +1677,17 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const authUserId = setupSession?.authUserId ?? body.authUserId ?? null;
+    const authUserId = setupSession?.authUserId ?? body.authUserId ?? authSession?.user?.id ?? null;
     const { apiKey } = body;
     if (!apiKey) {
       return Response.json({ error: 'apiKey is required' }, { status: 400 });
     }
 
-    const authUserId = authSession?.user.id ?? null;
-
-    if (!authUserId && !authUserId) {
+    if (!authUserId) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    if (authUserId && !setupSession) {
+    if (body.authUserId && !setupSession) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
@@ -1718,7 +1711,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const connectionId = await convex.mutation(api.providerConnections.createProviderConnection, {
         apiSecret: config.convexApiSecret,
-        authUserId: authUserId ?? undefined,
         authUserId: authUserId ?? undefined,
         providerKey: 'lemonsqueezy',
       });
@@ -1785,7 +1777,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         await convex.mutation(api.providerConnections.putProviderCredential, {
           apiSecret: config.convexApiSecret,
           authUserId: authUserId ?? undefined,
-          authUserId: authUserId ?? undefined,
           providerConnectionId: connectionId,
           credentialKey: credential.credentialKey,
           kind: credential.kind,
@@ -1822,7 +1813,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       ]) {
         await convex.mutation(api.providerConnections.upsertConnectionCapability, {
           apiSecret: config.convexApiSecret,
-          authUserId: authUserId ?? undefined,
           authUserId: authUserId ?? undefined,
           providerConnectionId: connectionId,
           capabilityKey,
@@ -3142,19 +3132,17 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const authUserId = setupSession?.authUserId ?? body.authUserId ?? null;
+    const authUserId = setupSession?.authUserId ?? body.authUserId ?? authSession?.user?.id ?? null;
     const { apiKey } = body;
     if (!apiKey) {
       return Response.json({ error: 'apiKey is required' }, { status: 400 });
     }
 
-    const authUserId = authSession?.user?.id ?? null;
-
-    if (!authUserId && !authUserId) {
+    if (!authUserId) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    if (authUserId && !setupSession) {
+    if (body.authUserId && !setupSession) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
@@ -3170,13 +3158,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       await convex.mutation(api.providerConnections.upsertPayhipConnection, {
         apiSecret: config.convexApiSecret,
         authUserId: authUserId ?? undefined,
-        authUserId: authUserId ?? undefined,
         encryptedApiKey: apiKeyEncrypted,
       });
 
-      // Webhook route: authUserId for server-scoped, authUserId for user-scoped.
-      const webhookRoute = authUserId ?? (authUserId as string);
-      const webhookUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/payhip/${webhookRoute}`;
+      const webhookUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/payhip/${authUserId}`;
       return Response.json({ success: true, webhookUrl });
     } catch (err) {
       logger.error('Payhip finish failed', {
@@ -3213,8 +3198,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const authUserId = setupSession?.authUserId ?? body.authUserId ?? null;
-    const authUserId = authSession?.user?.id ?? null;
+    const authUserId = setupSession?.authUserId ?? body.authUserId ?? authSession?.user?.id ?? null;
     const { permalink, productSecretKey } = body;
     if (!permalink || !productSecretKey) {
       return Response.json(
@@ -3222,11 +3206,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         { status: 400 }
       );
     }
-    if (!authUserId && !authUserId) {
+    if (!authUserId) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    if (authUserId && !setupSession) {
+    if (body.authUserId && !setupSession) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
@@ -3241,7 +3225,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertPayhipProductSecretKey, {
         apiSecret: config.convexApiSecret,
-        authUserId: authUserId ?? undefined,
         authUserId: authUserId ?? undefined,
         productPermalink: permalink,
         encryptedSecretKey: secretKeyEncrypted,

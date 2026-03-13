@@ -563,7 +563,7 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     });
   }
 
-
+  async function getMeVerificationStatus(request: Request): Promise<Response> {
     const token = extractBearerToken(request);
     if (!token) {
       return await errorResponseWithSupportCode(

@@ -129,7 +129,7 @@ export function createCollabRoutes(config: CollabConfig) {
       tokenHash,
     }) as Promise<{
       _id: string;
-      ownerTenantId: string;
+      ownerAuthUserId: string;
       status: string;
       ownerDisplayName: string;
       ownerGuildId?: string;
@@ -144,7 +144,7 @@ export function createCollabRoutes(config: CollabConfig) {
       inviteId,
     }) as Promise<{
       _id: string;
-      ownerTenantId: string;
+      ownerAuthUserId: string;
       status: string;
       ownerDisplayName: string;
       ownerGuildId?: string;
@@ -464,7 +464,7 @@ export function createCollabRoutes(config: CollabConfig) {
       return Response.json({ error: 'Discord authentication required' }, { status: 401 });
     }
 
-    const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy-collab/${session.invite.ownerTenantId}/${session.invite._id}`;
+    const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy-collab/${session.invite.ownerAuthUserId}/${session.invite._id}`;
 
     if (request.method === 'GET') {
       return Response.json({ callbackUrl });

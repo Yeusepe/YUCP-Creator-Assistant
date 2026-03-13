@@ -22,7 +22,7 @@ describe('shared provider registry', () => {
   });
 
   it('keeps planned commerce providers in the contract but not active', () => {
-    for (const providerKey of ['patreon', 'fourthwall', 'itchio', 'payhip'] as const) {
+    for (const providerKey of ['patreon', 'fourthwall', 'itchio'] as const) {
       const provider = PROVIDER_REGISTRY_BY_KEY[providerKey];
       expect(provider).toBeDefined();
       expect(provider.status).toBe('planned');

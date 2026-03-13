@@ -230,8 +230,8 @@ async function requireTenantAccess(
   const owned = await isTenantOwnedBySessionUser(
     convex,
     config.convexApiSecret,
-    session.user.id,
-    authUserId
+    authUserId,
+    session.user.id
   );
   if (!owned) {
     return {

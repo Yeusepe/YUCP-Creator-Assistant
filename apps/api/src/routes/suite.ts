@@ -256,6 +256,8 @@ export async function getTenantBySlug(
 }
 
 /**
+ * Create suite route handlers for the given config.
+ */
 export function createSuiteRoutes(config: SuiteConfig) {
   return {
     async handleRequest(request: Request, pathname: string): Promise<Response | null> {

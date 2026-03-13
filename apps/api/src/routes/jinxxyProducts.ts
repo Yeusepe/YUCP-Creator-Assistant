@@ -102,7 +102,7 @@ export async function handleJinxxyProducts(request: Request): Promise<Response> 
     }
 
     if (!apiKeyEncrypted) {
-      const creatorKey = await convex.query(api.tenantConfig.getJinxxyApiKeyForVerification, {
+      const creatorKey = await convex.query(api.creatorConfig.getJinxxyApiKeyForVerification, {
         apiSecret,
         authUserId,
       });

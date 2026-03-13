@@ -40,7 +40,7 @@ async function resolveJinxxyApiKey(
   }
 
   if (!encrypted) {
-    encrypted = await convex.query(api.tenantConfig.getJinxxyApiKeyForVerification, {
+    encrypted = await convex.query(api.creatorConfig.getJinxxyApiKeyForVerification, {
       apiSecret: config.convexApiSecret,
       authUserId,
     });
@@ -184,7 +184,7 @@ export const jinxxyHandler: LicenseVerificationHandler = {
     // Primary key failed, try collaborator connections
     const collabConnections = (await convex.query(
       api.collaboratorInvites.getCollabConnectionsForVerification,
-      { apiSecret: config.convexApiSecret, ownerTenantId: authUserId }
+      { apiSecret: config.convexApiSecret, ownerAuthUserId: authUserId }
     )) as Array<{ id: string; jinxxyApiKeyEncrypted?: string }>;
 
     for (const collab of collabConnections) {
