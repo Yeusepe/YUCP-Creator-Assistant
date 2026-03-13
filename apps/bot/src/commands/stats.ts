@@ -463,6 +463,7 @@ export async function handleStatsCheckUserSelect(
   await interaction.deferUpdate();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId,
   });
 

@@ -7,7 +7,7 @@
  * 3. Retroactive product rule: When a new role rule is added, create role_sync jobs for all users with entitlements
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import {
@@ -17,6 +17,7 @@ import {
   type MutationCtx,
   mutation,
 } from './_generated/server';
+import { PROVIDER_KEYS } from '../packages/shared/src/providers';
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;
@@ -129,6 +130,9 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    if (!(PROVIDER_KEYS as readonly string[]).includes(args.provider)) {
+      throw new ConvexError('Invalid provider');
+    }
     const now = Date.now();
     let inserted = 0;
     let skipped = 0;

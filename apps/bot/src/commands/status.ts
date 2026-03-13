@@ -17,6 +17,7 @@ export async function handleStatus(
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId: interaction.user.id,
   });
 

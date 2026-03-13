@@ -272,7 +272,12 @@ const AuditEventType = v.union(
   v.literal('subject.suspicious.marked'),
   v.literal('subject.suspicious.cleared'),
   v.literal('public.api_key.created'),
-  v.literal('public.api_key.revoked')
+  v.literal('public.api_key.revoked'),
+  v.literal('collaborator.invite.created'),
+  v.literal('collaborator.invite.accepted'),
+  v.literal('collaborator.invite.revoked'),
+  v.literal('collaborator.connection.added'),
+  v.literal('collaborator.connection.removed')
 );
 
 // ============================================================================

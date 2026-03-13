@@ -5,7 +5,7 @@
  * their Jinxxy API key so license verification works across both stores.
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { internalQuery, mutation, query } from './_generated/server';
 
 function requireApiSecret(apiSecret: string | undefined): void {
@@ -31,15 +31,25 @@ export const createCollaboratorInvite = mutation({
   returns: v.id('collaborator_invites'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    return await ctx.db.insert('collaborator_invites', {
+    const MAX_EXPIRES_AT = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    const expiresAt = Math.min(args.expiresAt, MAX_EXPIRES_AT);
+    const inviteId = await ctx.db.insert('collaborator_invites', {
       ownerAuthUserId: args.ownerAuthUserId,
       tokenHash: args.tokenHash,
       status: 'pending',
       ownerDisplayName: args.ownerDisplayName,
       ownerGuildId: args.ownerGuildId,
-      expiresAt: args.expiresAt,
+      expiresAt,
       createdAt: Date.now(),
     });
+    await (ctx as any).db.insert('audit_events', {
+      authUserId: args.ownerAuthUserId,
+      eventType: 'collaborator.invite.created',
+      actorType: 'system',
+      metadata: { inviteId, ownerDisplayName: args.ownerDisplayName },
+      createdAt: Date.now(),
+    });
+    return inviteId;
   },
 });
 
@@ -190,7 +200,7 @@ export const acceptCollaboratorInvite = mutation({
 
     const webhookConfigured = !!(args.webhookSecretRef && args.webhookEndpoint);
 
-    return await ctx.db.insert('collaborator_connections', {
+    const connectionId = await ctx.db.insert('collaborator_connections', {
       ownerAuthUserId: invite.ownerAuthUserId,
       inviteId: args.inviteId,
       provider: 'jinxxy',
@@ -205,6 +215,18 @@ export const acceptCollaboratorInvite = mutation({
       collaboratorDisplayName: args.collaboratorDisplayName,
       createdAt: Date.now(),
     });
+    await (ctx as any).db.insert('audit_events', {
+      authUserId: invite.ownerAuthUserId,
+      eventType: 'collaborator.invite.accepted',
+      actorType: 'system',
+      metadata: {
+        inviteId: args.inviteId,
+        connectionId,
+        collaboratorDiscordUserId: args.collaboratorDiscordUserId,
+      },
+      createdAt: Date.now(),
+    });
+    return connectionId;
   },
 });
 
@@ -225,7 +247,14 @@ export const addCollaboratorConnectionManual = mutation({
   returns: v.id('collaborator_connections'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    return await ctx.db.insert('collaborator_connections', {
+    const owner = await ctx.db
+      .query('creator_profiles')
+      .filter((q) => q.eq(q.field('authUserId'), args.ownerAuthUserId))
+      .first();
+    if (!owner) {
+      throw new ConvexError('Invalid ownerAuthUserId: creator not found');
+    }
+    const connectionId = await ctx.db.insert('collaborator_connections', {
       ownerAuthUserId: args.ownerAuthUserId,
       provider: 'jinxxy',
       jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
@@ -238,6 +267,18 @@ export const addCollaboratorConnectionManual = mutation({
       addedByDiscordUserId: args.addedByDiscordUserId,
       createdAt: Date.now(),
     });
+    await (ctx as any).db.insert('audit_events', {
+      authUserId: args.ownerAuthUserId,
+      eventType: 'collaborator.connection.added',
+      actorType: 'system',
+      metadata: {
+        connectionId,
+        collaboratorIdentity: args.collaboratorIdentity,
+        addedByDiscordUserId: args.addedByDiscordUserId,
+      },
+      createdAt: Date.now(),
+    });
+    return connectionId;
   },
 });
 
@@ -257,6 +298,13 @@ export const revokeCollaboratorInvite = mutation({
       throw new Error('Invite not found or access denied');
     }
     await ctx.db.patch(args.inviteId, { status: 'revoked' });
+    await (ctx as any).db.insert('audit_events', {
+      authUserId: args.ownerAuthUserId,
+      eventType: 'collaborator.invite.revoked',
+      actorType: 'system',
+      metadata: { inviteId: args.inviteId },
+      createdAt: Date.now(),
+    });
   },
 });
 
@@ -306,6 +354,13 @@ export const removeCollaboratorConnection = mutation({
       throw new Error('Connection not found or access denied');
     }
     await ctx.db.patch(args.connectionId, { status: 'disconnected' });
+    await (ctx as any).db.insert('audit_events', {
+      authUserId: args.ownerAuthUserId,
+      eventType: 'collaborator.connection.removed',
+      actorType: 'system',
+      metadata: { connectionId: args.connectionId },
+      createdAt: Date.now(),
+    });
   },
 });
 

@@ -254,6 +254,7 @@ async function fetchVerifyData(
   apiSecret: string
 ): Promise<VerifyData> {
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId: userId,
   });
 
@@ -347,9 +348,11 @@ async function getRoleSyncBanner(
   authUserId: string,
   guildId: string,
   discordUserId: string,
-  convex: ConvexHttpClient
+  convex: ConvexHttpClient,
+  apiSecret: string
 ): Promise<string | undefined> {
   const jobs = await convex.query(api.outbox_jobs.getFailedRoleSyncForUser, {
+    apiSecret,
     authUserId,
     discordUserId,
     guildId,
@@ -763,7 +766,7 @@ export async function buildVerifyStatusReply(
   const bannerMessage =
     options?.bannerMessage ??
     (!options?.stateOverride && data.state === 'verified'
-      ? await getRoleSyncBanner(authUserId, guildId, userId, convex)
+      ? await getRoleSyncBanner(authUserId, guildId, userId, convex, apiSecret)
       : undefined);
 
   const container = buildStatusContainer(
@@ -1034,6 +1037,7 @@ export async function handleLicenseModalSubmit(
   }
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId: interaction.user.id,
   });
 
@@ -1155,6 +1159,7 @@ export async function handleVerifyDisconnectButton(
 
   try {
     const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+      apiSecret,
       discordUserId: interaction.user.id,
     });
 
