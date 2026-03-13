@@ -30,6 +30,7 @@ import {
   type SuccessResponse,
   TempoServiceRegistry,
   type TokenResponse,
+  type UpsertProductCredentialRequest,
   type VerificationResultResponse,
 } from '@yucp/private-rpc';
 import { VrchatApiClient } from '@yucp/providers';
@@ -356,6 +357,25 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
           }
 
           return await readJsonResponse<ResolveVrchatAvatarNameResponse>(response);
+        });
+      }
+
+      async upsertProductCredential(
+        request: UpsertProductCredentialRequest,
+        _context: ServerContext
+      ): Promise<SuccessResponse> {
+        return withTelemetry('CatalogService.upsertProductCredential', request, async () => {
+          const result = await deps.connectRoutes.serverUpsertProductCredential({
+            authUserId: request.authUserId ?? '',
+            providerKey: request.providerKey ?? '',
+            productId: request.productId ?? '',
+            plaintextSecretKey: request.productSecretKey ?? '',
+          });
+          return {
+            success: result.success,
+            error: result.error,
+            supportCode: undefined,
+          };
         });
       }
     }

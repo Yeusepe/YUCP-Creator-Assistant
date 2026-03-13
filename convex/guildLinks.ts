@@ -60,9 +60,7 @@ export const upsertGuildLink = mutation({
         updatedAt: now,
       };
       if (existing.authUserId && existing.authUserId !== args.authUserId) {
-        console.warn(
-          `[guildLinks] Guild ${args.discordGuildId} ownership changing from ${existing.authUserId} to ${args.authUserId}`
-        );
+        throw new ConvexError('Unauthorized: guild link owned by different user');
       }
       if (args.discordGuildName !== undefined) patch.discordGuildName = args.discordGuildName;
       if (args.discordGuildIcon !== undefined) patch.discordGuildIcon = args.discordGuildIcon;

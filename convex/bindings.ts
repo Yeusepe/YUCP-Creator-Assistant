@@ -14,6 +14,7 @@
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { internalQuery, mutation, query } from './_generated/server';
+import type { MutationCtx } from './_generated/server';
 
 // ============================================================================
 // TYPES
@@ -50,7 +51,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
  * Get tenant policy with defaults
  */
 async function getTenantPolicy(
-  ctx: any,
+  ctx: MutationCtx,
   authUserId: string
 ): Promise<{
   maxBindingsPerProduct: number;
@@ -60,7 +61,7 @@ async function getTenantPolicy(
 }> {
   const profile = await ctx.db
     .query('creator_profiles')
-    .withIndex('by_auth_user', (q: any) => q.eq('authUserId', authUserId))
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
     .first();
   const policy = profile?.policy || {};
 
@@ -76,7 +77,7 @@ async function getTenantPolicy(
  * Create an audit event for binding operations
  */
 async function createAuditEvent(
-  ctx: any,
+  ctx: MutationCtx,
   params: {
     authUserId: string;
     eventType: string;
@@ -103,18 +104,18 @@ async function createAuditEvent(
  * Revoke all entitlements associated with a binding's subject
  */
 async function revokeEntitlementsForSubject(
-  ctx: any,
+  ctx: MutationCtx,
   authUserId: string,
   subjectId: Id<'subjects'>,
   reason: string
 ): Promise<number> {
   const entitlements = await ctx.db
     .query('entitlements')
-    .withIndex('by_auth_user_subject', (q: any) =>
+    .withIndex('by_auth_user_subject', (q) =>
       q.eq('authUserId', authUserId).eq('subjectId', subjectId)
     )
-    .filter((q: any) => q.eq(q.field('status'), 'active'))
-    .collect();
+    .filter((q) => q.eq(q.field('status'), 'active'))
+    .take(1000);
 
   const now = Date.now();
   for (const entitlement of entitlements) {
@@ -752,7 +753,7 @@ export const getBindingsBySubject = internalQuery({
       );
     }
 
-    return await query.collect();
+    return await query.take(1000);
   },
 });
 
@@ -796,7 +797,7 @@ export const getBindingsByExternalAccount = internalQuery({
       );
     }
 
-    return await query.collect();
+    return await query.take(1000);
   },
 });
 
@@ -953,7 +954,7 @@ export const getBindingsByTenant = internalQuery({
     })
   ),
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
+    const limit = Math.min(args.limit ?? 100, 500);
 
     let query = ctx.db
       .query('bindings')

@@ -189,15 +189,7 @@ async function verifyOAuthToken(
     const authBase = `${siteUrl.replace(/\/$/, '')}/api/auth`;
 
     // Detect token type for diagnostics: JWTs are 3 dot-separated base64 segments
-    const isJwtShape = (token.match(/\./g) ?? []).length === 2;
-    console.log(
-      '[verifyOAuthToken] token_type=' +
-        (isJwtShape ? 'jwt' : 'opaque') +
-        ' length=' +
-        token.length +
-        ' issuer=' +
-        authBase
-    );
+    const _isJwtShape = (token.match(/\./g) ?? []).length === 2;
 
     const verified = await verifyAccessToken(token, {
       verifyOptions: {
@@ -211,7 +203,6 @@ async function verifyOAuthToken(
     const claims = verified as Record<string, unknown>;
     const scope: string = (claims.scope as string) ?? '';
     const scopes = scope.split(' ');
-    console.log(`[verifyOAuthToken] verified ok, scopes=${scope}`);
     if (!scopes.includes(requiredScope)) {
       return { ok: false, error: `Token missing required scope: ${requiredScope}` };
     }
@@ -228,8 +219,6 @@ async function verifyOAuthToken(
     return { ok: true, yucpUserId: userId, name, email };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Token verification failed';
-    const errName = err instanceof Error ? err.name : 'unknown';
-    console.log(`[verifyOAuthToken] FAILED err=${errName} msg=${msg}`);
     return { ok: false, error: msg };
   }
 }
@@ -567,14 +556,6 @@ http.route({
     } catch {
       return errorResponse('Invalid JSON body', 400);
     }
-    console.log(
-      '[cert/issue] body keys=' +
-        Object.keys(body ?? {}).join(',') +
-        ' devPublicKey_len=' +
-        (body?.devPublicKey?.length ?? 'null') +
-        ' publisherName=' +
-        (body?.publisherName ?? 'null')
-    );
     if (!body.devPublicKey || !body.publisherName) {
       return errorResponse('devPublicKey and publisherName are required', 400);
     }

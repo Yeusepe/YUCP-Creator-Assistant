@@ -400,7 +400,7 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
   if (pathname.startsWith('/api/connect/')) {
-    if (isRateLimited(`connect:${clientAddress}`, 120, 60_000)) {
+    if (isRateLimited(`connect:${clientAddress}`, 30, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -408,7 +408,7 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
   if (pathname.startsWith('/api/collab/')) {
-    if (isRateLimited(`connect:${clientAddress}`, 120, 60_000)) {
+    if (isRateLimited(`collab:${clientAddress}`, 30, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -894,6 +894,11 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/payhip/product-key' && connectRoutes) {
     return connectRoutes.payhipProductKey(request);
+  }
+  // Generic per-product credential route: POST /api/connect/:provider/product-credential
+  const productCredentialMatch = pathname.match(/^\/api\/connect\/([^/]+)\/product-credential$/);
+  if (productCredentialMatch && connectRoutes) {
+    return connectRoutes.genericProductCredential(request, productCredentialMatch[1]);
   }
   if (pathname === '/api/connect/payhip/test-webhook' && connectRoutes) {
     return connectRoutes.payhipTestWebhook(request);

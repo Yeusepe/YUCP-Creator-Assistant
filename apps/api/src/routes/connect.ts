@@ -10,7 +10,7 @@
  */
 
 import { LemonSqueezyApiClient } from '@yucp/providers';
-import { createLogger } from '@yucp/shared';
+import { createLogger, getProviderDescriptor } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
@@ -31,6 +31,17 @@ import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+
+const TOKEN_MAX_LEN = 256;
+const TOKEN_PATTERN = /^[a-zA-Z0-9._\-]+$/;
+
+function validateToken(token: string | undefined, name: string): string | null {
+  if (!token) return null;
+  if (token.length > TOKEN_MAX_LEN || !TOKEN_PATTERN.test(token)) {
+    throw new Error(`Invalid ${name} format`);
+  }
+  return token;
+}
 
 const CONNECT_TOKEN_PREFIX = 'connect:';
 
@@ -847,8 +858,17 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
-    const setupToken = body.setupToken?.trim();
-    const connectToken = body.connectToken?.trim();
+    let setupToken: string | null;
+    let connectToken: string | null;
+    try {
+      setupToken = validateToken(body.setupToken?.trim(), 'setupToken');
+      connectToken = validateToken(body.connectToken?.trim(), 'connectToken');
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid token format' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     if ((!setupToken && !connectToken) || (setupToken && connectToken)) {
       return Response.json({ error: 'Provide exactly one token' }, { status: 400 });
@@ -3179,16 +3199,27 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * POST /api/connect/payhip/product-key
-   * Body: { authUserId?, permalink, productSecretKey }
+   * POST /api/connect/:provider/product-credential
+   * Body: { authUserId?, productId, productSecretKey }
    *
-   * Stores a per-product secret key for a Payhip product. The secret key is found
-   * on the product edit page, in the section where license keys are enabled.
-   * The `permalink` is the short ID from the product URL (e.g. "RGsF").
+   * Generic handler for providers that declare `perProductCredential` in their descriptor.
+   * Stores an encrypted per-product secret key so license verification works for that product.
+   * The `productId` is provider-specific (e.g. Payhip permalink "RGsF").
    */
-  async function payhipProductKey(request: Request): Promise<Response> {
+  async function genericProductCredential(
+    request: Request,
+    providerKey: string
+  ): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const descriptor = getProviderDescriptor(providerKey);
+    if (!descriptor?.perProductCredential) {
+      return Response.json(
+        { error: `Provider "${providerKey}" does not support per-product credentials` },
+        { status: 400 }
+      );
     }
 
     const setupBinding = await requireBoundSetupSession(request);
@@ -3198,7 +3229,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    let body: { authUserId?: string; permalink: string; productSecretKey: string };
+    let body: { authUserId?: string; productId: string; productSecretKey: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -3206,10 +3237,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     const authUserId = setupSession?.authUserId ?? body.authUserId ?? authSession?.user?.id ?? null;
-    const { permalink, productSecretKey } = body;
-    if (!permalink || !productSecretKey) {
+    const { productId, productSecretKey } = body;
+    if (!productId || !productSecretKey) {
       return Response.json(
-        { error: 'permalink and productSecretKey are required' },
+        { error: 'productId and productSecretKey are required' },
         { status: 400 }
       );
     }
@@ -3228,21 +3259,55 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const secretKeyEncrypted = await encrypt(productSecretKey, config.encryptionSecret);
+      const encryptedSecretKey = await encrypt(productSecretKey, config.encryptionSecret);
       const convex = getConvexClientFromUrl(config.convexUrl);
-      await convex.mutation(api.providerConnections.upsertPayhipProductSecretKey, {
+      await convex.mutation(api.providerConnections.upsertProductCredential, {
         apiSecret: config.convexApiSecret,
-        authUserId: authUserId ?? undefined,
-        productPermalink: permalink,
-        encryptedSecretKey: secretKeyEncrypted,
+        authUserId,
+        providerKey: providerKey as any,
+        productId,
+        credentialKeyPrefix: descriptor.perProductCredential.credentialKeyPrefix,
+        encryptedSecretKey,
       });
       return Response.json({ success: true });
     } catch (err) {
-      logger.error('Payhip product key store failed', {
+      logger.error('Product credential store failed', {
+        providerKey,
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to save product secret key' }, { status: 500 });
+      return Response.json({ error: 'Failed to save product credential' }, { status: 500 });
     }
+  }
+
+  /**
+   * POST /api/connect/payhip/product-key
+   * Body: { authUserId?, permalink, productSecretKey }
+   *
+   * @deprecated Use POST /api/connect/payhip/product-credential instead.
+   * Kept for backwards compatibility — delegates to genericProductCredential.
+   */
+  async function payhipProductKey(request: Request): Promise<Response> {
+    // Translate legacy `permalink` field to `productId` and delegate to the generic handler.
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    let rawBody: Record<string, unknown>;
+    try {
+      rawBody = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    // Map legacy `permalink` → `productId`
+    const normalized = {
+      ...rawBody,
+      productId: rawBody.productId ?? rawBody.permalink,
+    };
+    const syntheticRequest = new Request(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(normalized),
+    });
+    return genericProductCredential(syntheticRequest, 'payhip');
   }
 
   /**
@@ -3303,6 +3368,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     payhipFinish,
     payhipProductKey,
     payhipTestWebhook,
+    genericProductCredential,
     listConnectionsHandler,
     disconnectConnectionHandler,
     getSettingsHandler,
@@ -3326,7 +3392,46 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     getUserGuilds,
     getUserAccounts,
     deleteUserAccount,
+    serverUpsertProductCredential,
   };
+
+  /**
+   * Server-to-server variant of genericProductCredential.
+   * No session required — called by internal RPC with trusted authUserId.
+   * Encrypts the plaintext secret key and stores it via the generic Convex mutation.
+   */
+  async function serverUpsertProductCredential(params: {
+    authUserId: string;
+    providerKey: string;
+    productId: string;
+    plaintextSecretKey: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    const descriptor = getProviderDescriptor(params.providerKey);
+    if (!descriptor?.perProductCredential) {
+      return {
+        success: false,
+        error: `Provider "${params.providerKey}" does not support per-product credentials`,
+      };
+    }
+    try {
+      const encryptedSecretKey = await encrypt(params.plaintextSecretKey, config.encryptionSecret);
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      await convex.mutation(api.providerConnections.upsertProductCredential, {
+        apiSecret: config.convexApiSecret,
+        authUserId: params.authUserId,
+        providerKey: params.providerKey as any,
+        productId: params.productId,
+        credentialKeyPrefix: descriptor.perProductCredential.credentialKeyPrefix,
+        encryptedSecretKey,
+      });
+      return { success: true };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to save product credential',
+      };
+    }
+  }
 }
 
 export function storeConnectToken(token: string, discordUserId: string): Promise<void> {

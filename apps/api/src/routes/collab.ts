@@ -124,7 +124,7 @@ export function createCollabRoutes(config: CollabConfig) {
 
   async function lookupInviteByToken(rawToken: string) {
     const tokenHash = await sha256Hex(rawToken);
-    return convex.query(api.collaboratorInvites.getCollaboratorInviteByTokenHash, {
+    const invite = await (convex.query(api.collaboratorInvites.getCollaboratorInviteByTokenHash, {
       apiSecret,
       tokenHash,
     }) as Promise<{
@@ -135,7 +135,11 @@ export function createCollabRoutes(config: CollabConfig) {
       ownerGuildId?: string;
       expiresAt: number;
       createdAt: number;
-    } | null>;
+    } | null>);
+    if (invite && invite.expiresAt < Date.now()) {
+      return null; // treat expired as not found
+    }
+    return invite;
   }
 
   async function lookupInviteById(inviteId: string) {
@@ -525,6 +529,9 @@ export function createCollabRoutes(config: CollabConfig) {
 
     const session = await resolveSessionInvite(request);
     if (!session) return Response.json({ error: 'not_found' }, { status: 404 });
+    if (session.invite.expiresAt < Date.now()) {
+      return Response.json({ error: 'expired' }, { status: 410 });
+    }
     const err = inviteErrorResponse(session.invite);
     if (err) return err;
 

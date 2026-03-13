@@ -55,7 +55,7 @@ export const getPendingJobs = query({
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const limit = args.limit ?? 10;
+    const limit = Math.min(args.limit ?? 10, 100);
     const now = Date.now();
 
     // Get pending jobs
@@ -66,7 +66,7 @@ export const getPendingJobs = query({
     // Filter by job types if specified
     if (args.jobTypes && args.jobTypes.length > 0) {
       // We need to filter after fetching since we can't combine index filters
-      const allPending = await pendingQuery.collect();
+      const allPending = await pendingQuery.take(1000);
       const filtered = allPending.filter((job) => args.jobTypes?.includes(job.jobType as any));
       return filtered.slice(0, limit);
     }
@@ -137,7 +137,7 @@ export const getByGuildAndUser = query({
       )
       .filter((q) => q.neq(q.field('status'), 'completed'))
       .filter((q) => q.neq(q.field('status'), 'dead_letter'))
-      .collect();
+      .take(1000);
 
     return jobs;
   },
@@ -168,7 +168,7 @@ export const getFailedRoleSyncForUser = query({
       .filter((q) =>
         q.or(q.eq(q.field('status'), 'pending'), q.eq(q.field('status'), 'dead_letter'))
       )
-      .collect();
+      .take(1000);
 
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
     return jobs

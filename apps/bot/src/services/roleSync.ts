@@ -1038,6 +1038,7 @@ export class RoleSyncService {
   private async fetchRoleRules(authUserId: string, productId: string): Promise<RoleRule[]> {
     try {
       const rules = await this.convexClient.query(api.role_rules.getByProduct, {
+        apiSecret: this.apiSecret,
         authUserId,
         productId,
       });

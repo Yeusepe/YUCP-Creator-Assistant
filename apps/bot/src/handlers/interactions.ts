@@ -170,6 +170,7 @@ async function handleAutocomplete(
 
       // We use getByGuildWithProductNames because it lists all products currently configured for the server
       const products = await ctx.convex.query(api.role_rules.getByGuildWithProductNames, {
+        apiSecret: ctx.apiSecret,
         authUserId: guildLink.authUserId,
         guildId,
       });
@@ -666,7 +667,12 @@ async function handleButton(
   }
 
   if (customId.startsWith('creator_verify:disconnect:')) {
-    const provider = customId.split(':')[2];
+    const provider = customId.slice('creator_verify:disconnect:'.length);
+    const VALID_PROVIDERS = ['gumroad', 'jinxxy', 'discord', 'manual', 'vrchat', 'lemon_squeezy', 'payhip'];
+    if (!VALID_PROVIDERS.includes(provider)) {
+      await interaction.reply({ content: 'Invalid provider.', flags: MessageFlags.Ephemeral });
+      return;
+    }
     const { handleVerifyDisconnectButton } = await import('../commands/verify');
     await handleVerifyDisconnectButton(
       interaction,
@@ -707,11 +713,12 @@ async function handleButton(
       ? 'creator_verify:lp_filter:'
       : 'creator_verify:lp_page:';
     const rest = customId.slice(prefix.length);
-    const parts = rest.split(':');
-    // parts[0] = authUserId, parts[1] = filter, parts[2] = page
-    const authUserId = parts[0] as string;
-    const filter = (parts[1] ?? 'all') as string;
-    const page = Number.parseInt(parts[2] ?? '0', 10);
+    const firstColon = rest.indexOf(':');
+    const authUserId = firstColon >= 0 ? rest.slice(0, firstColon) : rest;
+    const remainder = firstColon >= 0 ? rest.slice(firstColon + 1) : '';
+    const secondColon = remainder.indexOf(':');
+    const filter = (secondColon >= 0 ? remainder.slice(0, secondColon) : remainder) || 'all';
+    const page = Number.parseInt(secondColon >= 0 ? remainder.slice(secondColon + 1) : '0', 10);
     const { handlePickerNavigation } = await import('../commands/licenseVerify');
     await handlePickerNavigation(interaction, ctx.convex, ctx.apiSecret, authUserId, filter, page);
     return;
@@ -721,9 +728,9 @@ async function handleButton(
   // Format: creator_stats:view_users:{authUserId}:{guildId}
   if (customId.startsWith('creator_stats:view_users:')) {
     const rest = customId.slice('creator_stats:view_users:'.length);
-    const parts = rest.split(':');
-    const authUserId = parts[0] as string;
-    const guildId = parts[1] ?? interaction.guildId ?? '';
+    const firstColon = rest.indexOf(':');
+    const authUserId = firstColon >= 0 ? rest.slice(0, firstColon) : rest;
+    const guildId = firstColon >= 0 ? rest.slice(firstColon + 1) : (interaction.guildId ?? '');
     const { handleStatsViewUsersButton } = await import('../commands/stats');
     await handleStatsViewUsersButton(interaction, ctx.convex, ctx.apiSecret, authUserId, guildId);
     return;
@@ -732,10 +739,12 @@ async function handleButton(
   // Format: creator_stats:view_users_page:{authUserId}:{guildId}:next|prev
   if (customId.startsWith('creator_stats:view_users_page:')) {
     const rest = customId.slice('creator_stats:view_users_page:'.length);
-    const parts = rest.split(':');
-    const authUserId = parts[0] as string;
-    const guildId = parts[1] ?? interaction.guildId ?? '';
-    const direction = parts[2] as 'next' | 'prev';
+    const firstColon = rest.indexOf(':');
+    const authUserId = firstColon >= 0 ? rest.slice(0, firstColon) : rest;
+    const remainder1 = firstColon >= 0 ? rest.slice(firstColon + 1) : '';
+    const secondColon = remainder1.indexOf(':');
+    const guildId = secondColon >= 0 ? remainder1.slice(0, secondColon) : (remainder1 || (interaction.guildId ?? ''));
+    const direction = (secondColon >= 0 ? remainder1.slice(secondColon + 1) : '') as 'next' | 'prev';
     const { handleStatsViewUsersPageButton } = await import('../commands/stats');
     await handleStatsViewUsersPageButton(
       interaction,
@@ -751,9 +760,9 @@ async function handleButton(
   // Format: creator_stats:back:{authUserId}:{guildId}
   if (customId.startsWith('creator_stats:back:')) {
     const rest = customId.slice('creator_stats:back:'.length);
-    const parts = rest.split(':');
-    const authUserId = parts[0] as string;
-    const guildId = parts[1] ?? interaction.guildId ?? '';
+    const firstColon = rest.indexOf(':');
+    const authUserId = firstColon >= 0 ? rest.slice(0, firstColon) : rest;
+    const guildId = firstColon >= 0 ? rest.slice(firstColon + 1) : (interaction.guildId ?? '');
     const { handleStatsBackButton } = await import('../commands/stats');
     await handleStatsBackButton(interaction, ctx.convex, ctx.apiSecret, authUserId, guildId);
     return;
@@ -1328,6 +1337,17 @@ async function handleModalSubmit(
     const authUserId = rest.slice(colonIdx + 1) as string;
     const { handleProductDiscordModal } = await import('../commands/product');
     await handleProductDiscordModal(interaction, userId, authUserId);
+    return;
+  }
+
+  // Product add - Payhip modal: creator_product:payhip_modal:{userId}:{authUserId}
+  if (customId.startsWith('creator_product:payhip_modal:')) {
+    const rest = customId.slice('creator_product:payhip_modal:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const authUserId = rest.slice(colonIdx + 1) as string;
+    const { handleProductPayhipModal } = await import('../commands/product');
+    await handleProductPayhipModal(interaction, userId, authUserId);
     return;
   }
 

@@ -38,6 +38,7 @@ import {
   listJinxxyProducts,
   listLemonSqueezyProducts,
   resolveVrchatAvatarName,
+  upsertProductCredential,
 } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 import { canBotManageRole } from '../lib/roleHierarchy';
@@ -50,8 +51,10 @@ interface ProductSession {
   authUserId: string;
   guildLinkId: Id<'guild_links'>;
   guildId: string;
-  type?: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'license' | 'discord_role' | 'vrchat';
+  type?: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'license' | 'discord_role' | 'vrchat' | 'payhip';
   urlOrId?: string;
+  /** Per-product credential key (e.g. Payhip product secret key) */
+  perProductCredentialKey?: string;
   sourceGuildId?: string;
   sourceRoleId?: string;
   sourceRoleIds?: string[];
@@ -126,6 +129,11 @@ export async function handleProductAddInteractive(
         .setDescription('Sold on lemonsqueezy.com')
         .setValue('lemonsqueezy')
         .setEmoji(Emoji.LemonSqueezy),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Payhip Product')
+        .setDescription('Sold on payhip.com')
+        .setValue('payhip')
+        .setEmoji(Emoji.CreditCard),
       new StringSelectMenuOptionBuilder()
         .setLabel('License Key Only')
         .setDescription('Manual license codes (Gumroad or Jinxxy)')
@@ -413,6 +421,33 @@ export async function handleProductTypeSelect(
     vrchat: 'https://vrchat.com/home/avatar/avtr_xxx or avtr_xxx',
   };
 
+  if (selectedType === 'payhip') {
+    // Payhip requires both the product permalink and the per-product secret key
+    const modal = new ModalBuilder()
+      .setCustomId(`creator_product:payhip_modal:${interaction.user.id}:${authUserId}`)
+      .setTitle('Step 2 of 3: Payhip Product Details')
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('permalink')
+            .setLabel('Product Permalink')
+            .setPlaceholder('e.g. RGsF  (from payhip.com/b/RGsF)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('product_secret_key')
+            .setLabel('Product Secret Key')
+            .setPlaceholder('Found on the product edit page under License Keys → Developer')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+    await interaction.showModal(modal);
+    return;
+  }
+
   const modal = new ModalBuilder()
     .setCustomId(`creator_product:url_modal:${interaction.user.id}:${authUserId}`)
     .setTitle('Step 2 of 3: Product Details')
@@ -543,6 +578,52 @@ function parseRoleIdsFromInput(input: string): string[] {
     .split(/[\n,]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/** Step 2b (Payhip): Payhip modal submitted - store permalink + secret key, show role select */
+export async function handleProductPayhipModal(
+  interaction: ModalSubmitInteraction,
+  userId: string,
+  authUserId: string
+): Promise<void> {
+  const permalink = interaction.fields.getTextInputValue('permalink')?.trim();
+  const productSecretKey = interaction.fields.getTextInputValue('product_secret_key')?.trim();
+  const sessionKey = getSessionKey(userId, authUserId, interaction.guildId ?? '');
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.reply({
+      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (!permalink || !productSecretKey) {
+    await interaction.reply({
+      content: `${E.X_} Both the Product Permalink and Product Secret Key are required.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  session.urlOrId = permalink;
+  session.perProductCredentialKey = productSecretKey;
+
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
+    .setMinValues(1)
+    .setMaxValues(25)
+    .setPlaceholder('Select role(s) to assign when verified (1–25)');
+
+  const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+
+  await interaction.reply({
+    content:
+      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 /** Step 2c: Discord role modal submitted - show role select for local role */
@@ -966,6 +1047,30 @@ export async function handleProductConfirmAdd(
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
+    } else if (type === 'payhip') {
+      const permalink = urlOrId?.trim();
+      if (!permalink) throw new Error('No Payhip product permalink provided');
+      const credentialKey = session.perProductCredentialKey;
+      if (!credentialKey) throw new Error('No Payhip product secret key provided');
+
+      // Save per-product credential first so license verification works immediately.
+      const credResult = await upsertProductCredential({
+        authUserId,
+        providerKey: 'payhip',
+        productId: permalink,
+        productSecretKey: credentialKey,
+      });
+      if (!credResult.success) {
+        throw new Error(credResult.error ?? 'Failed to save Payhip product secret key');
+      }
+
+      const result = await convex.mutation(api.role_rules.addProductFromPayhip, {
+        apiSecret,
+        authUserId,
+        permalink,
+      });
+      productId = result.productId;
+      catalogProductId = result.catalogProductId;
     } else {
       throw new Error('Unknown product type');
     }
@@ -1032,12 +1137,13 @@ export async function handleProductCancelAdd(
 export async function handleProductList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
-  _apiSecret: string,
+  apiSecret: string,
   ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const rules = await convex.query(api.role_rules.getByGuildWithProductNames, {
+    apiSecret,
     authUserId: ctx.authUserId,
     guildId: ctx.guildId,
   });
@@ -1085,12 +1191,13 @@ export async function handleProductList(
 export async function handleProductRemove(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
-  _apiSecret: string,
+  apiSecret: string,
   ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const rules = await convex.query(api.role_rules.getByGuildWithProductNames, {
+    apiSecret,
     authUserId: ctx.authUserId,
     guildId: ctx.guildId,
   });
@@ -1220,6 +1327,7 @@ export async function handleProductConfirmRemove(
   const productIds = session.removeProductIds;
 
   const rules = await convex.query(api.role_rules.getByTenant, {
+    apiSecret,
     authUserId,
   });
 

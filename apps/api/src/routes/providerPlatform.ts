@@ -44,6 +44,12 @@ function newRequestId(): string {
   return crypto.randomUUID();
 }
 
+function generateWebhookSecret(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 function jsonResponse(
   body: unknown,
   requestId: string,
@@ -695,7 +701,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       return jsonResponse({ error: 'No Lemon Squeezy stores found' }, requestId, 422);
 
     const webhookSecret =
-      String(body.webhookSecret ?? '').trim() || crypto.randomUUID().replace(/-/g, '');
+      String(body.webhookSecret ?? '').trim() || generateWebhookSecret();
     const webhookUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/v1/webhooks/lemonsqueezy/${connection.connectionId}`;
     const webhook = await client.createWebhook({
       storeId: selectedStore.id,

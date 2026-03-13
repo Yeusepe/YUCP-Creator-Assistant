@@ -188,6 +188,9 @@ export const acceptCollaboratorInvite = mutation({
 
     const invite = await ctx.db.get(args.inviteId);
     if (!invite) throw new Error('Invite not found');
+    if (invite.usedAt !== undefined) {
+      throw new ConvexError('This invite has already been used');
+    }
     if (invite.status !== 'pending') throw new Error('Invite is no longer pending');
     if (Date.now() > invite.expiresAt) throw new Error('Invite has expired');
 
@@ -215,6 +218,7 @@ export const acceptCollaboratorInvite = mutation({
       collaboratorDisplayName: args.collaboratorDisplayName,
       createdAt: Date.now(),
     });
+    await ctx.db.patch(args.inviteId, { usedAt: Date.now() });
     await ctx.db.insert('audit_events', {
       authUserId: invite.ownerAuthUserId,
       eventType: 'collaborator.invite.accepted',

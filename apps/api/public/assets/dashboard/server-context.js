@@ -63,10 +63,19 @@ export async function switchDashboardContext(newGuildId, deps) {
       if (nameEl) nameEl.textContent = currentServer.name || 'Unnamed';
       if (iconEl) {
         if (sIconUrl) {
-          iconEl.innerHTML = `<img src="${sIconUrl}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+          const img = document.createElement('img');
+          img.setAttribute('src', sIconUrl);
+          img.setAttribute('alt', '');
+          img.style.cssText = 'width:100%;height:100%;border-radius:50%;object-fit:cover;';
+          iconEl.innerHTML = '';
+          iconEl.appendChild(img);
         } else {
           const initials = (currentServer.name || '?').split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase() || '?';
-          iconEl.innerHTML = `<div class="fallback-icon">${initials}</div>`;
+          const div = document.createElement('div');
+          div.className = 'fallback-icon';
+          div.textContent = initials;
+          iconEl.innerHTML = '';
+          iconEl.appendChild(div);
         }
       }
     }
@@ -149,7 +158,7 @@ function renderParticipatingServers(servers) {
         </div>
         <p class="participating-server-name font-bold mb-2" style="font-family:'Plus Jakarta Sans',sans-serif; font-size: 16px;">No participating servers</p>
         <p class="participating-server-hint max-w-sm mx-auto mb-6" style="font-family:'DM Sans',sans-serif; font-size: 13px; line-height:1.5;">You aren't managing any servers yet. Install the Assistant to your server to connect your storefront data.</p>
-        <button class="btn-primary" onclick="window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')" style="margin: 0 auto; background: #0ea5e9; color: #fff; border: none; padding: 10px 20px; font-weight: 700; border-radius: 8px;">
+        <button class="btn-primary" data-action="invite-bot" style="margin: 0 auto; background: #0ea5e9; color: #fff; border: none; padding: 10px 20px; font-weight: 700; border-radius: 8px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -157,6 +166,12 @@ function renderParticipatingServers(servers) {
         </button>
       </div>
     `;
+    const inviteBtn = container.querySelector('[data-action="invite-bot"]');
+    if (inviteBtn) {
+      inviteBtn.addEventListener('click', () => {
+        window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands', '_blank');
+      });
+    }
     return;
   }
 
@@ -227,10 +242,19 @@ async function loadUserServers(updatePlatformCards, options = {}) {
         const sIconUrl = getServerIconUrl(currentServer);
         if (iconEl) {
           if (sIconUrl) {
-            iconEl.innerHTML = `<img src="${sIconUrl}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+            const img = document.createElement('img');
+            img.setAttribute('src', sIconUrl);
+            img.setAttribute('alt', '');
+            img.style.cssText = 'width:100%;height:100%;border-radius:50%;object-fit:cover;';
+            iconEl.innerHTML = '';
+            iconEl.appendChild(img);
           } else {
             const initials = (currentServer.name || '?').split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase() || '?';
-            iconEl.innerHTML = `<div class="fallback-icon">${initials}</div>`;
+            const div = document.createElement('div');
+            div.className = 'fallback-icon';
+            div.textContent = initials;
+            iconEl.innerHTML = '';
+            iconEl.appendChild(div);
           }
         }
       }

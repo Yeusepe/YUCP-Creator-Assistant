@@ -68,6 +68,7 @@ function showSelectServerNotice() {
 
 export function loadProgressFlags() {
   try {
+    // UI state only — never store auth tokens or sensitive data in localStorage
     setSettingsTouched(localStorage.getItem(getTenantStorageKey(SETTINGS_TOUCHED_PREFIX)) === '1');
     setSetupCompleted(localStorage.getItem(getTenantStorageKey(SETUP_COMPLETE_PREFIX)) === '1');
   } catch {
@@ -119,13 +120,13 @@ function buildQuickStartButtons() {
   return platformProviders
     .map((provider) => {
       const disabled = provider.setupState !== 'ready';
-      const action = disabled ? '' : `onclick="navigateProvider('${provider.key}')"`;
+      const action = disabled ? 'disabled' : `data-provider-key="${provider.key}"`;
       const opacity = disabled ? 'opacity:0.55;cursor:not-allowed;' : '';
       const statusPill = disabled
         ? `<span style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.45);">Preview</span>`
         : '';
       return `
-        <button ${action} ${disabled ? 'disabled' : ''} style="background: ${provider.quickStartButtonBg}; border: 1px solid ${provider.quickStartButtonBorder}; color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; transition: background 0.2s; ${opacity}">
+        <button ${action} style="background: ${provider.quickStartButtonBg}; border: 1px solid ${provider.quickStartButtonBorder}; color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; transition: background 0.2s; ${opacity}">
           <img src="${resolveIconUrl(provider)}" style="width: 20px; border-radius: 4px;" alt="">
           <span>${provider.quickStartDescription}</span>
           ${statusPill}
@@ -302,11 +303,21 @@ export function renderQuickStart() {
           <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
             ${buildQuickStartButtons()}
           </div>
-          <button onclick="dismissQuickStart()" style="background: transparent; color: rgba(255,255,255,0.4); border: none; font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 4px;">I'll set this up later</button>
+          <button data-action="dismiss-quickstart" style="background: transparent; color: rgba(255,255,255,0.4); border: none; font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 4px;">I'll set this up later</button>
         </div>
       </div>
     `;
     document.body.appendChild(modal);
+    modal.querySelectorAll('[data-provider-key]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.providerKey;
+        if (key) navigateProvider(key);
+      });
+    });
+    const dismissBtn = modal.querySelector('[data-action="dismiss-quickstart"]');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', dismissQuickStart);
+    }
   }
 }
 
@@ -745,6 +756,8 @@ async function confirmDisconnect(platform) {
 }
 
 export async function confirmDisconnectUserAccount(connId, provider) {
+  if (!connId || typeof connId !== 'string' || connId.length > 256) return;
+  if (!provider || typeof provider !== 'string' || provider.length > 64) return;
   if (!confirm(`Disconnect this ${provider} account? This removes syncing for all servers.`)) return;
   try {
     const res = await apiFetch(`${getApiBase()}/api/connect/user/accounts?id=${encodeURIComponent(connId)}`, { method: 'DELETE' });

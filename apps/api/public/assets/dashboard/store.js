@@ -94,5 +94,6 @@ export function apiFetch(url, options = {}) {
   if (setupToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${setupToken}`);
   }
+  headers.set('X-Requested-With', 'XMLHttpRequest');
   return fetch(url, { credentials: 'include', ...options, headers });
 }

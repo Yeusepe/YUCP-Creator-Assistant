@@ -14,6 +14,7 @@
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
+import type { MutationCtx } from './_generated/server';
 import { canReactivate } from '../packages/shared/src/entitlement/service';
 import { ProviderV } from './lib/providers';
 
@@ -124,7 +125,7 @@ export const getEntitlementsBySubject = query({
       query = query.filter((q) => q.eq(q.field('status'), 'active'));
     }
 
-    const entitlements = await query.order('desc').collect();
+    const entitlements = await query.order('desc').take(1000);
     return entitlements;
   },
 });
@@ -170,7 +171,7 @@ export const getEntitlementsByProduct = query({
       query = query.filter((q) => q.eq(q.field('status'), 'active'));
     }
 
-    const entitlements = await query.order('desc').collect();
+    const entitlements = await query.order('desc').take(1000);
     return entitlements;
   },
 });
@@ -247,7 +248,7 @@ export const getStatsOverview = query({
       .withIndex('by_auth_user_status', (q) =>
         q.eq('authUserId', args.authUserId).eq('status', 'active')
       )
-      .collect();
+      .take(1000);
     const uniqueSubjects = new Set(activeEntitlements.map((e) => e.subjectId));
     const uniqueProducts = new Set(activeEntitlements.map((e) => e.productId));
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
@@ -279,7 +280,7 @@ export const getStatsOverviewExtended = query({
       .withIndex('by_auth_user_status', (q) =>
         q.eq('authUserId', args.authUserId).eq('status', 'active')
       )
-      .collect();
+      .take(1000);
     const uniqueSubjects = new Set(activeEntitlements.map((e) => e.subjectId));
     const uniqueProducts = new Set(activeEntitlements.map((e) => e.productId));
     const now = Date.now();
@@ -329,7 +330,7 @@ export const getVerifiedUsersPaginated = query({
       .withIndex('by_auth_user_status', (q) =>
         q.eq('authUserId', args.authUserId).eq('status', 'active')
       )
-      .collect();
+      .take(5000); // cap to prevent OOM; pagination handles larger sets
     const bySubject = new Map<string, { productIds: Set<string> }>();
     for (const e of activeEntitlements) {
       const existing = bySubject.get(e.subjectId);
@@ -385,7 +386,7 @@ export const getProductStats = query({
       .withIndex('by_auth_user_status', (q) =>
         q.eq('authUserId', args.authUserId).eq('status', 'active')
       )
-      .collect();
+      .take(5000); // cap to prevent OOM
     const byProduct = new Map<string, number>();
     for (const e of activeEntitlements) {
       byProduct.set(e.productId, (byProduct.get(e.productId) ?? 0) + 1);
@@ -547,6 +548,11 @@ export const grantEntitlement = mutation({
       if (args.evidence.purchasedAt < now - 30 * 24 * 60 * 60 * 1000) {
         throw new ConvexError('purchasedAt cannot be more than 30 days in the past');
       }
+    }
+
+    if (args.evidence.amount !== undefined) {
+      if (args.evidence.amount < 0) throw new ConvexError('amount cannot be negative');
+      if (args.evidence.amount > 999999.99) throw new ConvexError('amount exceeds maximum allowed value');
     }
 
     // Get creator profile for policy snapshot
@@ -1373,14 +1379,14 @@ export const expireEntitlements = mutation({
  * Uses a hash of the policy object for versioning.
  */
 async function getPolicySnapshotVersion(
-  ctx: { db: { query: Function } },
+  ctx: MutationCtx,
   authUserId: string
 ): Promise<number> {
   // Simple hash-based versioning
   // Count existing entitlements to get a rough version number
-  const existingEntitlements = await (ctx as any).db
+  const existingEntitlements = await ctx.db
     .query('entitlements')
-    .withIndex('by_auth_user', (q: any) => q.eq('authUserId', authUserId))
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
     .collect();
 
   // Use the count as a simple version increment
@@ -1410,7 +1416,7 @@ function mapReasonToStatus(
  * Emit a role sync job to the outbox.
  */
 async function emitRoleSyncJob(
-  ctx: { db: { insert: Function; query: Function } },
+  ctx: MutationCtx,
   authUserId: string,
   subjectId: Id<'subjects'>,
   entitlementId: Id<'entitlements'>,
@@ -1419,11 +1425,11 @@ async function emitRoleSyncJob(
   const now = Date.now();
 
   // Get subject to find Discord user ID
-  const subject = await (ctx as any).db.get(subjectId);
+  const subject = await ctx.db.get(subjectId);
 
   const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}`;
 
-  const outboxJobId = await (ctx as any).db.insert('outbox_jobs', {
+  const outboxJobId = await ctx.db.insert('outbox_jobs', {
     authUserId,
     jobType: 'role_sync',
     payload: {
@@ -1447,7 +1453,7 @@ async function emitRoleSyncJob(
  * Emit role removal jobs for all guilds with role rules for this product.
  */
 async function emitRoleRemovalJobs(
-  ctx: { db: { insert: Function; query: Function } },
+  ctx: MutationCtx,
   authUserId: string,
   subjectId: Id<'subjects'>,
   productId: string,
@@ -1458,16 +1464,16 @@ async function emitRoleRemovalJobs(
   const outboxJobIds: Id<'outbox_jobs'>[] = [];
 
   // Find all role rules for this product
-  const roleRules = await (ctx as any).db
+  const roleRules = await ctx.db
     .query('role_rules')
-    .withIndex('by_auth_user', (q: any) => q.eq('authUserId', authUserId))
-    .filter((q: any) => q.eq(q.field('productId'), productId))
-    .filter((q: any) => q.eq(q.field('enabled'), true))
-    .filter((q: any) => q.eq(q.field('removeOnRevoke'), true))
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+    .filter((q) => q.eq(q.field('productId'), productId))
+    .filter((q) => q.eq(q.field('enabled'), true))
+    .filter((q) => q.eq(q.field('removeOnRevoke'), true))
     .collect();
 
   // Get subject for Discord user ID
-  const subject = await (ctx as any).db.get(subjectId);
+  const subject = await ctx.db.get(subjectId);
 
   for (const rule of roleRules) {
     const roleIds = rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
@@ -1475,7 +1481,7 @@ async function emitRoleRemovalJobs(
     for (const roleId of roleIds) {
       const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${roleId}`;
 
-      const outboxJobId = await (ctx as any).db.insert('outbox_jobs', {
+      const outboxJobId = await ctx.db.insert('outbox_jobs', {
         authUserId,
         jobType: 'role_removal',
         payload: {
@@ -1506,7 +1512,7 @@ async function emitRoleRemovalJobs(
  * Create an audit event.
  */
 async function createAuditEvent(
-  ctx: { db: { insert: Function } },
+  ctx: MutationCtx,
   params: {
     authUserId: string;
     eventType: 'entitlement.granted' | 'entitlement.revoked' | 'discord.role.sync.requested';
@@ -1516,7 +1522,7 @@ async function createAuditEvent(
     correlationId?: string;
   }
 ): Promise<void> {
-  await (ctx as any).db.insert('audit_events', {
+  await ctx.db.insert('audit_events', {
     authUserId: params.authUserId,
     eventType: params.eventType,
     actorType: 'system',

@@ -94,6 +94,13 @@ message ListProductsRequest {
   1 -> string authUserId;
 }
 
+message UpsertProductCredentialRequest {
+  1 -> string authUserId;
+  2 -> string providerKey;
+  3 -> string productId;
+  4 -> string productSecretKey;
+}
+
 message ResolveVrchatAvatarNameRequest {
   1 -> string authUserId;
   2 -> string avatarId;
@@ -163,6 +170,7 @@ service Catalog {
   listJinxxyProducts(ListProductsRequest): ProductsResponse;
   listLemonSqueezyProducts(ListProductsRequest): ProductsResponse;
   resolveVrchatAvatarName(ResolveVrchatAvatarNameRequest): ResolveVrchatAvatarNameResponse;
+  upsertProductCredential(UpsertProductCredentialRequest): SuccessResponse;
 }
 
 service Setup {

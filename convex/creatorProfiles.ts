@@ -8,7 +8,7 @@
  * Requires CONVEX_API_SECRET for API-to-Convex calls.
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { components } from './_generated/api';
 import { internalQuery, mutation, query } from './_generated/server';
 
@@ -72,6 +72,14 @@ export const createCreatorProfile = mutation({
     requireApiSecret(args.apiSecret);
     const now = Date.now();
 
+    const name = args.name.trim();
+    if (name.length > 100) throw new ConvexError('name must be 100 characters or fewer');
+    if (args.slug) {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(args.slug) || args.slug.length > 64) {
+        throw new ConvexError('Slug must be lowercase alphanumeric with hyphens, max 64 characters');
+      }
+    }
+
     const existing = await ctx.db
       .query('creator_profiles')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
@@ -83,7 +91,7 @@ export const createCreatorProfile = mutation({
 
     return await ctx.db.insert('creator_profiles', {
       authUserId: args.authUserId,
-      name: args.name,
+      name: name,
       ownerDiscordUserId: args.ownerDiscordUserId,
       slug: args.slug,
       status: 'active',

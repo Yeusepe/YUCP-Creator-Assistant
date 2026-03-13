@@ -531,6 +531,15 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
       });
     }
 
+    const internalToken = request.headers.get('X-Internal-Service-Token') ?? '';
+    const expectedInternalToken = process.env.INTERNAL_SERVICE_TOKEN ?? '';
+    if (!expectedInternalToken || !timingSafeStringEqual(internalToken, expectedInternalToken)) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const adapter = ADAPTERS[provider];
     if (!adapter) {
       return new Response(JSON.stringify({ error: `Unsupported provider: ${provider}` }), {

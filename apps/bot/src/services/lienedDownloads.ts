@@ -195,7 +195,7 @@ async function fetchAttachmentBuffer(url: string): Promise<Buffer> {
 
   const contentLength = response.headers.get('content-length');
   if (contentLength && parseInt(contentLength, 10) > MAX_ATTACHMENT_SIZE) {
-    throw new Error(`Attachment too large: Content-Length ${contentLength} exceeds 50 MB limit`);
+    throw new Error(`Attachment too large: Content-Length ${contentLength} exceeds 500 MB limit`);
   }
 
   const reader = response.body?.getReader();
@@ -213,7 +213,7 @@ async function fetchAttachmentBuffer(url: string): Promise<Buffer> {
       totalBytes += value.length;
       if (totalBytes > MAX_ATTACHMENT_SIZE) {
         controller.abort();
-        throw new Error('Attachment too large: exceeds 50 MB limit during download');
+        throw new Error('Attachment too large: exceeds 500 MB limit during download');
       }
       chunks.push(value);
     }

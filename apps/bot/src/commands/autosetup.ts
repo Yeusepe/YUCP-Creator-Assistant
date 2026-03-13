@@ -525,7 +525,7 @@ export async function handleAutosetupRoleModalSubmit(
 async function showProductSelectStep(
   interaction: StringSelectMenuInteraction | ButtonInteraction,
   convex: ConvexHttpClient,
-  _apiSecret: string,
+  apiSecret: string,
   session: AutosetupSession,
   userId: string
 ): Promise<void> {
@@ -536,6 +536,7 @@ async function showProductSelectStep(
 
   const products = session.products ?? [];
   const existingRules = (await convex.query(api.role_rules.getByGuildWithProductNames, {
+    apiSecret,
     authUserId: session.authUserId,
     guildId: session.guildId,
   })) as Array<{ productId: string }>;

@@ -292,6 +292,7 @@ async function fetchVerifyData(
         includeInactive: false,
       }),
       convex.query(api.role_rules.getByGuildWithProductNames, {
+        apiSecret,
         authUserId,
         guildId,
       }),

@@ -72,6 +72,24 @@ export const SETUP_REQUIREMENT_KEYS = [
 ] as const;
 export type SetupRequirementKey = (typeof SETUP_REQUIREMENT_KEYS)[number];
 
+/**
+ * Describes a per-product credential required by a provider (e.g. Payhip's product-secret-key).
+ * When present on a ProviderDescriptor, the bot and dashboard will collect this credential
+ * alongside the product ID so that license verification works immediately.
+ */
+export interface PerProductCredentialDescriptor {
+  /** Prefix used when storing in provider_credentials.credentialKey, e.g. "product_key:" */
+  credentialKeyPrefix: string;
+  /** UI label for the secret key input, e.g. "Product Secret Key" */
+  credentialLabel: string;
+  /** UI label for the product identifier input, e.g. "Product Permalink" */
+  productIdLabel: string;
+  /** Placeholder shown in the product ID input, e.g. "e.g. RGsF" */
+  productIdPlaceholder: string;
+  /** Short help text explaining where to find the key */
+  helpText: string;
+}
+
 export interface ProviderDescriptor {
   providerKey: ProviderKey;
   label: string;
@@ -91,6 +109,8 @@ export interface ProviderDescriptor {
   supportsWebhook: boolean;
   supportsLicenseVerify: boolean;
   supportsTestMode: boolean;
+  /** When set, this provider requires a per-product credential for license verification. */
+  perProductCredential?: PerProductCredentialDescriptor;
   compatibility?: {
     legacyConnectRoutes?: string[];
     legacyWebhookRoutes?: string[];
@@ -329,6 +349,14 @@ export const PROVIDER_REGISTRY = [
     supportsWebhook: true,
     supportsLicenseVerify: true,
     supportsTestMode: false,
+    perProductCredential: {
+      credentialKeyPrefix: 'product_key:',
+      credentialLabel: 'Product Secret Key',
+      productIdLabel: 'Product Permalink',
+      productIdPlaceholder: 'e.g. RGsF',
+      helpText:
+        'Found on the product edit page in Payhip under License Keys → Developer section.',
+    },
     compatibility: {
       legacyWebhookRoutes: ['/webhooks/payhip/:authUserId'],
     },
@@ -382,3 +410,10 @@ export function getProviderDescriptor(providerKey: string): ProviderDescriptor |
 export function providerLabel(providerKey: string): string {
   return getProviderDescriptor(providerKey)?.label ?? providerKey;
 }
+
+/** Returns providers that require a per-product credential for license verification. */
+export const PER_PRODUCT_CREDENTIAL_PROVIDER_KEYS = (
+  PROVIDER_REGISTRY as readonly ProviderDescriptor[]
+)
+  .filter((provider) => provider.perProductCredential != null)
+  .map((provider) => provider.providerKey);

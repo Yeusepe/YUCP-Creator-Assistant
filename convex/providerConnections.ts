@@ -1355,9 +1355,67 @@ export const upsertPayhipConnection = mutation({
 });
 
 /**
+ * Generic mutation for storing or updating a per-product credential for any provider
+ * that declares `perProductCredential` in its ProviderDescriptor.
+ *
+ * Credential key format: `{credentialKeyPrefix}{productId}` (e.g., `product_key:RGsF`).
+ */
+export const upsertProductCredential = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    /** Provider key (e.g., "payhip") */
+    providerKey: ProviderV,
+    /** Provider-specific product identifier (e.g., Payhip permalink "RGsF") */
+    productId: v.string(),
+    /** Prefix used to build the credential key (e.g., "product_key:") */
+    credentialKeyPrefix: v.string(),
+    /** Encrypted per-product secret value */
+    encryptedSecretKey: v.string(),
+  },
+  returns: v.object({ success: v.boolean() }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', args.providerKey)
+      )
+      .first();
+
+    if (!conn) {
+      throw new Error(
+        `${providerLabel(args.providerKey)} connection not found. Connect ${providerLabel(args.providerKey)} first.`
+      );
+    }
+
+    const credentialKey = `${args.credentialKeyPrefix}${args.productId}`;
+
+    await upsertCredential(ctx, {
+      providerConnectionId: conn._id,
+      providerKey: args.providerKey,
+      credentialKey,
+      kind: 'api_key',
+      encryptedValue: args.encryptedSecretKey,
+      metadata: { productId: args.productId },
+    });
+
+    await upsertCapability(ctx, {
+      providerConnectionId: conn._id,
+      providerKey: args.providerKey,
+      capabilityKey: 'license_verification',
+      status: 'active',
+      requiredCredentialKeys: [credentialKey],
+    });
+
+    return { success: true };
+  },
+});
+
+/**
  * Store or update a per-product secret key for Payhip license verification.
- * Credential key format: `product_key:{permalink}` (e.g., `product_key:RGsF`).
- * Called when the creator adds a new Payhip product mapping.
+ * @deprecated Use `upsertProductCredential` instead. This remains for backwards compatibility.
  */
 export const upsertPayhipProductSecretKey = mutation({
   args: {
@@ -1375,12 +1433,12 @@ export const upsertPayhipProductSecretKey = mutation({
     if (!args.authUserId) {
       throw new Error('authUserId must be provided');
     }
-    const authUserId = args.authUserId;
 
+    // Delegate to the generic mutation handler.
     const conn = await ctx.db
       .query('provider_connections')
       .withIndex('by_auth_user_provider', (q) =>
-        q.eq('authUserId', authUserId).eq('provider', 'payhip')
+        q.eq('authUserId', args.authUserId!).eq('provider', 'payhip')
       )
       .first();
 
@@ -1388,22 +1446,23 @@ export const upsertPayhipProductSecretKey = mutation({
       throw new Error('Payhip connection not found. Connect Payhip first.');
     }
 
+    const credentialKey = `product_key:${args.productPermalink}`;
+
     await upsertCredential(ctx, {
       providerConnectionId: conn._id,
       providerKey: 'payhip',
-      credentialKey: `product_key:${args.productPermalink}`,
+      credentialKey,
       kind: 'api_key',
       encryptedValue: args.encryptedSecretKey,
-      metadata: { productPermalink: args.productPermalink },
+      metadata: { productId: args.productPermalink },
     });
 
-    // Once at least one product key is configured, mark license_verification as active.
     await upsertCapability(ctx, {
       providerConnectionId: conn._id,
       providerKey: 'payhip',
       capabilityKey: 'license_verification',
       status: 'active',
-      requiredCredentialKeys: [`product_key:${args.productPermalink}`],
+      requiredCredentialKeys: [credentialKey],
     });
 
     return { success: true };

@@ -142,13 +142,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
 
   if (!hasLoggedBetterAuthConfig) {
     hasLoggedBetterAuthConfig = true;
-    console.log('Better Auth config', {
-      siteUrl,
-      authBaseUrl: `${convexSiteUrl}/api/auth`,
-      betterAuthUrl: process.env.BETTER_AUTH_URL ?? null,
-      frontendUrl: process.env.FRONTEND_URL ?? null,
-      trustedOrigins,
-    });
   }
 
   const authBaseUrl = `${convexSiteUrl}/api/auth`;

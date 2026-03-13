@@ -237,10 +237,6 @@ export const vrchat = (): BetterAuthPlugin => ({
         const body = (ctx.body ?? {}) as Record<string, unknown>;
         const vrchatUser = parseVrchatUser(body.vrchatUser);
         const providerSession = parseProviderSession(body);
-        console.log('VRChat persist session', {
-          vrchatUserId: vrchatUser.id,
-          hasTwoFactorAuthToken: Boolean(providerSession.twoFactorAuthToken),
-        });
         return createVrchatSession(ctx, vrchatUser, providerSession);
       }
     ),
@@ -256,11 +252,6 @@ export const vrchat = (): BetterAuthPlugin => ({
         const userId = ctx.context.session.user.id;
         const accounts = await ctx.context.internalAdapter.findAccounts(userId);
         const vrchatAccount = accounts.find((entry: any) => entry.providerId === 'vrchat');
-        console.log('VRChat session token lookup', {
-          userId,
-          hasLinkedAccount: Boolean(vrchatAccount),
-          hasAccessToken: Boolean(vrchatAccount?.accessToken),
-        });
 
         if (!vrchatAccount?.accessToken) {
           return new Response(JSON.stringify({ needsLink: true }), {
@@ -273,9 +264,6 @@ export const vrchat = (): BetterAuthPlugin => ({
         try {
           loaded = await loadStoredSession(vrchatAccount);
         } catch {
-          console.log('VRChat session token lookup failed: stored session invalid', {
-            userId,
-          });
           return new Response(JSON.stringify({ sessionExpired: true }), {
             status: 401,
             headers: { 'content-type': 'application/json' },

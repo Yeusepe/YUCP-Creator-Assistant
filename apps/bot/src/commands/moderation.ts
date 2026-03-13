@@ -262,6 +262,7 @@ export async function handleModerationUnverify(
     });
 
     const productsWithNames = await convex.query(api.role_rules.getByGuildWithProductNames, {
+      apiSecret,
       authUserId: ctx.authUserId,
       guildId: ctx.guildId,
     });

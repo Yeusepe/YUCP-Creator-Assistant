@@ -1352,6 +1352,7 @@ const collaborator_invites = defineTable({
   targetDiscordDisplayName: v.optional(v.string()),
   expiresAt: v.number(),
   createdAt: v.number(),
+  usedAt: v.optional(v.number()),
 })
   .index('by_token_hash', ['tokenHash'])
   .index('by_owner', ['ownerAuthUserId'])

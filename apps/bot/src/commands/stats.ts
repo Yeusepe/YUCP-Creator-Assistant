@@ -78,6 +78,7 @@ export async function handleStats(
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const rules = await convex.query(api.role_rules.getByGuild, {
+    apiSecret,
     authUserId: ctx.authUserId,
     guildId: ctx.guildId,
   });
@@ -307,6 +308,7 @@ export async function handleStatsBackButton(
   statsUsersSessions.delete(sessionKey);
 
   const rules = await convex.query(api.role_rules.getByGuild, {
+    apiSecret,
     authUserId,
     guildId,
   });
@@ -352,6 +354,7 @@ export async function handleStatsViewProductsButton(
       authUserId,
     }),
     convex.query(api.role_rules.getByGuildWithProductNames, {
+      apiSecret,
       authUserId,
       guildId,
     }),
@@ -489,6 +492,7 @@ export async function handleStatsCheckUserSelect(
   let productDisplay = 'None';
   if (productIds.length) {
     const productNames = await convex.query(api.role_rules.getByGuildWithProductNames, {
+      apiSecret,
       authUserId,
       guildId,
     });

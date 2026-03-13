@@ -324,6 +324,15 @@ export function createWebhookRoutes(config: WebhookConfig) {
         return new Response('Forbidden', { status: 403 });
       }
 
+      const saleTimestamp = params.get('sale_timestamp');
+      if (saleTimestamp) {
+        const ts = Date.parse(saleTimestamp);
+        if (Number.isFinite(ts) && Date.now() - ts > WEBHOOK_MAX_AGE_MS) {
+          logger.warn('Gumroad webhook: rejected (event too old)', { routeId });
+          return new Response('Forbidden', { status: 403 });
+        }
+      }
+
       const payload = Object.fromEntries(params.entries());
 
       if (authUserIds.length > 0) {

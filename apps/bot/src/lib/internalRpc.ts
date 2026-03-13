@@ -313,3 +313,17 @@ export async function removeCollaboratorConnection(params: {
     supportCode: response.supportCode,
   };
 }
+
+export async function upsertProductCredential(params: {
+  authUserId: string;
+  providerKey: string;
+  productId: string;
+  productSecretKey: string;
+}): Promise<SuccessResponse> {
+  const response = await (await getClients()).catalog.upsertProductCredential(params);
+  return {
+    success: response.success ?? false,
+    error: response.error,
+    supportCode: response.supportCode,
+  };
+}

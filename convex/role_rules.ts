@@ -11,7 +11,7 @@
  * - Optional removal on entitlement revoke
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
@@ -32,15 +32,17 @@ function requireApiSecret(apiSecret: string | undefined): void {
  */
 export const getByTenant = query({
   args: {
+    apiSecret: v.string(),
     authUserId: v.string(),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const rules = await ctx.db
       .query('role_rules')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .order('asc')
-      .collect();
+      .take(1000);
 
     return rules;
   },
@@ -72,7 +74,7 @@ export const getEnabledVerificationProvidersFromProducts = query({
         q.eq('authUserId', args.authUserId).eq('guildId', args.guildId)
       )
       .filter((q) => q.eq(q.field('enabled'), true))
-      .collect();
+      .take(1000);
 
     const providerSet = new Set<string>();
     let hasDiscordRole = false;
@@ -123,7 +125,7 @@ export const getVrchatCatalogProductsMatchingAvatars = query({
       .query('product_catalog')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.and(q.eq(q.field('provider'), 'vrchat'), q.eq(q.field('status'), 'active')))
-      .collect();
+      .take(1000);
     const matches: Array<{
       productId: string;
       catalogProductId: Id<'product_catalog'>;
@@ -147,18 +149,20 @@ export const getVrchatCatalogProductsMatchingAvatars = query({
  */
 export const getByGuild = query({
   args: {
+    apiSecret: v.string(),
     authUserId: v.string(),
     guildId: v.string(),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const rules = await ctx.db
       .query('role_rules')
       .withIndex('by_auth_user_guild', (q) =>
         q.eq('authUserId', args.authUserId).eq('guildId', args.guildId)
       )
       .order('asc')
-      .collect();
+      .take(1000);
 
     return rules;
   },
@@ -171,6 +175,7 @@ export const getByGuild = query({
  */
 export const getByGuildWithProductNames = query({
   args: {
+    apiSecret: v.string(),
     authUserId: v.string(),
     guildId: v.string(),
   },
@@ -188,13 +193,14 @@ export const getByGuildWithProductNames = query({
     })
   ),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const rules = await ctx.db
       .query('role_rules')
       .withIndex('by_auth_user_guild', (q) =>
         q.eq('authUserId', args.authUserId).eq('guildId', args.guildId)
       )
       .order('asc')
-      .collect();
+      .take(1000);
 
     const seen = new Set<string>();
     const result: Array<{
@@ -253,18 +259,20 @@ export const getByGuildWithProductNames = query({
  */
 export const getByProduct = query({
   args: {
+    apiSecret: v.string(),
     authUserId: v.string(),
     productId: v.string(),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const rules = await ctx.db
       .query('role_rules')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('productId'), args.productId))
       .filter((q) => q.eq(q.field('enabled'), true))
       .order('asc')
-      .collect();
+      .take(1000);
 
     return rules;
   },
@@ -275,15 +283,17 @@ export const getByProduct = query({
  */
 export const getByGuildLink = query({
   args: {
+    apiSecret: v.string(),
     guildLinkId: v.id('guild_links'),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const rules = await ctx.db
       .query('role_rules')
       .withIndex('by_guild_link', (q) => q.eq('guildLinkId', args.guildLinkId))
       .order('asc')
-      .collect();
+      .take(1000);
 
     return rules;
   },
@@ -294,14 +304,16 @@ export const getByGuildLink = query({
  */
 export const getByCatalogProduct = query({
   args: {
+    apiSecret: v.string(),
     catalogProductId: v.id('product_catalog'),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
     const rules = await ctx.db
       .query('role_rules')
       .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', args.catalogProductId))
-      .collect();
+      .take(1000);
 
     return rules;
   },
@@ -325,7 +337,7 @@ export const getDiscordRoleRulesByTenant = query({
       .query('role_rules')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('enabled'), true))
-      .collect();
+      .take(1000);
 
     rules = rules.filter(
       (r) =>
@@ -368,8 +380,11 @@ export const createRoleRule = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    const link = await ctx.db.get(args.guildLinkId);
+    if (!link || link.authUserId !== args.authUserId) {
+      throw new ConvexError('Unauthorized: caller does not own this guild link');
+    }
     const now = Date.now();
-
     const roleIds = args.verifiedRoleIds ?? (args.verifiedRoleId ? [args.verifiedRoleId] : []);
     if (roleIds.length === 0) {
       throw new Error('At least one verified role is required');
@@ -502,7 +517,7 @@ export const deleteRoleRule = mutation({
         const links = await ctx.db
           .query('catalog_product_links')
           .filter((q) => q.eq(q.field('catalogProductId'), rule.catalogProductId!))
-          .collect();
+          .take(1000);
 
         for (const link of links) {
           await ctx.db.delete(link._id);
@@ -852,6 +867,74 @@ function buildDiscordRoleProductId(
   const sorted = [...requiredRoleIds].sort();
   return `discord_role:${sourceGuildId}:${mode}:${sorted.join(',')}`;
 }
+
+/**
+ * Get or create a product catalog entry for a Payhip product.
+ * The permalink (e.g., "RGsF") is the canonical Payhip product identifier.
+ * Does not trigger backfill — Payhip has no purchases API; events arrive via webhooks.
+ */
+export const addProductFromPayhip = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    /** Payhip product permalink (e.g., "RGsF") */
+    permalink: v.string(),
+    displayName: v.optional(v.string()),
+  },
+  returns: v.object({
+    productId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const now = Date.now();
+
+    const existing = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_provider_ref', (q) =>
+        q.eq('provider', 'payhip').eq('providerProductRef', args.permalink)
+      )
+      .first();
+
+    if (existing) {
+      if (args.displayName && existing.displayName !== args.displayName) {
+        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+      }
+      return { productId: existing.productId, catalogProductId: existing._id };
+    }
+
+    const catalogId = await ctx.db.insert('product_catalog', {
+      authUserId: args.authUserId,
+      productId: args.permalink,
+      provider: 'payhip',
+      providerProductRef: args.permalink,
+      displayName: args.displayName,
+      status: 'active',
+      supportsAutoDiscovery: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const url = `https://payhip.com/b/${args.permalink}`;
+    const normalized = url.toLowerCase().trim();
+    const urlHash = await sha256Hex(normalized);
+
+    await ctx.db.insert('catalog_product_links', {
+      catalogProductId: catalogId,
+      provider: 'payhip',
+      originalUrl: url,
+      normalizedUrl: normalized,
+      urlHash,
+      linkKind: 'direct_product',
+      status: 'active',
+      submittedByAuthUserId: args.authUserId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { productId: args.permalink, catalogProductId: catalogId };
+  },
+});
 
 /**
  * Add a Discord cross-server role rule.

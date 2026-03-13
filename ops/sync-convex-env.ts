@@ -58,6 +58,10 @@ async function runConvexEnvSet(
 async function main() {
   const secrets = await fetchInfisicalSecrets();
   if (Object.keys(secrets).length === 0) {
+    if (isProd) {
+      console.error('sync-convex-env: FATAL - No secrets returned from Infisical in production. Refusing to deploy with potentially stale/missing secrets.');
+      process.exit(1);
+    }
     console.warn('sync-convex-env: No secrets from Infisical, skipping');
     process.exit(0);
   }
@@ -87,6 +91,10 @@ async function main() {
   }
 
   if (changes.length === 0) {
+    if (isProd) {
+      console.error('sync-convex-env: FATAL - No auth secrets to sync in production.');
+      process.exit(1);
+    }
     console.warn('sync-convex-env: No auth secrets to sync, skipping');
     process.exit(0);
   }
