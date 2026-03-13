@@ -17,7 +17,9 @@ export function setUserAccountsList(v) {
   // Also rebuild connectionsMap for backward-compat (first active connection per provider)
   connectionsMap.clear();
   for (const conn of v) {
-    if (!connectionsMap.has(conn.provider)) connectionsMap.set(conn.provider, conn);
+    if (conn.status !== 'disconnected' && !connectionsMap.has(conn.provider)) {
+      connectionsMap.set(conn.provider, conn);
+    }
   }
 }
 export const settingsMap = new Map();

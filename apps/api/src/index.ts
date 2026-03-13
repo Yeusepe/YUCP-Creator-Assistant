@@ -796,8 +796,9 @@ async function routeRequest(request: Request): Promise<Response> {
     return connectRoutes.getUserGuilds(request);
   }
   if (pathname === '/api/connect/user/accounts' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
     if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);
-    return connectRoutes.getUserAccounts(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
   if (pathname === '/api/connect/gumroad/begin' && connectRoutes) {
     return connectRoutes.gumroadBegin(request);
@@ -1373,6 +1374,19 @@ async function routeRequest(request: Request): Promise<Response> {
     );
     if (setupAuthRedirect) {
       return setupAuthRedirect;
+    }
+
+    // Guard: regular web sessions require a valid BetterAuth session.
+    // Bot-initiated setup flows use the setup cookie and are exempt.
+    if (!setupCookieToken && auth) {
+      const webSession = await auth.getSession(request);
+      if (!webSession) {
+        const browserBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+        return Response.redirect(
+          buildSignInRouteUrl(browserBase, getRelativeRequestTarget(url)),
+          302
+        );
+      }
     }
 
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;

@@ -3158,7 +3158,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       await convex.mutation(api.providerConnections.upsertPayhipConnection, {
         apiSecret: config.convexApiSecret,
         tenantId,
-        apiKeyEncrypted,
+        encryptedApiKey: apiKeyEncrypted,
       });
 
       const webhookUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/payhip/${tenantId}`;
@@ -3223,8 +3223,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       await convex.mutation(api.providerConnections.upsertPayhipProductSecretKey, {
         apiSecret: config.convexApiSecret,
         tenantId,
-        permalink,
-        secretKeyEncrypted,
+        productPermalink: permalink,
+        encryptedSecretKey: secretKeyEncrypted,
       });
       return Response.json({ success: true });
     } catch (err) {

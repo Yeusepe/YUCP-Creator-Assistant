@@ -483,9 +483,19 @@ export const getConnectionForBackfill = query({
       .first();
 
     if (!userConn) return null;
+    const apiKey = await getCredentialValue(ctx, userConn._id, 'api_key');
+    const apiToken = await getCredentialValue(ctx, userConn._id, 'api_token');
+    const accessToken = await getCredentialValue(ctx, userConn._id, 'oauth_access_token');
+    const webhookSecret = await getCredentialValue(ctx, userConn._id, 'webhook_secret');
     return {
-      gumroadAccessTokenEncrypted: userConn.gumroadAccessTokenEncrypted,
-      jinxxyApiKeyEncrypted: userConn.jinxxyApiKeyEncrypted,
+      gumroadAccessTokenEncrypted: accessToken ?? userConn.gumroadAccessTokenEncrypted,
+      jinxxyApiKeyEncrypted: apiKey ?? userConn.jinxxyApiKeyEncrypted,
+      lemonApiTokenEncrypted: apiToken ?? undefined,
+      webhookSecretEncrypted:
+        webhookSecret ??
+        userConn.remoteWebhookSecretRef ??
+        userConn.webhookSecretRef ??
+        userConn.gumroadWebhookSecretRef,
     };
   },
 });
@@ -653,7 +663,14 @@ export const disconnectConnection = mutation({
     const conn = await ctx.db.get(args.connectionId);
     if (!conn) throw new Error('Connection not found');
     const ownedByTenant = args.tenantId && conn.tenantId === args.tenantId;
-    const ownedByUser = args.authUserId && conn.authUserId === args.authUserId;
+    let ownedByUser = args.authUserId && conn.authUserId === args.authUserId;
+    // Legacy rows lack authUserId; fall back to checking tenant ownership
+    if (!ownedByUser && args.authUserId && !conn.authUserId && conn.tenantId) {
+      const tenant = await ctx.db.get(conn.tenantId);
+      if (tenant?.ownerAuthUserId === args.authUserId) {
+        ownedByUser = true;
+      }
+    }
     if (!ownedByTenant && !ownedByUser) {
       throw new Error('Connection not found or access denied');
     }

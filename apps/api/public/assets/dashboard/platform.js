@@ -1,4 +1,5 @@
 import { getConfig } from './config.js';
+import { escHtml } from './utils.js';
 import {
   getActiveSetupProviders,
   getDashboardProvider,
@@ -448,7 +449,7 @@ export async function navigatePayhip() {
   } else if (getHasSetupSession()) {
     window.location.href = `${getApiBase()}/payhip-setup`;
   } else {
-    alert('Please wait for the page to finish loading.');
+    showSelectServerNotice();
   }
 }
 
@@ -485,7 +486,7 @@ const PROVIDER_META = Object.fromEntries(
     p.key,
     {
       name: p.label,
-      icon: p.iconUrl,
+      icon: resolveIconUrl(p),
       iconBg: p.iconBg,
       navigate: () => navigateProvider(p.key),
     },
@@ -496,11 +497,15 @@ function renderAddButtons() {
   const container = document.getElementById('add-account-buttons');
   if (!container) return;
 
-  container.innerHTML = platformProviders
+  // When no server is selected, only show providers that support auth-only (user-scoped) connections.
+  const hasServer = !!getTenantId();
+  const visibleProviders = platformProviders.filter((p) => hasServer || p.authOnlySupported);
+
+  container.innerHTML = visibleProviders
     .map(
       (p) => `<button class="card-action-btn link" data-provider="${p.key}"
           style="flex:1;min-width:160px;display:flex;align-items:center;justify-content:center;gap:8px;">
-          <img src="${p.iconUrl}" style="width:16px;border-radius:3px;" alt="">
+          <img src="${resolveIconUrl(p)}" style="width:16px;border-radius:3px;" alt="">
           Add ${p.label} Account
         </button>`
     )
@@ -538,7 +543,7 @@ function renderAccountsSection() {
         </div>
         <div>
           <h3 class="font-bold text-base mb-0.5">${meta.name}</h3>
-          <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">${label}</p>
+          <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">${escHtml(label)}</p>
         </div>
         <button class="card-action-btn disconnect" data-conn-id="${conn.id}" onclick="confirmDisconnectUserAccount('${conn.id}', '${conn.provider}')">Disconnect</button>
       </div>`;

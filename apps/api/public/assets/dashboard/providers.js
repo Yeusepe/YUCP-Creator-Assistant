@@ -13,6 +13,7 @@ export const DASHBOARD_PROVIDER_REGISTRY = [
     serverTileLabel: 'Enable Gumroad for this Server',
     serverTileHint: 'Allow users to verify Gumroad purchases in this Discord server.',
     setupState: 'ready',
+    authOnlySupported: true,
   },
   {
     key: 'jinxxy',
@@ -28,6 +29,7 @@ export const DASHBOARD_PROVIDER_REGISTRY = [
     serverTileLabel: 'Enable Jinxxy for this Server',
     serverTileHint: 'Allow users to verify Jinxxy purchases in this Discord server.',
     setupState: 'ready',
+    authOnlySupported: true,
   },
   {
     key: 'lemonsqueezy',
@@ -42,6 +44,7 @@ export const DASHBOARD_PROVIDER_REGISTRY = [
     serverTileLabel: 'Enable Lemon Squeezy for this Server',
     serverTileHint: 'Allow users to verify Lemon Squeezy purchases and licenses in this Discord server.',
     setupState: 'ready',
+    authOnlySupported: false,
   },
   {
     key: 'payhip',
@@ -56,6 +59,7 @@ export const DASHBOARD_PROVIDER_REGISTRY = [
     serverTileLabel: 'Enable Payhip for this Server',
     serverTileHint: 'Allow users to verify Payhip purchases and license keys in this Discord server.',
     setupState: 'ready',
+    authOnlySupported: false,
   },
 
 ];

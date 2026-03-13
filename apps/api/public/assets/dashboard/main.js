@@ -37,6 +37,7 @@ async function refreshContextData() {
     await fetchCollabConnections();
     await fetchPublicApiKeys();
     await fetchOAuthApps();
+    loadProgressFlags();
     renderQuickStart();
   } catch (err) {
     console.error('Context refresh error:', err);
