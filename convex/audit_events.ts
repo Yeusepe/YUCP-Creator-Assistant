@@ -31,7 +31,12 @@ const AuditEventType = v.union(
   v.literal('guild.unlinked'),
   v.literal('subject.status.updated'),
   v.literal('subject.suspicious.marked'),
-  v.literal('subject.suspicious.cleared')
+  v.literal('subject.suspicious.cleared'),
+  v.literal('collaborator.invite.created'),
+  v.literal('collaborator.invite.accepted'),
+  v.literal('collaborator.invite.revoked'),
+  v.literal('collaborator.connection.added'),
+  v.literal('collaborator.connection.removed')
 );
 
 function requireApiSecret(apiSecret: string | undefined): void {

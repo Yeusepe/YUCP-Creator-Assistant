@@ -463,6 +463,7 @@ export class DiscordBotE2EHarness {
     subject: { _id: string } | null;
   }> {
     return await this.convexQuery('subjects:getSubjectByDiscordId', {
+      apiSecret: this.secrets.convexApiSecret,
       discordUserId,
     });
   }

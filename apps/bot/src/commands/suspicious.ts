@@ -19,6 +19,7 @@ export async function handleSuspiciousMark(
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId: targetUser.id,
   });
   if (!subjectResult.found) {
@@ -89,6 +90,7 @@ export async function handleSuspiciousClear(
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId: targetUser.id,
   });
   if (!subjectResult.found) {

@@ -87,6 +87,7 @@ export async function handleModerationReasonSelect(
   await interaction.deferUpdate();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId: targetUserId,
   });
 
@@ -210,6 +211,7 @@ export async function handleModerationConfirmClear(
   await interaction.deferUpdate();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId: targetUserId,
   });
 

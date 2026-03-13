@@ -8,7 +8,7 @@
  * Plan Phase 3: event → purchase_facts → link subject → entitlements → role_sync
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { internalAction, internalMutation, internalQuery } from './_generated/server';
@@ -79,6 +79,9 @@ export const processWebhookEvent = internalMutation({
     const event = await ctx.db.get(args.eventId);
     if (!event) {
       return { success: false, error: 'Event not found' };
+    }
+    if (event.signatureValid !== true) {
+      throw new ConvexError('Cannot process unverified webhook event');
     }
     if (event.status !== 'pending') {
       return { success: true }; // Already processed

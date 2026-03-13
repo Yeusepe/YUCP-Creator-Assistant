@@ -30,10 +30,10 @@
  *   RFC 8725 JWT BCP     https://www.rfc-editor.org/rfc/rfc8725
  */
 
+import { ConvexError, v } from 'convex/values';
 import { symmetricDecrypt } from 'better-auth/crypto';
-import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import { internalAction, internalQuery } from './_generated/server';
+import { internalAction, internalMutation, internalQuery } from './_generated/server';
 import { type LicenseClaims, signLicenseJwt } from './lib/yucpCrypto';
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
@@ -369,6 +369,32 @@ async function verifyJinxxyLicense(
 }
 
 // =============================================================================
+// Nonce replay prevention
+// =============================================================================
+
+/**
+ * Atomically check and consume a JWT nonce to prevent replay attacks.
+ * Throws ConvexError if the nonce has already been used.
+ */
+export const checkAndConsumeNonce = internalMutation({
+  args: { nonce: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('used_nonces')
+      .withIndex('by_nonce', (q) => q.eq('nonce', args.nonce))
+      .first();
+    if (existing) {
+      throw new ConvexError('JWT nonce already used');
+    }
+    await ctx.db.insert('used_nonces', {
+      nonce: args.nonce,
+      authUserId: '',
+      usedAt: Date.now(),
+    });
+  },
+});
+
+// =============================================================================
 // Main action (called from http.ts httpAction for POST /v1/licenses/verify)
 // =============================================================================
 
@@ -494,11 +520,15 @@ export const verifyLicense = internalAction({
 
     const licenseKeyHash = await sha256Hex(args.licenseKey);
 
+    // 5a. Nonce replay check: ensure this nonce has not been used before
+    const jti = args.nonce;
+    await ctx.runMutation(internal.yucpLicenses.checkAndConsumeNonce, { nonce: jti });
+
     const claims: LicenseClaims = {
       iss: `${siteUrl}/api/auth`,
       aud: 'yucp-license-gate',
       sub: licenseKeyHash,
-      jti: args.nonce,
+      jti: jti,
       package_id: args.packageId,
       machine_fingerprint: args.machineFingerprint,
       provider: args.provider,
