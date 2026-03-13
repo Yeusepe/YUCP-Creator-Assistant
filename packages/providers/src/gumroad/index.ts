@@ -61,7 +61,11 @@ export interface TokenStorage {
  */
 export interface EncryptionService {
   /** Encrypt a token using envelope encryption */
-  encryptToken(token: string, authUserId: string, tokenType: 'access' | 'refresh'): Promise<unknown>;
+  encryptToken(
+    token: string,
+    authUserId: string,
+    tokenType: 'access' | 'refresh'
+  ): Promise<unknown>;
 
   /** Decrypt a token using envelope encryption */
   decryptToken(
@@ -123,7 +127,11 @@ export class InMemoryStateStorage implements StateStorage {
     }
 
     this.states.delete(state);
-    return { authUserId: data.authUserId, subjectId: data.subjectId, codeVerifier: data.codeVerifier };
+    return {
+      authUserId: data.authUserId,
+      subjectId: data.subjectId,
+      codeVerifier: data.codeVerifier,
+    };
   }
 }
 

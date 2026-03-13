@@ -80,10 +80,7 @@ export function generateState(): string {
 /**
  * Stores install state for CSRF validation
  */
-export async function storeInstallState(
-  state: string,
-  authUserId: string
-): Promise<void> {
+export async function storeInstallState(state: string, authUserId: string): Promise<void> {
   const now = Date.now();
   const data: InstallState = {
     state,
@@ -210,7 +207,10 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
         sessionUserId: session.user.id,
         requestedAuthUserId: authUserId,
       });
-      return Response.json({ error: 'Forbidden: authUserId does not match session' }, { status: 403 });
+      return Response.json(
+        { error: 'Forbidden: authUserId does not match session' },
+        { status: 403 }
+      );
     }
 
     // Generate state for CSRF protection

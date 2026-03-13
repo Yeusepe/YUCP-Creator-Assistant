@@ -100,7 +100,9 @@ export const getVerificationSessionByState = query({
     requireApiSecret(args.apiSecret);
     const session = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_auth_user_state', (q) => q.eq('authUserId', args.authUserId).eq('state', args.state))
+      .withIndex('by_auth_user_state', (q) =>
+        q.eq('authUserId', args.authUserId).eq('state', args.state)
+      )
       .first();
 
     if (!session) {
@@ -270,7 +272,9 @@ export const createVerificationSession = mutation({
     // Check for existing session with same state (replay protection)
     const existingSession = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_auth_user_state', (q) => q.eq('authUserId', args.authUserId).eq('state', args.state))
+      .withIndex('by_auth_user_state', (q) =>
+        q.eq('authUserId', args.authUserId).eq('state', args.state)
+      )
       .first();
 
     if (existingSession && existingSession.status === 'pending') {

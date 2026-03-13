@@ -1223,7 +1223,9 @@ export async function handleVerifyDisconnectButton(
       }
     );
     const message = await interaction.editReply(reply);
-    rememberActiveVerifyPanel(interaction, guildLink.authUserId, guildId, message.id, { panelToken });
+    rememberActiveVerifyPanel(interaction, guildLink.authUserId, guildId, message.id, {
+      panelToken,
+    });
     await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
       discordUserId: interaction.user.id,
       guildId,

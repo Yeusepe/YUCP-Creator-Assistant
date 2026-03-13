@@ -210,7 +210,10 @@ async function requireTenantAccess(
         response: jsonResponse({ error: 'Authentication required' }, newRequestId(), 401),
       };
     }
-    if (authDiscordUserId !== setupSession.discordUserId || setupSession.authUserId !== authUserId) {
+    if (
+      authDiscordUserId !== setupSession.discordUserId ||
+      setupSession.authUserId !== authUserId
+    ) {
       return {
         ok: false,
         response: jsonResponse({ error: 'Forbidden' }, newRequestId(), 403),

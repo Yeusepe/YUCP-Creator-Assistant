@@ -99,12 +99,7 @@ export const processWebhookEvent = internalMutation({
     const EVENT_PROCESSORS: Record<
       string,
       // biome-ignore lint/suspicious/noExplicitAny: processor functions use any for ctx/event
-      (
-        ctx: any,
-        authUserId: string,
-        event: any,
-        payload: Record<string, unknown>
-      ) => Promise<void>
+      (ctx: any, authUserId: string, event: any, payload: Record<string, unknown>) => Promise<void>
     > = {
       gumroad: processGumroadEvent,
       jinxxy: processJinxxyEvent,
@@ -492,7 +487,9 @@ async function processLemonEvent(
       ? normalizeEmail(attributes.user_email)
       : undefined;
   const emailHash = normalizedEmail ? await sha256Hex(normalizedEmail) : undefined;
-  const subjectId = emailHash ? await findSubjectByEmailHash(ctx, authUserId, emailHash) : undefined;
+  const subjectId = emailHash
+    ? await findSubjectByEmailHash(ctx, authUserId, emailHash)
+    : undefined;
   const now = Date.now();
 
   if (eventType.startsWith('order_')) {
@@ -1026,7 +1023,10 @@ async function processPayhipEvent(
       const existing = await ctx.db
         .query('purchase_facts')
         .withIndex('by_auth_user_provider_order', (q: any) =>
-          q.eq('authUserId', authUserId).eq('provider', 'payhip').eq('externalOrderId', transactionId)
+          q
+            .eq('authUserId', authUserId)
+            .eq('provider', 'payhip')
+            .eq('externalOrderId', transactionId)
         )
         .filter((q: any) => q.eq(q.field('externalLineItemId'), externalLineItemId))
         .first();
@@ -1080,7 +1080,10 @@ async function processPayhipEvent(
       const existing = await ctx.db
         .query('purchase_facts')
         .withIndex('by_auth_user_provider_order', (q: any) =>
-          q.eq('authUserId', authUserId).eq('provider', 'payhip').eq('externalOrderId', transactionId)
+          q
+            .eq('authUserId', authUserId)
+            .eq('provider', 'payhip')
+            .eq('externalOrderId', transactionId)
         )
         .filter((q: any) => q.eq(q.field('externalLineItemId'), externalLineItemId))
         .first();

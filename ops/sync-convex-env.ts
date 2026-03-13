@@ -29,7 +29,7 @@ const isProd = process.argv.includes('--prod');
 async function runConvexEnvSet(
   name: string,
   value: string,
-  env: Record<string, string | undefined>,
+  env: Record<string, string | undefined>
 ): Promise<void> {
   const args = ['convex', 'env', 'set', name, value];
   if (isProd) {
@@ -63,11 +63,14 @@ async function main() {
   }
 
   const deployKey = isProd
-    ? secrets.CONVEX_DEPLOY_KEY_PROD ?? process.env.CONVEX_DEPLOY_KEY_PROD
-    : secrets.CONVEX_DEPLOY_KEY ?? secrets.CONVEX_API_SECRET ?? process.env.CONVEX_DEPLOY_KEY ?? process.env.CONVEX_API_SECRET;
+    ? (secrets.CONVEX_DEPLOY_KEY_PROD ?? process.env.CONVEX_DEPLOY_KEY_PROD)
+    : (secrets.CONVEX_DEPLOY_KEY ??
+      secrets.CONVEX_API_SECRET ??
+      process.env.CONVEX_DEPLOY_KEY ??
+      process.env.CONVEX_API_SECRET);
   const deployment = isProd
-    ? secrets.CONVEX_DEPLOYMENT_PROD ?? process.env.CONVEX_DEPLOYMENT_PROD
-    : secrets.CONVEX_DEPLOYMENT ?? process.env.CONVEX_DEPLOYMENT;
+    ? (secrets.CONVEX_DEPLOYMENT_PROD ?? process.env.CONVEX_DEPLOYMENT_PROD)
+    : (secrets.CONVEX_DEPLOYMENT ?? process.env.CONVEX_DEPLOYMENT);
 
   if (!deployKey && !deployment) {
     console.warn(
@@ -98,7 +101,9 @@ async function main() {
     await runConvexEnvSet(change.name, change.value, childEnv);
   }
 
-  console.log(`sync-convex-env: Synced ${changes.length} vars to Convex ${isProd ? 'prod' : 'dev'}`);
+  console.log(
+    `sync-convex-env: Synced ${changes.length} vars to Convex ${isProd ? 'prod' : 'dev'}`
+  );
 }
 
 main().catch((err) => {

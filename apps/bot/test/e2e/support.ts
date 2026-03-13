@@ -482,10 +482,7 @@ export class DiscordBotE2EHarness {
     });
   }
 
-  async createRoleRule(params: {
-    productId: string;
-    verifiedRoleId: string;
-  }): Promise<string> {
+  async createRoleRule(params: { productId: string; verifiedRoleId: string }): Promise<string> {
     const result = await this.convexMutation<{ ruleId: string }>('role_rules:createRoleRule', {
       apiSecret: this.secrets.convexApiSecret,
       authUserId: this.secrets.authUserId,

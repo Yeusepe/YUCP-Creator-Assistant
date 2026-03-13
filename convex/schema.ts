@@ -1553,4 +1553,3 @@ export default defineSchema({
   cert_issuance_log,
   oauth_loopback_sessions,
 });
-

@@ -258,7 +258,9 @@ body:not(.state-server-selected) .server-only {
   background: #f8fafc;
   border-color: #cbd5e1;
   transform: translateY(-3px);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04), 0 8px 16px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 8px 16px rgba(0, 0, 0, 0.06);
 }
 
 .setting-row-left {
@@ -344,7 +346,10 @@ body:not(.state-server-selected) .server-only {
   opacity: 0;
   visibility: hidden;
   transform: translateY(-8px);
-  transition: opacity 0.2s, transform 0.2s, visibility 0.2s;
+  transition:
+    opacity 0.2s,
+    transform 0.2s,
+    visibility 0.2s;
   z-index: 50;
 }
 
@@ -375,7 +380,9 @@ body:not(.state-server-selected) .server-only {
   padding: 10px 12px;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
   font-weight: 600;
 }
 
@@ -442,8 +449,9 @@ body:not(.state-server-selected) .server-only {
   min-width: 56px;
   opacity: 0;
   transform: scale(0.92);
-  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1), transform 0.35s
-    cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
 }
 
@@ -541,7 +549,9 @@ body:not(.state-server-selected) .server-only {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .svr-cfg-tile:hover {
@@ -928,7 +938,9 @@ body:not(.state-server-selected) .server-only {
   background: #22c55e;
   box-shadow: 0 4px 12px rgba(34, 197, 94, 0.35);
   pointer-events: none;
-  transition: background 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 #done-btn .done-check {
@@ -1006,7 +1018,9 @@ body:not(.state-server-selected) .server-only {
   backdrop-filter: blur(6px);
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.25s, visibility 0.25s;
+  transition:
+    opacity 0.25s,
+    visibility 0.25s;
 }
 
 .inline-confirm.open {
@@ -1438,7 +1452,9 @@ body:not(.state-server-selected) .server-only {
   color: #64748b;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.2s, color 0.2s;
+  transition:
+    background 0.2s,
+    color 0.2s;
 }
 
 .sidebar-toggle-btn:hover {
@@ -1582,7 +1598,9 @@ body:not(.state-server-selected) .server-only {
   padding: 8px 10px;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
   color: rgba(255, 255, 255, 0.46);
   font-size: 13px;
   font-weight: 600;
@@ -1657,7 +1675,9 @@ body:not(.state-server-selected) .server-only {
   backdrop-filter: blur(32px) saturate(180%);
   -webkit-backdrop-filter: blur(32px) saturate(180%);
   border-left: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.2), inset 0 2px 5px rgba(255, 255, 255, 0.5);
+  box-shadow:
+    inset 0 0 40px rgba(255, 255, 255, 0.2),
+    inset 0 2px 5px rgba(255, 255, 255, 0.5);
   /* Radial pattern overlay for texture */
   background-image: radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px);
   background-size: 24px 24px;
@@ -1668,7 +1688,9 @@ body:not(.state-server-selected) .server-only {
   z-index: 55;
   display: flex;
   flex-direction: column;
-  transition: background 0.3s ease, color 0.3s ease;
+  transition:
+    background 0.3s ease,
+    color 0.3s ease;
 }
 
 @media (min-width: 768px) {
@@ -1677,8 +1699,10 @@ body:not(.state-server-selected) .server-only {
     margin-left: -12px;
     border-top-left-radius: 24px;
     border-bottom-left-radius: 24px;
-    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.06), inset 0 0 30px rgba(255, 255, 255, 0.3), inset 1px
-      1px 2px rgba(255, 255, 255, 0.7);
+    box-shadow:
+      -12px 0 40px rgba(0, 0, 0, 0.06),
+      inset 0 0 30px rgba(255, 255, 255, 0.3),
+      inset 1px 1px 2px rgba(255, 255, 255, 0.7);
   }
 }
 
@@ -2015,7 +2039,7 @@ body:not(.state-server-selected) .server-only {
 }
 
 .bento-grid > *:nth-child(6) {
-  animation-delay: 0.20s;
+  animation-delay: 0.2s;
 }
 
 .bento-grid > *:nth-child(7) {
@@ -2031,7 +2055,7 @@ body:not(.state-server-selected) .server-only {
 }
 
 .bento-grid > *:nth-child(10) {
-  animation-delay: 0.30s;
+  animation-delay: 0.3s;
 }
 
 .bento-grid > *:nth-child(11) {
@@ -2051,7 +2075,7 @@ body:not(.state-server-selected) .server-only {
 }
 
 .bento-grid > *:nth-child(15) {
-  animation-delay: 0.40s;
+  animation-delay: 0.4s;
 }
 
 /*  Responsive */
@@ -2153,14 +2177,18 @@ body:not(.state-server-selected) .server-only {
 
   background: rgba(15, 23, 42, 0.55);
   border-left: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.4), inset 0 2px 5px rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 0 40px rgba(0, 0, 0, 0.4),
+    inset 0 2px 5px rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
 }
 
 @media (min-width: 768px) {
   .dark .content-area {
-    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.5), inset 0 0 30px rgba(0, 0, 0, 0.4), inset 1px 1px
-      2px rgba(255, 255, 255, 0.1);
+    box-shadow:
+      -12px 0 40px rgba(0, 0, 0, 0.5),
+      inset 0 0 30px rgba(0, 0, 0, 0.4),
+      inset 1px 1px 2px rgba(255, 255, 255, 0.1);
   }
 }
 
@@ -2247,29 +2275,41 @@ body:not(.state-server-selected) .server-only {
   border-color: rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(48px) saturate(200%);
   -webkit-backdrop-filter: blur(48px) saturate(200%);
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
 }
 
 .dark .intg-card .inline-panel-body {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%) !important;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  ) !important;
   border-color: rgba(255, 255, 255, 0.18) !important;
 }
 
 .dark .platform-card {
   background: rgba(30, 41, 59, 0.65);
   border-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .dark .platform-card:hover {
   background: rgba(30, 41, 59, 0.85);
   border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 24px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 12px 24px rgba(0, 0, 0, 0.3);
 }
 
 .dark .platform-card.connected {
   border-color: rgba(134, 239, 172, 0.4);
-  box-shadow: 0 0 0 1px rgba(134, 239, 172, 0.25), 0 4px 14px rgba(74, 222, 128, 0.15);
+  box-shadow:
+    0 0 0 1px rgba(134, 239, 172, 0.25),
+    0 4px 14px rgba(74, 222, 128, 0.15);
 }
 
 .dark .platform-card.disconnected {
@@ -2356,7 +2396,9 @@ body:not(.state-server-selected) .server-only {
 .dark .server-dropdown-menu {
   background: rgba(15, 23, 42, 0.55);
   border-color: rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.4), inset 0 2px 5px rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 0 40px rgba(0, 0, 0, 0.4),
+    inset 0 2px 5px rgba(255, 255, 255, 0.1);
   background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
 }
 

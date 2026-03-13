@@ -208,7 +208,11 @@ export function createWebhookRoutes(config: WebhookConfig) {
       }
 
       if (!signatureValid) {
-        logger.warn('Collab webhook: rejected (unverified)', { ownerAuthUserId, inviteId, eventId });
+        logger.warn('Collab webhook: rejected (unverified)', {
+          ownerAuthUserId,
+          inviteId,
+          eventId,
+        });
         return new Response('Forbidden', { status: 403 });
       }
 
@@ -560,7 +564,9 @@ export function createWebhookRoutes(config: WebhookConfig) {
         apiSecret,
         routeId,
       });
-      const apiKey = encryptedKey ? await decrypt(encryptedKey, encryptionSecret).catch(() => encryptedKey) : null;
+      const apiKey = encryptedKey
+        ? await decrypt(encryptedKey, encryptionSecret).catch(() => encryptedKey)
+        : null;
       let signatureValid = false;
 
       if (apiKey && payload.signature) {

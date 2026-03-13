@@ -151,10 +151,7 @@ export const getTenantById = internalQuery({
 /** Get a creator profile by authUserId (for internal auth lookups). */
 export const getTenantOwnerById = internalQuery({
   args: { authUserId: v.string() },
-  returns: v.union(
-    v.null(),
-    v.object({ authUserId: v.string(), name: v.string() })
-  ),
+  returns: v.union(v.null(), v.object({ authUserId: v.string(), name: v.string() })),
   handler: async (ctx, args) => {
     const row = await ctx.db
       .query('creator_profiles')

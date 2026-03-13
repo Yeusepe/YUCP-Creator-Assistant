@@ -1994,7 +1994,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const keys = (Array.isArray(data) ? data : [])
         .filter((key) => {
           const metadata = parsePublicApiKeyMetadata(key.metadata);
-          return metadata?.kind === PUBLIC_API_KEY_METADATA_KIND && metadata.authUserId === authUserId;
+          return (
+            metadata?.kind === PUBLIC_API_KEY_METADATA_KIND && metadata.authUserId === authUserId
+          );
         })
         .map((key) => ({
           _id: key.id,
@@ -2639,7 +2641,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    let body: { authUserId: string; guildId: string; adminDiscordUserId: string; apiSecret: string };
+    let body: {
+      authUserId: string;
+      guildId: string;
+      adminDiscordUserId: string;
+      apiSecret: string;
+    };
     try {
       body = (await request.json()) as typeof body;
     } catch {

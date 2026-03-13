@@ -394,7 +394,10 @@ async function handleSlashCommand(
       if (sub === 'setup') {
         await handleDownloadsAdd(interaction, { authUserId, guildLinkId, guildId });
       } else if (sub === 'manage' || sub === 'list') {
-        await handleDownloadsManage(interaction, ctx.convex, ctx.apiSecret, { authUserId, guildId });
+        await handleDownloadsManage(interaction, ctx.convex, ctx.apiSecret, {
+          authUserId,
+          guildId,
+        });
       }
     } else if (subcommand === 'stats') {
       // Single subcommand (not a group) - overview with navigation buttons
@@ -446,7 +449,10 @@ async function handleSlashCommand(
       } else if (sub === 'list') {
         await handleModerationList(interaction, ctx.convex, ctx.apiSecret, { authUserId, guildId });
       } else if (sub === 'clear') {
-        await handleModerationClear(interaction, ctx.convex, ctx.apiSecret, { authUserId, guildId });
+        await handleModerationClear(interaction, ctx.convex, ctx.apiSecret, {
+          authUserId,
+          guildId,
+        });
       } else if (sub === 'unverify') {
         await handleModerationUnverify(interaction, ctx.convex, ctx.apiSecret, {
           authUserId,
@@ -755,7 +761,13 @@ async function handleButton(
     const authUserId = parts[0] as string;
     const guildId = parts[1] ?? interaction.guildId ?? '';
     const { handleStatsViewProductsButton } = await import('../commands/stats');
-    await handleStatsViewProductsButton(interaction, ctx.convex, ctx.apiSecret, authUserId, guildId);
+    await handleStatsViewProductsButton(
+      interaction,
+      ctx.convex,
+      ctx.apiSecret,
+      authUserId,
+      guildId
+    );
     return;
   }
 
@@ -1208,9 +1220,7 @@ async function handleButton(
     const action = parts[0];
     const authUserId = parts[1];
     if (action === 'next' && authUserId) {
-      const { logChannelSelect, jinxxyButton } = buildSetupStep2Components(
-        authUserId as string
-      );
+      const { logChannelSelect, jinxxyButton } = buildSetupStep2Components(authUserId as string);
       const embed = {
         title: 'Creator Setup - Step 2 of 3',
         description: 'Log channel and Jinxxy API key.',
@@ -1434,7 +1444,11 @@ async function handleSelectMenu(
     const userId = rest.slice(0, colonIdx);
     const authUserId = rest.slice(colonIdx + 1) as string;
     const { handleDownloadsLogicSelect } = await import('../commands/downloads');
-    await handleDownloadsLogicSelect(interaction as StringSelectMenuInteraction, userId, authUserId);
+    await handleDownloadsLogicSelect(
+      interaction as StringSelectMenuInteraction,
+      userId,
+      authUserId
+    );
     return;
   }
 

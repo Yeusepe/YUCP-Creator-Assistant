@@ -41,11 +41,7 @@ class MockOrchestratorAdapter implements HealthCheckableAdapter {
     this.beginResult = result;
   }
 
-  setCompleteResult(result: {
-    success: boolean;
-    gumroadUserId?: string;
-    error?: string;
-  }): void {
+  setCompleteResult(result: { success: boolean; gumroadUserId?: string; error?: string }): void {
     this.completeResult = result;
   }
 

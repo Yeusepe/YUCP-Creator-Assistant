@@ -243,7 +243,9 @@ export const getStatsOverview = query({
     requireApiSecret(args.apiSecret);
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) =>
+        q.eq('authUserId', args.authUserId).eq('status', 'active')
+      )
       .collect();
     const uniqueSubjects = new Set(activeEntitlements.map((e) => e.subjectId));
     const uniqueProducts = new Set(activeEntitlements.map((e) => e.productId));
@@ -273,7 +275,9 @@ export const getStatsOverviewExtended = query({
     requireApiSecret(args.apiSecret);
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) =>
+        q.eq('authUserId', args.authUserId).eq('status', 'active')
+      )
       .collect();
     const uniqueSubjects = new Set(activeEntitlements.map((e) => e.subjectId));
     const uniqueProducts = new Set(activeEntitlements.map((e) => e.productId));
@@ -321,7 +325,9 @@ export const getVerifiedUsersPaginated = query({
     const limit = Math.min(args.limit ?? 25, 50);
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) =>
+        q.eq('authUserId', args.authUserId).eq('status', 'active')
+      )
       .collect();
     const bySubject = new Map<string, { productIds: Set<string> }>();
     for (const e of activeEntitlements) {
@@ -375,7 +381,9 @@ export const getProductStats = query({
     requireApiSecret(args.apiSecret);
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) =>
+        q.eq('authUserId', args.authUserId).eq('status', 'active')
+      )
       .collect();
     const byProduct = new Map<string, number>();
     for (const e of activeEntitlements) {
@@ -1156,7 +1164,13 @@ export const grantEntitlementsForPurchaser = mutation({
       grantedCount++;
 
       // Emit role sync job for each
-      await emitRoleSyncJob(ctx, args.authUserId, args.subjectId, entitlementId, args.correlationId);
+      await emitRoleSyncJob(
+        ctx,
+        args.authUserId,
+        args.subjectId,
+        entitlementId,
+        args.correlationId
+      );
     }
 
     // Create single audit event for batch
@@ -1279,7 +1293,9 @@ export const expireEntitlements = mutation({
 
     const activeEntitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_auth_user_status', (q) => q.eq('authUserId', args.authUserId).eq('status', 'active'))
+      .withIndex('by_auth_user_status', (q) =>
+        q.eq('authUserId', args.authUserId).eq('status', 'active')
+      )
       .collect();
 
     const gracePeriodMs = gracePeriodHours * 3600000;

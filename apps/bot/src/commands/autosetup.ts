@@ -201,7 +201,10 @@ function formatRoleName(
   return result || 'Verified';
 }
 
-async function fetchAllProducts(authUserId: string, _apiSecret: string): Promise<AutosetupProduct[]> {
+async function fetchAllProducts(
+  authUserId: string,
+  _apiSecret: string
+): Promise<AutosetupProduct[]> {
   const products: AutosetupProduct[] = [];
 
   const [gumroadData, jinxxyData] = await Promise.all([
@@ -308,7 +311,10 @@ export async function handleAutosetupStart(
     components: [container],
   });
 
-  track(interaction.user.id, 'autosetup_started', { authUserId: ctx.authUserId, guildId: ctx.guildId });
+  track(interaction.user.id, 'autosetup_started', {
+    authUserId: ctx.authUserId,
+    guildId: ctx.guildId,
+  });
 }
 
 /** Mode selected - route to appropriate flow */
@@ -889,7 +895,9 @@ async function handleChannelsFlowStart(
   container.addActionRowComponents(
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`${AUTOSETUP_PREFIX}create_verify:${interaction.user.id}:${session.authUserId}`)
+        .setCustomId(
+          `${AUTOSETUP_PREFIX}create_verify:${interaction.user.id}:${session.authUserId}`
+        )
         .setLabel('Create #verify channel')
         .setEmoji(Emoji.Checkmark)
         .setStyle(ButtonStyle.Success),
@@ -898,7 +906,9 @@ async function handleChannelsFlowStart(
         .setLabel('Just spawn button here')
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId(`${AUTOSETUP_PREFIX}channels_skip:${interaction.user.id}:${session.authUserId}`)
+        .setCustomId(
+          `${AUTOSETUP_PREFIX}channels_skip:${interaction.user.id}:${session.authUserId}`
+        )
         .setLabel('Skip')
         .setStyle(ButtonStyle.Secondary)
     )

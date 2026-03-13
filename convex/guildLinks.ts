@@ -244,7 +244,9 @@ export const hardDisconnectGuild = mutation({
     // Delete all download_artifacts for this guild
     const downloadArtifacts = await ctx.db
       .query('download_artifacts')
-      .withIndex('by_auth_user_guild', (q) => q.eq('authUserId', link.authUserId).eq('guildId', guildId))
+      .withIndex('by_auth_user_guild', (q) =>
+        q.eq('authUserId', link.authUserId).eq('guildId', guildId)
+      )
       .collect();
     for (const artifact of downloadArtifacts) {
       await ctx.db.delete(artifact._id);

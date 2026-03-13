@@ -1,17 +1,17 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.5/schema.json",
   "files": {
-    "ignore": [
-      "**/dist",
-      "**/convex/_generated",
-      "packages/private-rpc/src/generated.ts",
-      "**/*.tsbuildinfo",
-      "**/public/assets/**"
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/convex/_generated",
+      "!**/packages/private-rpc/src/generated.ts",
+      "!**/*.tsbuildinfo",
+      "!**/public/assets/**",
+      "!**/frontend/*.css"
     ]
   },
-  "organizeImports": {
-    "enabled": true
-  },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "linter": {
     "enabled": true,
     "rules": {

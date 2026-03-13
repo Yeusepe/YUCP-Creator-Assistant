@@ -179,7 +179,9 @@ async function getSubjectTenantExternalAccountCandidates(
 ): Promise<ExternalAccountIdentityCandidate[]> {
   const bindings = await ctx.db
     .query('bindings')
-    .withIndex('by_auth_user_subject', (q) => q.eq('authUserId', authUserId).eq('subjectId', subjectId))
+    .withIndex('by_auth_user_subject', (q) =>
+      q.eq('authUserId', authUserId).eq('subjectId', subjectId)
+    )
     .collect();
 
   const candidates: ExternalAccountIdentityCandidate[] = [];
@@ -356,7 +358,10 @@ export const listConnections = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const profile = await ctx.db.query('creator_profiles').withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId)).first();
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
     const allowMismatchedEmails = profile?.policy?.allowMismatchedEmails ?? false;
 
     const connections = await ctx.db
@@ -660,7 +665,7 @@ export const upsertConnectionCapability = mutation({
       throw new Error('Connection not found or access denied');
     }
 
-    return await upsertCapability(ctx,{
+    return await upsertCapability(ctx, {
       providerConnectionId: args.providerConnectionId,
       providerKey: getConnectionProviderKey(connection),
       capabilityKey: args.capabilityKey,
@@ -731,7 +736,7 @@ export const updateTenantSetting = mutation({
  * Upsert Gumroad provider connection (OAuth tokens).
  * authUserId is optional, omit only for system-level setup without user scope.
  */
-export const upsertGumroadConnection= mutation({
+export const upsertGumroadConnection = mutation({
   args: {
     apiSecret: v.string(),
     authUserId: v.optional(v.string()),
@@ -840,7 +845,7 @@ export const upsertGumroadConnection= mutation({
  * Upsert Jinxxy provider connection (API key, webhook secret).
  * authUserId is optional, omit only for system-level setup without user scope.
  */
-export const upsertJinxxyConnection= mutation({
+export const upsertJinxxyConnection = mutation({
   args: {
     apiSecret: v.string(),
     authUserId: v.optional(v.string()),
@@ -1497,6 +1502,3 @@ export const markPayhipWebhookConfigured = mutation({
     return null;
   },
 });
-
-
-
