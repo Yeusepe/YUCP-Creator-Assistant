@@ -141,14 +141,14 @@ function renderParticipatingServers(servers) {
 
   if (!servers || servers.length === 0) {
     container.innerHTML = `
-      <div class="bento-col-12 empty-state" style="margin: 0; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05);">
+      <div class="bento-col-12 empty-state platform-card flex items-center justify-center text-center" style="margin: 0;">
         <div class="intg-icon" style="margin: 0 auto 16px; width: 40px; height: 40px; background: rgba(14,165,233,0.1); color: #0ea5e9;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
         </div>
-        <p class="text-sm font-bold text-white mb-2" style="font-family:'Plus Jakarta Sans',sans-serif; font-size: 16px;">No participating servers</p>
-        <p class="text-white/50 max-w-sm mx-auto mb-6" style="font-family:'DM Sans',sans-serif; font-size: 13px; line-height:1.5;">You aren't managing any servers yet. Install the Assistant to your server to connect your storefront data.</p>
+        <p class="participating-server-name font-bold mb-2" style="font-family:'Plus Jakarta Sans',sans-serif; font-size: 16px;">No participating servers</p>
+        <p class="participating-server-hint max-w-sm mx-auto mb-6" style="font-family:'DM Sans',sans-serif; font-size: 13px; line-height:1.5;">You aren't managing any servers yet. Install the Assistant to your server to connect your storefront data.</p>
         <button class="btn-primary" onclick="window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')" style="margin: 0 auto; background: #0ea5e9; color: #fff; border: none; padding: 10px 20px; font-weight: 700; border-radius: 8px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
             <path d="M12 5v14M5 12h14"/>
