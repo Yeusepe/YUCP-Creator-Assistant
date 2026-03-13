@@ -1,6 +1,6 @@
 /**
- * Tenant-scoped metadata for OAuth clients stored by Better Auth.
- * Better Auth owns the actual OAuth client + secret records; this table maps them to tenants.
+ * Creator-scoped metadata for OAuth clients stored by Better Auth.
+ * Better Auth owns the actual OAuth client + secret records; this table maps them to creators (authUserId).
  */
 
 import { v } from 'convex/values';

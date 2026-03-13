@@ -144,8 +144,6 @@ export { extractVrchatAvatarId, VrchatApiClient } from './vrchat';
 export class DiscordAdapter implements ProviderAdapter {
   readonly name = 'discord';
 
-  constructor(_config: ProviderConfig) {}
-
   async verifyPurchase(_discordId: string): Promise<Verification | null> {
     // Placeholder - Discord verification via OAuth/bot
     return null;

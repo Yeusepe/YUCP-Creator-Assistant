@@ -38,7 +38,7 @@
     "start:all": "concurrently -k \"bun run start:api:infisical\" \"bun run start:bot:infisical\""
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.0",
+    "@biomejs/biome": "2.4.5",
     "@infisical/sdk": "^4.0.6",
     "@types/bun": "^1.3.10",
     "@types/canvas-confetti": "^1.9.0",

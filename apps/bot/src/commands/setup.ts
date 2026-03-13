@@ -36,7 +36,7 @@ export async function runSetupStart(
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const { apiInternal, apiPublic, webPublic } = getApiUrls();
+  const { apiPublic, webPublic } = getApiUrls();
   if (!apiPublic) {
     throw new Error('API_BASE_URL is not configured for the bot service');
   }

@@ -1,7 +1,7 @@
 /**
  * One-time data migrations.
  * Run with: npx convex run migrations:purgeLegacyTenantDocuments
- * Re-run until it returns { done: true }.
+ * Re-run until it returns { deleted: 0 }.
  */
 
 import { internalMutation } from './_generated/server';
@@ -39,7 +39,7 @@ const LEGACY_TABLES = [
 
 /**
  * Delete up to 200 legacy tenant documents per call.
- * Re-run until it returns { done: true, deleted: 0 }.
+ * Re-run until it returns { deleted: 0 }.
  */
 export const purgeLegacyTenantDocuments = internalMutation({
   args: {},

@@ -80,8 +80,6 @@ interface AutosetupSession {
   expiresAt: number;
 }
 
-type ContainerActionRow = Parameters<ContainerBuilder['addActionRowComponents']>[0];
-
 const autosetupSessions = new Map<string, AutosetupSession>();
 
 function getSessionKey(userId: string, authUserId: string): string {

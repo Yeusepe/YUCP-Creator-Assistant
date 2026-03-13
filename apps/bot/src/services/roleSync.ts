@@ -1033,7 +1033,7 @@ export class RoleSyncService {
   }
 
   /**
-   * Fetch role rules for a tenant and product.
+   * Fetch role rules for a creator and product.
    */
   private async fetchRoleRules(authUserId: string, productId: string): Promise<RoleRule[]> {
     try {
