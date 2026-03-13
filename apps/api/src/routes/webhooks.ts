@@ -290,7 +290,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       try {
         authUserIds = await convex.query(api.webhookIngestion.resolveWebhookTenantIds, {
           apiSecret,
-          routeId,
+          authUserId: routeId,
         });
       } catch {
         authUserIds = [routeId];
@@ -302,8 +302,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
         try {
           const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
             apiSecret,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            authUserId: authUserIds[0] as any,
+            authUserId: authUserIds[0],
             provider: 'gumroad',
           });
           if (conn?.gumroadAccessTokenEncrypted) {
@@ -345,8 +344,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
           try {
             const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
               apiSecret,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              authUserId: authUserId as any,
+              authUserId,
               provider: 'gumroad',
               providerEventId,
               eventType,
@@ -466,7 +464,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       try {
         authUserIds = await convex.query(api.webhookIngestion.resolveWebhookTenantIds, {
           apiSecret,
-          routeId,
+          authUserId: routeId,
         });
       } catch {
         authUserIds = [routeId];
@@ -477,8 +475,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
           try {
             const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
               apiSecret,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              authUserId: authUserId as any,
+              authUserId,
               provider: 'jinxxy',
               providerEventId: eventId,
               eventType,
@@ -599,7 +596,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
       try {
         authUserIds = await convex.query(api.webhookIngestion.resolveWebhookTenantIds, {
           apiSecret,
-          routeId,
+          authUserId: routeId,
         });
       } catch {
         authUserIds = [routeId];
@@ -610,8 +607,7 @@ export function createWebhookRoutes(config: WebhookConfig) {
           try {
             const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
               apiSecret,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              authUserId: authUserId as any,
+              authUserId,
               provider: 'payhip',
               providerEventId: eventId,
               eventType,

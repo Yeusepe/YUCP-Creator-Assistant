@@ -175,7 +175,7 @@ describe('verification support codes in bot handlers', () => {
       expect.objectContaining({
         apiSecret: 'api-secret',
         subjectId: 'subject_123',
-        authUserId: 'user_abc123',
+        authUserId: 'user_test123',
       })
     );
   });

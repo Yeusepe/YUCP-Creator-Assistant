@@ -1,4 +1,4 @@
-﻿/**
+/**
  * /creator-admin stats - Verification statistics with navigation buttons
  *
  * Single command shows overview. Navigation buttons open sub-views.

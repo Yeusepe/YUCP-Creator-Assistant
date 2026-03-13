@@ -1581,7 +1581,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId!);
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, body.authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -1691,7 +1691,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId);
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, body.authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -3153,7 +3153,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId);
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, body.authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -3221,7 +3221,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, authUserId);
+      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, body.authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -3339,3 +3339,4 @@ export function storeConnectToken(token: string, discordUserId: string): Promise
 }
 
 export { generateToken };
+

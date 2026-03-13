@@ -23,7 +23,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
 export const insertWebhookEvent = mutation({
   args: {
     apiSecret: v.string(),
-    authUserId: v.optional(v.string()),
+    authUserId: v.string(),
     provider: WebhookProviderV,
     providerKey: v.optional(ProviderV),
     providerConnectionId: v.optional(v.id('provider_connections')),
@@ -39,10 +39,6 @@ export const insertWebhookEvent = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-
-    if (!args.authUserId) {
-      throw new Error('authUserId must be provided');
-    }
 
     const authUserId = args.authUserId;
     const now = Date.now();
@@ -139,13 +135,13 @@ export const getPendingWebhookEvents = query({
 });
 
 /**
- * Resolves a webhook route ID to one or more creator authUserIds.
- * Returns an empty array if the routeId doesn't match any creator profile.
+ * Resolves a webhook authUserId to one or more creator authUserIds.
+ * Returns an empty array if the authUserId doesn't match any creator profile.
  */
-export const resolveWebhookTenantIds = query({
+export const resolveWebhookAuthUserIds = query({
   args: {
     apiSecret: v.string(),
-    routeId: v.string(),
+    authUserId: v.string(),
   },
   returns: v.array(v.string()),
   handler: async (ctx, args) => {
@@ -153,10 +149,13 @@ export const resolveWebhookTenantIds = query({
 
     const profile = await ctx.db
       .query('creator_profiles')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.routeId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .first();
-    if (profile) return [args.routeId];
+    if (profile) return [args.authUserId];
 
     return [];
   },
 });
+
+// Backward-compatible alias for existing callers
+export { resolveWebhookAuthUserIds as resolveWebhookTenantIds };

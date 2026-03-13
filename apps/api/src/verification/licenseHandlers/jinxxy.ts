@@ -62,7 +62,7 @@ async function resolveJinxxyApiKey(
     const key = await decrypt(encrypted, config.encryptionSecret);
     return { key };
   } catch (err) {
-    logger.error('Failed to decrypt tenant Jinxxy API key', { authUserId, err });
+    logger.error('Failed to decrypt creator Jinxxy API key', { authUserId, err });
     return {
       error: 'Failed to decrypt stored Jinxxy API key. Re-add your key in `/creator setup`.',
     };
