@@ -12,12 +12,9 @@ import { v } from 'convex/values';
 
 // Import shared types and helpers
 import {
-  EntitlementConstants,
-  type EntitlementStatus,
-  type Provider,
-  type RevocationReason,
   calculateGracePeriodEnd,
   canReactivate,
+  EntitlementConstants,
   generateGrantIdempotencyKey,
   generateRoleRemovalIdempotencyKey,
   generateRoleSyncIdempotencyKey,
@@ -31,6 +28,7 @@ import {
   mapGumroadEventToAction,
   mapJinxxyEventToAction,
   mapReasonToStatus,
+  type Provider,
 } from '../packages/shared/src/entitlement';
 
 // ============================================================================
@@ -39,7 +37,7 @@ import {
 
 describe('Provider Evidence Validator', () => {
   // Recreate the validator locally for testing
-  const ProviderEvidence = v.object({
+  const _ProviderEvidence = v.object({
     provider: v.union(
       v.literal('discord'),
       v.literal('gumroad'),
@@ -91,7 +89,7 @@ describe('Provider Evidence Validator', () => {
 });
 
 describe('Grant Result Validator', () => {
-  const GrantResult = v.object({
+  const _GrantResult = v.object({
     success: v.boolean(),
     entitlementId: v.string(),
     isNew: v.boolean(),
@@ -136,7 +134,7 @@ describe('Grant Result Validator', () => {
 });
 
 describe('Revoke Result Validator', () => {
-  const RevokeResult = v.object({
+  const _RevokeResult = v.object({
     success: v.boolean(),
     entitlementId: v.string(),
     previousStatus: v.union(

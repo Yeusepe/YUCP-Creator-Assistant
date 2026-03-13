@@ -5,12 +5,12 @@
 
 import { describe, expect, it } from 'bun:test';
 import {
-  type VerificationStatus,
   canTransferBinding,
   createAAD,
   createStructuredLogger,
   decrypt,
   encrypt,
+  type VerificationStatus,
   validateActivateInput,
 } from '../src/index';
 import type { LogEntry } from '../src/logging';

@@ -5,16 +5,15 @@
  */
 
 import type { ConvexHttpClient } from 'convex/browser';
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
-import { api } from '../../../../convex/_generated/api';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { buildLicenseModal } from './verify';
 
 export async function handleLink(
   interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   apiBaseUrl: string | undefined,
   ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {

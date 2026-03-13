@@ -1,20 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import {
-  LemonSqueezyAdapter,
-  LemonSqueezyApiClient,
-  LemonSqueezyApiError,
-  LemonSqueezyRateLimitError,
-  isLicenseKeyValid,
-  isOrderValid,
-  isSubscriptionActive,
-  normalizeLicenseKeyToEvidence,
-  normalizeOrderToEvidence,
-  normalizeSubscriptionToEvidence,
-} from '../../src/lemonsqueezy';
 import type {
   LemonSqueezyLicenseKey,
   LemonSqueezyOrder,
   LemonSqueezySubscription,
+} from '../../src/lemonsqueezy';
+import {
+  isLicenseKeyValid,
+  isOrderValid,
+  isSubscriptionActive,
+  LemonSqueezyAdapter,
+  LemonSqueezyApiClient,
+  LemonSqueezyApiError,
+  LemonSqueezyRateLimitError,
+  normalizeLicenseKeyToEvidence,
+  normalizeOrderToEvidence,
+  normalizeSubscriptionToEvidence,
 } from '../../src/lemonsqueezy';
 
 const testConfig = {

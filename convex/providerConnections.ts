@@ -1465,8 +1465,8 @@ export const getConnectionStatusForUser = query({
         .first(),
     ]);
 
-    let hasGumroad = !!gumroadUser?.gumroadAccessTokenEncrypted;
-    let hasJinxxy = !!jinxxyUser?.jinxxyApiKeyEncrypted;
+    const hasGumroad = !!gumroadUser?.gumroadAccessTokenEncrypted;
+    const hasJinxxy = !!jinxxyUser?.jinxxyApiKeyEncrypted;
 
     return { gumroad: hasGumroad, jinxxy: hasJinxxy };
   },

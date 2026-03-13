@@ -6,9 +6,16 @@
  * remove: Remove a product mapping
  */
 
-import { providerLabel, resolveGumroadProductId } from '@yucp/providers';
+import { providerLabel } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  ModalSubmitInteraction,
+  RoleSelectMenuInteraction,
+  StringSelectMenuInteraction,
+} from 'discord.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -21,13 +28,6 @@ import {
   StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
-} from 'discord.js';
-import type {
-  ButtonInteraction,
-  ChatInputCommandInteraction,
-  ModalSubmitInteraction,
-  RoleSelectMenuInteraction,
-  StringSelectMenuInteraction,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -1085,7 +1085,7 @@ export async function handleProductList(
 export async function handleProductRemove(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
-  apiSecret: string,
+  _apiSecret: string,
   ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -1140,8 +1140,8 @@ export async function handleProductRemove(
 /** Step 2 for remove: Products selected in dropdown */
 export async function handleProductRemoveSelect(
   interaction: StringSelectMenuInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   authUserId: string
 ): Promise<void> {
   const productIds = interaction.values;
@@ -1307,8 +1307,8 @@ export async function handleProductCancelRemove(
 // Legacy handleProductAdd kept for backwards compat (maps to interactive flow)
 export async function handleProductAdd(
   interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
+  _convex: ConvexHttpClient,
+  _apiSecret: string,
   ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   return handleProductAddInteractive(interaction, ctx);

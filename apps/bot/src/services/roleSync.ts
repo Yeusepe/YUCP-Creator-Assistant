@@ -11,9 +11,9 @@
  * - Emit audit events for all role changes
  */
 
-import { type StructuredLogger, createStructuredLogger } from '@yucp/shared';
+import { createStructuredLogger, type StructuredLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
-import { Client, Guild, GuildMember, RESTJSONErrorCodes, Role } from 'discord.js';
+import { Client, GuildMember, RESTJSONErrorCodes } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 
 type BotConvexClient = {

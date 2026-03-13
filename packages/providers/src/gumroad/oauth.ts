@@ -80,7 +80,7 @@ export class GumroadOAuthClient {
    * @returns Authorization URL and state for the OAuth flow
    */
   async getAuthorizationUrl(
-    authUserId: string,
+    _authUserId: string,
     options?: {
       scope?: string;
       subjectId?: string;

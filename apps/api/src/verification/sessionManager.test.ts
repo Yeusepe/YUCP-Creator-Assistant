@@ -6,18 +6,18 @@
 
 import { describe, expect, it } from 'bun:test';
 import {
-  DISCORD_ROLE_CONFIG,
-  GUMROAD_CONFIG,
-  JINXXY_CONFIG,
-  SESSION_EXPIRY_MS,
-  type VerificationConfig,
   computeCodeChallenge,
   createVerificationRoutes,
   createVerificationSessionManager,
+  DISCORD_ROLE_CONFIG,
+  GUMROAD_CONFIG,
   generateCodeVerifier,
   generateState,
   getVerificationConfig,
   hashVerifier,
+  JINXXY_CONFIG,
+  SESSION_EXPIRY_MS,
+  type VerificationConfig,
 } from './sessionManager';
 
 // ============================================================================

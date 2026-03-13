@@ -25,7 +25,7 @@ import type {
   PayhipLicenseVerifyData,
   PayhipLicenseVerifyResult,
 } from './types';
-import { PayhipApiError, normalizeLicenseToEvidence } from './types';
+import { normalizeLicenseToEvidence, PayhipApiError } from './types';
 
 export { PayhipApiClient };
 export * from './types';

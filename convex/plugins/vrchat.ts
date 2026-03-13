@@ -277,7 +277,7 @@ export const vrchat = (): BetterAuthPlugin => ({
           });
         }
 
-        let loaded;
+        let loaded: Awaited<ReturnType<typeof loadStoredSession>> | undefined;
         try {
           loaded = await loadStoredSession(vrchatAccount);
         } catch {

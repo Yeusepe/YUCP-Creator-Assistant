@@ -19,13 +19,11 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E } from '../lib/emojis';
 import {
   addCollaboratorConnectionManual,
   createCollaboratorInvite,
-  createSetupSessionToken,
   listCollaboratorConnections,
   removeCollaboratorConnection,
 } from '../lib/internalRpc';
@@ -68,7 +66,7 @@ export async function handleCollabInvite(
  */
 export async function handleCollabAdd(
   interaction: ChatInputCommandInteraction,
-  apiSecret: string,
+  _apiSecret: string,
   authUserId: string
 ): Promise<void> {
   const modal = new ModalBuilder()
@@ -92,7 +90,7 @@ export async function handleCollabAdd(
  */
 export async function handleCollabAddModalSubmit(
   interaction: ModalSubmitInteraction,
-  apiSecret: string,
+  _apiSecret: string,
   authUserId: string
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -142,7 +140,7 @@ export async function handleCollabAddModalSubmit(
  */
 export async function handleCollabList(
   interaction: ChatInputCommandInteraction,
-  apiSecret: string,
+  _apiSecret: string,
   authUserId: string
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -226,7 +224,7 @@ export async function handleCollabList(
  */
 export async function handleCollabRemove(
   interaction: ButtonInteraction,
-  apiSecret: string,
+  _apiSecret: string,
   authUserId: string,
   connectionId: string
 ): Promise<void> {
@@ -274,8 +272,8 @@ export async function handleCollabRemove(
  */
 async function generateAndShowInviteLink(
   interaction: ChatInputCommandInteraction | ButtonInteraction,
-  apiBase: string,
-  apiSecret: string,
+  _apiBase: string,
+  _apiSecret: string,
   authUserId: string,
   guildId: string,
   guildName: string

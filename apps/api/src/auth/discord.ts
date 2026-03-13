@@ -3,8 +3,6 @@
  * Handles creator sign-in via Discord
  */
 
-import type { SocialProvider } from 'better-auth';
-
 export interface DiscordProviderConfig {
   clientId: string;
   clientSecret: string;

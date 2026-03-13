@@ -6,6 +6,11 @@
  */
 
 import type { ConvexHttpClient } from 'convex/browser';
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  UserSelectMenuInteraction,
+} from 'discord.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -13,11 +18,6 @@ import {
   EmbedBuilder,
   MessageFlags,
   UserSelectMenuBuilder,
-} from 'discord.js';
-import type {
-  ButtonInteraction,
-  ChatInputCommandInteraction,
-  UserSelectMenuInteraction,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import { E, Emoji, EmojiIds, getEmojiCdnUrl } from '../lib/emojis';
@@ -258,7 +258,7 @@ function buildViewUsersPaginationRow(
   authUserId: string,
   guildId: string,
   pageIndex: number,
-  totalCount: number,
+  _totalCount: number,
   hasNext: boolean
 ): ActionRowBuilder<ButtonBuilder> {
   const buttons: ButtonBuilder[] = [];

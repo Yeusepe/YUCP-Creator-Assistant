@@ -4,27 +4,25 @@
 
 import { createLogger } from '@yucp/shared';
 import { type Auth, createAuth } from './auth';
-import { INTERNAL_RPC_PATH, createInternalRpcRouter } from './internalRpc/router';
+import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
 import {
-  DISCORD_ROLE_SETUP_COOKIE,
-  SETUP_SESSION_COOKIE,
   clearCookie,
+  DISCORD_ROLE_SETUP_COOKIE,
   getCookieValue,
+  SETUP_SESSION_COOKIE,
 } from './lib/browserSessions';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import { resolveSetupSession } from './lib/setupSession';
-import { getStateStore } from './lib/stateStore';
 import { detectTunnelUrl } from './lib/tunnel';
 import {
-  type InstallConfig,
-  type VerificationConfig,
   createConnectRoutes,
   createProviderPlatformRoutes,
   createVerificationRoutes,
   createWebhookHandler,
+  type InstallConfig,
   mountInstallRoutes,
   mountVerificationRouteHandlers,
-  mountVerificationRoutes,
+  type VerificationConfig,
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
 import { createPublicRoutes } from './routes/public';
@@ -1634,7 +1632,7 @@ async function routeRequest(request: Request): Promise<Response> {
  * Handles CORS for the frontend subdomain, then delegates to routeRequest.
  */
 async function handleRequest(request: Request): Promise<Response> {
-  const url = new URL(request.url);
+  const _url = new URL(request.url);
 
   // Build CORS headers for approved browser origins used by the app UI.
   const corsHeaders: Record<string, string> = {};

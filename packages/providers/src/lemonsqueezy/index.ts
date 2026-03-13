@@ -12,10 +12,10 @@ import type {
   LemonSqueezyVariant,
 } from './types';
 import {
-  type LemonSqueezyWebhookCreateInput,
   isLicenseKeyValid,
   isOrderValid,
   isSubscriptionActive,
+  type LemonSqueezyWebhookCreateInput,
   normalizeLicenseKeyToEvidence,
   normalizeOrderToEvidence,
   normalizeSubscriptionToEvidence,

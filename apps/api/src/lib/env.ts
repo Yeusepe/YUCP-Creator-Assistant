@@ -1,8 +1,8 @@
 // Environment loader with Infisical integration
 // Fetches secrets from Infisical when INFISICAL_PROJECT_ID + machine identity are set
 
-import { createLogger } from '@yucp/shared';
 import type { EnvConfig } from '@yucp/shared';
+import { createLogger } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import {
   ACTIVE_PROVIDER_KEYS,
+  getProviderDescriptor,
   PROVIDER_REGISTRY,
   PROVIDER_REGISTRY_BY_KEY,
-  getProviderDescriptor,
   providerLabel,
 } from '../src/providers';
 

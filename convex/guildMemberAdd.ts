@@ -6,7 +6,6 @@
  */
 
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
 import { mutation } from './_generated/server';
 
 function requireApiSecret(apiSecret: string | undefined): void {

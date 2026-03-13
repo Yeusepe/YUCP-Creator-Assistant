@@ -160,7 +160,7 @@ export const completeLicenseVerification = mutation({
     const normalizedEmailHash = email ? hashForStorage(email) : undefined;
     const displayHints = email
       ? {
-          emailPrefix: email.slice(0, 3) + '***',
+          emailPrefix: `${email.slice(0, 3)}***`,
           usernamePrefix: args.providerUsername?.slice(0, 3),
         }
       : undefined;
@@ -242,7 +242,7 @@ export const completeLicenseVerification = mutation({
         };
       }
       if (duplicateBehavior === 'notify' && notifyChannelId) {
-        const jobId = await ctx.db.insert('outbox_jobs', {
+        const _jobId = await ctx.db.insert('outbox_jobs', {
           authUserId: args.authUserId,
           jobType: 'creator_alert',
           payload: {

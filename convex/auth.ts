@@ -12,11 +12,11 @@
 import './polyfills';
 
 import { oauthProvider } from '@better-auth/oauth-provider';
-import { createClient } from '@convex-dev/better-auth';
 import type { GenericCtx } from '@convex-dev/better-auth';
+import { createClient } from '@convex-dev/better-auth';
 import { convex, crossDomain } from '@convex-dev/better-auth/plugins';
-import { betterAuth } from 'better-auth';
 import type { BetterAuthOptions } from 'better-auth';
+import { betterAuth } from 'better-auth';
 import { apiKey, jwt } from 'better-auth/plugins';
 import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';

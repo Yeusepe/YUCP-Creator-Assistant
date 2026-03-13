@@ -15,7 +15,7 @@
 
 import type { Verification } from '@yucp/shared';
 import type { ProviderAdapter, ProviderConfig, PurchaseRecord } from '../index';
-import { GumroadApiError, GumroadOAuthClient, OAuthError, createOAuthClientFromEnv } from './oauth';
+import { createOAuthClientFromEnv, GumroadApiError, GumroadOAuthClient } from './oauth';
 import type {
   AuthorizationUrlResult,
   GumroadAdapterConfig,
@@ -27,7 +27,7 @@ import type {
   GumroadSalesResponse,
   OAuthCompletionResult,
 } from './types';
-import { getSaleStatus, isSaleValid, normalizeSaleToEvidence } from './types';
+import { getSaleStatus, normalizeSaleToEvidence } from './types';
 
 /**
  * Token storage interface (to be implemented by the application)
@@ -145,7 +145,7 @@ export class GumroadAdapter implements ProviderAdapter {
   private readonly apiBaseUrl: string;
 
   constructor(
-    private readonly config: ProviderConfig & GumroadAdapterConfig,
+    readonly config: ProviderConfig & GumroadAdapterConfig,
     private readonly tokenStorage?: TokenStorage,
     private readonly encryptionService?: EncryptionService,
     private readonly stateStorage: StateStorage = new InMemoryStateStorage()
@@ -168,7 +168,7 @@ export class GumroadAdapter implements ProviderAdapter {
     encryptionService?: EncryptionService,
     stateStorage?: StateStorage
   ): GumroadAdapter {
-    const oauthClient = createOAuthClientFromEnv();
+    const _oauthClient = createOAuthClientFromEnv();
     return new GumroadAdapter(
       {
         clientId: process.env.GUMROAD_CLIENT_ID ?? '',
@@ -330,7 +330,7 @@ export class GumroadAdapter implements ProviderAdapter {
    *
    * @param emailOrId - Email address or Gumroad user ID to verify
    */
-  async verifyPurchase(emailOrId: string): Promise<Verification | null> {
+  async verifyPurchase(_emailOrId: string): Promise<Verification | null> {
     // This method is for backward compatibility with ProviderAdapter
     // In practice, verification is done via OAuth flow
     // Here we would need the tokens to be available
@@ -359,7 +359,7 @@ export class GumroadAdapter implements ProviderAdapter {
   // token, so this method returns an empty list when called through the
   // ProviderAdapter interface. Use getPurchases(accessToken) when you have a
   // decrypted access token for the account.
-  async getRecentPurchases(limit = 50): Promise<PurchaseRecord[]> {
+  async getRecentPurchases(_limit = 50): Promise<PurchaseRecord[]> {
     console.warn(
       'GumroadAdapter.getRecentPurchases: no access token available via ProviderAdapter interface; returning empty list'
     );
@@ -539,16 +539,16 @@ export class GumroadAdapter implements ProviderAdapter {
   }
 }
 
+export * from './oauth';
 // Re-export types and utilities
 export type {
+  AuthorizationUrlResult,
   GumroadAdapterConfig,
+  GumroadProduct,
   GumroadPurchaseEvidence,
   GumroadSale,
-  GumroadProduct,
-  AuthorizationUrlResult,
   OAuthCompletionResult,
 } from './types';
-export * from './oauth';
 export * from './types';
 
 /**

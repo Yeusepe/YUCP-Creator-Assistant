@@ -68,27 +68,27 @@
 
 // Core manager class
 export {
-  ManualLicenseManager,
-  hashLicenseKey,
   generateLicenseKey,
+  hashLicenseKey,
+  ManualLicenseManager,
   normalizeLicenseKey,
 } from './manager';
 
 // Types
 export type {
-  ManualLicense,
-  ManualLicenseStatus,
-  CreateLicenseInput,
-  CreateLicenseResult,
-  ValidateLicenseInput,
-  ValidateLicenseResult,
-  UseLicenseInput,
-  UseLicenseResult,
-  RevokeLicenseInput,
   BulkImportInput,
   BulkImportResult,
+  CreateLicenseInput,
+  CreateLicenseResult,
   GenerateKeyOptions,
+  ManualLicense,
+  ManualLicenseStatus,
   ManualLicenseStorage,
+  RevokeLicenseInput,
+  UseLicenseInput,
+  UseLicenseResult,
+  ValidateLicenseInput,
+  ValidateLicenseResult,
 } from './types';
 
 // CSV parsing utilities for bulk import

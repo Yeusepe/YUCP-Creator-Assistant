@@ -489,7 +489,7 @@ async function authenticateServiceKey(
 async function authenticateVerifyRequest(
   request: Request,
   config: PublicRouteConfig,
-  convex: ReturnType<typeof getConvexClientFromUrl>,
+  _convex: ReturnType<typeof getConvexClientFromUrl>,
   authUserId: string,
   verifyAccessToken: (
     token: string,

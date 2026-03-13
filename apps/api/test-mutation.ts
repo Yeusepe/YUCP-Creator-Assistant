@@ -1,7 +1,7 @@
 import { ConvexHttpClient } from 'convex/browser';
 import dotenv from 'dotenv';
+
 dotenv.config({ path: '../../.env' });
-import { anyApi } from 'convex/server';
 
 // Convex client requires a valid URL; fail fast if env var is missing
 const convexUrl = process.env.CONVEX_URL;

@@ -15,14 +15,14 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
 import {
+  buildCookie,
   CONNECT_TOKEN_COOKIE,
+  clearCookie,
   DISCORD_ROLE_SETUP_COOKIE,
+  getCookieValue,
   JINXXY_PENDING_WEBHOOK_PREFIX,
   JINXXY_PENDING_WEBHOOK_TTL_MS,
   SETUP_SESSION_COOKIE,
-  buildCookie,
-  clearCookie,
-  getCookieValue,
 } from '../lib/browserSessions';
 import { getConvexApiSecret, getConvexClient, getConvexClientFromUrl } from '../lib/convex';
 import { encrypt } from '../lib/encrypt';
@@ -38,7 +38,7 @@ const GUMROAD_STATE_PREFIX = 'connect_gumroad:';
 const JINXXY_TEST_PREFIX = 'jinxxy_test:';
 const TOKEN_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const GUMROAD_STATE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
-const JINXXY_TEST_TTL_MS = 60 * 1000; // 60 seconds
+const _JINXXY_TEST_TTL_MS = 60 * 1000; // 60 seconds
 const ALLOWED_PUBLIC_API_SCOPES = new Set(['verification:read', 'subjects:read']);
 const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 const PUBLIC_API_KEY_METADATA_KIND = 'public-api';
@@ -50,7 +50,7 @@ const DISCORD_ROLE_OAUTH_STATE_PREFIX = 'discord_role_oauth:';
 const DISCORD_ROLE_SETUP_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 const PAYHIP_TEST_PREFIX = 'payhip_test:';
-const PAYHIP_TEST_TTL_MS = 90 * 1000; // 90 seconds — longer than LemonSqueezy auto-retry
+const _PAYHIP_TEST_TTL_MS = 90 * 1000; // 90 seconds — longer than LemonSqueezy auto-retry
 
 const HTML_SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy':
@@ -189,7 +189,7 @@ function getPublicApiKeyScopes(
     : [];
 }
 
-function buildPublicApiPermissions(scopes: string[]): BetterAuthPermissionStatements {
+function _buildPublicApiPermissions(scopes: string[]): BetterAuthPermissionStatements {
   return {
     [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: scopes,
   };
@@ -448,7 +448,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   /**
    * Helper: resolve a setup token from Authorization header (preferred) or URL ?s= (fallback).
    */
-  async function resolveToken(
+  async function _resolveToken(
     request: Request
   ): Promise<{ authUserId: string; guildId: string; discordUserId: string } | null> {
     return resolveSetupSessionFromRequest(request);
@@ -3339,4 +3339,3 @@ export function storeConnectToken(token: string, discordUserId: string): Promise
 }
 
 export { generateToken };
-

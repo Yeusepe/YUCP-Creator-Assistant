@@ -5,21 +5,21 @@
  */
 
 export {
-  createInstallRoutes,
-  mountInstallRoutes,
-  type InstallConfig,
-  type InstallRouteHandlers,
-  type GuildLinkData,
-  type GuildLinkStatus,
-} from './install';
-export {
   createVerificationRoutes,
   mountVerificationRouteHandlers,
   mountVerificationRoutes,
   type VerificationConfig,
   type VerificationRouteHandlers,
 } from '../verification';
-export { createConnectRoutes, type ConnectConfig } from './connect';
+export { type ConnectConfig, createConnectRoutes } from './connect';
+export {
+  createInstallRoutes,
+  type GuildLinkData,
+  type GuildLinkStatus,
+  type InstallConfig,
+  type InstallRouteHandlers,
+  mountInstallRoutes,
+} from './install';
+export { createProviderPlatformRoutes } from './providerPlatform';
 export { createPublicRoutes, type PublicRouteConfig } from './public';
 export { createWebhookHandler } from './webhooks';
-export { createProviderPlatformRoutes } from './providerPlatform';

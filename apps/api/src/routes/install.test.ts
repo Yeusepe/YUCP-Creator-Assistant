@@ -9,9 +9,9 @@ import { describe, expect, it } from 'bun:test';
 import { createAuth } from '../auth';
 import {
   BOT_PERMISSIONS,
-  type InstallConfig,
   createInstallRoutes,
   generateState,
+  type InstallConfig,
   storeInstallState,
   validateInstallState,
 } from './install';

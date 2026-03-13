@@ -16,7 +16,7 @@
 
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
-import { CustomerProviderV, ProviderV, VerificationModeV, WebhookProviderV } from './lib/providers';
+import { CustomerProviderV, ProviderV, VerificationModeV } from './lib/providers';
 
 // ============================================================================
 // ENUM-LIKE LITERALS

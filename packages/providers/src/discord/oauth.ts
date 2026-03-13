@@ -16,7 +16,7 @@
  * - Short-lived tokens (verification-session-bound)
  */
 
-import { type EncryptedPayload, createAAD, decrypt, encrypt } from '@yucp/shared';
+import { createAAD, decrypt, type EncryptedPayload, encrypt } from '@yucp/shared';
 import {
   DEFAULT_SCOPES,
   type DiscordAPIError,

@@ -4,20 +4,12 @@
 
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {
-  ManualLicenseManager,
   generateLicenseKey,
   hashLicenseKey,
+  ManualLicenseManager,
   normalizeLicenseKey,
 } from '../src/manual/manager';
-import type {
-  BulkImportInput,
-  CreateLicenseInput,
-  ManualLicense,
-  ManualLicenseStorage,
-  RevokeLicenseInput,
-  UseLicenseInput,
-  ValidateLicenseInput,
-} from '../src/manual/types';
+import type { CreateLicenseInput, ManualLicense, ManualLicenseStorage } from '../src/manual/types';
 
 // In-memory storage implementation for testing
 class InMemoryStorage implements ManualLicenseStorage {

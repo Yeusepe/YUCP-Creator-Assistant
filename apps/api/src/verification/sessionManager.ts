@@ -16,7 +16,7 @@ import type { VrchatSessionTokens } from '@yucp/providers/vrchat';
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
-import { type VrchatOwnershipPayload, type VrchatSessionTokensPayload, createAuth } from '../auth';
+import { createAuth, type VrchatOwnershipPayload, type VrchatSessionTokensPayload } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { encrypt } from '../lib/encrypt';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
@@ -1509,7 +1509,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
    * POST /api/verification/complete-vrchat
    * Completes VRChat verification - credentials, fetch licensed avatars, grant matching products
    */
-  async function completeVrchatVerification(request: Request): Promise<Response> {
+  async function completeVrchatVerification(_request: Request): Promise<Response> {
     return Response.json(
       {
         success: false,
@@ -1704,7 +1704,10 @@ export function createVerificationRoutes(config: VerificationConfig) {
     };
   }
 
-  async function ensureVrchatSubjectId(authUserId: string, discordUserId: string): Promise<string> {
+  async function ensureVrchatSubjectId(
+    _authUserId: string,
+    discordUserId: string
+  ): Promise<string> {
     const convex = getConvexClientFromUrl(config.convexUrl);
     const ensureResult = await convex.mutation(api.subjects.ensureSubjectForDiscord, {
       apiSecret: config.convexApiSecret,
