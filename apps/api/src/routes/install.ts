@@ -203,6 +203,16 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
       return Response.json({ error: 'authUserId is required' }, { status: 400 });
     }
 
+    // Verify the authUserId matches the authenticated session user to prevent
+    // one authenticated user from installing the bot on behalf of another user.
+    if (session.user.id !== authUserId) {
+      logger.warn('authUserId mismatch in bot install', {
+        sessionUserId: session.user.id,
+        requestedAuthUserId: authUserId,
+      });
+      return Response.json({ error: 'Forbidden: authUserId does not match session' }, { status: 403 });
+    }
+
     // Generate state for CSRF protection
     const state = generateState();
     await storeInstallState(state, authUserId);
