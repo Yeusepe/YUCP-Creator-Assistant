@@ -345,6 +345,8 @@ const creator_profiles = defineTable({
 const bindings = defineTable({
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   // The subject being bound
   subjectId: v.id('subjects'),
   // The external account being bound
@@ -377,6 +379,8 @@ const bindings = defineTable({
 const verification_sessions = defineTable({
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   // Subject (null until OAuth callback completes)
   subjectId: v.optional(v.id('subjects')),
   // Verification mode being used
@@ -426,6 +430,8 @@ const verification_sessions = defineTable({
 const entitlements = defineTable({
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   // Subject who holds the entitlement
   subjectId: v.id('subjects'),
   // Product reference (local product ID)
@@ -464,6 +470,9 @@ const entitlements = defineTable({
 const guild_links = defineTable({
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
+  // @deprecated Legacy fields from tenant-first architecture
+  tenantId: v.optional(v.any()),
+  installedByTenantId: v.optional(v.any()),
   // Discord guild ID
   discordGuildId: v.string(),
   // Human-readable guild name (optional, populated when bot installs)
@@ -498,6 +507,8 @@ const guild_links = defineTable({
 const role_rules = defineTable({
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   // Discord guild ID (denormalized for queries)
   guildId: v.string(),
   // Reference to guild link
@@ -541,6 +552,8 @@ const role_rules = defineTable({
  */
 const download_routes = defineTable({
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   guildId: v.string(),
   guildLinkId: v.id('guild_links'),
   sourceChannelId: v.string(),
@@ -566,6 +579,8 @@ const download_routes = defineTable({
  */
 const download_artifacts = defineTable({
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   guildId: v.string(),
   routeId: v.id('download_routes'),
   sourceChannelId: v.string(),
@@ -606,7 +621,8 @@ const download_artifacts = defineTable({
 const unity_installations = defineTable({
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
-  // Subject who owns this installation
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   subjectId: v.id('subjects'),
   // Hashed device fingerprint
   deviceFingerprintHash: v.string(),
@@ -648,7 +664,8 @@ const runtime_assertions = defineTable({
   jti: v.string(),
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
-  // Subject who received this assertion
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   subjectId: v.id('subjects'),
   // Installation this assertion is bound to
   installationId: v.optional(v.id('unity_installations')),
@@ -681,7 +698,8 @@ const runtime_assertions = defineTable({
 const outbox_jobs = defineTable({
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
-  // Type of job
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   jobType: OutboxJobType,
   // Job payload
   payload: v.any(),
@@ -720,7 +738,8 @@ const outbox_jobs = defineTable({
 const audit_events = defineTable({
   // Creator scope — null for platform-level events
   authUserId: v.optional(v.string()),
-  // Type of event
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   eventType: AuditEventType,
   // Actor who performed the action (subject or system)
   actorType: v.union(v.literal('subject'), v.literal('system'), v.literal('admin')),
@@ -757,7 +776,8 @@ const audit_events = defineTable({
 const product_catalog = defineTable({
   // Creator who owns this product entry (Better Auth user ID)
   authUserId: v.string(),
-  // Local product identifier
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   productId: v.string(),
   // Provider this product is from
   provider: Provider,
@@ -789,6 +809,8 @@ const product_catalog = defineTable({
  */
 const purchase_facts = defineTable({
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   provider: Provider,
   externalOrderId: v.string(),
   externalLineItemId: v.optional(v.string()),
@@ -821,6 +843,8 @@ const purchase_facts = defineTable({
 const provider_connections = defineTable({
   // Owner identity — Better Auth user ID of the creator.
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   provider: Provider,
   providerKey: v.optional(Provider),
   // Human-readable label for multi-store support (e.g. "Main Store", "VRChat Assets")
@@ -893,7 +917,9 @@ const provider_connection_capabilities = defineTable({
 
 const provider_catalog_mappings = defineTable({
   authUserId: v.string(),
-  providerConnectionId: v.id('provider_connections'),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
+  providerConnectionId: v.optional(v.id('provider_connections')),
   providerKey: Provider,
   catalogProductId: v.optional(v.id('product_catalog')),
   localProductId: v.optional(v.string()),
@@ -916,6 +942,8 @@ const provider_catalog_mappings = defineTable({
 
 const provider_transactions = defineTable({
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerConnectionId: v.id('provider_connections'),
   providerKey: Provider,
   externalTransactionId: v.string(),
@@ -945,6 +973,8 @@ const provider_transactions = defineTable({
 
 const provider_memberships = defineTable({
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerConnectionId: v.id('provider_connections'),
   providerKey: Provider,
   externalMembershipId: v.string(),
@@ -970,6 +1000,8 @@ const provider_memberships = defineTable({
 
 const provider_licenses = defineTable({
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerConnectionId: v.id('provider_connections'),
   providerKey: Provider,
   externalLicenseId: v.string(),
@@ -998,6 +1030,8 @@ const provider_licenses = defineTable({
 
 const entitlement_evidence = defineTable({
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   subjectId: v.optional(v.id('subjects')),
   providerKey: Provider,
   providerConnectionId: v.optional(v.id('provider_connections')),
@@ -1027,6 +1061,8 @@ const entitlement_evidence = defineTable({
  */
 const creator_oauth_apps = defineTable({
   authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   name: v.string(),
   clientId: v.string(),
   clientSecretHash: v.optional(v.string()),
@@ -1176,6 +1212,8 @@ const catalog_product_links = defineTable({
   status: CatalogLinkStatus,
   // Creator who submitted this link (Better Auth user ID)
   submittedByAuthUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  submittedByTenantId: v.optional(v.any()),
   // Timestamps
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -1193,6 +1231,8 @@ const webhook_events = defineTable({
   // Provider that sent the webhook
   provider: Provider,
   providerKey: v.optional(Provider),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerConnectionId: v.optional(v.id('provider_connections')),
   // Provider's event ID for deduplication
   providerEventId: v.string(),
@@ -1242,7 +1282,8 @@ const ManualLicenseStatus = v.union(
 const manual_licenses = defineTable({
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
-  // SHA-256 hash of the license key (never store plaintext)
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   licenseKeyHash: v.string(),
   // Product this license is for
   productId: v.string(),
@@ -1277,7 +1318,8 @@ const manual_licenses = defineTable({
 const creator_provider_config = defineTable({
   // Creator scope (Better Auth user ID)
   authUserId: v.string(),
-  // Encrypted Jinxxy API key (caller encrypts before storage)
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   jinxxyApiKeyEncrypted: v.optional(v.string()),
   // Timestamps
   createdAt: v.number(),
@@ -1290,7 +1332,8 @@ const creator_provider_config = defineTable({
  */
 const collaborator_invites = defineTable({
   ownerAuthUserId: v.string(),
-  /** SHA-256 hex of raw invite token (never stored plaintext) */
+  // @deprecated Legacy field from tenant-first architecture
+  ownerTenantId: v.optional(v.any()),
   tokenHash: v.string(),
   status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('revoked')),
   /** Guild name shown to collaborator on consent page */
@@ -1314,7 +1357,8 @@ const collaborator_invites = defineTable({
  */
 const collaborator_connections = defineTable({
   ownerAuthUserId: v.string(),
-  /** Omitted for manual adds */
+  // @deprecated Legacy field from tenant-first architecture
+  ownerTenantId: v.optional(v.any()),
   inviteId: v.optional(v.id('collaborator_invites')),
   provider: v.literal('jinxxy'),
   jinxxyApiKeyEncrypted: v.optional(v.string()),
