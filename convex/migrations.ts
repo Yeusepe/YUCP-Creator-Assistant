@@ -38,8 +38,8 @@ const LEGACY_TABLES = [
 ] as const;
 
 /**
- * Delete up to 200 legacy tenant documents per call.
- * Re-run until it returns { deleted: 0 }.
+ * Delete up to 200 legacy tenant documents per table (plus up to 200
+ * catalog_product_links) per call. Re-run until it returns { deleted: 0 }.
  */
 export const purgeLegacyTenantDocuments = internalMutation({
   args: {},

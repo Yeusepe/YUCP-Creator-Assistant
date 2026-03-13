@@ -22,7 +22,7 @@
     "@yucp/shared": "workspace:*",
     "bebop": "3.0.4",
     "convex": "^1.32.0",
-    "discord.js": "^14.15.0",
+    "discord.js": "^14.25.1",
     "posthog-node": "^5.26.2"
   },
   "devDependencies": {

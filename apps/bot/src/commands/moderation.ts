@@ -1,4 +1,4 @@
-﻿/**
+/**
  * /creator-admin moderation - Suspicious account management (admin)
  *
  * mark: Flag user (shows reason select menu)

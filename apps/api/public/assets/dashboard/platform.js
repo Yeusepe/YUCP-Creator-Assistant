@@ -539,9 +539,18 @@ function renderAccountsSection() {
           <h3 class="font-bold text-base mb-0.5">${meta.name}</h3>
           <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">${escHtml(label)}</p>
         </div>
-        <button class="card-action-btn disconnect" data-conn-id="${conn.id}" onclick="confirmDisconnectUserAccount('${conn.id}', '${conn.provider}')">Disconnect</button>
+        <button
+          class="card-action-btn disconnect"
+          data-conn-id="${escHtml(conn.id)}"
+          data-provider="${escHtml(conn.provider)}"
+        >Disconnect</button>
       </div>`;
   }).join('');
+  container.querySelectorAll('.card-action-btn.disconnect').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      confirmDisconnectUserAccount(btn.dataset.connId, btn.dataset.provider);
+    });
+  });
 }
 
 function updateCard(platform, isLinked) {
@@ -771,8 +780,11 @@ export async function fetchAllData() {
         if (statusData.connections) {
           statusData.connections.forEach((c) => {
             if (c.status === 'active') {
-              connectionsMap.set(c.providerKey || c.provider, c);
-              if (!existing.has(c.id)) merged.push(c);
+              const providerKey = c.providerKey || c.provider;
+              if (!providerKey) return;
+              const normalized = { ...c, provider: c.provider || providerKey };
+              connectionsMap.set(providerKey, normalized);
+              if (!existing.has(normalized.id)) merged.push(normalized);
             }
           });
         }

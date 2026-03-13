@@ -1,4 +1,4 @@
-﻿/**
+/**
  * License Key Verification - Product Picker Flow
  *
  * Flow:

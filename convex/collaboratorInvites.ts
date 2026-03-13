@@ -42,7 +42,7 @@ export const createCollaboratorInvite = mutation({
       expiresAt,
       createdAt: Date.now(),
     });
-    await (ctx as any).db.insert('audit_events', {
+    await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
       eventType: 'collaborator.invite.created',
       actorType: 'system',
@@ -215,7 +215,7 @@ export const acceptCollaboratorInvite = mutation({
       collaboratorDisplayName: args.collaboratorDisplayName,
       createdAt: Date.now(),
     });
-    await (ctx as any).db.insert('audit_events', {
+    await ctx.db.insert('audit_events', {
       authUserId: invite.ownerAuthUserId,
       eventType: 'collaborator.invite.accepted',
       actorType: 'system',
@@ -267,7 +267,7 @@ export const addCollaboratorConnectionManual = mutation({
       addedByDiscordUserId: args.addedByDiscordUserId,
       createdAt: Date.now(),
     });
-    await (ctx as any).db.insert('audit_events', {
+    await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
       eventType: 'collaborator.connection.added',
       actorType: 'system',
@@ -298,7 +298,7 @@ export const revokeCollaboratorInvite = mutation({
       throw new Error('Invite not found or access denied');
     }
     await ctx.db.patch(args.inviteId, { status: 'revoked' });
-    await (ctx as any).db.insert('audit_events', {
+    await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
       eventType: 'collaborator.invite.revoked',
       actorType: 'system',
@@ -354,7 +354,7 @@ export const removeCollaboratorConnection = mutation({
       throw new Error('Connection not found or access denied');
     }
     await ctx.db.patch(args.connectionId, { status: 'disconnected' });
-    await (ctx as any).db.insert('audit_events', {
+    await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
       eventType: 'collaborator.connection.removed',
       actorType: 'system',

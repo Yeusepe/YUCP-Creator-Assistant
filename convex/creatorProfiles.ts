@@ -110,6 +110,7 @@ export const getCreatorBySlug = query({
       name: v.string(),
       status: v.string(),
       createdAt: v.number(),
+      authUserId: v.string(),
     })
   ),
   handler: async (ctx, args) => {
@@ -125,6 +126,7 @@ export const getCreatorBySlug = query({
       name: profile.name,
       status: profile.status,
       createdAt: profile.createdAt,
+      authUserId: profile.authUserId,
     };
   },
 });

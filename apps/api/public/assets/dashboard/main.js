@@ -26,10 +26,11 @@ async function refreshContextData() {
         `${getApiBase()}/api/connect/ensure-tenant?guildId=${encodeURIComponent(getGuildId())}`,
       );
       const data = await res.json();
-      if (data.tenantId) {
-        setTenantId(data.tenantId);
+      const resolvedId = data.authUserId ?? data.tenantId;
+      if (resolvedId) {
+        setTenantId(resolvedId);
         const urlParams = new URLSearchParams(window.location.search);
-        urlParams.set('tenant_id', data.tenantId);
+        urlParams.set('tenant_id', resolvedId);
         window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
       }
     }
@@ -55,8 +56,9 @@ async function init() {
     if (!getHasSetupSession() && !getTenantId() && getGuildId()) {
       const res = await apiFetch(`${getApiBase()}/api/connect/ensure-tenant?guildId=${encodeURIComponent(getGuildId())}`);
       const data = await res.json();
-      if (data.tenantId) {
-        setTenantId(data.tenantId);
+      const resolvedId = data.authUserId ?? data.tenantId;
+      if (resolvedId) {
+        setTenantId(resolvedId);
         await refreshUserServers(updatePlatformCards);
       }
     }
