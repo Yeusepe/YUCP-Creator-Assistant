@@ -9,10 +9,10 @@
 
 import type { ProviderPlugin } from './types';
 
-import gumroad from './gumroad';
-import jinxxy from './jinxxy';
-import lemonsqueezy from './lemonsqueezy';
-import payhip from './payhip';
+import gumroad from './gumroad/index';
+import jinxxy from './jinxxy/index';
+import lemonsqueezy from './lemonsqueezy/index';
+import payhip from './payhip/index';
 
 const ALL_PROVIDERS: ProviderPlugin[] = [gumroad, jinxxy, lemonsqueezy, payhip];
 

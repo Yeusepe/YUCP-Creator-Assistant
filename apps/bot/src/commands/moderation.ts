@@ -19,6 +19,7 @@ import {
   ButtonStyle,
   EmbedBuilder,
   MessageFlags,
+  PermissionFlagsBits,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
@@ -35,6 +36,28 @@ export async function handleModerationMark(
   _apiSecret: string,
   ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
+  if (!ctx.guildId) {
+    await interaction.reply({
+      content: 'This command must be used in a server.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const member = interaction.member;
+  if (member && typeof member === 'object' && 'permissions' in member) {
+    const perms = member.permissions as { has: (bit: bigint) => boolean };
+    const hasAdmin = perms.has(PermissionFlagsBits.Administrator);
+    const hasManageGuild = perms.has(PermissionFlagsBits.ManageGuild);
+    if (!hasAdmin && !hasManageGuild) {
+      await interaction.reply({
+        content: 'You do not have permission to use this command.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  }
+
   const targetUser = interaction.options.getUser('user', true);
 
   const select = new StringSelectMenuBuilder()

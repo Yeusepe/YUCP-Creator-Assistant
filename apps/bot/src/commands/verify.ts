@@ -767,6 +767,14 @@ export async function buildVerifyStatusReply(
     stateOverride?: VerifyState;
   }
 ): Promise<VerifyStatusReply> {
+  if (!guildId) {
+    const errorText = new TextDisplayBuilder().setContent(
+      'Use this command in a server — it cannot be used in direct messages.'
+    );
+    const errorContainer = new ContainerBuilder().addTextDisplayComponents(errorText);
+    return { flags: MessageFlags.IsComponentsV2, components: [errorContainer] };
+  }
+
   const [data, providersResult] = await Promise.all([
     fetchVerifyData(userId, authUserId, guildId, convex, apiSecret),
     convex.query(api.role_rules.getEnabledVerificationProvidersFromProducts, {
