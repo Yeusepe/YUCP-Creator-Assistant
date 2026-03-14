@@ -129,7 +129,10 @@ export const webhook: WebhookPlugin = {
             signatureValid: true,
           });
           if (result.duplicate) {
-            logger.debug('Gumroad webhook: duplicate event (user-scoped)', { saleId, resolvedUserId });
+            logger.debug('Gumroad webhook: duplicate event (user-scoped)', {
+              saleId,
+              resolvedUserId,
+            });
           }
         } catch (err) {
           logger.warn('Gumroad webhook: failed to insert user-scoped event', {

@@ -80,7 +80,7 @@ async function gumroadBegin(request: Request, ctx: ConnectContext): Promise<Resp
       guildId: guildId ?? null,
       setupToken: ctx.getSetupSessionTokenFromRequest(request) ?? '',
     }),
-    GUMROAD_STATE_EXPIRY_MS,
+    GUMROAD_STATE_EXPIRY_MS
   );
 
   const authUrl = new URL('https://gumroad.com/oauth/authorize');
@@ -105,7 +105,7 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
 
   const buildDashboardRedirect = (
     params: Record<string, string | undefined>,
-    setupToken?: string,
+    setupToken?: string
   ): string => {
     const redirectUrl = new URL(`${config.frontendBaseUrl.replace(/\/$/, '')}/dashboard`);
     for (const [key, value] of Object.entries(params)) {
@@ -159,9 +159,9 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
             ...(guildId ? { guild_id: guildId } : {}),
             error: 'gumroad_not_configured',
           },
-          storedSetupToken,
+          storedSetupToken
         ),
-        302,
+        302
       );
     }
 
@@ -187,9 +187,9 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
             ...(guildId ? { guild_id: guildId } : {}),
             error: 'token_exchange_failed',
           },
-          storedSetupToken,
+          storedSetupToken
         ),
-        302,
+        302
       );
     }
 
@@ -207,14 +207,14 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
             ...(guildId ? { guild_id: guildId } : {}),
             error: 'no_access_token',
           },
-          storedSetupToken,
+          storedSetupToken
         ),
-        302,
+        302
       );
     }
 
     const meRes = await fetch(
-      `https://api.gumroad.com/v2/user?access_token=${encodeURIComponent(accessToken)}`,
+      `https://api.gumroad.com/v2/user?access_token=${encodeURIComponent(accessToken)}`
     );
     if (!meRes.ok) {
       return Response.redirect(
@@ -224,9 +224,9 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
             ...(guildId ? { guild_id: guildId } : {}),
             error: 'failed_to_fetch_user',
           },
-          storedSetupToken,
+          storedSetupToken
         ),
-        302,
+        302
       );
     }
     const me = (await meRes.json()) as {
@@ -246,7 +246,7 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
     const webhookBase = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/gumroad/`;
     try {
       const listRes = await fetch(
-        `https://api.gumroad.com/v2/resource_subscriptions?access_token=${encodeURIComponent(accessToken)}`,
+        `https://api.gumroad.com/v2/resource_subscriptions?access_token=${encodeURIComponent(accessToken)}`
       );
       if (listRes.ok) {
         const listData = (await listRes.json()) as {
@@ -257,7 +257,7 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
           if (sub.post_url.startsWith(webhookBase)) {
             await fetch(
               `https://api.gumroad.com/v2/resource_subscriptions/${sub.id}?access_token=${encodeURIComponent(accessToken)}`,
-              { method: 'DELETE' },
+              { method: 'DELETE' }
             );
             logger.info('Gumroad: deleted stale resource_subscription', {
               id: sub.id,
@@ -343,9 +343,9 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
           ...(guildId ? { guild_id: guildId } : {}),
           error: 'internal_error',
         },
-        storedSetupToken,
+        storedSetupToken
       ),
-      302,
+      302
     );
   }
 }

@@ -9,12 +9,7 @@ import { LemonSqueezyApiClient } from '@yucp/providers/lemonsqueezy';
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { decrypt } from '../../lib/encrypt';
-import type {
-  ProductRecord,
-  ProviderContext,
-  ProviderPlugin,
-  ProviderPurposes,
-} from '../types';
+import type { ProductRecord, ProviderContext, ProviderPlugin, ProviderPurposes } from '../types';
 import { backfill } from './backfill';
 import { connect } from './connect';
 import { verification } from './verification';

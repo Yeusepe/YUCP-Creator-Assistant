@@ -23,7 +23,7 @@ interface ProductsRequest {
 
 export async function handleProviderProducts(
   request: Request,
-  provider: string,
+  provider: string
 ): Promise<Response> {
   if (request.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -47,7 +47,7 @@ export async function handleProviderProducts(
     if (!apiSecret || !authUserId) {
       return new Response(
         JSON.stringify({ error: 'Missing required fields: apiSecret, authUserId' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -72,7 +72,7 @@ export async function handleProviderProducts(
     if (!encryptionSecret) {
       return new Response(
         JSON.stringify({ error: 'ENCRYPTION_SECRET or BETTER_AUTH_SECRET not configured' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } },
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -87,7 +87,7 @@ export async function handleProviderProducts(
           products: [],
           error: `${provider} is not connected. Connect it in your creator setup.`,
         }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -109,7 +109,7 @@ export async function handleProviderProducts(
         products: [],
         error: sanitizePublicErrorMessage(msg, `Could not load ${provider} products right now.`),
       }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }

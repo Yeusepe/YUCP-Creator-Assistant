@@ -5,11 +5,11 @@
  * Import the plugin and add it to the array — nothing else changes.
  */
 
-import type { ConnectPlugin } from './types';
 import gumroadConnect from './gumroad';
 import jinxxyConnect from './jinxxy';
 import lemonsqueezyConnect from './lemonsqueezy';
 import payhipConnect from './payhip';
+import type { ConnectPlugin } from './types';
 
 export const CONNECT_PLUGINS: ReadonlyArray<ConnectPlugin> = [
   gumroadConnect,

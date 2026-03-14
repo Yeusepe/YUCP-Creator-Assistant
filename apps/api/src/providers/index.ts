@@ -7,17 +7,16 @@
  * That's it — route handlers require no changes.
  */
 
-import type { ProviderPlugin } from './types';
-
 import gumroad from './gumroad/index';
 import jinxxy from './jinxxy/index';
 import lemonsqueezy from './lemonsqueezy/index';
 import payhip from './payhip/index';
+import type { ProviderPlugin } from './types';
 
 const ALL_PROVIDERS: ProviderPlugin[] = [gumroad, jinxxy, lemonsqueezy, payhip];
 
 export const PROVIDERS: ReadonlyMap<string, ProviderPlugin> = new Map(
-  ALL_PROVIDERS.map((p) => [p.id, p]),
+  ALL_PROVIDERS.map((p) => [p.id, p])
 );
 
 export function getProvider(id: string): ProviderPlugin | undefined {

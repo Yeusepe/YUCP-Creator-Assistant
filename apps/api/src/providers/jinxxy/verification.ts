@@ -15,7 +15,7 @@ const CREDENTIAL_PURPOSE = 'jinxxy-api-key' as const;
 
 async function resolveJinxxyApiKey(
   ctx: ProviderContext,
-  authUserId: string,
+  authUserId: string
 ): Promise<string | null> {
   let encrypted: string | null = null;
 
@@ -50,7 +50,7 @@ export const verification: LicenseVerificationPlugin = {
     licenseKey: string,
     _productId: string | undefined,
     authUserId: string,
-    ctx: ProviderContext,
+    ctx: ProviderContext
   ): Promise<LicenseVerificationResult | null> {
     const apiKey = await resolveJinxxyApiKey(ctx, authUserId);
     if (!apiKey) {

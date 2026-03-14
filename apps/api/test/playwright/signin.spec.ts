@@ -1,10 +1,11 @@
-import { test, expect } from 'playwright/test';
+import { expect, test } from 'playwright/test';
 
 // Source: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/09-Testing_for_Clickjacking
 // Source: https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html
 // Source: https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html
 
-const SKIP_REASON = 'Requires TEST_BASE_URL env var pointing to a running API server (e.g. TEST_BASE_URL=http://localhost:3001)';
+const SKIP_REASON =
+  'Requires TEST_BASE_URL env var pointing to a running API server (e.g. TEST_BASE_URL=http://localhost:3001)';
 
 function expectHtmlSecurityHeaders(headers: Record<string, string>) {
   expect(headers['content-security-policy']).toContain("frame-ancestors 'none'");
@@ -52,7 +53,7 @@ test.describe('Sign-in page', () => {
     // Intercept any navigation toward discord.com so we verify the redirect
     // without actually leaving the test origin.
     let discordOAuthUrl = '';
-    await page.route('https://discord.com/**', route => {
+    await page.route('https://discord.com/**', (route) => {
       discordOAuthUrl = route.request().url();
       route.abort('aborted');
     });

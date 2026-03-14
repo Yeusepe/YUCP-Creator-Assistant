@@ -12,13 +12,9 @@
 
 async function deriveKey(secret: string, purpose: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    'HKDF',
-    false,
-    ['deriveKey'],
-  );
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, [
+    'deriveKey',
+  ]);
   return crypto.subtle.deriveKey(
     {
       name: 'HKDF',
@@ -29,7 +25,7 @@ async function deriveKey(secret: string, purpose: string): Promise<CryptoKey> {
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
-    ['encrypt', 'decrypt'],
+    ['encrypt', 'decrypt']
   );
 }
 
@@ -47,7 +43,7 @@ export async function encrypt(plaintext: string, secret: string, purpose: string
 export async function decrypt(
   ciphertextB64: string,
   secret: string,
-  purpose: string,
+  purpose: string
 ): Promise<string> {
   const key = await deriveKey(secret, purpose);
   const combined = Uint8Array.from(atob(ciphertextB64), (c) => c.charCodeAt(0));

@@ -56,7 +56,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
           error:
             'Missing required fields: apiSecret, authUserId, productId, provider, providerProductRef',
         }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -70,7 +70,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
     }
     if (!timingSafeStringEqual(apiSecret, expectedSecret)) {
       logger.warn(
-        'Backfill: apiSecret mismatch — check CONVEX_API_SECRET matches between Convex and API',
+        'Backfill: apiSecret mismatch — check CONVEX_API_SECRET matches between Convex and API'
       );
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -82,7 +82,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
     if (!plugin?.backfill) {
       return new Response(
         JSON.stringify({ error: `Provider "${provider}" does not support backfill` }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -99,7 +99,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
     if (!encryptionSecret) {
       return new Response(
         JSON.stringify({ error: 'ENCRYPTION_SECRET or BETTER_AUTH_SECRET not configured' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } },
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -108,10 +108,10 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
 
     const creds = await plugin.getCredential(ctx);
     if (!creds) {
-      return new Response(
-        JSON.stringify({ error: `${provider} credentials not found for user` }),
-        { status: 404, headers: { 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: `${provider} credentials not found for user` }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     // Generic pagination loop — all provider-specific logic lives in plugin.backfill.fetchPage
@@ -124,7 +124,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
         creds,
         providerProductRef,
         cursor,
-        BATCH_SIZE,
+        BATCH_SIZE
       );
 
       if (facts.length > 0) {
@@ -154,7 +154,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
 
     return new Response(
       JSON.stringify({ success: true, inserted: totalInserted, skipped: totalSkipped }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -166,7 +166,7 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
       JSON.stringify({
         error: sanitizePublicErrorMessage(msg, 'Backfill failed. Try again in a moment.'),
       }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }

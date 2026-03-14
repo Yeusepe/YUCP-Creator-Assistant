@@ -1,6 +1,7 @@
-import { test, expect } from 'playwright/test';
+import { expect, test } from 'playwright/test';
 
-const SKIP_REASON = 'Requires TEST_BASE_URL env var pointing to a running API server (e.g. TEST_BASE_URL=http://localhost:3001)';
+const SKIP_REASON =
+  'Requires TEST_BASE_URL env var pointing to a running API server (e.g. TEST_BASE_URL=http://localhost:3001)';
 
 test.describe('Verify Success page', () => {
   test.skip(!process.env.TEST_BASE_URL, SKIP_REASON);
@@ -21,7 +22,7 @@ test.describe('Verify Success page', () => {
   test('page has no broken images (all img src attributes are resolved)', async ({ page }) => {
     await page.goto('/verify-success');
     const imgSrcs: (string | null)[] = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('img')).map(img => img.getAttribute('src'))
+      Array.from(document.querySelectorAll('img')).map((img) => img.getAttribute('src'))
     );
     expect(imgSrcs.length).toBeGreaterThan(0);
     for (const src of imgSrcs) {

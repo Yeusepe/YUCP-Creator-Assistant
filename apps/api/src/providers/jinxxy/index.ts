@@ -9,12 +9,7 @@ import { JinxxyApiClient } from '@yucp/providers/jinxxy';
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { decrypt } from '../../lib/encrypt';
-import type {
-  ProductRecord,
-  ProviderContext,
-  ProviderPlugin,
-  ProviderPurposes,
-} from '../types';
+import type { ProductRecord, ProviderContext, ProviderPlugin, ProviderPurposes } from '../types';
 import { backfill } from './backfill';
 import { connect } from './connect';
 import { verification } from './verification';
@@ -82,7 +77,7 @@ const jinxxyProvider: ProviderPlugin = {
     try {
       const collabConnections = (await ctx.convex.query(
         api.collaboratorInvites.getCollabConnectionsForVerification,
-        { apiSecret: ctx.apiSecret, ownerAuthUserId: ctx.authUserId },
+        { apiSecret: ctx.apiSecret, ownerAuthUserId: ctx.authUserId }
       )) as Array<{ id: string; jinxxyApiKeyEncrypted?: string; collaboratorDisplayName?: string }>;
 
       for (const collab of collabConnections) {
@@ -91,7 +86,7 @@ const jinxxyProvider: ProviderPlugin = {
           const collabKey = await decrypt(
             collab.jinxxyApiKeyEncrypted,
             ctx.encryptionSecret,
-            PURPOSES.credential,
+            PURPOSES.credential
           );
           const collabClient = new JinxxyApiClient({
             apiKey: collabKey,

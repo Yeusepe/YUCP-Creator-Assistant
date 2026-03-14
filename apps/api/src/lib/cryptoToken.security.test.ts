@@ -69,7 +69,12 @@ describe('crypto/token security invariants', () => {
     const issuedAt = 1_700_000_000_000;
 
     Date.now = () => issuedAt;
-    const validAtCutoffToken = await createSetupSession('auth-user-2', 'guild-2', 'discord-2', secret);
+    const validAtCutoffToken = await createSetupSession(
+      'auth-user-2',
+      'guild-2',
+      'discord-2',
+      secret
+    );
     createdTokens.add(validAtCutoffToken);
 
     Date.now = () => issuedAt + 60 * 60 * 1000;

@@ -46,9 +46,7 @@ export function createWebhookHandler(config: WebhookConfig) {
     });
 
     // Direct match by provider id
-    let plugin = PROVIDERS.get(urlProvider)?.webhook
-      ? PROVIDERS.get(urlProvider)
-      : undefined;
+    let plugin = PROVIDERS.get(urlProvider)?.webhook ? PROVIDERS.get(urlProvider) : undefined;
 
     // Fallback: check extraProviders (e.g. 'jinxxy-collab' → jinxxy plugin)
     if (!plugin) {

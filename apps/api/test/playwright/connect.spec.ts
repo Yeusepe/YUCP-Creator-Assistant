@@ -1,4 +1,4 @@
-import { test, expect } from 'playwright/test';
+import { expect, test } from 'playwright/test';
 
 // Source: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/09-Testing_for_Clickjacking
 // Source: https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html
@@ -37,8 +37,8 @@ test.describe('Connect page', () => {
   test('connect page has a heading', async ({ page }) => {
     // Prevent the sign-in-redirect page's auto-navigation to Discord OAuth so
     // we can inspect the initial HTML that the server delivers.
-    await page.route('https://discord.com/**', route => route.abort('aborted'));
-    await page.route('**/api/auth/sign-in/**', route =>
+    await page.route('https://discord.com/**', (route) => route.abort('aborted'));
+    await page.route('**/api/auth/sign-in/**', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'text/html',
@@ -58,7 +58,7 @@ test.describe('Connect page', () => {
     // users; that page immediately does window.location.href = signInUrl which hits
     // /api/auth/sign-in/discord.  We intercept that to stay within the test origin.
     let signInNavigationTriggered = false;
-    await page.route('**/api/auth/sign-in/**', route => {
+    await page.route('**/api/auth/sign-in/**', (route) => {
       signInNavigationTriggered = true;
       return route.fulfill({
         status: 200,
@@ -66,7 +66,7 @@ test.describe('Connect page', () => {
         body: '<html><head><title>Sign In</title></head><body><h1>Sign in</h1></body></html>',
       });
     });
-    await page.route('https://discord.com/**', route => route.abort('aborted'));
+    await page.route('https://discord.com/**', (route) => route.abort('aborted'));
 
     await page.goto('/connect');
 
@@ -82,8 +82,8 @@ test.describe('Connect page', () => {
   });
 
   test('connect page title is set (not empty, not "undefined")', async ({ page }) => {
-    await page.route('https://discord.com/**', route => route.abort('aborted'));
-    await page.route('**/api/auth/sign-in/**', route =>
+    await page.route('https://discord.com/**', (route) => route.abort('aborted'));
+    await page.route('**/api/auth/sign-in/**', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'text/html',
@@ -98,8 +98,8 @@ test.describe('Connect page', () => {
   });
 
   test('connect page has no raw template literals visible', async ({ page }) => {
-    await page.route('https://discord.com/**', route => route.abort('aborted'));
-    await page.route('**/api/auth/sign-in/**', route =>
+    await page.route('https://discord.com/**', (route) => route.abort('aborted'));
+    await page.route('**/api/auth/sign-in/**', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'text/html',

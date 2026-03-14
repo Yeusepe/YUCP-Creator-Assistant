@@ -50,7 +50,7 @@ const backfill: BackfillPlugin = {
     while (true) {
       const res = await fetch(
         `${GUMROAD_API_BASE}/sales?access_token=${encodeURIComponent(accessToken)}&product_id=${encodeURIComponent(productRef)}&page=${page}&per_page=${pageSize}`,
-        { headers: { 'Content-Type': 'application/json' } },
+        { headers: { 'Content-Type': 'application/json' } }
       );
 
       if (res.status === 429) {
@@ -87,16 +87,16 @@ const backfill: BackfillPlugin = {
             buyerEmailHash: normalized ? await sha256Hex(normalized) : undefined,
             providerProductId: String(s.product_id ?? ''),
             paymentStatus: s.refunded === true || s.refunded === 'true' ? 'refunded' : 'paid',
-            lifecycleStatus: (
-              s.refunded === true || s.refunded === 'true' ? 'refunded' : 'active'
-            ) as BackfillRecord['lifecycleStatus'],
+            lifecycleStatus: (s.refunded === true || s.refunded === 'true'
+              ? 'refunded'
+              : 'active') as BackfillRecord['lifecycleStatus'],
             purchasedAt: s.created_at
               ? new Date(s.created_at as string).getTime()
               : typeof s.sale_timestamp === 'number'
                 ? (s.sale_timestamp as number) * 1000
                 : Date.now(),
           };
-        }),
+        })
       );
 
       return { facts, nextCursor: data.next_page_url ? String(page + 1) : null };

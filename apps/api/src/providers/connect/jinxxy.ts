@@ -164,8 +164,9 @@ async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Respo
 
   const setupBinding = await ctx.requireBoundSetupSession(request);
   const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
-  const authSession =
-    setupBinding.ok ? setupBinding.authSession : await ctx.auth.getSession(request);
+  const authSession = setupBinding.ok
+    ? setupBinding.authSession
+    : await ctx.auth.getSession(request);
   if (!authSession && !setupSession) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
@@ -202,9 +203,7 @@ async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Respo
   try {
     const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret, JINXXY.credential);
     const store = getStateStore();
-    const pendingWebhookRaw = await store.get(
-      `${JINXXY_PENDING_WEBHOOK_PREFIX}${webhookTarget}`
-    );
+    const pendingWebhookRaw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${webhookTarget}`);
     let webhookSecretRef: string | undefined;
     let webhookEndpoint: string | undefined;
     if (pendingWebhookRaw) {

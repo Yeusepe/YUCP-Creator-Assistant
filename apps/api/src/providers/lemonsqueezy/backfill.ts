@@ -61,12 +61,12 @@ export const backfill: BackfillPlugin = {
                 buyerEmailHash: normalized ? await sha256Hex(normalized) : undefined,
                 providerProductId: productRef,
                 paymentStatus: 'paid',
-                lifecycleStatus: (
-                  isCancelled ? 'cancelled' : 'active'
-                ) as BackfillRecord['lifecycleStatus'],
+                lifecycleStatus: (isCancelled
+                  ? 'cancelled'
+                  : 'active') as BackfillRecord['lifecycleStatus'],
                 purchasedAt: sub.createdAt ? new Date(sub.createdAt).getTime() : Date.now(),
               };
-            }),
+            })
           );
 
           const nextCursor: string | null = pagination.nextPage
@@ -84,7 +84,7 @@ export const backfill: BackfillPlugin = {
             await new Promise((r) => setTimeout(r, waitMs));
             if (retries >= MAX_RATE_LIMIT_RETRIES) {
               throw new Error(
-                `LemonSqueezy rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries`,
+                `LemonSqueezy rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries`
               );
             }
             retries++;
@@ -134,9 +134,9 @@ export const backfill: BackfillPlugin = {
               buyerEmailHash: normalized ? await sha256Hex(normalized) : undefined,
               providerProductId: productRef,
               paymentStatus: order.refunded ? 'refunded' : 'paid',
-              lifecycleStatus: (
-                order.refunded ? 'refunded' : 'active'
-              ) as BackfillRecord['lifecycleStatus'],
+              lifecycleStatus: (order.refunded
+                ? 'refunded'
+                : 'active') as BackfillRecord['lifecycleStatus'],
               purchasedAt: item.createdAt ? new Date(item.createdAt).getTime() : Date.now(),
             });
           }
@@ -157,7 +157,7 @@ export const backfill: BackfillPlugin = {
             await new Promise((r) => setTimeout(r, waitMs));
             if (retries >= MAX_RATE_LIMIT_RETRIES) {
               throw new Error(
-                `LemonSqueezy rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries`,
+                `LemonSqueezy rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries`
               );
             }
             retries++;

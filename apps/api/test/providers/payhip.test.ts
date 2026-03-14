@@ -16,8 +16,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { hashPayhip, payhipPaidPayload } from '../helpers/webhookSignatures';
 import { startTestServer, type TestServerHandle } from '../helpers/testServer';
+import { hashPayhip, payhipPaidPayload } from '../helpers/webhookSignatures';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -218,13 +218,7 @@ describe('Payhip HTTP webhook route (/webhooks/payhip/:routeId)', () => {
     expect(res.status).not.toBe(200);
   });
 
-  it.todo(
-    'POST with valid JSON + correct SHA256(apiKey) + known routeId → 200 — requires real Convex',
-    () => {},
-  );
+  it.todo('POST with valid JSON + correct SHA256(apiKey) + known routeId → 200 — requires real Convex', () => {});
 
-  it.todo(
-    'POST with valid JSON + correct signature but old created_at → 403 (replay protection) — requires real Convex',
-    () => {},
-  );
+  it.todo('POST with valid JSON + correct signature but old created_at → 403 (replay protection) — requires real Convex', () => {});
 });

@@ -9,8 +9,10 @@
 
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
+
 const JINXXY_PENDING_WEBHOOK_PREFIX = 'jinxxy_webhook_pending:';
 const JINXXY_PENDING_WEBHOOK_TTL_MS = 30 * 60 * 1000;
+
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
 import { getStateStore } from '../../lib/stateStore';
@@ -50,7 +52,7 @@ async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promi
     if (requestedAuthUserId) {
       const tenantOwned = await ctx.isTenantOwnedBySessionUser(
         session.user.id,
-        requestedAuthUserId,
+        requestedAuthUserId
       );
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
@@ -81,13 +83,13 @@ async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promi
     if (!webhookSecret || webhookSecret.length < 16) {
       return Response.json(
         { error: 'Webhook secret must be at least 16 characters' },
-        { status: 400 },
+        { status: 400 }
       );
     }
     if (webhookSecret.length > 40) {
       return Response.json(
         { error: 'Jinxxy limits the signing secret to 40 characters' },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -99,10 +101,10 @@ async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promi
         signingSecretEncrypted: await encrypt(
           webhookSecret,
           config.encryptionSecret,
-          WEBHOOK_SECRET_PURPOSE,
+          WEBHOOK_SECRET_PURPOSE
         ),
       }),
-      JINXXY_PENDING_WEBHOOK_TTL_MS,
+      JINXXY_PENDING_WEBHOOK_TTL_MS
     );
     return Response.json({ success: true });
   } catch (err) {
@@ -162,8 +164,9 @@ async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Respo
 
   const setupBinding = await ctx.requireBoundSetupSession(request);
   const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
-  const authSession =
-    setupBinding.ok ? setupBinding.authSession : await ctx.auth.getSession(request);
+  const authSession = setupBinding.ok
+    ? setupBinding.authSession
+    : await ctx.auth.getSession(request);
   if (!authSession && !setupSession) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
@@ -215,13 +218,13 @@ async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Respo
       if (!webhookSecret || webhookSecret.length < 16 || webhookSecret.length > 40) {
         return Response.json(
           { error: 'Webhook secret must be between 16 and 40 characters' },
-          { status: 400 },
+          { status: 400 }
         );
       }
       webhookSecretRef = await encrypt(
         webhookSecret,
         config.encryptionSecret,
-        WEBHOOK_SECRET_PURPOSE,
+        WEBHOOK_SECRET_PURPOSE
       );
       webhookEndpoint = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${webhookTarget}`;
     }

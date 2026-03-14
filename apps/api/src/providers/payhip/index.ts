@@ -46,7 +46,7 @@ const payhipProvider: ProviderPlugin = {
         name: e.displayName,
         productUrl: e.productPermalink ?? `https://payhip.com/b/${e.permalink}`,
         hasSecretKey: e.hasSecretKey,
-      }),
+      })
     );
   },
 

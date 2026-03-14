@@ -15,11 +15,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import {
-  lemonSqueezyOrderPayload,
-  signLemonSqueezy,
-} from '../helpers/webhookSignatures';
 import { startTestServer, type TestServerHandle } from '../helpers/testServer';
+import { lemonSqueezyOrderPayload, signLemonSqueezy } from '../helpers/webhookSignatures';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,7 +30,7 @@ async function hmacSha256Reference(secret: string, body: string): Promise<string
     encoder.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ['sign'],
+    ['sign']
   );
   const raw = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
   return Array.from(new Uint8Array(raw))
@@ -239,13 +236,7 @@ describe('LemonSqueezy HTTP webhook route (/v1/webhooks/lemonsqueezy/:id)', () =
     expect(res.status).not.toBe(200);
   });
 
-  it.todo(
-    'POST with valid body + correct HMAC + known connectionId → 202 — requires real Convex',
-    () => {},
-  );
+  it.todo('POST with valid body + correct HMAC + known connectionId → 202 — requires real Convex', () => {});
 
-  it.todo(
-    'POST with valid body + wrong HMAC + known connectionId → 403 Forbidden — requires real Convex',
-    () => {},
-  );
+  it.todo('POST with valid body + wrong HMAC + known connectionId → 403 Forbidden — requires real Convex', () => {});
 });

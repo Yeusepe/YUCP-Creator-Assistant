@@ -26,7 +26,7 @@ async function hmacSha256Hex(secret: string, body: string): Promise<string> {
     encoder.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ['sign'],
+    ['sign']
   );
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
   return bufToHex(sig);

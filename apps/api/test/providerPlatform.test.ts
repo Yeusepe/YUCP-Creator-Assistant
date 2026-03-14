@@ -46,7 +46,7 @@ describe('Provider connections — auth guards', () => {
       body: JSON.stringify({ providerKey: 'lemonsqueezy' }),
     });
     expect(res.status).toBe(401);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body).toHaveProperty('error');
   });
 
@@ -89,7 +89,7 @@ describe('Verification sessions — auth guards', () => {
       }),
     });
     expect(res.status).toBe(401);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body).toHaveProperty('error');
   });
 
@@ -104,7 +104,7 @@ describe('Verification sessions — auth guards', () => {
       }),
     });
     expect(res.status).toBe(401);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body).toHaveProperty('error');
   });
 });

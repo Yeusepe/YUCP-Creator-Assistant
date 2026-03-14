@@ -44,8 +44,9 @@ async function payhipFinish(request: Request, ctx: ConnectContext): Promise<Resp
 
   const setupBinding = await ctx.requireBoundSetupSession(request);
   const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
-  const authSession =
-    setupBinding.ok ? setupBinding.authSession : await ctx.auth.getSession(request);
+  const authSession = setupBinding.ok
+    ? setupBinding.authSession
+    : await ctx.auth.getSession(request);
   if (!authSession && !setupSession) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }

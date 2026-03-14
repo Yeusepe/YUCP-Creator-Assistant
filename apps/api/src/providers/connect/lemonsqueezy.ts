@@ -51,8 +51,9 @@ async function lemonsqueezyFinish(request: Request, ctx: ConnectContext): Promis
     return setupBinding.response;
   }
   const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
-  const authSession =
-    setupBinding.ok ? setupBinding.authSession : await ctx.auth.getSession(request);
+  const authSession = setupBinding.ok
+    ? setupBinding.authSession
+    : await ctx.auth.getSession(request);
   if (!authSession && !setupSession) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
@@ -103,10 +104,10 @@ async function lemonsqueezyFinish(request: Request, ctx: ConnectContext): Promis
     });
 
     // Delete any previously registered webhook to avoid duplicate-signing issues.
-    const existingConnection = await convex.query(
-      api.providerPlatform.getProviderConnectionAdmin,
-      { apiSecret: config.convexApiSecret, providerConnectionId: connectionId }
-    );
+    const existingConnection = await convex.query(api.providerPlatform.getProviderConnectionAdmin, {
+      apiSecret: config.convexApiSecret,
+      providerConnectionId: connectionId,
+    });
     if (existingConnection?.remoteWebhookId) {
       try {
         await client.deleteWebhook(existingConnection.remoteWebhookId);
@@ -141,82 +142,82 @@ async function lemonsqueezyFinish(request: Request, ctx: ConnectContext): Promis
 
     try {
       for (const credential of [
-      {
-        credentialKey: 'api_token',
-        kind: 'api_token',
-        encryptedValue: encryptedApiToken,
-        metadata: { storeId: selectedStore.id },
-      },
-      {
-        credentialKey: 'webhook_secret',
-        kind: 'webhook_secret',
-        encryptedValue: encryptedWebhookSecret,
-        metadata: { webhookId: webhook.id },
-      },
-      {
-        credentialKey: 'store_selector',
-        kind: 'store_selector',
-        encryptedValue: undefined,
-        metadata: {
-          storeId: selectedStore.id,
-          storeName: selectedStore.name,
-          slug: selectedStore.slug,
+        {
+          credentialKey: 'api_token',
+          kind: 'api_token',
+          encryptedValue: encryptedApiToken,
+          metadata: { storeId: selectedStore.id },
         },
-      },
-      {
-        credentialKey: 'remote_webhook',
-        kind: 'remote_webhook',
-        encryptedValue: undefined,
-        metadata: { webhookId: webhook.id, events: webhook.events, url: webhook.url },
-      },
-    ] as const) {
-      await convex.mutation(api.providerConnections.putProviderCredential, {
-        apiSecret: config.convexApiSecret,
-        authUserId: authUserId ?? undefined,
-        providerConnectionId: connectionId,
-        credentialKey: credential.credentialKey,
-        kind: credential.kind,
-        encryptedValue: credential.encryptedValue,
-        metadata: credential.metadata,
-      });
-    }
+        {
+          credentialKey: 'webhook_secret',
+          kind: 'webhook_secret',
+          encryptedValue: encryptedWebhookSecret,
+          metadata: { webhookId: webhook.id },
+        },
+        {
+          credentialKey: 'store_selector',
+          kind: 'store_selector',
+          encryptedValue: undefined,
+          metadata: {
+            storeId: selectedStore.id,
+            storeName: selectedStore.name,
+            slug: selectedStore.slug,
+          },
+        },
+        {
+          credentialKey: 'remote_webhook',
+          kind: 'remote_webhook',
+          encryptedValue: undefined,
+          metadata: { webhookId: webhook.id, events: webhook.events, url: webhook.url },
+        },
+      ] as const) {
+        await convex.mutation(api.providerConnections.putProviderCredential, {
+          apiSecret: config.convexApiSecret,
+          authUserId: authUserId ?? undefined,
+          providerConnectionId: connectionId,
+          credentialKey: credential.credentialKey,
+          kind: credential.kind,
+          encryptedValue: credential.encryptedValue,
+          metadata: credential.metadata,
+        });
+      }
 
-    await convex.mutation(api.providerPlatform.updateProviderConnectionState, {
-      apiSecret: config.convexApiSecret,
-      providerConnectionId: connectionId,
-      status: 'active',
-      authMode: 'api_token',
-      externalShopId: selectedStore.id,
-      externalShopName: selectedStore.name,
-      webhookConfigured: true,
-      webhookEndpoint: callbackUrl,
-      remoteWebhookId: webhook.id,
-      remoteWebhookSecretRef: encryptedWebhookSecret,
-      lastHealthcheckAt: Date.now(),
-      testMode: Boolean(selectedStore.testMode ?? false),
-      metadata: { store: selectedStore, webhookId: webhook.id },
-    });
-
-    for (const capabilityKey of [
-      'catalog_sync',
-      'managed_webhooks',
-      'webhooks',
-      'reconciliation',
-      'license_verification',
-      'orders',
-      'refunds',
-      'subscriptions',
-    ]) {
-      await convex.mutation(api.providerConnections.upsertConnectionCapability, {
+      await convex.mutation(api.providerPlatform.updateProviderConnectionState, {
         apiSecret: config.convexApiSecret,
-        authUserId: authUserId ?? undefined,
         providerConnectionId: connectionId,
-        capabilityKey,
         status: 'active',
+        authMode: 'api_token',
+        externalShopId: selectedStore.id,
+        externalShopName: selectedStore.name,
+        webhookConfigured: true,
+        webhookEndpoint: callbackUrl,
+        remoteWebhookId: webhook.id,
+        remoteWebhookSecretRef: encryptedWebhookSecret,
+        lastHealthcheckAt: Date.now(),
+        testMode: Boolean(selectedStore.testMode ?? false),
+        metadata: { store: selectedStore, webhookId: webhook.id },
       });
-    }
 
-    return Response.json({ success: true });
+      for (const capabilityKey of [
+        'catalog_sync',
+        'managed_webhooks',
+        'webhooks',
+        'reconciliation',
+        'license_verification',
+        'orders',
+        'refunds',
+        'subscriptions',
+      ]) {
+        await convex.mutation(api.providerConnections.upsertConnectionCapability, {
+          apiSecret: config.convexApiSecret,
+          authUserId: authUserId ?? undefined,
+          providerConnectionId: connectionId,
+          capabilityKey,
+          status: 'active',
+        });
+      }
+
+      return Response.json({ success: true });
     } catch (convexErr) {
       logger.warn('LemonSqueezy finish: Convex writes failed, rolling back webhook', {
         webhookId: webhook.id,

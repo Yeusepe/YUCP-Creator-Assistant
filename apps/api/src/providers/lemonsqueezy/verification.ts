@@ -18,7 +18,7 @@ export const verification: LicenseVerificationPlugin = {
     licenseKey: string,
     _productId: string | undefined,
     authUserId: string,
-    ctx: ProviderContext,
+    ctx: ProviderContext
   ): Promise<LicenseVerificationResult | null> {
     const secrets = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret: ctx.apiSecret,
@@ -30,8 +30,7 @@ export const verification: LicenseVerificationPlugin = {
     if (!encryptedApiToken) {
       return {
         valid: false,
-        error:
-          'Lemon Squeezy API key not configured. Connect your store in `/creator setup`.',
+        error: 'Lemon Squeezy API key not configured. Connect your store in `/creator setup`.',
       };
     }
 
@@ -57,9 +56,7 @@ export const verification: LicenseVerificationPlugin = {
           ? String(validation.meta.order_item_id)
           : undefined;
 
-    const productId = validation.meta?.product_id
-      ? String(validation.meta.product_id)
-      : undefined;
+    const productId = validation.meta?.product_id ? String(validation.meta.product_id) : undefined;
 
     return {
       valid: validation.valid,

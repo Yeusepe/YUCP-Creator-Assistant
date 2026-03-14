@@ -35,9 +35,9 @@ import { SETUP_SESSION_COOKIE } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { sendCollabKeyAddedEmail } from '../lib/email';
 import { encrypt } from '../lib/encrypt';
-import { PURPOSES as JINXXY } from '../providers/jinxxy';
 import { resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
+import { PURPOSES as JINXXY } from '../providers/jinxxy';
 
 // Collab webhook secrets are scoped to collab connections, not shared with per-provider webhooks
 const COLLAB_WEBHOOK_SECRET_PURPOSE = 'collab-webhook-signing-secret' as const;
@@ -500,7 +500,11 @@ export function createCollabRoutes(config: CollabConfig) {
       `${COLLAB_WEBHOOK_PREFIX}${session.invite._id}`,
       JSON.stringify({
         callbackUrl,
-        signingSecretEncrypted: await encrypt(webhookSecret, config.encryptionSecret, COLLAB_WEBHOOK_SECRET_PURPOSE),
+        signingSecretEncrypted: await encrypt(
+          webhookSecret,
+          config.encryptionSecret,
+          COLLAB_WEBHOOK_SECRET_PURPOSE
+        ),
       }),
       Math.min(COLLAB_DISCORD_TTL_MS, Math.max(1, session.invite.expiresAt - Date.now()))
     );
@@ -588,7 +592,11 @@ export function createCollabRoutes(config: CollabConfig) {
       );
     }
 
-    const jinxxyApiKeyEncrypted = await encrypt(jinxxyApiKey.trim(), config.encryptionSecret, JINXXY.credential);
+    const jinxxyApiKeyEncrypted = await encrypt(
+      jinxxyApiKey.trim(),
+      config.encryptionSecret,
+      JINXXY.credential
+    );
 
     let webhookSecretRef: string | undefined;
     let webhookEndpoint: string | undefined;
@@ -694,7 +702,11 @@ export function createCollabRoutes(config: CollabConfig) {
       );
     }
 
-    const jinxxyApiKeyEncrypted = await encrypt(jinxxyApiKey, config.encryptionSecret, JINXXY.credential);
+    const jinxxyApiKeyEncrypted = await encrypt(
+      jinxxyApiKey,
+      config.encryptionSecret,
+      JINXXY.credential
+    );
     const collaboratorIdentity = `manual:${user.id}`;
 
     let connectionId: string;

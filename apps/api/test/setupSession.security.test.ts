@@ -34,7 +34,12 @@ describe('setup session security', () => {
   });
 
   it('given a valid signed token, when resolved, then the original setup principal is returned', async () => {
-    const signedToken = await createSetupSession('auth-valid', 'guild-valid', 'discord-valid', SECRET);
+    const signedToken = await createSetupSession(
+      'auth-valid',
+      'guild-valid',
+      'discord-valid',
+      SECRET
+    );
 
     const result = await resolveSetupSession(signedToken, SECRET);
 
@@ -53,7 +58,7 @@ describe('setup session security', () => {
       'auth-tampered',
       'guild-tampered',
       'discord-tampered',
-      SECRET,
+      SECRET
     );
 
     const result = await resolveSetupSession(tamperTokenSignature(signedToken), SECRET);
@@ -64,12 +69,14 @@ describe('setup session security', () => {
   });
 
   it('given the wrong secret, when resolved, then it is rejected without revealing session data', async () => {
-    const signedToken = await createSetupSession('auth-secret', 'guild-secret', 'discord-secret', SECRET);
-
-    const result = await resolveSetupSession(
-      signedToken,
-      'wrong-test-encryption-secret-32-ch',
+    const signedToken = await createSetupSession(
+      'auth-secret',
+      'guild-secret',
+      'discord-secret',
+      SECRET
     );
+
+    const result = await resolveSetupSession(signedToken, 'wrong-test-encryption-secret-32-ch');
 
     expect(result).toBeNull();
 
@@ -81,7 +88,7 @@ describe('setup session security', () => {
       'auth-expired',
       'guild-expired',
       'discord-expired',
-      SECRET,
+      SECRET
     );
     const store = getStateStore();
     await store.set(
@@ -93,7 +100,7 @@ describe('setup session security', () => {
         createdAt: Date.now() - 5_000,
         expiresAt: Date.now() - 1,
       }),
-      60_000,
+      60_000
     );
 
     const result = await resolveSetupSession(signedToken, SECRET);

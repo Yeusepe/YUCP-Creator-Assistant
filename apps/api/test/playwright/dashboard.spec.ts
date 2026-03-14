@@ -1,4 +1,4 @@
-import { test, expect } from 'playwright/test';
+import { expect, test } from 'playwright/test';
 
 // Source: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/09-Testing_for_Clickjacking
 // Source: https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html
@@ -74,7 +74,7 @@ test.describe('Dashboard page', () => {
   }) => {
     const payload = `phase8'</script><script>window.__phase8DashboardXss=1</script>`;
     const jsErrors: string[] = [];
-    page.on('pageerror', err => jsErrors.push(err.message));
+    page.on('pageerror', (err) => jsErrors.push(err.message));
 
     const response = await page.goto(
       `/dashboard?tenant_id=${encodeURIComponent(payload)}&guild_id=${encodeURIComponent(payload)}`
@@ -106,11 +106,8 @@ test.describe('Dashboard page', () => {
 
   test('dashboard stylesheets load (no 404 for linked CSS)', async ({ page }) => {
     const failedStylesheets: string[] = [];
-    page.on('response', response => {
-      if (
-        response.request().resourceType() === 'stylesheet' &&
-        response.status() >= 400
-      ) {
+    page.on('response', (response) => {
+      if (response.request().resourceType() === 'stylesheet' && response.status() >= 400) {
         failedStylesheets.push(`${response.status()} ${response.url()}`);
       }
     });
@@ -120,7 +117,7 @@ test.describe('Dashboard page', () => {
 
   test('dashboard page has no JavaScript errors on load', async ({ page }) => {
     const jsErrors: string[] = [];
-    page.on('pageerror', err => jsErrors.push(err.message));
+    page.on('pageerror', (err) => jsErrors.push(err.message));
     await page.goto('/dashboard');
     // Allow a brief moment for any deferred scripts to execute
     await page.waitForTimeout(500);

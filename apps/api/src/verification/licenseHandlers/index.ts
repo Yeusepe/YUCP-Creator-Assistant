@@ -9,11 +9,11 @@
  * and register the plugin in providers/index.ts. Nothing here changes.
  */
 
-import { api } from '../../../../../convex/_generated/api';
 import { createLogger } from '@yucp/shared';
-import { getProvider } from '../../providers/index';
-import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
+import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
+import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
+import { getProvider } from '../../providers/index';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
 import type { VerificationConfig } from '../sessionManager';
 
@@ -32,7 +32,7 @@ export interface LicenseVerificationHandler {
   verify(
     input: CompleteLicenseInput,
     config: VerificationConfig,
-    convex: ConvexServerClient,
+    convex: ConvexServerClient
   ): Promise<CompleteLicenseResult>;
 }
 
@@ -93,8 +93,10 @@ export async function getHandler(provider: string): Promise<LicenseVerificationH
             subjectId,
             provider,
             providerUserId,
-            productsToGrant: [{ productId: result.providerProductId ?? productId ?? '', sourceReference }],
-          },
+            productsToGrant: [
+              { productId: result.providerProductId ?? productId ?? '', sourceReference },
+            ],
+          }
         );
       } catch (err) {
         logger.error('[licenseHandlers] completeLicenseVerification threw', {

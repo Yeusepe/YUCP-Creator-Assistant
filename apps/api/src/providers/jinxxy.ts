@@ -128,13 +128,17 @@ const jinxxyProvider: ProviderPlugin = {
     try {
       const collabConnections = (await ctx.convex.query(
         api.collaboratorInvites.getCollabConnectionsForVerification,
-        { apiSecret: ctx.apiSecret, ownerAuthUserId: ctx.authUserId },
+        { apiSecret: ctx.apiSecret, ownerAuthUserId: ctx.authUserId }
       )) as Array<{ id: string; jinxxyApiKeyEncrypted?: string; collaboratorDisplayName?: string }>;
 
       for (const collab of collabConnections) {
         if (!collab.jinxxyApiKeyEncrypted) continue;
         try {
-          const collabKey = await decrypt(collab.jinxxyApiKeyEncrypted, ctx.encryptionSecret, PURPOSES.credential);
+          const collabKey = await decrypt(
+            collab.jinxxyApiKeyEncrypted,
+            ctx.encryptionSecret,
+            PURPOSES.credential
+          );
           const collabClient = new JinxxyApiClient({
             apiKey: collabKey,
             apiBaseUrl: process.env.JINXXY_API_BASE_URL,

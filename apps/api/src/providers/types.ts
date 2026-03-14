@@ -58,7 +58,7 @@ export interface BackfillPlugin {
     credential: string,
     productRef: string,
     cursor: string | null,
-    pageSize: number,
+    pageSize: number
   ): Promise<{ facts: BackfillRecord[]; nextCursor: string | null }>;
 }
 
@@ -122,7 +122,7 @@ export interface WebhookPlugin {
     request: Request,
     routeId: string,
     urlProviderId: string,
-    ctx: WebhookContext,
+    ctx: WebhookContext
   ): Promise<Response>;
   readonly extraProviders?: readonly string[];
 }
@@ -144,7 +144,7 @@ export interface LicenseVerificationPlugin {
     licenseKey: string,
     productId: string | undefined,
     authUserId: string,
-    ctx: ProviderContext,
+    ctx: ProviderContext
   ): Promise<LicenseVerificationResult | null>;
 }
 

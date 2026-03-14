@@ -18,7 +18,7 @@ export const verification: LicenseVerificationPlugin = {
     licenseKey: string,
     productId: string | undefined,
     authUserId: string,
-    _ctx,
+    _ctx
   ): Promise<LicenseVerificationResult | null> {
     if (!productId) {
       return { valid: false, error: 'Product ID is required for Gumroad verification' };
