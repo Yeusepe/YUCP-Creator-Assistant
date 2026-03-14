@@ -102,7 +102,9 @@ function getCatalogSelectCustomId(provider: string, userId: string, authUserId: 
 /** Step 1: /creator-admin product add - show type select menu */
 export async function handleProductAddInteractive(
   interaction: ChatInputCommandInteraction,
-  ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
+  ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string },
+  convex: ConvexHttpClient,
+  apiSecret: string
 ): Promise<void> {
   cleanExpiredSessions();
 
@@ -114,6 +116,14 @@ export async function handleProductAddInteractive(
     expiresAt: Date.now() + 10 * 60 * 1000,
   });
 
+  // Only show providers the user has actively connected in the dashboard.
+  // Providers that don't require a dashboard connection (productInput-only, e.g. VRChat)
+  // are always shown. license/discord_role are hardcoded below and always shown.
+  const connectionStatus = await convex.query(api.providerConnections.getConnectionStatus, {
+    apiSecret,
+    authUserId: ctx.authUserId,
+  });
+
   const select = new StringSelectMenuBuilder()
     .setCustomId(`creator_product:type_select:${ctx.authUserId}`)
     .setPlaceholder('Select product type...')
@@ -123,15 +133,18 @@ export async function handleProductAddInteractive(
       // one for the catalog picker (key = providerKey) and one for manual URL/ID
       // entry (key = "${providerKey}_url").
       ...(PROVIDER_REGISTRY as readonly ProviderDescriptor[])
-        .filter(
-          (d) =>
-            d.status === 'active' &&
-            d.providerKey !== 'manual' &&
-            d.providerKey !== 'discord' &&
-            ((d.capabilities as readonly string[]).includes('catalog_sync') ||
-              'perProductCredential' in d ||
-              d.productInput != null)
-        )
+        .filter((d) => {
+          if (d.status !== 'active') return false;
+          if (d.providerKey === 'manual' || d.providerKey === 'discord') return false;
+          const hasCatalog = (d.capabilities as readonly string[]).includes('catalog_sync');
+          const hasPerProduct = 'perProductCredential' in d;
+          const hasProductInput = d.productInput != null;
+          if (!hasCatalog && !hasPerProduct && !hasProductInput) return false;
+          // Providers needing a dashboard connection are only shown when connected.
+          if (hasCatalog || hasPerProduct) return !!connectionStatus[d.providerKey];
+          // productInput-only providers (e.g. VRChat) never need a dashboard connection.
+          return true;
+        })
         .flatMap((d) => {
           const emoji = Emoji[d.emojiKey as keyof typeof Emoji];
           const hasCatalog = (d.capabilities as readonly string[]).includes('catalog_sync');
@@ -1482,9 +1495,9 @@ export async function handleProductCancelRemove(
 // Legacy handleProductAdd kept for backwards compat (maps to interactive flow)
 export async function handleProductAdd(
   interaction: ChatInputCommandInteraction,
-  _convex: ConvexHttpClient,
-  _apiSecret: string,
+  convex: ConvexHttpClient,
+  apiSecret: string,
   ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
-  return handleProductAddInteractive(interaction, ctx);
+  return handleProductAddInteractive(interaction, ctx, convex, apiSecret);
 }

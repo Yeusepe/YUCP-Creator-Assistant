@@ -583,9 +583,7 @@ export const grantEntitlement = mutation({
       if (args.evidence.purchasedAt > now + 5 * 60 * 1000) {
         throw new ConvexError('purchasedAt cannot be more than 5 minutes in the future');
       }
-      if (args.evidence.purchasedAt < now - 30 * 24 * 60 * 60 * 1000) {
-        throw new ConvexError('purchasedAt cannot be more than 30 days in the past');
-      }
+
     }
 
     if (args.evidence.amount !== undefined) {

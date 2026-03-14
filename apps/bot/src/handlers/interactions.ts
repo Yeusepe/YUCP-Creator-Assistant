@@ -468,7 +468,12 @@ async function handleSlashCommand(
         '../commands/product'
       );
       if (sub === 'add') {
-        await handleProductAddInteractive(interaction, { authUserId, guildLinkId, guildId });
+        await handleProductAddInteractive(
+          interaction,
+          { authUserId, guildLinkId, guildId },
+          ctx.convex,
+          ctx.apiSecret
+        );
       } else if (sub === 'list') {
         await handleProductList(interaction, ctx.convex, ctx.apiSecret, { authUserId, guildId });
       } else if (sub === 'remove') {

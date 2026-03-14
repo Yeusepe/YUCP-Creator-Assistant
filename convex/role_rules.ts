@@ -990,6 +990,12 @@ export const addProductFromPayhip = mutation({
       if (args.displayName && existing.displayName !== args.displayName) {
         await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
       }
+      await ctx.scheduler.runAfter(0, internal.backgroundSync.projectBackfilledPurchasesForProduct, {
+        authUserId: args.authUserId,
+        productId: args.permalink,
+        provider: 'payhip',
+        providerProductRef: args.permalink,
+      });
       return { productId: existing.productId, catalogProductId: existing._id };
     }
 
@@ -1020,6 +1026,13 @@ export const addProductFromPayhip = mutation({
       submittedByAuthUserId: args.authUserId,
       createdAt: now,
       updatedAt: now,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.backgroundSync.projectBackfilledPurchasesForProduct, {
+      authUserId: args.authUserId,
+      productId: args.permalink,
+      provider: 'payhip',
+      providerProductRef: args.permalink,
     });
 
     return { productId: args.permalink, catalogProductId: catalogId };

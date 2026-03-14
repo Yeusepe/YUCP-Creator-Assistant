@@ -41,6 +41,25 @@ const BASE_CTX: ProductCtx = {
   guildId: 'guild_product_test',
 };
 
+const TEST_API_SECRET = 'test-api-secret';
+
+/** Mock ConvexHttpClient that returns all catalog/credential providers as connected. */
+function makeMockConvex(connectionStatus: Record<string, boolean> = {}) {
+  return {
+    query: mock(() => Promise.resolve(connectionStatus)),
+    mutation: mock(() => Promise.resolve(undefined)),
+    action: mock(() => Promise.resolve(undefined)),
+  } as unknown as import('convex/browser').ConvexHttpClient;
+}
+
+// Default: all providers connected (existing behaviour for tests that don't care about filtering)
+const ALL_CONNECTED = makeMockConvex({
+  gumroad: true,
+  jinxxy: true,
+  lemonsqueezy: true,
+  payhip: true,
+});
+
 describe('product command', () => {
   it('given /product add slash command, shows provider selection menu', async () => {
     const interaction = mockSlashCommand({
@@ -52,7 +71,7 @@ describe('product command', () => {
       isAdmin: true,
     });
 
-    await handleProductAddInteractive(interaction as any, BASE_CTX);
+    await handleProductAddInteractive(interaction as any, BASE_CTX, ALL_CONNECTED, TEST_API_SECRET);
 
     expect(interaction.reply.mock.calls.length).toBe(1);
     const payload = interaction.reply.mock.calls[0]?.[0] as any;
@@ -100,11 +119,16 @@ describe('product command', () => {
       subcommand: 'add',
       isAdmin: true,
     });
-    await handleProductAddInteractive(slashInteraction as any, {
-      authUserId: 'auth_product_url',
-      guildLinkId: 'link_id_url' as ProductCtx['guildLinkId'],
-      guildId: 'guild_product_test',
-    });
+    await handleProductAddInteractive(
+      slashInteraction as any,
+      {
+        authUserId: 'auth_product_url',
+        guildLinkId: 'link_id_url' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_test',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
 
     const selectInteraction = mockStringSelect({
       userId: 'user_prod_url',
@@ -135,11 +159,16 @@ describe('product command', () => {
       subcommand: 'add',
       isAdmin: true,
     });
-    await handleProductAddInteractive(slashInteraction as any, {
-      authUserId: 'auth_product_test',
-      guildLinkId: 'link_id_2' as ProductCtx['guildLinkId'],
-      guildId: 'guild_product_test',
-    });
+    await handleProductAddInteractive(
+      slashInteraction as any,
+      {
+        authUserId: 'auth_product_test',
+        guildLinkId: 'link_id_2' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_test',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
 
     // Now select 'gumroad' — triggers listProducts
     const selectInteraction = mockStringSelect({
@@ -177,11 +206,16 @@ describe('product command', () => {
       subcommand: 'add',
       isAdmin: true,
     });
-    await handleProductAddInteractive(slashInteraction as any, {
-      authUserId: 'auth_product_test',
-      guildLinkId: 'link_id_3' as ProductCtx['guildLinkId'],
-      guildId: 'guild_product_test',
-    });
+    await handleProductAddInteractive(
+      slashInteraction as any,
+      {
+        authUserId: 'auth_product_test',
+        guildLinkId: 'link_id_3' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_test',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
 
     const selectInteraction = mockStringSelect({
       userId: 'user_prod_3',
@@ -234,11 +268,16 @@ describe('product command', () => {
       subcommand: 'add',
       isAdmin: true,
     });
-    await handleProductAddInteractive(slashInteraction as any, {
-      authUserId: 'auth_product_guard_1',
-      guildLinkId: 'link_guard_1' as ProductCtx['guildLinkId'],
-      guildId: 'guild_product_origin',
-    });
+    await handleProductAddInteractive(
+      slashInteraction as any,
+      {
+        authUserId: 'auth_product_guard_1',
+        guildLinkId: 'link_guard_1' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_origin',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
 
     const selectInteraction = mockStringSelect({
       userId: 'user_prod_guard_1',
@@ -266,11 +305,16 @@ describe('product command', () => {
       subcommand: 'add',
       isAdmin: true,
     });
-    await handleProductAddInteractive(slashInteraction as any, {
-      authUserId: 'auth_product_guard_2',
-      guildLinkId: 'link_guard_2' as ProductCtx['guildLinkId'],
-      guildId: 'guild_product_guard_2',
-    });
+    await handleProductAddInteractive(
+      slashInteraction as any,
+      {
+        authUserId: 'auth_product_guard_2',
+        guildLinkId: 'link_guard_2' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_guard_2',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
 
     const selectInteraction = mockStringSelect({
       userId: 'user_prod_guard_2',
@@ -298,11 +342,16 @@ describe('product command', () => {
       subcommand: 'add',
       isAdmin: true,
     });
-    await handleProductAddInteractive(slashInteraction as any, {
-      authUserId: 'auth_product_guard_3',
-      guildLinkId: 'link_guard_3' as ProductCtx['guildLinkId'],
-      guildId: 'guild_product_guard_3',
-    });
+    await handleProductAddInteractive(
+      slashInteraction as any,
+      {
+        authUserId: 'auth_product_guard_3',
+        guildLinkId: 'link_guard_3' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_guard_3',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
 
     const cancelInteraction = mockButton({
       userId: 'user_prod_guard_3',
@@ -330,5 +379,87 @@ describe('product command', () => {
     expect(replayInteraction.deferUpdate.mock.calls).toHaveLength(0);
     expect(replayInteraction.editReply.mock.calls).toHaveLength(0);
     expect(replayInteraction.showModal.mock.calls).toHaveLength(0);
+  });
+
+  it('only shows connected providers — unconnected catalog/credential providers are hidden', async () => {
+    // Only gumroad is connected; jinxxy, lemonsqueezy, payhip are not.
+    const partialConvex = makeMockConvex({ gumroad: true });
+    const interaction = mockSlashCommand({
+      userId: 'user_prod_partial',
+      guildId: 'guild_product_partial',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+
+    await handleProductAddInteractive(
+      interaction as any,
+      {
+        authUserId: 'auth_partial',
+        guildLinkId: 'link_partial' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_partial',
+      },
+      partialConvex,
+      TEST_API_SECRET
+    );
+
+    const payload = interaction.reply.mock.calls[0]?.[0] as any;
+    const select = payload?.components?.[0]?.components?.[0];
+    const optionValues: string[] = (select?.options ?? []).map(
+      (o: { data?: { value?: string }; value?: string }) => o.data?.value ?? o.value
+    );
+
+    // Gumroad is connected → both catalog and URL variants appear
+    expect(optionValues).toContain('gumroad');
+    expect(optionValues).toContain('gumroad_url');
+    // Not connected → must NOT appear
+    expect(optionValues).not.toContain('jinxxy');
+    expect(optionValues).not.toContain('lemonsqueezy');
+    expect(optionValues).not.toContain('payhip');
+    // VRChat (productInput-only) always appears regardless of connections
+    expect(optionValues).toContain('vrchat');
+    // Hardcoded types always appear
+    expect(optionValues).toContain('license');
+    expect(optionValues).toContain('discord_role');
+  });
+
+  it('shows no commerce providers when none are connected, but still shows VRChat/license/discord_role', async () => {
+    const noneConvex = makeMockConvex({});
+    const interaction = mockSlashCommand({
+      userId: 'user_prod_none',
+      guildId: 'guild_product_none',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+
+    await handleProductAddInteractive(
+      interaction as any,
+      {
+        authUserId: 'auth_none',
+        guildLinkId: 'link_none' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_none',
+      },
+      noneConvex,
+      TEST_API_SECRET
+    );
+
+    const payload = interaction.reply.mock.calls[0]?.[0] as any;
+    const select = payload?.components?.[0]?.components?.[0];
+    const optionValues: string[] = (select?.options ?? []).map(
+      (o: { data?: { value?: string }; value?: string }) => o.data?.value ?? o.value
+    );
+
+    expect(optionValues).not.toContain('gumroad');
+    expect(optionValues).not.toContain('gumroad_url');
+    expect(optionValues).not.toContain('jinxxy');
+    expect(optionValues).not.toContain('lemonsqueezy');
+    expect(optionValues).not.toContain('payhip');
+    // These must always be present
+    expect(optionValues).toContain('vrchat');
+    expect(optionValues).toContain('license');
+    expect(optionValues).toContain('discord_role');
   });
 });
