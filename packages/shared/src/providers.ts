@@ -390,8 +390,7 @@ export const PROVIDER_REGISTRY = [
       credentialLabel: 'Product Secret Key',
       productIdLabel: 'Product Permalink',
       productIdPlaceholder: 'e.g. RGsF',
-      helpText:
-        'Found on the product edit page in Payhip under License Keys → Developer section.',
+      helpText: 'Found on the product edit page in Payhip under License Keys → Developer section.',
     },
     compatibility: {
       legacyWebhookRoutes: ['/webhooks/payhip/:authUserId'],

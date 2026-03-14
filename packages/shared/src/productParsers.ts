@@ -8,9 +8,7 @@
  * Adding a new provider: add one entry to PRODUCT_PARSERS.
  */
 
-export type ProductParseResult =
-  | { ok: true; productId: string }
-  | { ok: false; error: string };
+export type ProductParseResult = { ok: true; productId: string } | { ok: false; error: string };
 
 type ProductParser = (input: string) => ProductParseResult;
 
