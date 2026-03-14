@@ -49,6 +49,7 @@ import type * as seedYucpOAuthClient from "../seedYucpOAuthClient.js";
 import type * as signingLog from "../signingLog.js";
 import type * as subjects from "../subjects.js";
 import type * as tenantHelpers from "../tenantHelpers.js";
+import type * as testHelpers from "../testHelpers.js";
 import type * as verificationSessions from "../verificationSessions.js";
 import type * as webhookCron from "../webhookCron.js";
 import type * as webhookIngestion from "../webhookIngestion.js";
@@ -104,6 +105,7 @@ declare const fullApi: ApiFromModules<{
   signingLog: typeof signingLog;
   subjects: typeof subjects;
   tenantHelpers: typeof tenantHelpers;
+  testHelpers: typeof testHelpers;
   verificationSessions: typeof verificationSessions;
   webhookCron: typeof webhookCron;
   webhookIngestion: typeof webhookIngestion;

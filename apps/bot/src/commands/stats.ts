@@ -75,6 +75,13 @@ export async function handleStats(
   apiSecret: string,
   ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
+  if (!ctx.guildId) {
+    await interaction.reply({
+      content: 'This command must be used in a server.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const rules = await convex.query(api.role_rules.getByGuild, {
