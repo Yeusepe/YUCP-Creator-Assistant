@@ -21,8 +21,9 @@ const PRODUCT_PARSERS: Record<string, ProductParser> = {
     // Dashboard URL format: https://app.gumroad.com/products/abc123
     const productsMatch = trimmed.match(/gumroad\.com\/products\/([a-zA-Z0-9_-]+)/);
     if (productsMatch) return { ok: true, productId: productsMatch[1] };
-    // Raw product ID (alphanumeric, min 3 chars to avoid false positives)
-    if (/^[a-zA-Z0-9_-]{3,}$/.test(trimmed)) {
+    // Raw product ID: alphanumeric, hyphens, underscores, and base64 padding (=).
+    // Gumroad uses both URL slugs (abc123) and base64-encoded IDs (QAJc7A==).
+    if (/^[a-zA-Z0-9_+/==-]{3,}$/.test(trimmed)) {
       return { ok: true, productId: trimmed };
     }
     return { ok: false, error: 'Could not parse Gumroad product URL or ID' };

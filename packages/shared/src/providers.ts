@@ -176,7 +176,12 @@ export const PROVIDER_REGISTRY = [
     status: 'active',
     docsUrl: 'https://gumroad.com/api',
     emojiKey: 'Gumorad',
-    addProductDescription: 'Sold on gumroad.com',
+    addProductDescription: 'Pick a product from your connected Gumroad store',
+    productInput: {
+      label: 'Gumroad Product URL or ID',
+      description: 'URL (gumroad.com/l/abc123) or product ID',
+      placeholder: 'https://gumroad.com/l/abc123 or abc123',
+    },
     creatorAuthModes: ['oauth'],
     buyerVerificationMethods: ['license_key', 'account_link', 'oauth'],
     capabilities: [
@@ -415,6 +420,11 @@ export const PROVIDER_REGISTRY = [
     supportsWebhook: false,
     supportsLicenseVerify: false,
     supportsTestMode: false,
+    productInput: {
+      label: 'Avatar ID or URL',
+      description: 'VRChat Avatar ID (avtr_…) or vrchat.com/home/avatar/avtr_… URL',
+      placeholder: 'avtr_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+    },
   },
 ] as const satisfies readonly ProviderDescriptor[];
 

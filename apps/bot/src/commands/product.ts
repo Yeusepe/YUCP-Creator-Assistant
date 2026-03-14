@@ -118,19 +118,48 @@ export async function handleProductAddInteractive(
     .setCustomId(`creator_product:type_select:${ctx.authUserId}`)
     .setPlaceholder('Select product type...')
     .addOptions(
-      // Active commerce/world providers with a product input form
+      // Active commerce/world providers that have a product-add step 2.
+      // Providers with BOTH catalog_sync AND productInput emit two entries:
+      // one for the catalog picker (key = providerKey) and one for manual URL/ID
+      // entry (key = "${providerKey}_url").
       ...(PROVIDER_REGISTRY as readonly ProviderDescriptor[])
         .filter(
-          (d) => d.status === 'active' && d.productInput != null && d.providerKey !== 'manual'
+          (d) =>
+            d.status === 'active' &&
+            d.providerKey !== 'manual' &&
+            d.providerKey !== 'discord' &&
+            ((d.capabilities as readonly string[]).includes('catalog_sync') ||
+              'perProductCredential' in d ||
+              d.productInput != null)
         )
-        .map((d) => {
+        .flatMap((d) => {
           const emoji = Emoji[d.emojiKey as keyof typeof Emoji];
+          const hasCatalog = (d.capabilities as readonly string[]).includes('catalog_sync');
+          const hasManual = d.productInput != null;
+
+          if (hasCatalog && hasManual) {
+            // Two entries: catalog pick + manual URL/ID
+            const catalogOpt = new StringSelectMenuOptionBuilder()
+              .setLabel(`${d.label} (from your store)`)
+              .setDescription(d.addProductDescription)
+              .setValue(d.providerKey);
+            if (emoji) catalogOpt.setEmoji(emoji);
+
+            const manualOpt = new StringSelectMenuOptionBuilder()
+              .setLabel(`${d.label} (by URL or ID)`)
+              .setDescription(d.productInput!.description)
+              .setValue(`${d.providerKey}_url`);
+            if (emoji) manualOpt.setEmoji(emoji);
+
+            return [catalogOpt, manualOpt];
+          }
+
           const opt = new StringSelectMenuOptionBuilder()
             .setLabel(d.label)
             .setDescription(d.addProductDescription)
             .setValue(d.providerKey);
           if (emoji) opt.setEmoji(emoji);
-          return opt;
+          return [opt];
         }),
       // Special 'license' type: manual/standalone license keys
       new StringSelectMenuOptionBuilder()
@@ -257,6 +286,31 @@ export async function handleProductTypeSelect(
   }
 
   const descriptor = getProviderDescriptor(selectedType);
+
+  // Handle _url variants: e.g. 'gumroad_url' → manual text input using the base
+  // provider's productInput config (same modal as non-catalog providers).
+  if (selectedType.endsWith('_url')) {
+    const baseKey = selectedType.slice(0, -4);
+    const baseDescriptor = getProviderDescriptor(baseKey);
+    const productInput = baseDescriptor?.productInput;
+    if (productInput) {
+      const modal = new ModalBuilder()
+        .setCustomId(`creator_product:url_modal:${interaction.user.id}:${authUserId}`)
+        .setTitle('Step 2 of 3: Product Details')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('url_or_id')
+              .setLabel(productInput.label)
+              .setPlaceholder(productInput.placeholder ?? productInput.description)
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          )
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+  }
 
   // Catalog providers: fetch products from API and show a select menu
   if (descriptor?.capabilities.includes('catalog_sync')) {
@@ -944,6 +998,22 @@ export async function handleProductConfirmAdd(
     }
 
     if (type === 'gumroad') {
+      // Product ID comes from Gumroad catalog API (catalog_sync), same as jinxxy/lemonsqueezy.
+      // Do NOT parse or resolve — use the API-returned ID directly (may be base64-encoded).
+      const productIdFromApi = urlOrId?.trim();
+      if (!productIdFromApi) throw new Error('No Gumroad product selected');
+      const displayName = session.productNames?.['gumroad']?.[productIdFromApi];
+      const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
+        apiSecret,
+        authUserId,
+        productId: productIdFromApi,
+        providerProductRef: productIdFromApi,
+        displayName,
+      });
+      productId = result.productId;
+      catalogProductId = result.catalogProductId;
+    } else if (type === 'gumroad_url') {
+      // Manual entry: user typed a URL or product ID — parse then resolve via Gumroad public API.
       const parsed = parseProductId('gumroad', urlOrId ?? '');
       if (!parsed.ok) throw new Error(parsed.error);
       const slug = parsed.productId;
@@ -960,7 +1030,7 @@ export async function handleProductConfirmAdd(
         resolvedDisplayName = resolved.name;
       } catch (resolveErr) {
         throw new Error(
-          `Could not resolve Gumroad product ID from "${productUrl}": ${resolveErr instanceof Error ? resolveErr.message : String(resolveErr)}`
+          `Could not resolve Gumroad product from "${productUrl}": ${resolveErr instanceof Error ? resolveErr.message : String(resolveErr)}`
         );
       }
 

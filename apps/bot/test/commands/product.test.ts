@@ -63,6 +63,64 @@ describe('product command', () => {
     const typeSelectId = customIds.find((id) => id.startsWith('creator_product:type_select:'));
     expect(typeSelectId).toBeDefined();
     expect(typeSelectId).toBe(`creator_product:type_select:${BASE_CTX.authUserId}`);
+
+    // All active commerce/world providers + hardcoded types must appear as options.
+    // Gumroad has BOTH catalog_sync and productInput → appears as TWO options.
+    const select = payload?.components?.[0]?.components?.[0];
+    const optionValues: string[] = (select?.options ?? []).map(
+      (o: { data?: { value?: string }; value?: string }) => o.data?.value ?? o.value
+    );
+    // Gumroad: both catalog and URL variants
+    expect(optionValues).toContain('gumroad');
+    expect(optionValues).toContain('gumroad_url');
+    // Other catalog-sync providers (single entry each)
+    expect(optionValues).toContain('jinxxy');
+    expect(optionValues).toContain('lemonsqueezy');
+    // Per-product-credential provider
+    expect(optionValues).toContain('payhip');
+    // Manual product-input provider
+    expect(optionValues).toContain('vrchat');
+    // Hardcoded special types
+    expect(optionValues).toContain('license');
+    expect(optionValues).toContain('discord_role');
+    // discord provider itself is handled only as discord_role — not as a raw entry
+    expect(optionValues).not.toContain('discord');
+    // Planned/manual providers must not appear
+    expect(optionValues).not.toContain('manual');
+    expect(optionValues).not.toContain('patreon');
+  });
+
+  it('given gumroad_url type selected, shows text input modal for URL or ID', async () => {
+    // Seed a session
+    const slashInteraction = mockSlashCommand({
+      userId: 'user_prod_url',
+      guildId: 'guild_product_test',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+    await handleProductAddInteractive(slashInteraction as any, {
+      authUserId: 'auth_product_url',
+      guildLinkId: 'link_id_url' as ProductCtx['guildLinkId'],
+      guildId: 'guild_product_test',
+    });
+
+    const selectInteraction = mockStringSelect({
+      userId: 'user_prod_url',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:type_select:auth_product_url',
+      values: ['gumroad_url'],
+    });
+    selectInteraction.showModal = mock(() => Promise.resolve(undefined)) as any;
+
+    await handleProductTypeSelect(selectInteraction as any, 'auth_product_url');
+
+    // Should show a modal (not a catalog picker)
+    expect(selectInteraction.showModal.mock.calls.length).toBe(1);
+    const modal = selectInteraction.showModal.mock.calls[0]?.[0] as any;
+    // Modal custom ID uses url_modal
+    expect(modal?.data?.custom_id ?? modal?.customId).toContain('url_modal');
   });
 
   it('given gumroad type selected but no products configured, shows empty-state error', async () => {
