@@ -69,11 +69,13 @@ export const backfill: BackfillPlugin = {
             lifecycleStatus: (
               s.refunded === true || s.refunded === 'true' ? 'refunded' : 'active'
             ) as BackfillRecord['lifecycleStatus'],
-            purchasedAt: s.created_at
-              ? new Date(s.created_at as string).getTime()
-              : typeof s.sale_timestamp === 'number'
-                ? (s.sale_timestamp as number) * 1000
-                : Date.now(),
+            purchasedAt:
+              s.created_at &&
+              !Number.isNaN(new Date(s.created_at as string).getTime())
+                ? new Date(s.created_at as string).getTime()
+                : typeof s.sale_timestamp === 'number'
+                  ? (s.sale_timestamp as number) * 1000
+                  : Date.now(),
           };
         }),
       );

@@ -30,6 +30,7 @@ const PAYHIP_CREDENTIAL_PURPOSE = 'payhip-api-key' as const;
 const LEMONSQUEEZY_WEBHOOK_SECRET_PURPOSE = 'lemonsqueezy-webhook-secret' as const;
 
 const refs = {
+  getConnectionByWebhookRouteToken: 'providerConnections:getConnectionByWebhookRouteToken',
   getConnectionForBackfill: 'providerConnections:getConnectionForBackfill',
   getJinxxyWebhookSecretByRouteId: 'providerConnections:getJinxxyWebhookSecretByRouteId',
   getPayhipApiKeyByRouteId: 'providerConnections:getPayhipApiKeyByRouteId',
@@ -172,6 +173,7 @@ describe('Gumroad webhook security', () => {
     await withWebhookHarness(
       {
         query: {
+          [refs.getConnectionByWebhookRouteToken]: () => null,
           [refs.getConnectionForBackfill]: () => null,
         },
         mutation: {
@@ -200,6 +202,7 @@ describe('Gumroad webhook security', () => {
     await withWebhookHarness(
       {
         query: {
+          [refs.getConnectionByWebhookRouteToken]: () => null,
           [refs.getConnectionForBackfill]: () => ({ gumroadAccessTokenEncrypted: null }),
           [refs.resolveWebhookTenantIds]: () => [],
         },

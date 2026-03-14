@@ -30,7 +30,7 @@ export const backfill: BackfillPlugin = {
           providerProductId: license.product_id,
           paymentStatus: 'completed',
           lifecycleStatus: 'active',
-          purchasedAt: Date.now(),
+          purchasedAt: license.created_at ? new Date(license.created_at).getTime() : Date.now(),
         }));
 
         return { facts, nextCursor: pagination?.has_next ? String(page + 1) : null };

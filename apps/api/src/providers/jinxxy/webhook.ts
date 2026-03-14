@@ -48,28 +48,32 @@ async function getJinxxyWebhookSecretByRouteId(
   apiSecret: string,
   routeId: string
 ): Promise<string | null> {
-  try {
-    return await convex.query(api.providerConnections.getJinxxyWebhookSecretByRouteId, {
-      apiSecret,
-      routeId,
-    });
-  } catch {
-    return null;
-  }
+  // Allow query failures to propagate so the caller can return 5xx instead of
+  // silently treating an infra error as "no secret configured".
+  return await convex.query(api.providerConnections.getJinxxyWebhookSecretByRouteId, {
+    apiSecret,
+    routeId,
+  });
 }
 
 async function getPendingJinxxyWebhookSecret(
   encryptionSecret: string,
   routeId: string
 ): Promise<string | null> {
+  const store = getStateStore();
+  const raw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`);
+  if (!raw) return null;
   try {
-    const store = getStateStore();
-    const raw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as { signingSecretEncrypted: string };
+    // Allow decrypt failures to propagate so the caller can return 5xx.
     return await decrypt(parsed.signingSecretEncrypted, encryptionSecret, WEBHOOK_SECRET_PURPOSE);
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      // Corrupted state-store entry — treat as no pending secret.
+      logger.warn('Jinxxy pending webhook: failed to parse stored secret', { routeId });
+      return null;
+    }
+    throw err;
   }
 }
 
@@ -128,7 +132,11 @@ async function handleJinxxyCollabWebhook(
 
     if (webhookSecret && signature) {
       const expectedSig = await hmacSha256(webhookSecret, rawBody);
-      signatureValid = timingSafeStringEqual(expectedSig, signature);
+      let incomingSig = signature.trim();
+      if (incomingSig.startsWith('sha256=')) {
+        incomingSig = incomingSig.slice(7);
+      }
+      signatureValid = timingSafeStringEqual(expectedSig, incomingSig);
     } else if (!webhookSecret) {
       logger.warn('Collab webhook: no secret configured', { ownerAuthUserId, inviteId });
       signatureValid = false;

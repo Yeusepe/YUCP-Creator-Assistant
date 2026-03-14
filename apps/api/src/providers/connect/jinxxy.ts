@@ -41,6 +41,9 @@ async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promi
   if (setupBinding.ok) {
     routeId = setupBinding.setupSession.authUserId;
   } else {
+    if (ctx.getSetupSessionTokenFromRequest(request)) {
+      return setupBinding.response;
+    }
     const session = await ctx.auth.getSession(request);
     if (!session) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
@@ -213,9 +216,9 @@ async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Respo
       webhookEndpoint = pendingWebhook.callbackUrl;
     } else {
       const webhookSecret = body.webhookSecret?.trim();
-      if (!webhookSecret || webhookSecret.length < 16) {
+      if (!webhookSecret || webhookSecret.length < 16 || webhookSecret.length > 40) {
         return Response.json(
-          { error: 'Webhook secret is required and must be at least 16 characters' },
+          { error: 'Webhook secret must be between 16 and 40 characters' },
           { status: 400 }
         );
       }

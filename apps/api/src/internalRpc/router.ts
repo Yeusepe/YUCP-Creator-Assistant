@@ -585,7 +585,11 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
               }
             )
           );
-          return await readJsonResponse<CreateCollaboratorInviteResponse>(response);
+          const json = await readJsonResponse<{ inviteUrl?: string; expiresAt?: number }>(response);
+          return {
+            inviteUrl: json.inviteUrl,
+            expiresAt: json.expiresAt !== undefined ? BigInt(json.expiresAt) : undefined,
+          };
         });
       }
 

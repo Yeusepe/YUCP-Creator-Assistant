@@ -520,6 +520,23 @@ export const getConnectionForBackfill = query({
   },
 });
 
+export const getConnectionByWebhookRouteToken = query({
+  args: {
+    apiSecret: v.string(),
+    webhookRouteToken: v.string(),
+  },
+  returns: v.union(v.object({ authUserId: v.string() }), v.null()),
+  handler: async (ctx, { apiSecret, webhookRouteToken }) => {
+    requireApiSecret(apiSecret);
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_webhook_route_token', (q) => q.eq('webhookRouteToken', webhookRouteToken))
+      .first();
+    if (!conn) return null;
+    return { authUserId: conn.authUserId };
+  },
+});
+
 export const createProviderConnection = mutation({
   args: {
     apiSecret: v.string(),
@@ -794,6 +811,7 @@ export const upsertGumroadConnection = mutation({
     gumroadRefreshTokenEncrypted: v.optional(v.string()),
     gumroadUserId: v.optional(v.string()),
     resourceSubscriptionIds: v.optional(v.array(v.string())),
+    webhookRouteToken: v.optional(v.string()),
   },
   returns: v.id('provider_connections'),
   handler: async (ctx, args) => {
@@ -827,6 +845,7 @@ export const upsertGumroadConnection = mutation({
         ...(args.resourceSubscriptionIds !== undefined
           ? { resourceSubscriptionIds: args.resourceSubscriptionIds, webhookConfigured: true }
           : {}),
+        ...(args.webhookRouteToken !== undefined ? { webhookRouteToken: args.webhookRouteToken } : {}),
         updatedAt: now,
       });
       await upsertCredential(ctx, {
@@ -867,6 +886,7 @@ export const upsertGumroadConnection = mutation({
       gumroadUserId: args.gumroadUserId,
       resourceSubscriptionIds: args.resourceSubscriptionIds,
       webhookConfigured: (args.resourceSubscriptionIds?.length ?? 0) > 0,
+      webhookRouteToken: args.webhookRouteToken,
       createdAt: now,
       updatedAt: now,
     });

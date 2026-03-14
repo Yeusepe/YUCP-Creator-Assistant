@@ -56,10 +56,18 @@ export const webhook: WebhookPlugin = {
         }
       }
 
+      // Resolve authUserId: new connections use a random webhookRouteToken; legacy
+      // connections used authUserId directly as the URL path segment.
+      const tokenResult = await convex.query(
+        api.providerConnections.getConnectionByWebhookRouteToken,
+        { apiSecret, webhookRouteToken: routeId }
+      );
+      const resolvedUserId = tokenResult?.authUserId ?? routeId;
+
       // Gumroad Ping has no signature — security relies on the routeId being private.
       const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
         apiSecret,
-        authUserId: routeId,
+        authUserId: resolvedUserId,
         provider: 'gumroad',
       });
 
@@ -73,14 +81,10 @@ export const webhook: WebhookPlugin = {
       }
 
       let authUserIds: string[];
-      try {
-        authUserIds = await convex.query(api.webhookIngestion.resolveWebhookTenantIds, {
-          apiSecret,
-          authUserId: routeId,
-        });
-      } catch {
-        authUserIds = [];
-      }
+      authUserIds = await convex.query(api.webhookIngestion.resolveWebhookTenantIds, {
+        apiSecret,
+        authUserId: resolvedUserId,
+      });
 
       const payload = Object.fromEntries(params.entries());
 
@@ -117,7 +121,7 @@ export const webhook: WebhookPlugin = {
         try {
           const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
             apiSecret,
-            authUserId: routeId,
+            authUserId: resolvedUserId,
             provider: 'gumroad',
             providerEventId,
             eventType,
@@ -125,7 +129,7 @@ export const webhook: WebhookPlugin = {
             signatureValid: true,
           });
           if (result.duplicate) {
-            logger.debug('Gumroad webhook: duplicate event (user-scoped)', { saleId, routeId });
+            logger.debug('Gumroad webhook: duplicate event (user-scoped)', { saleId, resolvedUserId });
           }
         } catch (err) {
           logger.warn('Gumroad webhook: failed to insert user-scoped event', {

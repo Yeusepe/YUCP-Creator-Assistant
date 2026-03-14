@@ -650,7 +650,12 @@ export async function handleAutosetupRoleFormatSelect(
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, authUserId);
   const session = autosetupSessions.get(sessionKey);
-  if (!session || Date.now() > session.expiresAt) return;
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: `${E.Timer} Session expired. Run \`/creator-admin autosetup\` again.`,
+    });
+    return;
+  }
   session.roleFormat = interaction.values[0] as AutosetupSession['roleFormat'];
   await interaction.deferUpdate();
   await showRoleCustomizationStep(interaction, session, userId, authUserId);
@@ -666,7 +671,12 @@ export async function handleAutosetupRoleCustomDone(
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, authUserId);
   const session = autosetupSessions.get(sessionKey);
-  if (!session || Date.now() > session.expiresAt) return;
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: `${E.Timer} Session expired. Run \`/creator-admin autosetup\` again.`,
+    });
+    return;
+  }
   await interaction.deferUpdate();
 
   const products = session.products ?? [];
@@ -712,7 +722,12 @@ export async function handleAutosetupCombineChoice(
 ): Promise<void> {
   const sessionKey = getSessionKey(userId, authUserId);
   const session = autosetupSessions.get(sessionKey);
-  if (!session || Date.now() > session.expiresAt) return;
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: `${E.Timer} Session expired. Run \`/creator-admin autosetup\` again.`,
+    });
+    return;
+  }
   await interaction.deferUpdate();
   session.combineDuplicates = combine;
   await showProductSelectStep(interaction, convex, apiSecret, session, userId);
@@ -808,11 +823,12 @@ export async function handleAutosetupProductsSelect(
             verifiedRoleId: role.id,
           });
         } else {
-          const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
+          const result = await convex.mutation(api.role_rules.addProductForProvider, {
             apiSecret,
             authUserId,
             productId: product.id,
             providerProductRef: product.id,
+            provider: product.provider,
             displayName: product.name,
           });
           await convex.mutation(api.role_rules.createRoleRule, {

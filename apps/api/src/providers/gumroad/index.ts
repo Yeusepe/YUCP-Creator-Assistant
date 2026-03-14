@@ -49,6 +49,7 @@ const gumroadProvider: ProviderPlugin = {
     const products: ProductRecord[] = [];
     let nextPageUrl: string | undefined = `${GUMROAD_API_BASE}/products`;
 
+    let rateLimitRetries = 0;
     while (nextPageUrl && products.length < 5000) {
       const separator = nextPageUrl.includes('?') ? '&' : '?';
       const url = `${nextPageUrl}${separator}access_token=${encodeURIComponent(credential)}`;
@@ -56,12 +57,18 @@ const gumroadProvider: ProviderPlugin = {
       const response = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
 
       if (response.status === 429) {
+        rateLimitRetries++;
+        if (rateLimitRetries > 10) {
+          throw new Error('Gumroad API: rate limit exceeded after 10 consecutive retries');
+        }
         const retryAfter = response.headers.get('Retry-After');
         const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 5000;
-        logger.warn('Gumroad rate limit fetching products', { waitMs });
+        logger.warn('Gumroad rate limit fetching products', { waitMs, rateLimitRetries });
         await new Promise((r) => setTimeout(r, waitMs));
         continue;
       }
+
+      rateLimitRetries = 0;
 
       if (!response.ok) {
         const text = await response.text();

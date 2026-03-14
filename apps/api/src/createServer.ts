@@ -315,9 +315,9 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     }
     if (pathname.startsWith('/api/connect/public-api/keys/')) {
       const keyId = pathname.replace(/^\/api\/connect\/public-api\/keys\//, '').split('/')[0];
-      if (pathname.endsWith('/revoke'))
+      if (pathname.endsWith('/revoke') && request.method === 'POST')
         return connectRoutes.revokePublicApiKey(request, decodeURIComponent(keyId ?? ''));
-      if (pathname.endsWith('/rotate'))
+      if (pathname.endsWith('/rotate') && request.method === 'POST')
         return connectRoutes.rotatePublicApiKey(request, decodeURIComponent(keyId ?? ''));
     }
     if (pathname === '/api/connect/oauth-apps') {

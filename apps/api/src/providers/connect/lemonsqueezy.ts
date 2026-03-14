@@ -47,6 +47,9 @@ async function lemonsqueezyFinish(request: Request, ctx: ConnectContext): Promis
   }
 
   const setupBinding = await ctx.requireBoundSetupSession(request);
+  if (!setupBinding.ok && ctx.getSetupSessionTokenFromRequest(request)) {
+    return setupBinding.response;
+  }
   const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
   const authSession =
     setupBinding.ok ? setupBinding.authSession : await ctx.auth.getSession(request);
@@ -136,7 +139,8 @@ async function lemonsqueezyFinish(request: Request, ctx: ConnectContext): Promis
       LEMONSQUEEZY.webhookSecret
     );
 
-    for (const credential of [
+    try {
+      for (const credential of [
       {
         credentialKey: 'api_token',
         kind: 'api_token',
@@ -213,6 +217,21 @@ async function lemonsqueezyFinish(request: Request, ctx: ConnectContext): Promis
     }
 
     return Response.json({ success: true });
+    } catch (convexErr) {
+      logger.warn('LemonSqueezy finish: Convex writes failed, rolling back webhook', {
+        webhookId: webhook.id,
+        error: convexErr instanceof Error ? convexErr.message : String(convexErr),
+      });
+      try {
+        await client.deleteWebhook(webhook.id);
+      } catch (deleteErr) {
+        logger.warn('LemonSqueezy finish: webhook rollback also failed', {
+          webhookId: webhook.id,
+          err: String(deleteErr),
+        });
+      }
+      throw convexErr;
+    }
   } catch (err) {
     logger.error('LemonSqueezy finish failed', {
       error: err instanceof Error ? err.message : String(err),

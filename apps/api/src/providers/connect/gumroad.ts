@@ -265,7 +265,8 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
       });
     }
 
-    const webhookTarget = authUserId;
+    const webhookRouteToken = crypto.randomUUID();
+    const webhookTarget = webhookRouteToken;
     const postUrl = `${webhookBase}${webhookTarget}`;
     const resourceSubscriptionIds: string[] = [];
     for (const resourceName of ['sale', 'refund']) {
@@ -317,6 +318,7 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
       gumroadRefreshTokenEncrypted: refreshEncrypted,
       gumroadUserId,
       resourceSubscriptionIds,
+      webhookRouteToken,
     });
 
     const redirectParams: Record<string, string> = { gumroad: 'connected' };

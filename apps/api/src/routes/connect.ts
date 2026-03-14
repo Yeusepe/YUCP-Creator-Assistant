@@ -444,7 +444,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const store = getStateStore();
     const raw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
     if (!raw) return null;
-    return JSON.parse(raw) as ConnectSession;
+    try {
+      return JSON.parse(raw) as ConnectSession;
+    } catch {
+      return null;
+    }
   }
 
   async function resolveConnectDiscordUserId(request: Request): Promise<string | null> {
@@ -1239,7 +1243,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       logger.error('Get status failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ gumroad: false, jinxxy: false });
+      return Response.json({ error: 'Failed to retrieve status' }, { status: 500 });
     }
   }
 

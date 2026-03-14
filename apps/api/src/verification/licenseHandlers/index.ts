@@ -83,7 +83,7 @@ export async function getHandler(provider: string): Promise<LicenseVerificationH
         productId,
       });
 
-      let mutationResult: Awaited<ReturnType<typeof convex.mutation<typeof api.licenseVerification.completeLicenseVerification>>>;
+      let mutationResult: Awaited<ReturnType<typeof convex.mutation>>;
       try {
         mutationResult = await convex.mutation(
           api.licenseVerification.completeLicenseVerification,

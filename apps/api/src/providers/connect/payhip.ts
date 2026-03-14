@@ -41,6 +41,9 @@ async function payhipFinish(request: Request, ctx: ConnectContext): Promise<Resp
   }
 
   const setupBinding = await ctx.requireBoundSetupSession(request);
+  if (!setupBinding.ok && ctx.getSetupSessionTokenFromRequest(request)) {
+    return setupBinding.response;
+  }
   const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
   const authSession =
     setupBinding.ok ? setupBinding.authSession : await ctx.auth.getSession(request);
@@ -108,6 +111,9 @@ async function payhipTestWebhook(request: Request, ctx: ConnectContext): Promise
   if (setupBinding.ok) {
     routeId = setupBinding.setupSession.authUserId;
   } else {
+    if (ctx.getSetupSessionTokenFromRequest(request)) {
+      return setupBinding.response;
+    }
     const session = await ctx.auth.getSession(request);
     if (!session) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
