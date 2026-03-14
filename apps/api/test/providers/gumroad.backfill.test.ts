@@ -22,11 +22,11 @@ const NINETY_DAYS_AGO_ISO = new Date(NINETY_DAYS_AGO_MS).toISOString();
 
 function mockFetch(response: unknown, status = 200): () => void {
   const original = globalThis.fetch;
-  globalThis.fetch = async () =>
+  globalThis.fetch = (async () =>
     new Response(JSON.stringify(response), {
       status,
       headers: { 'Content-Type': 'application/json' },
-    });
+    })) as unknown as typeof fetch;
   return () => {
     globalThis.fetch = original;
   };
