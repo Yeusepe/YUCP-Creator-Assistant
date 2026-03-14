@@ -8,8 +8,8 @@
 import { describe, expect, it, mock } from 'bun:test';
 import type { ConvexHttpClient } from 'convex/browser';
 import { MessageFlags } from 'discord.js';
-import { handleInteraction } from '../../src/handlers/interactions';
 import { handleStats } from '../../src/commands/stats';
+import { handleInteraction } from '../../src/handlers/interactions';
 import { mockButton, mockSlashCommand } from '../helpers/mockInteraction';
 
 // ─── Convex mock factory ──────────────────────────────────────────────────────
@@ -38,16 +38,10 @@ function makeConvex(opts: StatsMockOpts = {}): ConvexHttpClient {
   } as unknown as ConvexHttpClient;
 }
 
-function makeInteractionConvex(opts: {
-  guildLinkAuthUserId?: string;
-  totalVerified?: number;
-  nextCursor?: string | null;
-} = {}): ConvexHttpClient {
-  const {
-    guildLinkAuthUserId = 'auth_stats_secure',
-    totalVerified = 0,
-    nextCursor = null,
-  } = opts;
+function makeInteractionConvex(
+  opts: { guildLinkAuthUserId?: string; totalVerified?: number; nextCursor?: string | null } = {}
+): ConvexHttpClient {
+  const { guildLinkAuthUserId = 'auth_stats_secure', totalVerified = 0, nextCursor = null } = opts;
 
   return {
     query: mock(async (_ref: unknown, args: Record<string, unknown>) => {
@@ -90,7 +84,13 @@ describe('handleStats', () => {
       guildId: 'guild_stats_1',
       isAdmin: true,
     });
-    const convex = makeConvex({ rules: [], totalVerified: 0, recent24h: 0, recent7d: 0, recent30d: 0 });
+    const convex = makeConvex({
+      rules: [],
+      totalVerified: 0,
+      recent24h: 0,
+      recent7d: 0,
+      recent30d: 0,
+    });
 
     await handleStats(interaction as any, convex, 'api-secret', BASE_CTX);
 
@@ -121,7 +121,7 @@ describe('handleStats', () => {
 
     const embed = interaction.editReply.mock.calls[0]?.[0]?.embeds?.[0] as any;
     const verifiedField = embed?.data?.fields?.find(
-      (f: { name: string }) => f.name === 'Verified Users',
+      (f: { name: string }) => f.name === 'Verified Users'
     );
     expect(verifiedField?.value).toBe('3');
   });
@@ -163,7 +163,7 @@ describe('handleStats', () => {
     await handleStats(interaction as any, convex, 'api-secret', BASE_CTX);
 
     expect(interaction.deferReply.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ flags: MessageFlags.Ephemeral }),
+      expect.objectContaining({ flags: MessageFlags.Ephemeral })
     );
 
     const embed = interaction.editReply.mock.calls[0]?.[0]?.embeds?.[0] as any;
@@ -182,7 +182,7 @@ describe('handleStats', () => {
 
     // Products Mapped comes from the rules array length
     const mappedField = embed?.data?.fields?.find(
-      (f: { name: string }) => f.name === 'Products Mapped',
+      (f: { name: string }) => f.name === 'Products Mapped'
     );
     expect(mappedField?.value).toBe('3');
   });
@@ -223,7 +223,7 @@ describe('handleStats', () => {
       expect.objectContaining({
         content: expect.stringMatching(/administrator/i),
         flags: MessageFlags.Ephemeral,
-      }),
+      })
     );
     expect(interaction.deferReply.mock.calls).toHaveLength(0);
     expect(interaction.editReply.mock.calls).toHaveLength(0);
@@ -246,7 +246,7 @@ describe('handleStats', () => {
       expect.objectContaining({
         content: expect.stringMatching(/server/i),
         flags: MessageFlags.Ephemeral,
-      }),
+      })
     );
     expect(interaction.deferReply.mock.calls).toHaveLength(0);
     expect(interaction.editReply.mock.calls).toHaveLength(0);

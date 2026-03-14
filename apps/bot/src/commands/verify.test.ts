@@ -111,6 +111,11 @@ describe('verification support codes in bot handlers', () => {
       removedBindings: 1,
       removedExternalAccounts: 1,
     }));
+    // getEnabledVerificationProvidersFromProducts and getByGuildWithProductNames both receive
+    // { apiSecret, authUserId, guildId } — use a call counter to tell them apart.
+    // Call order: getEnabledVerification... fires first (outer Promise.all item 2),
+    // getByGuildWithProductNames fires later (inner fetchVerifyData Promise.all item 3).
+    let guildQueryCount = 0;
     const convex = {
       mutation,
       query: mock(async (_ref: unknown, args: Record<string, unknown>) => {
@@ -137,12 +142,13 @@ describe('verification support codes in bot handlers', () => {
         }
 
         if ('apiSecret' in args && 'guildId' in args) {
-          return {
-            gumroad: true,
-            jinxxy: false,
-            discord: true,
-            vrchat: false,
-          };
+          guildQueryCount++;
+          if (guildQueryCount === 1) {
+            // getEnabledVerificationProvidersFromProducts — called first in outer Promise.all
+            return { providers: ['gumroad', 'discord'] };
+          }
+          // getByGuildWithProductNames — called second inside fetchVerifyData
+          return [{ productId: 'product_123', displayName: 'My Product' }];
         }
 
         return [{ productId: 'product_123', displayName: 'My Product' }];

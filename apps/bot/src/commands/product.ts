@@ -7,10 +7,10 @@
  */
 
 import {
-  PROVIDER_REGISTRY,
-  type ProviderDescriptor,
   createLogger,
   getProviderDescriptor,
+  PROVIDER_REGISTRY,
+  type ProviderDescriptor,
   parseProductId,
   providerLabel,
 } from '@yucp/shared';
@@ -119,17 +119,19 @@ export async function handleProductAddInteractive(
     .setPlaceholder('Select product type...')
     .addOptions(
       // Active commerce/world providers with a product input form
-      ...(PROVIDER_REGISTRY as readonly ProviderDescriptor[]).filter(
-        (d) => d.status === 'active' && d.productInput != null && d.providerKey !== 'manual'
-      ).map((d) => {
-        const emoji = Emoji[d.emojiKey as keyof typeof Emoji];
-        const opt = new StringSelectMenuOptionBuilder()
-          .setLabel(d.label)
-          .setDescription(d.addProductDescription)
-          .setValue(d.providerKey);
-        if (emoji) opt.setEmoji(emoji);
-        return opt;
-      }),
+      ...(PROVIDER_REGISTRY as readonly ProviderDescriptor[])
+        .filter(
+          (d) => d.status === 'active' && d.productInput != null && d.providerKey !== 'manual'
+        )
+        .map((d) => {
+          const emoji = Emoji[d.emojiKey as keyof typeof Emoji];
+          const opt = new StringSelectMenuOptionBuilder()
+            .setLabel(d.label)
+            .setDescription(d.addProductDescription)
+            .setValue(d.providerKey);
+          if (emoji) opt.setEmoji(emoji);
+          return opt;
+        }),
       // Special 'license' type: manual/standalone license keys
       new StringSelectMenuOptionBuilder()
         .setLabel('License Key Only')
@@ -295,7 +297,11 @@ export async function handleProductTypeSelect(
       const MAX_OPTIONS = 25;
       const toShow = products.slice(0, MAX_OPTIONS);
       const hasCollabProducts = products.some((p) => p.collaboratorName);
-      const catalogSelectId = getCatalogSelectCustomId(selectedType, interaction.user.id, authUserId);
+      const catalogSelectId = getCatalogSelectCustomId(
+        selectedType,
+        interaction.user.id,
+        authUserId
+      );
 
       const select = new StringSelectMenuBuilder()
         .setCustomId(catalogSelectId)
@@ -305,8 +311,7 @@ export async function handleProductTypeSelect(
             const productLabel = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
             const sourcePrefix = p.collaboratorName ? `[${p.collaboratorName}] ` : '';
             const raw = sourcePrefix + p.name;
-            const description =
-              raw.length > 100 ? `${raw.slice(0, 97)}...` : raw || `ID: ${p.id}`;
+            const description = raw.length > 100 ? `${raw.slice(0, 97)}...` : raw || `ID: ${p.id}`;
             return new StringSelectMenuOptionBuilder()
               .setLabel(productLabel)
               .setValue(p.id)

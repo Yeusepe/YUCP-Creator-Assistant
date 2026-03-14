@@ -1,16 +1,16 @@
 import { describe, expect, it, mock } from 'bun:test';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import {
+  handleDownloadsAdd,
+  handleDownloadsManage,
+  handleDownloadsManageToggle,
+} from '../../src/commands/downloads';
+import {
   extractAllCustomIds,
   getEmbedFromReply,
   mockButton,
   mockSlashCommand,
 } from '../helpers/mockInteraction';
-import {
-  handleDownloadsAdd,
-  handleDownloadsManage,
-  handleDownloadsManageToggle,
-} from '../../src/commands/downloads';
 
 // ─── Shared mock factories ─────────────────────────────────────────────────────
 
@@ -47,7 +47,17 @@ function withGuildChannels(interaction: ReturnType<typeof mockSlashCommand>) {
 
 type DownloadsAddCtx = Parameters<typeof handleDownloadsAdd>[1];
 
-const ALL_EXTENSIONS = ['fbx', 'unitypackage', 'zip', '7z', 'rar', 'blend', 'spp', 'sbscfg', 'sbsar'];
+const ALL_EXTENSIONS = [
+  'fbx',
+  'unitypackage',
+  'zip',
+  '7z',
+  'rar',
+  'blend',
+  'spp',
+  'sbscfg',
+  'sbsar',
+];
 
 const SAMPLE_ROUTE = {
   _id: 'route_dl_1' as Id<'download_routes'>,
@@ -114,7 +124,8 @@ describe('downloads command', () => {
 
     expect(interaction.deferReply.mock.calls.length).toBe(1);
     const replyContent = interaction.editReply.mock.calls[0]?.[0] as any;
-    const content: string = typeof replyContent === 'string' ? replyContent : replyContent?.content ?? '';
+    const content: string =
+      typeof replyContent === 'string' ? replyContent : (replyContent?.content ?? '');
     expect(content).toContain('No routes yet');
     expect(content).toContain('/creator-admin downloads setup');
   });
@@ -150,7 +161,9 @@ describe('downloads command', () => {
     const customIds = extractAllCustomIds(interaction);
     expect(customIds.some((id) => id.startsWith('creator_downloads:manage_select:'))).toBe(true);
     expect(customIds.some((id) => id.startsWith('creator_downloads:manage_toggle:'))).toBe(true);
-    expect(customIds.some((id) => id.startsWith('creator_downloads:manage_remove_prompt:'))).toBe(true);
+    expect(customIds.some((id) => id.startsWith('creator_downloads:manage_remove_prompt:'))).toBe(
+      true
+    );
   });
 
   it('rejects stale manage tokens before any route query runs', async () => {
@@ -161,7 +174,12 @@ describe('downloads command', () => {
     });
     const convex = makeManageConvex();
 
-    await handleDownloadsManageToggle(interaction as any, convex as any, 'api-secret', 'missing_token');
+    await handleDownloadsManageToggle(
+      interaction as any,
+      convex as any,
+      'api-secret',
+      'missing_token'
+    );
 
     const reply = interaction.reply.mock.calls[0]?.[0] as any;
     expect(reply?.content).toContain('panel expired');

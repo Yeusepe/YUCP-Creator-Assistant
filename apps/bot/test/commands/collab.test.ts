@@ -12,19 +12,18 @@ const mockAddCollaboratorConnectionManual = mock(() =>
 
 mock.module('../../src/lib/internalRpc', () => ({
   createCollaboratorInvite: mock(() =>
-    Promise.resolve({ inviteUrl: 'https://example.com/invite/token', expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 })
+    Promise.resolve({
+      inviteUrl: 'https://example.com/invite/token',
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    })
   ),
   listCollaboratorConnections: mock(() => Promise.resolve([])),
   addCollaboratorConnectionManual: mockAddCollaboratorConnectionManual,
   removeCollaboratorConnection: mock(() => Promise.resolve({ success: true })),
 }));
 
-import {
-  extractAllCustomIds,
-  mockModalSubmit,
-  mockSlashCommand,
-} from '../helpers/mockInteraction';
 import { handleCollabAdd, handleCollabAddModalSubmit } from '../../src/commands/collab';
+import { extractAllCustomIds, mockModalSubmit, mockSlashCommand } from '../helpers/mockInteraction';
 
 describe('collab command', () => {
   it('given /collab add, shows provider selection menu for collab-capable providers', async () => {
@@ -67,19 +66,15 @@ describe('collab command', () => {
         },
       });
 
-      await handleCollabAddModalSubmit(
-        interaction as any,
-        'api-secret',
-        'auth_collab_2',
-        'jinxxy'
-      );
+      await handleCollabAddModalSubmit(interaction as any, 'api-secret', 'auth_collab_2', 'jinxxy');
 
       // deferReply then editReply
       expect(interaction.deferReply.mock.calls.length).toBe(1);
       expect(interaction.editReply.mock.calls.length).toBe(1);
 
       const replyPayload = interaction.editReply.mock.calls[0]?.[0] as any;
-      const content: string = typeof replyPayload === 'string' ? replyPayload : replyPayload?.content ?? '';
+      const content: string =
+        typeof replyPayload === 'string' ? replyPayload : (replyPayload?.content ?? '');
       expect(content).toContain('Jinxxy Creator');
       expect(mockAddCollaboratorConnectionManual.mock.calls.length).toBeGreaterThan(0);
     } finally {

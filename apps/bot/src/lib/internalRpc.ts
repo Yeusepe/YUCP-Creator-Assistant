@@ -173,7 +173,10 @@ export async function listLemonSqueezyProducts(authUserId: string): Promise<{
 export async function listProducts(
   provider: string,
   authUserId: string
-): Promise<{ error?: string; products: Array<{ collaboratorName?: string; id: string; name: string }> }> {
+): Promise<{
+  error?: string;
+  products: Array<{ collaboratorName?: string; id: string; name: string }>;
+}> {
   switch (provider) {
     case 'gumroad':
       return listGumroadProducts(authUserId);

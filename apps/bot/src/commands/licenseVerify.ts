@@ -22,7 +22,11 @@
  */
 
 import { PROVIDER_META, providerLabel } from '@yucp/providers';
-import { createLogger, formatVerificationSupportMessage, getProviderDescriptor } from '@yucp/shared';
+import {
+  createLogger,
+  formatVerificationSupportMessage,
+  getProviderDescriptor,
+} from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,

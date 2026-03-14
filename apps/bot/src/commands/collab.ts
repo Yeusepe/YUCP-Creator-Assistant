@@ -6,7 +6,7 @@
  * The collaborator's identity is verified via Discord OAuth on the consent page.
  */
 
-import { PROVIDER_REGISTRY, type ProviderDescriptor, createLogger } from '@yucp/shared';
+import { createLogger, PROVIDER_REGISTRY, type ProviderDescriptor } from '@yucp/shared';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -17,8 +17,8 @@ import {
   ModalBuilder,
   type ModalSubmitInteraction,
   StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
   type StringSelectMenuInteraction,
+  StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';

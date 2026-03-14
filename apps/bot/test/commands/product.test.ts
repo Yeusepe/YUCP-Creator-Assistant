@@ -21,18 +21,17 @@ mock.module('../../src/lib/posthog', () => ({
 }));
 
 import {
+  handleProductAddInteractive,
+  handleProductCancelAdd,
+  handleProductTypeSelect,
+} from '../../src/commands/product';
+import type { MockInteraction } from '../helpers/mockInteraction';
+import {
   extractAllCustomIds,
   mockButton,
   mockSlashCommand,
   mockStringSelect,
 } from '../helpers/mockInteraction';
-import type { MockInteraction } from '../helpers/mockInteraction';
-
-import {
-  handleProductAddInteractive,
-  handleProductCancelAdd,
-  handleProductTypeSelect,
-} from '../../src/commands/product';
 
 type ProductCtx = Parameters<typeof handleProductAddInteractive>[1];
 
@@ -67,9 +66,7 @@ describe('product command', () => {
   });
 
   it('given gumroad type selected but no products configured, shows empty-state error', async () => {
-    mockListProducts.mockImplementation(() =>
-      Promise.resolve({ products: [] })
-    );
+    mockListProducts.mockImplementation(() => Promise.resolve({ products: [] }));
 
     // First, seed the session by calling the slash command handler
     const slashInteraction = mockSlashCommand({
@@ -100,9 +97,7 @@ describe('product command', () => {
 
     // editReply should report no products found
     const editReplyPayload = selectInteraction.editReply.mock.calls[0]?.[0] as any;
-    expect(
-      editReplyPayload?.content ?? editReplyPayload
-    ).toContain('No Gumroad products found');
+    expect(editReplyPayload?.content ?? editReplyPayload).toContain('No Gumroad products found');
   });
 
   it('given gumroad type selected with products, shows catalog select menu', async () => {
@@ -256,7 +251,11 @@ describe('product command', () => {
       guildId: 'guild_product_guard_3',
       customId: 'creator_product:cancel_add:auth_product_guard_3',
     });
-    await handleProductCancelAdd(cancelInteraction as any, 'user_prod_guard_3', 'auth_product_guard_3');
+    await handleProductCancelAdd(
+      cancelInteraction as any,
+      'user_prod_guard_3',
+      'auth_product_guard_3'
+    );
 
     const replayInteraction = mockStringSelect({
       userId: 'user_prod_guard_3',

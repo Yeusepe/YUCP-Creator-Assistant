@@ -13,8 +13,7 @@
  *     call index 2 → getByGuildWithProductNames (only when subject found) → return array
  */
 
-import { describe, expect, it } from 'bun:test';
-import { mock } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 import type { ConvexHttpClient } from 'convex/browser';
 import { buildVerifyStatusReply } from '../../src/commands/verify';
 
@@ -88,7 +87,7 @@ describe('buildVerifyStatusReply', () => {
       'guild_verify_1',
       convex,
       'api-secret',
-      'https://api.example.com',
+      'https://api.example.com'
     );
 
     const text = JSON.stringify(reply.components[0].toJSON());
@@ -111,7 +110,7 @@ describe('buildVerifyStatusReply', () => {
       'guild_verify_2',
       convex,
       'api-secret',
-      'https://api.example.com',
+      'https://api.example.com'
     );
 
     const text = JSON.stringify(reply.components[0].toJSON());
@@ -129,7 +128,7 @@ describe('buildVerifyStatusReply', () => {
       'guild_verify_3',
       convex,
       'api-secret',
-      'https://api.example.com',
+      'https://api.example.com'
     );
 
     const text = JSON.stringify(reply.components[0].toJSON());
@@ -150,7 +149,7 @@ describe('buildVerifyStatusReply', () => {
       null as unknown as string, // DM: no guild
       convex,
       'api-secret',
-      undefined,
+      undefined
     );
 
     const text = JSON.stringify(reply.components[0].toJSON());

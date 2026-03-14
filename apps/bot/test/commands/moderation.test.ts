@@ -13,15 +13,15 @@ mock.module('../../src/lib/posthog', () => ({
   flush: mock(() => Promise.resolve()),
 }));
 
-import { MessageFlags } from 'discord.js';
 import type { ConvexHttpClient } from 'convex/browser';
-import { handleInteraction } from '../../src/handlers/interactions';
+import { MessageFlags } from 'discord.js';
 import {
   handleModerationClear,
   handleModerationConfirmClear,
   handleModerationMark,
   handleModerationReasonSelect,
 } from '../../src/commands/moderation';
+import { handleInteraction } from '../../src/handlers/interactions';
 import { mockButton, mockSlashCommand, mockStringSelect } from '../helpers/mockInteraction';
 
 // ─── Convex mock factory ──────────────────────────────────────────────────────
@@ -67,12 +67,10 @@ describe('moderation commands', () => {
     });
 
     // handleModerationMark does not use convex (_convex parameter)
-    await handleModerationMark(
-      interaction as any,
-      {} as ConvexHttpClient,
-      'api-secret',
-      { authUserId: 'auth_mod_1', guildId: 'guild_mod_1' },
-    );
+    await handleModerationMark(interaction as any, {} as ConvexHttpClient, 'api-secret', {
+      authUserId: 'auth_mod_1',
+      guildId: 'guild_mod_1',
+    });
 
     expect(interaction.reply.mock.calls).toHaveLength(1);
     const payload = interaction.reply.mock.calls[0]?.[0] as any;
@@ -84,7 +82,7 @@ describe('moderation commands', () => {
     const selectMenuRow = payload?.components?.[0];
     const selectMenu = selectMenuRow?.components?.[0] as any;
     expect(selectMenu?.data?.custom_id).toMatch(
-      /^creator_moderation:reason_select:actor_mod_1:auth_mod_1:target_mod_1$/,
+      /^creator_moderation:reason_select:actor_mod_1:auth_mod_1:target_mod_1$/
     );
   });
 
@@ -102,7 +100,7 @@ describe('moderation commands', () => {
       'api-secret',
       'target_mod_2',
       'auth_mod_2',
-      'actor_mod_2',
+      'actor_mod_2'
     );
 
     expect(interaction.deferUpdate.mock.calls).toHaveLength(1);
@@ -126,12 +124,10 @@ describe('moderation commands', () => {
       userOptions: { user: { id: 'victim_mod_3', username: 'victim' } },
     });
 
-    await handleModerationMark(
-      interaction as any,
-      {} as ConvexHttpClient,
-      'api-secret',
-      { authUserId: 'auth_mod_3', guildId: 'guild_mod_3' },
-    );
+    await handleModerationMark(interaction as any, {} as ConvexHttpClient, 'api-secret', {
+      authUserId: 'auth_mod_3',
+      guildId: 'guild_mod_3',
+    });
 
     // ⚠️ BUG: command shows select menu to non-admin users instead of rejecting
     const replyContent: string | undefined = interaction.reply.mock.calls[0]?.[0]?.content;
@@ -151,9 +147,9 @@ describe('moderation commands', () => {
       interaction as any,
       convex,
       'api-secret',
-      'actor_mod_4',   // actorId
-      'auth_mod_4',    // authUserId
-      'unknown_mod_4', // targetUserId — not in DB
+      'actor_mod_4', // actorId
+      'auth_mod_4', // authUserId
+      'unknown_mod_4' // targetUserId — not in DB
     );
 
     expect(interaction.deferUpdate.mock.calls).toHaveLength(1);
@@ -172,12 +168,10 @@ describe('moderation commands', () => {
       userOptions: { user: { id: 'target_mod_5', username: 'some_user' } },
     });
 
-    await handleModerationMark(
-      interaction as any,
-      {} as ConvexHttpClient,
-      'api-secret',
-      { authUserId: 'auth_mod_5', guildId: 'guild_mod_5' },
-    );
+    await handleModerationMark(interaction as any, {} as ConvexHttpClient, 'api-secret', {
+      authUserId: 'auth_mod_5',
+      guildId: 'guild_mod_5',
+    });
 
     const replyArgs = interaction.reply.mock.calls[0]?.[0] as any;
     expect(replyArgs?.flags).toBe(MessageFlags.Ephemeral);
@@ -194,12 +188,10 @@ describe('moderation commands', () => {
       userOptions: { user: { id: 'target_mod_6', username: 'target' } },
     });
 
-    await handleModerationMark(
-      interaction as any,
-      {} as ConvexHttpClient,
-      'api-secret',
-      { authUserId: 'auth_mod_6', guildId: null as unknown as string },
-    );
+    await handleModerationMark(interaction as any, {} as ConvexHttpClient, 'api-secret', {
+      authUserId: 'auth_mod_6',
+      guildId: null as unknown as string,
+    });
 
     // ⚠️ BUG: shows select menu instead of guild-required error
     const replyContent: string | undefined = interaction.reply.mock.calls[0]?.[0]?.content;
@@ -232,7 +224,8 @@ describe('moderation commands', () => {
     const interaction = mockStringSelect({
       userId: 'intruder_mod_guard_2',
       guildId: 'guild_mod_guard_2',
-      customId: 'creator_moderation:reason_select:admin_mod_guard_2:auth_mod_secure:target_mod_guard_2',
+      customId:
+        'creator_moderation:reason_select:admin_mod_guard_2:auth_mod_secure:target_mod_guard_2',
       values: ['Piracy'],
       isAdmin: true,
     });
@@ -252,7 +245,8 @@ describe('moderation commands', () => {
     const interaction = mockButton({
       userId: 'admin_mod_guard_3',
       guildId: 'guild_mod_guard_3',
-      customId: 'creator_moderation:confirm_clear:target_mod_guard_3:auth_mod_other:admin_mod_guard_3',
+      customId:
+        'creator_moderation:confirm_clear:target_mod_guard_3:auth_mod_other:admin_mod_guard_3',
       isAdmin: true,
     });
     const convex = makeConvex();

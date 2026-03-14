@@ -1,18 +1,14 @@
 import { describe, expect, it, mock } from 'bun:test';
+import { MessageFlags } from 'discord.js';
+// settings.ts uses convex directly (not internalRpc), so no module mock needed
+import { handleDisconnectCancel, handleSettingsDisconnect } from '../../src/commands/settings';
+import { handleInteraction } from '../../src/handlers/interactions';
 import {
   extractAllCustomIds,
   getEmbedFromReply,
   mockButton,
   mockSlashCommand,
 } from '../helpers/mockInteraction';
-import { handleInteraction } from '../../src/handlers/interactions';
-import { MessageFlags } from 'discord.js';
-
-// settings.ts uses convex directly (not internalRpc), so no module mock needed
-import {
-  handleDisconnectCancel,
-  handleSettingsDisconnect,
-} from '../../src/commands/settings';
 
 const noop = mock(() => {});
 const makeLogger = () => ({
