@@ -2,6 +2,7 @@
  * /creator status - Show user verification status (user command)
  */
 
+import { PROVIDER_REGISTRY, type ProviderDescriptor } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
@@ -41,9 +42,18 @@ export async function handleStatus(
     .map((e) => e.sourceProvider ?? '')
     .filter((s): s is string => Boolean(s));
   const providers = [...new Set(providerList)];
-  const linkedGumroad = providers.includes('gumroad');
-  const linkedJinxxy = providers.includes('jinxxy');
-  const linkedDiscord = true;
+
+  const statusProviders = (PROVIDER_REGISTRY as readonly ProviderDescriptor[]).filter(
+    (p) => p.status === 'active' && (p.category === 'commerce' || p.category === 'community')
+  );
+
+  const linkedAccountsValue = statusProviders
+    .map((p) => {
+      const emoji = E[p.emojiKey as keyof typeof E] ?? '';
+      const isLinked = p.providerKey === 'discord' ? true : providers.includes(p.providerKey);
+      return `${emoji} ${p.label}: ${isLinked ? E.Checkmark : E.X_}`;
+    })
+    .join('\n');
 
   const embed = new EmbedBuilder()
     .setTitle('Your Verification Status')
@@ -51,11 +61,7 @@ export async function handleStatus(
     .addFields(
       {
         name: 'Linked accounts',
-        value: [
-          `Gumroad: ${linkedGumroad ? E.Checkmark : E.X_}`,
-          `Jinxxy: ${linkedJinxxy ? E.Checkmark : E.X_}`,
-          `Discord: ${linkedDiscord ? E.Checkmark : E.X_}`,
-        ].join('\n'),
+        value: linkedAccountsValue,
         inline: true,
       },
       {

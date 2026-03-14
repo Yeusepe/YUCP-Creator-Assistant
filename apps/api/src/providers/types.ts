@@ -10,6 +10,7 @@
  * Route handlers (products.ts, backfill.ts) require zero changes.
  */
 
+import type { Auth } from '../auth';
 import type { getConvexClientFromUrl } from '../lib/convex';
 
 /** Infrastructure context passed to all provider plugin methods */
@@ -99,4 +100,100 @@ export interface ProviderPlugin {
   fetchProducts(credential: string | null, ctx: ProviderContext): Promise<ProductRecord[]>;
   /** Optional — undefined means this provider does not support purchase backfill */
   readonly backfill?: BackfillPlugin;
+  readonly webhook?: WebhookPlugin;
+  readonly connect?: ConnectPlugin;
+  readonly verification?: LicenseVerificationPlugin;
+  readonly supportsCollab?: boolean;
+  readonly productCredentialPurpose?: string;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Webhook Plugin
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface WebhookContext {
+  convex: ReturnType<typeof getConvexClientFromUrl>;
+  apiSecret: string;
+  encryptionSecret: string;
+}
+
+export interface WebhookPlugin {
+  handle(
+    request: Request,
+    routeId: string,
+    urlProviderId: string,
+    ctx: WebhookContext,
+  ): Promise<Response>;
+  readonly extraProviders?: readonly string[];
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// License Verification Plugin
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface LicenseVerificationResult {
+  valid: boolean;
+  externalOrderId?: string;
+  providerUserId?: string;
+  providerProductId?: string;
+  error?: string;
+}
+
+export interface LicenseVerificationPlugin {
+  verifyLicense(
+    licenseKey: string,
+    productId: string | undefined,
+    authUserId: string,
+    ctx: ProviderContext,
+  ): Promise<LicenseVerificationResult | null>;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Connect Plugin
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface ConnectConfig {
+  apiBaseUrl: string;
+  frontendBaseUrl: string;
+  convexSiteUrl: string;
+  discordClientId: string;
+  discordClientSecret: string;
+  discordBotToken?: string;
+  convexApiSecret: string;
+  convexUrl: string;
+  gumroadClientId?: string;
+  gumroadClientSecret?: string;
+  encryptionSecret: string;
+}
+
+type SetupSession = { authUserId: string; guildId: string; discordUserId: string };
+type AuthSession = NonNullable<Awaited<ReturnType<Auth['getSession']>>>;
+
+export type BoundSetupResult =
+  | { ok: true; setupSession: SetupSession; authSession: AuthSession; authDiscordUserId: string }
+  | { ok: false; response: Response };
+
+export interface ConnectContext {
+  readonly config: ConnectConfig;
+  readonly auth: Auth;
+  requireBoundSetupSession(request: Request): Promise<BoundSetupResult>;
+  getSetupSessionTokenFromRequest(request: Request): string | null;
+  isTenantOwnedBySessionUser(sessionUserId: string, authUserId: string): Promise<boolean>;
+}
+
+export interface ConnectRoute {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  path: string;
+  handler: (request: Request, ctx: ConnectContext) => Promise<Response>;
+}
+
+export interface ConnectPlugin {
+  readonly providerId: string;
+  readonly routes: ReadonlyArray<ConnectRoute>;
+}
+
+export function generateSecureRandom(length: number): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }

@@ -4,6 +4,7 @@
  * Options: Gumroad OAuth, License key, Discord (other server)
  */
 
+import { getProviderDescriptor } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
@@ -18,32 +19,6 @@ export async function handleLink(
   ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   const provider = interaction.options.getString('provider', true);
-
-  if (provider === 'gumroad') {
-    const redirectUri = apiBaseUrl
-      ? `${apiBaseUrl}/verify-success?returnTo=${encodeURIComponent(`https://discord.com/channels/${ctx.guildId}`)}`
-      : '';
-    const gumroadUrl = apiBaseUrl
-      ? `${apiBaseUrl}/api/verification/begin?authUserId=${ctx.authUserId}&mode=gumroad&redirectUri=${encodeURIComponent(redirectUri)}`
-      : null;
-    if (!gumroadUrl) {
-      await interaction.reply({
-        content: 'Gumroad linking is not configured. Use license key instead.',
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-    const button = new ButtonBuilder()
-      .setLabel('Sign in with Gumroad')
-      .setStyle(ButtonStyle.Link)
-      .setURL(gumroadUrl);
-    await interaction.reply({
-      content: 'Click below to link your Gumroad account:',
-      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(button)],
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
 
   if (provider === 'license') {
     await interaction.showModal(buildLicenseModal(ctx.authUserId));
@@ -70,6 +45,33 @@ export async function handleLink(
       .setURL(discordUrl);
     await interaction.reply({
       content: 'Click below to verify your role from another Discord server:',
+      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(button)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const descriptor = getProviderDescriptor(provider);
+  if (descriptor?.supportsOAuth) {
+    const redirectUri = apiBaseUrl
+      ? `${apiBaseUrl}/verify-success?returnTo=${encodeURIComponent(`https://discord.com/channels/${ctx.guildId}`)}`
+      : '';
+    const oauthUrl = apiBaseUrl
+      ? `${apiBaseUrl}/api/verification/begin?authUserId=${ctx.authUserId}&mode=${provider}&redirectUri=${encodeURIComponent(redirectUri)}`
+      : null;
+    if (!oauthUrl) {
+      await interaction.reply({
+        content: `${descriptor.label} linking is not configured. Use license key instead.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const button = new ButtonBuilder()
+      .setLabel(`Sign in with ${descriptor.label}`)
+      .setStyle(ButtonStyle.Link)
+      .setURL(oauthUrl);
+    await interaction.reply({
+      content: `Click below to link your ${descriptor.label} account:`,
       components: [new ActionRowBuilder<ButtonBuilder>().addComponents(button)],
       flags: MessageFlags.Ephemeral,
     });

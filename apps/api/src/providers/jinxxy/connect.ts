@@ -1,0 +1,262 @@
+/**
+ * Jinxxy Connect Plugin
+ *
+ * Handles the Jinxxy API-key + webhook setup flow:
+ *   GET/POST /api/connect/jinxxy/webhook-config  — get callback URL / save pending webhook secret
+ *   GET      /api/connect/jinxxy/test-webhook    — poll for test-delivery confirmation
+ *   POST     /api/connect/jinxxy-store           — store API key + pending webhook secret
+ */
+
+import { createLogger } from '@yucp/shared';
+import { api } from '../../../../../convex/_generated/api';
+const JINXXY_PENDING_WEBHOOK_PREFIX = 'jinxxy_webhook_pending:';
+const JINXXY_PENDING_WEBHOOK_TTL_MS = 30 * 60 * 1000;
+import { getConvexClientFromUrl } from '../../lib/convex';
+import { encrypt } from '../../lib/encrypt';
+import { getStateStore } from '../../lib/stateStore';
+import type { ConnectContext, ConnectPlugin, ConnectRoute } from '../types';
+
+const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+
+// HKDF purpose strings — inlined to avoid circular imports with index.ts
+const CREDENTIAL_PURPOSE = 'jinxxy-api-key' as const;
+const WEBHOOK_SECRET_PURPOSE = 'jinxxy-webhook-signing-secret' as const;
+
+const JINXXY_TEST_PREFIX = 'jinxxy_test:';
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Handlers
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET  /api/connect/jinxxy/webhook-config?authUserId=XXX  → { callbackUrl }
+ * POST /api/connect/jinxxy/webhook-config  body: { webhookSecret }
+ * Stores a pending encrypted webhook secret for test delivery verification.
+ */
+async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promise<Response> {
+  const { config } = ctx;
+  const url = new URL(request.url);
+  let routeId: string | null = null;
+
+  const setupBinding = await ctx.requireBoundSetupSession(request);
+  if (setupBinding.ok) {
+    routeId = setupBinding.setupSession.authUserId;
+  } else {
+    const session = await ctx.auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    const requestedAuthUserId = url.searchParams.get('authUserId');
+    if (requestedAuthUserId) {
+      const tenantOwned = await ctx.isTenantOwnedBySessionUser(
+        session.user.id,
+        requestedAuthUserId,
+      );
+      if (!tenantOwned) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      routeId = requestedAuthUserId;
+    } else {
+      routeId = session.user.id;
+    }
+  }
+
+  try {
+    const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${routeId}`;
+    if (request.method === 'GET') {
+      return Response.json({ callbackUrl });
+    }
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    let body: { webhookSecret?: string };
+    try {
+      body = (await request.json()) as { webhookSecret?: string };
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const webhookSecret = body.webhookSecret?.trim();
+    if (!webhookSecret || webhookSecret.length < 16) {
+      return Response.json(
+        { error: 'Webhook secret must be at least 16 characters' },
+        { status: 400 },
+      );
+    }
+    if (webhookSecret.length > 40) {
+      return Response.json(
+        { error: 'Jinxxy limits the signing secret to 40 characters' },
+        { status: 400 },
+      );
+    }
+
+    const store = getStateStore();
+    await store.set(
+      `${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`,
+      JSON.stringify({
+        callbackUrl,
+        signingSecretEncrypted: await encrypt(
+          webhookSecret,
+          config.encryptionSecret,
+          WEBHOOK_SECRET_PURPOSE,
+        ),
+      }),
+      JINXXY_PENDING_WEBHOOK_TTL_MS,
+    );
+    return Response.json({ success: true });
+  } catch (err) {
+    logger.error('Jinxxy webhook config failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return Response.json({ error: 'Failed to get webhook config' }, { status: 500 });
+  }
+}
+
+/**
+ * GET /api/connect/jinxxy/test-webhook?authUserId=XXX
+ * Returns { received: boolean } — the webhook handler sets a short-lived flag
+ * when it receives a valid test delivery so this endpoint can confirm it.
+ */
+async function jinxxyTestWebhook(request: Request, ctx: ConnectContext): Promise<Response> {
+  const url = new URL(request.url);
+  let routeId = url.searchParams.get('authUserId');
+
+  const setupBinding = await ctx.requireBoundSetupSession(request);
+  if (setupBinding.ok) {
+    routeId = setupBinding.setupSession.authUserId;
+  } else {
+    const session = await ctx.auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    if (routeId) {
+      const tenantOwned = await ctx.isTenantOwnedBySessionUser(session.user.id, routeId);
+      if (!tenantOwned) {
+        return Response.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    } else {
+      routeId = session.user.id;
+    }
+  }
+
+  if (!routeId) {
+    return Response.json({ error: 'authUserId or setup token is required' }, { status: 400 });
+  }
+
+  const store = getStateStore();
+  const raw = await store.get(`${JINXXY_TEST_PREFIX}${routeId}`);
+  return Response.json({ received: !!raw });
+}
+
+/**
+ * POST /api/connect/jinxxy-store
+ * Body: { authUserId?, apiKey, webhookSecret? }
+ * Stores the Jinxxy API key and (pending or inline) webhook secret in Convex.
+ */
+async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Response> {
+  const { config } = ctx;
+  if (request.method !== 'POST') {
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+
+  const setupBinding = await ctx.requireBoundSetupSession(request);
+  const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
+  const authSession =
+    setupBinding.ok ? setupBinding.authSession : await ctx.auth.getSession(request);
+  if (!authSession && !setupSession) {
+    return Response.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
+  let body: { authUserId?: string; apiKey: string; webhookSecret?: string };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const authUserId = setupSession?.authUserId ?? body.authUserId ?? authSession?.user?.id ?? null;
+  const { apiKey } = body;
+  if (!apiKey) {
+    return Response.json({ error: 'apiKey is required' }, { status: 400 });
+  }
+
+  if (body.authUserId && !setupSession) {
+    if (!authSession) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    const tenantOwned = await ctx.isTenantOwnedBySessionUser(authSession.user.id, body.authUserId);
+    if (!tenantOwned) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 });
+    }
+  }
+
+  if (!authUserId) {
+    return Response.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
+  const webhookTarget = authUserId;
+
+  try {
+    const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret, CREDENTIAL_PURPOSE);
+    const store = getStateStore();
+    const pendingWebhookRaw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${webhookTarget}`);
+    let webhookSecretRef: string | undefined;
+    let webhookEndpoint: string | undefined;
+    if (pendingWebhookRaw) {
+      const pendingWebhook = JSON.parse(pendingWebhookRaw) as {
+        callbackUrl: string;
+        signingSecretEncrypted: string;
+      };
+      webhookSecretRef = pendingWebhook.signingSecretEncrypted;
+      webhookEndpoint = pendingWebhook.callbackUrl;
+    } else {
+      const webhookSecret = body.webhookSecret?.trim();
+      if (!webhookSecret || webhookSecret.length < 16) {
+        return Response.json(
+          { error: 'Webhook secret is required and must be at least 16 characters' },
+          { status: 400 },
+        );
+      }
+      webhookSecretRef = await encrypt(
+        webhookSecret,
+        config.encryptionSecret,
+        WEBHOOK_SECRET_PURPOSE,
+      );
+      webhookEndpoint = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${webhookTarget}`;
+    }
+    const convex = getConvexClientFromUrl(config.convexUrl);
+    await convex.mutation(api.providerConnections.upsertJinxxyConnection, {
+      apiSecret: config.convexApiSecret,
+      authUserId: authUserId ?? undefined,
+      jinxxyApiKeyEncrypted: apiKeyEncrypted,
+      webhookSecretRef,
+      webhookEndpoint,
+    });
+    if (pendingWebhookRaw) {
+      await store.delete(`${JINXXY_PENDING_WEBHOOK_PREFIX}${webhookTarget}`);
+    }
+    return Response.json({ success: true });
+  } catch (err) {
+    logger.error('Jinxxy store failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return Response.json({ error: 'Failed to store Jinxxy connection' }, { status: 500 });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Plugin declaration
+// ──────────────────────────────────────────────────────────────────────────────
+
+const routes: ReadonlyArray<ConnectRoute> = [
+  { method: 'GET', path: '/api/connect/jinxxy/webhook-config', handler: jinxxyWebhookConfig },
+  { method: 'POST', path: '/api/connect/jinxxy/webhook-config', handler: jinxxyWebhookConfig },
+  { method: 'GET', path: '/api/connect/jinxxy/test-webhook', handler: jinxxyTestWebhook },
+  { method: 'POST', path: '/api/connect/jinxxy-store', handler: jinxxyStore },
+];
+
+export const connect: ConnectPlugin = {
+  providerId: 'jinxxy',
+  routes,
+};

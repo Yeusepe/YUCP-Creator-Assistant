@@ -768,6 +768,96 @@ export const addProductFromLemonSqueezy = mutation({
 });
 
 /**
+ * Generic: get or create a product catalog entry for any catalog-sync provider.
+ * Prefer this over provider-specific mutations when the provider key is dynamic.
+ */
+export const addProductForProvider = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    productId: v.string(),
+    providerProductRef: v.string(),
+    provider: v.string(),
+    displayName: v.optional(v.string()),
+  },
+  returns: v.object({
+    productId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const now = Date.now();
+
+    const existing = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_provider_ref', (q) =>
+        q.eq('provider', args.provider).eq('providerProductRef', args.providerProductRef)
+      )
+      .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
+      .first();
+
+    if (existing) {
+      if (args.displayName && existing.displayName !== args.displayName) {
+        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+      }
+      await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
+        authUserId: args.authUserId,
+        productId: args.productId,
+        provider: args.provider,
+        providerProductRef: args.providerProductRef,
+      });
+      return { productId: existing.productId, catalogProductId: existing._id };
+    }
+
+    const urlBuilders: Record<string, (ref: string) => string> = {
+      gumroad: (ref) => `https://gumroad.com/l/${ref}`,
+      jinxxy: (ref) => `https://jinxxy.app/products/${ref}`,
+      lemonsqueezy: (ref) => `https://app.lemonsqueezy.com/products/${ref}`,
+    };
+    const buildUrl = urlBuilders[args.provider];
+    const url = buildUrl
+      ? buildUrl(args.providerProductRef)
+      : `https://example.invalid/${args.provider}/${args.providerProductRef}`;
+    const normalized = url.toLowerCase().trim();
+    const urlHash = await sha256Hex(normalized);
+
+    const catalogId = await ctx.db.insert('product_catalog', {
+      authUserId: args.authUserId,
+      productId: args.productId,
+      provider: args.provider,
+      providerProductRef: args.providerProductRef,
+      displayName: args.displayName,
+      status: 'active',
+      supportsAutoDiscovery: args.provider === 'gumroad',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.db.insert('catalog_product_links', {
+      catalogProductId: catalogId,
+      provider: args.provider,
+      originalUrl: url,
+      normalizedUrl: normalized,
+      urlHash,
+      linkKind: 'direct_product',
+      status: 'active',
+      submittedByAuthUserId: args.authUserId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
+      authUserId: args.authUserId,
+      productId: args.productId,
+      provider: args.provider,
+      providerProductRef: args.providerProductRef,
+    });
+
+    return { productId: args.productId, catalogProductId: catalogId };
+  },
+});
+
+/**
  * Extract VRChat avatar ID from URL or raw ID.
  * Matches avtr_[a-f0-9-]{36} or extracts from vrchat.com/home/avatar/avtr_xxx
  * @see https://vrchat.com/home/avatar/avtr_xxx

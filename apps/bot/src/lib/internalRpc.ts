@@ -169,6 +169,23 @@ export async function listLemonSqueezyProducts(authUserId: string): Promise<{
   };
 }
 
+/** Generic product listing — dispatches to the provider-specific RPC. */
+export async function listProducts(
+  provider: string,
+  authUserId: string
+): Promise<{ error?: string; products: Array<{ collaboratorName?: string; id: string; name: string }> }> {
+  switch (provider) {
+    case 'gumroad':
+      return listGumroadProducts(authUserId);
+    case 'jinxxy':
+      return listJinxxyProducts(authUserId);
+    case 'lemonsqueezy':
+      return listLemonSqueezyProducts(authUserId);
+    default:
+      return { products: [], error: `No product listing available for provider: ${provider}` };
+  }
+}
+
 export async function resolveVrchatAvatarName(params: {
   avatarId: string;
   authUserId: string;
@@ -288,11 +305,18 @@ export async function listCollaboratorConnections(params: {
 export async function addCollaboratorConnectionManual(params: {
   actorDiscordUserId: string;
   guildId: string;
-  jinxxyApiKey: string;
+  providerKey: string;
+  credential: string;
   serverName?: string;
   authUserId: string;
 }): Promise<AddCollaboratorConnectionManualResponse> {
-  const response = await (await getClients()).collaborator.addConnectionManual(params);
+  const response = await (await getClients()).collaborator.addConnectionManual({
+    actorDiscordUserId: params.actorDiscordUserId,
+    guildId: params.guildId,
+    jinxxyApiKey: params.credential,
+    serverName: params.serverName,
+    authUserId: params.authUserId,
+  });
   return {
     success: response.success ?? false,
     connectionId: response.connectionId,

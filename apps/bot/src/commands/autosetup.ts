@@ -1337,40 +1337,23 @@ export async function handleAutosetupMigrateProductSelect(
   await interaction.deferUpdate();
 
   try {
-    if (product.provider === 'gumroad') {
-      const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
-        apiSecret,
-        authUserId,
-        productId: product.id,
-        providerProductRef: product.id,
-      });
-      await convex.mutation(api.role_rules.createRoleRule, {
-        apiSecret,
-        authUserId,
-        guildId: session.guildId,
-        guildLinkId: session.guildLinkId,
-        productId: result.productId,
-        catalogProductId: result.catalogProductId,
-        verifiedRoleId: roleId,
-      });
-    } else {
-      const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
-        apiSecret,
-        authUserId,
-        productId: product.id,
-        providerProductRef: product.id,
-        displayName: product.name,
-      });
-      await convex.mutation(api.role_rules.createRoleRule, {
-        apiSecret,
-        authUserId,
-        guildId: session.guildId,
-        guildLinkId: session.guildLinkId,
-        productId: result.productId,
-        catalogProductId: result.catalogProductId,
-        verifiedRoleId: roleId,
-      });
-    }
+    const result = await convex.mutation(api.role_rules.addProductForProvider, {
+      apiSecret,
+      authUserId,
+      productId: product.id,
+      providerProductRef: product.id,
+      provider: product.provider,
+      displayName: product.name,
+    });
+    await convex.mutation(api.role_rules.createRoleRule, {
+      apiSecret,
+      authUserId,
+      guildId: session.guildId,
+      guildLinkId: session.guildLinkId,
+      productId: result.productId,
+      catalogProductId: result.catalogProductId,
+      verifiedRoleId: roleId,
+    });
 
     const role = interaction.guild?.roles.cache.get(roleId);
     const key = productKey(product);
@@ -1588,40 +1571,23 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
   }
 
   try {
-    if (product.provider === 'gumroad') {
-      const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
-        apiSecret,
-        authUserId,
-        productId: product.id,
-        providerProductRef: product.id,
-      });
-      await convex.mutation(api.role_rules.createRoleRule, {
-        apiSecret,
-        authUserId,
-        guildId: session.guildId,
-        guildLinkId: session.guildLinkId,
-        productId: result.productId,
-        catalogProductId: result.catalogProductId,
-        verifiedRoleId: roleId,
-      });
-    } else {
-      const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
-        apiSecret,
-        authUserId,
-        productId: product.id,
-        providerProductRef: product.id,
-        displayName: product.name,
-      });
-      await convex.mutation(api.role_rules.createRoleRule, {
-        apiSecret,
-        authUserId,
-        guildId: session.guildId,
-        guildLinkId: session.guildLinkId,
-        productId: result.productId,
-        catalogProductId: result.catalogProductId,
-        verifiedRoleId: roleId,
-      });
-    }
+    const result = await convex.mutation(api.role_rules.addProductForProvider, {
+      apiSecret,
+      authUserId,
+      productId: product.id,
+      providerProductRef: product.id,
+      provider: product.provider,
+      displayName: product.name,
+    });
+    await convex.mutation(api.role_rules.createRoleRule, {
+      apiSecret,
+      authUserId,
+      guildId: session.guildId,
+      guildLinkId: session.guildLinkId,
+      productId: result.productId,
+      catalogProductId: result.catalogProductId,
+      verifiedRoleId: roleId,
+    });
 
     const key = productKey(product);
     if (!session.migrateMappedProductKeys) session.migrateMappedProductKeys = [];

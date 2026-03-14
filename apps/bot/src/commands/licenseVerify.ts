@@ -22,7 +22,7 @@
  */
 
 import { PROVIDER_META, providerLabel } from '@yucp/providers';
-import { createLogger, formatVerificationSupportMessage } from '@yucp/shared';
+import { createLogger, formatVerificationSupportMessage, getProviderDescriptor } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
@@ -47,9 +47,7 @@ import { E, Emoji } from '../lib/emojis';
 import {
   completeLicenseVerification,
   completeVrchatVerification,
-  listGumroadProducts,
-  listJinxxyProducts,
-  listLemonSqueezyProducts,
+  listProducts,
 } from '../lib/internalRpc';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { buildBotVerificationErrorMessage } from '../lib/verificationSupport';
@@ -242,15 +240,7 @@ async function enrichDisplayNames(
       try {
         let providerProducts: Array<{ id: string; name: string }> = [];
 
-        if (provider === 'gumroad') {
-          providerProducts = (await listGumroadProducts(authUserId)).products ?? [];
-        } else if (provider === 'jinxxy') {
-          providerProducts = (await listJinxxyProducts(authUserId)).products ?? [];
-        } else if (provider === 'lemonsqueezy') {
-          providerProducts = (await listLemonSqueezyProducts(authUserId)).products ?? [];
-        } else {
-          return;
-        }
+        providerProducts = (await listProducts(provider, authUserId)).products ?? [];
 
         const nameById = Object.fromEntries(
           providerProducts.map((product) => [String(product.id), product.name])
@@ -374,12 +364,16 @@ export async function handleProductSelected(
     .setCustomId(`creator_verify:lp_modal:${authUserId}:${providerProductRef}:${provider}`)
     .setTitle(`Enter ${providerLabel} License Key`);
 
-  const isGumroad = provider === 'gumroad';
+  const descriptor = getProviderDescriptor(provider);
+  const licenseConfig = descriptor?.licenseKey ?? {
+    inputLabel: 'License Key',
+    placeholder: 'Enter your license key',
+  };
   const keyInput = new TextInputBuilder()
     .setCustomId('license_key')
-    .setLabel(isGumroad ? 'License Key (XXXX-XXXX-XXXX-XXXX)' : 'License Key')
+    .setLabel(licenseConfig.inputLabel)
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder(isGumroad ? 'XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX' : 'Enter your license key')
+    .setPlaceholder(licenseConfig.placeholder)
     .setRequired(true)
     .setMinLength(8)
     .setMaxLength(200);

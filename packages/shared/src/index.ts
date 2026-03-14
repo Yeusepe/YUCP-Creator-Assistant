@@ -54,3 +54,4 @@ export * from './logging/correlation';
 export * from './logging/redaction';
 export * from './providers';
 export * from './verificationSupport';
+export * from './productParsers';

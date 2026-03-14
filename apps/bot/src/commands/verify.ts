@@ -6,7 +6,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { PROVIDER_META, providerLabel } from '@yucp/providers';
-import { createLogger, formatVerificationSupportMessage } from '@yucp/shared';
+import { createLogger, formatVerificationSupportMessage, PROVIDER_REGISTRY } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type {
   ButtonInteraction,
@@ -42,12 +42,22 @@ const VERIFY_PREFIX = 'creator_verify:';
 
 /** Default embed for spawn-verify: explains verification (scannable, benefit-first, plain language). */
 const DEFAULT_SPAWN_TITLE = `${E.Assistant} Verify your purchase`;
+const _spawnOAuthList = PROVIDER_REGISTRY.filter(
+  (d) => d.status === 'active' && d.supportsOAuth && d.category === 'commerce'
+)
+  .map((d) => `${E[d.emojiKey as keyof typeof E] ?? ''} ${d.label}`)
+  .join(' or ');
+const _spawnLicenseList = PROVIDER_REGISTRY.filter(
+  (d) => d.status === 'active' && d.supportsLicenseVerify
+)
+  .map((d) => `${E[d.emojiKey as keyof typeof E] ?? ''} ${d.label}`)
+  .join(' or ');
 const DEFAULT_SPAWN_DESCRIPTION = [
   `${E.Touch} Click the button below to open the verification panel.`,
   '',
-  `${E.Link} **Sign in** - Connect ${E.Gumorad} Gumroad or ${E.Discord} Discord. We recognize your purchases and grant your role automatically.`,
+  `${E.Link} **Sign in** - Connect ${_spawnOAuthList || 'your store account'}. We recognize your purchases and grant your role automatically.`,
   '',
-  `${E.KeyCloud} **One license key, then you’re set** - Using ${E.Jinxxy} Jinxxy or a ${E.Gumorad} Gumroad license? Enter one key once. We link your account and sync all past and future purchases so you only verify once.`,
+  `${E.KeyCloud} **One license key, then you’re set** - Using ${_spawnLicenseList}? Enter one key once. We link your account and sync all past and future purchases so you only verify once.`,
   '',
   'Connections are secure and used only for verification.',
 ].join('\n');
@@ -1004,6 +1014,7 @@ export async function handleVerifySpawn(
 }
 
 export function buildLicenseModal(authUserId: string): ModalBuilder {
+  const licenseConfig = { inputLabel: 'License Key', placeholder: 'Paste your license key here' };
   return new ModalBuilder()
     .setCustomId(`${VERIFY_PREFIX}license_modal:${authUserId}`)
     .setTitle('Enter License Key')
@@ -1011,8 +1022,8 @@ export function buildLicenseModal(authUserId: string): ModalBuilder {
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
           .setCustomId('license_key')
-          .setLabel('License Key')
-          .setPlaceholder('Paste your license key here')
+          .setLabel(licenseConfig.inputLabel)
+          .setPlaceholder(licenseConfig.placeholder)
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true)
           .setMaxLength(500)

@@ -2,6 +2,7 @@
  * /creator-admin setup start - Opens the dashboard for configuration
  */
 
+import { PROVIDER_REGISTRY, type ProviderDescriptor } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
@@ -21,6 +22,15 @@ import { createConnectToken, createSetupSessionToken } from '../lib/internalRpc'
 import { track } from '../lib/posthog';
 
 const SETUP_PREFIX = 'creator_setup:';
+
+/** Comma-/or-separated list of active commerce provider labels for embed text. */
+const ACTIVE_COMMERCE_PROVIDER_LIST = (() => {
+  const labels = (PROVIDER_REGISTRY as readonly ProviderDescriptor[])
+    .filter((p) => p.status === 'active' && p.category === 'commerce')
+    .map((p) => p.label);
+  if (labels.length <= 2) return labels.join(' or ');
+  return `${labels.slice(0, -1).join(', ')}, or ${labels[labels.length - 1]}`;
+})();
 
 export interface SetupContext {
   authUserId: string;
@@ -80,7 +90,7 @@ export async function runSetupStart(
     .setColor(0x5865f2)
     .addFields(
       {
-        name: '1. Connect Gumroad or Jinxxy',
+        name: `1. Connect ${ACTIVE_COMMERCE_PROVIDER_LIST}`,
         value:
           'Use the platform cards in the dashboard to connect the storefronts you sell through.',
         inline: false,
@@ -163,7 +173,7 @@ export async function runSetupStartUnconfigured(
       },
       {
         name: '2. Connect Your Stores',
-        value: 'Connect Gumroad, Jinxxy, or other storefronts from the dashboard.',
+        value: `Connect ${ACTIVE_COMMERCE_PROVIDER_LIST} from the dashboard.`,
         inline: false,
       },
       {

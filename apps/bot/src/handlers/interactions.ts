@@ -1296,9 +1296,20 @@ async function handleModalSubmit(
   }
 
   if (customId.startsWith('creator_collab:add_modal:')) {
-    const authUserId = customId.slice('creator_collab:add_modal:'.length) as string;
+    const rest = customId.slice('creator_collab:add_modal:'.length);
+    const colonIdx = rest.indexOf(':');
+    // New format: providerKey:authUserId. Old format (backward compat): authUserId only.
+    let providerKey: string;
+    let authUserId: string;
+    if (colonIdx !== -1) {
+      providerKey = rest.slice(0, colonIdx);
+      authUserId = rest.slice(colonIdx + 1) as string;
+    } else {
+      providerKey = 'jinxxy';
+      authUserId = rest as string;
+    }
     const { handleCollabAddModalSubmit } = await import('../commands/collab');
-    await handleCollabAddModalSubmit(interaction, ctx.apiSecret, authUserId);
+    await handleCollabAddModalSubmit(interaction, ctx.apiSecret, authUserId, providerKey);
     return;
   }
 
@@ -1351,6 +1362,20 @@ async function handleModalSubmit(
     return;
   }
 
+  // Generic per-product credential modal: creator_product:per_product_cred_modal:{provider}:{userId}:{authUserId}
+  if (customId.startsWith('creator_product:per_product_cred_modal:')) {
+    const rest = customId.slice('creator_product:per_product_cred_modal:'.length);
+    const firstColon = rest.indexOf(':');
+    const provider = rest.slice(0, firstColon);
+    const rest2 = rest.slice(firstColon + 1);
+    const colonIdx = rest2.indexOf(':');
+    const userId = rest2.slice(0, colonIdx);
+    const authUserId = rest2.slice(colonIdx + 1) as string;
+    const { handleProductPerCredentialModal } = await import('../commands/product');
+    await handleProductPerCredentialModal(interaction, provider, userId, authUserId);
+    return;
+  }
+
   if (customId.startsWith('creator_downloads:message_modal:')) {
     const rest = customId.slice('creator_downloads:message_modal:'.length);
     const colonIdx = rest.indexOf(':');
@@ -1382,6 +1407,14 @@ async function handleSelectMenu(
   if (customId.startsWith('creator_setup:')) {
     // biome-ignore lint/suspicious/noExplicitAny: setup select handler accepts the relevant select interactions at runtime.
     await handleSetupSelect(interaction as any, ctx.convex, ctx.apiSecret);
+    return;
+  }
+
+  // Collab provider select: creator_collab:add_select:{authUserId}
+  if (customId.startsWith('creator_collab:add_select:')) {
+    const authUserId = customId.slice('creator_collab:add_select:'.length) as string;
+    const { handleCollabAddProviderSelect } = await import('../commands/collab');
+    await handleCollabAddProviderSelect(interaction, authUserId);
     return;
   }
 
@@ -1467,6 +1500,20 @@ async function handleSelectMenu(
     const authUserId = rest.slice(colonIdx + 1) as string;
     const { handleProductLemonSqueezySelect } = await import('../commands/product');
     await handleProductLemonSqueezySelect(interaction, userId, authUserId);
+    return;
+  }
+
+  // Generic catalog product select: creator_product:catalog_select:{provider}:{userId}:{authUserId}
+  if (customId.startsWith('creator_product:catalog_select:')) {
+    const rest = customId.slice('creator_product:catalog_select:'.length);
+    const firstColon = rest.indexOf(':');
+    const provider = rest.slice(0, firstColon);
+    const rest2 = rest.slice(firstColon + 1);
+    const colonIdx = rest2.indexOf(':');
+    const userId = rest2.slice(0, colonIdx);
+    const authUserId = rest2.slice(colonIdx + 1) as string;
+    const { handleProductCatalogSelect } = await import('../commands/product');
+    await handleProductCatalogSelect(interaction, provider, userId, authUserId);
     return;
   }
 

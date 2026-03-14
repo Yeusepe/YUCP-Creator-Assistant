@@ -115,6 +115,37 @@ export interface ProviderDescriptor {
     legacyConnectRoutes?: string[];
     legacyWebhookRoutes?: string[];
   };
+  /** When true, this provider can be added as a collab store source */
+  supportsCollab?: boolean;
+  /** Config for the manual collab add credential modal (only when supportsCollab is true) */
+  collabCredential?: {
+    /** Modal input label, e.g. "Jinxxy API Key" */
+    label: string;
+    /** Modal input placeholder */
+    placeholder?: string;
+  };
+  /**
+   * License key input config for the verification modal.
+   * Only present if supportsLicenseVerify is true AND the provider uses typed license keys.
+   */
+  licenseKey?: {
+    /** Modal input label, e.g. "License Key (XXXX-XXXX-XXXX-XXXX)" */
+    inputLabel: string;
+    /** Modal input placeholder, e.g. "XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX" */
+    placeholder: string;
+  };
+  /**
+   * Product ID/URL input config for the product add flow.
+   * The label and description are shown in the step-2 modal for typing in a product.
+   */
+  productInput?: {
+    /** Step label for the text input, e.g. "Gumroad Product URL or ID" */
+    label: string;
+    /** Description/help text, e.g. "URL (gumroad.com/l/abc123) or product ID" */
+    description: string;
+    /** Optional placeholder for the input field */
+    placeholder?: string;
+  };
 }
 
 export const PROVIDER_REGISTRY = [
@@ -200,6 +231,11 @@ export const PROVIDER_REGISTRY = [
     compatibility: {
       legacyConnectRoutes: ['/api/connect/jinxxy/webhook-config', '/api/connect/jinxxy-store'],
       legacyWebhookRoutes: ['/webhooks/jinxxy/:authUserId'],
+    },
+    supportsCollab: true,
+    collabCredential: {
+      label: 'Jinxxy API Key',
+      placeholder: 'Paste the API key the creator shared with you',
     },
   },
   {

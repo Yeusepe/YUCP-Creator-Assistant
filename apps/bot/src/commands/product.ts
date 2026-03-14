@@ -1,4 +1,4 @@
-/**
+﻿/**
  * /creator-admin product - Product-role mapping commands
  *
  * add: Interactive guided flow (type select → URL modal → role select → confirm)
@@ -6,8 +6,14 @@
  * remove: Remove a product mapping
  */
 
-import { providerLabel } from '@yucp/providers';
-import { createLogger } from '@yucp/shared';
+import {
+  PROVIDER_REGISTRY,
+  type ProviderDescriptor,
+  createLogger,
+  getProviderDescriptor,
+  parseProductId,
+  providerLabel,
+} from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type {
   ButtonInteraction,
@@ -35,8 +41,7 @@ import { E, Emoji } from '../lib/emojis';
 import {
   createDiscordRoleSetupSessionToken,
   getDiscordRoleSetupResult,
-  listJinxxyProducts,
-  listLemonSqueezyProducts,
+  listProducts,
   resolveVrchatAvatarName,
   upsertProductCredential,
 } from '../lib/internalRpc';
@@ -51,7 +56,8 @@ interface ProductSession {
   authUserId: string;
   guildLinkId: Id<'guild_links'>;
   guildId: string;
-  type?: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'license' | 'discord_role' | 'vrchat' | 'payhip';
+  /** Provider key (e.g. 'gumroad', 'jinxxy'), or 'license'/'discord_role' for special types */
+  type?: string;
   urlOrId?: string;
   /** Per-product credential key (e.g. Payhip product secret key) */
   perProductCredentialKey?: string;
@@ -62,12 +68,10 @@ interface ProductSession {
   roleId?: string;
   roleIds?: string[];
   discordRoleSetupToken?: string;
-  /** Jinxxy product id -> name map (for display when adding) */
-  jinxxyProductNames?: Record<string, string>;
-  /** Jinxxy product id -> collaborator display name (undefined = owner's own store) */
-  jinxxyProductSources?: Record<string, string>;
-  /** Lemon Squeezy product id -> name map (for display when adding) */
-  lsProductNames?: Record<string, string>;
+  /** provider key -> (product id -> display name) for catalog-selected products */
+  productNames?: Record<string, Record<string, string>>;
+  /** provider key -> (product id -> source/collaborator name) */
+  productSources?: Record<string, Record<string, string>>;
   removeProductIds?: string[];
   expiresAt: number;
 }
@@ -85,14 +89,14 @@ function cleanExpiredSessions(): void {
   }
 }
 
-function parseGumroadProductId(urlOrId: string): string | null {
-  const trimmed = urlOrId.trim();
-  const gumroadMatch = trimmed.match(/gumroad\.com\/l\/([a-zA-Z0-9_-]+)/);
-  if (gumroadMatch) return gumroadMatch[1];
-  const productMatch = trimmed.match(/gumroad\.com\/products\/([a-zA-Z0-9_-]+)/);
-  if (productMatch) return productMatch[1];
-  if (/^[a-zA-Z0-9_-]{3,}$/.test(trimmed)) return trimmed;
-  return null;
+/** Returns the Discord custom ID for the catalog product select menu.
+ * Preserves legacy IDs for jinxxy/lemonsqueezy to avoid breaking existing Discord sessions.
+ */
+function getCatalogSelectCustomId(provider: string, userId: string, authUserId: string): string {
+  if (provider === 'jinxxy') return `creator_product:jinxxy_product_select:${userId}:${authUserId}`;
+  if (provider === 'lemonsqueezy')
+    return `creator_product:ls_product_select:${userId}:${authUserId}`;
+  return `creator_product:catalog_select:${provider}:${userId}:${authUserId}`;
 }
 
 /** Step 1: /creator-admin product add - show type select menu */
@@ -114,36 +118,25 @@ export async function handleProductAddInteractive(
     .setCustomId(`creator_product:type_select:${ctx.authUserId}`)
     .setPlaceholder('Select product type...')
     .addOptions(
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Gumroad Product')
-        .setDescription('Sold on gumroad.com')
-        .setValue('gumroad')
-        .setEmoji(Emoji.Gumorad),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Jinxxy Product')
-        .setDescription('Sold on jinxxy.com or jinxxy.app')
-        .setValue('jinxxy')
-        .setEmoji(Emoji.Jinxxy),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Lemon Squeezy Product')
-        .setDescription('Sold on lemonsqueezy.com')
-        .setValue('lemonsqueezy')
-        .setEmoji(Emoji.LemonSqueezy),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('Payhip Product')
-        .setDescription('Sold on payhip.com')
-        .setValue('payhip')
-        .setEmoji(Emoji.CreditCard),
+      // Active commerce/world providers with a product input form
+      ...(PROVIDER_REGISTRY as readonly ProviderDescriptor[]).filter(
+        (d) => d.status === 'active' && d.productInput != null && d.providerKey !== 'manual'
+      ).map((d) => {
+        const emoji = Emoji[d.emojiKey as keyof typeof Emoji];
+        const opt = new StringSelectMenuOptionBuilder()
+          .setLabel(d.label)
+          .setDescription(d.addProductDescription)
+          .setValue(d.providerKey);
+        if (emoji) opt.setEmoji(emoji);
+        return opt;
+      }),
+      // Special 'license' type: manual/standalone license keys
       new StringSelectMenuOptionBuilder()
         .setLabel('License Key Only')
-        .setDescription('Manual license codes (Gumroad or Jinxxy)')
+        .setDescription('Manually issued license key')
         .setValue('license')
         .setEmoji(Emoji.PersonKey),
-      new StringSelectMenuOptionBuilder()
-        .setLabel('VRChat Avatar')
-        .setDescription('Avatar from vrchat.com/home/avatar/avtr_xxx')
-        .setValue('vrchat')
-        .setEmoji(Emoji.VRC),
+      // Special 'discord_role' type: role from another server
       new StringSelectMenuOptionBuilder()
         .setLabel('Discord Role (Other Server)')
         .setDescription('User has a specific role in another server')
@@ -165,7 +158,7 @@ export async function handleProductTypeSelect(
   interaction: StringSelectMenuInteraction,
   authUserId: string
 ): Promise<void> {
-  const selectedType = interaction.values[0] as ProductSession['type'];
+  const selectedType = interaction.values[0] as string;
   const sessionKey = getSessionKey(interaction.user.id, authUserId, interaction.guildId ?? '');
   const session = productSessions.get(sessionKey);
 
@@ -261,26 +254,18 @@ export async function handleProductTypeSelect(
     return;
   }
 
-  // Jinxxy: fetch products from API and show select (jinx-master style)
-  if (selectedType === 'jinxxy') {
-    const { apiInternal, apiPublic } = (await import('../lib/apiUrls')).getApiUrls();
-    const apiBase = apiPublic ?? apiInternal;
+  const descriptor = getProviderDescriptor(selectedType);
 
-    if (!apiBase) {
-      await interaction.update({
-        content: `${E.X_} API not configured. Set API_BASE_URL or API_INTERNAL_URL for Jinxxy product selection.`,
-        components: [],
-      });
-      return;
-    }
-
+  // Catalog providers: fetch products from API and show a select menu
+  if (descriptor?.capabilities.includes('catalog_sync')) {
+    const label = descriptor.label;
     await interaction.deferUpdate();
     try {
-      const data = await listJinxxyProducts(authUserId);
+      const data = await listProducts(selectedType, authUserId);
 
       if (data.error && (!data.products || data.products.length === 0)) {
         await interaction.editReply({
-          content: `${E.X_} ${sanitizeUserFacingErrorMessage(data.error, 'Couldn’t load Jinxxy products right now.')}\n\nRun \`/creator-admin product add\` again in a moment.`,
+          content: `${E.X_} ${sanitizeUserFacingErrorMessage(data.error, `Couldn't load ${label} products right now.`)}\n\nRun \`/creator-admin product add\` again in a moment.`,
           components: [],
         });
         return;
@@ -289,34 +274,41 @@ export async function handleProductTypeSelect(
       const products = data.products ?? [];
       if (products.length === 0) {
         await interaction.editReply({
-          content: `${E.X_} No Jinxxy products found. Add products in your Jinxxy store first, then try again.`,
+          content: `${E.X_} No ${label} products found. Add products in your ${label} store first, then try again.`,
           components: [],
         });
         return;
       }
 
-      session.jinxxyProductNames = Object.fromEntries(products.map((p) => [p.id, p.name]));
-      session.jinxxyProductSources = Object.fromEntries(
+      // Store product name and source maps generically by provider key
+      session.productNames = {
+        ...session.productNames,
+        [selectedType]: Object.fromEntries(products.map((p) => [p.id, p.name])),
+      };
+      const sourcesMap: Record<string, string> = Object.fromEntries(
         products.flatMap((p) => (p.collaboratorName ? [[p.id, p.collaboratorName]] : []))
       );
+      if (Object.keys(sourcesMap).length > 0) {
+        session.productSources = { ...session.productSources, [selectedType]: sourcesMap };
+      }
 
-      // Discord select menu limit: 25 options
       const MAX_OPTIONS = 25;
       const toShow = products.slice(0, MAX_OPTIONS);
       const hasCollabProducts = products.some((p) => p.collaboratorName);
+      const catalogSelectId = getCatalogSelectCustomId(selectedType, interaction.user.id, authUserId);
+
       const select = new StringSelectMenuBuilder()
-        .setCustomId(`creator_product:jinxxy_product_select:${interaction.user.id}:${authUserId}`)
-        .setPlaceholder('Select a Jinxxy product...')
+        .setCustomId(catalogSelectId)
+        .setPlaceholder(`Select a ${label} product...`)
         .addOptions(
           toShow.map((p) => {
-            const label = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
+            const productLabel = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
             const sourcePrefix = p.collaboratorName ? `[${p.collaboratorName}] ` : '';
+            const raw = sourcePrefix + p.name;
             const description =
-              (sourcePrefix + p.name).length > 100
-                ? `${(sourcePrefix + p.name).slice(0, 97)}...`
-                : sourcePrefix + p.name;
+              raw.length > 100 ? `${raw.slice(0, 97)}...` : raw || `ID: ${p.id}`;
             return new StringSelectMenuOptionBuilder()
-              .setLabel(label)
+              .setLabel(productLabel)
               .setValue(p.id)
               .setDescription(description);
           })
@@ -331,115 +323,49 @@ export async function handleProductTypeSelect(
         ? '\n\nCollaborator products are shown with **[Name]** in the description.'
         : '';
       await interaction.editReply({
-        content: `**Step 2 of 3:** Select a Jinxxy product from your store.${moreNote}${collabNote}`,
+        content: `**Step 2 of 3:** Select a ${label} product from your store.${moreNote}${collabNote}`,
         components: [row],
       });
     } catch (err) {
-      logger.error('Failed to load Jinxxy products for product setup', {
+      logger.error(`Failed to load ${descriptor.label} products for product setup`, {
         error: err instanceof Error ? err.message : String(err),
         authUserId,
+        provider: selectedType,
       });
       await interaction.editReply({
-        content: `${E.X_} Couldn’t load Jinxxy products right now. Run \`/creator-admin product add\` again in a moment.`,
+        content: `${E.X_} Couldn't load ${descriptor.label} products right now. Run \`/creator-admin product add\` again in a moment.`,
         components: [],
       });
     }
     return;
   }
 
-  // Lemon Squeezy: fetch products from API and show select
-  if (selectedType === 'lemonsqueezy') {
-    await interaction.deferUpdate();
-    try {
-      const data = await listLemonSqueezyProducts(authUserId);
-
-      if (data.error && (!data.products || data.products.length === 0)) {
-        await interaction.editReply({
-          content: `${E.X_} ${sanitizeUserFacingErrorMessage(data.error, "Couldn't load Lemon Squeezy products right now.")}\n\nRun \`/creator-admin product add\` again in a moment.`,
-          components: [],
-        });
-        return;
-      }
-
-      const products = data.products ?? [];
-      if (products.length === 0) {
-        await interaction.editReply({
-          content: `${E.X_} No Lemon Squeezy products found. Add products in your Lemon Squeezy store first, then try again.`,
-          components: [],
-        });
-        return;
-      }
-
-      session.lsProductNames = Object.fromEntries(products.map((p) => [p.id, p.name]));
-
-      const MAX_OPTIONS = 25;
-      const toShow = products.slice(0, MAX_OPTIONS);
-      const select = new StringSelectMenuBuilder()
-        .setCustomId(`creator_product:ls_product_select:${interaction.user.id}:${authUserId}`)
-        .setPlaceholder('Select a Lemon Squeezy product...')
-        .addOptions(
-          toShow.map((p) => {
-            const label = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
-            return new StringSelectMenuOptionBuilder()
-              .setLabel(label)
-              .setValue(p.id)
-              .setDescription(`Product ID: ${p.id}`);
-          })
-        );
-
-      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
-      const moreNote =
-        products.length > MAX_OPTIONS
-          ? `\n\n*(Showing first ${MAX_OPTIONS} of ${products.length} products.)*`
-          : '';
-      await interaction.editReply({
-        content: `**Step 2 of 3:** Select a Lemon Squeezy product from your store.${moreNote}`,
-        components: [row],
-      });
-    } catch (err) {
-      logger.error('Failed to load Lemon Squeezy products for product setup', {
-        error: err instanceof Error ? err.message : String(err),
-        authUserId,
-      });
-      await interaction.editReply({
-        content: `${E.X_} Couldn't load Lemon Squeezy products right now. Run \`/creator-admin product add\` again in a moment.`,
-        components: [],
-      });
-    }
-    return;
-  }
-
-  // gumroad, license, vrchat - URL modal
-  const labels: Record<string, string> = {
-    gumroad: 'Gumroad Product URL or ID',
-    license: 'Product ID (or leave generic)',
-    vrchat: 'VRChat Avatar URL or ID',
-  };
-  const placeholders: Record<string, string> = {
-    gumroad: 'URL (gumroad.com/l/abc123) or product ID from Gumroad License Key settings',
-    license: 'Product ID to associate with license keys',
-    vrchat: 'https://vrchat.com/home/avatar/avtr_xxx or avtr_xxx',
-  };
-
-  if (selectedType === 'payhip') {
-    // Payhip requires both the product permalink and the per-product secret key
+  // Providers requiring a per-product credential alongside the product ID (e.g. Payhip)
+  if (descriptor?.perProductCredential) {
+    const cred = descriptor.perProductCredential;
+    // Preserve legacy custom ID for payhip so existing in-flight sessions still work;
+    // new providers with perProductCredential use the generic per_product_cred_modal format.
+    const modalCustomId =
+      selectedType === 'payhip'
+        ? `creator_product:payhip_modal:${interaction.user.id}:${authUserId}`
+        : `creator_product:per_product_cred_modal:${selectedType}:${interaction.user.id}:${authUserId}`;
     const modal = new ModalBuilder()
-      .setCustomId(`creator_product:payhip_modal:${interaction.user.id}:${authUserId}`)
-      .setTitle('Step 2 of 3: Payhip Product Details')
+      .setCustomId(modalCustomId)
+      .setTitle(`Step 2 of 3: ${descriptor.label} Product Details`)
       .addComponents(
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
-            .setCustomId('permalink')
-            .setLabel('Product Permalink')
-            .setPlaceholder('e.g. RGsF  (from payhip.com/b/RGsF)')
+            .setCustomId(selectedType === 'payhip' ? 'permalink' : 'product_id')
+            .setLabel(cred.productIdLabel)
+            .setPlaceholder(cred.productIdPlaceholder)
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         ),
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
-            .setCustomId('product_secret_key')
-            .setLabel('Product Secret Key')
-            .setPlaceholder('Found on the product edit page under License Keys → Developer')
+            .setCustomId(selectedType === 'payhip' ? 'product_secret_key' : 'credential_key')
+            .setLabel(cred.credentialLabel)
+            .setPlaceholder(cred.helpText)
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         )
@@ -448,93 +374,103 @@ export async function handleProductTypeSelect(
     return;
   }
 
-  const modal = new ModalBuilder()
-    .setCustomId(`creator_product:url_modal:${interaction.user.id}:${authUserId}`)
-    .setTitle('Step 2 of 3: Product Details')
-    .addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId('url_or_id')
-          .setLabel(labels[selectedType ?? 'gumroad'] ?? 'Product URL or ID')
-          .setPlaceholder(placeholders[selectedType ?? 'gumroad'] ?? '')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-      )
-    );
+  // Special 'license' type uses a fixed label since it has no provider descriptor
+  if (selectedType === 'license') {
+    const modal = new ModalBuilder()
+      .setCustomId(`creator_product:url_modal:${interaction.user.id}:${authUserId}`)
+      .setTitle('Step 2 of 3: Product Details')
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('url_or_id')
+            .setLabel('Product ID (or leave generic)')
+            .setPlaceholder('Product ID to associate with license keys')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+    await interaction.showModal(modal);
+    return;
+  }
 
-  await interaction.showModal(modal);
+  // Generic text-input modal for all other providers with a productInput config
+  const productInput = descriptor?.productInput;
+  if (productInput) {
+    const modal = new ModalBuilder()
+      .setCustomId(`creator_product:url_modal:${interaction.user.id}:${authUserId}`)
+      .setTitle('Step 2 of 3: Product Details')
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('url_or_id')
+            .setLabel(productInput.label)
+            .setPlaceholder(productInput.placeholder ?? productInput.description)
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  await interaction.update({
+    content: `${E.X_} Unknown product type. Please run \`/creator-admin product add\` again.`,
+    components: [],
+  });
 }
 
-/** Step 2b (Jinxxy): Product selected from API - show role select */
+/** Step 2b: Product selected from a catalog API select menu - show role select */
+export async function handleProductCatalogSelect(
+  interaction: StringSelectMenuInteraction,
+  provider: string,
+  userId: string,
+  authUserId: string
+): Promise<void> {
+  const productId = interaction.values[0];
+  const sessionKey = getSessionKey(userId, authUserId, interaction.guildId ?? '');
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.reply({
+      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  session.urlOrId = productId;
+
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
+    .setMinValues(1)
+    .setMaxValues(25)
+    .setPlaceholder('Select role(s) to assign when verified (1–25)');
+
+  const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+
+  await interaction.reply({
+    content:
+      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+/** Step 2b (Jinxxy): backward-compatible wrapper — delegates to handleProductCatalogSelect */
 export async function handleProductJinxxySelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const productId = interaction.values[0];
-  const sessionKey = getSessionKey(userId, authUserId, interaction.guildId ?? '');
-  const session = productSessions.get(sessionKey);
-
-  if (!session || Date.now() > session.expiresAt) {
-    await interaction.reply({
-      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  session.urlOrId = productId;
-
-  const roleSelect = new RoleSelectMenuBuilder()
-    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
-    .setMinValues(1)
-    .setMaxValues(25)
-    .setPlaceholder('Select role(s) to assign when verified (1–25)');
-
-  const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
-
-  await interaction.reply({
-    content:
-      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
-    components: [row],
-    flags: MessageFlags.Ephemeral,
-  });
+  return handleProductCatalogSelect(interaction, 'jinxxy', userId, authUserId);
 }
 
-/** Step 2b (Lemon Squeezy): Product selected from API - show role select */
+/** Step 2b (Lemon Squeezy): backward-compatible wrapper — delegates to handleProductCatalogSelect */
 export async function handleProductLemonSqueezySelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
   authUserId: string
 ): Promise<void> {
-  const productId = interaction.values[0];
-  const sessionKey = getSessionKey(userId, authUserId, interaction.guildId ?? '');
-  const session = productSessions.get(sessionKey);
-
-  if (!session || Date.now() > session.expiresAt) {
-    await interaction.reply({
-      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  session.urlOrId = productId;
-
-  const roleSelect = new RoleSelectMenuBuilder()
-    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
-    .setMinValues(1)
-    .setMaxValues(25)
-    .setPlaceholder('Select role(s) to assign when verified (1–25)');
-
-  const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
-
-  await interaction.reply({
-    content:
-      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
-    components: [row],
-    flags: MessageFlags.Ephemeral,
-  });
+  return handleProductCatalogSelect(interaction, 'lemonsqueezy', userId, authUserId);
 }
 
 /** Step 2b: URL modal submitted - show role select */
@@ -609,6 +545,58 @@ export async function handleProductPayhipModal(
 
   session.urlOrId = permalink;
   session.perProductCredentialKey = productSecretKey;
+
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
+    .setMinValues(1)
+    .setMaxValues(25)
+    .setPlaceholder('Select role(s) to assign when verified (1–25)');
+
+  const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+
+  await interaction.reply({
+    content:
+      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/** Step 2b: Generic per-product credential modal submitted (for new providers).
+ * Reads from standard field names 'product_id' and 'credential_key'.
+ * Payhip uses the legacy handleProductPayhipModal instead (field names 'permalink'/'product_secret_key').
+ */
+export async function handleProductPerCredentialModal(
+  interaction: ModalSubmitInteraction,
+  provider: string,
+  userId: string,
+  authUserId: string
+): Promise<void> {
+  const productId = interaction.fields.getTextInputValue('product_id')?.trim();
+  const credentialKey = interaction.fields.getTextInputValue('credential_key')?.trim();
+  const sessionKey = getSessionKey(userId, authUserId, interaction.guildId ?? '');
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.reply({
+      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const descriptor = getProviderDescriptor(provider);
+  if (!productId || !credentialKey) {
+    const cred = descriptor?.perProductCredential;
+    await interaction.reply({
+      content: `${E.X_} Both the ${cred?.productIdLabel ?? 'Product ID'} and ${cred?.credentialLabel ?? 'credential key'} are required.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  session.urlOrId = productId;
+  session.perProductCredentialKey = credentialKey;
 
   const roleSelect = new RoleSelectMenuBuilder()
     .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
@@ -820,10 +808,12 @@ export async function handleProductRoleSelect(
     );
   } else if (session.urlOrId) {
     let productLabel = session.urlOrId;
-    if (session.type === 'jinxxy' && session.jinxxyProductNames?.[session.urlOrId]) {
-      productLabel = session.jinxxyProductNames[session.urlOrId];
-    } else if (session.type === 'lemonsqueezy' && session.lsProductNames?.[session.urlOrId]) {
-      productLabel = session.lsProductNames[session.urlOrId];
+    const names = session.type ? session.productNames?.[session.type] : undefined;
+    const sources = session.type ? session.productSources?.[session.type] : undefined;
+    if (names?.[session.urlOrId]) {
+      const name = names[session.urlOrId];
+      const src = sources?.[session.urlOrId];
+      productLabel = src ? `${name} (via ${src})` : name;
     }
     detailLines.push(`**Product:** ${productLabel}`);
   }
@@ -949,8 +939,9 @@ export async function handleProductConfirmAdd(
     }
 
     if (type === 'gumroad') {
-      const slug = parseGumroadProductId(urlOrId ?? '');
-      if (!slug) throw new Error('Could not parse Gumroad product URL or ID');
+      const parsed = parseProductId('gumroad', urlOrId ?? '');
+      if (!parsed.ok) throw new Error(parsed.error);
+      const slug = parsed.productId;
 
       const input = urlOrId ?? '';
       const productUrl = input.startsWith('http') ? input : `https://gumroad.com/l/${slug}`;
@@ -982,13 +973,14 @@ export async function handleProductConfirmAdd(
       // Product ID comes from Jinxxy API (product select), not URL parsing
       const productIdFromApi = urlOrId?.trim();
       if (!productIdFromApi) throw new Error('No Jinxxy product selected');
-      const productName = session.jinxxyProductNames?.[productIdFromApi];
-      const collabSource = session.jinxxyProductSources?.[productIdFromApi];
+      const productName = session.productNames?.['jinxxy']?.[productIdFromApi];
+      const collabSource = session.productSources?.['jinxxy']?.[productIdFromApi];
       const displayName = productName
         ? collabSource
           ? `${productName} (via ${collabSource})`
           : productName
         : undefined;
+      // TODO: genericize via a per-provider Convex mutation registry when backend supports it
       const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
         apiSecret,
         authUserId,
@@ -1001,7 +993,8 @@ export async function handleProductConfirmAdd(
     } else if (type === 'lemonsqueezy') {
       const productIdFromApi = urlOrId?.trim();
       if (!productIdFromApi) throw new Error('No Lemon Squeezy product selected');
-      const displayName = session.lsProductNames?.[productIdFromApi];
+      const displayName = session.productNames?.['lemonsqueezy']?.[productIdFromApi];
+      // TODO: genericize via a per-provider Convex mutation registry when backend supports it
       const result = await convex.mutation(api.role_rules.addProductFromLemonSqueezy, {
         apiSecret,
         authUserId,
@@ -1022,12 +1015,9 @@ export async function handleProductConfirmAdd(
       productId = result.productId;
       catalogProductId = result.catalogProductId;
     } else if (type === 'vrchat') {
-      const { extractVrchatAvatarId } = await import('@yucp/providers');
-      const avatarId = extractVrchatAvatarId(urlOrId?.trim() ?? '');
-      if (!avatarId)
-        throw new Error(
-          'Could not parse VRChat avatar URL or ID. Use https://vrchat.com/home/avatar/avtr_xxx or avtr_xxx'
-        );
+      const parsed = parseProductId('vrchat', urlOrId ?? '');
+      if (!parsed.ok) throw new Error(parsed.error);
+      const avatarId = parsed.productId;
 
       // Best-effort: fetch avatar name via Convex using the tenant owner's stored VRChat session
       let vrchatDisplayName: string | undefined;
@@ -1088,12 +1078,12 @@ export async function handleProductConfirmAdd(
     track(interaction.user.id, 'product_added', { authUserId, guildId, productId, ruleId });
 
     let finalProductLabel = productId;
-    if (session.type === 'jinxxy' && session.jinxxyProductNames?.[productId]) {
-      const name = session.jinxxyProductNames[productId];
-      const src = session.jinxxyProductSources?.[productId];
+    const savedNames = type ? session.productNames?.[type] : undefined;
+    const savedSources = type ? session.productSources?.[type] : undefined;
+    if (savedNames?.[productId]) {
+      const name = savedNames[productId];
+      const src = savedSources?.[productId];
       finalProductLabel = src ? `${name} (via ${src})` : name;
-    } else if (session.type === 'lemonsqueezy' && session.lsProductNames?.[productId]) {
-      finalProductLabel = session.lsProductNames[productId];
     }
     const rolesMsg = verifiedRoleIds.map((id) => `<@&${id}>`).join(', ');
     await interaction.editReply({
