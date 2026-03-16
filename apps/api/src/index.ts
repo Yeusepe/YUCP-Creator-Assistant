@@ -327,6 +327,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   });
 
   const collabConfig = {
+    auth,
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',

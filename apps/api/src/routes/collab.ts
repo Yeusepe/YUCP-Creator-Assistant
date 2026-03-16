@@ -31,6 +31,7 @@
 import { JinxxyApiClient } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
+import type { Auth } from '../auth';
 import { SETUP_SESSION_COOKIE } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { sendCollabKeyAddedEmail } from '../lib/email';
@@ -56,6 +57,7 @@ const COLLAB_OAUTH_TTL_MS = 10 * 60 * 1000;
 const COLLAB_SESSION_COOKIE = 'yucp_collab_session';
 
 export interface CollabConfig {
+  auth: Auth;
   apiBaseUrl: string;
   frontendBaseUrl: string;
   convexUrl: string;
@@ -124,6 +126,65 @@ export function createCollabRoutes(config: CollabConfig) {
   const apiSecret = config.convexApiSecret;
   const store = getStateStore();
 
+  async function isTenantOwnedBySessionUser(
+    sessionUserId: string,
+    profileAuthUserId: string
+  ): Promise<boolean> {
+    const profile = await convex.query(api.creatorProfiles.getCreatorProfile, {
+      apiSecret,
+      authUserId: profileAuthUserId,
+    });
+    return !!profile && profile.authUserId === sessionUserId;
+  }
+
+  /**
+   * Resolves the owner authUserId from either a setup session or a Better Auth
+   * web session. Returns null and a Response when auth fails.
+   *
+   * - Setup session path: setup token present → also require Better Auth session.
+   * - Web session path: no setup token → require Better Auth session + authUserId +
+   *   ownership verification.
+   */
+  async function requireOwnerAuth(
+    request: Request,
+    authUserIdHint?: string
+  ): Promise<{ ok: true; authUserId: string } | { ok: false; response: Response }> {
+    const setupSession = await resolveSetupToken(request, config.encryptionSecret);
+    if (setupSession) {
+      const webSession = await config.auth.getSession(request);
+      if (!webSession) {
+        return {
+          ok: false,
+          response: Response.json({ error: 'Authentication required' }, { status: 401 }),
+        };
+      }
+      return { ok: true, authUserId: setupSession.authUserId };
+    }
+
+    // Web session path
+    const webSession = await config.auth.getSession(request);
+    if (!webSession) {
+      return {
+        ok: false,
+        response: Response.json({ error: 'Authentication required' }, { status: 401 }),
+      };
+    }
+
+    if (!authUserIdHint) {
+      return {
+        ok: false,
+        response: Response.json({ error: 'authUserId is required' }, { status: 400 }),
+      };
+    }
+
+    const tenantOwned = await isTenantOwnedBySessionUser(webSession.user.id, authUserIdHint);
+    if (!tenantOwned) {
+      return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
+    }
+
+    return { ok: true, authUserId: authUserIdHint };
+  }
+
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   async function lookupInviteByToken(rawToken: string) {
@@ -187,23 +248,23 @@ export function createCollabRoutes(config: CollabConfig) {
 
   /**
    * POST /api/collab/invite
-   * Called by the bot. Creates an invite and returns the URL to share.
-   * Body: { guildName?, guildId? }
-   * Auth: setup session token
+   * Creates a collaborator invite and returns the URL to share.
+   * Body: { guildName?, guildId?, authUserId? }
+   * Auth: setup session token OR Better Auth web session with authUserId in body
    */
   async function createInvite(request: Request): Promise<Response> {
     if (request.method !== 'POST')
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
 
-    const session = await resolveSetupToken(request, config.encryptionSecret);
-    if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-
-    let body: { guildName?: string; guildId?: string } = {};
+    let body: { guildName?: string; guildId?: string; authUserId?: string } = {};
     try {
       body = (await request.json()) as typeof body;
     } catch {
       /* use defaults */
     }
+
+    const ownerAuth = await requireOwnerAuth(request, body.authUserId);
+    if (!ownerAuth.ok) return ownerAuth.response;
 
     const rawToken = generateToken();
     const tokenHash = await sha256Hex(rawToken);
@@ -212,7 +273,7 @@ export function createCollabRoutes(config: CollabConfig) {
     try {
       await convex.mutation(api.collaboratorInvites.createCollaboratorInvite, {
         apiSecret,
-        ownerAuthUserId: session.authUserId,
+        ownerAuthUserId: ownerAuth.authUserId,
         ownerDisplayName: body.guildName ?? 'Unknown Server',
         ownerGuildId: body.guildId,
         tokenHash,
@@ -651,12 +712,16 @@ export function createCollabRoutes(config: CollabConfig) {
    * GET /api/collab/connections - list owner's connections
    */
   async function listConnections(request: Request): Promise<Response> {
-    const session = await resolveSetupToken(request, config.encryptionSecret);
-    if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    const url = new URL(request.url);
+    const ownerAuth = await requireOwnerAuth(
+      request,
+      url.searchParams.get('authUserId') ?? undefined
+    );
+    if (!ownerAuth.ok) return ownerAuth.response;
 
     const connections = await convex.query(api.collaboratorInvites.listCollaboratorConnections, {
       apiSecret,
-      ownerAuthUserId: session.authUserId,
+      ownerAuthUserId: ownerAuth.authUserId,
     });
     return Response.json({ connections });
   }
@@ -753,14 +818,18 @@ export function createCollabRoutes(config: CollabConfig) {
     if (request.method !== 'DELETE')
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
 
-    const session = await resolveSetupToken(request, config.encryptionSecret);
-    if (!session) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    const url = new URL(request.url);
+    const ownerAuth = await requireOwnerAuth(
+      request,
+      url.searchParams.get('authUserId') ?? undefined
+    );
+    if (!ownerAuth.ok) return ownerAuth.response;
 
     try {
       await convex.mutation(api.collaboratorInvites.removeCollaboratorConnection, {
         apiSecret,
         connectionId,
-        ownerAuthUserId: session.authUserId,
+        ownerAuthUserId: ownerAuth.authUserId,
       });
     } catch (e) {
       return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });

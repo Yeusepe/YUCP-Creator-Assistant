@@ -188,6 +188,7 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
   });
 
   const collabRoutes = createCollabRoutes({
+    auth: stubAuth,
     apiBaseUrl: baseUrl,
     frontendBaseUrl: baseUrl,
     convexUrl: config.convexUrl,

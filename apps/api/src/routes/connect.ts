@@ -646,18 +646,20 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     | { ok: true; session: NonNullable<Awaited<ReturnType<Auth['getSession']>>> }
     | { ok: false; response: Response }
   > {
-    if (!authUserId) {
-      return {
-        ok: false,
-        response: Response.json({ error: 'authUserId is required' }, { status: 400 }),
-      };
-    }
-
+    // Check authentication first — unauthenticated requests always get 401,
+    // regardless of whether authUserId was supplied.
     const session = await auth.getSession(request);
     if (!session) {
       return {
         ok: false,
         response: Response.json({ error: 'Authentication required' }, { status: 401 }),
+      };
+    }
+
+    if (!authUserId) {
+      return {
+        ok: false,
+        response: Response.json({ error: 'authUserId is required' }, { status: 400 }),
       };
     }
 
