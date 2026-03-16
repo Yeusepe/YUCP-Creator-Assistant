@@ -200,9 +200,7 @@ function hideLoading() {
     content.style.display = '';
     // Two rAF frames ensure the browser has painted the display change before
     // adding is-visible, which triggers the opacity transition.
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => content.classList.add('is-visible')),
-    );
+    requestAnimationFrame(() => requestAnimationFrame(() => content.classList.add('is-visible')));
   }
   if (overlay) overlay.style.display = 'none';
 }

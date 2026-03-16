@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createAuth } from '../auth';
 import { createSetupSession } from '../lib/setupSession';
-import { createCollabRoutes, type CollabConfig } from './collab';
+import { type CollabConfig, createCollabRoutes } from './collab';
 
 const ENCRYPTION_SECRET = 'test-encryption-secret-32chars!!';
 

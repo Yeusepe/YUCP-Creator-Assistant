@@ -12,10 +12,10 @@
  */
 
 import { ConvexError, v } from 'convex/values';
-import type { Doc, Id } from './_generated/dataModel';
-import { mutation, query } from './_generated/server';
-import type { MutationCtx, QueryCtx } from './_generated/server';
 import { canReactivate } from '../packages/shared/src/entitlement/service';
+import type { Doc, Id } from './_generated/dataModel';
+import type { MutationCtx, QueryCtx } from './_generated/server';
+import { mutation, query } from './_generated/server';
 import { ProviderV } from './lib/providers';
 
 // ============================================================================
@@ -288,7 +288,11 @@ export const getStatsOverview = query({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const activeEntitlements = await listActiveEntitlementsForActiveSubjects(ctx, args.authUserId, 1000);
+    const activeEntitlements = await listActiveEntitlementsForActiveSubjects(
+      ctx,
+      args.authUserId,
+      1000
+    );
     const uniqueSubjects = new Set(activeEntitlements.map((e) => e.subjectId));
     const uniqueProducts = new Set(activeEntitlements.map((e) => e.productId));
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
@@ -315,7 +319,11 @@ export const getStatsOverviewExtended = query({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const activeEntitlements = await listActiveEntitlementsForActiveSubjects(ctx, args.authUserId, 1000);
+    const activeEntitlements = await listActiveEntitlementsForActiveSubjects(
+      ctx,
+      args.authUserId,
+      1000
+    );
     const uniqueSubjects = new Set(activeEntitlements.map((e) => e.subjectId));
     const uniqueProducts = new Set(activeEntitlements.map((e) => e.productId));
     const now = Date.now();
@@ -397,7 +405,8 @@ export const getVerifiedUsersPaginated = query({
         });
       }
     }
-    const nextCursor = start + limit < subjectIds.length ? subjectIds[start + limit - 1] : undefined;
+    const nextCursor =
+      start + limit < subjectIds.length ? subjectIds[start + limit - 1] : undefined;
     return { users, nextCursor, totalCount };
   },
 });
@@ -583,12 +592,12 @@ export const grantEntitlement = mutation({
       if (args.evidence.purchasedAt > now + 5 * 60 * 1000) {
         throw new ConvexError('purchasedAt cannot be more than 5 minutes in the future');
       }
-
     }
 
     if (args.evidence.amount !== undefined) {
       if (args.evidence.amount < 0) throw new ConvexError('amount cannot be negative');
-      if (args.evidence.amount > 999999.99) throw new ConvexError('amount exceeds maximum allowed value');
+      if (args.evidence.amount > 999999.99)
+        throw new ConvexError('amount exceeds maximum allowed value');
     }
 
     // Get creator profile for policy snapshot
@@ -1417,10 +1426,7 @@ export const expireEntitlements = mutation({
  * Get the current policy snapshot version for a tenant.
  * Uses a hash of the policy object for versioning.
  */
-async function getPolicySnapshotVersion(
-  ctx: MutationCtx,
-  authUserId: string
-): Promise<number> {
+async function getPolicySnapshotVersion(ctx: MutationCtx, authUserId: string): Promise<number> {
   // Simple hash-based versioning
   // Count existing entitlements to get a rough version number
   const existingEntitlements = await ctx.db

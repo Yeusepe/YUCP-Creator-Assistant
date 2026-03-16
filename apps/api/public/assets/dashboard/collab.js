@@ -7,6 +7,7 @@ import {
   collabConnections,
   setCollabConnections,
 } from './store.js';
+import { escHtml, setButtonLoading, clearButtonLoading } from './utils.js';
 
 let cachedProviders = null;
 
@@ -285,7 +286,7 @@ function renderInvitesSection(invites) {
     revokeBtn.className = 'collab-remove-btn';
     revokeBtn.type = 'button';
     revokeBtn.textContent = 'Revoke';
-    revokeBtn.addEventListener('click', () => revokeInvite(invite.id));
+    revokeBtn.addEventListener('click', () => revokeInvite(invite.id, revokeBtn));
 
     row.appendChild(info);
     row.appendChild(revokeBtn);
@@ -304,7 +305,8 @@ function renderInvitesSection(invites) {
   }
 }
 
-export async function revokeInvite(inviteId) {
+export async function revokeInvite(inviteId, btn) {
+  setButtonLoading(btn, 'Revoking…');
   try {
     const authUserId = getTenantId();
     const urlSuffix = authUserId ? `?authUserId=${encodeURIComponent(authUserId)}` : '';
@@ -317,6 +319,8 @@ export async function revokeInvite(inviteId) {
   } catch (e) {
     console.error('Failed to revoke invite:', e);
     alert('Failed to revoke invite. Please try again.');
+  } finally {
+    clearButtonLoading(btn);
   }
 }
 

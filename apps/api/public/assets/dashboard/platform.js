@@ -1,5 +1,5 @@
 import { getConfig } from './config.js';
-import { escHtml } from './utils.js';
+import { escHtml, setButtonLoading, clearButtonLoading } from './utils.js';
 import {
   getActiveSetupProviders,
   getDashboardProvider,
@@ -463,19 +463,26 @@ export async function navigatePayhip() {
 }
 
 export async function navigateProvider(providerKey) {
-  if (providerKey === 'gumroad') {
-    return navigateGumroad();
+  const btn = document.getElementById(`${providerKey}-btn`);
+  setButtonLoading(btn, 'Connecting…');
+  try {
+    if (providerKey === 'gumroad') {
+      return await navigateGumroad();
+    }
+    if (providerKey === 'jinxxy') {
+      return await navigateJinxxy();
+    }
+    if (providerKey === 'lemonsqueezy') {
+      return await navigateLemonSqueezy();
+    }
+    if (providerKey === 'payhip') {
+      return await navigatePayhip();
+    }
+    return undefined;
+  } catch (e) {
+    clearButtonLoading(btn);
+    throw e;
   }
-  if (providerKey === 'jinxxy') {
-    return navigateJinxxy();
-  }
-  if (providerKey === 'lemonsqueezy') {
-    return navigateLemonSqueezy();
-  }
-  if (providerKey === 'payhip') {
-    return navigatePayhip();
-  }
-  return undefined;
 }
 
 export function updatePlatformCards() {
@@ -559,7 +566,7 @@ function renderAccountsSection() {
   }).join('');
   container.querySelectorAll('.card-action-btn.disconnect').forEach((btn) => {
     btn.addEventListener('click', () => {
-      confirmDisconnectUserAccount(btn.dataset.connId, btn.dataset.provider);
+      confirmDisconnectUserAccount(btn.dataset.connId, btn.dataset.provider, btn);
     });
   });
 }
@@ -660,6 +667,7 @@ async function toggleSetting(key) {
   const newValue = !settingsMap.get(key);
   el.classList.toggle('active');
   settingsMap.set(key, newValue);
+  el.classList.add('saving');
   try {
     const res = await apiFetch(`${getApiBase()}/api/connect/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value: newValue, authUserId: getTenantId() }) });
     if (!res.ok) {
@@ -675,6 +683,8 @@ async function toggleSetting(key) {
     el.classList.toggle('active');
     settingsMap.set(key, !newValue);
     renderQuickStart();
+  } finally {
+    el.classList.remove('saving');
   }
 }
 
@@ -748,10 +758,11 @@ async function confirmDisconnect(platform) {
   }
 }
 
-export async function confirmDisconnectUserAccount(connId, provider) {
+export async function confirmDisconnectUserAccount(connId, provider, btn) {
   if (!connId || typeof connId !== 'string' || connId.length > 256) return;
   if (!provider || typeof provider !== 'string' || provider.length > 64) return;
   if (!confirm(`Disconnect this ${provider} account? This removes syncing for all servers.`)) return;
+  setButtonLoading(btn, 'Disconnecting…');
   try {
     const res = await apiFetch(`${getApiBase()}/api/connect/user/accounts?id=${encodeURIComponent(connId)}`, { method: 'DELETE' });
     if (res.ok) {
@@ -763,6 +774,8 @@ export async function confirmDisconnectUserAccount(connId, provider) {
   } catch (e) {
     console.error('Disconnect error:', e);
     alert('Network error while disconnecting.');
+  } finally {
+    clearButtonLoading(btn);
   }
 }
 

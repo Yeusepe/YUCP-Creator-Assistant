@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createAuth } from '../auth';
 import { createSetupSession } from '../lib/setupSession';
-import { createConnectRoutes, type ConnectConfig } from './connect';
+import { type ConnectConfig, createConnectRoutes } from './connect';
 
 const ENCRYPTION_SECRET = 'test-encryption-secret-32chars!!';
 
@@ -70,9 +70,7 @@ describe('GET /api/connect/guild/channels', () => {
 
 describe('GET /api/connect/settings (web-session path)', () => {
   it('returns 401 when no session is present (no setup session, no auth session)', async () => {
-    const req = new Request(
-      'http://localhost:3001/api/connect/settings?authUserId=some-user'
-    );
+    const req = new Request('http://localhost:3001/api/connect/settings?authUserId=some-user');
     const res = await routes.getSettingsHandler(req);
     expect(res.status).toBe(401);
   });
@@ -94,10 +92,9 @@ describe('GET /api/connect/settings (web-session path)', () => {
 
 describe('DELETE /api/connections (disconnect) — auth guard', () => {
   it('returns 401 when no auth is present', async () => {
-    const req = new Request(
-      'http://localhost:3001/api/connections?id=conn-1&authUserId=user-1',
-      { method: 'DELETE' }
-    );
+    const req = new Request('http://localhost:3001/api/connections?id=conn-1&authUserId=user-1', {
+      method: 'DELETE',
+    });
     const res = await routes.disconnectConnectionHandler(req);
     expect(res.status).toBe(401);
   });

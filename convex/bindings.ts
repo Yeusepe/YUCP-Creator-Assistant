@@ -13,8 +13,8 @@
 
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
-import { internalQuery, mutation, query } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
+import { internalQuery, mutation, query } from './_generated/server';
 
 // ============================================================================
 // TYPES

@@ -846,7 +846,9 @@ export const upsertGumroadConnection = mutation({
         ...(args.resourceSubscriptionIds !== undefined
           ? { resourceSubscriptionIds: args.resourceSubscriptionIds, webhookConfigured: true }
           : {}),
-        ...(args.webhookRouteToken !== undefined ? { webhookRouteToken: args.webhookRouteToken } : {}),
+        ...(args.webhookRouteToken !== undefined
+          ? { webhookRouteToken: args.webhookRouteToken }
+          : {}),
         updatedAt: now,
       });
       await upsertCredential(ctx, {

@@ -409,17 +409,17 @@ function bootLoadingOverlay() {
   if (!overlay || overlay.children.length > 0) return;
   overlay.innerHTML =
     '<div class="plo-bag-scene">' +
-      '<svg class="plo-bag-outline" viewBox="0 0 58 66" fill="none"' +
-      ' xmlns="http://www.w3.org/2000/svg" aria-hidden="true" overflow="visible">' +
-        `<path d="${_BAG_PATH}" fill="none" stroke="white" stroke-width="10"/>` +
-      '</svg>' +
-      '<div class="plo-bag-color">' +
-        '<div class="plo-blob plo-blob-1"></div>' +
-        '<div class="plo-blob plo-blob-2"></div>' +
-        '<div class="plo-blob plo-blob-3"></div>' +
-        '<div class="plo-blob plo-blob-4"></div>' +
-        '<div class="plo-blob plo-blob-5"></div>' +
-      '</div>' +
+    '<svg class="plo-bag-outline" viewBox="0 0 58 66" fill="none"' +
+    ' xmlns="http://www.w3.org/2000/svg" aria-hidden="true" overflow="visible">' +
+    `<path d="${_BAG_PATH}" fill="none" stroke="white" stroke-width="10"/>` +
+    '</svg>' +
+    '<div class="plo-bag-color">' +
+    '<div class="plo-blob plo-blob-1"></div>' +
+    '<div class="plo-blob plo-blob-2"></div>' +
+    '<div class="plo-blob plo-blob-3"></div>' +
+    '<div class="plo-blob plo-blob-4"></div>' +
+    '<div class="plo-blob plo-blob-5"></div>' +
+    '</div>' +
     '</div>' +
     '<div class="plo-bar-wrap"><div class="plo-bar"></div></div>';
 }
@@ -432,9 +432,7 @@ function hideLoading() {
   // layout and paint without the user seeing anything.
   if (content) {
     content.style.display = '';
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => content.classList.add('is-visible')),
-    );
+    requestAnimationFrame(() => requestAnimationFrame(() => content.classList.add('is-visible')));
   }
 
   // Step 2: after content finishes its own 0.3s opacity transition + paint
@@ -442,7 +440,9 @@ function hideLoading() {
   setTimeout(() => {
     if (!overlay) return;
     overlay.classList.add('is-hiding');
-    setTimeout(() => { overlay.style.display = 'none'; }, 600);
+    setTimeout(() => {
+      overlay.style.display = 'none';
+    }, 600);
   }, 400);
 }
 

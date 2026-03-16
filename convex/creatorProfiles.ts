@@ -76,7 +76,9 @@ export const createCreatorProfile = mutation({
     if (name.length > 100) throw new ConvexError('name must be 100 characters or fewer');
     if (args.slug) {
       if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(args.slug) || args.slug.length > 64) {
-        throw new ConvexError('Slug must be lowercase alphanumeric with hyphens, max 64 characters');
+        throw new ConvexError(
+          'Slug must be lowercase alphanumeric with hyphens, max 64 characters'
+        );
       }
     }
 

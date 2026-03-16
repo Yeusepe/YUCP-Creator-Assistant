@@ -241,7 +241,9 @@ describe('activateBinding lifecycle', () => {
     const t = makeTestConvex();
     const authUserId = 'auth-bind-suspended-7';
     const subjectId = await seedSubject(t, { status: 'suspended' });
-    const externalAccountId = await seedExternalAccount(t, { providerUserId: 'discord-suspended-bind' });
+    const externalAccountId = await seedExternalAccount(t, {
+      providerUserId: 'discord-suspended-bind',
+    });
     const before = await getBindingCounts(t);
 
     await expect(
@@ -260,7 +262,9 @@ describe('activateBinding lifecycle', () => {
   it('given tenant B tries to revoke tenant A binding, then rejects and leaves binding active', async () => {
     const t = makeTestConvex();
     const subjectId = await seedSubject(t);
-    const externalAccountId = await seedExternalAccount(t, { providerUserId: 'discord-cross-tenant-bind' });
+    const externalAccountId = await seedExternalAccount(t, {
+      providerUserId: 'discord-cross-tenant-bind',
+    });
     const activateResult = await t.mutation(api.bindings.activateBinding, {
       apiSecret: API_SECRET,
       authUserId: 'auth-bind-owner-a',

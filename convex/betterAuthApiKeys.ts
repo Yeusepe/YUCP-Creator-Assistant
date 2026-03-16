@@ -50,9 +50,7 @@ function serializeApiKeyRecord(
   }
 
   const meta =
-    value.metadata &&
-    typeof value.metadata === 'object' &&
-    !Array.isArray(value.metadata)
+    value.metadata && typeof value.metadata === 'object' && !Array.isArray(value.metadata)
       ? (value.metadata as Record<string, unknown>)
       : null;
 

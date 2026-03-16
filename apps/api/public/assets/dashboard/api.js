@@ -1,6 +1,5 @@
 import { getApiBase, getTenantId, apiFetch, publicApiKeys, setPublicApiKeys } from './store.js';
-import { escHtml } from './utils.js';
-import { copyText } from './utils.js';
+import { escHtml, copyText, setButtonLoading, clearButtonLoading } from './utils.js';
 
 let currentApiKeyValue = '';
 
@@ -106,11 +105,11 @@ function renderApiKeysSection() {
       const menuBtns = menu.querySelectorAll('button');
       menuBtns[0].addEventListener('click', () => {
         menu.classList.remove('open');
-        rotatePublicApiKey(key._id);
+        rotatePublicApiKey(key._id, menuBtn);
       });
       menuBtns[1].addEventListener('click', () => {
         menu.classList.remove('open');
-        revokePublicApiKey(key._id);
+        revokePublicApiKey(key._id, menuBtn);
       });
       actions.appendChild(menuBtn);
       actions.appendChild(menu);
@@ -289,10 +288,11 @@ function showApiKeyReveal(apiKey, keyName) {
   });
 }
 
-async function revokePublicApiKey(keyId) {
+async function revokePublicApiKey(keyId, btn) {
   if (!confirm('Revoke this API key? It will stop working immediately.')) return;
   const tid = getTenantId();
   if (!tid) return;
+  setButtonLoading(btn, 'Revoking…');
   try {
     const res = await apiFetch(`${getApiBase()}/api/connect/public-api/keys/${encodeURIComponent(keyId)}/revoke`, {
       method: 'POST',
@@ -310,13 +310,16 @@ async function revokePublicApiKey(keyId) {
   } catch (e) {
     console.error('Revoke API key failed:', e);
     alert('Network error. Please try again.');
+  } finally {
+    clearButtonLoading(btn);
   }
 }
 
-async function rotatePublicApiKey(keyId) {
+async function rotatePublicApiKey(keyId, btn) {
   if (!confirm('Rotate this key? A new key will be created and this one will be revoked. Copy the new key when it appears.')) return;
   const tid = getTenantId();
   if (!tid) return;
+  setButtonLoading(btn, 'Rotating…');
   try {
     const res = await apiFetch(`${getApiBase()}/api/connect/public-api/keys/${encodeURIComponent(keyId)}/rotate`, {
       method: 'POST',
@@ -335,6 +338,8 @@ async function rotatePublicApiKey(keyId) {
     showApiKeyReveal(currentApiKeyValue, 'Rotated key');
   } catch (e) {
     alert(e.message || 'Failed to rotate key. Please try again.');
+  } finally {
+    clearButtonLoading(btn);
   }
 }
 

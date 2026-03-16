@@ -755,7 +755,9 @@ describe('Collab UI — invites and dynamic providers', () => {
     const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
     expect(js).toContain('/api/collab/invites');
     // There must be a revoke action that calls DELETE /api/collab/invites/:id
-    expect(js).toMatch(/DELETE[\s\S]{0,200}\/api\/collab\/invites|\/api\/collab\/invites[\s\S]{0,200}DELETE/);
+    expect(js).toMatch(
+      /DELETE[\s\S]{0,200}\/api\/collab\/invites|\/api\/collab\/invites[\s\S]{0,200}DELETE/
+    );
   });
 
   it('dashboard.html has a container for pending invites', async () => {
@@ -805,9 +807,7 @@ describe('Collab UI — as-collaborator connections', () => {
     // The dashboard must show connections where the current user is the collaborator
     // (i.e. stores they approved for someone else). Without this, creators who
     // accepted invites have no way to see or manage those relationships.
-    const js = await Bun.file(
-      `${import.meta.dir}/../public/assets/dashboard/collab.js`
-    ).text();
+    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
     expect(js).toContain('/api/collab/connections/as-collaborator');
   });
 
@@ -821,9 +821,7 @@ describe('Collab UI — as-collaborator connections', () => {
   it('convex/collaboratorInvites.ts has listConnectionsAsCollaborator query', async () => {
     // The Convex layer needs a public query that bridges authUserId → Discord ID
     // → active connections where the user is the collaborator.
-    const src = await Bun.file(
-      `${import.meta.dir}/../../../convex/collaboratorInvites.ts`
-    ).text();
+    const src = await Bun.file(`${import.meta.dir}/../../../convex/collaboratorInvites.ts`).text();
     expect(src).toContain('listConnectionsAsCollaborator');
   });
 });
@@ -867,9 +865,7 @@ describe('Collab UI — Discord avatars and facehash fallback', () => {
   it('acceptCollaboratorInvite Convex mutation accepts collaboratorAvatarHash arg', async () => {
     // The mutation validator must declare the field so Convex type-checks it and
     // stores it on the connection record.
-    const src = await Bun.file(
-      `${import.meta.dir}/../../../convex/collaboratorInvites.ts`
-    ).text();
+    const src = await Bun.file(`${import.meta.dir}/../../../convex/collaboratorInvites.ts`).text();
     const mutationBlock = src.slice(
       src.indexOf('export const acceptCollaboratorInvite'),
       src.indexOf('export const addCollaboratorConnection') > 0
@@ -885,7 +881,7 @@ describe('Collab UI — Discord avatars and facehash fallback', () => {
     const src = await Bun.file(`${import.meta.dir}/../../../convex/schema.ts`).text();
     // The field must appear somewhere between the table definition and the index definitions
     const startIdx = src.indexOf('const collaborator_connections = defineTable(');
-    const endIdx = src.indexOf('.index(\'by_owner\'', startIdx);
+    const endIdx = src.indexOf(".index('by_owner'", startIdx);
     const tableBlock = src.slice(startIdx, endIdx);
     expect(tableBlock).toContain('collaboratorAvatarHash');
   });
@@ -893,9 +889,7 @@ describe('Collab UI — Discord avatars and facehash fallback', () => {
   it('listCollaboratorConnections Convex query returns collaboratorAvatarHash', async () => {
     // The query must include the hash in its return map so the API layer can
     // construct a Discord CDN URL and include it in the JSON response.
-    const src = await Bun.file(
-      `${import.meta.dir}/../../../convex/collaboratorInvites.ts`
-    ).text();
+    const src = await Bun.file(`${import.meta.dir}/../../../convex/collaboratorInvites.ts`).text();
     const queryBlock = src.slice(
       src.indexOf('export const listCollaboratorConnections'),
       src.indexOf('export const listPendingInvitesByOwner')

@@ -1213,30 +1213,45 @@ http.route({
       return errorResponse('authUserId and avatarId are required', 400);
     }
 
-    // Get creator profile to find owner's auth user ID
-    const creatorProfile = await ctx.runQuery(internal.yucpLicenses.getTenantOwnerById, {
-      authUserId: body.authUserId,
-    });
-    if (!creatorProfile) {
-      console.log('[vrchat/avatar-name] no creator profile found', { authUserId: body.authUserId });
-      return jsonResponse({ name: null });
+    // Creators are Discord users — they have no VRChat BetterAuth session.
+    // Instead, look up a VRChat session belonging to any buyer who has verified
+    // under this creator. The buyer's VRChat providerUserId is stored in
+    // external_accounts, linked via the bindings table.
+    const vrchatProviderUserIds = await ctx.runQuery(
+      internal.yucpLicenses.getVrchatProviderUserIdsForCreator,
+      { authUserId: body.authUserId }
+    );
+
+    if (!vrchatProviderUserIds.length) {
+      console.log('[vrchat/avatar-name] no VRChat buyers found for creator', {
+        authUserId: body.authUserId,
+      });
+      return jsonResponse({ name: '' });
     }
 
-    // Look up owner's VRChat account from BetterAuth
-    const vrchatAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: 'account',
-      where: [
-        { field: 'userId', value: creatorProfile.authUserId },
-        { field: 'providerId', value: 'vrchat' },
-      ],
-      select: ['accessToken', 'idToken'],
-    })) as { accessToken?: string; idToken?: string } | null;
+    // Find the first buyer who still has a live BetterAuth VRChat session.
+    let vrchatAccount: { accessToken?: string; idToken?: string } | null = null;
+    for (const providerUserId of vrchatProviderUserIds) {
+      const account = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: 'account',
+        where: [
+          { field: 'accountId', value: providerUserId },
+          { field: 'providerId', value: 'vrchat' },
+        ],
+        select: ['accessToken', 'idToken'],
+      })) as { accessToken?: string; idToken?: string } | null;
+      if (account?.accessToken) {
+        vrchatAccount = account;
+        break;
+      }
+    }
 
-    if (!vrchatAccount?.accessToken) {
-      console.log('[vrchat/avatar-name] no VRChat account linked for user', {
-        authUserId: creatorProfile.authUserId,
+    if (!vrchatAccount) {
+      console.log('[vrchat/avatar-name] no live VRChat session found among buyers', {
+        authUserId: body.authUserId,
+        buyerCount: vrchatProviderUserIds.length,
       });
-      return jsonResponse({ name: null });
+      return jsonResponse({ name: '' });
     }
 
     // Decrypt the stored VRChat session (mirrors loadStoredSession in vrchat plugin)
@@ -1245,14 +1260,16 @@ http.route({
     const sessionSecret =
       process.env.VRCHAT_PROVIDER_SESSION_SECRET ?? process.env.BETTER_AUTH_SECRET;
     if (!sessionSecret) {
-      console.error('[vrchat/avatar-name] missing session secret env var (VRCHAT_PROVIDER_SESSION_SECRET / BETTER_AUTH_SECRET)');
-      return jsonResponse({ name: null });
+      console.error(
+        '[vrchat/avatar-name] missing session secret env var (VRCHAT_PROVIDER_SESSION_SECRET / BETTER_AUTH_SECRET)'
+      );
+      return jsonResponse({ name: '' });
     }
 
     let authToken: string;
     let twoFactorAuthToken: string | undefined;
     try {
-      const rawAuth = vrchatAccount.accessToken;
+      const rawAuth = vrchatAccount.accessToken!;
       authToken = rawAuth.startsWith(ENCRYPTED_PREFIX)
         ? await decryptForPurpose(
             rawAuth.slice(ENCRYPTED_PREFIX.length),
@@ -1272,10 +1289,10 @@ http.route({
       }
     } catch (err) {
       console.error('[vrchat/avatar-name] session decryption failed', {
-        authUserId: creatorProfile.authUserId,
+        authUserId: body.authUserId,
         error: err instanceof Error ? err.message : String(err),
       });
-      return jsonResponse({ name: null });
+      return jsonResponse({ name: '' });
     }
 
     // Call VRChat API with the decrypted session
@@ -1297,19 +1314,19 @@ http.route({
         status: avatarRes.status,
         statusText: avatarRes.statusText,
       });
-      return jsonResponse({ name: null });
+      return jsonResponse({ name: '' });
     }
     const avatarData = (await avatarRes.json().catch(() => null)) as Record<string, unknown> | null;
-    const name = typeof avatarData?.name === 'string' ? avatarData.name : null;
-    if (!name) {
+    const resolvedName = typeof avatarData?.name === 'string' ? avatarData.name : '';
+    if (!resolvedName) {
       console.warn('[vrchat/avatar-name] VRChat response missing name field', {
         avatarId: body.avatarId,
         keys: avatarData ? Object.keys(avatarData) : null,
       });
     } else {
-      console.log('[vrchat/avatar-name] resolved', { avatarId: body.avatarId, name });
+      console.log('[vrchat/avatar-name] resolved', { avatarId: body.avatarId, name: resolvedName });
     }
-    return jsonResponse({ name });
+    return jsonResponse({ name: resolvedName });
   }),
 });
 

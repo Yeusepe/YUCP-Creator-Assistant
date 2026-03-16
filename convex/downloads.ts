@@ -135,8 +135,10 @@ export const createRoute = mutation({
     if (!messageBody) {
       throw new Error('A message body is required');
     }
-    if (messageTitle.length > 256) throw new ConvexError('messageTitle must be 256 characters or fewer');
-    if (messageBody.length > 4000) throw new ConvexError('messageBody must be 4000 characters or fewer');
+    if (messageTitle.length > 256)
+      throw new ConvexError('messageTitle must be 256 characters or fewer');
+    if (messageBody.length > 4000)
+      throw new ConvexError('messageBody must be 4000 characters or fewer');
 
     const routeId = await ctx.db.insert('download_routes', {
       authUserId: args.authUserId,
@@ -202,8 +204,10 @@ export const updateRouteMessage = mutation({
     const messageBody = args.messageBody.trim();
     if (!messageTitle) throw new Error('A message title is required');
     if (!messageBody) throw new Error('A message body is required');
-    if (messageTitle.length > 256) throw new ConvexError('messageTitle must be 256 characters or fewer');
-    if (messageBody.length > 4000) throw new ConvexError('messageBody must be 4000 characters or fewer');
+    if (messageTitle.length > 256)
+      throw new ConvexError('messageTitle must be 256 characters or fewer');
+    if (messageBody.length > 4000)
+      throw new ConvexError('messageBody must be 4000 characters or fewer');
 
     await ctx.db.patch(args.routeId, {
       messageTitle,
@@ -317,7 +321,8 @@ export const updateArtifactSourceRelay = mutation({
     requireApiSecret(args.apiSecret);
     const artifact = await ctx.db.get(args.artifactId);
     if (!artifact) throw new Error(`Download artifact not found: ${args.artifactId}`);
-    if (artifact.authUserId !== args.authUserId) throw new ConvexError('Unauthorized: not the owner');
+    if (artifact.authUserId !== args.authUserId)
+      throw new ConvexError('Unauthorized: not the owner');
     await ctx.db.patch(args.artifactId, {
       sourceRelayMessageId: args.sourceRelayMessageId,
       sourceDeliveryMode: args.sourceDeliveryMode,
@@ -341,7 +346,8 @@ export const markArtifactStatus = mutation({
     requireApiSecret(args.apiSecret);
     const artifact = await ctx.db.get(args.artifactId);
     if (!artifact) throw new Error(`Download artifact not found: ${args.artifactId}`);
-    if (artifact.authUserId !== args.authUserId) throw new ConvexError('Unauthorized: not the owner');
+    if (artifact.authUserId !== args.authUserId)
+      throw new ConvexError('Unauthorized: not the owner');
     await ctx.db.patch(args.artifactId, {
       status: args.status,
       updatedAt: Date.now(),
