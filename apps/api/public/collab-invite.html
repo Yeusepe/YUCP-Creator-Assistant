@@ -968,6 +968,7 @@
                 apiFormInstructions: 'In Jinxxy™, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong style="color:white;">New API Key</strong>. Enable scopes: <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>. Then paste it below.',
                 consentDescription: 'Your Jinxxy™ API key is used to verify licenses sold through your store',
                 errorEmpty: 'Please enter your Jinxxy™ API key.',
+                supportsAccountLinking: true,
             },
             lemonsqueezy: {
                 label: 'Lemon Squeezy',
@@ -976,6 +977,7 @@
                 apiFormInstructions: 'In Lemon Squeezy, go to <strong style="color:white;">Settings → API</strong> and click <strong style="color:white;">Create new API key</strong>. Then paste it below.',
                 consentDescription: 'Your Lemon Squeezy API key is used to verify licenses sold through your store',
                 errorEmpty: 'Please enter your Lemon Squeezy API key.',
+                supportsAccountLinking: false,
             },
         };
 
@@ -1002,14 +1004,19 @@
             if (accountApiKey) accountApiKey.placeholder = ui.placeholder;
             const apiFormKey = document.getElementById('api-form-key');
             if (apiFormKey) apiFormKey.placeholder = ui.placeholder;
+            // Show the Account Linking card only for providers that use webhook-based setup
+            const cardAccount = document.getElementById('card-account');
+            if (cardAccount) cardAccount.style.display = ui.supportsAccountLinking ? '' : 'none';
         }
+
+        async function submitAccountLinking() {
             const btn = document.getElementById('btn-account-submit');
             const errorEl = document.getElementById('account-error');
             errorEl.classList.add('hidden');
 
-            const jinxxyApiKey = document.getElementById('account-api-key').value.trim();
-            if (!jinxxyApiKey) {
-                errorEl.textContent = 'Please enter your Jinxxy API key.';
+            const apiKey = document.getElementById('account-api-key').value.trim();
+            if (!apiKey) {
+                errorEl.textContent = getProviderUI(inviteData?.providerKey).errorEmpty;
                 errorEl.classList.remove('hidden');
                 return;
             }
@@ -1022,7 +1029,7 @@
                 // server-side from the invite - never sent by the client.
                 const body = {
                     linkType: 'account',
-                    jinxxyApiKey,
+                    apiKey,
                 };
 
                 const res = await fetch(`${API_BASE}/api/collab/session/submit`, {
@@ -1055,9 +1062,9 @@
             const errorEl = document.getElementById('api-form-error');
             errorEl.classList.add('hidden');
 
-            const jinxxyApiKey = document.getElementById('api-form-key').value.trim();
-            if (!jinxxyApiKey) {
-                errorEl.textContent = 'Please enter your Jinxxy API key.';
+            const apiKey = document.getElementById('api-form-key').value.trim();
+            if (!apiKey) {
+                errorEl.textContent = getProviderUI(inviteData?.providerKey).errorEmpty;
                 errorEl.classList.remove('hidden');
                 return;
             }
@@ -1069,7 +1076,7 @@
                 // Identity is derived server-side from the invite.
                 const body = {
                     linkType: 'api',
-                    jinxxyApiKey,
+                    apiKey,
                 };
 
                 const res = await fetch(`${API_BASE}/api/collab/session/submit`, {
@@ -1169,8 +1176,9 @@
                 }
 
                 // Populate consent title and expiry
+                updateProviderUI(inviteData.providerKey);
                 document.getElementById('consent-title').textContent =
-                    `${inviteData.ownerDisplayName} wants to share license verification with your Jinxxy™ store`;
+                    `${inviteData.ownerDisplayName} wants to share license verification with your ${getProviderUI(inviteData.providerKey).label} store`;
                 const expiryDate = new Date(inviteData.expiresAt).toLocaleDateString(undefined, {
                     month: 'long', day: 'numeric', year: 'numeric'
                 });
