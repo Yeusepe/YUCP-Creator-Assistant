@@ -291,7 +291,7 @@
         }
         @keyframes aurora {
             from { background-position:   0% 50%; }
-            to   { background-position: 100% 50%; }
+            to   { background-position: 200% 50%; }
         }
 
         /* ── Text Reveal (scroll-into-view, word stagger) ────────────────────── */
@@ -1118,70 +1118,106 @@
             .pill-cta { padding: 5px 8px; gap: 4px; }
         }
 
-        /* ── Dashboard-style section backgrounds ────────────────────────────────── */
-        /* Each feature section gets the liquid-glass panel treatment from dashboard.html:
-           rgba(255,255,255,0.35) + blur(32px) + dot-grid texture + inset white glow
-           — blobs glow through at the edges, sections feel like premium panels */
-        section.content-above-clouds {
-            background-color: rgba(255, 255, 255, 0.28);
-            background-image: radial-gradient(rgba(0, 0, 0, 0.045) 1px, transparent 1px);
-            background-size: 28px 28px;
+        /* ── Continuous glass panel wrapping all feature sections ──────────────── */
+        /* Single wrapper div (#sections-glass) gives the panel a unified look:
+           blobs glow through, top corners are rounded, no seams between sections */
+        #sections-glass {
+            background: rgba(255, 255, 255, 0.35);
+            background-image: radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px);
+            background-size: 24px 24px;
             backdrop-filter: blur(32px) saturate(180%);
             -webkit-backdrop-filter: blur(32px) saturate(180%);
-            border-top: 1px solid rgba(255, 255, 255, 0.55);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.20);
+            border-top: 1px solid rgba(255, 255, 255, 0.4);
+            border-top-left-radius: 24px;
+            border-top-right-radius: 24px;
             box-shadow:
-                inset 0 2px 6px rgba(255, 255, 255, 0.55),
-                inset 0 0 60px rgba(255, 255, 255, 0.18);
+                inset 0 0 40px rgba(255, 255, 255, 0.2),
+                inset 0 2px 5px rgba(255, 255, 255, 0.5);
+            position: relative;
+            z-index: 10;
         }
 
         /* Section text: flip white → dark for legibility on the light glass background */
-        section.content-above-clouds h2,
-        section.content-above-clouds h3 { color: #0f172a !important; }
+        #sections-glass h2,
+        #sections-glass h3 { color: #0f172a !important; }
 
-        section.content-above-clouds p,
-        section.content-above-clouds .text-white\/70,
-        section.content-above-clouds .text-white\/65 { color: #334155 !important; }
+        #sections-glass p,
+        #sections-glass .text-white\/70,
+        #sections-glass .text-white\/65 { color: #334155 !important; }
 
-        section.content-above-clouds .text-white\/50,
-        section.content-above-clouds .text-white\/45,
-        section.content-above-clouds .text-white\/40,
-        section.content-above-clouds .text-white\/35 { color: #64748b !important; }
+        #sections-glass .text-white\/50,
+        #sections-glass .text-white\/45,
+        #sections-glass .text-white\/40,
+        #sections-glass .text-white\/35 { color: #64748b !important; }
 
-        /* Grad-text spans: keep their gradient colors, just ensure clip is applied */
-        section.content-above-clouds .grad-text { color: transparent !important; }
+        /* Grad-text spans: keep gradient colors transparent clip */
+        #sections-glass .grad-text { color: transparent !important; }
 
-        /* Tag pills: invert to dark-on-light */
-        section.content-above-clouds .tag-pill {
-            background: rgba(0, 0, 0, 0.06) !important;
-            border-color: rgba(0, 0, 0, 0.12) !important;
+        /* Tag pills: white background so they read clearly against the glass panel */
+        #sections-glass .tag-pill {
+            background: rgba(255, 255, 255, 0.82) !important;
+            border-color: rgba(0, 0, 0, 0.10) !important;
             color: #334155 !important;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08) !important;
         }
 
         /* Int-check items: dark text */
-        section.content-above-clouds .int-check-list span { color: #334155 !important; }
+        #sections-glass .int-check-list span { color: #334155 !important; }
 
-        /* Spec-strip divider and sub-labels */
-        section.content-above-clouds .text-white\/35 { color: #64748b !important; }
+        /* Brand/accent inline text: use plain dark text — color used sparingly.
+           --accent-mustard gets a warm orange so "flavor." and "ROLES" still pop.
+           All other brand colors fall back to standard dark body text. */
+        #sections-glass .text-\[var\(--accent-mustard\)\] { color: #ea580c !important; } /* orange-600 */
+        #sections-glass .text-\[var\(--accent-sky\)\],
+        #sections-glass .text-\[\#FF90E8\],
+        #sections-glass .text-\[\#FFD36E\],
+        #sections-glass .text-\[\#00e676\],
+        #sections-glass .text-\[\#5865F2\],
+        #sections-glass .text-\[\#9146FF\] { color: #334155 !important; }
 
-        /* Keep the hero (#hero is a <main>, not <section>) completely unaffected */
+        /* Inside dark-glass cards: restore white text — don't let section overrides leak in */
+        #sections-glass .discord-mockup h2,
+        #sections-glass .discord-mockup h3,
+        #sections-glass .discord-mockup p,
+        #sections-glass .int-diagram h2,
+        #sections-glass .int-diagram h3,
+        #sections-glass .int-diagram p,
+        #sections-glass .bento-card h2,
+        #sections-glass .bento-card h3,
+        #sections-glass .bento-card p { color: unset !important; }
 
-        /* ── Global contrast floor — feature sections only (not hero, not footer) ── */
-        /* Raises dim text that falls below legibility threshold against dark-glass cards */
-        section.content-above-clouds .text-white\/40 { color: rgba(255,255,255,0.65) !important; }
-        section.content-above-clouds .text-white\/45 { color: rgba(255,255,255,0.68) !important; }
-        section.content-above-clouds .text-white\/50 { color: rgba(255,255,255,0.72) !important; }
+        #sections-glass .discord-mockup .text-white\/70,
+        #sections-glass .discord-mockup .text-white\/65,
+        #sections-glass .discord-mockup .text-white\/60,
+        #sections-glass .discord-mockup .text-white\/50,
+        #sections-glass .discord-mockup .text-white\/45,
+        #sections-glass .discord-mockup .text-white\/40,
+        #sections-glass .discord-mockup .text-white\/35,
+        #sections-glass .discord-mockup .text-white\/30,
+        #sections-glass .discord-mockup .text-white\/25,
+        #sections-glass .discord-mockup .text-white\/20,
+        #sections-glass .int-diagram .text-white\/70,
+        #sections-glass .int-diagram .text-white\/65,
+        #sections-glass .int-diagram .text-white\/60,
+        #sections-glass .int-diagram .text-white\/50,
+        #sections-glass .int-diagram .text-white\/45,
+        #sections-glass .int-diagram .text-white\/40,
+        #sections-glass .int-diagram .text-white\/35,
+        #sections-glass .bento-card .text-white\/70,
+        #sections-glass .bento-card .text-white\/65,
+        #sections-glass .bento-card .text-white\/60,
+        #sections-glass .bento-card .text-white\/50,
+        #sections-glass .bento-card .text-white\/45,
+        #sections-glass .bento-card .text-white\/40,
+        #sections-glass .bento-card .text-white\/35 { color: unset !important; }
 
-        /* Spec-strip sub-labels were too faint on the now-darker card backgrounds */
-        section.content-above-clouds .text-white\/35 { color: rgba(255,255,255,0.60) !important; }
-
-        /* Keep intentionally ultra-faint Discord mockup chrome (sidebar categories, timestamps)
-           at their original values — those are inside .discord-mockup which has its own stacking */
-        section.content-above-clouds .discord-mockup .text-white\/40,
-        section.content-above-clouds .discord-mockup .text-white\/35,
-        section.content-above-clouds .discord-mockup .text-white\/30,
-        section.content-above-clouds .discord-mockup .text-white\/25,
-        section.content-above-clouds .discord-mockup .text-white\/20 { color: unset !important; }
+        #sections-glass .discord-mockup .text-\[var\(--accent-mustard\)\],
+        #sections-glass .discord-mockup .text-\[var\(--accent-sky\)\],
+        #sections-glass .discord-mockup .text-\[\#FF90E8\],
+        #sections-glass .discord-mockup .text-\[\#FFD36E\],
+        #sections-glass .discord-mockup .text-\[\#00e676\],
+        #sections-glass .discord-mockup .text-\[\#5865F2\],
+        #sections-glass .discord-mockup .text-\[\#9146FF\] { color: unset !important; }
     </style>
 
     <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
@@ -1597,8 +1633,11 @@
 
         </main>
 
+        <!-- ── Feature sections: wrapped in one continuous glass panel ───────────── -->
+        <div id="sections-glass">
+
         <!-- ── Philosophy Statement ──────────────────────────────────────────────── -->
-        <section class="content-above-clouds py-14 px-4 sm:px-6 overflow-hidden relative z-10"
+        <section class="py-14 px-4 sm:px-6 overflow-hidden relative"
             id="features" data-blob-index="1">
             <div class="max-w-6xl mx-auto flex flex-col lg:flex-row items-center gap-10 lg:gap-20">
                 <div class="lg:w-5/12 reveal section-graphic mouse-parallax text-center lg:text-left" data-parallax-speed="0.6">
@@ -1621,7 +1660,7 @@
         </section>
 
         <!-- ── Feature: Seamless Integrations ───────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" id="integrations" data-blob-index="2">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" id="integrations" data-blob-index="2">
 
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-14 lg:gap-20">
 
@@ -1633,7 +1672,7 @@
                     </div>
                     <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Your storefronts,<br class="hidden md:block">
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#38bdf8,#2dd4bf);">united.</span>
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#be123c,#9a3412);">united.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-10">
                         Connect <span class="font-bold text-[#FF90E8]">Gumroad®</span>, <span class="font-bold text-[#9146FF]">Jinxxy™</span>, <span class="font-bold text-[#FFD36E]">Lemon Squeezy®</span>, <span class="font-bold text-[#00e676]">VRChat®</span>, and <span class="font-bold text-[#5865F2]">Discord®</span> in minutes. Customers verify once, the Assistant handles every purchase, past and future, automatically.
@@ -1779,7 +1818,7 @@
                             <div class="int-hub-pulse"></div>
                             <div class="int-hub-pulse int-hub-pulse-2"></div>
                             <div class="int-hub-inner">
-                                <img src="Icons/LemonSqueezy.png" class="w-8 h-8 object-contain relative z-10" alt="Creator Assistant">
+                                <img src="Icons/MainLogo.png" class="w-8 h-8 object-contain relative z-10" alt="Creator Assistant">
                                 <div class="relative z-10">
                                     <div class="text-sm font-black text-white">Creator Assistant</div>
                                     <div class="text-[10px] text-white/45 uppercase tracking-widest">Verification Hub</div>
@@ -1848,7 +1887,7 @@
         </section>
 
         <!-- ── Feature: Rules Engine ─────────────────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="3">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" data-blob-index="3">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal text-center lg:text-left">
                     <div class="feature-icon-box sticker"
@@ -1858,7 +1897,7 @@
                     <h2
                         class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Set the rules.<br>
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#facc15,#f97316);">Let the
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#d97706,#ea580c);">Let the
                             Assistant enforce them.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
@@ -1929,7 +1968,7 @@
         </section>
 
         <!-- ── Feature: Liened Downloads ────────────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="4">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" data-blob-index="4">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal text-center lg:text-left">
                     <div class="feature-icon-box sticker"
@@ -1940,7 +1979,7 @@
                         class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Liened <br class="hidden md:block">
                         <span class="grad-text"
-                            style="background-image:linear-gradient(90deg,#34d399,#2dd4bf);">Downloads</span>
+                            style="background-image:linear-gradient(90deg,#059669,#0d9488);">Downloads</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
                         Role-gate your files directly in Discord®. When members post assets in configured channels, the
@@ -2055,7 +2094,7 @@
         </section>
 
         <!-- ── Feature: Collaborating Creators ──────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="0">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" data-blob-index="0">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal text-center lg:text-left">
                     <div class="feature-icon-box sticker"
@@ -2066,7 +2105,7 @@
                         class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Collaborating <br class="hidden md:block">
                         <span class="grad-text"
-                            style="background-image:linear-gradient(90deg,#a78bfa,#f472b6);">Creators</span>
+                            style="background-image:linear-gradient(90deg,#7c3aed,#db2777);">Creators</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
                         Expand your community's reach. Invite other Jinxxy™ creators to share their store and buyers from
@@ -2167,7 +2206,7 @@
         </section>
 
         <!-- ── Feature: Security & Controls ─────────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" id="security" data-blob-index="1">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" id="security" data-blob-index="1">
             <div class="max-w-6xl mx-auto">
                 <div class="text-center mb-12 reveal">
                     <div class="feature-icon-box mx-auto sticker section-graphic"
@@ -2176,7 +2215,7 @@
                     </div>
                     <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight">
                         Built to stay<br>
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#f87171,#fb923c);">locked
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#dc2626,#ea580c);">locked
                             down.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
@@ -2277,6 +2316,8 @@
                 </div>
             </div>
         </section>
+
+        </div><!-- /#sections-glass -->
 
         <!-- ── Footer ────────────────────────────────────────────────────────────── -->
         <footer class="relative z-20 border-t border-white/10"
@@ -2819,7 +2860,7 @@
             function updateScrollBlur() {
                 if (pageContent && (pageContent.style.display === 'none' || hero.offsetHeight === 0)) {
                     overlay.style.setProperty('--scroll-blur', '0');
-                    overlay.style.setProperty('--scroll-darken', '0');
+                    overlay.style.setProperty('--scroll-darken', String(MAX_DARKEN));
                     return;
                 }
                 const scrollY = window.scrollY || document.documentElement.scrollTop;
@@ -2827,10 +2868,11 @@
                 const end = features.offsetTop - window.innerHeight * 0.15;
                 const t = Math.max(0, Math.min(1, (scrollY - start) / Math.max(1, end - start)));
                 overlay.style.setProperty('--scroll-blur', String(t * MAX_BLUR));
-                overlay.style.setProperty('--scroll-darken', String(t * MAX_DARKEN));
+                // darken is always at MAX — always visible on hero, no pop-in on scroll
+                overlay.style.setProperty('--scroll-darken', String(MAX_DARKEN));
             }
             overlay.style.setProperty('--scroll-blur', '0');
-            overlay.style.setProperty('--scroll-darken', '0');
+            overlay.style.setProperty('--scroll-darken', String(MAX_DARKEN));
             window.addEventListener('scroll', updateScrollBlur, { passive: true });
             window.addEventListener('page-content-visible', updateScrollBlur);
         })();

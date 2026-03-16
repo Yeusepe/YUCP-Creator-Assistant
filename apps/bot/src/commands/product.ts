@@ -18,6 +18,7 @@ import type { ConvexHttpClient } from 'convex/browser';
 import type {
   ButtonInteraction,
   ChatInputCommandInteraction,
+  Client,
   ModalSubmitInteraction,
   RoleSelectMenuInteraction,
   StringSelectMenuInteraction,
@@ -77,6 +78,93 @@ interface ProductSession {
 }
 
 const productSessions = new Map<string, ProductSession>();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DISCORD ROLE NAME RESOLUTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Enriches discord_role product entries with human-readable role names.
+ *
+ * Groups entries by sourceGuildId and issues a single `guild.roles.fetch()`
+ * per unique guild rather than one request per role. Discord.js handles rate
+ * limiting automatically via its internal REST bucket manager.
+ *
+ * Entries that already have a `displayName` (persisted at add time) are left
+ * unchanged. Entries whose source guild the bot cannot access (bot not a
+ * member, unknown guild) are returned as-is with `displayName` still null.
+ */
+async function enrichDiscordRoleNames<
+  T extends {
+    productId: string;
+    displayName: string | null;
+    provider?: string;
+    sourceGuildId?: string;
+    requiredRoleId?: string;
+    requiredRoleIds?: string[];
+    requiredRoleMatchMode?: 'any' | 'all';
+  },
+>(client: Client, items: T[]): Promise<T[]> {
+  const toResolve = items.filter(
+    (r) => r.provider === 'discord' && r.displayName === null && r.sourceGuildId
+  );
+  if (toResolve.length === 0) return items;
+
+  const uniqueGuildIds = [...new Set(toResolve.map((r) => r.sourceGuildId as string))];
+
+  // Per-guild resolved role names: guildId → Map<roleId, roleName>
+  const guildRoles = new Map<string, Map<string, string>>();
+  const guildNames = new Map<string, string>();
+
+  await Promise.all(
+    uniqueGuildIds.map(async (guildId) => {
+      try {
+        const guild =
+          client.guilds.cache.get(guildId) ??
+          (await client.guilds.fetch(guildId).catch(() => null));
+        if (!guild) return;
+
+        guildNames.set(guildId, guild.name);
+
+        // Use cache if already populated (e.g. from GUILD_CREATE); otherwise fetch all roles
+        // in a single API call rather than one request per role ID.
+        const rolesCollection =
+          guild.roles.cache.size > 0
+            ? guild.roles.cache
+            : await guild.roles.fetch().catch(() => null);
+        if (!rolesCollection) return;
+
+        const roleMap = new Map<string, string>();
+        for (const [id, role] of rolesCollection) {
+          roleMap.set(id, role.name);
+        }
+        guildRoles.set(guildId, roleMap);
+      } catch {
+        // Bot not in source guild — skip silently, raw productId will show instead
+      }
+    })
+  );
+
+  return items.map((item) => {
+    if (item.provider !== 'discord' || item.displayName !== null || !item.sourceGuildId) {
+      return item;
+    }
+    const roleMap = guildRoles.get(item.sourceGuildId);
+    const guildName = guildNames.get(item.sourceGuildId);
+    if (!roleMap) return item;
+
+    const reqIds = item.requiredRoleIds ?? (item.requiredRoleId ? [item.requiredRoleId] : []);
+    const names = reqIds
+      .map((id) => roleMap.get(id))
+      .filter((n): n is string => typeof n === 'string');
+    if (names.length === 0) return item;
+
+    // Show "Role A + Role B" for "all" mode, "Role A / Role B" for "any" mode
+    const sep = item.requiredRoleMatchMode === 'all' ? ' + ' : ' / ';
+    const displayName = guildName ? `${names.join(sep)} (${guildName})` : names.join(sep);
+    return { ...item, displayName };
+  });
+}
 
 function getSessionKey(userId: string, authUserId: string, guildId: string): string {
   return `${userId}:${authUserId}:${guildId}`;
@@ -967,6 +1055,34 @@ export async function handleProductConfirmAdd(
     if (type === 'discord_role') {
       const reqIds = sourceRoleIds ?? (sourceRoleId ? [sourceRoleId] : []);
       if (!sourceGuildId || reqIds.length === 0) throw new Error('Source guild/role ID missing');
+
+      // Resolve role names at add time so the product list shows a friendly name.
+      // The bot resolves from its guild cache (populated via GUILD_CREATE) or makes
+      // one GET /guilds/{id}/roles call. Discord.js rate-limits automatically.
+      let discordRoleDisplayName: string | undefined;
+      try {
+        const srcGuild =
+          interaction.client.guilds.cache.get(sourceGuildId) ??
+          (await interaction.client.guilds.fetch(sourceGuildId).catch(() => null));
+        if (srcGuild) {
+          const rolesCollection =
+            srcGuild.roles.cache.size > 0
+              ? srcGuild.roles.cache
+              : await srcGuild.roles.fetch().catch(() => null);
+          if (rolesCollection) {
+            const names = reqIds
+              .map((id) => rolesCollection.get(id)?.name)
+              .filter((n): n is string => typeof n === 'string');
+            if (names.length > 0) {
+              const sep = (requiredRoleMatchMode ?? 'any') === 'all' ? ' + ' : ' / ';
+              discordRoleDisplayName = `${names.join(sep)} (${srcGuild.name})`;
+            }
+          }
+        }
+      } catch {
+        // Non-fatal: display name will be resolved at list time via enrichDiscordRoleNames
+      }
+
       const result = await convex.mutation(api.role_rules.addProductFromDiscordRole, {
         apiSecret,
         authUserId,
@@ -976,6 +1092,7 @@ export async function handleProductConfirmAdd(
         guildId,
         guildLinkId,
         verifiedRoleIds,
+        displayName: discordRoleDisplayName,
       });
       productId = result.productId;
 
@@ -1112,8 +1229,20 @@ export async function handleProductConfirmAdd(
       try {
         const nameData = await resolveVrchatAvatarName({ authUserId, avatarId });
         vrchatDisplayName = nameData.name ?? undefined;
-      } catch {
-        // Non-fatal: proceed without display name
+        if (vrchatDisplayName) {
+          logger.info('VRChat avatar name resolved', { avatarId, name: vrchatDisplayName });
+        } else {
+          logger.warn('VRChat avatar name came back null — check Convex logs for [vrchat/avatar-name]', {
+            authUserId,
+            avatarId,
+          });
+        }
+      } catch (err) {
+        logger.warn('VRChat avatar name lookup threw — check API logs for [resolveVrchatAvatarName]', {
+          authUserId,
+          avatarId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
 
       const result = await convex.mutation(api.role_rules.addProductFromVrchat, {
@@ -1226,7 +1355,10 @@ export async function handleProductList(
     guildId: ctx.guildId,
   });
 
-  if (!rules.length) {
+  // Resolve Discord role names for any entries that don't yet have a stored displayName
+  const enrichedRules = await enrichDiscordRoleNames(interaction.client, rules);
+
+  if (!enrichedRules.length) {
     await interaction.editReply({
       content:
         'No product-role mappings for this server. Use `/creator-admin product add` to create one.',
@@ -1244,21 +1376,12 @@ export async function handleProductList(
     .setTitle('Product-Role Mappings')
     .setColor(0x5865f2)
     .setDescription(
-      rules
-        .map(
-          (r: {
-            productId: string;
-            displayName: string | null;
-            provider?: string;
-            verifiedRoleId?: string;
-            verifiedRoleIds?: string[];
-            enabled?: boolean;
-          }) => {
-            const roleIds = r.verifiedRoleIds ?? (r.verifiedRoleId ? [r.verifiedRoleId] : []);
-            const rolesStr = roleIds.map((id) => `<@&${id}>`).join(', ');
-            return `• **${productProviderPrefix(r)}${r.displayName ?? r.productId}** → ${rolesStr} ${r.enabled !== false ? E.Checkmark : '(disabled)'}`;
-          }
-        )
+      enrichedRules
+        .map((r) => {
+          const roleIds = r.verifiedRoleIds ?? (r.verifiedRoleId ? [r.verifiedRoleId] : []);
+          const rolesStr = roleIds.map((id) => `<@&${id}>`).join(', ');
+          return `• **${productProviderPrefix(r)}${r.displayName ?? r.productId}** → ${rolesStr} ${r.enabled !== false ? E.Checkmark : '(disabled)'}`;
+        })
         .join('\n')
     );
 
@@ -1280,7 +1403,10 @@ export async function handleProductRemove(
     guildId: ctx.guildId,
   });
 
-  if (!rules.length) {
+  // Resolve Discord role names for any entries that don't yet have a stored displayName
+  const enrichedRules = await enrichDiscordRoleNames(interaction.client, rules);
+
+  if (!enrichedRules.length) {
     await interaction.editReply({
       content: 'No product-role mappings found for this server.',
     });
@@ -1294,7 +1420,7 @@ export async function handleProductRemove(
   };
 
   // discord max options is 25
-  const toShow = rules.slice(0, 25);
+  const toShow = enrichedRules.slice(0, 25);
 
   const select = new StringSelectMenuBuilder()
     .setCustomId(`creator_product:remove_select:${ctx.authUserId}`)
@@ -1312,8 +1438,8 @@ export async function handleProductRemove(
   const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
 
   const msg =
-    toShow.length < rules.length
-      ? `**Select up to 25 products to remove:**\n*(Showing first 25 of ${rules.length} products)*`
+    toShow.length < enrichedRules.length
+      ? `**Select up to 25 products to remove:**\n*(Showing first 25 of ${enrichedRules.length} products)*`
       : '**Select the product(s) you want to remove:**';
 
   await interaction.editReply({

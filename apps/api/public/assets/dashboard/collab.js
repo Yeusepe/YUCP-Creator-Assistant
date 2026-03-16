@@ -8,19 +8,112 @@ import {
   setCollabConnections,
 } from './store.js';
 
-// Providers that support collaborator invites (mirrors PROVIDER_REGISTRY supportsCollab entries).
-const COLLAB_PROVIDERS = [
-  { key: 'jinxxy', label: 'Jinxxy™' },
-  { key: 'lemonsqueezy', label: 'Lemon Squeezy' },
-];
+let cachedProviders = null;
+
+/**
+ * Generates a deterministic gradient avatar element from a seed string.
+ * Uses the same djb2 hash as facehash's stringHash utility.
+ * No external requests — purely local SVG/CSS.
+ * @param {string} seed — Discord user ID or display name
+ * @returns {HTMLElement}
+ */
+function generateFallbackAvatarEl(seed) {
+  // djb2 hash (same algorithm as facehash's stringHash)
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+  }
+  h = Math.abs(h);
+
+  const palettes = [
+    ['#6366f1', '#8b5cf6'],
+    ['#0ea5e9', '#06b6d4'],
+    ['#10b981', '#059669'],
+    ['#f59e0b', '#d97706'],
+    ['#ec4899', '#db2777'],
+    ['#8b5cf6', '#6d28d9'],
+    ['#14b8a6', '#0891b2'],
+  ];
+  const [c1, c2] = palettes[h % palettes.length];
+  const initials = seed.trim().slice(0, 2).toUpperCase() || '??';
+
+  const div = document.createElement('div');
+  div.className = 'collab-avatar';
+  div.style.background = `linear-gradient(135deg, ${c1}, ${c2})`;
+  div.textContent = initials;
+  return div;
+}
+
+/**
+ * Creates an avatar element: an <img> when avatarUrl is present (server-side
+ * constructed, validated Discord CDN URL), falling back to generateFallbackAvatarEl
+ * when the URL is absent or the image fails to load.
+ * @param {{ avatarUrl?: string|null, collaboratorDiscordUserId?: string, collaboratorDisplayName?: string, ownerDisplayName?: string }} conn
+ * @param {string} fallbackSeed
+ * @returns {HTMLElement}
+ */
+function buildAvatarEl(conn, fallbackSeed) {
+  if (conn.avatarUrl) {
+    const img = document.createElement('img');
+    img.className = 'collab-avatar';
+    img.src = conn.avatarUrl;
+    img.alt = fallbackSeed;
+    img.width = 38;
+    img.height = 38;
+    img.onerror = () => {
+      img.replaceWith(generateFallbackAvatarEl(fallbackSeed));
+    };
+    return img;
+  }
+  return generateFallbackAvatarEl(fallbackSeed);
+}
+
+async function fetchCollabProviders() {
+  if (cachedProviders) return cachedProviders;
+  try {
+    const res = await fetch(`${getApiBase()}/api/collab/providers`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    cachedProviders = data.providers ?? [];
+  } catch (e) {
+    console.error('Failed to fetch collab providers:', e);
+    cachedProviders = [];
+  }
+  return cachedProviders;
+}
 
 let currentInviteUrl = '';
+let collabPollInterval = null;
+const COLLAB_POLL_INTERVAL_MS = 5000;
+const COLLAB_POLL_MAX = 60; // stop after 5 minutes
+let collabPollCount = 0;
 
-function populateProviderSelect() {
+function startCollabPolling() {
+  stopCollabPolling();
+  collabPollCount = 0;
+  collabPollInterval = setInterval(async () => {
+    collabPollCount++;
+    if (collabPollCount > COLLAB_POLL_MAX) {
+      stopCollabPolling();
+      return;
+    }
+    await fetchCollabConnections();
+  }, COLLAB_POLL_INTERVAL_MS);
+}
+
+function stopCollabPolling() {
+  if (collabPollInterval !== null) {
+    clearInterval(collabPollInterval);
+    collabPollInterval = null;
+  }
+}
+
+async function populateProviderSelect() {
   const select = document.getElementById('invite-provider-select');
   if (!select) return;
+  const providers = await fetchCollabProviders();
   select.replaceChildren();
-  for (const p of COLLAB_PROVIDERS) {
+  for (const p of providers) {
     const opt = document.createElement('option');
     opt.value = p.key;
     opt.textContent = p.label;
@@ -32,28 +125,28 @@ function renderCollabSection() {
   document.getElementById('collab-loading')?.classList.add('hidden');
   const list = document.getElementById('collab-list');
   const empty = document.getElementById('collab-empty');
+  const connectionsHeader = document.getElementById('collab-connections-header');
   const active = collabConnections.filter((c) => c.status === 'active');
 
   if (list) list.replaceChildren();
   if (empty) empty.classList.add('hidden');
 
   if (active.length === 0) {
+    if (connectionsHeader) connectionsHeader.classList.add('hidden');
     if (empty) empty.classList.remove('hidden');
     return;
   }
 
-  if (empty) empty.classList.add('hidden');
+  if (connectionsHeader) connectionsHeader.classList.remove('hidden');
 
   for (const conn of active) {
-    const initials = (conn.collaboratorDisplayName || '?').slice(0, 2).toUpperCase();
     const name = conn.collaboratorDisplayName || conn.collaboratorDiscordUserId || 'Unknown';
+    const avatarSeed = conn.collaboratorDiscordUserId || conn.collaboratorDisplayName || 'unknown';
 
     const row = document.createElement('div');
     row.className = 'collab-row';
 
-    const avatar = document.createElement('div');
-    avatar.className = 'collab-avatar';
-    avatar.textContent = initials;
+    const avatar = buildAvatarEl(conn, avatarSeed);
 
     const info = document.createElement('div');
     const nameSpan = document.createElement('span');
@@ -137,10 +230,175 @@ export async function fetchCollabConnections() {
     setCollabConnections([]);
   }
   renderCollabSection();
+  await Promise.all([fetchPendingInvites(), fetchAsCollaboratorConnections()]);
 }
 
-export function generateCollabInvite() {
-  populateProviderSelect();
+async function fetchPendingInvites() {
+  try {
+    const authUserId = getTenantId();
+    const urlSuffix = authUserId ? `?authUserId=${encodeURIComponent(authUserId)}` : '';
+    const res = await apiFetch(`${getApiBase()}/api/collab/invites${urlSuffix}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderInvitesSection(data.invites ?? []);
+  } catch (e) {
+    console.error('Failed to fetch pending invites:', e);
+    renderInvitesSection([]);
+  }
+}
+
+function renderInvitesSection(invites) {
+  const section = document.getElementById('collab-invites-section');
+  const list = document.getElementById('collab-invites-list');
+  if (!section || !list) return;
+
+  list.replaceChildren();
+
+  if (invites.length === 0) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+
+  for (const invite of invites) {
+    const row = document.createElement('div');
+    row.className = 'collab-invite-row';
+    row.id = `invite-row-${invite.id}`;
+
+    const info = document.createElement('div');
+    info.className = 'collab-invite-info';
+
+    const providerBadge = document.createElement('span');
+    providerBadge.className = 'badge-api';
+    providerBadge.textContent = invite.providerKey;
+    info.appendChild(providerBadge);
+
+    const expiry = document.createElement('span');
+    expiry.className = 'collab-invite-expiry';
+    expiry.textContent = invite.expiresAt
+      ? `Expires ${new Date(invite.expiresAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+      : 'Pending';
+    info.appendChild(expiry);
+
+    const revokeBtn = document.createElement('button');
+    revokeBtn.className = 'collab-remove-btn';
+    revokeBtn.type = 'button';
+    revokeBtn.textContent = 'Revoke';
+    revokeBtn.addEventListener('click', () => revokeInvite(invite.id));
+
+    row.appendChild(info);
+    row.appendChild(revokeBtn);
+    list.appendChild(row);
+  }
+
+  // Show "Active Connections" header only when there are active connections too
+  const connectionsHeader = document.getElementById('collab-connections-header');
+  if (connectionsHeader) {
+    const active = collabConnections.filter((c) => c.status === 'active');
+    if (active.length > 0) {
+      connectionsHeader.classList.remove('hidden');
+    } else {
+      connectionsHeader.classList.add('hidden');
+    }
+  }
+}
+
+export async function revokeInvite(inviteId) {
+  try {
+    const authUserId = getTenantId();
+    const urlSuffix = authUserId ? `?authUserId=${encodeURIComponent(authUserId)}` : '';
+    const res = await apiFetch(
+      `${getApiBase()}/api/collab/invites/${inviteId}${urlSuffix}`,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await fetchPendingInvites();
+  } catch (e) {
+    console.error('Failed to revoke invite:', e);
+    alert('Failed to revoke invite. Please try again.');
+  }
+}
+
+async function fetchAsCollaboratorConnections() {
+  try {
+    const authUserId = getTenantId();
+    const urlSuffix = authUserId ? `?authUserId=${encodeURIComponent(authUserId)}` : '';
+    const res = await apiFetch(
+      `${getApiBase()}/api/collab/connections/as-collaborator${urlSuffix}`
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderAsCollaboratorSection(data.connections ?? []);
+  } catch (e) {
+    console.error('Failed to fetch as-collaborator connections:', e);
+    renderAsCollaboratorSection([]);
+  }
+}
+
+function renderAsCollaboratorSection(connections) {
+  const list = document.getElementById('collab-as-collaborator-list');
+  const empty = document.getElementById('collab-as-collaborator-empty');
+  const loading = document.getElementById('collab-as-collaborator-loading');
+
+  if (loading) loading.classList.add('hidden');
+  if (!list) return;
+
+  list.replaceChildren();
+
+  if (connections.length === 0) {
+    if (empty) empty.classList.remove('hidden');
+    return;
+  }
+
+  if (empty) empty.classList.add('hidden');
+
+  const providers = cachedProviders ?? [];
+
+  for (const conn of connections) {
+    const ownerName = conn.ownerDisplayName ?? 'Unknown Creator';
+    const avatarSeed = conn.ownerAuthUserId || ownerName;
+
+    const providerLabel =
+      providers.find((p) => p.key === conn.provider)?.label ?? conn.provider;
+
+    const row = document.createElement('div');
+    row.className = 'collab-row';
+
+    const avatar = generateFallbackAvatarEl(avatarSeed);
+
+    const info = document.createElement('div');
+    info.style.flex = '1';
+    info.style.minWidth = '0';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'collab-name';
+    nameSpan.textContent = ownerName;
+
+    const meta = document.createElement('div');
+    meta.className = 'collab-meta';
+
+    const providerBadge = document.createElement('span');
+    providerBadge.className = 'badge-api';
+    providerBadge.textContent = providerLabel;
+    meta.appendChild(providerBadge);
+
+    const typeBadge = document.createElement('span');
+    typeBadge.className = conn.linkType === 'account' ? 'badge-account' : 'badge-api';
+    typeBadge.textContent = conn.linkType === 'account' ? 'Account' : 'API Key';
+    meta.appendChild(typeBadge);
+
+    info.appendChild(nameSpan);
+    info.appendChild(meta);
+
+    row.appendChild(avatar);
+    row.appendChild(info);
+    list.appendChild(row);
+  }
+}
+
+export async function generateCollabInvite() {
+  await populateProviderSelect();
   const stepSelect = document.getElementById('invite-step-select');
   const stepUrl = document.getElementById('invite-step-url');
   if (stepSelect) stepSelect.style.display = '';
@@ -204,9 +462,12 @@ function showInviteResult(url, expiresAt) {
   const stepUrl = document.getElementById('invite-step-url');
   if (stepSelect) stepSelect.style.display = 'none';
   if (stepUrl) stepUrl.style.display = '';
+  // Start polling so the collab list refreshes when the collaborator accepts
+  startCollabPolling();
 }
 
 export function closeInvitePanel() {
+  stopCollabPolling();
   document.getElementById('invite-panel')?.classList.remove('open');
 }
 
@@ -283,6 +544,7 @@ export async function removeCollabConnection(connectionId) {
 
 export function initCollab() {
   window.removeCollabConnection = removeCollabConnection;
+  window.revokeInvite = revokeInvite;
   window.generateCollabInvite = generateCollabInvite;
   window.submitGenerateInvite = submitGenerateInvite;
   window.closeInvitePanel = closeInvitePanel;

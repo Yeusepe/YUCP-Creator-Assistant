@@ -29,7 +29,7 @@
  */
 
 import { JinxxyApiClient, LemonSqueezyApiClient } from '@yucp/providers';
-import { createLogger, getProviderDescriptor } from '@yucp/shared';
+import { createLogger, getProviderDescriptor, PROVIDER_REGISTRY } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { SETUP_SESSION_COOKIE } from '../lib/browserSessions';
@@ -439,6 +439,7 @@ export function createCollabRoutes(config: CollabConfig) {
     const redirectUri = `${config.apiBaseUrl}/api/collab/auth/callback`;
     let discordUserId: string;
     let discordUsername: string;
+    let discordAvatarHash: string | null = null;
 
     try {
       const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
@@ -467,9 +468,20 @@ export function createCollabRoutes(config: CollabConfig) {
       });
 
       if (!userRes.ok) throw new Error('Failed to fetch Discord user');
-      const user = (await userRes.json()) as { id: string; username: string; global_name?: string };
+      const user = (await userRes.json()) as {
+        id: string;
+        username: string;
+        global_name?: string;
+        avatar?: string | null;
+      };
       discordUserId = user.id;
       discordUsername = user.global_name ?? user.username;
+
+      // Validate avatar hash: Discord uses hex strings, optionally prefixed with
+      // "a_" for animated GIFs. Never store arbitrary strings from external sources.
+      const AVATAR_HASH_RE = /^(a_)?[0-9a-f]{32}$/;
+      const rawAvatarHash = user.avatar ?? null;
+      discordAvatarHash = rawAvatarHash && AVATAR_HASH_RE.test(rawAvatarHash) ? rawAvatarHash : null;
     } catch (oauthErr) {
       logger.error('Discord OAuth failed', { err: oauthErr });
       const frontendUrl = config.frontendBaseUrl.replace(/\/$/, '');
@@ -479,7 +491,7 @@ export function createCollabRoutes(config: CollabConfig) {
     // Store Discord identity in state store, keyed by inviteId
     await store.set(
       `${COLLAB_DISCORD_PREFIX}${invite._id}`,
-      JSON.stringify({ discordUserId, discordUsername }),
+      JSON.stringify({ discordUserId, discordUsername, avatarHash: discordAvatarHash }),
       COLLAB_DISCORD_TTL_MS
     );
 
@@ -645,9 +657,10 @@ export function createCollabRoutes(config: CollabConfig) {
         { status: 401 }
       );
     }
-    const { discordUserId, discordUsername } = JSON.parse(rawDiscord) as {
+    const { discordUserId, discordUsername, avatarHash } = JSON.parse(rawDiscord) as {
       discordUserId: string;
       discordUsername: string;
+      avatarHash: string | null;
     };
 
     let body: {
@@ -749,6 +762,7 @@ export function createCollabRoutes(config: CollabConfig) {
         provider: inviteProviderKey,
         collaboratorDiscordUserId: discordUserId,
         collaboratorDisplayName: discordUsername,
+        collaboratorAvatarHash: avatarHash ?? undefined,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -785,7 +799,26 @@ export function createCollabRoutes(config: CollabConfig) {
       apiSecret,
       ownerAuthUserId: ownerAuth.authUserId,
     });
-    return Response.json({ connections });
+
+    // Construct Discord CDN avatar URLs server-side from the validated hash.
+    // The client receives only the pre-built URL — never the raw hash.
+    const AVATAR_HASH_RE = /^(a_)?[0-9a-f]{32}$/;
+    const withAvatars = connections.map(
+      (c: {
+        collaboratorAvatarHash?: string | null;
+        collaboratorDiscordUserId?: string;
+        [key: string]: unknown;
+      }) => {
+      const hash = c.collaboratorAvatarHash;
+      const avatarUrl =
+        hash && AVATAR_HASH_RE.test(hash)
+          ? `https://cdn.discordapp.com/avatars/${c.collaboratorDiscordUserId}/${hash}.webp?size=64`
+          : null;
+      const { collaboratorAvatarHash: _drop, ...rest } = c;
+      return { ...rest, avatarUrl };
+    });
+
+    return Response.json({ connections: withAvatars });
   }
 
   /**
@@ -953,6 +986,85 @@ export function createCollabRoutes(config: CollabConfig) {
 
   // ── Dispatcher ─────────────────────────────────────────────────────────────
 
+  /**
+   * GET /api/collab/providers — public list of providers that support collab invites.
+   * No auth required — this is metadata only.
+   */
+  function listCollabProviders(): Response {
+    const providers = (PROVIDER_REGISTRY as ReadonlyArray<(typeof PROVIDER_REGISTRY)[number]>)
+      .filter((p): p is Extract<(typeof PROVIDER_REGISTRY)[number], { supportsCollab: true }> =>
+        'supportsCollab' in p && p.supportsCollab === true
+      )
+      .map((p) => ({ key: p.providerKey, label: p.label }));
+    return Response.json({ providers });
+  }
+
+  /**
+   * GET /api/collab/invites — list pending invites created by this owner.
+   */
+  async function listInvites(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const ownerAuth = await requireOwnerAuth(
+      request,
+      url.searchParams.get('authUserId') ?? undefined
+    );
+    if (!ownerAuth.ok) return ownerAuth.response;
+
+    const invites = await convex.query(api.collaboratorInvites.listPendingInvitesByOwner, {
+      apiSecret,
+      ownerAuthUserId: ownerAuth.authUserId,
+    });
+    return Response.json({ invites });
+  }
+
+  /**
+   * GET /api/collab/connections/as-collaborator — list stores this user is a collaborator for.
+   */
+  async function listConnectionsAsCollaborator(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const ownerAuth = await requireOwnerAuth(
+      request,
+      url.searchParams.get('authUserId') ?? undefined
+    );
+    if (!ownerAuth.ok) return ownerAuth.response;
+
+    const connections = await convex.query(
+      api.collaboratorInvites.listConnectionsAsCollaborator,
+      {
+        apiSecret,
+        authUserId: ownerAuth.authUserId,
+      }
+    );
+    return Response.json({ connections });
+  }
+
+  /**
+   * DELETE /api/collab/invites/:id — revoke a pending invite.
+   */
+  async function revokeInvite(request: Request, inviteId: string): Promise<Response> {
+    if (request.method !== 'DELETE')
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+
+    const url = new URL(request.url);
+    const ownerAuth = await requireOwnerAuth(
+      request,
+      url.searchParams.get('authUserId') ?? undefined
+    );
+    if (!ownerAuth.ok) return ownerAuth.response;
+
+    try {
+      await convex.mutation(api.collaboratorInvites.revokeCollaboratorInvite, {
+        apiSecret,
+        // biome-ignore lint/suspicious/noExplicitAny: Convex ID coercion from URL param string
+        inviteId: inviteId as any,
+        ownerAuthUserId: ownerAuth.authUserId,
+      });
+    } catch (e) {
+      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    }
+    return Response.json({ success: true });
+  }
+
   async function handleCollabRequest(request: Request): Promise<Response> {
     try {
       return await dispatchCollabRequest(request);
@@ -969,6 +1081,9 @@ export function createCollabRoutes(config: CollabConfig) {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
+    if (pathname === '/api/collab/providers' && request.method === 'GET')
+      return listCollabProviders();
+    if (pathname === '/api/collab/invites' && request.method === 'GET') return listInvites(request);
     if (pathname === '/api/collab/invite') return createInvite(request);
     if (pathname === '/api/collab/session/exchange' && request.method === 'POST')
       return exchangeSession(request);
@@ -989,12 +1104,18 @@ export function createCollabRoutes(config: CollabConfig) {
       return submitInvite(request);
     if (pathname === '/api/collab/connections' && request.method === 'GET')
       return listConnections(request);
+    if (pathname === '/api/collab/connections/as-collaborator' && request.method === 'GET')
+      return listConnectionsAsCollaborator(request);
     if (pathname === '/api/collab/connections/manual' && request.method === 'POST')
       return addConnectionManual(request);
 
     const connDeleteMatch = pathname.match(/^\/api\/collab\/connections\/([^/]+)$/);
     if (connDeleteMatch && request.method === 'DELETE')
       return removeConnection(request, connDeleteMatch[1]);
+
+    const inviteDeleteMatch = pathname.match(/^\/api\/collab\/invites\/([^/]+)$/);
+    if (inviteDeleteMatch && request.method === 'DELETE')
+      return revokeInvite(request, inviteDeleteMatch[1]);
 
     return Response.json({ error: 'Not found' }, { status: 404 });
   }

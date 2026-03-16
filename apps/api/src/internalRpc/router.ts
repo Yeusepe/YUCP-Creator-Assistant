@@ -354,6 +354,12 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
           });
 
           if (!response.ok) {
+            const body = await response.text().catch(() => '(unreadable)');
+            console.warn('[resolveVrchatAvatarName] Convex endpoint returned non-OK', {
+              status: response.status,
+              avatarId: request.avatarId,
+              body: body.slice(0, 300),
+            });
             return { name: undefined };
           }
 

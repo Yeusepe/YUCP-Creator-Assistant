@@ -539,6 +539,8 @@ const role_rules = defineTable({
   requiredRoleIds: v.optional(v.array(v.string())),
   // Match mode for requiredRoleIds: 'any' = at least one, 'all' = every role
   requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
+  // Human-readable name for discord_role products — set at add time, avoids repeated Discord API calls
+  displayName: v.optional(v.string()),
   // Timestamps
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -1389,6 +1391,8 @@ const collaborator_connections = defineTable({
   /** Discord user ID for invite flow; manual:{provider_user_id} for manual adds */
   collaboratorDiscordUserId: v.string(),
   collaboratorDisplayName: v.string(),
+  /** Discord avatar hash (e.g. "a_abc123…" for animated, plain hex for static). Server-validated. */
+  collaboratorAvatarHash: v.optional(v.string()),
   /** 'invite' when created via invite link; 'manual' when added by admin. Optional for backward compat. */
   source: v.optional(v.union(v.literal('invite'), v.literal('manual'))),
   /** Discord user ID of admin who ran the manual add (audit) */

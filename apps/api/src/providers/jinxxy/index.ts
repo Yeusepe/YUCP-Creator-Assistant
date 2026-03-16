@@ -80,12 +80,15 @@ const jinxxyProvider: ProviderPlugin = {
         { apiSecret: ctx.apiSecret, ownerAuthUserId: ctx.authUserId }
       )) as Array<{
         id: string;
+        provider: string;
         jinxxyApiKeyEncrypted?: string;
         credentialEncrypted?: string;
         collaboratorDisplayName?: string;
       }>;
 
       for (const collab of collabConnections) {
+        // Skip connections from other providers — their credentials are not Jinxxy API keys
+        if (collab.provider !== 'jinxxy') continue;
         const encryptedKey = collab.credentialEncrypted ?? collab.jinxxyApiKeyEncrypted;
         if (!encryptedKey) continue;
         try {

@@ -1217,7 +1217,10 @@ http.route({
     const creatorProfile = await ctx.runQuery(internal.yucpLicenses.getTenantOwnerById, {
       authUserId: body.authUserId,
     });
-    if (!creatorProfile) return jsonResponse({ name: null });
+    if (!creatorProfile) {
+      console.log('[vrchat/avatar-name] no creator profile found', { authUserId: body.authUserId });
+      return jsonResponse({ name: null });
+    }
 
     // Look up owner's VRChat account from BetterAuth
     const vrchatAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
@@ -1229,14 +1232,22 @@ http.route({
       select: ['accessToken', 'idToken'],
     })) as { accessToken?: string; idToken?: string } | null;
 
-    if (!vrchatAccount?.accessToken) return jsonResponse({ name: null });
+    if (!vrchatAccount?.accessToken) {
+      console.log('[vrchat/avatar-name] no VRChat account linked for user', {
+        authUserId: creatorProfile.authUserId,
+      });
+      return jsonResponse({ name: null });
+    }
 
     // Decrypt the stored VRChat session (mirrors loadStoredSession in vrchat plugin)
     const ENCRYPTED_PREFIX = 'enc:v1:';
     const PROVIDER_SESSION_PURPOSE = 'vrchat-provider-session';
     const sessionSecret =
       process.env.VRCHAT_PROVIDER_SESSION_SECRET ?? process.env.BETTER_AUTH_SECRET;
-    if (!sessionSecret) return jsonResponse({ name: null });
+    if (!sessionSecret) {
+      console.error('[vrchat/avatar-name] missing session secret env var (VRCHAT_PROVIDER_SESSION_SECRET / BETTER_AUTH_SECRET)');
+      return jsonResponse({ name: null });
+    }
 
     let authToken: string;
     let twoFactorAuthToken: string | undefined;
@@ -1259,7 +1270,11 @@ http.route({
             )
           : rawTfa;
       }
-    } catch {
+    } catch (err) {
+      console.error('[vrchat/avatar-name] session decryption failed', {
+        authUserId: creatorProfile.authUserId,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return jsonResponse({ name: null });
     }
 
@@ -1276,9 +1291,24 @@ http.route({
       }
     );
 
-    if (!avatarRes.ok) return jsonResponse({ name: null });
+    if (!avatarRes.ok) {
+      console.warn('[vrchat/avatar-name] VRChat API returned non-OK', {
+        avatarId: body.avatarId,
+        status: avatarRes.status,
+        statusText: avatarRes.statusText,
+      });
+      return jsonResponse({ name: null });
+    }
     const avatarData = (await avatarRes.json().catch(() => null)) as Record<string, unknown> | null;
     const name = typeof avatarData?.name === 'string' ? avatarData.name : null;
+    if (!name) {
+      console.warn('[vrchat/avatar-name] VRChat response missing name field', {
+        avatarId: body.avatarId,
+        keys: avatarData ? Object.keys(avatarData) : null,
+      });
+    } else {
+      console.log('[vrchat/avatar-name] resolved', { avatarId: body.avatarId, name });
+    }
     return jsonResponse({ name });
   }),
 });

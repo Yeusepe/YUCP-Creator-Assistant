@@ -171,7 +171,7 @@ export const getByGuild = query({
 /**
  * Get unique products for a guild with display names for autocomplete.
  * For catalog products: uses canonicalSlug or providerProductRef from product_catalog.
- * For Discord role products: displayName is null (bot fetches role name from Discord).
+ * For Discord role products: uses displayName stored at add-time; null for legacy entries (bot enriches at display-time).
  */
 export const getByGuildWithProductNames = query({
   args: {
@@ -187,6 +187,7 @@ export const getByGuildWithProductNames = query({
       sourceGuildId: v.optional(v.string()),
       requiredRoleId: v.optional(v.string()),
       requiredRoleIds: v.optional(v.array(v.string())),
+      requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
       verifiedRoleId: v.optional(v.string()),
       verifiedRoleIds: v.optional(v.array(v.string())),
       enabled: v.optional(v.boolean()),
@@ -210,6 +211,7 @@ export const getByGuildWithProductNames = query({
       sourceGuildId?: string;
       requiredRoleId?: string;
       requiredRoleIds?: string[];
+      requiredRoleMatchMode?: 'any' | 'all';
       verifiedRoleId?: string;
       verifiedRoleIds?: string[];
       enabled?: boolean;
@@ -232,6 +234,10 @@ export const getByGuildWithProductNames = query({
           provider = catalog.provider;
         }
       }
+      // For discord_role products: fall back to the name stored at add time
+      if (!displayName) {
+        displayName = r.displayName ?? null;
+      }
       if (!provider) {
         provider = r.productId.startsWith('discord_role:') ? 'discord' : 'manual';
       }
@@ -243,6 +249,7 @@ export const getByGuildWithProductNames = query({
         sourceGuildId: r.sourceGuildId,
         requiredRoleId: r.requiredRoleId,
         requiredRoleIds: r.requiredRoleIds,
+        requiredRoleMatchMode: r.requiredRoleMatchMode,
         verifiedRoleId: r.verifiedRoleId,
         verifiedRoleIds: r.verifiedRoleIds,
         enabled: r.enabled,
@@ -1056,6 +1063,8 @@ export const addProductFromDiscordRole = mutation({
     guildLinkId: v.id('guild_links'),
     verifiedRoleId: v.optional(v.string()),
     verifiedRoleIds: v.optional(v.array(v.string())),
+    /** Human-readable name (e.g. "Member (My Server)") — resolved by bot at add time */
+    displayName: v.optional(v.string()),
   },
   returns: v.object({
     productId: v.string(),
@@ -1085,6 +1094,10 @@ export const addProductFromDiscordRole = mutation({
       .first();
 
     if (existing) {
+      // Update displayName when the bot resolved a better name on re-add
+      if (args.displayName && existing.displayName !== args.displayName) {
+        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: Date.now() });
+      }
       return { productId, ruleId: existing._id };
     }
 
@@ -1108,6 +1121,7 @@ export const addProductFromDiscordRole = mutation({
       requiredRoleId: reqIds.length === 1 ? reqIds[0] : undefined,
       requiredRoleIds: reqIds.length > 1 ? reqIds : undefined,
       requiredRoleMatchMode: reqIds.length > 1 ? (args.requiredRoleMatchMode ?? 'any') : undefined,
+      displayName: args.displayName,
       createdAt: now,
       updatedAt: now,
     });

@@ -191,6 +191,8 @@ export const acceptCollaboratorInvite = mutation({
     collaboratorDiscordUserId: v.string(),
     /** Discord username from server-side OAuth */
     collaboratorDisplayName: v.string(),
+    /** Discord avatar hash — validated server-side during OAuth (/^(a_)?[0-9a-f]{32}$/) */
+    collaboratorAvatarHash: v.optional(v.string()),
   },
   returns: v.id('collaborator_connections'),
   handler: async (ctx, args) => {
@@ -227,6 +229,7 @@ export const acceptCollaboratorInvite = mutation({
       source: 'invite',
       collaboratorDiscordUserId: args.collaboratorDiscordUserId,
       collaboratorDisplayName: args.collaboratorDisplayName,
+      collaboratorAvatarHash: args.collaboratorAvatarHash,
       createdAt: Date.now(),
     });
     await ctx.db.patch(args.inviteId, { usedAt: Date.now() });
@@ -351,8 +354,90 @@ export const listCollaboratorConnections = query({
       webhookConfigured: c.webhookConfigured,
       collaboratorDiscordUserId: c.collaboratorDiscordUserId,
       collaboratorDisplayName: c.collaboratorDisplayName,
+      collaboratorAvatarHash: c.collaboratorAvatarHash,
       createdAt: c.createdAt,
     }));
+  },
+});
+
+/**
+ * List pending (not yet accepted) invites for a tenant (owner view).
+ */
+export const listPendingInvitesByOwner = query({
+  args: {
+    apiSecret: v.string(),
+    ownerAuthUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const invites = await ctx.db
+      .query('collaborator_invites')
+      .withIndex('by_owner_status', (q) =>
+        q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('status', 'pending')
+      )
+      .collect();
+
+    const now = Date.now();
+    return invites
+      .filter((i) => i.expiresAt > now)
+      .map((i) => ({
+        id: i._id,
+        providerKey: i.providerKey ?? 'jinxxy',
+        ownerDisplayName: i.ownerDisplayName,
+        expiresAt: i.expiresAt,
+        createdAt: i.createdAt,
+      }));
+  },
+});
+
+/**
+ * List active connections where the caller is the collaborator (not the owner).
+ * Resolves the caller's Discord ID via their creator_profile, then queries
+ * collaborator_connections by that Discord ID.
+ */
+export const listConnectionsAsCollaborator = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    // Resolve the caller's Discord ID from their creator profile
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+
+    if (!profile?.ownerDiscordUserId) return [];
+
+    const connections = await ctx.db
+      .query('collaborator_connections')
+      .withIndex('by_collaborator_discord', (q) =>
+        q.eq('collaboratorDiscordUserId', profile.ownerDiscordUserId)
+      )
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    // Enrich with owner display name from their profile
+    const enriched = await Promise.all(
+      connections.map(async (c) => {
+        const ownerProfile = await ctx.db
+          .query('creator_profiles')
+          .withIndex('by_auth_user', (q) => q.eq('authUserId', c.ownerAuthUserId))
+          .first();
+        return {
+          id: c._id,
+          provider: c.provider,
+          linkType: c.linkType,
+          ownerAuthUserId: c.ownerAuthUserId,
+          ownerDisplayName: ownerProfile?.name ?? null,
+          createdAt: c.createdAt,
+        };
+      })
+    );
+
+    return enriched;
   },
 });
 
@@ -395,6 +480,7 @@ export const getCollabConnectionsForVerification = query({
     v.object({
       id: v.id('collaborator_connections'),
       provider: v.string(),
+      collaboratorDisplayName: v.string(),
       /** Legacy Jinxxy-specific field; present on old records */
       jinxxyApiKeyEncrypted: v.optional(v.string()),
       /** Generic credential field; present on new records */
@@ -415,6 +501,7 @@ export const getCollabConnectionsForVerification = query({
       .map((c) => ({
         id: c._id,
         provider: c.provider,
+        collaboratorDisplayName: c.collaboratorDisplayName,
         jinxxyApiKeyEncrypted: c.jinxxyApiKeyEncrypted,
         credentialEncrypted: c.credentialEncrypted,
       }));

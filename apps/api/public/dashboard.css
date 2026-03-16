@@ -749,10 +749,6 @@ body:not(.state-server-selected) .server-only {
 
 /* Integrations inline panel (light, matches card) */
 
-#collab-section.max-w-2xl {
-  max-width: 672px;
-}
-
 /*  Section Label */
 
 .section-label {
@@ -796,9 +792,9 @@ body:not(.state-server-selected) .server-only {
   letter-spacing: 0.06em;
   padding: 2px 7px;
   border-radius: 99px;
-  background: rgba(255, 235, 59, 0.15);
-  color: #fde047;
-  border: 1px solid rgba(255, 235, 59, 0.25);
+  background: rgba(167, 139, 250, 0.18);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.3);
 }
 
 .webhook-dot {
@@ -821,9 +817,8 @@ body:not(.state-server-selected) .server-only {
   margin-left: auto;
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  border: 1px solid var(--border-color);
   color: var(--text-secondary);
   border-radius: 999px;
   padding: 5px 12px;
@@ -834,9 +829,138 @@ body:not(.state-server-selected) .server-only {
 }
 
 .collab-remove-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(239, 68, 68, 0.1);
   border-color: rgba(248, 113, 113, 0.4);
-  color: var(--accent-red);
+  color: #f87171;
+}
+
+/* ── Collab Section Headers (theme-aware dividers) ─────────────────── */
+
+.collab-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  margin: 24px 0 14px;
+  white-space: nowrap;
+}
+
+.collab-section-header::before,
+.collab-section-header::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.collab-section-header:first-child {
+  margin-top: 0;
+}
+
+/* ── Collab Connection Rows ─────────────────────────────────────────── */
+
+.collab-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  transition: border-color 0.15s;
+}
+
+.collab-row:last-child {
+  margin-bottom: 0;
+}
+
+.dark .collab-row {
+  background: rgba(30, 41, 59, 0.45);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark .collab-row:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.collab-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6d28d9, #be185d);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+}
+
+.collab-avatar.collab-avatar-img {
+  background: none;
+  padding: 0;
+}
+
+.collab-avatar.collab-avatar-img img,
+img.collab-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  flex-shrink: 0;
+}
+
+.collab-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: "DM Sans", sans-serif;
+}
+
+/* ── Pending Invite Rows ────────────────────────────────────────────── */
+
+.collab-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.35);
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.collab-invite-row:last-child {
+  margin-bottom: 0;
+}
+
+.dark .collab-invite-row {
+  background: rgba(30, 41, 59, 0.25);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.collab-invite-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.collab-invite-expiry {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 /*  OAuth Apps (Glass Grid Style)  */
