@@ -135,7 +135,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
     !hasLoggedIgnoredBetterAuthUrl
   ) {
     hasLoggedIgnoredBetterAuthUrl = true;
-    console.warn(
+    // Downgrade to debug to avoid noisy WARN logs in runtime environments where
+    // CONVEX_SITE_URL is authoritative. This remains available for debugging.
+    console.debug(
       `BETTER_AUTH_URL (${legacyBetterAuthOrigin}) is ignored; Better Auth runs on ${authOrigin}`
     );
   }
