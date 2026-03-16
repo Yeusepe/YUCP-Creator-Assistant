@@ -656,16 +656,12 @@ function showSaveError(key) {
 }
 
 async function toggleSetting(key) {
-  if (!getHasSetupSession()) {
-    alert('Settings can only be changed using a secure setup link from Discord.');
-    return;
-  }
   const el = document.getElementById(`toggle-${key}`);
   const newValue = !settingsMap.get(key);
   el.classList.toggle('active');
   settingsMap.set(key, newValue);
   try {
-    const res = await apiFetch(`${getApiBase()}/api/connect/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value: newValue }) });
+    const res = await apiFetch(`${getApiBase()}/api/connect/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value: newValue, authUserId: getTenantId() }) });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data?.error || 'Failed to save setting.');
@@ -683,14 +679,10 @@ async function toggleSetting(key) {
 }
 
 async function selectSetting(key, value) {
-  if (!getHasSetupSession()) {
-    alert('Settings can only be changed using a secure setup link from Discord.');
-    return;
-  }
   const oldValue = settingsMap.get(key);
   settingsMap.set(key, value);
   try {
-    const res = await apiFetch(`${getApiBase()}/api/connect/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) });
+    const res = await apiFetch(`${getApiBase()}/api/connect/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value, authUserId: getTenantId() }) });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data?.error || 'Failed to save setting.');
@@ -775,7 +767,15 @@ export async function confirmDisconnectUserAccount(connId, provider) {
 
 async function loadGuildChannels() {
   try {
-    const res = await apiFetch(`${getApiBase()}/api/connect/guild/channels`);
+    const guildId = getGuildId();
+    const tenantId = getTenantId();
+    let url = `${getApiBase()}/api/connect/guild/channels`;
+    // Web-session users have no setup-session cookie; pass guildId for server-side ownership check.
+    if (!getHasSetupSession() && guildId) {
+      url += `?guildId=${encodeURIComponent(guildId)}`;
+      if (tenantId) url += `&authUserId=${encodeURIComponent(tenantId)}`;
+    }
+    const res = await apiFetch(url);
     if (!res.ok) return;
     const data = await res.json();
     const channels = data.channels || [];
@@ -875,6 +875,18 @@ export async function fetchAllData() {
           if (statusData.lemonsqueezy) connectionsMap.set('lemonsqueezy', { provider: 'lemonsqueezy', status: 'active' });
         }
       }
+      const settingsRes = await apiFetch(`${getApiBase()}/api/connect/settings?authUserId=${encodeURIComponent(getTenantId())}`);
+      if (settingsRes.ok) {
+        const settingsData = await settingsRes.json();
+        if (settingsData.policy) {
+          const policy = settingsData.policy;
+          ['allowMismatchedEmails', 'autoVerifyOnJoin', 'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers', 'verificationScope', 'duplicateVerificationBehavior', 'suspiciousAccountBehavior', 'logChannelId', 'announcementsChannelId'].forEach((k) => {
+            if (policy[k] !== undefined) settingsMap.set(k, policy[k]);
+          });
+          updateSettingsUI();
+        }
+      }
+      if (getGuildId()) await loadGuildChannels();
     }
     updatePlatformCards();
   } catch (err) {

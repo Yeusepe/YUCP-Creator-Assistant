@@ -1312,20 +1312,36 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * GET /api/connect/settings?s=TOKEN
+   * GET /api/connect/settings
    * Returns the current tenant policy settings.
+   * Accepts either a bound setup session (bot-initiated flow) or a Better Auth
+   * web session with `?authUserId=<id>` (regular web login).
    */
   async function getSettingsHandler(request: Request): Promise<Response> {
-    const setupBinding = await requireBoundSetupSession(request);
-    if (!setupBinding.ok) {
-      return setupBinding.response;
+    let authUserId: string;
+
+    const setupSession = await resolveSetupSessionFromRequest(request);
+    if (setupSession) {
+      const authSession = await auth.getSession(request);
+      if (!authSession) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      authUserId = setupSession.authUserId;
+    } else {
+      const url = new URL(request.url);
+      const ownerCheck = await requireOwnerSessionForTenant(
+        request,
+        url.searchParams.get('authUserId') ?? undefined
+      );
+      if (!ownerCheck.ok) return ownerCheck.response;
+      authUserId = url.searchParams.get('authUserId')!;
     }
-    const session = setupBinding.setupSession;
+
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const tenant = (await convex.query(api.creatorProfiles.getCreatorProfile, {
         apiSecret: config.convexApiSecret,
-        authUserId: session.authUserId,
+        authUserId,
       })) as { policy?: Record<string, unknown> };
       return Response.json({ policy: tenant?.policy ?? {} });
     } catch (err) {
@@ -1342,11 +1358,45 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Used to populate the logs/announcements channel dropdowns in the dashboard.
    */
   async function getGuildChannels(request: Request): Promise<Response> {
-    const setupBinding = await requireBoundSetupSession(request);
-    if (!setupBinding.ok) {
-      return setupBinding.response;
+    // Prefer setup session (bot-initiated flow); fall back to Better Auth web session.
+    let guildId: string | null = null;
+
+    const setupSession = await resolveSetupSessionFromRequest(request);
+    if (setupSession) {
+      // Setup session path: also requires a valid auth session (bound check)
+      const authSession = await auth.getSession(request);
+      if (!authSession) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      guildId = setupSession.guildId;
+    } else {
+      // Web session path: Better Auth session + guildId query param + guild ownership check
+      const authSession = await auth.getSession(request);
+      if (!authSession) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      const url = new URL(request.url);
+      guildId = url.searchParams.get('guildId') ?? url.searchParams.get('guild_id');
+      if (!guildId) {
+        return Response.json({ error: 'guildId is required' }, { status: 400 });
+      }
+      // Verify the authenticated user owns this guild
+      try {
+        const convex = getConvexClientFromUrl(config.convexUrl);
+        const guildLink = await convex.query(api.guildLinks.getGuildLinkForUninstall, {
+          apiSecret: config.convexApiSecret,
+          discordGuildId: guildId,
+        });
+        if (!guildLink || guildLink.authUserId !== authSession.user.id) {
+          return Response.json({ error: 'Forbidden' }, { status: 403 });
+        }
+      } catch (err) {
+        logger.error('Guild ownership check failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return Response.json({ channels: [] });
+      }
     }
-    const guildId = setupBinding.setupSession.guildId;
 
     if (!config.discordBotToken) {
       return Response.json({ channels: [] });
@@ -1379,20 +1429,17 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * POST /api/connect/settings?s=TOKEN
-   * Body: { key: string, value: unknown }
+   * POST /api/connect/settings
+   * Body: { key: string, value: unknown, authUserId?: string }
+   * Accepts either a bound setup session (bot-initiated flow) or a Better Auth
+   * web session with `authUserId` in the request body (regular web login).
    */
   async function updateSettingHandler(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const setupBinding = await requireBoundSetupSession(request);
-    if (!setupBinding.ok) {
-      return setupBinding.response;
-    }
-    const session = setupBinding.setupSession;
 
-    let body: { key: string; value: unknown };
+    let body: { key: string; value: unknown; authUserId?: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -1407,11 +1454,26 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Invalid setting key' }, { status: 400 });
     }
 
+    let authUserId: string;
+
+    const setupSession = await resolveSetupSessionFromRequest(request);
+    if (setupSession) {
+      const authSession = await auth.getSession(request);
+      if (!authSession) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      authUserId = setupSession.authUserId;
+    } else {
+      const ownerCheck = await requireOwnerSessionForTenant(request, body.authUserId);
+      if (!ownerCheck.ok) return ownerCheck.response;
+      authUserId = body.authUserId!;
+    }
+
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.updateTenantSetting, {
         apiSecret: config.convexApiSecret,
-        authUserId: session.authUserId,
+        authUserId,
         key: body.key,
         value: body.value,
       });

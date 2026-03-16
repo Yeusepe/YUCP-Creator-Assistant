@@ -1057,7 +1057,7 @@
             const overlay = document.getElementById('page-loading-overlay');
             const content = document.getElementById('page-content');
             if (content) content.style.display = '';
-            if (overlay) setTimeout(() => { overlay.classList.add('is-hiding'); setTimeout(() => overlay.style.display = 'none', 1400); }, 500);
+            if (overlay) setTimeout(() => { overlay.classList.add('is-hiding'); setTimeout(() => overlay.style.display = 'none', 700); }, 500);
             if (content) requestAnimationFrame(() => requestAnimationFrame(() => content.classList.add('is-visible')));
             requestAnimationFrame(() => observeActiveStepHeight());
         }

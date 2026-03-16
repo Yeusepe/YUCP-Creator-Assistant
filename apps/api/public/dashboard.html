@@ -1148,37 +1148,6 @@
     </script>
     <script type="module" src="/assets/dashboard/main.js"></script>
 
-
-    <script>
-        // Smooth overlay fade: intercepts site.js instant display:none
-        (function () {
-            var overlay = document.getElementById('page-loading-overlay');
-            var content = document.getElementById('page-content');
-            if (!overlay) return;
-            function dismissOverlay() {
-                observer.disconnect();
-                overlay.classList.add('is-hiding');
-                if (content) {
-                    content.style.display = '';
-                    requestAnimationFrame(function () {
-                        requestAnimationFrame(function () { content.classList.add('is-visible'); });
-                    });
-                }
-                setTimeout(function () { overlay.style.display = 'none'; }, 1400);
-            }
-            var observer = new MutationObserver(function () {
-                if (overlay.style.display === 'none') {
-                    overlay.style.display = '';
-                    setTimeout(dismissOverlay, 500);
-                    observer.disconnect();
-                }
-            });
-            observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
-            // Fallback: dismiss if dashboard init never completes
-            setTimeout(dismissOverlay, 5000);
-        })();
-    </script>
-
     <script type="text/babel" data-type="module">
         import React, { useRef, Component } from "react";
         import { createRoot } from "react-dom/client";

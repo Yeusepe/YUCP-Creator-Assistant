@@ -37,11 +37,10 @@ describe('GET /api/connect/guild/channels', () => {
     const res = await routes.getGuildChannels(req);
     expect(res.status).toBe(401);
     const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/setup session/i);
+    expect(body.error).toMatch(/authentication required/i);
   });
 
   it('returns 401 when setup session token is present but no auth session', async () => {
-    // Create a real signed session token using the in-memory store
     const token = await createSetupSession(
       'user-test-001',
       'guild-test-001',
@@ -56,5 +55,67 @@ describe('GET /api/connect/guild/channels', () => {
     expect(res.status).toBe(401);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/authentication required/i);
+  });
+
+  it('returns 400 when no guildId provided in web-session path', async () => {
+    // No setup session, no guildId → 400
+    const req = new Request(
+      'http://localhost:3001/api/connect/guild/channels?authUserId=some-user'
+    );
+    const res = await routes.getGuildChannels(req);
+    // No Better Auth session cookie → 401 (auth check comes first)
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('GET /api/connect/settings (web-session path)', () => {
+  it('returns 401 when no session is present (no setup session, no auth session)', async () => {
+    const req = new Request(
+      'http://localhost:3001/api/connect/settings?authUserId=some-user'
+    );
+    const res = await routes.getSettingsHandler(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 when setup session present but no auth session', async () => {
+    const token = await createSetupSession(
+      'user-test-002',
+      'guild-test-002',
+      'discord-user-002',
+      ENCRYPTION_SECRET
+    );
+    const req = new Request('http://localhost:3001/api/connect/settings', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const res = await routes.getSettingsHandler(req);
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('POST /api/connect/settings (web-session path)', () => {
+  it('returns 401 when no session is present', async () => {
+    const req = new Request('http://localhost:3001/api/connect/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'allowMismatchedEmails', value: true, authUserId: 'some-user' }),
+    });
+    const res = await routes.updateSettingHandler(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 when setup session present but no auth session', async () => {
+    const token = await createSetupSession(
+      'user-test-003',
+      'guild-test-003',
+      'discord-user-003',
+      ENCRYPTION_SECRET
+    );
+    const req = new Request('http://localhost:3001/api/connect/settings', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'allowMismatchedEmails', value: true }),
+    });
+    const res = await routes.updateSettingHandler(req);
+    expect(res.status).toBe(401);
   });
 });

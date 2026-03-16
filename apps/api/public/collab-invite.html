@@ -1178,36 +1178,6 @@
         });
     </script>
     <script type="module" src="/assets/collab-invite/collab-invite.js"></script>
-
-    <script>
-        // Smooth overlay fade: intercepts site.js instant display:none
-        (function () {
-            var overlay = document.getElementById('page-loading-overlay');
-            var content = document.getElementById('page-content');
-            if (!overlay) return;
-            function dismissOverlay() {
-                observer.disconnect();
-                overlay.classList.add('is-hiding');
-                if (content) {
-                    content.style.display = '';
-                    requestAnimationFrame(function () {
-                        requestAnimationFrame(function () { content.classList.add('is-visible'); });
-                    });
-                }
-                setTimeout(function () { overlay.style.display = 'none'; }, 1400);
-            }
-            var observer = new MutationObserver(function () {
-                if (overlay.style.display === 'none') {
-                    overlay.style.display = '';
-                    setTimeout(dismissOverlay, 500);
-                    observer.disconnect();
-                }
-            });
-            observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
-            // Fallback: dismiss if site.js fails to load or call hideLoading()
-            setTimeout(dismissOverlay, 10000);
-        })();
-    </script>
 </body>
 
 </html>

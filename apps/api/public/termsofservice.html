@@ -1171,31 +1171,6 @@
         </main>
     </div>
 
-    <script>
-        // Smooth overlay fade: intercepts site.js instant display:none
-        (function () {
-            var overlay = document.getElementById('page-loading-overlay');
-            var content = document.getElementById('page-content');
-            if (!overlay) return;
-            var observer = new MutationObserver(function () {
-                if (overlay.style.display === 'none') {
-                    overlay.style.display = '';
-                    setTimeout(function() {
-                        overlay.classList.add('is-hiding');
-                        if (content) {
-                        requestAnimationFrame(function () {
-                            requestAnimationFrame(function () { content.classList.add('is-visible'); });
-                        });
-                    }
-                    setTimeout(function () { overlay.style.display = 'none'; }, 1400);
-                    }, 500);
-                    observer.disconnect();
-                }
-            });
-            observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
-        })();
-    </script>
-
 </body>
 
 </html>
