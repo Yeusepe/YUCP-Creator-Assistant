@@ -196,8 +196,15 @@ function exposeConfetti() {
 function hideLoading() {
   const overlay = document.getElementById('page-loading-overlay');
   const content = document.getElementById('page-content');
+  if (content) {
+    content.style.display = '';
+    // Two rAF frames ensure the browser has painted the display change before
+    // adding is-visible, which triggers the opacity transition.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => content.classList.add('is-visible')),
+    );
+  }
   if (overlay) overlay.style.display = 'none';
-  if (content) content.style.display = '';
 }
 
 window.addEventListener('load', () => {

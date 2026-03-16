@@ -442,7 +442,7 @@ function hideLoading() {
   setTimeout(() => {
     if (!overlay) return;
     overlay.classList.add('is-hiding');
-    setTimeout(() => { overlay.style.display = 'none'; }, 900);
+    setTimeout(() => { overlay.style.display = 'none'; }, 600);
   }, 400);
 }
 
