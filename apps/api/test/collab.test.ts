@@ -13,6 +13,48 @@ import type { Auth, SessionData } from '../src/auth/index';
 import { createSetupSession } from '../src/lib/setupSession';
 import { startTestServer, type TestServerHandle } from './helpers/testServer';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Collab invite page — static HTML completeness
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Collab invite page — inline script completeness', () => {
+  it('collab-invite.html declares async function submitAccountLinking', async () => {
+    // Regression guard: the Connect button uses onclick="submitAccountLinking()".
+    // When the function declaration is accidentally omitted, the function body
+    // floats at the top level of a non-module <script>, turning every `return`
+    // inside it into "Uncaught SyntaxError: Illegal return statement" in
+    // the browser — crashing the page for every collaborator who opens the link.
+    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
+    expect(html).toContain('async function submitAccountLinking()');
+  });
+
+  it('collab-invite.html submit functions use generic apiKey field, not jinxxyApiKey', async () => {
+    // Both submit functions must send `apiKey` (the canonical field the server
+    // accepts). The deprecated `jinxxyApiKey` alias must not appear in the
+    // request body — it breaks non-Jinxxy providers since the field name leaks
+    // provider identity to the client and confuses users.
+    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
+    expect(html).not.toContain('jinxxyApiKey');
+  });
+
+  it('collab-invite.html consent title uses dynamic provider label, not hardcoded Jinxxy', async () => {
+    // The consent stage title must not hardcode "Jinxxy™ store" — it must use
+    // getProviderUI(inviteData.providerKey).label so Lemon Squeezy and future
+    // providers display the correct store name.
+    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
+    expect(html).not.toContain("with your Jinxxy™ store");
+    expect(html).toContain('getProviderUI(inviteData.providerKey).label');
+  });
+
+  it('collab-invite.html calls updateProviderUI after invite data is loaded', async () => {
+    // updateProviderUI must be called with inviteData.providerKey after the
+    // invite is fetched so that labels, placeholders, and error messages are
+    // correct for every provider (not just Jinxxy).
+    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
+    expect(html).toContain('updateProviderUI(inviteData.providerKey)');
+  });
+});
+
 /** Must match the encryption secret in testServer.ts DEFAULTS */
 const TEST_ENCRYPTION_SECRET = 'test-encryption-secret-32-chars!!';
 
