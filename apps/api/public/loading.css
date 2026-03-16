@@ -33,7 +33,6 @@
     transform: scale(1);
     /* Inertia: bag winds up then explodes outward */
     transition: transform 0.55s cubic-bezier(0.7, 0, 1, 1);
-    animation: plo-glow 4s ease infinite;
 }
 
 /* When hiding: bag grows to fill the viewport */
@@ -79,24 +78,28 @@
     will-change: transform;
 }
 
-.plo-blob-1 { background: #ff75c3; top: -33%; left: -40%; animation-delay:   0s; }
-.plo-blob-2 { background: #ffa647; top: -33%; left:  15%; animation-delay:  -4s; }
-.plo-blob-3 { background: #ffe83f; top:  22%; left: -40%; animation-delay:  -9s; }
-.plo-blob-4 { background: #9fff5b; top:  22%; left:  15%; animation-delay: -14s; }
-.plo-blob-5 { background: #70e2ff; top:  -6%; left: -13%; animation-delay: -19s; }
+.plo-blob-1 { background: #ff75c3; top: -10%; left: -10%; animation-delay:   0s; }
+.plo-blob-2 { background: #ffa647; top:  10%; left:  55%; animation-delay:  -4s; }
+.plo-blob-3 { background: #ffe83f; top:  55%; left:  15%; animation-delay:  -9s; }
+.plo-blob-4 { background: #9fff5b; top:  70%; left:  65%; animation-delay: -14s; }
+.plo-blob-5 { background: #70e2ff; top:  25%; left:  35%; animation-delay: -19s; }
 
 @keyframes plo-pan {
-    from { transform: translate(-10px, -10px); }
-    to   { transform: translate( 10px,  10px); }
+    from { transform: translate(-20px, -20px); }
+    to   { transform: translate( 45px,  45px); }
 }
 
 /* ── Bag outline SVG (behind the color fill in DOM order) ─────────── */
+/* Glow lives here — on the SVG that has the bag's alpha shape —
+   NOT on .plo-bag-scene, because filter on a parent breaks
+   mask-image on children in Chrome (compositing group bug). */
 .plo-bag-outline {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     display: block;
+    animation: plo-glow 4s ease infinite;
 }
 
 /* ── Loading bar ─────────────────────────────────────────────────── */

@@ -268,6 +268,7 @@ export async function createCollaboratorInvite(params: {
   guildId: string;
   guildName: string;
   authUserId: string;
+  providerKey: string;
 }): Promise<CreateCollaboratorInviteResponse> {
   const response = await (await getClients()).collaborator.createInvite(params);
   return {
@@ -316,7 +317,8 @@ export async function addCollaboratorConnectionManual(params: {
   const response = await (await getClients()).collaborator.addConnectionManual({
     actorDiscordUserId: params.actorDiscordUserId,
     guildId: params.guildId,
-    jinxxyApiKey: params.credential,
+    credential: params.credential,
+    providerKey: params.providerKey,
     serverName: params.serverName,
     authUserId: params.authUserId,
   });

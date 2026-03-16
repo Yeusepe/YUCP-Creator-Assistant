@@ -1356,6 +1356,8 @@ const collaborator_invites = defineTable({
   expiresAt: v.number(),
   createdAt: v.number(),
   usedAt: v.optional(v.number()),
+  /** Commerce provider for this invite (e.g. 'jinxxy', 'lemonsqueezy'). Defaults to 'jinxxy' for legacy records. */
+  providerKey: v.optional(v.string()),
 })
   .index('by_token_hash', ['tokenHash'])
   .index('by_owner', ['ownerAuthUserId'])
@@ -1371,8 +1373,12 @@ const collaborator_connections = defineTable({
   // @deprecated Legacy field from tenant-first architecture
   ownerTenantId: v.optional(v.any()),
   inviteId: v.optional(v.id('collaborator_invites')),
-  provider: v.literal('jinxxy'),
+  /** Commerce provider for this connection (e.g. 'jinxxy', 'lemonsqueezy') */
+  provider: v.string(),
+  // @deprecated Use credentialEncrypted for new records
   jinxxyApiKeyEncrypted: v.optional(v.string()),
+  /** Generic encrypted credential (API key) for non-Jinxxy providers, or new Jinxxy records */
+  credentialEncrypted: v.optional(v.string()),
   /** Encrypted webhook signing secret; null for api-type connections */
   webhookSecretRef: v.optional(v.string()),
   /** null for api-type connections */
@@ -1380,7 +1386,7 @@ const collaborator_connections = defineTable({
   webhookConfigured: v.boolean(),
   linkType: v.union(v.literal('account'), v.literal('api')),
   status: v.union(v.literal('active'), v.literal('paused'), v.literal('disconnected')),
-  /** Discord user ID for invite flow; manual:{jinxxy_user_id} for manual adds */
+  /** Discord user ID for invite flow; manual:{provider_user_id} for manual adds */
   collaboratorDiscordUserId: v.string(),
   collaboratorDisplayName: v.string(),
   /** 'invite' when created via invite link; 'manual' when added by admin. Optional for backward compat. */

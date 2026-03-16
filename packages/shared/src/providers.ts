@@ -273,6 +273,11 @@ export const PROVIDER_REGISTRY = [
     supportsWebhook: true,
     supportsLicenseVerify: true,
     supportsTestMode: true,
+    supportsCollab: true,
+    collabCredential: {
+      label: 'Lemon Squeezy API Key',
+      placeholder: 'Paste your Lemon Squeezy API key…',
+    },
   },
   {
     providerKey: 'manual',

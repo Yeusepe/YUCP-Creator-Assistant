@@ -27,6 +27,8 @@ export const createCollaboratorInvite = mutation({
     ownerGuildId: v.optional(v.string()),
     tokenHash: v.string(),
     expiresAt: v.number(),
+    /** Commerce provider for this invite (e.g. 'jinxxy', 'lemonsqueezy'). Defaults to 'jinxxy'. */
+    providerKey: v.optional(v.string()),
   },
   returns: v.id('collaborator_invites'),
   handler: async (ctx, args) => {
@@ -41,6 +43,7 @@ export const createCollaboratorInvite = mutation({
       ownerGuildId: args.ownerGuildId,
       expiresAt,
       createdAt: Date.now(),
+      providerKey: args.providerKey,
     });
     await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
@@ -71,6 +74,7 @@ export const getCollaboratorInviteByTokenHash = query({
       ownerGuildId: v.optional(v.string()),
       expiresAt: v.number(),
       createdAt: v.number(),
+      providerKey: v.optional(v.string()),
     }),
     v.null()
   ),
@@ -90,6 +94,7 @@ export const getCollaboratorInviteByTokenHash = query({
       ownerGuildId: invite.ownerGuildId,
       expiresAt: invite.expiresAt,
       createdAt: invite.createdAt,
+      providerKey: invite.providerKey,
     };
   },
 });
@@ -112,6 +117,7 @@ export const getCollaboratorInviteById = query({
       ownerGuildId: v.optional(v.string()),
       expiresAt: v.number(),
       createdAt: v.number(),
+      providerKey: v.optional(v.string()),
     }),
     v.null()
   ),
@@ -128,6 +134,7 @@ export const getCollaboratorInviteById = query({
       ownerGuildId: invite.ownerGuildId,
       expiresAt: invite.expiresAt,
       createdAt: invite.createdAt,
+      providerKey: invite.providerKey,
     };
   },
 });
@@ -173,10 +180,13 @@ export const acceptCollaboratorInvite = mutation({
   args: {
     apiSecret: v.string(),
     inviteId: v.id('collaborator_invites'),
-    jinxxyApiKeyEncrypted: v.string(),
+    /** Generic encrypted credential — replaces jinxxyApiKeyEncrypted for new records */
+    credentialEncrypted: v.string(),
     webhookSecretRef: v.optional(v.string()),
     webhookEndpoint: v.optional(v.string()),
     linkType: v.union(v.literal('account'), v.literal('api')),
+    /** Commerce provider (e.g. 'jinxxy', 'lemonsqueezy'). Defaults to 'jinxxy' for legacy. */
+    provider: v.optional(v.string()),
     /** Discord user ID from server-side OAuth - never from client body */
     collaboratorDiscordUserId: v.string(),
     /** Discord username from server-side OAuth */
@@ -202,12 +212,13 @@ export const acceptCollaboratorInvite = mutation({
     });
 
     const webhookConfigured = !!(args.webhookSecretRef && args.webhookEndpoint);
+    const provider = args.provider ?? invite.providerKey ?? 'jinxxy';
 
     const connectionId = await ctx.db.insert('collaborator_connections', {
       ownerAuthUserId: invite.ownerAuthUserId,
       inviteId: args.inviteId,
-      provider: 'jinxxy',
-      jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
+      provider,
+      credentialEncrypted: args.credentialEncrypted,
       webhookSecretRef: args.webhookSecretRef,
       webhookEndpoint: args.webhookEndpoint,
       webhookConfigured,
@@ -237,13 +248,16 @@ export const acceptCollaboratorInvite = mutation({
 /**
  * Manually add a collaborator connection (no invite).
  * Used when a creator shares their API key directly (e.g. via DM).
- * Identity comes from Jinxxy API since collaborator may not be in Discord server.
+ * Identity comes from provider API since collaborator may not be in Discord server.
  */
 export const addCollaboratorConnectionManual = mutation({
   args: {
     apiSecret: v.string(),
     ownerAuthUserId: v.string(),
-    jinxxyApiKeyEncrypted: v.string(),
+    /** Generic encrypted credential (provider API key) */
+    credentialEncrypted: v.string(),
+    /** Commerce provider (e.g. 'jinxxy', 'lemonsqueezy') */
+    provider: v.optional(v.string()),
     collaboratorDisplayName: v.string(),
     collaboratorIdentity: v.string(),
     addedByDiscordUserId: v.string(),
@@ -260,8 +274,8 @@ export const addCollaboratorConnectionManual = mutation({
     }
     const connectionId = await ctx.db.insert('collaborator_connections', {
       ownerAuthUserId: args.ownerAuthUserId,
-      provider: 'jinxxy',
-      jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
+      provider: args.provider ?? 'jinxxy',
+      credentialEncrypted: args.credentialEncrypted,
       webhookConfigured: false,
       linkType: 'api',
       status: 'active',
@@ -380,7 +394,11 @@ export const getCollabConnectionsForVerification = query({
   returns: v.array(
     v.object({
       id: v.id('collaborator_connections'),
+      provider: v.string(),
+      /** Legacy Jinxxy-specific field; present on old records */
       jinxxyApiKeyEncrypted: v.optional(v.string()),
+      /** Generic credential field; present on new records */
+      credentialEncrypted: v.optional(v.string()),
     })
   ),
   handler: async (ctx, args) => {
@@ -393,10 +411,12 @@ export const getCollabConnectionsForVerification = query({
       .collect();
 
     return connections
-      .filter((c) => c.jinxxyApiKeyEncrypted)
+      .filter((c) => c.jinxxyApiKeyEncrypted || c.credentialEncrypted)
       .map((c) => ({
         id: c._id,
+        provider: c.provider,
         jinxxyApiKeyEncrypted: c.jinxxyApiKeyEncrypted,
+        credentialEncrypted: c.credentialEncrypted,
       }));
   },
 });

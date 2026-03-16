@@ -35,31 +35,75 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 /**
  * /creator-admin collab invite
- * Immediately generates and shows an invite link that the owner can share with any creator.
- * The collaborator verifies their Discord identity via OAuth on the consent page.
+ * Shows a provider selector so the admin can specify what kind of credential the collaborator
+ * will submit. Generates and shows the invite link after the provider is chosen.
  */
 export async function handleCollabInvite(
   interaction: ChatInputCommandInteraction,
-  apiSecret: string,
+  _apiSecret: string,
   authUserId: string
 ): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const collabProviders = (PROVIDER_REGISTRY as readonly ProviderDescriptor[]).filter(
+    (p) => p.supportsCollab === true
+  );
+
+  if (collabProviders.length === 0) {
+    await interaction.reply({
+      content: `${E.X_} No providers support collaborator invites at this time.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`creator_collab:invite_select:${authUserId}`)
+    .setPlaceholder('Select a provider')
+    .addOptions(
+      collabProviders.map((p) =>
+        new StringSelectMenuOptionBuilder().setLabel(p.label).setValue(p.providerKey)
+      )
+    );
+
+  await interaction.reply({
+    content: `${E.Link} **Create Collaborator Invite** — Select the provider for the collaborator's credential:`,
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/**
+ * Handle provider selection for collab invite — generates and shows the invite link.
+ */
+export async function handleCollabInviteProviderSelect(
+  interaction: StringSelectMenuInteraction,
+  authUserId: string
+): Promise<void> {
+  const providerKey = interaction.values[0];
+  if (!providerKey) {
+    await interaction.reply({
+      content: `${E.X_} No provider selected.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
 
   const { apiInternal, apiPublic } = getApiUrls();
   const apiBase = apiInternal ?? apiPublic;
 
   if (!apiBase) {
-    await interaction.editReply({ content: 'API base URL not configured.' });
+    await interaction.editReply({ content: 'API base URL not configured.', components: [] });
     return;
   }
 
   await generateAndShowInviteLink(
     interaction,
     apiBase,
-    apiSecret,
     authUserId,
     interaction.guildId ?? '',
-    interaction.guild?.name ?? 'this server'
+    interaction.guild?.name ?? 'this server',
+    providerKey
   );
 }
 
@@ -342,15 +386,15 @@ export async function handleCollabRemove(
 }
 
 /**
- * Helper: generate an invite link and show it to the admin.
+ * Helper: generate an invite link for the given provider and show it to the admin.
  */
 async function generateAndShowInviteLink(
-  interaction: ChatInputCommandInteraction | ButtonInteraction,
+  interaction: ChatInputCommandInteraction | ButtonInteraction | StringSelectMenuInteraction,
   _apiBase: string,
-  _apiSecret: string,
   authUserId: string,
   guildId: string,
-  guildName: string
+  guildName: string,
+  providerKey: string
 ): Promise<void> {
   let inviteUrl: string | null = null;
   let expiresAt: number | null = null;
@@ -361,6 +405,7 @@ async function generateAndShowInviteLink(
       guildId,
       guildName,
       actorDiscordUserId: interaction.user.id,
+      providerKey,
     });
     inviteUrl = data.inviteUrl ?? null;
     expiresAt = data.expiresAt ? Number(data.expiresAt) : null;

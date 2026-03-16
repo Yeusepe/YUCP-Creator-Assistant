@@ -317,7 +317,7 @@
                             <li class="flex gap-2 items-start">
                                 <img src="__API_BASE__/Icons/Checkmark.png" width="16" height="16" alt=""
                                     style="margin-top:2px;flex-shrink:0;opacity:0.8;">
-                                <span>Your Jinxxy™ API key is used to verify licenses sold through your store</span>
+                                <span id="consent-provider-description">Your store API key is used to verify licenses sold through your store</span>
                             </li>
                             <li class="flex gap-2 items-start">
                                 <img src="__API_BASE__/Icons/Checkmark.png" width="16" height="16" alt=""
@@ -670,7 +670,7 @@
                                 previously saved API key</p>
                         </div>
                         <div id="api-key-input-group" class="mb-3">
-                            <input type="password" class="input-field" id="account-api-key" placeholder="jinxxy_..."
+                            <input type="password" class="input-field" id="account-api-key" placeholder="Paste your API key..."
                                 autocomplete="off">
                         </div>
                         <div id="account-error" class="warning-box mb-3 hidden"></div>
@@ -716,21 +716,15 @@
                         </div>
                     </div>
 
-                    <h2 class="text-xl font-heading font-bold mb-3">Enter your Jinxxy™ API key</h2>
+                    <h2 class="text-xl font-heading font-bold mb-3" id="api-form-heading">Enter your API key</h2>
 
                     <div class="warning-box mb-4">
                         <strong>Manual verification only</strong> - users must run /verify manually. There is no
                         automatic role assignment when someone makes a purchase.
                     </div>
 
-                    <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.7;">
-                        In Jinxxy™, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong
-                            style="color:white;">New API Key</strong>. Enable these scopes: <code
-                            style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code>
-                        <code
-                            style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code>
-                        <code
-                            style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>.
+                    <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.7;" id="api-form-instructions">
+                        Go to your provider dashboard and create an API key with the required scopes.
                         Then paste it below.
                     </p>
 
@@ -742,7 +736,7 @@
                     </div>
 
                     <div id="api-form-key-group" class="mb-3">
-                        <input type="password" class="input-field" id="api-form-key" placeholder="jinxxy_..."
+                        <input type="password" class="input-field" id="api-form-key" placeholder="Paste your API key..."
                             autocomplete="off">
                     </div>
 
@@ -965,7 +959,50 @@
             }, 2500);
         }
 
-        async function submitAccountLinking() {
+        // Minimal provider label map for the collab invite page.
+        const PROVIDER_UI = {
+            jinxxy: {
+                label: 'Jinxxy™',
+                placeholder: 'jinxxy_...',
+                apiFormHeading: 'Enter your Jinxxy™ API key',
+                apiFormInstructions: 'In Jinxxy™, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong style="color:white;">New API Key</strong>. Enable scopes: <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>. Then paste it below.',
+                consentDescription: 'Your Jinxxy™ API key is used to verify licenses sold through your store',
+                errorEmpty: 'Please enter your Jinxxy™ API key.',
+            },
+            lemonsqueezy: {
+                label: 'Lemon Squeezy',
+                placeholder: 'eyJ0...',
+                apiFormHeading: 'Enter your Lemon Squeezy API key',
+                apiFormInstructions: 'In Lemon Squeezy, go to <strong style="color:white;">Settings → API</strong> and click <strong style="color:white;">Create new API key</strong>. Then paste it below.',
+                consentDescription: 'Your Lemon Squeezy API key is used to verify licenses sold through your store',
+                errorEmpty: 'Please enter your Lemon Squeezy API key.',
+            },
+        };
+
+        function getProviderUI(providerKey) {
+            return PROVIDER_UI[providerKey] || {
+                label: providerKey,
+                placeholder: 'Paste your API key...',
+                apiFormHeading: 'Enter your API key',
+                apiFormInstructions: 'Go to your provider dashboard and create an API key, then paste it below.',
+                consentDescription: 'Your API key is used to verify licenses sold through your store',
+                errorEmpty: 'Please enter your API key.',
+            };
+        }
+
+        function updateProviderUI(providerKey) {
+            const ui = getProviderUI(providerKey);
+            const consentDesc = document.getElementById('consent-provider-description');
+            if (consentDesc) consentDesc.textContent = ui.consentDescription;
+            const apiFormHeading = document.getElementById('api-form-heading');
+            if (apiFormHeading) apiFormHeading.textContent = ui.apiFormHeading;
+            const apiFormInstructions = document.getElementById('api-form-instructions');
+            if (apiFormInstructions) apiFormInstructions.innerHTML = ui.apiFormInstructions;
+            const accountApiKey = document.getElementById('account-api-key');
+            if (accountApiKey) accountApiKey.placeholder = ui.placeholder;
+            const apiFormKey = document.getElementById('api-form-key');
+            if (apiFormKey) apiFormKey.placeholder = ui.placeholder;
+        }
             const btn = document.getElementById('btn-account-submit');
             const errorEl = document.getElementById('account-error');
             errorEl.classList.add('hidden');

@@ -116,6 +116,7 @@ message CreateCollaboratorInviteRequest {
   2 -> string guildId;
   3 -> string guildName;
   4 -> string actorDiscordUserId;
+  5 -> string providerKey;
 }
 
 message CreateCollaboratorInviteResponse {
@@ -148,8 +149,9 @@ message AddCollaboratorConnectionManualRequest {
   1 -> string authUserId;
   2 -> string guildId;
   3 -> string actorDiscordUserId;
-  4 -> string jinxxyApiKey;
+  4 -> string credential;
   5 -> string serverName;
+  6 -> string providerKey;
 }
 
 message AddCollaboratorConnectionManualResponse {

@@ -1558,6 +1558,14 @@ async function handleSelectMenu(
     return;
   }
 
+  // Collab invite provider select: creator_collab:invite_select:{authUserId}
+  if (customId.startsWith('creator_collab:invite_select:')) {
+    const authUserId = customId.slice('creator_collab:invite_select:'.length) as string;
+    const { handleCollabInviteProviderSelect } = await import('../commands/collab');
+    await handleCollabInviteProviderSelect(interaction, authUserId);
+    return;
+  }
+
   // Collab provider select: creator_collab:add_select:{authUserId}
   if (customId.startsWith('creator_collab:add_select:')) {
     const authUserId = customId.slice('creator_collab:add_select:'.length) as string;

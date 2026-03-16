@@ -275,6 +275,129 @@ describe('Collab routes — security: session and token validation', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Provider-agnostic collab — providerKey validation in addConnectionManual
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Collab routes — provider-agnostic: addConnectionManual input validation', () => {
+  let server: TestServerHandle;
+
+  beforeAll(async () => {
+    server = await startTestServer();
+  });
+
+  afterAll(() => server.stop());
+
+  it('POST /api/collab/connections/manual with no auth returns 401', async () => {
+    const res = await server.fetch('/api/collab/connections/manual', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ providerKey: 'jinxxy', credential: 'somekey' }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('POST /api/collab/connections/manual with auth but missing providerKey returns 400', async () => {
+    const token = await createSetupSession(
+      'user-manual-add',
+      'guild-manual',
+      'discord-manual',
+      TEST_ENCRYPTION_SECRET
+    );
+    const res = await server.fetch('/api/collab/connections/manual', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ credential: 'somekey' }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
+  });
+
+  it('POST /api/collab/connections/manual with auth but unsupported providerKey returns 400', async () => {
+    const token = await createSetupSession(
+      'user-manual-add-2',
+      'guild-manual-2',
+      'discord-manual-2',
+      TEST_ENCRYPTION_SECRET
+    );
+    const res = await server.fetch('/api/collab/connections/manual', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ providerKey: 'gumroad', credential: 'somekey' }),
+    });
+    // Gumroad uses OAuth and does not support collab; should be rejected
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
+  });
+
+  it('POST /api/collab/connections/manual with auth but unknown providerKey returns 400', async () => {
+    const token = await createSetupSession(
+      'user-manual-add-3',
+      'guild-manual-3',
+      'discord-manual-3',
+      TEST_ENCRYPTION_SECRET
+    );
+    const res = await server.fetch('/api/collab/connections/manual', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ providerKey: 'totally-unknown-store', credential: 'somekey' }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider-agnostic collab — createInvite providerKey validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Collab routes — provider-agnostic: createInvite providerKey validation', () => {
+  let server: TestServerHandle;
+
+  beforeAll(async () => {
+    server = await startTestServer();
+  });
+
+  afterAll(() => server.stop());
+
+  it('POST /api/collab/invite with unsupported providerKey returns 400', async () => {
+    const token = await createSetupSession(
+      'user-invite-pk',
+      'guild-invite-pk',
+      'discord-invite-pk',
+      TEST_ENCRYPTION_SECRET
+    );
+    const res = await server.fetch('/api/collab/invite', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ guildName: 'S', guildId: 'g', providerKey: 'gumroad' }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
+  });
+
+  it('POST /api/collab/invite with unknown providerKey returns 400', async () => {
+    const token = await createSetupSession(
+      'user-invite-pk-2',
+      'guild-invite-pk-2',
+      'discord-invite-pk-2',
+      TEST_ENCRYPTION_SECRET
+    );
+    const res = await server.fetch('/api/collab/invite', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ guildName: 'S', guildId: 'g', providerKey: 'nonexistent-provider' }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Web-session auth path — authenticated user, no setup session token
 // ─────────────────────────────────────────────────────────────────────────────
 

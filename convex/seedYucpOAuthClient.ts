@@ -28,6 +28,21 @@ export const seedUnityOAuthClient = internalMutation({
     // before passing to Better Auth, so this is what Better Auth validates.
     const callbackUrl = `${siteUrl}/api/yucp/oauth/callback`;
 
+    const desiredClient = {
+      clientSecret: null,
+      name: 'YUCP Unity Editor',
+      redirectUris: [callbackUrl],
+      scopes: ['cert:issue'],
+      grantTypes: ['authorization_code', 'refresh_token'],
+      responseTypes: ['code'],
+      tokenEndpointAuthMethod: 'none',
+      public: true,
+      type: 'public',
+      skipConsent: false,
+      disabled: false,
+      updatedAt: Date.now(),
+    };
+
     // Check whether the client already exists
     const existing = await ctx.runQuery(components.betterAuth.adapter.findMany, {
       model: 'oauthClient',
@@ -37,8 +52,16 @@ export const seedUnityOAuthClient = internalMutation({
     });
 
     if (existing.length > 0) {
-      console.log('yucp-unity-editor OAuth client already exists, skipping seed.');
-      return { created: false };
+      const result = await ctx.runMutation(components.betterAuth.adapter.updateOne as any, {
+        input: {
+          model: 'oauthClient',
+          where: [{ field: 'clientId', value: 'yucp-unity-editor', operator: 'eq' }],
+          update: desiredClient,
+        },
+      });
+
+      console.log('Updated yucp-unity-editor OAuth client:', result);
+      return { created: false, updated: true, result };
     }
 
     const now = Date.now();
@@ -47,19 +70,8 @@ export const seedUnityOAuthClient = internalMutation({
         model: 'oauthClient',
         data: {
           clientId: 'yucp-unity-editor',
-          clientSecret: null,
-          name: 'YUCP Unity Editor',
-          redirectUris: [callbackUrl],
-          scopes: ['cert:issue'],
-          grantTypes: ['authorization_code'],
-          responseTypes: ['code'],
-          tokenEndpointAuthMethod: 'none',
-          public: true,
-          type: 'public',
-          skipConsent: false,
-          disabled: false,
           createdAt: now,
-          updatedAt: now,
+          ...desiredClient,
         },
       },
     });

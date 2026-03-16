@@ -577,6 +577,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
               {
                 guildId: request.guildId,
                 guildName: request.guildName,
+                providerKey: request.providerKey,
               },
               {
                 headers: {
@@ -634,7 +635,8 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
             createJsonRequest(
               `${deps.config.apiBaseUrl}/api/collab/connections/manual`,
               {
-                jinxxyApiKey: request.jinxxyApiKey ?? '',
+                providerKey: request.providerKey ?? 'jinxxy',
+                credential: request.credential ?? '',
                 serverName: request.serverName,
               },
               {
