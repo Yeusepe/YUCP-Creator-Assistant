@@ -1280,29 +1280,45 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * DELETE /api/connections?s=TOKEN&id=CONNECTION_ID
+   * DELETE /api/connections?id=CONNECTION_ID
    * Disconnects a connection.
+   * Auth: setup session token OR Better Auth web session with authUserId query param.
    */
   async function disconnectConnectionHandler(request: Request): Promise<Response> {
     if (request.method !== 'DELETE') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const setupBinding = await requireBoundSetupSession(request);
-    if (!setupBinding.ok) {
-      return setupBinding.response;
-    }
-    const session = setupBinding.setupSession;
+
     const url = new URL(request.url);
     const connectionId = url.searchParams.get('id');
     if (!connectionId) {
       return Response.json({ error: 'Connection id is required' }, { status: 400 });
     }
+
+    let authUserId: string;
+
+    const setupSession = await resolveSetupSessionFromRequest(request);
+    if (setupSession) {
+      const authSession = await auth.getSession(request);
+      if (!authSession) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+      }
+      authUserId = setupSession.authUserId;
+    } else {
+      const ownerCheck = await requireOwnerSessionForTenant(
+        request,
+        url.searchParams.get('authUserId') ?? undefined
+      );
+      if (!ownerCheck.ok) return ownerCheck.response;
+      authUserId = url.searchParams.get('authUserId')!;
+    }
+
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.disconnectConnection, {
         apiSecret: config.convexApiSecret,
         connectionId,
-        authUserId: session.authUserId,
+        authUserId,
       });
       return Response.json({ success: true });
     } catch (err) {

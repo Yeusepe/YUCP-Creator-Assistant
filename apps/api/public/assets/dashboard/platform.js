@@ -137,7 +137,7 @@ function buildQuickStartButtons() {
 }
 
 function providerButtonLabel(provider, isLinked) {
-  if (isLinked) return getHasSetupSession() ? 'Disconnect' : 'Connected';
+  if (isLinked) return 'Disconnect';
   if (provider.setupState === 'preview') return 'Setup Soon';
   return 'Link Account';
 }
@@ -578,11 +578,11 @@ function updateCard(platform, isLinked) {
     card.classList.add('connected');
     status.className = 'status-pill connected';
     status.innerText = providerStatusLabel(provider, true);
-    btn.className = getHasSetupSession() ? 'card-action-btn disconnect' : 'card-action-btn link';
+    btn.className = 'card-action-btn disconnect';
     btn.innerText = providerButtonLabel(provider, true);
     btn.style = '';
-    btn.onclick = getHasSetupSession() ? () => openModal(platform) : null;
-    btn.disabled = !getHasSetupSession();
+    btn.onclick = () => openModal(platform);
+    btn.disabled = false;
   } else {
     card.classList.add('disconnected');
     card.classList.remove('connected');
@@ -719,7 +719,6 @@ function openModal(platform) {
 }
 
 async function confirmDisconnect(platform) {
-  if (!getHasSetupSession()) return;
   const conn = connectionsMap.get(platform);
   if (!conn) return;
   const btn = document.getElementById(`${platform}-confirm-btn`);
@@ -728,7 +727,9 @@ async function confirmDisconnect(platform) {
     btn.textContent = 'Disconnecting…';
   }
   try {
-    const res = await apiFetch(`${getApiBase()}/api/connections?id=${conn.id}`, { method: 'DELETE' });
+    const authUserId = getTenantId();
+    const urlSuffix = authUserId ? `&authUserId=${encodeURIComponent(authUserId)}` : '';
+    const res = await apiFetch(`${getApiBase()}/api/connections?id=${conn.id}${urlSuffix}`, { method: 'DELETE' });
     if (res.ok) {
       connectionsMap.delete(platform);
       const el = document.getElementById(`${platform}-disconnect-confirm`);

@@ -92,6 +92,32 @@ describe('GET /api/connect/settings (web-session path)', () => {
   });
 });
 
+describe('DELETE /api/connections (disconnect) — auth guard', () => {
+  it('returns 401 when no auth is present', async () => {
+    const req = new Request(
+      'http://localhost:3001/api/connections?id=conn-1&authUserId=user-1',
+      { method: 'DELETE' }
+    );
+    const res = await routes.disconnectConnectionHandler(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 when setup session present but no Better Auth session', async () => {
+    const token = await createSetupSession(
+      'user-test-004',
+      'guild-test-004',
+      'discord-user-004',
+      ENCRYPTION_SECRET
+    );
+    const req = new Request('http://localhost:3001/api/connections?id=conn-2', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const res = await routes.disconnectConnectionHandler(req);
+    expect(res.status).toBe(401);
+  });
+});
+
 describe('POST /api/connect/settings (web-session path)', () => {
   it('returns 401 when no session is present', async () => {
     const req = new Request('http://localhost:3001/api/connect/settings', {

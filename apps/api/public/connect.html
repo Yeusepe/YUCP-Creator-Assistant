@@ -574,12 +574,6 @@
                             if (toggle) {
                                 toggle.checked = !!statusData.allowMismatchedEmails;
                                 toggle.addEventListener('change', async function () {
-                                    if (!hasSetupSession) {
-                                        await showAlert('Settings can only be changed when using a secure setup link. Please restart the /creator setup command.');
-                                        this.checked = !this.checked; // Revert
-                                        return;
-                                    }
-
                                     try {
                                         const res = await fetch(`${apiBase}/api/connect/settings`, {
                                             method: 'POST',
@@ -587,7 +581,8 @@
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({
                                                 key: 'allowMismatchedEmails',
-                                                value: this.checked
+                                                value: this.checked,
+                                                authUserId: tenantId || undefined
                                             })
                                         });
                                         if (!res.ok) throw new Error('Failed to update setting');
@@ -808,11 +803,6 @@
 
                     // Disconnect flow
                     if (this.dataset.connected === "true") {
-                        if (!hasSetupSession) {
-                            await showAlert('Connections can only be removed when using a secure setup link. Please restart the /creator setup command in Discord®.');
-                            return;
-                        }
-
                         const confirmed = await showConfirm(`Are you sure you want to disconnect ${platform === 'gumroad' ? 'Gumroad®' : 'Jinxxy™'}?`);
                         if (!confirmed) return;
 
@@ -820,7 +810,8 @@
                         if (!conn) return;
 
                         try {
-                            const res = await fetch(`${apiBase}/api/connections?id=${conn.id}`, {
+                            const authUserIdParam = tenantId ? `&authUserId=${encodeURIComponent(tenantId)}` : '';
+                            const res = await fetch(`${apiBase}/api/connections?id=${conn.id}${authUserIdParam}`, {
                                 method: 'DELETE',
                                 credentials: 'include'
                             });
