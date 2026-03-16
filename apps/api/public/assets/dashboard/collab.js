@@ -105,13 +105,12 @@ function renderCollabSection() {
 }
 
 export async function fetchCollabConnections() {
-  if (!getHasSetupSession()) {
-    document.getElementById('collab-loading')?.classList.add('hidden');
-    document.getElementById('collab-empty')?.classList.remove('hidden');
-    return;
-  }
   try {
-    const res = await apiFetch(`${getApiBase()}/api/collab/connections`);
+    const authUserId = getTenantId();
+    const url = authUserId
+      ? `${getApiBase()}/api/collab/connections?authUserId=${encodeURIComponent(authUserId)}`
+      : `${getApiBase()}/api/collab/connections`;
+    const res = await apiFetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     setCollabConnections(data.connections ?? []);
@@ -123,10 +122,6 @@ export async function fetchCollabConnections() {
 }
 
 export async function generateCollabInvite() {
-  if (!getHasSetupSession()) {
-    alert('Settings can only be changed using a secure setup link from Discord.');
-    return;
-  }
   const btn = document.getElementById('invite-btn');
   const originalHTML = btn?.innerHTML;
   if (btn) {
@@ -137,7 +132,11 @@ export async function generateCollabInvite() {
     const res = await apiFetch(`${getApiBase()}/api/collab/invite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guildName: 'this server', guildId: getGuildId() || '' }),
+      body: JSON.stringify({
+        guildName: 'this server',
+        guildId: getGuildId() || '',
+        authUserId: getTenantId() || undefined,
+      }),
     });
     if (!res.ok) throw new Error('Could not generate an invite right now.');
     const data = await res.json();
@@ -207,7 +206,6 @@ export async function copyInviteUrl() {
 }
 
 export async function removeCollabConnection(connectionId) {
-  if (!getHasSetupSession()) return;
   const confirmEl = document.getElementById(`collab-confirm-${connectionId}`);
   if (!confirmEl) return;
   if (!confirmEl.classList.contains('open')) {
@@ -220,7 +218,12 @@ export async function removeCollabConnection(connectionId) {
     btn.textContent = 'Removing…';
   }
   try {
-    const res = await apiFetch(`${getApiBase()}/api/collab/connections/${connectionId}`, { method: 'DELETE' });
+    const authUserId = getTenantId();
+    const urlSuffix = authUserId ? `?authUserId=${encodeURIComponent(authUserId)}` : '';
+    const res = await apiFetch(
+      `${getApiBase()}/api/collab/connections/${connectionId}${urlSuffix}`,
+      { method: 'DELETE' }
+    );
     if (res.ok) {
       setCollabConnections(collabConnections.filter((c) => c.id !== connectionId));
       renderCollabSection();
