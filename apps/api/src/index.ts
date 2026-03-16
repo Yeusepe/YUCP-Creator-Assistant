@@ -244,7 +244,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     throw new Error('CONVEX_SITE_URL must be set for auth (Convex hosts auth)');
   }
   if (env.BETTER_AUTH_URL && env.BETTER_AUTH_URL !== convexSiteUrl) {
-    logger.warn('Ignoring BETTER_AUTH_URL in favor of CONVEX_SITE_URL', {
+    // Lowered to info to avoid noisy warnings when CONVEX_SITE_URL is authoritative.
+    logger.info('Ignoring BETTER_AUTH_URL in favor of CONVEX_SITE_URL', {
       configuredBetterAuthUrl: env.BETTER_AUTH_URL,
       convexSiteUrl,
     });
