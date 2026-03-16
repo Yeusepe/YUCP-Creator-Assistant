@@ -8,7 +8,25 @@ import {
   setCollabConnections,
 } from './store.js';
 
+// Providers that support collaborator invites (mirrors PROVIDER_REGISTRY supportsCollab entries).
+const COLLAB_PROVIDERS = [
+  { key: 'jinxxy', label: 'Jinxxy™' },
+  { key: 'lemonsqueezy', label: 'Lemon Squeezy' },
+];
+
 let currentInviteUrl = '';
+
+function populateProviderSelect() {
+  const select = document.getElementById('invite-provider-select');
+  if (!select) return;
+  select.replaceChildren();
+  for (const p of COLLAB_PROVIDERS) {
+    const opt = document.createElement('option');
+    opt.value = p.key;
+    opt.textContent = p.label;
+    select.appendChild(opt);
+  }
+}
 
 function renderCollabSection() {
   document.getElementById('collab-loading')?.classList.add('hidden');
@@ -121,9 +139,22 @@ export async function fetchCollabConnections() {
   renderCollabSection();
 }
 
-export async function generateCollabInvite() {
-  const btn = document.getElementById('invite-btn');
-  const originalHTML = btn?.innerHTML;
+export function generateCollabInvite() {
+  populateProviderSelect();
+  const stepSelect = document.getElementById('invite-step-select');
+  const stepUrl = document.getElementById('invite-step-url');
+  if (stepSelect) stepSelect.style.display = '';
+  if (stepUrl) stepUrl.style.display = 'none';
+  document.getElementById('invite-panel')?.classList.add('open');
+}
+
+export async function submitGenerateInvite() {
+  const select = document.getElementById('invite-provider-select');
+  const providerKey = select?.value;
+  if (!providerKey) return;
+
+  const btn = document.getElementById('btn-generate-invite');
+  const originalText = btn?.textContent;
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Generating...';
@@ -133,26 +164,26 @@ export async function generateCollabInvite() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        guildName: 'this server',
         guildId: getGuildId() || '',
         authUserId: getTenantId() || undefined,
+        providerKey,
       }),
     });
     if (!res.ok) throw new Error('Could not generate an invite right now.');
     const data = await res.json();
-    showInviteModal(data.inviteUrl, data.expiresAt);
+    showInviteResult(data.inviteUrl, data.expiresAt);
   } catch (e) {
     console.error('Failed to generate collab invite:', e);
     alert('Failed to generate invite link. Please try again.');
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = originalHTML || '';
+      btn.textContent = originalText || 'Generate Invite Link';
     }
   }
 }
 
-function showInviteModal(url, expiresAt) {
+function showInviteResult(url, expiresAt) {
   currentInviteUrl = url;
   const display = document.getElementById('invite-url-display');
   if (display) display.textContent = url;
@@ -168,7 +199,11 @@ function showInviteModal(url, expiresAt) {
       ? `Expires ${new Date(expiresAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
       : 'Expires in 7 days';
   }
-  document.getElementById('invite-panel')?.classList.add('open');
+
+  const stepSelect = document.getElementById('invite-step-select');
+  const stepUrl = document.getElementById('invite-step-url');
+  if (stepSelect) stepSelect.style.display = 'none';
+  if (stepUrl) stepUrl.style.display = '';
 }
 
 export function closeInvitePanel() {
@@ -249,6 +284,7 @@ export async function removeCollabConnection(connectionId) {
 export function initCollab() {
   window.removeCollabConnection = removeCollabConnection;
   window.generateCollabInvite = generateCollabInvite;
+  window.submitGenerateInvite = submitGenerateInvite;
   window.closeInvitePanel = closeInvitePanel;
   window.copyInviteMessage = copyInviteMessage;
   window.copyInviteUrl = copyInviteUrl;

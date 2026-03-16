@@ -29,7 +29,7 @@
  */
 
 import { JinxxyApiClient, LemonSqueezyApiClient } from '@yucp/providers';
-import { PROVIDER_REGISTRY_BY_KEY, createLogger } from '@yucp/shared';
+import { createLogger, getProviderDescriptor } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { SETUP_SESSION_COOKIE } from '../lib/browserSessions';
@@ -149,7 +149,9 @@ export function createCollabRoutes(config: CollabConfig) {
   async function requireOwnerAuth(
     request: Request,
     authUserIdHint?: string
-  ): Promise<{ ok: true; authUserId: string } | { ok: false; response: Response }> {
+  ): Promise<
+    { ok: true; authUserId: string; displayName: string } | { ok: false; response: Response }
+  > {
     const setupSession = await resolveSetupToken(request, config.encryptionSecret);
     if (setupSession) {
       const webSession = await config.auth.getSession(request);
@@ -167,7 +169,11 @@ export function createCollabRoutes(config: CollabConfig) {
           response: Response.json({ error: 'Forbidden' }, { status: 403 }),
         };
       }
-      return { ok: true, authUserId: setupSession.authUserId };
+      return {
+        ok: true,
+        authUserId: setupSession.authUserId,
+        displayName: webSession.user.name ?? '',
+      };
     }
 
     // Web session path
@@ -183,14 +189,14 @@ export function createCollabRoutes(config: CollabConfig) {
     // The user IS their own authUserId in the Better Auth system, so no ownership
     // check is needed in this case.
     if (!authUserIdHint) {
-      return { ok: true, authUserId: webSession.user.id };
+      return { ok: true, authUserId: webSession.user.id, displayName: webSession.user.name ?? '' };
     }
 
     const tenantOwned = await isTenantOwnedBySessionUser(webSession.user.id, authUserIdHint);
     if (!tenantOwned) {
       return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
     }
-    return { ok: true, authUserId: authUserIdHint };
+    return { ok: true, authUserId: authUserIdHint, displayName: webSession.user.name ?? '' };
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -206,6 +212,7 @@ export function createCollabRoutes(config: CollabConfig) {
       status: string;
       ownerDisplayName: string;
       ownerGuildId?: string;
+      providerKey?: string;
       expiresAt: number;
       createdAt: number;
     } | null>);
@@ -225,6 +232,7 @@ export function createCollabRoutes(config: CollabConfig) {
       status: string;
       ownerDisplayName: string;
       ownerGuildId?: string;
+      providerKey?: string;
       expiresAt: number;
       createdAt: number;
     } | null>;
@@ -273,8 +281,11 @@ export function createCollabRoutes(config: CollabConfig) {
     }
 
     // Validate providerKey before auth — provider names are not secret
-    const providerKey = body.providerKey?.trim() || 'jinxxy';
-    const providerDescriptor = PROVIDER_REGISTRY_BY_KEY[providerKey];
+    const providerKey = body.providerKey?.trim();
+    if (!providerKey) {
+      return Response.json({ error: 'providerKey is required' }, { status: 400 });
+    }
+    const providerDescriptor = getProviderDescriptor(providerKey);
     if (!providerDescriptor?.supportsCollab) {
       return Response.json(
         { error: `Provider '${providerKey}' does not support collaborator invites` },
@@ -293,7 +304,7 @@ export function createCollabRoutes(config: CollabConfig) {
       await convex.mutation(api.collaboratorInvites.createCollaboratorInvite, {
         apiSecret,
         ownerAuthUserId: ownerAuth.authUserId,
-        ownerDisplayName: body.guildName ?? 'Unknown Server',
+        ownerDisplayName: body.guildName?.trim() || ownerAuth.displayName,
         ownerGuildId: body.guildId,
         tokenHash,
         expiresAt,
@@ -801,7 +812,7 @@ export function createCollabRoutes(config: CollabConfig) {
       return Response.json({ error: 'providerKey is required' }, { status: 400 });
     }
 
-    const providerDescriptor = PROVIDER_REGISTRY_BY_KEY[providerKey];
+    const providerDescriptor = getProviderDescriptor(providerKey);
     if (!providerDescriptor?.supportsCollab) {
       return Response.json(
         { error: `Provider '${providerKey}' does not support manual collaborator connections` },
@@ -835,7 +846,11 @@ export function createCollabRoutes(config: CollabConfig) {
           { status: 422 }
         );
       }
-      credentialEncrypted = await encrypt(rawCredential, config.encryptionSecret, JINXXY.credential);
+      credentialEncrypted = await encrypt(
+        rawCredential,
+        config.encryptionSecret,
+        JINXXY.credential
+      );
       collaboratorDisplayName = user.username;
       collaboratorIdentity = `manual:${user.id}`;
 
@@ -954,8 +969,7 @@ export function createCollabRoutes(config: CollabConfig) {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
-    if (pathname === '/api/collab/invite')
-      return createInvite(request);
+    if (pathname === '/api/collab/invite') return createInvite(request);
     if (pathname === '/api/collab/session/exchange' && request.method === 'POST')
       return exchangeSession(request);
     if (pathname === '/api/collab/auth/begin') return authBegin(request);

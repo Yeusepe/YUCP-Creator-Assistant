@@ -361,7 +361,8 @@
             <!-- Stage 3: Type selection -->
             <div id="stage-type" class="stage">
                 <div class="fade-in">
-                    <h2 class="text-xl font-heading font-bold mb-2 text-center">Choose how to connect</h2>
+                    <h2 class="text-xl font-heading font-bold mb-1 text-center">Choose how to connect</h2>
+                    <p class="text-center mb-1 text-sm" id="stage-type-provider" style="color: var(--text-secondary);"></p>
                     <p class="text-center mb-6" style="color: var(--text-secondary);">Select your preferred integration
                         method.</p>
 
@@ -1004,6 +1005,9 @@
             if (accountApiKey) accountApiKey.placeholder = ui.placeholder;
             const apiFormKey = document.getElementById('api-form-key');
             if (apiFormKey) apiFormKey.placeholder = ui.placeholder;
+            // Show which store is being connected on the type-selection stage
+            const stageTypeProvider = document.getElementById('stage-type-provider');
+            if (stageTypeProvider) stageTypeProvider.textContent = `Connecting your ${ui.label} store`;
             // Show the Account Linking card only for providers that use webhook-based setup
             const cardAccount = document.getElementById('card-account');
             if (cardAccount) cardAccount.style.display = ui.supportsAccountLinking ? '' : 'none';

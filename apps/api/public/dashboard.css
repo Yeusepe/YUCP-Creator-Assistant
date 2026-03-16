@@ -717,6 +717,34 @@ body:not(.state-server-selected) .server-only {
   border-color: #0ea5e9;
 }
 
+/* Dark-themed select for panels with dark backgrounds (e.g. invite panel) */
+.invite-provider-pick {
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 10px 32px 10px 12px;
+  width: 100%;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a0aec0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.invite-provider-pick option {
+  background: #1e293b;
+  color: #fff;
+}
+
+.invite-provider-pick:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
 /*  Integrations Cards (OAuth, API Keys) */
 
 /* Integrations inline panel (light, matches card) */

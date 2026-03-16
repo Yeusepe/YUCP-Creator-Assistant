@@ -272,12 +272,15 @@
 
         /* ── Aurora Text (blob rainbow colors) ───────────────────────────────── */
         .aurora-text {
-            background: linear-gradient(135deg, #FF75C3, #FFA647, #FFE83F, #9FFF5B, #70E2FF, #FF75C3);
+            /* oklch interpolation keeps every hue at full perceived brightness — no dark muddy midpoints */
+            background: linear-gradient(in oklch 90deg,
+                #FF007F, #FF5500, #FFE600, #00FF55, #00EEFF, #A800FF, #FF007F
+            );
             background-size: 200% auto;
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
-            animation: aurora 8s ease-in-out infinite alternate;
+            animation: aurora 4s linear infinite;
         }
         .text-animate.aurora-text {
             opacity: 0;
@@ -287,11 +290,8 @@
             opacity: 1;
         }
         @keyframes aurora {
-            0% { background-position: 0% 50%; }
-            25% { background-position: 50% 100%; }
-            50% { background-position: 100% 50%; }
-            75% { background-position: 50% 0%; }
-            100% { background-position: 0% 50%; }
+            from { background-position:   0% 50%; }
+            to   { background-position: 100% 50%; }
         }
 
         /* ── Text Reveal (scroll-into-view, word stagger) ────────────────────── */
@@ -493,9 +493,47 @@
             transform: scale(0.96);
         }
 
+        /* Hero: dark radial vignette scrim — darkens text area, blobs glow at edges */
+        /* White radial scrim — bright spotlight behind hero text, blobs glow at edges */
+        #hero::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(
+                ellipse 72% 52% at 26% 44%,
+                rgba(255, 255, 255, 0.92)  0%,
+                rgba(255, 255, 255, 0.89) 10%,
+                rgba(255, 255, 255, 0.83) 20%,
+                rgba(255, 255, 255, 0.72) 32%,
+                rgba(255, 255, 255, 0.54) 45%,
+                rgba(255, 255, 255, 0.32) 58%,
+                rgba(255, 255, 255, 0.13) 70%,
+                rgba(255, 255, 255, 0.03) 82%,
+                transparent               94%
+            );
+            pointer-events: none;
+            z-index: 9;
+        }
+        @media (max-width: 1023px) {
+            #hero::before {
+                background: radial-gradient(
+                    ellipse 105% 50% at 50% 26%,
+                    rgba(255, 255, 255, 0.92)  0%,
+                    rgba(255, 255, 255, 0.89) 10%,
+                    rgba(255, 255, 255, 0.83) 20%,
+                    rgba(255, 255, 255, 0.72) 32%,
+                    rgba(255, 255, 255, 0.54) 45%,
+                    rgba(255, 255, 255, 0.32) 58%,
+                    rgba(255, 255, 255, 0.13) 70%,
+                    rgba(255, 255, 255, 0.03) 82%,
+                    transparent               94%
+                );
+            }
+        }
+
         /* Hero CTA: aurora background on hover (same as Done text) */
         #hero .btn-primary:hover::before {
-            background: linear-gradient(135deg, #FF75C3, #FFA647, #FFE83F, #9FFF5B, #70E2FF, #FF75C3);
+            background: linear-gradient(in oklch 90deg, #FF007F, #FF5500, #FFE600, #00FF55, #00EEFF, #A800FF, #FF007F);
             background-size: 200% auto;
             animation: aurora 8s ease-in-out infinite alternate;
         }
@@ -514,12 +552,18 @@
 
         /* ── Discord® Mockup ──────────────────────────────────────────────────── */
         .discord-mockup {
-            background: #2b2d31;
+            background: rgba(6, 8, 20, 0.75);
+            backdrop-filter: blur(22px) saturate(140%);
+            -webkit-backdrop-filter: blur(22px) saturate(140%);
             border-radius: 16px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+            box-shadow:
+                0 40px 80px rgba(0, 0, 0, 0.65),
+                0 0 0 1px rgba(255, 255, 255, 0.07),
+                inset 0 1px 0 rgba(255, 255, 255, 0.09);
             overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            border: none;
             position: relative;
+            transition: box-shadow 0.3s ease;
         }
 
         .discord-mockup::before {
@@ -536,8 +580,14 @@
             z-index: 2;
         }
 
+        /* Feature section mockup inner cards — glass instead of solid */
+        .discord-mockup .bg-\[\#1e1f22\] {
+            background: rgba(255, 255, 255, 0.05) !important;
+            border-color: rgba(255, 255, 255, 0.08) !important;
+        }
+
         .mockup-header {
-            background: #1e1f22;
+            background: rgba(4, 5, 15, 0.90);
             padding: 12px;
             display: flex;
             align-items: center;
@@ -570,10 +620,14 @@
 
         /* ── Feature Bento Cards ─────────────────────────────────────────────── */
         .bento-card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(12px) brightness(88%) saturate(130%);
-            -webkit-backdrop-filter: blur(12px) brightness(88%) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, 0.09);
+            background: rgba(6, 8, 20, 0.68);
+            backdrop-filter: blur(22px) saturate(140%);
+            -webkit-backdrop-filter: blur(22px) saturate(140%);
+            border: none;
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.08),
+                0 24px 48px rgba(0, 0, 0, 0.50),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
             border-radius: 20px;
             padding: 28px;
             transition: all 0.25s ease;
@@ -585,14 +639,17 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 60%);
             pointer-events: none;
         }
 
         .bento-card:hover {
-            background: rgba(255, 255, 255, 0.09);
+            background: rgba(6, 8, 20, 0.82);
             transform: translateY(-3px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.13),
+                0 32px 60px rgba(0, 0, 0, 0.60),
+                inset 0 1px 0 rgba(255, 255, 255, 0.11);
         }
 
         .bento-icon {
@@ -733,12 +790,16 @@
 
         /* ── Integration Diagram ────────────────────────────────────────────── */
         .int-diagram {
-            background: rgba(0,0,0,0.38);
-            backdrop-filter: blur(24px);
-            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(6, 8, 20, 0.72);
+            backdrop-filter: blur(22px) saturate(140%);
+            -webkit-backdrop-filter: blur(22px) saturate(140%);
+            border: none;
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.08),
+                0 40px 80px rgba(0, 0, 0, 0.60),
+                inset 0 1px 0 rgba(255, 255, 255, 0.09);
             border-radius: 20px;
             padding: 18px;
-            box-shadow: 0 40px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.07);
             display: flex;
             flex-direction: column;
             gap: 12px;
@@ -1056,6 +1117,71 @@
             .pill-nav { padding: 3px 4px; min-height: 32px; }
             .pill-cta { padding: 5px 8px; gap: 4px; }
         }
+
+        /* ── Dashboard-style section backgrounds ────────────────────────────────── */
+        /* Each feature section gets the liquid-glass panel treatment from dashboard.html:
+           rgba(255,255,255,0.35) + blur(32px) + dot-grid texture + inset white glow
+           — blobs glow through at the edges, sections feel like premium panels */
+        section.content-above-clouds {
+            background-color: rgba(255, 255, 255, 0.28);
+            background-image: radial-gradient(rgba(0, 0, 0, 0.045) 1px, transparent 1px);
+            background-size: 28px 28px;
+            backdrop-filter: blur(32px) saturate(180%);
+            -webkit-backdrop-filter: blur(32px) saturate(180%);
+            border-top: 1px solid rgba(255, 255, 255, 0.55);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.20);
+            box-shadow:
+                inset 0 2px 6px rgba(255, 255, 255, 0.55),
+                inset 0 0 60px rgba(255, 255, 255, 0.18);
+        }
+
+        /* Section text: flip white → dark for legibility on the light glass background */
+        section.content-above-clouds h2,
+        section.content-above-clouds h3 { color: #0f172a !important; }
+
+        section.content-above-clouds p,
+        section.content-above-clouds .text-white\/70,
+        section.content-above-clouds .text-white\/65 { color: #334155 !important; }
+
+        section.content-above-clouds .text-white\/50,
+        section.content-above-clouds .text-white\/45,
+        section.content-above-clouds .text-white\/40,
+        section.content-above-clouds .text-white\/35 { color: #64748b !important; }
+
+        /* Grad-text spans: keep their gradient colors, just ensure clip is applied */
+        section.content-above-clouds .grad-text { color: transparent !important; }
+
+        /* Tag pills: invert to dark-on-light */
+        section.content-above-clouds .tag-pill {
+            background: rgba(0, 0, 0, 0.06) !important;
+            border-color: rgba(0, 0, 0, 0.12) !important;
+            color: #334155 !important;
+        }
+
+        /* Int-check items: dark text */
+        section.content-above-clouds .int-check-list span { color: #334155 !important; }
+
+        /* Spec-strip divider and sub-labels */
+        section.content-above-clouds .text-white\/35 { color: #64748b !important; }
+
+        /* Keep the hero (#hero is a <main>, not <section>) completely unaffected */
+
+        /* ── Global contrast floor — feature sections only (not hero, not footer) ── */
+        /* Raises dim text that falls below legibility threshold against dark-glass cards */
+        section.content-above-clouds .text-white\/40 { color: rgba(255,255,255,0.65) !important; }
+        section.content-above-clouds .text-white\/45 { color: rgba(255,255,255,0.68) !important; }
+        section.content-above-clouds .text-white\/50 { color: rgba(255,255,255,0.72) !important; }
+
+        /* Spec-strip sub-labels were too faint on the now-darker card backgrounds */
+        section.content-above-clouds .text-white\/35 { color: rgba(255,255,255,0.60) !important; }
+
+        /* Keep intentionally ultra-faint Discord mockup chrome (sidebar categories, timestamps)
+           at their original values — those are inside .discord-mockup which has its own stacking */
+        section.content-above-clouds .discord-mockup .text-white\/40,
+        section.content-above-clouds .discord-mockup .text-white\/35,
+        section.content-above-clouds .discord-mockup .text-white\/30,
+        section.content-above-clouds .discord-mockup .text-white\/25,
+        section.content-above-clouds .discord-mockup .text-white\/20 { color: unset !important; }
     </style>
 
     <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
@@ -1192,30 +1318,30 @@
                 <div class="text-center lg:text-left">
                     <!-- Top pill -->
                     <div class="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full mb-8 reveal"
-                        style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.09);backdrop-filter:blur(8px);">
+                        style="background:rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.14);">
                         <span class="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse"
-                            style="background:#00e676;box-shadow:0 0 6px rgba(0,230,118,0.7);"></span>
+                            style="background:#00c853;box-shadow:0 0 6px rgba(0,200,83,0.6);"></span>
                         <span class="flex items-center gap-1.5">
-                            <img src="Icons/Gumorad.png" class="h-3.5 w-3.5 object-contain opacity-75" alt="">
-                            <img src="Icons/Jinxxy.png" class="h-3.5 w-3.5 object-contain opacity-75" alt="">
-                            <img src="Icons/VRC.png" class="h-3.5 w-3.5 object-contain opacity-75" alt="">
-                            <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain opacity-75" alt="">
+                            <img src="Icons/Gumorad.png" class="h-3.5 w-3.5 object-contain opacity-70" alt="">
+                            <img src="Icons/Jinxxy.png" class="h-3.5 w-3.5 object-contain opacity-70" alt="">
+                            <img src="Icons/VRC.png" class="h-3.5 w-3.5 object-contain opacity-70" alt="">
+                            <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain opacity-70" alt="">
                         </span>
-                        <div class="w-px h-3.5 flex-shrink-0" style="background:rgba(255,255,255,0.1);"></div>
-                        <span class="text-white/70 text-[11px] font-bold uppercase tracking-[0.12em]">Gumroad® &middot; Jinxxy™ &middot; Lemon Squeezy® &middot; VRChat®</span>
+                        <div class="w-px h-3.5 flex-shrink-0" style="background:rgba(0,0,0,0.12);"></div>
+                        <span class="text-[#0d0e14]/60 text-[11px] font-bold uppercase tracking-[0.12em]">Gumroad® &middot; Jinxxy™ &middot; Lemon Squeezy® &middot; VRChat®</span>
                     </div>
 
                     <!-- Headline -->
-                    <h1 class="text-white mb-5 reveal reveal-delay-1"
-                        style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2.4rem,5.5vw,4.25rem);line-height:1.04;letter-spacing:-0.04em;text-shadow:0 1px 2px rgba(0,0,0,0.3);">
+                    <h1 class="text-[#0d0e14] mb-5 reveal reveal-delay-1"
+                        style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2.4rem,5.5vw,4.25rem);line-height:1.04;letter-spacing:-0.04em;">
                         <span class="text-animate">License verified.</span><br>
                         <span class="text-animate">Role granted.</span><br>
                         <span class="aurora-text text-animate">Done.</span>
                     </h1>
 
                     <!-- Sub -->
-                    <p class="text-white/80 mb-8 reveal reveal-delay-2 mx-auto lg:mx-0"
-                        style="font-size:clamp(0.95rem,2vw,1.1rem);line-height:1.65;max-width:420px;text-shadow:0 1px 1px rgba(0,0,0,0.2);">
+                    <p class="text-[#2d2e3a]/80 mb-8 reveal reveal-delay-2 mx-auto lg:mx-0"
+                        style="font-size:clamp(0.95rem,2vw,1.1rem);line-height:1.65;max-width:420px;">
                         Connect your Gumroad®, Jinxxy™, Lemon Squeezy®, or VRChat® marketplace to Discord®. Buyers verify their purchase and get exclusive roles, automatically, in seconds.
                     </p>
 
@@ -1235,7 +1361,7 @@
                         </button>
                         <a href="https://api.creators.yucp.club/sign-in"
                             rel="noopener noreferrer"
-                            class="clickable text-sm font-bold uppercase tracking-widest text-white/75 hover:text-white/95 transition-colors flex items-center gap-2">
+                            class="clickable text-sm font-bold uppercase tracking-widest text-white/60 hover:text-white/95 transition-colors flex items-center gap-2">
                             Sign in to Dashboard
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
@@ -1725,7 +1851,7 @@
         <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="3">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal text-center lg:text-left">
-                    <div class="feature-icon-box sticker section-graphic"
+                    <div class="feature-icon-box sticker"
                         style="background:rgba(255,235,59,0.15);box-shadow:0 8px 24px rgba(255,235,59,0.15);">
                         <img src="Icons/Wrench.png" alt="">
                     </div>
@@ -1806,7 +1932,7 @@
         <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="4">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal text-center lg:text-left">
-                    <div class="feature-icon-box sticker section-graphic"
+                    <div class="feature-icon-box sticker"
                         style="background:rgba(0,230,118,0.12);box-shadow:0 8px 24px rgba(0,230,118,0.15);">
                         <img src="Icons/Library.png" alt="">
                     </div>
@@ -1932,7 +2058,7 @@
         <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="0">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal text-center lg:text-left">
-                    <div class="feature-icon-box sticker section-graphic"
+                    <div class="feature-icon-box sticker"
                         style="background:rgba(145,70,255,0.15);box-shadow:0 8px 24px rgba(145,70,255,0.2);">
                         <img src="Icons/PersonKey.png" alt="">
                     </div>

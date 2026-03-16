@@ -107,6 +107,191 @@ function errorResponse(message: string, status: number): Response {
   return jsonResponse({ error: message }, status);
 }
 
+type PublicProductProviderRef = {
+  provider: string;
+  providerProductRef: string;
+};
+
+type PublicProductRecord = {
+  productId: string;
+  displayName?: string;
+  providers: PublicProductProviderRef[];
+  owner: string | null;
+  configured: boolean;
+  live: boolean;
+};
+
+type ProviderProductsApiResponse = {
+  products?: Array<{
+    id?: string;
+    name?: string;
+    collaboratorName?: string;
+  }>;
+};
+
+function normalizeProductToken(value: string | null | undefined): string {
+  if (!value) return '';
+  return value
+    .toLowerCase()
+    .split('')
+    .filter((char) => /[a-z0-9]/.test(char))
+    .join('');
+}
+
+function getDisplayOwnerMergeKey(displayName: string | undefined, owner: string | null): string {
+  return `${normalizeProductToken(displayName)}||${normalizeProductToken(owner)}`;
+}
+
+function getProviderMergeKey(
+  provider: string | undefined,
+  providerProductRef: string | undefined
+): string {
+  return `${normalizeProductToken(provider)}::${normalizeProductToken(providerProductRef)}`;
+}
+
+function mergePublicProducts(products: PublicProductRecord[]): PublicProductRecord[] {
+  const merged: PublicProductRecord[] = [];
+  const byProductId = new Map<string, PublicProductRecord>();
+  const byProviderRef = new Map<string, PublicProductRecord>();
+  const byDisplayOwner = new Map<string, PublicProductRecord>();
+
+  const register = (product: PublicProductRecord) => {
+    if (product.productId) {
+      byProductId.set(product.productId, product);
+    }
+    for (const provider of product.providers) {
+      byProviderRef.set(
+        getProviderMergeKey(provider.provider, provider.providerProductRef),
+        product
+      );
+    }
+    const displayOwnerKey = getDisplayOwnerMergeKey(product.displayName, product.owner);
+    if (displayOwnerKey !== '||') {
+      byDisplayOwner.set(displayOwnerKey, product);
+    }
+  };
+
+  for (const candidate of products) {
+    let existing: PublicProductRecord | undefined;
+
+    if (candidate.productId) {
+      existing = byProductId.get(candidate.productId);
+    }
+
+    if (!existing) {
+      for (const provider of candidate.providers) {
+        existing = byProviderRef.get(
+          getProviderMergeKey(provider.provider, provider.providerProductRef)
+        );
+        if (existing) break;
+      }
+    }
+
+    if (!existing) {
+      existing = byDisplayOwner.get(
+        getDisplayOwnerMergeKey(candidate.displayName, candidate.owner)
+      );
+    }
+
+    if (!existing) {
+      const created: PublicProductRecord = {
+        productId: candidate.productId ?? '',
+        displayName: candidate.displayName,
+        owner: candidate.owner,
+        providers: [...candidate.providers],
+        configured: candidate.configured,
+        live: candidate.live,
+      };
+      merged.push(created);
+      register(created);
+      continue;
+    }
+
+    if (!existing.productId && candidate.productId) {
+      existing.productId = candidate.productId;
+    }
+    if (!existing.displayName && candidate.displayName) {
+      existing.displayName = candidate.displayName;
+    }
+    if (existing.owner == null && candidate.owner != null) {
+      existing.owner = candidate.owner;
+    }
+    existing.configured ||= candidate.configured;
+    existing.live ||= candidate.live;
+
+    for (const provider of candidate.providers) {
+      const alreadyPresent = existing.providers.some(
+        (current) =>
+          current.provider === provider.provider &&
+          current.providerProductRef === provider.providerProductRef
+      );
+      if (!alreadyPresent) {
+        existing.providers.push(provider);
+      }
+    }
+
+    register(existing);
+  }
+
+  return merged;
+}
+
+async function fetchLiveProviderProductsForSources(
+  sources: Array<{ authUserId: string; owner: string | null }>
+): Promise<PublicProductRecord[]> {
+  const apiBaseUrl = (process.env.API_BASE_URL ?? process.env.SITE_URL ?? '').replace(/\/$/, '');
+  const apiSecret = process.env.CONVEX_API_SECRET;
+  if (!apiBaseUrl || !apiSecret || sources.length === 0) {
+    return [];
+  }
+
+  const liveProviders = PROVIDER_REGISTRY.filter(
+    (provider) =>
+      provider.status === 'active' &&
+      (provider.capabilities as ReadonlyArray<string>).includes('catalog_sync')
+  ).map((provider) => provider.providerKey);
+
+  const liveProducts: PublicProductRecord[] = [];
+
+  await Promise.all(
+    sources.flatMap((source) =>
+      liveProviders.map(async (providerKey) => {
+        try {
+          const response = await fetch(`${apiBaseUrl}/api/${providerKey}/products`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              apiSecret,
+              authUserId: source.authUserId,
+            }),
+          });
+
+          if (!response.ok) {
+            return;
+          }
+
+          const payload = (await response.json()) as ProviderProductsApiResponse;
+          for (const product of payload.products ?? []) {
+            if (!product?.id) continue;
+            liveProducts.push({
+              productId: '',
+              displayName: product.name ?? product.id,
+              providers: [{ provider: providerKey, providerProductRef: product.id }],
+              owner: (product.collaboratorName as string | undefined) ?? source.owner,
+              configured: false,
+              live: true,
+            });
+          }
+        } catch (error) {
+          console.warn(`[products] live provider fetch failed for ${providerKey}`, error);
+        }
+      })
+    )
+  );
+
+  return liveProducts;
+}
+
 http.route({
   method: 'GET',
   path: '/v1/providers',
@@ -388,18 +573,21 @@ http.route({
       return errorResponse('Creator account not found', 404);
     }
 
+    const productSources = new Map<string, string | null>();
+    productSources.set(tokenResult.yucpUserId, null);
+
     // ── Own products (includes Discord if role_rules are configured) ──────────
     const ownProducts = await ctx.runQuery(internal.yucpLicenses.getProductsForTenant, {
       authUserId: tokenResult.yucpUserId,
     });
 
     // Tag own products with owner=null
-    const allProducts: Array<{
-      productId: string;
-      displayName?: string;
-      providers: Array<{ provider: string; providerProductRef: string }>;
-      owner: string | null;
-    }> = ownProducts.map((p) => ({ ...p, owner: null }));
+    const allProducts: PublicProductRecord[] = ownProducts.map((p) => ({
+      ...p,
+      owner: null,
+      configured: true,
+      live: false,
+    }));
 
     // ── Collaborator products ─────────────────────────────────────────────────
     // If the creator has linked Discord, check for collaborator connections
@@ -433,8 +621,14 @@ http.route({
           ]);
 
           const ownerName = ownerProfile?.name ?? 'Collaborator';
+          productSources.set(conn.ownerAuthUserId, ownerName);
           for (const p of collabProducts) {
-            allProducts.push({ ...p, owner: ownerName });
+            allProducts.push({
+              ...p,
+              owner: ownerName,
+              configured: true,
+              live: false,
+            });
           }
         }
       }
@@ -443,10 +637,18 @@ http.route({
       console.warn('[products] collaborator lookup failed:', err);
     }
 
-    console.log(
-      `[products] authUserId=${tokenResult.yucpUserId} own=${ownProducts.length} total=${allProducts.length}`
+    const liveProducts = await fetchLiveProviderProductsForSources(
+      Array.from(productSources.entries()).map(([authUserId, owner]) => ({ authUserId, owner }))
     );
-    return jsonResponse({ products: allProducts });
+    const mergedProducts = mergePublicProducts([...allProducts, ...liveProducts]).sort((a, b) => {
+      if (a.configured !== b.configured) return a.configured ? -1 : 1;
+      return (a.displayName ?? a.productId).localeCompare(b.displayName ?? b.productId);
+    });
+
+    console.log(
+      `[products] authUserId=${tokenResult.yucpUserId} own=${ownProducts.length} catalog=${allProducts.length} live=${liveProducts.length} total=${mergedProducts.length}`
+    );
+    return jsonResponse({ products: mergedProducts });
   }),
 });
 
@@ -817,7 +1019,7 @@ http.route({
 
     const licenseKeyDigest = await crypto.subtle.digest(
       'SHA-256',
-      new TextEncoder().encode(licenseKey),
+      new TextEncoder().encode(licenseKey)
     );
     const licenseKeyHash = Array.from(new Uint8Array(licenseKeyDigest))
       .map((b) => b.toString(16).padStart(2, '0'))

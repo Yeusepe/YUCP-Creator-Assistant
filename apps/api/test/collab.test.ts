@@ -42,7 +42,7 @@ describe('Collab invite page — inline script completeness', () => {
     // getProviderUI(inviteData.providerKey).label so Lemon Squeezy and future
     // providers display the correct store name.
     const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
-    expect(html).not.toContain("with your Jinxxy™ store");
+    expect(html).not.toContain('with your Jinxxy™ store');
     expect(html).toContain('getProviderUI(inviteData.providerKey).label');
   });
 
@@ -52,6 +52,84 @@ describe('Collab invite page — inline script completeness', () => {
     // correct for every provider (not just Jinxxy).
     const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
     expect(html).toContain('updateProviderUI(inviteData.providerKey)');
+  });
+  it('collab-invite.html stage-type has a provider label element populated by updateProviderUI', async () => {
+    // stage-type must contain an element with id="stage-type-provider" so
+    // updateProviderUI can inject "Connecting your Lemon Squeezy store" (etc.).
+    // Without this the collaborator loses provider context after the consent stage.
+    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
+    expect(html).toContain('id="stage-type-provider"');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: checking for literal template expression in HTML source
+    expect(html).toContain('Connecting your ${ui.label} store');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dashboard collab.js — static code completeness
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Dashboard collab.js — providerKey completeness', () => {
+  it('collab.js submitGenerateInvite sends providerKey in request body', async () => {
+    // The API now requires providerKey. Without it, createInvite returns 400.
+    // This guard ensures the dashboard always sends providerKey, and that the
+    // old generateCollabInvite no longer makes the API call directly.
+    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
+    expect(js).toContain('submitGenerateInvite');
+    // providerKey must appear as a body field in the API call
+    expect(js).toContain('providerKey,');
+    // Old pattern: generateCollabInvite must NOT call apiFetch directly
+    expect(js).not.toMatch(/function generateCollabInvite[\s\S]{0,300}apiFetch/);
+  });
+
+  it('dashboard.html invite panel has two-step flow (provider select + URL display)', async () => {
+    // Regression guard: the invite panel must include provider selection (invite-step-select)
+    // and a URL display step (invite-step-url). Removing either breaks the invite flow.
+    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
+    expect(html).toContain('id="invite-step-select"');
+    expect(html).toContain('id="invite-provider-select"');
+    expect(html).toContain('id="invite-step-url"');
+    expect(html).toContain('submitGenerateInvite()');
+  });
+
+  it('collab.js submitGenerateInvite does not send server name — lets server use creator Discord name', async () => {
+    // The dashboard invite must show the creator's Discord display name, not the
+    // Discord server name. The server already resolves ownerDisplayName from
+    // webSession.user.name when no guildName is sent. The client must NOT read
+    // sidebar-selected-name and send it as guildName, because that shows the
+    // server name ("Personal Dashboard", etc.) instead of the creator's name.
+    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
+    expect(js).not.toContain("'this server'");
+    // Must not read the sidebar server name and send it as guildName
+    expect(js).not.toContain('sidebar-selected-name');
+  });
+
+  it('dashboard.html invite-provider-select uses invite-provider-pick CSS class, not inline style', async () => {
+    // The invite provider select must use the .invite-provider-pick CSS class
+    // (dark-themed, defined in dashboard.css) rather than an ad-hoc inline style.
+    // This ensures consistent styling across browsers and proper right-margin on the chevron.
+    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
+    expect(html).toContain('class="invite-provider-pick"');
+    // Must not have the verbose inline appearance-none inline style (moved to CSS)
+    const css = await Bun.file(`${import.meta.dir}/../public/dashboard.css`).text();
+    expect(css).toContain('.invite-provider-pick');
+    expect(css).toContain('appearance: none');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dashboard invite display name — server uses session name as fallback
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Dashboard invite — ownerDisplayName fallback', () => {
+  it('collab.ts uses session display name when guildName is absent (no "Unknown Server" fallback)', async () => {
+    // When the dashboard does not send a guildName (e.g. no guild is selected),
+    // the server must fall back to the authenticated user's display name from the
+    // Better Auth session — NOT the literal "Unknown Server". Showing "Unknown Server"
+    // on the consent page is confusing and makes collaborators hesitant to connect.
+    const src = await Bun.file(`${import.meta.dir}/../src/routes/collab.ts`).text();
+    expect(src).not.toContain("'Unknown Server'");
+    // requireOwnerAuth must expose a display name for createInvite to use
+    expect(src).toContain('displayName');
   });
 });
 
@@ -88,7 +166,7 @@ describe('Collab routes — auth guards', () => {
     const res = await server.fetch('/api/collab/invite', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ providerKey: 'jinxxy' }),
     });
     expect(res.status).toBe(401);
     expect(res.headers.get('content-type')).toContain('application/json');
@@ -141,6 +219,31 @@ describe('Collab routes — validation', () => {
     const body = await res.json();
     expect(body).toHaveProperty('error');
   });
+
+  it('POST /api/collab/invite without providerKey returns 400', async () => {
+    // createInvite now requires providerKey — omitting it should fail before auth.
+    const res = await server.fetch('/api/collab/invite', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ guildName: 'Server A', guildId: 'guild-1' }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
+    expect((body.error as string).toLowerCase()).toContain('providerkey');
+  });
+
+  it('POST /api/collab/invite with unknown providerKey returns 400', async () => {
+    // An unrecognised provider key that does not have supportsCollab must be rejected.
+    const res = await server.fetch('/api/collab/invite', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ guildName: 'Server A', guildId: 'guild-1', providerKey: 'notreal' }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -162,7 +265,11 @@ describe('Collab routes — security: setup session user isolation', () => {
       const res = await server.fetch('/api/collab/invite', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({ guildName: 'Server A', guildId: 'guild-iso-1' }),
+        body: JSON.stringify({
+          guildName: 'Server A',
+          guildId: 'guild-iso-1',
+          providerKey: 'jinxxy',
+        }),
       });
       const body = await res.json();
       expect(res.status).toBe(403);
@@ -184,7 +291,11 @@ describe('Collab routes — security: setup session user isolation', () => {
       const res = await server.fetch('/api/collab/invite', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({ guildName: 'Server A', guildId: 'guild-iso-2' }),
+        body: JSON.stringify({
+          guildName: 'Server A',
+          guildId: 'guild-iso-2',
+          providerKey: 'jinxxy',
+        }),
       });
       // Auth passes; Convex is unavailable in tests so we may get 500 — that's fine.
       expect(res.status).not.toBe(401);
@@ -460,7 +571,7 @@ describe('Collab routes — web session auth', () => {
     const res = await server.fetch('/api/collab/invite', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ guildName: 'My Server', guildId: '123456789' }),
+      body: JSON.stringify({ guildName: 'My Server', guildId: '123456789', providerKey: 'jinxxy' }),
     });
     const body = await res.json();
     expect(res.status).not.toBe(400);
@@ -477,7 +588,11 @@ describe('Collab routes — web session auth', () => {
       const res = await server.fetch('/api/collab/invite', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ guildName: 'My Server', guildId: '123456789', authUserId: 'some-other-user' }),
+        body: JSON.stringify({
+          guildName: 'My Server',
+          guildId: '123456789',
+          authUserId: 'some-other-user',
+        }),
       });
       status = res.status;
     } catch {
