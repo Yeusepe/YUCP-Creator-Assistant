@@ -434,6 +434,9 @@ export async function submitGenerateInvite() {
     if (!res.ok) throw new Error('Could not generate an invite right now.');
     const data = await res.json();
     showInviteResult(data.inviteUrl, data.expiresAt);
+    // Immediately refresh the pending invites list so the new invite appears
+    // without requiring a page reload.
+    await fetchPendingInvites();
   } catch (e) {
     console.error('Failed to generate collab invite:', e);
     alert('Failed to generate invite link. Please try again.');
