@@ -1,5 +1,5 @@
 import { convexTest } from 'convex-test';
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import schema from './schema';
 
 describe('spike: convex-test works', () => {

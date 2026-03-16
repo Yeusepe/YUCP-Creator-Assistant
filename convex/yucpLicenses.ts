@@ -30,8 +30,8 @@
  *   RFC 8725 JWT BCP     https://www.rfc-editor.org/rfc/rfc8725
  */
 
-import { ConvexError, v } from 'convex/values';
 import { symmetricDecrypt } from 'better-auth/crypto';
+import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import { internalAction, internalMutation, internalQuery } from './_generated/server';
 import { type LicenseClaims, signLicenseJwt } from './lib/yucpCrypto';
@@ -162,7 +162,39 @@ export const getTenantOwnerById = internalQuery({
   },
 });
 
-/** List active products for a creator, grouped by canonical productId. */
+/**
+ * Return distinct VRChat providerUserIds for all active buyers verified under
+ * the given creator. Used by the /v1/vrchat/avatar-name HTTP endpoint to find
+ * a live buyer session that can reach the VRChat API.
+ */
+export const getVrchatProviderUserIdsForCreator = internalQuery({
+  args: { authUserId: v.string() },
+  returns: v.array(v.string()),
+  handler: async (ctx, args) => {
+    const activeBindings = await ctx.db
+      .query('bindings')
+      .withIndex('by_auth_user_status', (q) =>
+        q.eq('authUserId', args.authUserId).eq('status', 'active')
+      )
+      .collect();
+
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const binding of activeBindings) {
+      const extAccount = await ctx.db.get(binding.externalAccountId);
+      if (
+        extAccount?.provider === 'vrchat' &&
+        extAccount.providerUserId &&
+        !seen.has(extAccount.providerUserId)
+      ) {
+        seen.add(extAccount.providerUserId);
+        ids.push(extAccount.providerUserId);
+      }
+    }
+    return ids;
+  },
+});
+
 export const getProductsForTenant = internalQuery({
   args: { authUserId: v.string() },
   returns: v.array(

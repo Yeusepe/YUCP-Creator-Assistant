@@ -268,7 +268,9 @@ describe('suspicious subjects', () => {
       authUserId: 'auth-tenant-a',
     });
 
-    expect(tenantAList.map((entry) => entry.discordUserId)).toEqual(['discord-tenant-a-suspicious']);
+    expect(tenantAList.map((entry) => entry.discordUserId)).toEqual([
+      'discord-tenant-a-suspicious',
+    ]);
   });
 });
 

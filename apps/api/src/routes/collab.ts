@@ -481,7 +481,8 @@ export function createCollabRoutes(config: CollabConfig) {
       // "a_" for animated GIFs. Never store arbitrary strings from external sources.
       const AVATAR_HASH_RE = /^(a_)?[0-9a-f]{32}$/;
       const rawAvatarHash = user.avatar ?? null;
-      discordAvatarHash = rawAvatarHash && AVATAR_HASH_RE.test(rawAvatarHash) ? rawAvatarHash : null;
+      discordAvatarHash =
+        rawAvatarHash && AVATAR_HASH_RE.test(rawAvatarHash) ? rawAvatarHash : null;
     } catch (oauthErr) {
       logger.error('Discord OAuth failed', { err: oauthErr });
       const frontendUrl = config.frontendBaseUrl.replace(/\/$/, '');
@@ -809,14 +810,15 @@ export function createCollabRoutes(config: CollabConfig) {
         collaboratorDiscordUserId?: string;
         [key: string]: unknown;
       }) => {
-      const hash = c.collaboratorAvatarHash;
-      const avatarUrl =
-        hash && AVATAR_HASH_RE.test(hash)
-          ? `https://cdn.discordapp.com/avatars/${c.collaboratorDiscordUserId}/${hash}.webp?size=64`
-          : null;
-      const { collaboratorAvatarHash: _drop, ...rest } = c;
-      return { ...rest, avatarUrl };
-    });
+        const hash = c.collaboratorAvatarHash;
+        const avatarUrl =
+          hash && AVATAR_HASH_RE.test(hash)
+            ? `https://cdn.discordapp.com/avatars/${c.collaboratorDiscordUserId}/${hash}.webp?size=64`
+            : null;
+        const { collaboratorAvatarHash: _drop, ...rest } = c;
+        return { ...rest, avatarUrl };
+      }
+    );
 
     return Response.json({ connections: withAvatars });
   }
@@ -992,8 +994,9 @@ export function createCollabRoutes(config: CollabConfig) {
    */
   function listCollabProviders(): Response {
     const providers = (PROVIDER_REGISTRY as ReadonlyArray<(typeof PROVIDER_REGISTRY)[number]>)
-      .filter((p): p is Extract<(typeof PROVIDER_REGISTRY)[number], { supportsCollab: true }> =>
-        'supportsCollab' in p && p.supportsCollab === true
+      .filter(
+        (p): p is Extract<(typeof PROVIDER_REGISTRY)[number], { supportsCollab: true }> =>
+          'supportsCollab' in p && p.supportsCollab === true
       )
       .map((p) => ({ key: p.providerKey, label: p.label }));
     return Response.json({ providers });
@@ -1028,13 +1031,10 @@ export function createCollabRoutes(config: CollabConfig) {
     );
     if (!ownerAuth.ok) return ownerAuth.response;
 
-    const connections = await convex.query(
-      api.collaboratorInvites.listConnectionsAsCollaborator,
-      {
-        apiSecret,
-        authUserId: ownerAuth.authUserId,
-      }
-    );
+    const connections = await convex.query(api.collaboratorInvites.listConnectionsAsCollaborator, {
+      apiSecret,
+      authUserId: ownerAuth.authUserId,
+    });
     return Response.json({ connections });
   }
 

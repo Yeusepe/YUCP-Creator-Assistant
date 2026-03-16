@@ -1228,21 +1228,27 @@ export async function handleProductConfirmAdd(
       let vrchatDisplayName: string | undefined;
       try {
         const nameData = await resolveVrchatAvatarName({ authUserId, avatarId });
-        vrchatDisplayName = nameData.name ?? undefined;
+        vrchatDisplayName = nameData.name || undefined;
         if (vrchatDisplayName) {
           logger.info('VRChat avatar name resolved', { avatarId, name: vrchatDisplayName });
         } else {
-          logger.warn('VRChat avatar name came back null — check Convex logs for [vrchat/avatar-name]', {
-            authUserId,
-            avatarId,
-          });
+          logger.warn(
+            'VRChat avatar name came back null — check Convex logs for [vrchat/avatar-name]',
+            {
+              authUserId,
+              avatarId,
+            }
+          );
         }
       } catch (err) {
-        logger.warn('VRChat avatar name lookup threw — check API logs for [resolveVrchatAvatarName]', {
-          authUserId,
-          avatarId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        logger.warn(
+          'VRChat avatar name lookup threw — check API logs for [resolveVrchatAvatarName]',
+          {
+            authUserId,
+            avatarId,
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
       }
 
       const result = await convex.mutation(api.role_rules.addProductFromVrchat, {

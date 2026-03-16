@@ -12,12 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
-import {
-  makeTestConvex,
-  seedCreatorProfile,
-  seedEntitlement,
-  seedSubject,
-} from './testHelpers';
+import { makeTestConvex, seedCreatorProfile, seedEntitlement, seedSubject } from './testHelpers';
 
 async function getEntitlementState(t: ReturnType<typeof makeTestConvex>, entitlementId: string) {
   return t.run(async (ctx) => ctx.db.get(entitlementId as never));

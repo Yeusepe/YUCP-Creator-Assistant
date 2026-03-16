@@ -4,8 +4,73 @@ import { buildCookieHeader, parseSetCookie, splitSetCookieHeader } from './cooki
 
 const originalFetch = globalThis.fetch;
 
-afterEach(() => {
-  globalThis.fetch = originalFetch;
+describe('VrchatWebClient.getAvatarById', () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('returns the avatar name when the VRChat API responds successfully', async () => {
+    const fetchMock = mock(async (url: string, init?: RequestInit) => {
+      expect(url).toContain('/avatars/avtr_test123');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('cookie')).toBe('auth=auth-token');
+      return new Response(JSON.stringify({ id: 'avtr_test123', name: 'My Test Avatar' }), {
+        status: 200,
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new VrchatWebClient();
+    const name = await client.getAvatarById({ authToken: 'auth-token' }, 'avtr_test123');
+    expect(name).toBe('My Test Avatar');
+  });
+
+  it('includes the 2FA cookie when a twoFactorAuthToken is present', async () => {
+    const fetchMock = mock(async (_url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.get('cookie')).toBe('auth=auth-token; twoFactorAuth=2fa-token');
+      return new Response(JSON.stringify({ id: 'avtr_test', name: 'Avatar With 2FA' }), {
+        status: 200,
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new VrchatWebClient();
+    const name = await client.getAvatarById(
+      { authToken: 'auth-token', twoFactorAuthToken: '2fa-token' },
+      'avtr_test'
+    );
+    expect(name).toBe('Avatar With 2FA');
+  });
+
+  it('returns null when the avatar is not found (404)', async () => {
+    const fetchMock = mock(async () => new Response(null, { status: 404 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new VrchatWebClient();
+    const name = await client.getAvatarById({ authToken: 'auth-token' }, 'avtr_nonexistent');
+    expect(name).toBeNull();
+  });
+
+  it('returns null when the VRChat API returns a non-OK status', async () => {
+    const fetchMock = mock(async () => new Response(null, { status: 401 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new VrchatWebClient();
+    const name = await client.getAvatarById({ authToken: 'auth-token' }, 'avtr_any');
+    expect(name).toBeNull();
+  });
+
+  it('returns null when the response body has no name field', async () => {
+    const fetchMock = mock(async () =>
+      new Response(JSON.stringify({ id: 'avtr_noname' }), { status: 200 })
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new VrchatWebClient();
+    const name = await client.getAvatarById({ authToken: 'auth-token' }, 'avtr_noname');
+    expect(name).toBeNull();
+  });
 });
 
 describe('vrchat cookie helpers', () => {

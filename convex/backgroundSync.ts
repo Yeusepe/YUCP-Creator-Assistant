@@ -8,6 +8,7 @@
  */
 
 import { ConvexError, v } from 'convex/values';
+import { PROVIDER_KEYS } from '../packages/shared/src/providers';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import {
@@ -17,7 +18,6 @@ import {
   type MutationCtx,
   mutation,
 } from './_generated/server';
-import { PROVIDER_KEYS } from '../packages/shared/src/providers';
 
 function requireApiSecret(apiSecret: string | undefined): void {
   const expected = process.env.CONVEX_API_SECRET;

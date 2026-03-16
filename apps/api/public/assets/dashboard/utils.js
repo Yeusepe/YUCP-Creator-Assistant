@@ -27,3 +27,33 @@ export async function copyText(text, triggerEl, successLabel) {
     /* silent */
   }
 }
+
+/**
+ * Sets a button into a loading state: disabled + inline spinner + label.
+ * Stashes the original innerHTML and disabled state on the element so
+ * clearButtonLoading can restore them exactly.
+ * @param {HTMLButtonElement|null} btn
+ * @param {string} [label] - Optional text to show next to the spinner
+ */
+export function setButtonLoading(btn, label = '') {
+  if (!btn) return;
+  btn._prevHtml = btn.innerHTML;
+  btn._prevDisabled = btn.disabled;
+  btn.disabled = true;
+  btn.innerHTML = label
+    ? `<span class="btn-spinner"></span><span>${label}</span>`
+    : '<span class="btn-spinner"></span>';
+}
+
+/**
+ * Restores a button that was previously set into a loading state by
+ * setButtonLoading, re-enabling it and restoring its original content.
+ * @param {HTMLButtonElement|null} btn
+ */
+export function clearButtonLoading(btn) {
+  if (!btn) return;
+  btn.disabled = btn._prevDisabled ?? false;
+  btn.innerHTML = btn._prevHtml ?? '';
+  delete btn._prevHtml;
+  delete btn._prevDisabled;
+}

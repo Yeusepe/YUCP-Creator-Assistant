@@ -473,7 +473,7 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(90deg, var(--accent-sky), #818cf8);
+            background: linear-gradient(90deg, #FF75C3, #70E2FF);
             z-index: -1;
             opacity: 0;
             transition: opacity 0.3s ease;
@@ -531,18 +531,13 @@
             }
         }
 
-        /* Hero CTA: aurora background on hover (same as Done text) */
+        /* Hero CTA: Discord blurple on hover */
         #hero .btn-primary:hover::before {
-            background: linear-gradient(in oklch 90deg, #FF007F, #FF5500, #FFE600, #00FF55, #00EEFF, #A800FF, #FF007F);
-            background-size: 200% auto;
-            animation: aurora 8s ease-in-out infinite alternate;
+            background: linear-gradient(135deg, #5865F2 0%, #4752c4 100%);
         }
         #hero .btn-primary:hover {
-            text-shadow: 0 0 16px rgba(0,0,0,0.5), 0 0 28px rgba(0,0,0,0.4), 0 0 40px rgba(0,0,0,0.3);
-        }
-        #hero .btn-primary:hover img,
-        #hero .btn-primary:hover svg {
-            filter: drop-shadow(0 0 12px rgba(0,0,0,0.5)) drop-shadow(0 0 24px rgba(0,0,0,0.4)) drop-shadow(0 0 36px rgba(0,0,0,0.3));
+            border-color: rgba(88, 101, 242, 0.0);
+            box-shadow: 0 4px 24px rgba(88, 101, 242, 0.55), 0 1px 0 rgba(255,255,255,0.15) inset;
         }
         #hero .btn-hero-content {
             display: inline-flex;
@@ -1118,6 +1113,20 @@
             .pill-cta { padding: 5px 8px; gap: 4px; }
         }
 
+        /* ── overflow-x: clip (unlike hidden) does not break position:sticky ─── */
+        #page-content { overflow-x: clip; }
+
+        /* ── Hero: sticky so the glass panel slides over it ───────────────────── */
+        #hero {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        #hero .hero-inner {
+            transition: opacity 0.2s ease-out;
+            will-change: opacity;
+        }
+
         /* ── Continuous glass panel wrapping all feature sections ──────────────── */
         /* Single wrapper div (#sections-glass) gives the panel a unified look:
            blobs glow through, top corners are rounded, no seams between sections */
@@ -1134,7 +1143,7 @@
                 inset 0 0 40px rgba(255, 255, 255, 0.2),
                 inset 0 2px 5px rgba(255, 255, 255, 0.5);
             position: relative;
-            z-index: 10;
+            z-index: 20;
         }
 
         /* Section text: flip white → dark for legibility on the light glass background */
@@ -1164,16 +1173,14 @@
         /* Int-check items: dark text */
         #sections-glass .int-check-list span { color: #334155 !important; }
 
-        /* Brand/accent inline text: use plain dark text — color used sparingly.
-           --accent-mustard gets a warm orange so "flavor." and "ROLES" still pop.
-           All other brand colors fall back to standard dark body text. */
-        #sections-glass .text-\[var\(--accent-mustard\)\] { color: #ea580c !important; } /* orange-600 */
-        #sections-glass .text-\[var\(--accent-sky\)\],
-        #sections-glass .text-\[\#FF90E8\],
-        #sections-glass .text-\[\#FFD36E\],
-        #sections-glass .text-\[\#00e676\],
-        #sections-glass .text-\[\#5865F2\],
-        #sections-glass .text-\[\#9146FF\] { color: #334155 !important; }
+        /* Brand/accent inline text: logo palette — bright and consistent */
+        #sections-glass .text-\[var\(--accent-mustard\)\] { color: #FFA647 !important; }
+        #sections-glass .text-\[var\(--accent-sky\)\]     { color: #70E2FF !important; }
+        #sections-glass .text-\[\#FF90E8\]                { color: #FF75C3 !important; }
+        #sections-glass .text-\[\#FFD36E\]                { color: #FFE83F !important; }
+        #sections-glass .text-\[\#00e676\]                { color: #9FFF5B !important; }
+        #sections-glass .text-\[\#5865F2\]                { color: #5865F2 !important; }
+        #sections-glass .text-\[\#9146FF\]                { color: #9146FF !important; }
 
         /* Inside dark-glass cards: restore white text — don't let section overrides leak in */
         #sections-glass .discord-mockup h2,
@@ -1348,7 +1355,7 @@
         <!-- ── Hero ──────────────────────────────────────────────────────────────── -->
         <main id="hero" class="content-above-clouds min-h-screen flex items-start lg:items-center px-4 sm:px-6 lg:px-10 relative pt-20 sm:pt-24 pb-20 lg:pb-12" data-blob-index="0">
 
-            <div class="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-20 items-center relative z-10">
+            <div class="hero-inner max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-20 items-center relative z-10">
 
                 <!-- ── Left: Copy ────────────────────────────────────────────── -->
                 <div class="text-center lg:text-left">
@@ -1672,7 +1679,7 @@
                     </div>
                     <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Your storefronts,<br class="hidden md:block">
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#be123c,#9a3412);">united.</span>
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#FF75C3,#70E2FF);">united.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-10">
                         Connect <span class="font-bold text-[#FF90E8]">Gumroad®</span>, <span class="font-bold text-[#9146FF]">Jinxxy™</span>, <span class="font-bold text-[#FFD36E]">Lemon Squeezy®</span>, <span class="font-bold text-[#00e676]">VRChat®</span>, and <span class="font-bold text-[#5865F2]">Discord®</span> in minutes. Customers verify once, the Assistant handles every purchase, past and future, automatically.
@@ -1818,7 +1825,7 @@
                             <div class="int-hub-pulse"></div>
                             <div class="int-hub-pulse int-hub-pulse-2"></div>
                             <div class="int-hub-inner">
-                                <img src="Icons/MainLogo.png" class="w-8 h-8 object-contain relative z-10" alt="Creator Assistant">
+                                <img src="Icons/Assistant.png" class="w-8 h-8 object-contain relative z-10" alt="Creator Assistant">
                                 <div class="relative z-10">
                                     <div class="text-sm font-black text-white">Creator Assistant</div>
                                     <div class="text-[10px] text-white/45 uppercase tracking-widest">Verification Hub</div>
@@ -1897,7 +1904,7 @@
                     <h2
                         class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Set the rules.<br>
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#d97706,#ea580c);">Let the
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#FFA647,#FFE83F);">Let the
                             Assistant enforce them.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
@@ -1979,7 +1986,7 @@
                         class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Liened <br class="hidden md:block">
                         <span class="grad-text"
-                            style="background-image:linear-gradient(90deg,#059669,#0d9488);">Downloads</span>
+                            style="background-image:linear-gradient(90deg,#9FFF5B,#70E2FF);">Downloads</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
                         Role-gate your files directly in Discord®. When members post assets in configured channels, the
@@ -2105,7 +2112,7 @@
                         class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Collaborating <br class="hidden md:block">
                         <span class="grad-text"
-                            style="background-image:linear-gradient(90deg,#7c3aed,#db2777);">Creators</span>
+                            style="background-image:linear-gradient(90deg,#FF75C3,#FFA647);">Creators</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
                         Expand your community's reach. Invite other Jinxxy™ creators to share their store and buyers from
@@ -2215,7 +2222,7 @@
                     </div>
                     <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight">
                         Built to stay<br>
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#dc2626,#ea580c);">locked
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#FFA647,#FF75C3);">locked
                             down.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
@@ -2877,6 +2884,26 @@
             window.addEventListener('page-content-visible', updateScrollBlur);
         })();
 
+        // Hero fade-out as #sections-glass slides over it
+        (() => {
+            const heroInner = document.querySelector('#hero .hero-inner');
+            const glass = document.getElementById('sections-glass');
+            const pageContent = document.getElementById('page-content');
+            if (!heroInner || !glass) return;
+            heroInner.style.opacity = '1'; // always visible by default
+            function updateHeroFade() {
+                if (pageContent && pageContent.style.display === 'none') return;
+                const glassTop = glass.getBoundingClientRect().top;
+                const vh = window.innerHeight;
+                const fadeStart = vh * 0.8;
+                const fadeEnd   = vh * 0.2;
+                const t = Math.max(0, Math.min(1, (fadeStart - glassTop) / (fadeStart - fadeEnd)));
+                heroInner.style.opacity = String(1 - t);
+            }
+            window.addEventListener('scroll', updateHeroFade, { passive: true });
+            window.addEventListener('page-content-visible', updateHeroFade);
+        })();
+
         // Blob background: section-aware, anchor latches onto graphic, others dance around
         (function () {
             const blobs = Array.from(document.querySelectorAll('.blob'));
@@ -2924,12 +2951,24 @@
             let activeSection = null;
             let activeAnchor = { x: 0, y: 0 };
 
+            const heroEl = document.getElementById('hero');
+            const glassEl = document.getElementById('sections-glass');
+
             function updateActiveSection() {
                 const vh = window.innerHeight;
-                const vCenter = window.scrollY + vh / 2;
+                // Hero is sticky — determine if glass has overtaken it via scroll position
+                const heroNaturalHeight = heroEl ? heroEl.offsetHeight : vh;
+                const glassTop = glassEl ? glassEl.getBoundingClientRect().top : vh;
+                const heroActive = glassTop > vh * 0.5;
+
                 let best = null;
                 let bestDist = Infinity;
+                const vCenter = window.scrollY + vh / 2;
                 sections.forEach((section) => {
+                    if (section === heroEl) {
+                        if (heroActive) best = section;
+                        return;
+                    }
                     const rect = section.getBoundingClientRect();
                     const sTop = rect.top + window.scrollY;
                     const sCenter = sTop + rect.height / 2;

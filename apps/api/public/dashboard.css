@@ -691,6 +691,32 @@ body:not(.state-server-selected) .server-only {
   background: #0ea5e9;
 }
 
+.svr-cfg-switch.saving {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* ─── Button loading spinner ─── */
+
+.btn-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btn-spin 0.65s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .svr-cfg-pick[data-customized="true"] {
   display: none !important;
 }
