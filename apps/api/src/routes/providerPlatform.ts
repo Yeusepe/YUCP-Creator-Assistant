@@ -1187,6 +1187,15 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       lastHealthcheckAt: Date.now(),
       status: 'active',
     });
+    if (process.env.NODE_ENV !== 'production') {
+      logger.info('Webhook accepted', {
+        provider: 'lemonsqueezy',
+        connectionId,
+        eventType,
+        providerEventId,
+        duplicate: result.duplicate,
+      });
+    }
     return jsonResponse({ success: true, duplicate: result.duplicate }, requestId, 202);
   }
 

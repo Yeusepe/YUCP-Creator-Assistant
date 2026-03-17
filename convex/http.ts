@@ -724,6 +724,15 @@ http.route({
     const devPublicKey = request.headers.get('X-Dev-Public-Key');
     if (!devPublicKey) return errorResponse('X-Dev-Public-Key header required', 400);
 
+    // c90: Validate devPublicKey is a valid base64-encoded 32-byte Ed25519 public key.
+    try {
+      const keyBytes = base64ToBytes(devPublicKey);
+      if (keyBytes.length !== 32) {
+        return errorResponse('Invalid X-Dev-Public-Key: must be a 32-byte Ed25519 public key', 400);
+      }
+    } catch {
+      return errorResponse('Invalid X-Dev-Public-Key: must be base64-encoded', 400);
+    }
     const cert = await ctx.runQuery(internal.yucpCertificates.getActiveCertForUser, {
       yucpUserId: tokenResult.yucpUserId,
       devPublicKey,
@@ -1185,6 +1194,9 @@ http.route({
     if (!packageReg || packageReg.yucpUserId !== creatorAuthUserId) {
       return errorResponse('Package not found or not owned by the specified creator', 403);
     }
+
+    // c64: Consume nonce before issuing JWT — prevents replay of identical requests.
+    await ctx.runMutation(internal.yucpLicenses.checkAndConsumeNonce, { nonce });
 
     // Issue machine-fingerprint-bound license JWT
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;

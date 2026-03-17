@@ -15,9 +15,11 @@
  *   Sigstore policy engine         https://docs.sigstore.dev/policy-controller/overview/
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { internalMutation, internalQuery, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
+
+const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Queries

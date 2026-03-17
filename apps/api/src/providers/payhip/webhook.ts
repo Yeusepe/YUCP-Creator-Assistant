@@ -213,6 +213,15 @@ export const webhook: WebhookPlugin = {
         // Non-fatal
       }
 
+      if (process.env.NODE_ENV !== 'production') {
+        logger.info('Webhook accepted', {
+          provider: 'payhip',
+          routeId,
+          eventId,
+          eventType,
+        });
+      }
+
       return new Response('OK', { status: 200 });
     } catch (err) {
       if (err instanceof PayloadTooLargeError) {

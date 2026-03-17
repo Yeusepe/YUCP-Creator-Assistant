@@ -191,6 +191,16 @@ async function handleJinxxyCollabWebhook(
       // Non-fatal
     }
 
+    if (process.env.NODE_ENV !== 'production') {
+      logger.info('Webhook accepted', {
+        provider: 'jinxxy-collab',
+        ownerAuthUserId,
+        inviteId,
+        eventId,
+        eventType,
+      });
+    }
+
     return new Response('OK', { status: 200 });
   } catch (err) {
     if (err instanceof PayloadTooLargeError) {
@@ -382,6 +392,15 @@ export const webhook: WebhookPlugin = {
         await store.set(`${JINXXY_TEST_PREFIX}${routeId}`, '1', JINXXY_TEST_TTL_MS);
       } catch {
         // Non-fatal
+      }
+
+      if (process.env.NODE_ENV !== 'production') {
+        logger.info('Webhook accepted', {
+          provider: 'jinxxy',
+          routeId,
+          eventId,
+          eventType,
+        });
       }
 
       return new Response('OK', { status: 200 });

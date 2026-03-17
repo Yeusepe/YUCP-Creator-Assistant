@@ -160,6 +160,15 @@ export const webhook: WebhookPlugin = {
         }
       }
 
+      if (process.env.NODE_ENV !== 'production') {
+        logger.info('Webhook accepted', {
+          provider: 'gumroad',
+          routeId,
+          saleId,
+          eventType,
+        });
+      }
+
       return new Response('OK', { status: 200 });
     } catch (err) {
       if (err instanceof PayloadTooLargeError) {
