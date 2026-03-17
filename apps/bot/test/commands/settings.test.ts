@@ -104,8 +104,7 @@ describe('settings command', () => {
     });
     const convex = makeSettingsConvex();
 
-    await handleInteraction(interaction as unknown as ButtonInteraction, {
-      convex,
+    await handleInteraction(interaction as unknown as ButtonInteraction, { convex: convex as unknown as ConvexHttpClient,
       apiSecret: 'api-secret',
     });
 
@@ -127,8 +126,7 @@ describe('settings command', () => {
     });
     const convex = makeSettingsConvex();
 
-    await handleInteraction(interaction as unknown as ButtonInteraction, {
-      convex,
+    await handleInteraction(interaction as unknown as ButtonInteraction, { convex: convex as unknown as ConvexHttpClient,
       apiSecret: 'api-secret',
     });
 
@@ -150,8 +148,7 @@ describe('settings command', () => {
     });
     const convex = makeSettingsConvex();
 
-    await handleInteraction(interaction as unknown as ButtonInteraction, {
-      convex,
+    await handleInteraction(interaction as unknown as ButtonInteraction, { convex: convex as unknown as ConvexHttpClient,
       apiSecret: 'api-secret',
     });
 
