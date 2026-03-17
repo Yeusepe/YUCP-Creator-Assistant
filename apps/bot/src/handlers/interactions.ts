@@ -4,8 +4,8 @@
  * Routes interactions to command handlers. Admin subcommands require Administrator permission.
  */
 
-import { PROVIDER_META } from '@yucp/providers';
-import { createLogger } from '@yucp/shared';
+import { PROVIDER_REGISTRY, createLogger, getProviderDescriptor } from '@yucp/shared';
+import type { ProviderDescriptor } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
@@ -378,7 +378,7 @@ async function handleAutocomplete(
 
     await interaction.respond(
       filtered.map((p) => ({
-        name: `${E[(PROVIDER_META[p.provider as keyof typeof PROVIDER_META]?.emojiKey ?? '') as keyof typeof E] ?? '🔷'} ${p.displayName ?? p.canonicalSlug ?? p.productId}`,
+        name: `${E[(getProviderDescriptor(p.provider)?.emojiKey ?? '') as keyof typeof E] ?? '🔷'} ${p.displayName ?? p.canonicalSlug ?? p.productId}`,
         value: `${p.provider}::${p.providerProductRef}`,
       }))
     );
@@ -753,16 +753,10 @@ async function handleButton(
 
   if (customId.startsWith('creator_verify:disconnect:')) {
     const provider = customId.slice('creator_verify:disconnect:'.length);
-    const VALID_PROVIDERS = [
-      'gumroad',
-      'jinxxy',
-      'discord',
-      'manual',
-      'vrchat',
-      'lemon_squeezy',
-      'payhip',
-    ];
-    if (!VALID_PROVIDERS.includes(provider)) {
+    const VALID_PROVIDERS = new Set<string>(
+      (PROVIDER_REGISTRY as readonly ProviderDescriptor[]).map((p) => p.providerKey)
+    );
+    if (!VALID_PROVIDERS.has(provider)) {
       await interaction.reply({ content: 'Invalid provider.', flags: MessageFlags.Ephemeral });
       return;
     }

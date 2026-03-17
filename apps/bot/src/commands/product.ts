@@ -7,6 +7,7 @@
  */
 
 import {
+  buildCatalogProductUrl,
   createLogger,
   getProviderDescriptor,
   PROVIDER_REGISTRY,
@@ -1131,17 +1132,30 @@ export async function handleProductConfirmAdd(
       return;
     }
 
-    if (type === 'gumroad') {
-      // Product ID comes from Gumroad catalog API (catalog_sync), same as jinxxy/lemonsqueezy.
-      // Do NOT parse or resolve — use the API-returned ID directly (may be base64-encoded).
+    if (!type) throw new Error('Unknown product type');
+
+    const descriptor = getProviderDescriptor(type);
+    if (descriptor?.capabilities.includes('catalog_sync')) {
+      // Generic catalog_sync branch — handles gumroad, jinxxy, lemonsqueezy, vrchat, and any future catalog provider.
       const productIdFromApi = urlOrId?.trim();
-      if (!productIdFromApi) throw new Error('No Gumroad product selected');
-      const displayName = session.productNames?.['gumroad']?.[productIdFromApi];
-      const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
+      if (!productIdFromApi) throw new Error(`No ${descriptor.label} product selected`);
+      const productName = session.productNames?.[type]?.[productIdFromApi];
+      const collabSource = session.productSources?.[type]?.[productIdFromApi];
+      const displayName = productName
+        ? collabSource
+          ? `${productName} (via ${collabSource})`
+          : productName
+        : undefined;
+      const canonicalUrl = buildCatalogProductUrl(type, productIdFromApi);
+      if (!canonicalUrl) throw new Error(`No URL template configured for provider: ${type}`);
+      const result = await convex.mutation(api.role_rules.addCatalogProduct, {
         apiSecret,
         authUserId,
         productId: productIdFromApi,
         providerProductRef: productIdFromApi,
+        provider: type,
+        canonicalUrl,
+        supportsAutoDiscovery: descriptor.supportsAutoDiscovery ?? false,
         displayName,
       });
       productId = result.productId;
@@ -1178,41 +1192,6 @@ export async function handleProductConfirmAdd(
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
-    } else if (type === 'jinxxy') {
-      // Product ID comes from Jinxxy API (product select), not URL parsing
-      const productIdFromApi = urlOrId?.trim();
-      if (!productIdFromApi) throw new Error('No Jinxxy product selected');
-      const productName = session.productNames?.['jinxxy']?.[productIdFromApi];
-      const collabSource = session.productSources?.['jinxxy']?.[productIdFromApi];
-      const displayName = productName
-        ? collabSource
-          ? `${productName} (via ${collabSource})`
-          : productName
-        : undefined;
-      // TODO: genericize via a per-provider Convex mutation registry when backend supports it
-      const result = await convex.mutation(api.role_rules.addProductFromJinxxy, {
-        apiSecret,
-        authUserId,
-        productId: productIdFromApi,
-        providerProductRef: productIdFromApi,
-        displayName: displayName ?? undefined,
-      });
-      productId = result.productId;
-      catalogProductId = result.catalogProductId;
-    } else if (type === 'lemonsqueezy') {
-      const productIdFromApi = urlOrId?.trim();
-      if (!productIdFromApi) throw new Error('No Lemon Squeezy product selected');
-      const displayName = session.productNames?.['lemonsqueezy']?.[productIdFromApi];
-      // TODO: genericize via a per-provider Convex mutation registry when backend supports it
-      const result = await convex.mutation(api.role_rules.addProductFromLemonSqueezy, {
-        apiSecret,
-        authUserId,
-        productId: productIdFromApi,
-        providerProductRef: productIdFromApi,
-        displayName,
-      });
-      productId = result.productId;
-      catalogProductId = result.catalogProductId;
     } else if (type === 'license') {
       const parsed = urlOrId?.trim() ?? 'license';
       const result = await convex.mutation(api.role_rules.addProductFromGumroad, {
@@ -1220,20 +1199,6 @@ export async function handleProductConfirmAdd(
         authUserId,
         productId: parsed,
         providerProductRef: parsed,
-      });
-      productId = result.productId;
-      catalogProductId = result.catalogProductId;
-    } else if (type === 'vrchat') {
-      // Catalog branch: product ID is prod_xxx from VRChat store listing
-      const productIdFromApi = urlOrId?.trim();
-      if (!productIdFromApi) throw new Error('No VRChat product selected');
-      const displayName = session.productNames?.['vrchat']?.[productIdFromApi];
-      const result = await convex.mutation(api.role_rules.addProductFromVrchatCatalog, {
-        apiSecret,
-        authUserId,
-        productId: productIdFromApi,
-        providerProductRef: productIdFromApi,
-        displayName,
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;

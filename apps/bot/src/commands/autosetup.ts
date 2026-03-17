@@ -5,7 +5,7 @@
  * then the bot walks them through each step using Discord.js v14 UI components.
  */
 
-import { createLogger } from '@yucp/shared';
+import { CATALOG_SYNC_PROVIDER_KEYS, createLogger } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type {
   ButtonInteraction,
@@ -36,7 +36,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E, Emoji } from '../lib/emojis';
-import { listGumroadProducts, listJinxxyProducts } from '../lib/internalRpc';
+import { listProviderProducts } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 import { canBotManageRole } from '../lib/roleHierarchy';
 
@@ -202,18 +202,16 @@ async function fetchAllProducts(
   authUserId: string,
   _apiSecret: string
 ): Promise<AutosetupProduct[]> {
+  const results = await Promise.all(
+    CATALOG_SYNC_PROVIDER_KEYS.map((providerKey) => listProviderProducts(providerKey, authUserId))
+  );
+
   const products: AutosetupProduct[] = [];
-
-  const [gumroadData, jinxxyData] = await Promise.all([
-    listGumroadProducts(authUserId),
-    listJinxxyProducts(authUserId),
-  ]);
-
-  for (const p of gumroadData.products ?? []) {
-    products.push({ id: p.id, name: p.name, provider: 'gumroad' });
-  }
-  for (const p of jinxxyData.products ?? []) {
-    products.push({ id: p.id, name: p.name, provider: 'jinxxy' });
+  for (let i = 0; i < CATALOG_SYNC_PROVIDER_KEYS.length; i++) {
+    const providerKey = CATALOG_SYNC_PROVIDER_KEYS[i];
+    for (const p of results[i].products ?? []) {
+      products.push({ id: p.id, name: p.name, provider: providerKey });
+    }
   }
 
   const seen = new Set<string>();
