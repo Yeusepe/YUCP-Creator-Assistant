@@ -9,8 +9,8 @@ import { handleGuildMemberAdd } from './handlers/guildMemberAdd';
 import { handleInteraction } from './handlers/interactions';
 import { loadEnvAsync, validateBotEnv } from './lib/env';
 import {
-  LienedDownloadsService,
   getLienedDownloadsInvitePermissions,
+  LienedDownloadsService,
 } from './services/lienedDownloads';
 import { RoleSyncService } from './services/roleSync';
 

@@ -14,6 +14,7 @@
     <link href="https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black"
         rel="stylesheet">
     <link rel="stylesheet" href="./tokens.css">
+    <link rel="stylesheet" href="./loading.css">
 
     <style>
         
@@ -139,31 +140,6 @@
             transform: scale(1.1) rotate(2deg);
         }
 
-        .page-loading-spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(255, 255, 255, 0.1);
-            border-top-color: #5865F2;
-            border-radius: 50%;
-            animation: page-loading-spin 0.8s linear infinite;
-        }
-
-        @keyframes page-loading-spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* ── Flash fix ─────────────────────────────────────────────────────── */
-        #page-loading-overlay {
-            transition: opacity 0.35s ease;
-        }
-
-        #page-loading-overlay.is-hiding {
-            opacity: 0;
-            pointer-events: none;
-        }
-
         #page-content {
             opacity: 0;
             transition: opacity 0.3s ease 0.05s;
@@ -265,11 +241,8 @@
 
 <body
     class="min-h-screen flex flex-col selection:bg-yellow-200 bg-gradient-to-b from-[#0a3d9e] to-[#0ea5e9] text-white">
-    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 sm:px-6"
-        style="background-color: var(--bg-color);">
-        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-8 sm:h-10 max-w-full w-auto object-contain mb-8" />
-        <div class="page-loading-spinner"></div>
-        <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
+    <!-- Full-page loading overlay (content injected by site.js) -->
+    <div id="page-loading-overlay"></div>
     </div>
     <!-- Liquid glass modal (alert/confirm) -->
     <div id="modal-backdrop" class="modal-backdrop" aria-hidden="true">
@@ -379,6 +352,30 @@
                                     style="font-family: 'Plus Jakarta Sans', sans-serif;">Jinxxy™</span>
                                 <span class="text-sm opacity-80 font-medium text-white leading-none"
                                     style="font-family: 'DM Sans', sans-serif;">Marketplace</span>
+                            </div>
+                        </div>
+                        <div
+                            class="flex items-center gap-2 bg-white/20 text-white px-4 py-2 rounded-full backdrop-blur-md group-hover:bg-white/30 transition-colors flex-shrink-0">
+                            <span
+                                class="connect-badge text-xs font-black uppercase tracking-widest text-white translate-y-[1px]"
+                                style="font-family: 'Plus Jakarta Sans', sans-serif;">Connect</span>
+                            <svg class="w-4 h-4 transition-transform group-hover:translate-x-1 text-white" fill="none"
+                                stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                <path d="M5 12h14M12 5l7 7-7 7"></path>
+                            </svg>
+                        </div>
+                    </button>
+
+                    <button type="button"
+                        class="platform-btn w-full flex items-center justify-between p-4 rounded-3xl bg-[rgba(0,180,140,0.9)] backdrop-blur-md text-white shadow-xl shadow-[#00b48c]/30 group border border-white/20"
+                        data-platform="vrchat">
+                        <div class="flex items-center gap-3 sm:gap-5">
+                            <img class="w-10 h-10 sm:w-12 sm:h-12 sticker drop-shadow-lg" src="./Icons/VRC.png" alt="VRChat®">
+                            <div class="text-left flex flex-col justify-center">
+                                <span class="font-bold tracking-tight text-xl block text-white"
+                                    style="font-family: 'Plus Jakarta Sans', sans-serif;">VRChat®</span>
+                                <span class="text-sm opacity-80 font-medium text-white leading-none"
+                                    style="font-family: 'DM Sans', sans-serif;">Store</span>
                             </div>
                         </div>
                         <div
@@ -594,19 +591,14 @@
 
                             updatePlatformCards({
                                 gumroad: connectionsMap.has('gumroad'),
-                                jinxxy: connectionsMap.has('jinxxy')
+                                jinxxy: connectionsMap.has('jinxxy'),
+                                vrchat: connectionsMap.has('vrchat'),
                             });
 
                             const toggle = document.getElementById('mismatched-emails-toggle');
                             if (toggle) {
                                 toggle.checked = !!statusData.allowMismatchedEmails;
                                 toggle.addEventListener('change', async function () {
-                                    if (!hasSetupSession) {
-                                        await showAlert('Settings can only be changed when using a secure setup link. Please restart the /creator setup command.');
-                                        this.checked = !this.checked; // Revert
-                                        return;
-                                    }
-
                                     try {
                                         const res = await fetch(`${apiBase}/api/connect/settings`, {
                                             method: 'POST',
@@ -614,7 +606,8 @@
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({
                                                 key: 'allowMismatchedEmails',
-                                                value: this.checked
+                                                value: this.checked,
+                                                authUserId: tenantId || undefined
                                             })
                                         });
                                         if (!res.ok) throw new Error('Failed to update setting');
@@ -835,11 +828,6 @@
 
                     // Disconnect flow
                     if (this.dataset.connected === "true") {
-                        if (!hasSetupSession) {
-                            await showAlert('Connections can only be removed when using a secure setup link. Please restart the /creator setup command in Discord®.');
-                            return;
-                        }
-
                         const confirmed = await showConfirm(`Are you sure you want to disconnect ${platform === 'gumroad' ? 'Gumroad®' : 'Jinxxy™'}?`);
                         if (!confirmed) return;
 
@@ -847,7 +835,8 @@
                         if (!conn) return;
 
                         try {
-                            const res = await fetch(`${apiBase}/api/connections?id=${conn.id}`, {
+                            const authUserIdParam = tenantId ? `&authUserId=${encodeURIComponent(tenantId)}` : '';
+                            const res = await fetch(`${apiBase}/api/connections?id=${conn.id}${authUserIdParam}`, {
                                 method: 'DELETE',
                                 credentials: 'include'
                             });
@@ -900,37 +889,6 @@
             });
         </script>
     </div>
-
-
-    <script>
-        // Smooth overlay fade: intercepts site.js instant display:none
-        (function () {
-            var overlay = document.getElementById('page-loading-overlay');
-            var content = document.getElementById('page-content');
-            if (!overlay) return;
-            function dismissOverlay() {
-                observer.disconnect();
-                overlay.classList.add('is-hiding');
-                if (content) {
-                    content.style.display = '';
-                    requestAnimationFrame(function () {
-                        requestAnimationFrame(function () { content.classList.add('is-visible'); });
-                    });
-                }
-                setTimeout(function () { overlay.style.display = 'none'; }, 370);
-            }
-            var observer = new MutationObserver(function () {
-                if (overlay.style.display === 'none') {
-                    overlay.style.display = '';
-                    setTimeout(dismissOverlay, 500);
-                    observer.disconnect();
-                }
-            });
-            observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
-            // Fallback: dismiss if site.js fails to load or call hideLoading()
-            setTimeout(dismissOverlay, 10000);
-        })();
-    </script>
 </body>
 
 </html>

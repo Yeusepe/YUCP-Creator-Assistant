@@ -18,7 +18,7 @@
  *   RFC 9700 OAuth best practice https://www.ietf.org/rfc/rfc9700.html
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import { internalAction, internalMutation, internalQuery } from './_generated/server';
 import { type CertData, type CertEnvelope, signCertData } from './lib/yucpCrypto';
@@ -239,6 +239,13 @@ export const issueCertificate = internalAction({
     const existingByKey = await ctx.runQuery(internal.yucpCertificates.getCertByDevPublicKey, {
       devPublicKey: args.devPublicKey,
     });
+
+    // c73: Prevent cross-user publisherId hijacking. If a devPublicKey is already
+    // registered under a different user, it must be revoked first.
+    if (existingByKey && existingByKey.yucpUserId !== args.yucpUserId) {
+      throw new ConvexError('devPublicKey is already registered to a different user');
+    }
+
     const publisherId = existingByKey?.publisherId ?? crypto.randomUUID();
 
     // Revoke any active certs for this publisher before issuing a new one

@@ -37,6 +37,18 @@
             <feGaussianBlur in="noise" stdDeviation="2" result="blurred" />
             <feDisplacementMap in="SourceGraphic" in2="blurred" scale="45" xChannelSelector="R" yChannelSelector="G" />
         </filter>
+        <!-- Liquid glass — gentle, for sections-glass panel & pill-nav -->
+        <filter id="liq-sm" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="3" seed="7" result="noise"/>
+            <feGaussianBlur in="noise" stdDeviation="2.5" result="smooth"/>
+            <feDisplacementMap in="SourceGraphic" in2="smooth" scale="6" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
+        <!-- Liquid glass — medium, for discord mockup cards -->
+        <filter id="liq-md" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency="0.022 0.030" numOctaves="3" seed="3" result="noise"/>
+            <feGaussianBlur in="noise" stdDeviation="1.8" result="smooth"/>
+            <feDisplacementMap in="SourceGraphic" in2="smooth" scale="12" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
     </svg>
 
     <style>        
@@ -70,7 +82,7 @@
             height: 650px;
             border-radius: 50%;
             filter: blur(110px);
-            opacity: calc(0.5 * var(--blob-intensity, 1));
+            opacity: calc(0.72 * var(--blob-intensity, 1));
             will-change: transform;
             transition: opacity 0.2s ease;
         }
@@ -82,7 +94,7 @@
         .blob:nth-child(5) { background: #70E2FF; }
 
         .blob.latched {
-            opacity: calc(0.7 * var(--blob-intensity, 1));
+            opacity: calc(0.92 * var(--blob-intensity, 1));
             filter: blur(110px);
         }
 
@@ -105,7 +117,7 @@
             inset: 0;
             -webkit-backdrop-filter: blur(calc(var(--scroll-blur, 0) * 1px)) saturate(160%);
             backdrop-filter: blur(calc(var(--scroll-blur, 0) * 1px)) saturate(160%);
-            /* filter: url(#lg-dist) removed — displacement caused hero graphic to fade in/out of sharpness */
+            /* filter: url(#lg-dist) removed, displacement caused hero graphic to fade in/out of sharpness */
             transition: backdrop-filter 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
         }
         .scroll-blur-overlay .lg-tint {
@@ -163,39 +175,63 @@
         }
 
         /* ── Custom Cursor ───────────────────────────────────────────────────── */
-        .cursor-dot,
-        .cursor-dot-outline {
+        #cursor-trail {
             position: fixed;
-            top: 0;
-            left: 0;
-            transform: translate(-50%, -50%);
-            border-radius: 50%;
-            z-index: 9999;
+            inset: 0;
+            z-index: 9997;
             pointer-events: none;
         }
 
-        .cursor-dot {
-            width: 8px;
-            height: 8px;
-            background-color: var(--accent-mustard);
-            box-shadow: 0 0 10px rgba(255, 235, 59, 0.8);
+        .cursor-core,
+        .cursor-orb {
+            position: fixed;
+            top: 0;
+            left: 0;
+            border-radius: 50%;
+            pointer-events: none;
+            will-change: left, top;
         }
 
-        .cursor-dot-outline {
-            width: 40px;
-            height: 40px;
-            border: 1px solid var(--accent-sky);
-            transition: width 0.2s, height 0.2s, background-color 0.2s, border-color 0.2s;
+        .cursor-core {
+            width: 7px;
+            height: 7px;
+            background: #fff;
+            mix-blend-mode: difference;
+            transform: translate(-50%, -50%) scale(1);
+            transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+            z-index: 9999;
         }
 
-        body:has(a:hover) .cursor-dot-outline,
-        body:has(button:hover) .cursor-dot-outline,
-        body:has(.clickable:hover) .cursor-dot-outline {
-            width: 60px;
-            height: 60px;
-            background-color: rgba(14, 165, 233, 0.2);
-            border-color: var(--accent-mustard);
-            mix-blend-mode: color-dodge;
+        .cursor-orb {
+            width: 38px;
+            height: 38px;
+            background: radial-gradient(circle at 35% 35%, #FF75C3 0%, #70E2FF 45%, #FFE83F 85%);
+            opacity: 0.58;
+            z-index: 9998;
+            transform: translate(-50%, -50%);
+            transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                        height 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                        opacity 0.3s ease;
+            animation: orbHue 5s linear infinite;
+        }
+
+        @keyframes orbHue {
+            0%   { filter: blur(9px) hue-rotate(0deg); }
+            100% { filter: blur(9px) hue-rotate(360deg); }
+        }
+
+        body:has(a:hover) .cursor-orb,
+        body:has(button:hover) .cursor-orb,
+        body:has(.clickable:hover) .cursor-orb {
+            width: 64px;
+            height: 64px;
+            opacity: 0.82;
+        }
+
+        body:has(a:hover) .cursor-core,
+        body:has(button:hover) .cursor-core,
+        body:has(.clickable:hover) .cursor-core {
+            transform: translate(-50%, -50%) scale(2.2);
         }
 
         /* ── Text animate (Magic UI style: blur-in, slide-up by word) ──────────── */
@@ -218,28 +254,24 @@
         /* ── Reveal on scroll ────────────────────────────────────────────────── */
         .reveal {
             opacity: 0;
-            transform: translateY(18px);
-            filter: blur(8px);
-            transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1), filter 0.5s ease-out;
+            transform: translateY(30px) scale(0.975);
+            filter: blur(10px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        filter 0.6s ease-out;
         }
 
         .reveal.visible {
             opacity: 1;
-            transform: translateY(0);
+            transform: translateY(0) scale(1);
             filter: blur(0);
         }
 
-        .reveal-delay-1 {
-            transition-delay: 0.1s;
-        }
-
-        .reveal-delay-2 {
-            transition-delay: 0.2s;
-        }
-
-        .reveal-delay-3 {
-            transition-delay: 0.35s;
-        }
+        .reveal-delay-1 { transition-delay: 0.10s; }
+        .reveal-delay-2 { transition-delay: 0.20s; }
+        .reveal-delay-3 { transition-delay: 0.35s; }
+        .reveal-delay-4 { transition-delay: 0.50s; }
+        .reveal-delay-5 { transition-delay: 0.65s; }
 
         /* ── Typography effects ──────────────────────────────────────────────── */
         ::selection {
@@ -272,12 +304,15 @@
 
         /* ── Aurora Text (blob rainbow colors) ───────────────────────────────── */
         .aurora-text {
-            background: linear-gradient(135deg, #FF75C3, #FFA647, #FFE83F, #9FFF5B, #70E2FF, #FF75C3);
+            /* oklch interpolation keeps every hue at full perceived brightness — no dark muddy midpoints */
+            background: linear-gradient(in oklch 90deg,
+                #FF007F, #FF5500, #FFE600, #00FF55, #00EEFF, #A800FF, #FF007F
+            );
             background-size: 200% auto;
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
-            animation: aurora 8s ease-in-out infinite alternate;
+            animation: aurora 4s linear infinite;
         }
         .text-animate.aurora-text {
             opacity: 0;
@@ -287,11 +322,8 @@
             opacity: 1;
         }
         @keyframes aurora {
-            0% { background-position: 0% 50%; }
-            25% { background-position: 50% 100%; }
-            50% { background-position: 100% 50%; }
-            75% { background-position: 50% 0%; }
-            100% { background-position: 0% 50%; }
+            from { background-position:   0% 50%; }
+            to   { background-position: 200% 50%; }
         }
 
         /* ── Text Reveal (scroll-into-view, word stagger) ────────────────────── */
@@ -364,15 +396,15 @@
             padding: 4px 6px;
             min-height: 36px;
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.07);
-            backdrop-filter: blur(48px) saturate(180%);
-            -webkit-backdrop-filter: blur(48px) saturate(180%);
-            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.10);
+            backdrop-filter: blur(48px) saturate(200%) brightness(1.05);
+            -webkit-backdrop-filter: blur(48px) saturate(200%) brightness(1.05);
+            border: 1px solid rgba(255, 255, 255, 0.22);
             box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.22) inset,
-                0 -1px 0 rgba(0, 0, 0, 0.15) inset,
-                0 8px 40px rgba(0, 0, 0, 0.45),
-                0 2px 8px rgba(0, 0, 0, 0.25);
+                0 1px 0 rgba(255, 255, 255, 0.30) inset,
+                0 -1px 0 rgba(0, 0, 0, 0.12) inset,
+                0 8px 40px rgba(0, 0, 0, 0.40),
+                0 2px 8px rgba(0, 0, 0, 0.20);
         }
         @media (min-width: 640px) {
             .pill-nav { padding: 5px 8px; min-height: 40px; }
@@ -460,9 +492,9 @@
         /* ── Primary Button ──────────────────────────────────────────────────── */
         .btn-primary {
             position: relative;
-            background: rgba(255, 255, 255, 0.07) !important;
+            background: rgba(255, 255, 255, 0.07);
             backdrop-filter: blur(8px);
-            border: 1.5px solid rgba(255, 255, 255, 0.2) !important;
+            border: 1.5px solid rgba(255, 255, 255, 0.2);
             transition: all 0.3s ease;
             overflow: hidden;
             border-radius: 999px;
@@ -473,14 +505,14 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(90deg, var(--accent-sky), #818cf8);
+            background: linear-gradient(90deg, #FF75C3, #70E2FF);
             z-index: -1;
             opacity: 0;
             transition: opacity 0.3s ease;
         }
 
         .btn-primary:hover {
-            border-color: transparent !important;
+            border-color: transparent;
             box-shadow: 0 8px 30px rgba(14, 165, 233, 0.4);
             transform: translateY(-2px);
         }
@@ -490,21 +522,54 @@
         }
 
         .btn-primary:active {
-            transform: scale(0.96) !important;
+            transform: scale(0.96);
         }
 
-        /* Hero CTA: aurora background on hover (same as Done text) */
+        /* Hero: dark radial vignette scrim — darkens text area, blobs glow at edges */
+        /* White radial scrim — bright spotlight behind hero text, blobs glow at edges */
+        #hero::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(
+                ellipse 72% 52% at 26% 44%,
+                rgba(255, 255, 255, 0.92)  0%,
+                rgba(255, 255, 255, 0.89) 10%,
+                rgba(255, 255, 255, 0.83) 20%,
+                rgba(255, 255, 255, 0.72) 32%,
+                rgba(255, 255, 255, 0.54) 45%,
+                rgba(255, 255, 255, 0.32) 58%,
+                rgba(255, 255, 255, 0.13) 70%,
+                rgba(255, 255, 255, 0.03) 82%,
+                transparent               94%
+            );
+            pointer-events: none;
+            z-index: 9;
+        }
+        @media (max-width: 1023px) {
+            #hero::before {
+                background: radial-gradient(
+                    ellipse 105% 50% at 50% 26%,
+                    rgba(255, 255, 255, 0.92)  0%,
+                    rgba(255, 255, 255, 0.89) 10%,
+                    rgba(255, 255, 255, 0.83) 20%,
+                    rgba(255, 255, 255, 0.72) 32%,
+                    rgba(255, 255, 255, 0.54) 45%,
+                    rgba(255, 255, 255, 0.32) 58%,
+                    rgba(255, 255, 255, 0.13) 70%,
+                    rgba(255, 255, 255, 0.03) 82%,
+                    transparent               94%
+                );
+            }
+        }
+
+        /* Hero CTA: Discord blurple on hover */
         #hero .btn-primary:hover::before {
-            background: linear-gradient(135deg, #FF75C3, #FFA647, #FFE83F, #9FFF5B, #70E2FF, #FF75C3);
-            background-size: 200% auto;
-            animation: aurora 8s ease-in-out infinite alternate;
+            background: linear-gradient(135deg, #5865F2 0%, #4752c4 100%);
         }
         #hero .btn-primary:hover {
-            text-shadow: 0 0 16px rgba(0,0,0,0.5), 0 0 28px rgba(0,0,0,0.4), 0 0 40px rgba(0,0,0,0.3);
-        }
-        #hero .btn-primary:hover img,
-        #hero .btn-primary:hover svg {
-            filter: drop-shadow(0 0 12px rgba(0,0,0,0.5)) drop-shadow(0 0 24px rgba(0,0,0,0.4)) drop-shadow(0 0 36px rgba(0,0,0,0.3));
+            border-color: rgba(88, 101, 242, 0.0);
+            box-shadow: 0 4px 24px rgba(88, 101, 242, 0.55), 0 1px 0 rgba(255,255,255,0.15) inset;
         }
         #hero .btn-hero-content {
             display: inline-flex;
@@ -514,19 +579,27 @@
 
         /* ── Discord® Mockup ──────────────────────────────────────────────────── */
         .discord-mockup {
-            background: #2b2d31;
+            background: rgba(4, 6, 16, 0.52);
+            backdrop-filter: blur(20px) saturate(170%) contrast(1.06);
+            -webkit-backdrop-filter: blur(20px) saturate(170%) contrast(1.06);
             border-radius: 16px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+            box-shadow:
+                0 40px 90px rgba(0, 0, 0, 0.55),
+                0 0 0 1px rgba(255, 255, 255, 0.13),
+                inset 0 1px 0 rgba(255, 255, 255, 0.16),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.25);
             overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            border: none;
             position: relative;
+            transition: box-shadow 0.3s ease;
         }
 
         .discord-mockup::before {
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, transparent 55%);
+            filter: url(#liq-md);
             pointer-events: none;
             z-index: 1;
         }
@@ -536,8 +609,14 @@
             z-index: 2;
         }
 
+        /* Feature section mockup inner cards */
+        .discord-mockup .bg-\[\#1e1f22\] {
+            background: rgba(0, 0, 0, 0.25) !important;
+            border-color: rgba(255, 255, 255, 0.09) !important;
+        }
+
         .mockup-header {
-            background: #1e1f22;
+            background: rgba(4, 5, 15, 0.90);
             padding: 12px;
             display: flex;
             align-items: center;
@@ -570,10 +649,14 @@
 
         /* ── Feature Bento Cards ─────────────────────────────────────────────── */
         .bento-card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(12px) brightness(88%) saturate(130%);
-            -webkit-backdrop-filter: blur(12px) brightness(88%) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, 0.09);
+            background: rgba(6, 8, 20, 0.68);
+            backdrop-filter: blur(22px) saturate(140%);
+            -webkit-backdrop-filter: blur(22px) saturate(140%);
+            border: none;
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.08),
+                0 24px 48px rgba(0, 0, 0, 0.50),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
             border-radius: 20px;
             padding: 28px;
             transition: all 0.25s ease;
@@ -585,14 +668,17 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 60%);
             pointer-events: none;
         }
 
         .bento-card:hover {
-            background: rgba(255, 255, 255, 0.09);
+            background: rgba(6, 8, 20, 0.82);
             transform: translateY(-3px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.13),
+                0 32px 60px rgba(0, 0, 0, 0.60),
+                inset 0 1px 0 rgba(255, 255, 255, 0.11);
         }
 
         .bento-icon {
@@ -733,12 +819,16 @@
 
         /* ── Integration Diagram ────────────────────────────────────────────── */
         .int-diagram {
-            background: rgba(0,0,0,0.38);
-            backdrop-filter: blur(24px);
-            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(6, 8, 20, 0.72);
+            backdrop-filter: blur(22px) saturate(140%);
+            -webkit-backdrop-filter: blur(22px) saturate(140%);
+            border: none;
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.08),
+                0 40px 80px rgba(0, 0, 0, 0.60),
+                inset 0 1px 0 rgba(255, 255, 255, 0.09);
             border-radius: 20px;
             padding: 18px;
-            box-shadow: 0 40px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.07);
             display: flex;
             flex-direction: column;
             gap: 12px;
@@ -906,49 +996,118 @@
             pointer-events: none;
         }
 
-        /* ── Page loading ────────────────────────────────────────────────────── */
-        .page-loading-spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(255, 255, 255, 0.1);
-            border-top-color: #5865F2;
-            border-radius: 50%;
-            animation: page-loading-spin 0.8s linear infinite;
-        }
-
-        @keyframes page-loading-spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* ── Loading overlay fade ──────────────────────────────────────────── */
+        /* ── Page loading (matches dashboard loading.css) ───────────────────── */
         #page-loading-overlay {
-            transition: opacity 0.35s ease;
-            pointer-events: none;
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #09090f;
+            overflow: hidden;
+            transition: opacity 0.5s ease;
         }
-
         #page-loading-overlay.is-hiding {
             opacity: 0;
+            pointer-events: none;
+        }
+        .plo-bag-scene {
+            position: relative;
+            width: 80px;
+            height: 91px;
+            flex-shrink: 0;
+            overflow: visible;
+            transform: scale(1);
+            transition: transform 0.55s cubic-bezier(0.7, 0, 1, 1);
+        }
+        #page-loading-overlay.is-hiding .plo-bag-scene {
+            transform: scale(28);
+        }
+        @keyframes plo-glow {
+            0%   { filter: drop-shadow(0 0 12px rgba(255,117,195,0.5)) drop-shadow(0 0 30px rgba(112,226,255,0.2)); }
+            25%  { filter: drop-shadow(0 0 12px rgba(255,166,71,0.5))  drop-shadow(0 0 30px rgba(159,255,91,0.2)); }
+            50%  { filter: drop-shadow(0 0 12px rgba(112,226,255,0.5)) drop-shadow(0 0 30px rgba(129,140,248,0.2)); }
+            75%  { filter: drop-shadow(0 0 12px rgba(159,255,91,0.5))  drop-shadow(0 0 30px rgba(255,117,195,0.2)); }
+            100% { filter: drop-shadow(0 0 12px rgba(255,117,195,0.5)) drop-shadow(0 0 30px rgba(112,226,255,0.2)); }
+        }
+        .plo-bag-color {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, #ff75c3 0%, #ffa647 40%, #70e2ff 100%);
+            -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 66'%3E%3Cpath fill='white' d='M10.4532 65.9999C3.56938 65.9999 0 62.4297 0 55.5789V22.2894C0 15.4064 3.56938 11.8684 10.4532 11.8684H15.6479C16.3172 5.08187 21.7031 0 28.7781 0C35.885 0 41.271 5.0497 41.9084 11.8684H47.135C53.9869 11.8684 57.5882 15.4386 57.5882 22.2894V55.5789C57.5882 62.4297 54.0188 65.9999 47.9317 65.9999H10.4532ZM28.7781 5.62865C25.0176 5.62865 22.2768 8.13742 21.735 11.8684H35.8532C35.3114 8.13742 32.5706 5.62865 28.7781 5.62865Z'/%3E%3C/svg%3E");
+            mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 66'%3E%3Cpath fill='white' d='M10.4532 65.9999C3.56938 65.9999 0 62.4297 0 55.5789V22.2894C0 15.4064 3.56938 11.8684 10.4532 11.8684H15.6479C16.3172 5.08187 21.7031 0 28.7781 0C35.885 0 41.271 5.0497 41.9084 11.8684H47.135C53.9869 11.8684 57.5882 15.4386 57.5882 22.2894V55.5789C57.5882 62.4297 54.0188 65.9999 47.9317 65.9999H10.4532ZM28.7781 5.62865C25.0176 5.62865 22.2768 8.13742 21.735 11.8684H35.8532C35.3114 8.13742 32.5706 5.62865 28.7781 5.62865Z'/%3E%3C/svg%3E");
+            -webkit-mask-size: 100% 100%;
+            mask-size: 100% 100%;
+            -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+        }
+        .plo-blob {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            filter: blur(24px);
+            opacity: 0.85;
+            animation: plo-pan 22s infinite alternate ease-in-out;
+            will-change: transform;
+        }
+        .plo-blob-1 { background: #ff75c3; top: -10%; left: -10%; animation-delay:   0s; }
+        .plo-blob-2 { background: #ffa647; top:  10%; left:  55%; animation-delay:  -4s; }
+        .plo-blob-3 { background: #ffe83f; top:  55%; left:  15%; animation-delay:  -9s; }
+        .plo-blob-4 { background: #9fff5b; top:  70%; left:  65%; animation-delay: -14s; }
+        .plo-blob-5 { background: #70e2ff; top:  25%; left:  35%; animation-delay: -19s; }
+        @keyframes plo-pan {
+            from { transform: translate(-20px, -20px); }
+            to   { transform: translate( 45px,  45px); }
+        }
+        .plo-bag-outline {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+            animation: plo-glow 4s ease infinite;
+        }
+        .plo-bar-wrap {
+            position: relative;
+            z-index: 1;
+            width: 80px;
+            height: 2px;
+            margin-top: 18px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 2px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .plo-bar {
+            position: absolute;
+            top: 0;
+            left: -60%;
+            width: 60%;
+            height: 100%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+            animation: plo-bar-sweep 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes plo-bar-sweep {
+            0%   { left: -60%; }
+            100% { left: 100%; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .plo-bag-scene    { transition: opacity 0.4s ease !important; }
+            .plo-blob         { animation: none !important; }
+            .plo-bar          { animation: none !important; left: 20%; width: 60%; opacity: 0.3; }
+            #page-loading-overlay.is-hiding .plo-bag-scene { transform: scale(1); opacity: 0; }
         }
 
         #page-content {
             opacity: 0;
             transition: opacity 0.3s ease 0.05s;
         }
-
         #page-content.is-visible {
             opacity: 1;
-        }
-
-        .page-loading-logo {
-            width: auto;
-            height: auto;
-            max-width: min(180px, 85vw);
-            max-height: 2.5rem;
-            object-fit: contain;
-            object-position: center;
-            flex-shrink: 0;
         }
 
         /* ── Section BG ─────────────────────────────────────────────────────── */
@@ -1056,6 +1215,269 @@
             .pill-nav { padding: 3px 4px; min-height: 32px; }
             .pill-cta { padding: 5px 8px; gap: 4px; }
         }
+
+        /* ── overflow-x: clip (unlike hidden) does not break position:sticky ─── */
+        #page-content { overflow-x: clip; }
+
+        /* ── Hero: sticky so the glass panel slides over it ───────────────────── */
+        #hero {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        #hero .hero-inner {
+            transition: opacity 0.2s ease-out;
+            will-change: opacity;
+        }
+
+        /* ── Feature sections glass panel — dark premium ───────────────────────── */
+        #sections-glass {
+            background: rgba(4, 6, 16, 0.82);
+            background-image: radial-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+            background-size: 28px 28px;
+            backdrop-filter: blur(40px) saturate(160%) brightness(0.88);
+            -webkit-backdrop-filter: blur(40px) saturate(160%) brightness(0.88);
+            border-top: 1px solid rgba(255, 255, 255, 0.13);
+            border-top-left-radius: 24px;
+            border-top-right-radius: 24px;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.10),
+                0 0 0 1px rgba(255, 255, 255, 0.06);
+            position: relative;
+            z-index: 20;
+        }
+
+        /* Section text: white on dark glass */
+        #sections-glass h2,
+        #sections-glass h3 { color: rgba(255,255,255,0.96) !important; }
+
+        #sections-glass p,
+        #sections-glass .text-white\/70,
+        #sections-glass .text-white\/65 { color: rgba(255,255,255,0.68) !important; }
+
+        #sections-glass .text-white\/50,
+        #sections-glass .text-white\/45,
+        #sections-glass .text-white\/40,
+        #sections-glass .text-white\/35 { color: rgba(255,255,255,0.38) !important; }
+
+        /* Grad-text spans: keep gradient colors */
+        #sections-glass .grad-text { color: transparent !important; }
+
+        /* Tag pills: glass style on dark */
+        #sections-glass .tag-pill {
+            background: rgba(255, 255, 255, 0.08) !important;
+            border-color: rgba(255, 255, 255, 0.13) !important;
+            color: rgba(255, 255, 255, 0.82) !important;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08) !important;
+            backdrop-filter: blur(8px);
+        }
+
+        /* Int-check items: white on dark */
+        #sections-glass .int-check-list span { color: rgba(255,255,255,0.70) !important; }
+
+        /* ── Marquee strip ──────────────────────────────────────────────────────── */
+        .section-marquee {
+            position: relative;
+            border-top: 1px solid rgba(255,255,255,0.07);
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+        }
+        .section-marquee-track {
+            display: flex;
+            align-items: center;
+            width: max-content;
+            animation: marquee-scroll 32s linear infinite;
+        }
+        @media (prefers-reduced-motion: reduce) { .section-marquee-track { animation: none; } }
+        @keyframes marquee-scroll {
+            from { transform: translateX(0); }
+            to   { transform: translateX(-50%); }
+        }
+        .section-marquee-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 11px 26px;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.13em;
+            color: rgba(255,255,255,0.35);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .section-marquee-item img {
+            width: 14px;
+            height: 14px;
+            object-fit: contain;
+            opacity: 0.50;
+            filter: brightness(2);
+        }
+        .section-marquee-sep {
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.15);
+            flex-shrink: 0;
+        }
+
+        /* ── Feature icon box ambient glow ring ─────────────────────────────────── */
+        .feature-icon-box { position: relative; }
+        .feature-icon-box::after {
+            content: '';
+            position: absolute;
+            inset: -16px;
+            border-radius: 36px;
+            background: radial-gradient(circle, var(--icon-halo, rgba(14,165,233,0.18)) 0%, transparent 68%);
+            animation: icon-halo 4s ease-in-out infinite;
+            pointer-events: none;
+            z-index: -1;
+        }
+        @keyframes icon-halo {
+            0%, 100% { opacity: 0.50; transform: scale(0.92); }
+            50%       { opacity: 1.00; transform: scale(1.12); }
+        }
+        [data-blob-index="1"] .feature-icon-box { --icon-halo: rgba(255,117,195,0.22); }
+        [data-blob-index="2"] .feature-icon-box { --icon-halo: rgba(112,226,255,0.22); }
+        [data-blob-index="3"] .feature-icon-box { --icon-halo: rgba(255,166,71,0.25);  }
+        [data-blob-index="4"] .feature-icon-box { --icon-halo: rgba(159,255,91,0.22);  }
+        [data-blob-index="0"] .feature-icon-box { --icon-halo: rgba(255,232,63,0.22);  }
+
+        /* ── Mockup accent orb (glowing bloom behind each visual panel) ──────────── */
+        .mobile-mockup-cap { position: relative; }
+        .mobile-mockup-cap::before {
+            content: '';
+            position: absolute;
+            inset: -30% -18%;
+            background: radial-gradient(ellipse at 50% 52%, var(--orb, rgba(112,226,255,0.22)) 0%, transparent 62%);
+            pointer-events: none;
+            z-index: 0;
+            filter: blur(28px);
+            animation: orb-breathe 6s ease-in-out infinite;
+        }
+        @keyframes orb-breathe {
+            0%, 100% { opacity: 0.50; transform: scale(0.96); }
+            50%       { opacity: 1.00; transform: scale(1.05); }
+        }
+        [data-blob-index="1"] .mobile-mockup-cap::before { --orb: rgba(255,117,195,0.42); }
+        [data-blob-index="2"] .mobile-mockup-cap::before { --orb: rgba(112,226,255,0.42); }
+        [data-blob-index="3"] .mobile-mockup-cap::before { --orb: rgba(255,166,71,0.44);  }
+        [data-blob-index="4"] .mobile-mockup-cap::before { --orb: rgba(159,255,91,0.40);  }
+        [data-blob-index="0"] .mobile-mockup-cap::before { --orb: rgba(255,232,63,0.40);  }
+        .mobile-mockup-cap > .discord-mockup,
+        .mobile-mockup-cap > .int-diagram { position: relative; z-index: 1; }
+
+        /* ── Bento card cursor spotlight ──────────────────────────────────────────── */
+        .bento-card::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 20px;
+            background: radial-gradient(circle 200px at var(--bx,50%) var(--by,50%), rgba(255,255,255,0.07) 0%, transparent 60%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            z-index: 3;
+        }
+        .bento-card:hover::after { opacity: 1; }
+        .bento-card:hover {
+            transform: translateY(-5px) scale(1.005);
+            box-shadow:
+                0 0 0 1px rgba(255,255,255,0.16),
+                0 36px 64px rgba(0,0,0,0.60),
+                inset 0 1px 0 rgba(255,255,255,0.14);
+        }
+
+        /* ── Section beam dividers ──────────────────────────────────────────── */
+        /* Thin glowing line + soft radial bloom between every pair of sections  */
+        #sections-glass section[data-blob-index] + section[data-blob-index]::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 8%; right: 8%;
+            height: 1px;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                var(--beam-line, rgba(255,255,255,0.09)) 50%,
+                transparent 100%
+            );
+            pointer-events: none;
+            z-index: 2;
+            animation: beam-pulse 5s ease-in-out infinite;
+        }
+        #sections-glass section[data-blob-index] + section[data-blob-index]::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 50%;
+            transform: translateX(-50%);
+            width: 75%; height: 160px;
+            background: radial-gradient(
+                ellipse at 50% 0%,
+                var(--beam-glow, rgba(255,255,255,0.06)) 0%,
+                transparent 68%
+            );
+            pointer-events: none;
+            z-index: 2;
+        }
+        @keyframes beam-pulse {
+            0%, 100% { opacity: 0.55; }
+            50%       { opacity: 1.0;  }
+        }
+        /* ── Bigger section h2 typography ───────────────────────────────────── */
+        #sections-glass section[data-blob-index] h2 {
+            font-size: clamp(2.4rem, 5.5vw, 4.2rem);
+            line-height: 1.04;
+        }
+
+
+/* ── Section beam dividers — bolder ────────────────────────────────── */
+        #sections-glass section[data-blob-index] + section[data-blob-index]::before {
+            height: 1.5px;
+        }
+        #sections-glass section[data-blob-index="1"] { --beam-line: rgba(255,117,195,0.40); --beam-glow: rgba(255,117,195,0.14); }
+        #sections-glass section[data-blob-index="2"] { --beam-line: rgba(112,226,255,0.40); --beam-glow: rgba(112,226,255,0.14); }
+        #sections-glass section[data-blob-index="3"] { --beam-line: rgba(255,166,71,0.42);  --beam-glow: rgba(255,166,71,0.15);  }
+        #sections-glass section[data-blob-index="4"] { --beam-line: rgba(159,255,91,0.38);  --beam-glow: rgba(159,255,91,0.13);  }
+        #sections-glass section[data-blob-index="0"] { --beam-line: rgba(255,232,63,0.38);  --beam-glow: rgba(255,232,63,0.13);  }
+
+        /* ── Directional reveal variants (left ↔ right) ──────────────────── */
+        /* Override translateY with translateX for featured section columns   */
+        .reveal.reveal-l { transform: translateX(-60px) scale(0.970); }
+        .reveal.reveal-r { transform: translateX( 60px) scale(0.970); }
+        .reveal.reveal-l.visible { transform: translateX(0) scale(1); }
+        .reveal.reveal-r.visible { transform: translateX(0) scale(1); }
+        /* Mobile: fall back to vertical reveal */
+        @media (max-width: 1023px) {
+            .reveal.reveal-l,
+            .reveal.reveal-r { transform: translateY(30px) scale(0.975); }
+            .reveal.reveal-l.visible,
+            .reveal.reveal-r.visible { transform: translateY(0) scale(1); }
+        }
+
+
+        /* ── Discord mockup: diagonal sheen sweep ───────────────────────────── */
+        /* A faint light diagonal moves across the card every ~10s             */
+        .discord-mockup::after {
+            content: '';
+            position: absolute;
+            top: -100%; left: -65%;
+            width: 55%; height: 300%;
+            background: linear-gradient(
+                100deg,
+                transparent 0%,
+                rgba(255,255,255,0.025) 50%,
+                transparent 100%
+            );
+            transform: skewX(-12deg);
+            animation: mockup-sheen 11s ease-in-out infinite 2s;
+            pointer-events: none;
+            z-index: 10;
+        }
+        @keyframes mockup-sheen {
+            0%        { left: -65%; opacity: 0; }
+            4%        { opacity: 1; }
+            38%       { left: 115%; opacity: 0; }
+            100%      { left: 115%; opacity: 0; }
+        }
     </style>
 
     <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
@@ -1072,15 +1494,26 @@
     }
     </script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 </head>
 
 <body class="selection:bg-yellow-200">
     <!-- Loading overlay -->
-    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
-        style="background: linear-gradient(180deg, #4A9DD9 0%, #3a8bc6 100%);">
-        <img src="Icons/MainLogo.png" alt="Creator Assistant" class="page-loading-logo mb-8">
-        <div class="page-loading-spinner"></div>
-        <p class="mt-4 text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Loading...</p>
+    <div id="page-loading-overlay">
+        <div class="plo-bag-scene">
+            <svg class="plo-bag-outline" viewBox="0 0 58 66" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" overflow="visible">
+                <path d="M10.4532 65.9999C3.56938 65.9999 0 62.4297 0 55.5789V22.2894C0 15.4064 3.56938 11.8684 10.4532 11.8684H15.6479C16.3172 5.08187 21.7031 0 28.7781 0C35.885 0 41.271 5.0497 41.9084 11.8684H47.135C53.9869 11.8684 57.5882 15.4386 57.5882 22.2894V55.5789C57.5882 62.4297 54.0188 65.9999 47.9317 65.9999H10.4532ZM28.7781 5.62865C25.0176 5.62865 22.2768 8.13742 21.735 11.8684H35.8532C35.3114 8.13742 32.5706 5.62865 28.7781 5.62865Z" fill="none" stroke="white" stroke-width="10"/>
+            </svg>
+            <div class="plo-bag-color">
+                <div class="plo-blob plo-blob-1"></div>
+                <div class="plo-blob plo-blob-2"></div>
+                <div class="plo-blob plo-blob-3"></div>
+                <div class="plo-blob plo-blob-4"></div>
+                <div class="plo-blob plo-blob-5"></div>
+            </div>
+        </div>
+        <div class="plo-bar-wrap"><div class="plo-bar"></div></div>
     </div>
 
     <div id="page-content" style="display:none;" class="overflow-x-hidden w-full m-0 p-0 relative">
@@ -1108,8 +1541,9 @@
         </div>
 
         <!-- Custom cursor -->
-        <div class="cursor-dot hidden md:block"></div>
-        <div class="cursor-dot-outline hidden md:block"></div>
+        <canvas id="cursor-trail" class="hidden md:block"></canvas>
+        <div class="cursor-core hidden md:block"></div>
+        <div class="cursor-orb hidden md:block"></div>
 
         <!-- ── Floating Pill Nav ─────────────────────────────────────────────────── -->
         <div class="fixed top-3 sm:top-4 md:top-5 inset-x-0 flex justify-center z-[100] px-2 sm:px-4 md:px-6" style="pointer-events: auto;">
@@ -1186,27 +1620,27 @@
         <!-- ── Hero ──────────────────────────────────────────────────────────────── -->
         <main id="hero" class="content-above-clouds min-h-screen flex items-start lg:items-center px-4 sm:px-6 lg:px-10 relative pt-20 sm:pt-24 pb-20 lg:pb-12" data-blob-index="0">
 
-            <div class="max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-20 items-center relative z-10">
+            <div class="hero-inner max-w-7xl mx-auto w-full grid lg:grid-cols-2 gap-8 lg:gap-12 xl:gap-20 items-center relative z-10">
 
                 <!-- ── Left: Copy ────────────────────────────────────────────── -->
                 <div class="text-center lg:text-left">
                     <!-- Top pill -->
                     <div class="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full mb-8 reveal"
-                        style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);">
+                        style="background:rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.14);">
                         <span class="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse"
-                            style="background:#00e676;box-shadow:0 0 6px rgba(0,230,118,0.7);"></span>
+                            style="background:#00c853;box-shadow:0 0 6px rgba(0,200,83,0.6);"></span>
                         <span class="flex items-center gap-1.5">
-                            <img src="Icons/Gumorad.png" class="h-3.5 w-3.5 object-contain opacity-55" alt="">
-                            <img src="Icons/Jinxxy.png" class="h-3.5 w-3.5 object-contain opacity-55" alt="">
-                            <img src="Icons/VRC.png" class="h-3.5 w-3.5 object-contain opacity-55" alt="">
-                            <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain opacity-55" alt="">
+                            <img src="Icons/Gumorad.png" class="h-3.5 w-3.5 object-contain opacity-70" alt="">
+                            <img src="Icons/Jinxxy.png" class="h-3.5 w-3.5 object-contain opacity-70" alt="">
+                            <img src="Icons/VRC.png" class="h-3.5 w-3.5 object-contain opacity-70" alt="">
+                            <img src="Icons/Discord.png" class="h-3.5 w-3.5 object-contain opacity-70" alt="">
                         </span>
-                        <div class="w-px h-3.5 flex-shrink-0" style="background:rgba(255,255,255,0.1);"></div>
-                        <span class="text-white/45 text-[11px] font-bold uppercase tracking-[0.12em]">Gumroad® &middot; Jinxxy™ &middot; Lemon Squeezy® &middot; VRChat®</span>
+                        <div class="w-px h-3.5 flex-shrink-0" style="background:rgba(0,0,0,0.12);"></div>
+                        <span class="text-[#0d0e14]/60 text-[11px] font-bold uppercase tracking-[0.12em]">Gumroad® &middot; Jinxxy™ &middot; Lemon Squeezy® &middot; VRChat®</span>
                     </div>
 
                     <!-- Headline -->
-                    <h1 class="text-white mb-5 reveal reveal-delay-1"
+                    <h1 class="text-[#0d0e14] mb-5 reveal reveal-delay-1"
                         style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:clamp(2.4rem,5.5vw,4.25rem);line-height:1.04;letter-spacing:-0.04em;">
                         <span class="text-animate">License verified.</span><br>
                         <span class="text-animate">Role granted.</span><br>
@@ -1214,7 +1648,7 @@
                     </h1>
 
                     <!-- Sub -->
-                    <p class="text-white/50 mb-8 reveal reveal-delay-2 mx-auto lg:mx-0"
+                    <p class="text-[#2d2e3a]/80 mb-8 reveal reveal-delay-2 mx-auto lg:mx-0"
                         style="font-size:clamp(0.95rem,2vw,1.1rem);line-height:1.65;max-width:420px;">
                         Connect your Gumroad®, Jinxxy™, Lemon Squeezy®, or VRChat® marketplace to Discord®. Buyers verify their purchase and get exclusive roles, automatically, in seconds.
                     </p>
@@ -1226,7 +1660,7 @@
                             onclick="fireConfetti(this);window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')">
                             <span class="btn-hero-content flex items-center gap-2.5">
                                 <img src="Icons/Discord.png" class="h-4 w-4 object-contain" alt="">
-                                Add to Discord® &mdash; Free
+                                Add to Discord® · Free
                                 <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none"
                                     stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
@@ -1275,23 +1709,6 @@
                     <!-- The window -->
                     <div class="discord-mockup w-full" style="box-shadow:0 32px 80px rgba(0,0,0,0.6);">
 
-                        <!-- Title bar -->
-                        <div class="mockup-header justify-between">
-                            <div class="flex items-center gap-1.5">
-                                <div class="mockup-dot"></div>
-                                <div class="mockup-dot"></div>
-                                <div class="mockup-dot"></div>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <img src="Icons/Discord.png" class="h-3 w-3 object-contain opacity-30" alt="">
-                                <span class="text-white/25 text-xs font-semibold">Creator Server &mdash; Discord®</span>
-                            </div>
-                            <div class="flex items-center gap-1.5">
-                                <div class="w-1.5 h-1.5 rounded-full"
-                                    style="background:#00e676;box-shadow:0 0 5px rgba(0,230,118,0.7);"></div>
-                                <span class="text-[10px] font-bold" style="color:#00e676;">Online</span>
-                            </div>
-                        </div>
 
                         <!-- Body: sidebar + chat -->
                         <div class="flex" style="height:310px;">
@@ -1471,8 +1888,11 @@
 
         </main>
 
+        <!-- ── Feature sections: wrapped in one continuous glass panel ───────────── -->
+        <div id="sections-glass">
+
         <!-- ── Philosophy Statement ──────────────────────────────────────────────── -->
-        <section class="content-above-clouds py-14 px-4 sm:px-6 overflow-hidden relative z-10"
+        <section class="py-14 px-4 sm:px-6 relative"
             id="features" data-blob-index="1">
             <div class="max-w-6xl mx-auto flex flex-col lg:flex-row items-center gap-10 lg:gap-20">
                 <div class="lg:w-5/12 reveal section-graphic mouse-parallax text-center lg:text-left" data-parallax-speed="0.6">
@@ -1495,7 +1915,7 @@
         </section>
 
         <!-- ── Feature: Seamless Integrations ───────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" id="integrations" data-blob-index="2">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" id="integrations" data-blob-index="2">
 
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-14 lg:gap-20">
 
@@ -1507,7 +1927,7 @@
                     </div>
                     <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Your storefronts,<br class="hidden md:block">
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#38bdf8,#2dd4bf);">united.</span>
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#FF75C3,#70E2FF);">united.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-10">
                         Connect <span class="font-bold text-[#FF90E8]">Gumroad®</span>, <span class="font-bold text-[#9146FF]">Jinxxy™</span>, <span class="font-bold text-[#FFD36E]">Lemon Squeezy®</span>, <span class="font-bold text-[#00e676]">VRChat®</span>, and <span class="font-bold text-[#5865F2]">Discord®</span> in minutes. Customers verify once, the Assistant handles every purchase, past and future, automatically.
@@ -1653,7 +2073,7 @@
                             <div class="int-hub-pulse"></div>
                             <div class="int-hub-pulse int-hub-pulse-2"></div>
                             <div class="int-hub-inner">
-                                <img src="Icons/LemonSqueezy.png" class="w-8 h-8 object-contain relative z-10" alt="Creator Assistant">
+                                <img src="Icons/Assistant.png" class="w-8 h-8 object-contain relative z-10" alt="Creator Assistant">
                                 <div class="relative z-10">
                                     <div class="text-sm font-black text-white">Creator Assistant</div>
                                     <div class="text-[10px] text-white/45 uppercase tracking-widest">Verification Hub</div>
@@ -1721,18 +2141,61 @@
             </div>
         </section>
 
+        <!-- ── Integration marquee ───────────────────────────────────────────────── -->
+        <div class="section-marquee" aria-hidden="true">
+            <div class="section-marquee-track">
+                <div class="section-marquee-item"><img src="Icons/Gumorad.png" alt="">Gumroad®</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/LemonSqueezy.png" alt="">Lemon Squeezy®</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/Jinxxy.png" alt="">Jinxxy™</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/Patreon.png" alt="">Patreon®</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/PayHip.png" alt="">Payhip®</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/ItchIo.png" alt="">Itch.io</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/VRC.png" alt="">VRChat® CE</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/Discord.png" alt="">Discord® Roles</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/Checkmark.png" alt="">Verified Instantly</div>
+                <div class="section-marquee-sep"></div>
+                <!-- duplicate for seamless loop -->
+                <div class="section-marquee-item"><img src="Icons/Gumorad.png" alt="">Gumroad®</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/LemonSqueezy.png" alt="">Lemon Squeezy®</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/Jinxxy.png" alt="">Jinxxy™</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/Patreon.png" alt="">Patreon®</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/PayHip.png" alt="">Payhip®</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/ItchIo.png" alt="">Itch.io</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/VRC.png" alt="">VRChat® CE</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/Discord.png" alt="">Discord® Roles</div>
+                <div class="section-marquee-sep"></div>
+                <div class="section-marquee-item"><img src="Icons/Checkmark.png" alt="">Verified Instantly</div>
+                <div class="section-marquee-sep"></div>
+            </div>
+        </div>
+
         <!-- ── Feature: Rules Engine ─────────────────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="3">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" data-blob-index="3">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal text-center lg:text-left">
-                    <div class="feature-icon-box sticker section-graphic"
+                    <div class="feature-icon-box sticker"
                         style="background:rgba(255,235,59,0.15);box-shadow:0 8px 24px rgba(255,235,59,0.15);">
                         <img src="Icons/Wrench.png" alt="">
                     </div>
                     <h2
                         class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Set the rules.<br>
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#facc15,#f97316);">Let the
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#FFA647,#FFE83F);">Let the
                             Assistant enforce them.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
@@ -1803,10 +2266,10 @@
         </section>
 
         <!-- ── Feature: Liened Downloads ────────────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="4">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" data-blob-index="4">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal text-center lg:text-left">
-                    <div class="feature-icon-box sticker section-graphic"
+                    <div class="feature-icon-box sticker"
                         style="background:rgba(0,230,118,0.12);box-shadow:0 8px 24px rgba(0,230,118,0.15);">
                         <img src="Icons/Library.png" alt="">
                     </div>
@@ -1814,7 +2277,7 @@
                         class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Liened <br class="hidden md:block">
                         <span class="grad-text"
-                            style="background-image:linear-gradient(90deg,#34d399,#2dd4bf);">Downloads</span>
+                            style="background-image:linear-gradient(90deg,#9FFF5B,#70E2FF);">Downloads</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
                         Role-gate your files directly in Discord®. When members post assets in configured channels, the
@@ -1842,12 +2305,6 @@
 
                 <div class="flex-1 w-full mobile-mockup-cap reveal reveal-delay-1">
                     <div class="discord-mockup mouse-parallax section-graphic" data-parallax-speed="0.75">
-                        <div class="mockup-header">
-                            <div class="mockup-dot"></div>
-                            <div class="mockup-dot"></div>
-                            <div class="mockup-dot"></div>
-                            <span class="text-xs text-white/40 ml-1 font-bold">#share-assets</span>
-                        </div>
 
                         <div class="p-6 space-y-4">
                             <div>
@@ -1929,10 +2386,10 @@
         </section>
 
         <!-- ── Feature: Collaborating Creators ──────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" data-blob-index="0">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" data-blob-index="0">
             <div class="max-w-7xl mx-auto flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
                 <div class="flex-1 reveal text-center lg:text-left">
-                    <div class="feature-icon-box sticker section-graphic"
+                    <div class="feature-icon-box sticker"
                         style="background:rgba(145,70,255,0.15);box-shadow:0 8px 24px rgba(145,70,255,0.2);">
                         <img src="Icons/PersonKey.png" alt="">
                     </div>
@@ -1940,7 +2397,7 @@
                         class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
                         Collaborating <br class="hidden md:block">
                         <span class="grad-text"
-                            style="background-image:linear-gradient(90deg,#a78bfa,#f472b6);">Creators</span>
+                            style="background-image:linear-gradient(90deg,#FF75C3,#FFA647);">Creators</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed mb-8">
                         Expand your community's reach. Invite other Jinxxy™ creators to share their store and buyers from
@@ -2040,8 +2497,138 @@
             </div>
         </section>
 
+        <!-- ── Feature: VRChat Creator Economy ──────────────────────────────────── -->
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" data-blob-index="2">
+            <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
+
+                <!-- Text side (left) -->
+                <div class="flex-1 reveal text-center lg:text-left">
+                    <div class="inline-flex items-center gap-2 bg-[#00e676]/10 border border-[#00e676]/25 rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase mb-5" style="color:#00e676;">
+                        ★ Industry First
+                    </div>
+                    <div class="feature-icon-box sticker"
+                        style="background:rgba(0,230,118,0.15);box-shadow:0 8px 24px rgba(0,230,118,0.2);">
+                        <img src="Icons/VRC.png" alt="VRChat">
+                    </div>
+                    <h2 class="text-3xl sm:text-4xl md:text-5xl mb-5 font-extrabold tracking-tight leading-[1.1]" style="color:#a7f3d0;">
+                        VRChat® <br class="hidden md:block">
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#00e676,#1DE9B6);">Creator Economy</span>
+                    </h2>
+                    <p class="text-xl leading-relaxed mb-8" style="color:rgba(167,243,208,0.75);">
+                        We're the <span style="color:#6ee7b7;font-weight:700;">first Discord® bot</span> to support the VRChat® Creator Economy.
+                        Automatically verify avatar and world purchases, active subscriptions, and more.
+                        Roles are granted the <span style="color:#6ee7b7;font-weight:700;">moment a purchase is confirmed</span>.
+                    </p>
+                    <div class="flex flex-wrap gap-3 mb-8 justify-center lg:justify-start">
+                        <div class="tag-pill" style="color:#00e676;border-color:rgba(0,230,118,0.2);background:rgba(0,230,118,0.07);">
+                            <div class="w-2 h-2 rounded-full animate-pulse" style="background:#00e676;"></div>Avatar Purchases
+                        </div>
+                        <div class="tag-pill" style="color:#1DE9B6;border-color:rgba(29,233,182,0.2);background:rgba(29,233,182,0.07);">
+                            <div class="w-2 h-2 rounded-full" style="background:#1DE9B6;"></div>World Purchases
+                        </div>
+                        <div class="tag-pill" style="color:#34d399;border-color:rgba(52,211,153,0.2);background:rgba(52,211,153,0.07);">
+                            <div class="w-2 h-2 rounded-full" style="background:#34d399;"></div>Active Subscriptions
+                        </div>
+                    </div>
+                    <p class="text-sm" style="color:rgba(0,230,118,0.5);font-family:'DM Sans',sans-serif;">
+                        Buyer visits VRChat® &rarr; purchases avatar or world &rarr; receives
+                        <code class="px-2 py-0.5 rounded" style="background:rgba(0,230,118,0.1);color:rgba(29,233,182,0.8);">@Creator Supporter</code> in Discord® instantly.
+                    </p>
+                </div>
+
+                <!-- Visual side (right) -->
+                <div class="flex-1 w-full mobile-mockup-cap reveal reveal-delay-1">
+                    <div class="discord-mockup mouse-parallax section-graphic" data-parallax-speed="0.7">
+
+
+                        <div class="p-6 space-y-1">
+
+                            <!-- Source: VRChat CE header card -->
+                            <div class="rounded-xl p-4 flex items-center gap-4 mb-4" style="background:rgba(0,230,118,0.07);border:1px solid rgba(0,230,118,0.18);">
+                                <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(0,230,118,0.15);box-shadow:0 0 20px rgba(0,230,118,0.2);">
+                                    <img src="Icons/VRC.png" class="w-7 h-7 object-contain" alt="VRChat">
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-black" style="color:#a7f3d0;">VRChat® Creator Economy</div>
+                                    <div class="text-xs" style="color:rgba(0,230,118,0.5);">Avatar & world marketplace</div>
+                                </div>
+                                <div class="flex items-center gap-1.5 flex-shrink-0">
+                                    <span class="w-2 h-2 rounded-full animate-pulse" style="background:#00e676;box-shadow:0 0 6px #00e676;"></span>
+                                    <span class="text-xs font-black" style="color:#00e676;">Connected</span>
+                                </div>
+                            </div>
+
+                            <!-- IF block -->
+                            <div class="bg-black/30 rounded-lg px-3 py-1.5 mb-1">
+                                <div class="text-[10px] uppercase tracking-widest font-black" style="color:#00e676;">If purchase detected</div>
+                            </div>
+                            <div class="rounded-lg p-3 flex items-center gap-3 mb-3" style="background:rgba(0,0,0,0.35);border:1px solid rgba(0,230,118,0.12);">
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(0,230,118,0.12);">
+                                    <img src="Icons/Bag.png" class="w-4 h-4 object-contain" alt="">
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-bold" style="color:#a7f3d0;">Avatar, World, or Subscription</div>
+                                    <div class="text-xs" style="color:rgba(29,233,182,0.5);">Any VRChat® Creator Economy purchase</div>
+                                </div>
+                            </div>
+
+                            <!-- Arrow -->
+                            <div class="flex justify-center py-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgba(0,230,118,0.3);">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+                                </svg>
+                            </div>
+
+                            <!-- VERIFY block -->
+                            <div class="bg-black/30 rounded-lg px-3 py-1.5 mb-1">
+                                <div class="text-[10px] uppercase tracking-widest font-black" style="color:#1DE9B6;">Verify ownership confirmed</div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 mb-3">
+                                <div class="rounded-lg p-3 flex items-center gap-2" style="background:rgba(0,0,0,0.35);border:1px solid rgba(0,230,118,0.12);">
+                                    <img src="Icons/Checkmark.png" class="w-4 h-4 object-contain flex-shrink-0" style="filter:drop-shadow(0 0 4px #00e676);" alt="">
+                                    <div>
+                                        <div class="text-xs font-bold" style="color:#a7f3d0;">Avatar / World</div>
+                                        <div class="text-[10px] font-bold" style="color:#00e676;">Verified ✓</div>
+                                    </div>
+                                </div>
+                                <div class="rounded-lg p-3 flex items-center gap-2" style="background:rgba(0,0,0,0.35);border:1px solid rgba(29,233,182,0.12);">
+                                    <img src="Icons/CreditCard.png" class="w-4 h-4 object-contain flex-shrink-0" style="filter:drop-shadow(0 0 4px #1DE9B6);" alt="">
+                                    <div>
+                                        <div class="text-xs font-bold" style="color:#a7f3d0;">Subscription</div>
+                                        <div class="text-[10px] font-bold" style="color:#1DE9B6;">Active ✓</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Arrow -->
+                            <div class="flex justify-center py-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgba(0,230,118,0.3);">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+                                </svg>
+                            </div>
+
+                            <!-- GRANT block -->
+                            <div class="bg-black/30 rounded-lg px-3 py-1.5 mb-1">
+                                <div class="text-[10px] uppercase tracking-widest font-black" style="color:#00e676;">Grant role instantly</div>
+                            </div>
+                            <div class="rounded-lg p-3 flex items-center gap-3" style="background:rgba(0,0,0,0.35);border:1px solid rgba(88,101,242,0.2);">
+                                <div class="w-5 h-5 rounded-full flex-shrink-0" style="background:linear-gradient(135deg,#00e676,#1DE9B6);box-shadow:0 0 10px rgba(0,230,118,0.4);"></div>
+                                <div class="flex-1 min-w-0">
+                                    <span class="text-sm font-black" style="color:#a7f3d0;">@Creator Supporter</span>
+                                    <span class="text-xs ml-2" style="color:rgba(29,233,182,0.5);">added to member</span>
+                                </div>
+                                <div class="text-xs font-black flex-shrink-0" style="color:#00e676;">⚡ Instant</div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
         <!-- ── Feature: Security & Controls ─────────────────────────────────────── -->
-        <section class="content-above-clouds py-14 lg:py-20 px-4 sm:px-6 relative z-10" id="security" data-blob-index="1">
+        <section class="py-14 lg:py-20 px-4 sm:px-6 relative" id="security" data-blob-index="1">
             <div class="max-w-6xl mx-auto">
                 <div class="text-center mb-12 reveal">
                     <div class="feature-icon-box mx-auto sticker section-graphic"
@@ -2050,7 +2637,7 @@
                     </div>
                     <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight">
                         Built to stay<br>
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#f87171,#fb923c);">locked
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#FFA647,#FF75C3);">locked
                             down.</span>
                     </h2>
                     <p class="text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
@@ -2152,6 +2739,8 @@
             </div>
         </section>
 
+        </div><!-- /#sections-glass -->
+
         <!-- ── Footer ────────────────────────────────────────────────────────────── -->
         <footer class="relative z-20 border-t border-white/10"
             style="background:rgba(0,0,0,0.65);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);">
@@ -2204,7 +2793,7 @@
 
     <script>
     /* ── Mobile Menu: Blur Fade animation (Magic UI inspired) ───────────────── */
-    (function () {
+    (() => {
         var btn = document.getElementById('mobile-menu-btn');
         var menu = document.getElementById('mobile-menu');
         if (!btn || !menu) return;
@@ -2212,28 +2801,28 @@
 
         function closeMenu() {
             menu.classList.remove('mobile-menu-open');
-            setTimeout(function () {
+            setTimeout(() => {
                 menu.style.display = 'none';
             }, ANIM_DURATION);
             btn.setAttribute('aria-expanded', 'false');
         }
 
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', () => {
             var isOpen = menu.classList.contains('mobile-menu-open');
             if (isOpen) {
                 closeMenu();
             } else {
                 menu.style.display = 'flex';
                 btn.setAttribute('aria-expanded', 'true');
-                requestAnimationFrame(function () {
-                    requestAnimationFrame(function () {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
                         menu.classList.add('mobile-menu-open');
                     });
                 });
             }
         });
 
-        menu.querySelectorAll('.mobile-menu-item').forEach(function (link) {
+        menu.querySelectorAll('.mobile-menu-item').forEach((link) => {
             link.addEventListener('click', closeMenu);
         });
     })();
@@ -2241,7 +2830,7 @@
     /* ── Mockup Interactivity ───────────────────────────────────────────── */
 
     // ── Verify Purchase Button ───────────────────────────────────────────────
-    (function () {
+    (() => {
         var btn = document.getElementById('mockup-verify-btn');
         var userMsg = document.getElementById('mockup-user-verify');
         var verifyResp = document.getElementById('mockup-verify-response');
@@ -2249,7 +2838,7 @@
         if (!btn) return;
 
         function resetAnimated() {
-            [userMsg, verifyResp, sysLine].forEach(function (el) {
+            [userMsg, verifyResp, sysLine].forEach((el) => {
                 if (!el) return;
                 el.style.transition = 'none';
                 el.style.opacity = '0';
@@ -2257,31 +2846,31 @@
             });
         }
 
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', () => {
             if (btn.dataset.busy) return;
             btn.dataset.busy = '1';
             var origText = btn.textContent.trim();
             btn.textContent = 'Verifying...';
             btn.style.opacity = '0.65';
             resetAnimated();
-            setTimeout(function () {
+            setTimeout(() => {
                 if (userMsg) {
                     userMsg.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-                    requestAnimationFrame(function () { userMsg.style.opacity = '1'; userMsg.style.transform = 'translateY(0)'; });
+                    requestAnimationFrame(() => { userMsg.style.opacity = '1'; userMsg.style.transform = 'translateY(0)'; });
                 }
-                setTimeout(function () {
+                setTimeout(() => {
                     if (verifyResp) {
                         verifyResp.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
-                        requestAnimationFrame(function () { verifyResp.style.opacity = '1'; verifyResp.style.transform = 'translateY(0)'; });
+                        requestAnimationFrame(() => { verifyResp.style.opacity = '1'; verifyResp.style.transform = 'translateY(0)'; });
                     }
                     btn.textContent = 'Verified!';
                     btn.style.background = '#00e676';
                     btn.style.color = '#000';
                     btn.style.opacity = '1';
-                    setTimeout(function () {
+                    setTimeout(() => {
                         if (sysLine) {
                             sysLine.style.transition = 'opacity 0.3s ease';
-                            requestAnimationFrame(function () { sysLine.style.opacity = '1'; });
+                            requestAnimationFrame(() => { sysLine.style.opacity = '1'; });
                         }
                         var mockup = btn.closest ? btn.closest('.discord-mockup') : null;
                         if (mockup) { var area = mockup.querySelector('.overflow-y-auto'); if (area) area.scrollTop = area.scrollHeight; }
@@ -2289,7 +2878,7 @@
                             var r = btn.getBoundingClientRect();
                             confetti({ particleCount: 55, spread: 45, origin: { x: (r.left + r.width / 2) / window.innerWidth, y: (r.top + r.height / 2) / window.innerHeight }, colors: ['#00e676', '#5865F2', '#fff', '#ffeb3b'], disableForReducedMotion: true, zIndex: 9999 });
                         }
-                        setTimeout(function () {
+                        setTimeout(() => {
                             btn.textContent = origText;
                             btn.style.background = '#5865F2';
                             btn.style.color = '#fff';
@@ -2302,28 +2891,28 @@
     })();
 
     // ── Download Button ───────────────────────────────────────────────────────
-    (function () {
+    (() => {
         var btn = document.getElementById('mockup-download-btn');
         if (!btn) return;
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', () => {
             if (btn.dataset.busy) return;
             btn.dataset.busy = '1';
             var orig = btn.textContent.trim();
             btn.textContent = 'Checking...';
             btn.style.background = '#6b7280';
             btn.style.transition = 'background 0.2s ease';
-            setTimeout(function () {
+            setTimeout(() => {
                 btn.textContent = 'Access Granted!';
                 btn.style.background = '#059669';
                 var card = btn.parentElement;
-                if (card) { card.style.transition = 'box-shadow 0.3s ease'; card.style.boxShadow = '0 0 22px rgba(52,211,153,0.45)'; setTimeout(function () { card.style.boxShadow = ''; }, 700); }
-                setTimeout(function () { btn.textContent = orig; btn.style.background = '#10b981'; delete btn.dataset.busy; }, 1600);
+                if (card) { card.style.transition = 'box-shadow 0.3s ease'; card.style.boxShadow = '0 0 22px rgba(52,211,153,0.45)'; setTimeout(() => { card.style.boxShadow = ''; }, 700); }
+                setTimeout(() => { btn.textContent = orig; btn.style.background = '#10b981'; delete btn.dataset.busy; }, 1600);
             }, 550);
         });
     })();
 
     // ── Security Toggle Switches ──────────────────────────────────────────────
-    window.mockupToggle = function (wrapper) {
+    window.mockupToggle = (wrapper) => {
         var track = wrapper.querySelector('.w-11');
         var thumb = wrapper.querySelector('.w-5.h-5');
         var label = wrapper.querySelector('span');
@@ -2347,16 +2936,16 @@
     };
 
     // ── Bento Badge Pairs ─────────────────────────────────────────────────────
-    window.mockupBadge = function (badge) {
+    window.mockupBadge = (badge) => {
         var group = badge.dataset.badgeGroup;
         if (!group) return;
-        document.querySelectorAll('[data-badge-group="' + group + '"]').forEach(function (b) {
+        document.querySelectorAll(`[data-badge-group="${group}"]`).forEach((b) => {
             b.style.transition = 'all 0.15s ease';
             if (b === badge) {
                 b.style.opacity = '1';
                 b.style.outline = '1.5px solid rgba(255,255,255,0.4)';
                 b.style.transform = 'scale(1.07)';
-                setTimeout(function () { b.style.transform = 'scale(1)'; }, 150);
+                setTimeout(() => { b.style.transform = 'scale(1)'; }, 150);
             } else {
                 b.style.opacity = '0.35';
                 b.style.outline = '';
@@ -2365,28 +2954,96 @@
     };
 
     // ── Sidebar Channel Switching ─────────────────────────────────────────────
-    window.mockupSidebarChannel = function (el) {
+    window.mockupSidebarChannel = (el) => {
         var sidebar = el.parentElement;
         if (!sidebar) return;
-        sidebar.querySelectorAll('.discord-sidebar-channel').forEach(function (ch) { ch.classList.remove('active'); });
+        sidebar.querySelectorAll('.discord-sidebar-channel').forEach((ch) => { ch.classList.remove('active'); });
         el.classList.add('active');
     };
     </script>
 
     <script>
-        const cursorDot = document.querySelector('.cursor-dot');
-        const cursorOutline = document.querySelector('.cursor-dot-outline');
+        /* ── Beautiful Custom Cursor ─────────────────────────────────────────── */
+        (() => {
+            const core = document.querySelector('.cursor-core');
+            const orb = document.querySelector('.cursor-orb');
+            const canvas = document.getElementById('cursor-trail');
+            if (!core || !orb || !canvas) return;
+            if (window.matchMedia('(pointer: coarse)').matches) return;
 
-        window.addEventListener('mousemove', (e) => {
-            cursorDot.style.left = `${e.clientX}px`;
-            cursorDot.style.top = `${e.clientY}px`;
-            cursorOutline.animate({ left: `${e.clientX}px`, top: `${e.clientY}px` }, { duration: 300, fill: "forwards", easing: "ease-out" });
-        });
+            const ctx = canvas.getContext('2d');
+            const TRAIL_COLORS = ['#FF75C3', '#FFA647', '#FFE83F', '#9FFF5B', '#70E2FF'];
+            const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            function resizeCanvas() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas, { passive: true });
+
+            let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+            let orbX = mouseX, orbY = mouseY;
+            let velX = 0, velY = 0;
+            const SPRING = 0.13;
+            const DAMPING = 0.80;
+            const particles = [];
+
+            window.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+                core.style.left = `${mouseX}px`;
+                core.style.top = `${mouseY}px`;
+                if (!reduced && Math.random() < 0.18) {
+                    particles.push({
+                        x: mouseX, y: mouseY,
+                        vx: (Math.random() - 0.5) * 1.4,
+                        vy: (Math.random() - 0.5) * 1.4 - 0.3,
+                        r: Math.random() * 1.5 + 0.8,
+                        alpha: 0.55,
+                        color: TRAIL_COLORS[Math.floor(Math.random() * TRAIL_COLORS.length)],
+                        decay: Math.random() * 0.035 + 0.03,
+                    });
+                }
+            }, { passive: true });
+
+            function tick() {
+                velX += (mouseX - orbX) * SPRING;
+                velY += (mouseY - orbY) * SPRING;
+                velX *= DAMPING;
+                velY *= DAMPING;
+                orbX += velX;
+                orbY += velY;
+                orb.style.left = `${orbX}px`;
+                orb.style.top = `${orbY}px`;
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const p = particles[i];
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.05;
+                    p.alpha -= p.decay;
+                    if (p.alpha <= 0) { particles.splice(i, 1); continue; }
+                    ctx.save();
+                    ctx.globalAlpha = p.alpha;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = p.color;
+                    ctx.fill();
+                    ctx.restore();
+                }
+                requestAnimationFrame(tick);
+            }
+            tick();
+        })();
 
         /* Mobile menu: handled by inline onclick on the button */
 
         /* Mouse parallax: hero gets tilt/rotate; others get translate-only depth; reset when mouse exits zone */
-        (function () {
+        (() => {
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
             const HERO_PARALLAX = 14;
             const HERO_CHIP = 7;
@@ -2484,7 +3141,7 @@
         (function initTextAnimate() {
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
             const hero = document.getElementById('hero');
-            const heroHeadline = hero && hero.querySelector('h1');
+            const heroHeadline = hero?.querySelector('h1');
             if (!heroHeadline) return;
             const run = () => {
                 hero.classList.add('hero-visible');
@@ -2515,6 +3172,15 @@
         }, { threshold: 0.15, rootMargin: "0px 0px -50px 0px" });
         document.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
 
+        // Bento card cursor spotlight
+        document.querySelectorAll('.bento-card').forEach(card => {
+            card.addEventListener('mousemove', e => {
+                const r = card.getBoundingClientRect();
+                card.style.setProperty('--bx', ((e.clientX - r.left) / r.width * 100).toFixed(1) + '%');
+                card.style.setProperty('--by', ((e.clientY - r.top) / r.height * 100).toFixed(1) + '%');
+            });
+        });
+
         document.querySelectorAll('.btn-primary').forEach(btn => {
             btn.addEventListener('mousemove', (e) => {
                 const rect = btn.getBoundingClientRect();
@@ -2527,7 +3193,7 @@
         });
 
         /* Hero button: parallax on text/icon so they hover above the button */
-        (function () {
+        (() => {
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
             const btn = document.querySelector('#hero .btn-primary');
             const content = btn?.querySelector('.btn-hero-content');
@@ -2543,7 +3209,7 @@
             btn.addEventListener('mouseleave', () => { content.style.transform = ''; });
         })();
 
-        function fireConfetti(element) {
+        function _fireConfetti(element) {
             const rect = element.getBoundingClientRect();
             confetti({
                 particleCount: 150, spread: 80,
@@ -2554,23 +3220,23 @@
         }
 
         /* Failsafe: show page if Babel/React bundle is slow or fails */
-        (function () {
+        (() => {
             function revealPage() {
                 const overlay = document.getElementById('page-loading-overlay');
                 const content = document.getElementById('page-content');
                 if (!content || content.style.display !== 'none') return;
                 content.style.display = '';
-                requestAnimationFrame(function () {
+                requestAnimationFrame(() => {
                     if (overlay) overlay.classList.add('is-hiding');
                     content.classList.add('is-visible');
                     window.dispatchEvent(new CustomEvent('page-content-visible'));
                 });
             }
             window._revealFallbackTimer = setTimeout(revealPage, 1500);
-            window.addEventListener('page-content-visible', function () {
+            window.addEventListener('page-content-visible', () => {
                 clearTimeout(window._revealFallbackTimer);
             }, { once: true });
-            window.addEventListener('load', function () {
+            window.addEventListener('load', () => {
                 setTimeout(revealPage, 400);
             });
         })();
@@ -2693,7 +3359,7 @@
             function updateScrollBlur() {
                 if (pageContent && (pageContent.style.display === 'none' || hero.offsetHeight === 0)) {
                     overlay.style.setProperty('--scroll-blur', '0');
-                    overlay.style.setProperty('--scroll-darken', '0');
+                    overlay.style.setProperty('--scroll-darken', String(MAX_DARKEN));
                     return;
                 }
                 const scrollY = window.scrollY || document.documentElement.scrollTop;
@@ -2701,15 +3367,36 @@
                 const end = features.offsetTop - window.innerHeight * 0.15;
                 const t = Math.max(0, Math.min(1, (scrollY - start) / Math.max(1, end - start)));
                 overlay.style.setProperty('--scroll-blur', String(t * MAX_BLUR));
-                overlay.style.setProperty('--scroll-darken', String(t * MAX_DARKEN));
+                // darken is always at MAX — always visible on hero, no pop-in on scroll
+                overlay.style.setProperty('--scroll-darken', String(MAX_DARKEN));
             }
             overlay.style.setProperty('--scroll-blur', '0');
-            overlay.style.setProperty('--scroll-darken', '0');
+            overlay.style.setProperty('--scroll-darken', String(MAX_DARKEN));
             window.addEventListener('scroll', updateScrollBlur, { passive: true });
             window.addEventListener('page-content-visible', updateScrollBlur);
         })();
 
-        // Blob background: section-aware — anchor latches onto graphic, others dance around
+        // Hero fade-out as #sections-glass slides over it
+        (() => {
+            const heroInner = document.querySelector('#hero .hero-inner');
+            const glass = document.getElementById('sections-glass');
+            const pageContent = document.getElementById('page-content');
+            if (!heroInner || !glass) return;
+            heroInner.style.opacity = '1'; // always visible by default
+            function updateHeroFade() {
+                if (pageContent && pageContent.style.display === 'none') return;
+                const glassTop = glass.getBoundingClientRect().top;
+                const vh = window.innerHeight;
+                const fadeStart = vh * 0.8;
+                const fadeEnd   = vh * 0.2;
+                const t = Math.max(0, Math.min(1, (fadeStart - glassTop) / (fadeStart - fadeEnd)));
+                heroInner.style.opacity = String(1 - t);
+            }
+            window.addEventListener('scroll', updateHeroFade, { passive: true });
+            window.addEventListener('page-content-visible', updateHeroFade);
+        })();
+
+        // Blob background: section-aware, anchor latches onto graphic, others dance around
         (function () {
             const blobs = Array.from(document.querySelectorAll('.blob'));
             if (!blobs.length) return;
@@ -2756,12 +3443,24 @@
             let activeSection = null;
             let activeAnchor = { x: 0, y: 0 };
 
+            const heroEl = document.getElementById('hero');
+            const glassEl = document.getElementById('sections-glass');
+
             function updateActiveSection() {
                 const vh = window.innerHeight;
-                const vCenter = window.scrollY + vh / 2;
+                // Hero is sticky — determine if glass has overtaken it via scroll position
+                const heroNaturalHeight = heroEl ? heroEl.offsetHeight : vh;
+                const glassTop = glassEl ? glassEl.getBoundingClientRect().top : vh;
+                const heroActive = glassTop > vh * 0.5;
+
                 let best = null;
                 let bestDist = Infinity;
+                const vCenter = window.scrollY + vh / 2;
                 sections.forEach((section) => {
+                    if (section === heroEl) {
+                        if (heroActive) best = section;
+                        return;
+                    }
                     const rect = section.getBoundingClientRect();
                     const sTop = rect.top + window.scrollY;
                     const sCenter = sTop + rect.height / 2;
@@ -2868,6 +3567,67 @@
                 content.classList.add('is-visible');
                 window.dispatchEvent(new CustomEvent('page-content-visible'));
             });
+        })();
+
+        /* ── GSAP: directional reveals, watermarks, 3D bento ─────────────── */
+        (function initScrollFX() {
+            if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') return;
+            gsap.registerPlugin(ScrollTrigger);
+
+            /* 1 ── Assign left/right directional reveal classes (skip philosophy & security) */
+            document.querySelectorAll('#sections-glass section[data-blob-index]:not(#features):not(#security)').forEach(function(section) {
+                var inner = section.querySelector('.max-w-7xl, .max-w-6xl');
+                if (!inner) return;
+                var cols = Array.from(inner.children);
+                if (cols.length < 2) return;
+                var isRev = inner.classList.contains('lg:flex-row-reverse');
+                var c0 = cols[0], c1 = cols[1];
+                if (c0.classList.contains('reveal')) c0.classList.add(isRev ? 'reveal-r' : 'reveal-l');
+                if (c1.classList.contains('reveal')) c1.classList.add(isRev ? 'reveal-l' : 'reveal-r');
+            });
+
+if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+            /* 3 ── Bento card 3D perspective entrance */
+            document.querySelectorAll('#sections-glass .bento-card').forEach(function(card) {
+                gsap.fromTo(card,
+                    { rotateX: 20, y: 36, transformPerspective: 1100, transformOrigin: 'center 120%' },
+                    {
+                        rotateX: 0, y: 0,
+                        duration: 0.82, ease: 'power3.out',
+                        clearProps: 'all',
+                        scrollTrigger: { trigger: card, start: 'top 82%', once: true }
+                    }
+                );
+            });
+
+            /* 4 ── Feature section h2: upward wipe reveal (skip philosophy section) */
+            document.querySelectorAll('#sections-glass section[data-blob-index]:not(#features) h2').forEach(function(h2) {
+                gsap.fromTo(h2,
+                    { clipPath: 'inset(0 0 108% 0)', y: 28 },
+                    {
+                        clipPath: 'inset(0 0 0% 0)', y: 0,
+                        duration: 0.88, ease: 'power3.out',
+                        clearProps: 'clipPath,y',
+                        scrollTrigger: { trigger: h2, start: 'top 87%', once: true }
+                    }
+                );
+            });
+
+            /* 5 ── Tag pills staggered entrance */
+            document.querySelectorAll('#sections-glass section[data-blob-index] .tag-pill').forEach(function(pill, i) {
+                gsap.fromTo(pill,
+                    { y: 14, opacity: 0 },
+                    {
+                        y: 0, opacity: 1,
+                        duration: 0.50, ease: 'power2.out',
+                        scrollTrigger: { trigger: pill, start: 'top 90%', once: true },
+                        delay: (i % 4) * 0.08
+                    }
+                );
+            });
+
+
         })();
 
         /* Text Reveal: word stagger when Philosophy section enters view */

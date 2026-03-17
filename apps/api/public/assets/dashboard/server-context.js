@@ -14,6 +14,8 @@ import { escHtml } from './utils.js';
 let userServers = null;
 let filteredServers = null;
 let _setDropdownOpen = null;
+let _refreshData = null;
+let userServersLoadVersion = 0;
 
 export function getServerIconUrl(server) {
   if (server.iconUrl) return server.iconUrl;
@@ -44,13 +46,13 @@ export async function switchDashboardContext(newGuildId, deps) {
   } else {
     urlParams.delete('guild_id');
   }
-  if (!urlParams.has('tenant_id') && getTenantId()) {
-    urlParams.set('tenant_id', getTenantId());
-  }
+  // Always clear tenant_id when switching guilds; it will be re-resolved for the new guild.
+  urlParams.delete('tenant_id');
   const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
   window.history.pushState({ guildId: newGuildId }, '', newUrl);
 
   setGuildId(newGuildId);
+  setTenantId('');
   applyContextState();
 
   if (newGuildId && userServers) {
@@ -62,10 +64,19 @@ export async function switchDashboardContext(newGuildId, deps) {
       if (nameEl) nameEl.textContent = currentServer.name || 'Unnamed';
       if (iconEl) {
         if (sIconUrl) {
-          iconEl.innerHTML = `<img src="${sIconUrl}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+          const img = document.createElement('img');
+          img.setAttribute('src', sIconUrl);
+          img.setAttribute('alt', '');
+          img.style.cssText = 'width:100%;height:100%;border-radius:50%;object-fit:cover;';
+          iconEl.innerHTML = '';
+          iconEl.appendChild(img);
         } else {
           const initials = (currentServer.name || '?').split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase() || '?';
-          iconEl.innerHTML = `<div class="fallback-icon">${initials}</div>`;
+          const div = document.createElement('div');
+          div.className = 'fallback-icon';
+          div.textContent = initials;
+          iconEl.innerHTML = '';
+          iconEl.appendChild(div);
         }
       }
     }
@@ -77,7 +88,12 @@ export async function switchDashboardContext(newGuildId, deps) {
   }
 
   if (deps?.renderServerList && filteredServers) deps.renderServerList(filteredServers);
-  if (deps?.updatePlatformCards) deps.updatePlatformCards();
+  const refresh = deps?.refreshData ?? _refreshData;
+  if (refresh) {
+    await refresh();
+  } else if (deps?.updatePlatformCards) {
+    deps.updatePlatformCards();
+  }
 }
 
 function renderServerList(servers) {
@@ -110,7 +126,7 @@ function renderServerList(servers) {
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       _setDropdownOpen?.(false);
-      switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards });
+      switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards, refreshData: _refreshData });
     });
 
     frag.appendChild(item);
@@ -135,15 +151,15 @@ function renderParticipatingServers(servers) {
 
   if (!servers || servers.length === 0) {
     container.innerHTML = `
-      <div class="bento-col-12 empty-state" style="margin: 0; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05);">
+      <div class="bento-col-12 empty-state platform-card flex items-center justify-center text-center" style="margin: 0;">
         <div class="intg-icon" style="margin: 0 auto 16px; width: 40px; height: 40px; background: rgba(14,165,233,0.1); color: #0ea5e9;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
         </div>
-        <p class="text-sm font-bold text-white mb-2" style="font-family:'Plus Jakarta Sans',sans-serif; font-size: 16px;">No participating servers</p>
-        <p class="text-white/50 max-w-sm mx-auto mb-6" style="font-family:'DM Sans',sans-serif; font-size: 13px; line-height:1.5;">You aren't managing any servers yet. Install the Assistant to your server to connect your storefront data.</p>
-        <button class="btn-primary" onclick="window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands','_blank')" style="margin: 0 auto; background: #0ea5e9; color: #fff; border: none; padding: 10px 20px; font-weight: 700; border-radius: 8px;">
+        <p class="participating-server-name font-bold mb-2" style="font-family:'Plus Jakarta Sans',sans-serif; font-size: 16px;">No participating servers</p>
+        <p class="participating-server-hint max-w-sm mx-auto mb-6" style="font-family:'DM Sans',sans-serif; font-size: 13px; line-height:1.5;">You aren't managing any servers yet. Install the Assistant to your server to connect your storefront data.</p>
+        <button class="btn-primary" data-action="invite-bot" style="margin: 0 auto; background: #0ea5e9; color: #fff; border: none; padding: 10px 20px; font-weight: 700; border-radius: 8px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -151,6 +167,12 @@ function renderParticipatingServers(servers) {
         </button>
       </div>
     `;
+    const inviteBtn = container.querySelector('[data-action="invite-bot"]');
+    if (inviteBtn) {
+      inviteBtn.addEventListener('click', () => {
+        window.open('https://discord.com/api/oauth2/authorize?client_id=1460374394663735582&permissions=327222946816&scope=bot%20applications.commands', '_blank');
+      });
+    }
     return;
   }
 
@@ -177,7 +199,7 @@ function renderParticipatingServers(servers) {
       </div>
     `;
 
-    card.addEventListener('click', () => switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards }));
+    card.addEventListener('click', () => switchDashboardContext(sId, { renderServerList, updatePlatformCards: window.__updatePlatformCards, refreshData: _refreshData }));
 
     container.appendChild(card);
   });
@@ -187,6 +209,7 @@ async function loadUserServers(updatePlatformCards, options = {}) {
   const listEl = document.getElementById('server-dropdown-list');
   if (!listEl) return;
   listEl.innerHTML = '<div class="server-dropdown-loading">Loading servers...</div>';
+  const loadVersion = ++userServersLoadVersion;
 
   const tenantId = getTenantId();
   const cacheKey = `ca_servers_${tenantId || 'global'}_V1`;
@@ -194,8 +217,9 @@ async function loadUserServers(updatePlatformCards, options = {}) {
   const cached = force ? null : sessionStorage.getItem(cacheKey);
 
   try {
+    let nextUserServers;
     if (cached) {
-      userServers = JSON.parse(cached);
+      nextUserServers = JSON.parse(cached);
     } else {
       const res = await apiFetch(`${getApiBase()}/api/connect/user/guilds`);
       if (!res.ok) {
@@ -203,10 +227,15 @@ async function loadUserServers(updatePlatformCards, options = {}) {
       }
 
       const data = await res.json();
-      userServers = data.guilds || data.servers || [];
-      sessionStorage.setItem(cacheKey, JSON.stringify(userServers));
+      nextUserServers = data.guilds || data.servers || [];
+      sessionStorage.setItem(cacheKey, JSON.stringify(nextUserServers));
     }
 
+    if (loadVersion !== userServersLoadVersion) {
+      return;
+    }
+
+    userServers = nextUserServers;
     filteredServers = [...userServers];
     renderServerList(filteredServers);
     renderParticipatingServers(filteredServers);
@@ -221,15 +250,27 @@ async function loadUserServers(updatePlatformCards, options = {}) {
         const sIconUrl = getServerIconUrl(currentServer);
         if (iconEl) {
           if (sIconUrl) {
-            iconEl.innerHTML = `<img src="${sIconUrl}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+            const img = document.createElement('img');
+            img.setAttribute('src', sIconUrl);
+            img.setAttribute('alt', '');
+            img.style.cssText = 'width:100%;height:100%;border-radius:50%;object-fit:cover;';
+            iconEl.innerHTML = '';
+            iconEl.appendChild(img);
           } else {
             const initials = (currentServer.name || '?').split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase() || '?';
-            iconEl.innerHTML = `<div class="fallback-icon">${initials}</div>`;
+            const div = document.createElement('div');
+            div.className = 'fallback-icon';
+            div.textContent = initials;
+            iconEl.innerHTML = '';
+            iconEl.appendChild(div);
           }
         }
       }
     }
   } catch (err) {
+    if (loadVersion !== userServersLoadVersion) {
+      return;
+    }
     console.warn('Server fetch failed', err);
     userServers = [];
     listEl.innerHTML = '<div class="server-dropdown-empty">Failed to load servers.</div>';
@@ -253,6 +294,7 @@ export async function refreshUserServers(updatePlatformCards) {
 
 export function initServerContext(deps) {
   window.__updatePlatformCards = deps?.updatePlatformCards;
+  _refreshData = deps?.refreshData ?? null;
 
   applyContextState();
 

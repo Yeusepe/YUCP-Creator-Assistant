@@ -5,21 +5,21 @@
 import { describe, expect, it } from 'bun:test';
 import {
   CURRENT_POLICY_VERSION,
-  PERMISSIVE_POLICY,
-  STRICT_DEFAULT_POLICY,
   isStrictDefault,
   mergeWithDefaults,
+  PERMISSIVE_POLICY,
+  STRICT_DEFAULT_POLICY,
   validatePolicyConfig,
 } from '../defaults';
 import {
-  type PolicyConfig,
-  type PolicyContext,
   evaluateBindingPolicy,
   evaluatePolicy,
   evaluateTransferPolicy,
   getPolicySummary,
   getRevocationTiming,
   isDiscordRoleSyncNeeded,
+  type PolicyConfig,
+  type PolicyContext,
   shouldAutoDiscoverProducts,
   shouldAutoVerify,
   shouldUseCatalogBackedVerification,
@@ -28,7 +28,7 @@ import {
 // Helper to create a valid context that should pass all checks
 function createMockContext(overrides: Partial<PolicyContext> = {}): PolicyContext {
   return {
-    tenantId: 'tenant-123',
+    authUserId: 'user_test123',
     subjectId: 'user-456',
     productId: 'product-789',
     currentBindingCount: 0,

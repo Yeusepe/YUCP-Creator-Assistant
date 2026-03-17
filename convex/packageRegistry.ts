@@ -1,5 +1,5 @@
 /**
- * YUCP Package Name Registry — Layer 1 defense.
+ * YUCP Package Name Registry, Layer 1 defense.
  *
  * Enforces namespace ownership: the first verified publisher to sign a
  * packageId owns that name permanently. Subsequent signers with a different
@@ -7,7 +7,7 @@
  * package by creating a new account.
  *
  * Identity is anchored to the Better Auth user ID (yucpUserId), not to any
- * specific storefront account — so creators with multiple stores all bind to
+ * specific storefront account, so creators with multiple stores all bind to
  * the same stable identity.
  *
  * References:
@@ -15,8 +15,11 @@
  *   Sigstore policy engine         https://docs.sigstore.dev/policy-controller/overview/
  */
 
-import { v } from 'convex/values';
-import { internalMutation, internalQuery } from './_generated/server';
+import { ConvexError, v } from 'convex/values';
+import { internalMutation, internalQuery, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
+
+const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Queries
@@ -58,6 +61,11 @@ export const registerPackage = internalMutation({
     yucpUserId: v.string(),
   },
   handler: async (ctx, args): Promise<RegistrationResult> => {
+    // c74: Validate packageId format — only safe characters, bounded length.
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
+    }
+
     const existing = await ctx.db
       .query('package_registry')
       .withIndex('by_package_id', (q) => q.eq('packageId', args.packageId))
@@ -65,10 +73,10 @@ export const registerPackage = internalMutation({
 
     if (existing) {
       if (existing.yucpUserId !== args.yucpUserId) {
-        // Different creator claims this namespace — ownership conflict
+        // Different creator claims this namespace, ownership conflict
         return { registered: false, conflict: true, ownedBy: existing.yucpUserId };
       }
-      // Same owner, potentially different publisherId (key rotation) — update
+      // Same owner, potentially different publisherId (key rotation), update
       await ctx.db.patch(existing._id, {
         publisherId: args.publisherId,
         updatedAt: Date.now(),
@@ -114,5 +122,69 @@ export const transferPackage = internalMutation({
       updatedAt: Date.now(),
     });
     return { transferred: true };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Product Catalog Queries (public API)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * List product_catalog entries for a creator with optional provider/status filters and pagination.
+ */
+export const listByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.optional(v.string()),
+    status: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.provider) {
+      all = all.filter((p) => p.provider === args.provider);
+    }
+    if (args.status) {
+      all = all.filter((p) => p.status === args.status);
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+/**
+ * Get a single product_catalog entry by ID, scoped to authUserId.
+ */
+export const getByIdForAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.catalogProductId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
   },
 });

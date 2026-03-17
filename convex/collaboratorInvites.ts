@@ -5,15 +5,9 @@
  * their Jinxxy API key so license verification works across both stores.
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { internalQuery, mutation, query } from './_generated/server';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 /**
  * Create a collaborator invite.
@@ -22,24 +16,37 @@ function requireApiSecret(apiSecret: string | undefined): void {
 export const createCollaboratorInvite = mutation({
   args: {
     apiSecret: v.string(),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
     ownerDisplayName: v.string(),
     ownerGuildId: v.optional(v.string()),
     tokenHash: v.string(),
     expiresAt: v.number(),
+    /** Commerce provider for this invite (e.g. 'jinxxy', 'lemonsqueezy'). Defaults to 'jinxxy'. */
+    providerKey: v.optional(v.string()),
   },
   returns: v.id('collaborator_invites'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    return await ctx.db.insert('collaborator_invites', {
-      ownerTenantId: args.ownerTenantId,
+    const MAX_EXPIRES_AT = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    const expiresAt = Math.min(args.expiresAt, MAX_EXPIRES_AT);
+    const inviteId = await ctx.db.insert('collaborator_invites', {
+      ownerAuthUserId: args.ownerAuthUserId,
       tokenHash: args.tokenHash,
       status: 'pending',
       ownerDisplayName: args.ownerDisplayName,
       ownerGuildId: args.ownerGuildId,
-      expiresAt: args.expiresAt,
+      expiresAt,
+      createdAt: Date.now(),
+      providerKey: args.providerKey,
+    });
+    await ctx.db.insert('audit_events', {
+      authUserId: args.ownerAuthUserId,
+      eventType: 'collaborator.invite.created',
+      actorType: 'system',
+      metadata: { inviteId, ownerDisplayName: args.ownerDisplayName },
       createdAt: Date.now(),
     });
+    return inviteId;
   },
 });
 
@@ -54,13 +61,13 @@ export const getCollaboratorInviteByTokenHash = query({
   returns: v.union(
     v.object({
       _id: v.id('collaborator_invites'),
-      ownerTenantId: v.id('tenants'),
-      tokenHash: v.string(),
+      ownerAuthUserId: v.string(),
       status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('revoked')),
       ownerDisplayName: v.string(),
       ownerGuildId: v.optional(v.string()),
       expiresAt: v.number(),
       createdAt: v.number(),
+      providerKey: v.optional(v.string()),
     }),
     v.null()
   ),
@@ -73,13 +80,13 @@ export const getCollaboratorInviteByTokenHash = query({
     if (!invite) return null;
     return {
       _id: invite._id,
-      ownerTenantId: invite.ownerTenantId,
-      tokenHash: invite.tokenHash,
+      ownerAuthUserId: invite.ownerAuthUserId,
       status: invite.status,
       ownerDisplayName: invite.ownerDisplayName,
       ownerGuildId: invite.ownerGuildId,
       expiresAt: invite.expiresAt,
       createdAt: invite.createdAt,
+      providerKey: invite.providerKey,
     };
   },
 });
@@ -95,13 +102,14 @@ export const getCollaboratorInviteById = query({
   returns: v.union(
     v.object({
       _id: v.id('collaborator_invites'),
-      ownerTenantId: v.id('tenants'),
+      ownerAuthUserId: v.string(),
       tokenHash: v.string(),
       status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('revoked')),
       ownerDisplayName: v.string(),
       ownerGuildId: v.optional(v.string()),
       expiresAt: v.number(),
       createdAt: v.number(),
+      providerKey: v.optional(v.string()),
     }),
     v.null()
   ),
@@ -111,13 +119,14 @@ export const getCollaboratorInviteById = query({
     if (!invite) return null;
     return {
       _id: invite._id,
-      ownerTenantId: invite.ownerTenantId,
+      ownerAuthUserId: invite.ownerAuthUserId,
       tokenHash: invite.tokenHash,
       status: invite.status,
       ownerDisplayName: invite.ownerDisplayName,
       ownerGuildId: invite.ownerGuildId,
       expiresAt: invite.expiresAt,
       createdAt: invite.createdAt,
+      providerKey: invite.providerKey,
     };
   },
 });
@@ -163,14 +172,19 @@ export const acceptCollaboratorInvite = mutation({
   args: {
     apiSecret: v.string(),
     inviteId: v.id('collaborator_invites'),
-    jinxxyApiKeyEncrypted: v.string(),
+    /** Generic encrypted credential — replaces jinxxyApiKeyEncrypted for new records */
+    credentialEncrypted: v.string(),
     webhookSecretRef: v.optional(v.string()),
     webhookEndpoint: v.optional(v.string()),
     linkType: v.union(v.literal('account'), v.literal('api')),
+    /** Commerce provider (e.g. 'jinxxy', 'lemonsqueezy'). Defaults to 'jinxxy' for legacy. */
+    provider: v.optional(v.string()),
     /** Discord user ID from server-side OAuth - never from client body */
     collaboratorDiscordUserId: v.string(),
     /** Discord username from server-side OAuth */
     collaboratorDisplayName: v.string(),
+    /** Discord avatar hash — validated server-side during OAuth (/^(a_)?[0-9a-f]{32}$/) */
+    collaboratorAvatarHash: v.optional(v.string()),
   },
   returns: v.id('collaborator_connections'),
   handler: async (ctx, args) => {
@@ -178,6 +192,9 @@ export const acceptCollaboratorInvite = mutation({
 
     const invite = await ctx.db.get(args.inviteId);
     if (!invite) throw new Error('Invite not found');
+    if (invite.usedAt !== undefined) {
+      throw new ConvexError('This invite has already been used');
+    }
     if (invite.status !== 'pending') throw new Error('Invite is no longer pending');
     if (Date.now() > invite.expiresAt) throw new Error('Invite has expired');
 
@@ -189,12 +206,13 @@ export const acceptCollaboratorInvite = mutation({
     });
 
     const webhookConfigured = !!(args.webhookSecretRef && args.webhookEndpoint);
+    const provider = args.provider ?? invite.providerKey ?? 'jinxxy';
 
-    return await ctx.db.insert('collaborator_connections', {
-      ownerTenantId: invite.ownerTenantId,
+    const connectionId = await ctx.db.insert('collaborator_connections', {
+      ownerAuthUserId: invite.ownerAuthUserId,
       inviteId: args.inviteId,
-      provider: 'jinxxy',
-      jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
+      provider,
+      credentialEncrypted: args.credentialEncrypted,
       webhookSecretRef: args.webhookSecretRef,
       webhookEndpoint: args.webhookEndpoint,
       webhookConfigured,
@@ -203,21 +221,38 @@ export const acceptCollaboratorInvite = mutation({
       source: 'invite',
       collaboratorDiscordUserId: args.collaboratorDiscordUserId,
       collaboratorDisplayName: args.collaboratorDisplayName,
+      collaboratorAvatarHash: args.collaboratorAvatarHash,
       createdAt: Date.now(),
     });
+    await ctx.db.patch(args.inviteId, { usedAt: Date.now() });
+    await ctx.db.insert('audit_events', {
+      authUserId: invite.ownerAuthUserId,
+      eventType: 'collaborator.invite.accepted',
+      actorType: 'system',
+      metadata: {
+        inviteId: args.inviteId,
+        connectionId,
+        collaboratorDiscordUserId: args.collaboratorDiscordUserId,
+      },
+      createdAt: Date.now(),
+    });
+    return connectionId;
   },
 });
 
 /**
  * Manually add a collaborator connection (no invite).
  * Used when a creator shares their API key directly (e.g. via DM).
- * Identity comes from Jinxxy API since collaborator may not be in Discord server.
+ * Identity comes from provider API since collaborator may not be in Discord server.
  */
 export const addCollaboratorConnectionManual = mutation({
   args: {
     apiSecret: v.string(),
-    ownerTenantId: v.id('tenants'),
-    jinxxyApiKeyEncrypted: v.string(),
+    ownerAuthUserId: v.string(),
+    /** Generic encrypted credential (provider API key) */
+    credentialEncrypted: v.string(),
+    /** Commerce provider (e.g. 'jinxxy', 'lemonsqueezy') */
+    provider: v.optional(v.string()),
     collaboratorDisplayName: v.string(),
     collaboratorIdentity: v.string(),
     addedByDiscordUserId: v.string(),
@@ -225,10 +260,17 @@ export const addCollaboratorConnectionManual = mutation({
   returns: v.id('collaborator_connections'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    return await ctx.db.insert('collaborator_connections', {
-      ownerTenantId: args.ownerTenantId,
-      provider: 'jinxxy',
-      jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
+    const owner = await ctx.db
+      .query('creator_profiles')
+      .filter((q) => q.eq(q.field('authUserId'), args.ownerAuthUserId))
+      .first();
+    if (!owner) {
+      throw new ConvexError('Invalid ownerAuthUserId: creator not found');
+    }
+    const connectionId = await ctx.db.insert('collaborator_connections', {
+      ownerAuthUserId: args.ownerAuthUserId,
+      provider: args.provider ?? 'jinxxy',
+      credentialEncrypted: args.credentialEncrypted,
       webhookConfigured: false,
       linkType: 'api',
       status: 'active',
@@ -238,6 +280,18 @@ export const addCollaboratorConnectionManual = mutation({
       addedByDiscordUserId: args.addedByDiscordUserId,
       createdAt: Date.now(),
     });
+    await ctx.db.insert('audit_events', {
+      authUserId: args.ownerAuthUserId,
+      eventType: 'collaborator.connection.added',
+      actorType: 'system',
+      metadata: {
+        connectionId,
+        collaboratorIdentity: args.collaboratorIdentity,
+        addedByDiscordUserId: args.addedByDiscordUserId,
+      },
+      createdAt: Date.now(),
+    });
+    return connectionId;
   },
 });
 
@@ -248,15 +302,22 @@ export const revokeCollaboratorInvite = mutation({
   args: {
     apiSecret: v.string(),
     inviteId: v.id('collaborator_invites'),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const invite = await ctx.db.get(args.inviteId);
-    if (!invite || invite.ownerTenantId !== args.ownerTenantId) {
+    if (!invite || invite.ownerAuthUserId !== args.ownerAuthUserId) {
       throw new Error('Invite not found or access denied');
     }
     await ctx.db.patch(args.inviteId, { status: 'revoked' });
+    await ctx.db.insert('audit_events', {
+      authUserId: args.ownerAuthUserId,
+      eventType: 'collaborator.invite.revoked',
+      actorType: 'system',
+      metadata: { inviteId: args.inviteId },
+      createdAt: Date.now(),
+    });
   },
 });
 
@@ -266,13 +327,13 @@ export const revokeCollaboratorInvite = mutation({
 export const listCollaboratorConnections = query({
   args: {
     apiSecret: v.string(),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const connections = await ctx.db
       .query('collaborator_connections')
-      .withIndex('by_owner', (q) => q.eq('ownerTenantId', args.ownerTenantId))
+      .withIndex('by_owner', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId))
       .collect();
 
     return connections.map((c) => ({
@@ -285,8 +346,90 @@ export const listCollaboratorConnections = query({
       webhookConfigured: c.webhookConfigured,
       collaboratorDiscordUserId: c.collaboratorDiscordUserId,
       collaboratorDisplayName: c.collaboratorDisplayName,
+      collaboratorAvatarHash: c.collaboratorAvatarHash,
       createdAt: c.createdAt,
     }));
+  },
+});
+
+/**
+ * List pending (not yet accepted) invites for a tenant (owner view).
+ */
+export const listPendingInvitesByOwner = query({
+  args: {
+    apiSecret: v.string(),
+    ownerAuthUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const invites = await ctx.db
+      .query('collaborator_invites')
+      .withIndex('by_owner_status', (q) =>
+        q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('status', 'pending')
+      )
+      .collect();
+
+    const now = Date.now();
+    return invites
+      .filter((i) => i.expiresAt > now)
+      .map((i) => ({
+        id: i._id,
+        providerKey: i.providerKey ?? 'jinxxy',
+        ownerDisplayName: i.ownerDisplayName,
+        expiresAt: i.expiresAt,
+        createdAt: i.createdAt,
+      }));
+  },
+});
+
+/**
+ * List active connections where the caller is the collaborator (not the owner).
+ * Resolves the caller's Discord ID via their creator_profile, then queries
+ * collaborator_connections by that Discord ID.
+ */
+export const listConnectionsAsCollaborator = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    // Resolve the caller's Discord ID from their creator profile
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+
+    if (!profile?.ownerDiscordUserId) return [];
+
+    const connections = await ctx.db
+      .query('collaborator_connections')
+      .withIndex('by_collaborator_discord', (q) =>
+        q.eq('collaboratorDiscordUserId', profile.ownerDiscordUserId)
+      )
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    // Enrich with owner display name from their profile
+    const enriched = await Promise.all(
+      connections.map(async (c) => {
+        const ownerProfile = await ctx.db
+          .query('creator_profiles')
+          .withIndex('by_auth_user', (q) => q.eq('authUserId', c.ownerAuthUserId))
+          .first();
+        return {
+          id: c._id,
+          provider: c.provider,
+          linkType: c.linkType,
+          ownerAuthUserId: c.ownerAuthUserId,
+          ownerDisplayName: ownerProfile?.name ?? null,
+          createdAt: c.createdAt,
+        };
+      })
+    );
+
+    return enriched;
   },
 });
 
@@ -297,15 +440,22 @@ export const removeCollaboratorConnection = mutation({
   args: {
     apiSecret: v.string(),
     connectionId: v.id('collaborator_connections'),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const conn = await ctx.db.get(args.connectionId);
-    if (!conn || conn.ownerTenantId !== args.ownerTenantId) {
+    if (!conn || conn.ownerAuthUserId !== args.ownerAuthUserId) {
       throw new Error('Connection not found or access denied');
     }
     await ctx.db.patch(args.connectionId, { status: 'disconnected' });
+    await ctx.db.insert('audit_events', {
+      authUserId: args.ownerAuthUserId,
+      eventType: 'collaborator.connection.removed',
+      actorType: 'system',
+      metadata: { connectionId: args.connectionId },
+      createdAt: Date.now(),
+    });
   },
 });
 
@@ -316,12 +466,15 @@ export const removeCollaboratorConnection = mutation({
 export const getCollabConnectionsForVerification = query({
   args: {
     apiSecret: v.string(),
-    ownerTenantId: v.id('tenants'),
+    ownerAuthUserId: v.string(),
   },
   returns: v.array(
     v.object({
       id: v.id('collaborator_connections'),
-      jinxxyApiKeyEncrypted: v.optional(v.string()),
+      provider: v.string(),
+      collaboratorDisplayName: v.string(),
+      /** Generic encrypted credential (API key) */
+      credentialEncrypted: v.optional(v.string()),
     })
   ),
   handler: async (ctx, args) => {
@@ -329,15 +482,17 @@ export const getCollabConnectionsForVerification = query({
     const connections = await ctx.db
       .query('collaborator_connections')
       .withIndex('by_owner_status', (q) =>
-        q.eq('ownerTenantId', args.ownerTenantId).eq('status', 'active')
+        q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('status', 'active')
       )
       .collect();
 
     return connections
-      .filter((c) => c.jinxxyApiKeyEncrypted)
+      .filter((c) => c.credentialEncrypted)
       .map((c) => ({
         id: c._id,
-        jinxxyApiKeyEncrypted: c.jinxxyApiKeyEncrypted,
+        provider: c.provider,
+        collaboratorDisplayName: c.collaboratorDisplayName,
+        credentialEncrypted: c.credentialEncrypted,
       }));
   },
 });
@@ -369,7 +524,7 @@ export const getCollabWebhookSecret = query({
  */
 export const getActiveByCollaboratorDiscord = internalQuery({
   args: { collaboratorDiscordUserId: v.string() },
-  returns: v.array(v.object({ ownerTenantId: v.id('tenants') })),
+  returns: v.array(v.object({ ownerAuthUserId: v.string() })),
   handler: async (ctx, args) => {
     const connections = await ctx.db
       .query('collaborator_connections')
@@ -378,6 +533,87 @@ export const getActiveByCollaboratorDiscord = internalQuery({
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
-    return connections.map((c) => ({ ownerTenantId: c.ownerTenantId }));
+    return connections.map((c) => ({ ownerAuthUserId: c.ownerAuthUserId }));
+  },
+});
+
+
+/**
+ * List collaborator_connections for a creator (owner) with optional provider/status filters.
+ * Credential fields are never returned.
+ */
+export const listConnectionsByOwner = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.optional(v.string()),
+    status: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('collaborator_connections')
+      .withIndex('by_owner', (q) => q.eq('ownerAuthUserId', args.authUserId))
+      .collect();
+
+    if (args.provider) {
+      all = all.filter((c) => c.provider === args.provider);
+    }
+    if (args.status) {
+      all = all.filter((c) => c.status === args.status);
+    }
+
+    return all.map((c) => ({
+      _id: c._id,
+      _creationTime: c._creationTime,
+      ownerAuthUserId: c.ownerAuthUserId,
+      provider: c.provider,
+      linkType: c.linkType,
+      status: c.status,
+      collaboratorDiscordUserId: c.collaboratorDiscordUserId,
+      collaboratorDisplayName: c.collaboratorDisplayName,
+      collaboratorAvatarHash: c.collaboratorAvatarHash,
+      source: c.source,
+      inviteId: c.inviteId,
+      addedByDiscordUserId: c.addedByDiscordUserId,
+      webhookConfigured: c.webhookConfigured,
+      webhookEndpoint: c.webhookEndpoint,
+      createdAt: c.createdAt,
+    }));
+  },
+});
+
+/**
+ * Get a single collaborator_connection by ID, scoped to ownerAuthUserId.
+ * Credential fields are never returned.
+ */
+export const getConnectionById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    connectionId: v.id('collaborator_connections'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.connectionId);
+    if (!doc || doc.ownerAuthUserId !== args.authUserId) return null;
+    return {
+      _id: doc._id,
+      _creationTime: doc._creationTime,
+      ownerAuthUserId: doc.ownerAuthUserId,
+      provider: doc.provider,
+      linkType: doc.linkType,
+      status: doc.status,
+      collaboratorDiscordUserId: doc.collaboratorDiscordUserId,
+      collaboratorDisplayName: doc.collaboratorDisplayName,
+      collaboratorAvatarHash: doc.collaboratorAvatarHash,
+      source: doc.source,
+      inviteId: doc.inviteId,
+      addedByDiscordUserId: doc.addedByDiscordUserId,
+      webhookConfigured: doc.webhookConfigured,
+      webhookEndpoint: doc.webhookEndpoint,
+      createdAt: doc.createdAt,
+    };
   },
 });

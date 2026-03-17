@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { cwd } from 'node:process';
 import { type BotE2ESecrets, requireBotE2ESecrets } from '@yucp/shared/test/loadBotE2ESecrets';
 import { ConvexHttpClient } from 'convex/browser';
-import { type Browser, type BrowserContext, type Page, chromium } from 'playwright';
+import { type Browser, type BrowserContext, chromium, type Page } from 'playwright';
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const ARTIFACT_DIR = join(cwd(), 'apps', 'bot', 'test', 'e2e', '.artifacts');
@@ -463,32 +463,30 @@ export class DiscordBotE2EHarness {
     subject: { _id: string } | null;
   }> {
     return await this.convexQuery('subjects:getSubjectByDiscordId', {
+      apiSecret: this.secrets.convexApiSecret,
       discordUserId,
     });
   }
 
   async getTenant(): Promise<TenantRecord | null> {
-    return await this.convexQuery<TenantRecord | null>('tenants:getTenant', {
+    return await this.convexQuery<TenantRecord | null>('creatorProfiles:getCreatorProfile', {
       apiSecret: this.secrets.convexApiSecret,
-      tenantId: this.secrets.tenantId,
+      authUserId: this.secrets.authUserId,
     });
   }
 
   async updateTenantPolicy(policy: Record<string, unknown>): Promise<void> {
-    await this.convexMutation('tenants:updateTenantPolicy', {
+    await this.convexMutation('creatorProfiles:updateCreatorPolicy', {
       apiSecret: this.secrets.convexApiSecret,
-      tenantId: this.secrets.tenantId,
+      authUserId: this.secrets.authUserId,
       policy,
     });
   }
 
-  async createRoleRule(params: {
-    productId: string;
-    verifiedRoleId: string;
-  }): Promise<string> {
+  async createRoleRule(params: { productId: string; verifiedRoleId: string }): Promise<string> {
     const result = await this.convexMutation<{ ruleId: string }>('role_rules:createRoleRule', {
       apiSecret: this.secrets.convexApiSecret,
-      tenantId: this.secrets.tenantId,
+      authUserId: this.secrets.authUserId,
       guildId: this.secrets.targetGuildId,
       guildLinkId: this.secrets.guildLinkId,
       productId: params.productId,
@@ -519,7 +517,7 @@ export class DiscordBotE2EHarness {
       'role_rules:addProductFromDiscordRole',
       {
         apiSecret: this.secrets.convexApiSecret,
-        tenantId: this.secrets.tenantId,
+        authUserId: this.secrets.authUserId,
         sourceGuildId: params.sourceGuildId,
         requiredRoleIds: params.requiredRoleIds,
         requiredRoleMatchMode: params.requiredRoleMatchMode ?? 'any',
@@ -539,7 +537,7 @@ export class DiscordBotE2EHarness {
       'entitlements:grantEntitlement',
       {
         apiSecret: this.secrets.convexApiSecret,
-        tenantId: this.secrets.tenantId,
+        authUserId: this.secrets.authUserId,
         subjectId,
         productId,
         evidence: {
@@ -554,7 +552,7 @@ export class DiscordBotE2EHarness {
   async revokeProductEntitlements(discordUserId: string, productId: string): Promise<void> {
     await this.convexMutation('entitlements:revokeEntitlementsByProduct', {
       apiSecret: this.secrets.convexApiSecret,
-      tenantId: this.secrets.tenantId,
+      authUserId: this.secrets.authUserId,
       discordUserId,
       productId,
     });
@@ -571,7 +569,7 @@ export class DiscordBotE2EHarness {
   }): Promise<string> {
     const result = await this.convexMutation<{ routeId: string }>('downloads:createRoute', {
       apiSecret: this.secrets.convexApiSecret,
-      tenantId: this.secrets.tenantId,
+      authUserId: this.secrets.authUserId,
       guildId: this.secrets.targetGuildId,
       guildLinkId: this.secrets.guildLinkId,
       sourceChannelId: params.sourceChannelId,
@@ -623,7 +621,7 @@ export class DiscordBotE2EHarness {
       subjectId,
       reason,
       actorId: this.secrets.adminUserId,
-      tenantId: this.secrets.tenantId,
+      authUserId: this.secrets.authUserId,
       quarantine: true,
     });
   }
@@ -633,7 +631,7 @@ export class DiscordBotE2EHarness {
       apiSecret: this.secrets.convexApiSecret,
       subjectId,
       actorId: this.secrets.adminUserId,
-      tenantId: this.secrets.tenantId,
+      authUserId: this.secrets.authUserId,
     });
   }
 
@@ -642,7 +640,7 @@ export class DiscordBotE2EHarness {
       'identitySync:listSuspiciousSubjects',
       {
         apiSecret: this.secrets.convexApiSecret,
-        tenantId: this.secrets.tenantId,
+        authUserId: this.secrets.authUserId,
         limit: 25,
       }
     );
@@ -654,7 +652,7 @@ export class DiscordBotE2EHarness {
   ): Promise<string> {
     const response = await this.apiRequest<{ token: string }>('POST', '/api/setup/create-session', {
       body: {
-        tenantId: this.secrets.tenantId,
+        authUserId: this.secrets.authUserId,
         guildId,
         discordUserId,
         apiSecret: this.secrets.convexApiSecret,
@@ -693,7 +691,7 @@ export class DiscordBotE2EHarness {
       'collaboratorInvites:listCollaboratorConnections',
       {
         apiSecret: this.secrets.convexApiSecret,
-        ownerTenantId: this.secrets.tenantId,
+        ownerAuthUserId: this.secrets.authUserId,
       }
     );
   }

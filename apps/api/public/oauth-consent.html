@@ -409,7 +409,7 @@
                 // redirects back to the consent page → infinite loop.
                 const storedCookie = localStorage.getItem('better-auth_cookie') || '';
 
-                // oauth_query must NOT include the leading "?" — Better Auth's
+                // oauth_query must NOT include the leading "?"  Better Auth's
                 // signature verification runs URLSearchParams on the raw string.
                 const oauthQuery = window.location.search.replace(/^\?/, '');
 
@@ -441,7 +441,7 @@
                     return;
                 }
 
-                // Fallback: if no redirectTo, reload — server may redirect us
+                // Fallback: if no redirectTo, reload  server may redirect us
                 window.location.reload();
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);

@@ -2,12 +2,10 @@
  * Tests for Verification Orchestrator
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import type { Verification } from '@yucp/shared';
-import type { ProviderAdapter, PurchaseRecord } from '../src/index';
+import type { PurchaseRecord } from '../src/index';
 import {
-  type BeginVerificationContext,
-  type CompleteVerificationContext,
   type HealthCheckableAdapter,
   InMemorySessionStorage,
   type ProviderMode,
@@ -15,7 +13,6 @@ import {
   type TenantVerificationConfig,
   type VerificationBindingStorage,
   VerificationOrchestrator,
-  type VerificationSessionStorage,
 } from '../src/index';
 
 // Mock adapter for testing
@@ -41,11 +38,7 @@ class MockOrchestratorAdapter implements HealthCheckableAdapter {
     this.beginResult = result;
   }
 
-  setCompleteResult(result: {
-    success: boolean;
-    gumroadUserId?: string;
-    error?: string;
-  }): void {
+  setCompleteResult(result: { success: boolean; gumroadUserId?: string; error?: string }): void {
     this.completeResult = result;
   }
 
@@ -71,7 +64,7 @@ class MockOrchestratorAdapter implements HealthCheckableAdapter {
 
   // Methods that will be called via type assertion in orchestrator
   async beginVerification(
-    _tenantId: string,
+    _authUserId: string,
     _subjectId?: string,
     _options?: { scope?: string }
   ): Promise<{ authorizationUrl: string; state: string }> {
@@ -181,7 +174,7 @@ class MockBindingStorage implements VerificationBindingStorage {
     string,
     {
       id: string;
-      tenantId: string;
+      authUserId: string;
       mode: ProviderMode;
       providerUserId?: string;
       verification: Verification;
@@ -190,7 +183,7 @@ class MockBindingStorage implements VerificationBindingStorage {
 
   setBinding(binding: {
     id: string;
-    tenantId: string;
+    authUserId: string;
     mode: ProviderMode;
     providerUserId?: string;
     verification: Verification;
@@ -221,7 +214,7 @@ describe('VerificationOrchestrator', () => {
     bindingStorage = new MockBindingStorage();
 
     orchestrator = new VerificationOrchestrator(registry as unknown as ProviderRegistry, {
-      getTenantConfig: async (tenantId) => tenantConfigs.get(tenantId) ?? null,
+      getTenantConfig: async (authUserId) => tenantConfigs.get(authUserId) ?? null,
       bindingStorage,
       checkProviderHealth: false, // Disable for most tests
     });
@@ -229,20 +222,20 @@ describe('VerificationOrchestrator', () => {
 
   describe('beginVerification', () => {
     it('should fail for unknown tenant', async () => {
-      const result = await orchestrator.beginVerification('unknown-tenant', 'gumroad', {
+      const result = await orchestrator.beginVerification('unknown-user', 'gumroad', {
         subjectId: 'user-123',
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Tenant not found');
+      expect(result.error).toBe('Creator not found');
     });
 
     it('should fail for disabled provider mode', async () => {
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['jinxxy'],
       });
 
-      const result = await orchestrator.beginVerification('tenant-1', 'gumroad', {
+      const result = await orchestrator.beginVerification('user_test1', 'gumroad', {
         subjectId: 'user-123',
       });
 
@@ -251,11 +244,11 @@ describe('VerificationOrchestrator', () => {
     });
 
     it('should fail for unregistered provider', async () => {
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['gumroad'],
       });
 
-      const result = await orchestrator.beginVerification('tenant-1', 'gumroad', {
+      const result = await orchestrator.beginVerification('user_test1', 'gumroad', {
         subjectId: 'user-123',
       });
 
@@ -271,11 +264,11 @@ describe('VerificationOrchestrator', () => {
       });
       registry.registerProvider('gumroad', adapter);
 
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['gumroad'],
       });
 
-      const result = await orchestrator.beginVerification('tenant-1', 'gumroad', {
+      const result = await orchestrator.beginVerification('user_test1', 'gumroad', {
         subjectId: 'user-123',
         redirectUri: 'https://example.com/callback',
       });
@@ -291,11 +284,11 @@ describe('VerificationOrchestrator', () => {
       const adapter = new MockOrchestratorAdapter('jinxxy');
       registry.registerProvider('jinxxy', adapter);
 
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['jinxxy'],
       });
 
-      const result = await orchestrator.beginVerification('tenant-1', 'jinxxy', {
+      const result = await orchestrator.beginVerification('user_test1', 'jinxxy', {
         subjectId: 'user-123',
       });
 
@@ -308,11 +301,11 @@ describe('VerificationOrchestrator', () => {
       const adapter = new MockOrchestratorAdapter('manual');
       registry.registerProvider('manual', adapter);
 
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['manual'],
       });
 
-      const result = await orchestrator.beginVerification('tenant-1', 'manual', {
+      const result = await orchestrator.beginVerification('user_test1', 'manual', {
         subjectId: 'user-123',
       });
 
@@ -341,12 +334,12 @@ describe('VerificationOrchestrator', () => {
       });
       registry.registerProvider('gumroad', adapter);
 
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['gumroad'],
       });
 
       // First begin verification
-      const beginResult = await orchestrator.beginVerification('tenant-1', 'gumroad', {
+      const beginResult = await orchestrator.beginVerification('user_test1', 'gumroad', {
         subjectId: 'user-123',
       });
 
@@ -370,11 +363,11 @@ describe('VerificationOrchestrator', () => {
       });
       registry.registerProvider('gumroad', adapter);
 
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['gumroad'],
       });
 
-      const beginResult = await orchestrator.beginVerification('tenant-1', 'gumroad', {
+      const beginResult = await orchestrator.beginVerification('user_test1', 'gumroad', {
         subjectId: 'user-123',
       });
 
@@ -391,11 +384,11 @@ describe('VerificationOrchestrator', () => {
       const adapter = new MockOrchestratorAdapter('jinxxy');
       registry.registerProvider('jinxxy', adapter);
 
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['jinxxy'],
       });
 
-      const beginResult = await orchestrator.beginVerification('tenant-1', 'jinxxy', {
+      const beginResult = await orchestrator.beginVerification('user_test1', 'jinxxy', {
         subjectId: 'user-123',
       });
 
@@ -437,7 +430,7 @@ describe('VerificationOrchestrator', () => {
 
       bindingStorage.setBinding({
         id: 'binding-123',
-        tenantId: 'tenant-1',
+        authUserId: 'user_test1',
         mode: 'gumroad',
         providerUserId: 'gumroad-user-456',
         verification: {
@@ -483,7 +476,7 @@ describe('VerificationOrchestrator', () => {
 
       bindingStorage.setBinding({
         id: 'binding-123',
-        tenantId: 'tenant-1',
+        authUserId: 'user_test1',
         mode: 'gumroad',
         providerUserId: 'gumroad-user-456',
         verification: {
@@ -507,11 +500,11 @@ describe('VerificationOrchestrator', () => {
 
   describe('getEnabledModes', () => {
     it('should return enabled modes for tenant', async () => {
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['gumroad', 'jinxxy'],
       });
 
-      const modes = await orchestrator.getEnabledModes('tenant-1');
+      const modes = await orchestrator.getEnabledModes('user_test1');
 
       expect(modes).toHaveLength(2);
       expect(modes).toContain('gumroad');
@@ -519,27 +512,27 @@ describe('VerificationOrchestrator', () => {
     });
 
     it('should return empty array for unknown tenant', async () => {
-      const modes = await orchestrator.getEnabledModes('unknown-tenant');
+      const modes = await orchestrator.getEnabledModes('unknown-user');
       expect(modes).toHaveLength(0);
     });
   });
 
   describe('isModeEnabled', () => {
     it('should return true for enabled mode', async () => {
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['gumroad', 'jinxxy'],
       });
 
-      const result = await orchestrator.isModeEnabled('tenant-1', 'gumroad');
+      const result = await orchestrator.isModeEnabled('user_test1', 'gumroad');
       expect(result).toBe(true);
     });
 
     it('should return false for disabled mode', async () => {
-      tenantConfigs.set('tenant-1', {
+      tenantConfigs.set('user_test1', {
         enabledModes: ['jinxxy'],
       });
 
-      const result = await orchestrator.isModeEnabled('tenant-1', 'gumroad');
+      const result = await orchestrator.isModeEnabled('user_test1', 'gumroad');
       expect(result).toBe(false);
     });
   });
@@ -555,7 +548,7 @@ describe('InMemorySessionStorage', () => {
   it('should store and retrieve session', async () => {
     const session = {
       id: 'session-123',
-      tenantId: 'tenant-1',
+      authUserId: 'user_test1',
       mode: 'gumroad' as ProviderMode,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60000),
@@ -571,7 +564,7 @@ describe('InMemorySessionStorage', () => {
   it('should return null for expired session', async () => {
     const session = {
       id: 'session-123',
-      tenantId: 'tenant-1',
+      authUserId: 'user_test1',
       mode: 'gumroad' as ProviderMode,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() - 1000), // Expired
@@ -586,7 +579,7 @@ describe('InMemorySessionStorage', () => {
   it('should find session by state', async () => {
     const session = {
       id: 'session-123',
-      tenantId: 'tenant-1',
+      authUserId: 'user_test1',
       mode: 'gumroad' as ProviderMode,
       state: 'oauth-state-456',
       createdAt: new Date(),
@@ -603,7 +596,7 @@ describe('InMemorySessionStorage', () => {
   it('should delete session', async () => {
     const session = {
       id: 'session-123',
-      tenantId: 'tenant-1',
+      authUserId: 'user_test1',
       mode: 'gumroad' as ProviderMode,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60000),
@@ -627,7 +620,7 @@ describe('Health Check Integration', () => {
     tenantConfigs = new Map();
 
     orchestrator = new VerificationOrchestrator(registry as unknown as ProviderRegistry, {
-      getTenantConfig: async (tenantId) => tenantConfigs.get(tenantId) ?? null,
+      getTenantConfig: async (authUserId) => tenantConfigs.get(authUserId) ?? null,
       checkProviderHealth: true, // Enable health checks
     });
   });
@@ -637,11 +630,11 @@ describe('Health Check Integration', () => {
     registry.registerProvider('gumroad', adapter);
     registry.setHealthStatus('gumroad', false);
 
-    tenantConfigs.set('tenant-1', {
+    tenantConfigs.set('user_test1', {
       enabledModes: ['gumroad'],
     });
 
-    const result = await orchestrator.beginVerification('tenant-1', 'gumroad', {
+    const result = await orchestrator.beginVerification('user_test1', 'gumroad', {
       subjectId: 'user-123',
     });
 
@@ -658,12 +651,12 @@ describe('Health Check Integration', () => {
     registry.setHealthStatus('gumroad', false);
     registry.setHealthStatus('jinxxy', true);
 
-    tenantConfigs.set('tenant-1', {
+    tenantConfigs.set('user_test1', {
       enabledModes: ['gumroad', 'jinxxy'],
       fallbackOrder: ['jinxxy', 'gumroad'],
     });
 
-    const result = await orchestrator.beginVerification('tenant-1', 'gumroad', {
+    const result = await orchestrator.beginVerification('user_test1', 'gumroad', {
       subjectId: 'user-123',
     });
 

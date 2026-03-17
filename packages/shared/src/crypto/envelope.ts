@@ -14,14 +14,7 @@
  * - DEKs are wrapped with KEK for secure storage
  */
 
-import type {
-  EncryptedPayload,
-  EncryptionAAD,
-  KEKReference,
-  TokenProvider,
-  TokenType,
-  WrappedDEK,
-} from './keys';
+import type { EncryptedPayload, EncryptionAAD, TokenProvider, TokenType, WrappedDEK } from './keys';
 import {
   aadToBytes,
   base64ToBytes,
@@ -73,7 +66,7 @@ export interface DecryptOptions {
  *   keyId: 'kek-v1',
  *   keyVersion: 1,
  *   kekBytes: kekFromInfisical,
- *   aad: { tenantId: 'tenant-123', provider: 'gumroad', tokenType: 'access' }
+ *   aad: { authUserId: 'user_abc123', provider: 'gumroad', tokenType: 'access' }
  * });
  * ```
  */
@@ -130,7 +123,7 @@ export async function encrypt(
     iv: bytesToBase64(dataIv),
     wrappedDek,
     aadMetadata: {
-      tenantId: aad.tenantId,
+      authUserId: aad.authUserId,
       provider: aad.provider,
       tokenType: aad.tokenType,
     },
@@ -153,7 +146,7 @@ export async function encrypt(
  * const plaintext = await decrypt({
  *   kekBytes: kekFromInfisical,
  *   payload: encryptedPayload,
- *   aad: { tenantId: 'tenant-123', provider: 'gumroad', tokenType: 'access' }
+ *   aad: { authUserId: 'user_abc123', provider: 'gumroad', tokenType: 'access' }
  * });
  * ```
  */
@@ -167,13 +160,13 @@ export async function decrypt(options: DecryptOptions): Promise<string> {
 
   // 2. Verify AAD matches (defense in depth - crypto will also verify)
   if (
-    payload.aadMetadata.tenantId !== aad.tenantId ||
+    payload.aadMetadata.authUserId !== aad.authUserId ||
     payload.aadMetadata.provider !== aad.provider ||
     payload.aadMetadata.tokenType !== aad.tokenType
   ) {
     throw new Error(
       'AAD mismatch: payload metadata does not match provided AAD context. ' +
-        'This may indicate data was encrypted for a different tenant/provider/token.'
+        'This may indicate data was encrypted for a different user/provider/token.'
     );
   }
 
@@ -238,7 +231,7 @@ export async function reEncrypt(
     kekBytes: oldKekBytes,
     payload: oldPayload,
     aad: {
-      tenantId: oldPayload.aadMetadata.tenantId,
+      authUserId: oldPayload.aadMetadata.authUserId,
       provider: oldPayload.aadMetadata.provider,
       tokenType: oldPayload.aadMetadata.tokenType,
     },
@@ -248,7 +241,7 @@ export async function reEncrypt(
   return encrypt(plaintext, {
     ...newOptions,
     aad: {
-      tenantId: oldPayload.aadMetadata.tenantId,
+      authUserId: oldPayload.aadMetadata.authUserId,
       provider: oldPayload.aadMetadata.provider,
       tokenType: oldPayload.aadMetadata.tokenType,
     },
@@ -273,7 +266,7 @@ export function validatePayload(payload: unknown): payload is EncryptedPayload {
     typeof (p.wrappedDek as Record<string, unknown>)?.keyId === 'string' &&
     typeof (p.wrappedDek as Record<string, unknown>)?.keyVersion === 'number' &&
     typeof p.aadMetadata === 'object' &&
-    typeof (p.aadMetadata as Record<string, unknown>)?.tenantId === 'string' &&
+    typeof (p.aadMetadata as Record<string, unknown>)?.authUserId === 'string' &&
     typeof (p.aadMetadata as Record<string, unknown>)?.provider === 'string' &&
     typeof (p.aadMetadata as Record<string, unknown>)?.tokenType === 'string' &&
     p.algorithm === 'AES-256-GCM' &&
@@ -285,12 +278,12 @@ export function validatePayload(payload: unknown): payload is EncryptedPayload {
  * Create a type-safe AAD object.
  */
 export function createAAD(
-  tenantId: string,
+  authUserId: string,
   provider: TokenProvider,
   tokenType: TokenType
 ): EncryptionAAD {
   return {
-    tenantId,
+    authUserId,
     provider,
     tokenType,
   };
@@ -312,7 +305,7 @@ export function extractKeyMetadata(payload: EncryptedPayload): {
   keyVersion: number;
   algorithm: string;
   encryptedAt: string;
-  tenantId: string;
+  authUserId: string;
   provider: string;
   tokenType: string;
 } {
@@ -321,7 +314,7 @@ export function extractKeyMetadata(payload: EncryptedPayload): {
     keyVersion: payload.wrappedDek.keyVersion,
     algorithm: payload.algorithm,
     encryptedAt: payload.encryptedAt,
-    tenantId: payload.aadMetadata.tenantId,
+    authUserId: payload.aadMetadata.authUserId,
     provider: payload.aadMetadata.provider,
     tokenType: payload.aadMetadata.tokenType,
   };

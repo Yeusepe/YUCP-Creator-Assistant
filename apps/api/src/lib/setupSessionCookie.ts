@@ -40,6 +40,8 @@ export function stripSetupParams(url: URL): URL {
   redirectUrl.searchParams.delete('token');
   redirectUrl.searchParams.delete('tenant_id');
   redirectUrl.searchParams.delete('tenantId');
+  redirectUrl.searchParams.delete('authUserId');
+  redirectUrl.searchParams.delete('auth_user_id');
   redirectUrl.searchParams.delete('guild_id');
   redirectUrl.searchParams.delete('guildId');
   return redirectUrl;

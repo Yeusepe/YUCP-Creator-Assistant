@@ -4,14 +4,14 @@
 
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {
-  type EncryptedPayload,
-  type EncryptionAAD,
   aadToBytes,
   base64ToBytes,
   bytesToBase64,
   createAAD,
   decrypt,
   decryptToBytes,
+  type EncryptedPayload,
+  type EncryptionAAD,
   encrypt,
   extractKeyMetadata,
   generateDEK,
@@ -102,23 +102,23 @@ describe('Key utilities', () => {
   describe('aadToBytes', () => {
     it('should convert AAD to expected format', () => {
       const aad: EncryptionAAD = {
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         provider: 'gumroad',
         tokenType: 'access',
       };
       const bytes = aadToBytes(aad);
       const decoded = new TextDecoder().decode(bytes);
-      expect(decoded).toBe('tenant-123:gumroad:access');
+      expect(decoded).toBe('user_test123:gumroad:access');
     });
 
     it('should produce different bytes for different AAD', () => {
       const aad1: EncryptionAAD = {
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         provider: 'gumroad',
         tokenType: 'access',
       };
       const aad2: EncryptionAAD = {
-        tenantId: 'tenant-456',
+        authUserId: 'user_test456',
         provider: 'gumroad',
         tokenType: 'access',
       };
@@ -172,7 +172,7 @@ describe('Key wrapping', () => {
 describe('Envelope encryption', () => {
   let kekBytes: Uint8Array;
   const aad: EncryptionAAD = {
-    tenantId: 'tenant-123',
+    authUserId: 'user_test123',
     provider: 'gumroad',
     tokenType: 'access',
   };
@@ -206,7 +206,7 @@ describe('Envelope encryption', () => {
       expect(payload.wrappedDek.keyVersion).toBe(1);
       expect(payload.algorithm).toBe('AES-256-GCM');
       expect(payload.encryptedAt).toBeDefined();
-      expect(payload.aadMetadata.tenantId).toBe('tenant-123');
+      expect(payload.aadMetadata.authUserId).toBe('user_test123');
     });
 
     it('should encrypt Uint8Array and decrypt to original bytes', async () => {
@@ -298,7 +298,7 @@ describe('Envelope encryption', () => {
 
       const wrongAad: EncryptionAAD = {
         ...aad,
-        tenantId: 'different-tenant',
+        authUserId: 'user_different',
       };
 
       await expect(
@@ -435,7 +435,7 @@ describe('Envelope encryption', () => {
 describe('Payload utilities', () => {
   let validPayload: EncryptedPayload;
   const aad: EncryptionAAD = {
-    tenantId: 'tenant-123',
+    authUserId: 'user_test123',
     provider: 'gumroad',
     tokenType: 'access',
   };
@@ -502,7 +502,7 @@ describe('Payload utilities', () => {
       expect(metadata.keyId).toBe('kek-v1');
       expect(metadata.keyVersion).toBe(1);
       expect(metadata.algorithm).toBe('AES-256-GCM');
-      expect(metadata.tenantId).toBe('tenant-123');
+      expect(metadata.authUserId).toBe('user_test123');
       expect(metadata.provider).toBe('gumroad');
       expect(metadata.tokenType).toBe('access');
     });
@@ -511,9 +511,9 @@ describe('Payload utilities', () => {
 
 describe('createAAD', () => {
   it('should create AAD with correct values', () => {
-    const aad = createAAD('tenant-123', 'discord', 'refresh');
+    const aad = createAAD('user_test123', 'discord', 'refresh');
 
-    expect(aad.tenantId).toBe('tenant-123');
+    expect(aad.authUserId).toBe('user_test123');
     expect(aad.provider).toBe('discord');
     expect(aad.tokenType).toBe('refresh');
   });
@@ -551,7 +551,7 @@ describe('Integration tests', () => {
     const kekBytes = crypto.getRandomValues(new Uint8Array(32));
 
     // Create AAD for this token's context
-    const aad = createAAD('tenant-abc-123', 'gumroad', 'access');
+    const aad = createAAD('user_test123', 'gumroad', 'access');
 
     // Encrypt the token
     const payload = await encrypt(accessToken, {
@@ -584,7 +584,7 @@ describe('Integration tests', () => {
     // New KEK (v2)
     const kekV2 = crypto.getRandomValues(new Uint8Array(32));
 
-    const aad = createAAD('tenant-abc-123', 'gumroad', 'access');
+    const aad = createAAD('user_test123', 'gumroad', 'access');
 
     // Encrypt with v1
     const payloadV1 = await encrypt(accessToken, {
@@ -617,7 +617,7 @@ describe('Integration tests', () => {
     const kekBytes = crypto.getRandomValues(new Uint8Array(32));
 
     // Encrypt for tenant A
-    const aadA = createAAD('tenant-a', 'gumroad', 'access');
+    const aadA = createAAD('user_test_a', 'gumroad', 'access');
     const payloadA = await encrypt(token, {
       keyId: 'kek-v1',
       keyVersion: 1,
@@ -626,7 +626,7 @@ describe('Integration tests', () => {
     });
 
     // Try to decrypt with tenant B's context (should fail)
-    const aadB = createAAD('tenant-b', 'gumroad', 'access');
+    const aadB = createAAD('user_test_b', 'gumroad', 'access');
 
     await expect(
       decrypt({

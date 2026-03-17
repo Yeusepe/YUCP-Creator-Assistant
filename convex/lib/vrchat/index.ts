@@ -1,7 +1,7 @@
 export { VrchatWebClient } from './client';
+export type { Cookie } from './cookie';
 export {
   AUTH_COOKIE,
-  TWO_FACTOR_AUTH_COOKIE,
   buildCookieHeader,
   extractCookieValue,
   getSetCookieHeaders,
@@ -9,17 +9,17 @@ export {
   parseSetCookie,
   serializeCookies,
   splitSetCookieHeader,
+  TWO_FACTOR_AUTH_COOKIE,
 } from './cookie';
 export {
-  constantTimeEqual,
   canonicalizeJson,
+  constantTimeEqual,
   decryptForPurpose,
   encryptForPurpose,
   sha256Base64,
   signValue,
 } from './crypto';
 export { isUser, requiresTwoFactorAuth, sanitizeTwoFactorMethods } from './guards';
-export type { Cookie } from './cookie';
 export type {
   RequiresTwoFactorAuth,
   TwoFactorAuthType,

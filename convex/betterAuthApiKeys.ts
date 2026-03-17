@@ -1,17 +1,11 @@
 import { v } from 'convex/values';
 import { mutation } from './_generated/server';
 import { createAuth } from './auth';
+import { requireApiSecret } from './lib/apiAuth';
 
 const PUBLIC_API_KEY_PREFIX = 'ypsk_';
 const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 const PUBLIC_API_KEY_METADATA_KIND = 'public-api';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 function toTimestamp(value: unknown): number | null {
   if (value instanceof Date) {
@@ -49,15 +43,24 @@ function serializeApiKeyRecord(
     return null;
   }
 
+  const meta =
+    value.metadata && typeof value.metadata === 'object' && !Array.isArray(value.metadata)
+      ? (value.metadata as Record<string, unknown>)
+      : null;
+
+  // Accept authUserId directly; fall back to tenantId for keys issued before migration.
+  const resolvedAuthUserId =
+    meta && typeof meta.authUserId === 'string'
+      ? meta.authUserId
+      : meta && typeof meta.tenantId === 'string'
+        ? meta.tenantId
+        : null;
+
   const metadata =
-    value.metadata &&
-    typeof value.metadata === 'object' &&
-    !Array.isArray(value.metadata) &&
-    typeof (value.metadata as Record<string, unknown>).kind === 'string' &&
-    typeof (value.metadata as Record<string, unknown>).tenantId === 'string'
+    meta && typeof meta.kind === 'string' && resolvedAuthUserId !== null
       ? {
-          kind: (value.metadata as Record<string, unknown>).kind as string,
-          tenantId: (value.metadata as Record<string, unknown>).tenantId as string,
+          kind: meta.kind as string,
+          authUserId: resolvedAuthUserId,
         }
       : null;
 
@@ -88,7 +91,7 @@ const SerializedApiKey = v.object({
   metadata: v.union(
     v.object({
       kind: v.string(),
-      tenantId: v.string(),
+      authUserId: v.string(),
     }),
     v.null()
   ),
@@ -107,7 +110,7 @@ interface BetterAuthServerApi {
       expiresIn?: number | null;
       metadata: {
         kind: string;
-        tenantId: string;
+        authUserId: string;
       };
       permissions: Record<string, string[]>;
     };
@@ -155,7 +158,7 @@ export const createApiKey = mutation({
   args: {
     apiSecret: v.string(),
     userId: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     name: v.string(),
     scopes: v.array(v.string()),
     expiresIn: v.optional(v.union(v.number(), v.null())),
@@ -176,7 +179,7 @@ export const createApiKey = mutation({
         expiresIn: args.expiresIn,
         metadata: {
           kind: PUBLIC_API_KEY_METADATA_KIND,
-          tenantId: args.tenantId,
+          authUserId: args.authUserId,
         },
         permissions: {
           [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: args.scopes,

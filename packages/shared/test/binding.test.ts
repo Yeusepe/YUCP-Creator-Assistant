@@ -7,11 +7,10 @@
 import { describe, expect, it } from 'bun:test';
 import {
   type BindingPolicy,
-  type BindingStatus,
-  DEFAULT_BINDING_POLICY,
   calculateRemainingCooldown,
   canModifyBinding,
   canTransferBinding,
+  DEFAULT_BINDING_POLICY,
   getEffectivePolicy,
   isBindingActive,
   isTransferAllowed,
@@ -182,7 +181,7 @@ describe('Binding Service', () => {
   describe('validateActivateInput', () => {
     it('should return no errors for valid input', () => {
       const input = {
-        tenantId: 'tenant123',
+        authUserId: 'user_test123',
         subjectId: 'subject123',
         externalAccountId: 'external123',
         bindingType: 'ownership' as const,
@@ -192,7 +191,7 @@ describe('Binding Service', () => {
 
     it('should return errors for missing required fields', () => {
       const input = {
-        tenantId: '',
+        authUserId: '',
         subjectId: '',
         externalAccountId: '',
         bindingType: 'invalid' as never,
@@ -200,7 +199,7 @@ describe('Binding Service', () => {
       const errors = validateActivateInput(input);
 
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors).toContain('tenantId is required');
+      expect(errors).toContain('authUserId is required');
       expect(errors).toContain('subjectId is required');
       expect(errors).toContain('externalAccountId is required');
       expect(errors.some((e: string) => e.includes('Invalid bindingType'))).toBe(true);

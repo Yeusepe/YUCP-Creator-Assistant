@@ -20,7 +20,7 @@ describe('verificationSupport', () => {
     const encoded = await encodeVerificationSupportToken({
       surface: 'bot',
       stage: 'verify_panel_build',
-      tenantId: 'tenant_123',
+      authUserId: 'user_test123',
       guildId: 'guild_123',
       discordUserId: 'user_123',
       provider: 'gumroad',
@@ -38,7 +38,7 @@ describe('verificationSupport', () => {
       version: '1',
       surface: 'bot',
       stage: 'verify_panel_build',
-      tenantId: 'tenant_123',
+      authUserId: 'user_test123',
       guildId: 'guild_123',
       discordUserId: 'user_123',
       provider: 'gumroad',

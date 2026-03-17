@@ -16,4 +16,11 @@ crons.interval(
   internal.webhookCron.processPendingWebhooksCron
 );
 
+// Process pending outbound webhook deliveries every minute
+crons.interval(
+  'process pending webhook deliveries',
+  { minutes: 1 },
+  internal.webhookDeliveryCron.processWebhookDeliveriesCron
+);
+
 export default crons;

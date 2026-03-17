@@ -5,26 +5,49 @@
  * Normalization to purchase_facts and entitlements is handled by separate pipeline.
  */
 
-import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
+import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { ProviderV, WebhookProviderV } from './lib/providers';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 /**
- * Insert a webhook event from Gumroad or Jinxxy.
- * Idempotent: (tenantId, provider, providerEventId) deduplication.
+ * Determines whether a webhook event is considered authenticated and may enter
+ * the processing pipeline.
+ *
+ * Three verification models are supported:
+ *   - 'hmac': the event carries a body-bound HMAC that was verified (Jinxxy, LemonSqueezy).
+ *             signatureValid must also be true.
+ *   - 'static-key': authenticated by comparing a static key-derived value (Payhip). The
+ *             "signature" is SHA256(apiKey) — constant per connection, not body-bound.
+ *             signatureValid must also be true.
+ *   - 'route-token': the event was authenticated by a private random URL token (Gumroad Ping).
+ *             No body signature exists by design; the token IS the authenticator.
+ *
+ * Legacy events with no verificationMethod fall back to the original signatureValid flag.
+ */
+export function isAuthenticatedEvent(event: {
+  signatureValid: boolean;
+  verificationMethod?: 'hmac' | 'static-key' | 'route-token';
+}): boolean {
+  if (event.verificationMethod === 'route-token') return true;
+  if (event.verificationMethod === 'hmac') return event.signatureValid === true;
+  if (event.verificationMethod === 'static-key') return event.signatureValid === true;
+  // Legacy path: no verificationMethod stored — trust signatureValid directly.
+  return event.signatureValid === true;
+}
+
+const VerificationMethodV = v.optional(
+  v.union(v.literal('hmac'), v.literal('static-key'), v.literal('route-token'))
+);
+
+/**
+ * Insert a webhook event from any provider.
+ * Idempotent: deduplication by (authUserId, provider, providerEventId).
  */
 export const insertWebhookEvent = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     provider: WebhookProviderV,
     providerKey: v.optional(ProviderV),
     providerConnectionId: v.optional(v.id('provider_connections')),
@@ -32,6 +55,7 @@ export const insertWebhookEvent = mutation({
     eventType: v.string(),
     rawPayload: v.any(),
     signatureValid: v.boolean(),
+    verificationMethod: VerificationMethodV,
   },
   returns: v.object({
     success: v.boolean(),
@@ -41,19 +65,14 @@ export const insertWebhookEvent = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
 
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant) {
-      throw new Error(`Tenant not found: ${args.tenantId}`);
-    }
-
+    const authUserId = args.authUserId;
     const now = Date.now();
 
-    // Check for duplicate (tenantId, provider, providerEventId)
     const existing = await ctx.db
       .query('webhook_events')
-      .withIndex('by_tenant_provider_event', (q) =>
+      .withIndex('by_auth_user_provider_event', (q) =>
         q
-          .eq('tenantId', args.tenantId)
+          .eq('authUserId', authUserId)
           .eq('provider', args.provider)
           .eq('providerEventId', args.providerEventId)
       )
@@ -71,8 +90,9 @@ export const insertWebhookEvent = mutation({
       eventType: args.eventType,
       rawPayload: args.rawPayload,
       signatureValid: args.signatureValid,
+      verificationMethod: args.verificationMethod,
       status: 'pending',
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       receivedAt: now,
     });
 
@@ -97,6 +117,9 @@ export const resetWebhookForReprocessing = mutation({
     if (!event) {
       return { success: false, message: 'Event not found' };
     }
+    if (!isAuthenticatedEvent(event)) {
+      throw new ConvexError('Cannot requeue an unverified webhook event');
+    }
     if (event.status !== 'processed') {
       return { success: false, message: `Event status is ${event.status}, expected processed` };
     }
@@ -116,7 +139,7 @@ export const getPendingWebhookEvents = query({
   returns: v.array(
     v.object({
       _id: v.id('webhook_events'),
-      tenantId: v.optional(v.id('tenants')),
+      authUserId: v.optional(v.string()),
       provider: ProviderV,
       providerKey: v.optional(ProviderV),
       providerConnectionId: v.optional(v.id('provider_connections')),
@@ -124,6 +147,7 @@ export const getPendingWebhookEvents = query({
       eventType: v.string(),
       rawPayload: v.any(),
       signatureValid: v.boolean(),
+      verificationMethod: VerificationMethodV,
       status: v.string(),
       receivedAt: v.number(),
     })
@@ -131,11 +155,39 @@ export const getPendingWebhookEvents = query({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const limit = Math.min(args.limit ?? 50, 100);
+    // Over-fetch then filter: only process events that are authenticated (HMAC or route-token)
+    // so the pipeline never acts on tampered or unverifiable payloads.
     const events = await ctx.db
       .query('webhook_events')
       .withIndex('by_status', (q) => q.eq('status', 'pending'))
       .order('asc')
-      .take(limit);
-    return events;
+      .take(limit * 2);
+    return events.filter(isAuthenticatedEvent).slice(0, limit);
   },
 });
+
+/**
+ * Resolves a webhook authUserId to one or more creator authUserIds.
+ * Returns an empty array if the authUserId doesn't match any creator profile.
+ */
+export const resolveWebhookAuthUserIds = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  returns: v.array(v.string()),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    if (profile) return [args.authUserId];
+
+    return [];
+  },
+});
+
+// Backward-compatible alias for existing callers
+export { resolveWebhookAuthUserIds as resolveWebhookTenantIds };

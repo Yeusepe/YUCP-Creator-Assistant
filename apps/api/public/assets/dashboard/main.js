@@ -14,10 +14,37 @@ import {
   ensureBoundSetupSession,
   renderQuickStart,
 } from './platform.js';
+import { getActiveSetupProviders } from './providers.js';
 import { initCollab, fetchCollabConnections } from './collab.js';
 import { initApiKeys, fetchPublicApiKeys } from './api.js';
 import { initOAuth, fetchOAuthApps } from './oauth.js';
 import { getTenantId, setTenantId, getGuildId, getHasSetupSession, getApiBase, apiFetch } from './store.js';
+
+async function refreshContextData() {
+  try {
+    if (!getHasSetupSession() && !getTenantId() && getGuildId()) {
+      const res = await apiFetch(
+        `${getApiBase()}/api/connect/ensure-tenant?guildId=${encodeURIComponent(getGuildId())}`,
+      );
+      const data = await res.json();
+      const resolvedId = data.authUserId ?? data.tenantId;
+      if (resolvedId) {
+        setTenantId(resolvedId);
+        const urlParams = new URLSearchParams(window.location.search);
+        urlParams.set('tenant_id', resolvedId);
+        window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
+      }
+    }
+    await fetchAllData();
+    await fetchCollabConnections();
+    await fetchPublicApiKeys();
+    await fetchOAuthApps();
+    loadProgressFlags();
+    renderQuickStart();
+  } catch (err) {
+    console.error('Context refresh error:', err);
+  }
+}
 
 async function init() {
   try {
@@ -25,15 +52,20 @@ async function init() {
 
     if (await ensureBoundSetupSession()) return;
     loadProgressFlags();
-    initServerContext({ updatePlatformCards });
 
     if (!getHasSetupSession() && !getTenantId() && getGuildId()) {
       const res = await apiFetch(`${getApiBase()}/api/connect/ensure-tenant?guildId=${encodeURIComponent(getGuildId())}`);
       const data = await res.json();
-      if (data.tenantId) {
-        setTenantId(data.tenantId);
-        await refreshUserServers(updatePlatformCards);
+      const resolvedId = data.authUserId ?? data.tenantId;
+      if (resolvedId) {
+        setTenantId(resolvedId);
       }
+    }
+
+    initServerContext({ updatePlatformCards, refreshData: refreshContextData });
+
+    if (!getHasSetupSession() && getTenantId()) {
+      await refreshUserServers(updatePlatformCards);
     }
 
     await fetchAllData();
@@ -49,19 +81,20 @@ async function init() {
   }
 }
 
-function runInits() {
+async function runInits() {
   initStore();
   initTheme();
   initTabs();
   initSidebar();
   initDropdowns();
-  initPlatforms();
+  await initPlatforms();
   initCollab();
   initApiKeys();
   initOAuth();
 
   const params = new URLSearchParams(window.location.search);
-  if (params.get('gumroad') === 'connected' || params.get('jinxxy') === 'connected') {
+  const justConnected = getActiveSetupProviders().some((p) => params.get(p.key) === 'connected');
+  if (justConnected) {
     const cleanParams = new URLSearchParams();
     if (getGuildId()) cleanParams.set('guild_id', getGuildId());
     if (getTenantId()) cleanParams.set('tenant_id', getTenantId());

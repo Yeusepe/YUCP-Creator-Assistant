@@ -1,6 +1,6 @@
 // Provider adapters for Gumroad, Jinxxy, Discord, and manual licenses
 
-import type { User, Verification, VerificationStatus } from '@yucp/shared';
+import type { Verification } from '@yucp/shared';
 import { ManualLicenseManager } from './manual/manager';
 import type { ManualLicenseStorage } from './manual/types';
 
@@ -50,51 +50,65 @@ export interface ManualProviderAdapter extends ProviderAdapter {
   bulkImport(
     input: import('./manual/types').BulkImportInput
   ): Promise<import('./manual/types').BulkImportResult>;
-  /** List licenses for a tenant/product */
+  /** List licenses for a creator/product */
   listLicenses(
-    tenantId: string,
+    authUserId: string,
     productId?: string
   ): Promise<Array<Omit<import('./manual/types').ManualLicense, 'licenseKeyHash'>>>;
 }
 
 // Re-export Gumroad adapter (full implementation in ./gumroad)
 import { GumroadAdapter } from './gumroad';
-export { GumroadAdapter, resolveGumroadProductId, resolveGumroadProduct } from './gumroad';
+
+export { GumroadAdapter, resolveGumroadProduct, resolveGumroadProductId } from './gumroad';
+
 import type { GumroadAdapterConfig } from './gumroad/types';
+
 export type {
+  AuthorizationUrlResult,
+  EncryptionService,
   GumroadAdapterConfig,
+  GumroadProduct,
   GumroadPurchaseEvidence,
   GumroadSale,
-  GumroadProduct,
-  AuthorizationUrlResult,
   OAuthCompletionResult,
-  TokenStorage,
-  EncryptionService,
   StateStorage,
+  TokenStorage,
 } from './gumroad';
 
 // Re-export Jinxxy adapter (full implementation in ./jinxxy)
 import { JinxxyAdapter, type JinxxyAdapterConfig } from './jinxxy';
+
 export { JinxxyAdapter, JinxxyApiClient } from './jinxxy';
-import { LemonSqueezyAdapter, type LemonSqueezyAdapterConfig } from './lemonsqueezy';
-export { LemonSqueezyAdapter, LemonSqueezyApiClient } from './lemonsqueezy';
-export { VrchatApiClient, extractVrchatAvatarId } from './vrchat';
+
+// Re-export Payhip adapter (full implementation in ./payhip)
+import { PayhipAdapter } from './payhip';
+
 export type {
-  VrchatCurrentUser,
-  VrchatLicensedAvatar,
-  VrchatVerifyOwnershipResult,
-  TwoFactorAuthType,
-  RequiresTwoFactorAuth,
-} from './vrchat';
+  PayhipAdapterConfig,
+  PayhipEvidence,
+  PayhipLicenseVerifyData,
+  PayhipLicenseVerifyResponse,
+  PayhipLicenseVerifyResult,
+  PayhipPaidPayload,
+  PayhipProductKey,
+  PayhipRefundedPayload,
+  PayhipWebhookItem,
+  PayhipWebhookPayload,
+} from './payhip';
+export { PayhipAdapter, PayhipApiClient, PayhipApiError, PayhipRateLimitError } from './payhip';
+
+import { LemonSqueezyAdapter, type LemonSqueezyAdapterConfig } from './lemonsqueezy';
+
 export type {
   JinxxyAdapterConfig,
+  JinxxyApiError,
+  JinxxyCustomer,
   JinxxyEvidence,
   JinxxyLicense,
   JinxxyOrder,
-  JinxxyCustomer,
-  JinxxyProduct,
   JinxxyPagination,
-  JinxxyApiError,
+  JinxxyProduct,
   JinxxyRateLimitError,
   LicenseVerificationResult,
   PurchaseVerificationResult,
@@ -111,13 +125,24 @@ export type {
   LemonSqueezyWebhook,
   LemonSqueezyWebhookCreateInput,
 } from './lemonsqueezy';
-export { LemonSqueezyApiError, LemonSqueezyRateLimitError } from './lemonsqueezy';
+export {
+  LemonSqueezyAdapter,
+  LemonSqueezyApiClient,
+  LemonSqueezyApiError,
+  LemonSqueezyRateLimitError,
+} from './lemonsqueezy';
+export type {
+  RequiresTwoFactorAuth,
+  TwoFactorAuthType,
+  VrchatCurrentUser,
+  VrchatLicensedAvatar,
+  VrchatVerifyOwnershipResult,
+} from './vrchat';
+export { extractVrchatAvatarId, VrchatApiClient } from './vrchat';
 
 // Discord provider adapter (placeholder)
 export class DiscordAdapter implements ProviderAdapter {
   readonly name = 'discord';
-
-  constructor(private config: ProviderConfig) {}
 
   async verifyPurchase(_discordId: string): Promise<Verification | null> {
     // Placeholder - Discord verification via OAuth/bot
@@ -136,10 +161,7 @@ export class ManualAdapter implements ProviderAdapter {
 
   private manager: ManualLicenseManager | null = null;
 
-  constructor(
-    private config: ProviderConfig,
-    storage?: ManualLicenseStorage
-  ) {
+  constructor(_config: ProviderConfig, storage?: ManualLicenseStorage) {
     if (storage) {
       this.manager = new ManualLicenseManager(storage);
     }
@@ -166,11 +188,11 @@ export class ManualAdapter implements ProviderAdapter {
   /**
    * Verify a purchase by validating the license key.
    * @param licenseKey - The plaintext license key to verify
-   * @param context - Context containing productId and tenantId
+   * @param context - Context containing productId and authUserId
    */
   async verifyPurchase(
     licenseKey: string,
-    context?: { productId: string; tenantId: string }
+    context?: { productId: string; authUserId: string }
   ): Promise<Verification | null> {
     if (!context || !this.manager) {
       // Fallback for basic interface - cannot validate without context
@@ -180,7 +202,7 @@ export class ManualAdapter implements ProviderAdapter {
     const result = await this.manager.validateLicense({
       licenseKey,
       productId: context.productId,
-      tenantId: context.tenantId,
+      authUserId: context.authUserId,
     });
 
     if (!result.valid || !result.license) {
@@ -243,13 +265,13 @@ export class ManualAdapter implements ProviderAdapter {
   }
 
   /**
-   * List licenses for a tenant/product.
+   * List licenses for a creator/product.
    */
   async listLicenses(
-    tenantId: string,
+    authUserId: string,
     productId?: string
   ): Promise<Array<Omit<import('./manual/types').ManualLicense, 'licenseKeyHash'>>> {
-    return this.getManager().listLicenses(tenantId, productId);
+    return this.getManager().listLicenses(authUserId, productId);
   }
 
   async getRecentPurchases(_limit?: number): Promise<PurchaseRecord[]> {
@@ -260,7 +282,7 @@ export class ManualAdapter implements ProviderAdapter {
 
 // Factory function for creating provider adapters
 export function createProviderAdapter(
-  type: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'discord' | 'manual',
+  type: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'payhip' | 'discord' | 'manual',
   config: ProviderConfig,
   storage?: ManualLicenseStorage
 ): ProviderAdapter {
@@ -289,8 +311,10 @@ export function createProviderAdapter(
         throw new Error('Use LemonSqueezyAdapter directly with apiToken config');
       }
       return new LemonSqueezyAdapter(config as unknown as LemonSqueezyAdapterConfig);
+    case 'payhip':
+      return new PayhipAdapter(config);
     case 'discord':
-      return new DiscordAdapter(config);
+      return new DiscordAdapter();
     case 'manual':
       return new ManualAdapter(config, storage);
     default:
@@ -308,20 +332,16 @@ export function createManualAdapter(
   return new ManualAdapter(config, storage) as ManualProviderAdapter;
 }
 
+export type { LicenseFormat } from './core/licenseFormat';
+// License format detection
+export { detectLicenseFormat } from './core/licenseFormat';
+export type { ProviderMeta } from './core/meta';
+// Provider metadata
+export { LICENSE_PROVIDERS, PROVIDER_META, providerLabel } from './core/meta';
+export * from './core/orchestrator';
+// Provider registry and orchestration layer
+export * from './core/registry';
 // Discord OAuth provider for buyer verification
 export * from './discord';
-
 // Manual license management module
 export * from './manual';
-
-// License format detection
-export { detectLicenseFormat } from './licenseFormat';
-export type { LicenseFormat } from './licenseFormat';
-
-// Provider registry and orchestration layer
-export * from './registry';
-export * from './orchestrator';
-
-// Provider metadata
-export { PROVIDER_META, LICENSE_PROVIDERS, providerLabel } from './meta';
-export type { ProviderMeta } from './meta';

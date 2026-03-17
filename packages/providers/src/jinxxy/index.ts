@@ -26,10 +26,9 @@ import type {
   PurchaseVerificationResult,
 } from './types';
 import {
-  JinxxyApiError,
-  JinxxyRateLimitError,
   isLicenseValid,
   isOrderValid,
+  JinxxyApiError,
   normalizeLicenseToEvidence,
   normalizeOrderToEvidence,
 } from './types';
@@ -389,6 +388,6 @@ export class JinxxyAdapter implements ProviderAdapter {
   }
 }
 
+export * from './client';
 // Re-export types and utilities
 export * from './types';
-export * from './client';

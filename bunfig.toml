@@ -6,3 +6,6 @@ disable = false
 
 [run]
 shell = "bun"
+
+[test]
+exclude = ["**/playwright/**", "**/*.spec.ts", "**/test/e2e/**"]

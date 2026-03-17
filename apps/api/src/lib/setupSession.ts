@@ -2,20 +2,21 @@
  * Setup Session Management
  *
  * Creates and resolves HMAC-signed opaque tokens for the setup flow.
- * Tokens map to server-side state (tenantId, guildId, discordUserId).
+ * Tokens map to server-side state (authUserId, guildId, discordUserId).
  * No internal IDs are exposed in URLs.
  */
 
-import { createLogger } from '@yucp/shared';
+import { createLogger, timingSafeStringEqual } from '@yucp/shared';
 import { getStateStore } from './stateStore';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const SETUP_SESSION_PREFIX = 'setup_session:';
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
+const SESSION_MAX_AGE_MS = SESSION_TTL_MS;
 
 export interface SetupSessionData {
-  tenantId: string;
+  authUserId: string;
   guildId: string;
   discordUserId: string;
   createdAt: number;
@@ -56,7 +57,7 @@ async function hmacSign(token: string, secret: string): Promise<string> {
  * Returns the opaque token string to use in `?s=TOKEN`.
  */
 export async function createSetupSession(
-  tenantId: string,
+  authUserId: string,
   guildId: string,
   discordUserId: string,
   secret: string
@@ -67,7 +68,7 @@ export async function createSetupSession(
 
   const now = Date.now();
   const data: SetupSessionData = {
-    tenantId,
+    authUserId,
     guildId,
     discordUserId,
     createdAt: now,
@@ -79,7 +80,7 @@ export async function createSetupSession(
 
   logger.info('Setup session created', {
     tokenPrefix: `${signedToken.slice(0, 8)}...`,
-    tenantId,
+    authUserId,
     guildId,
   });
 
@@ -104,7 +105,7 @@ export async function resolveSetupSession(
 
   // Verify HMAC signature
   const expectedSig = await hmacSign(token, secret);
-  if (sig !== expectedSig) {
+  if (!timingSafeStringEqual(sig, expectedSig)) {
     logger.warn('Setup session HMAC verification failed', {
       tokenPrefix: `${signedToken.slice(0, 8)}...`,
     });
@@ -118,17 +119,20 @@ export async function resolveSetupSession(
   }
 
   const data = JSON.parse(raw) as SetupSessionData;
+  const now = Date.now();
 
   // Check expiration
-  if (Date.now() > data.expiresAt) {
+  if (
+    now > data.expiresAt ||
+    !Number.isFinite(data.createdAt) ||
+    now - data.createdAt > SESSION_MAX_AGE_MS
+  ) {
     await store.delete(`${SETUP_SESSION_PREFIX}${signedToken}`);
     return null;
   }
 
-  // Renew TTL
-  data.expiresAt = Date.now() + SESSION_TTL_MS;
-  await store.set(`${SETUP_SESSION_PREFIX}${signedToken}`, JSON.stringify(data), SESSION_TTL_MS);
-
+  // Session is valid — do NOT renew the TTL. Setup sessions have a fixed expiry so
+  // an attacker who captures a token cannot keep it alive indefinitely by replaying it.
   return data;
 }
 

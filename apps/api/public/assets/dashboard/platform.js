@@ -1,5 +1,7 @@
 import { getConfig } from './config.js';
+import { escHtml, setButtonLoading, clearButtonLoading } from './utils.js';
 import {
+  loadProviders,
   getActiveSetupProviders,
   getDashboardProvider,
 } from './providers.js';
@@ -22,12 +24,14 @@ import {
   setupCompleted,
   previousQuickStartCompletion,
   completedMilestones,
+  userAccountsList,
+  setUserAccountsList,
 } from './store.js';
 
 const SETTINGS_TOUCHED_PREFIX = 'yucp_dashboard_settings_touched:';
 const QUICK_START_DISMISS_PREFIX = 'yucp_dashboard_quick_start_dismissed:';
 const SETUP_COMPLETE_PREFIX = 'yucp_dashboard_setup_completed:';
-const platformProviders = getActiveSetupProviders();
+let platformProviders = [];
 
 function getTenantStorageKey(prefix) {
   return `${prefix}${getTenantId() || getGuildId() || 'unknown'}`;
@@ -65,6 +69,7 @@ function showSelectServerNotice() {
 
 export function loadProgressFlags() {
   try {
+    // UI state only — never store auth tokens or sensitive data in localStorage
     setSettingsTouched(localStorage.getItem(getTenantStorageKey(SETTINGS_TOUCHED_PREFIX)) === '1');
     setSetupCompleted(localStorage.getItem(getTenantStorageKey(SETUP_COMPLETE_PREFIX)) === '1');
   } catch {
@@ -88,7 +93,7 @@ function persistSetupCompleted() {
 }
 
 function resolveIconUrl(provider) {
-  return provider.iconUrl.replace('__API_BASE__', getApiBase());
+  return `${getApiBase()}/Icons/${provider.icon}`;
 }
 
 function getConnectedProviderKeys() {
@@ -107,7 +112,6 @@ function hasMeaningfulSettings() {
 
 function getQuickStartProviderNames() {
   return platformProviders
-    .filter((provider) => provider.setupState === 'ready')
     .map((provider) => provider.label)
     .join(', ');
 }
@@ -115,17 +119,11 @@ function getQuickStartProviderNames() {
 function buildQuickStartButtons() {
   return platformProviders
     .map((provider) => {
-      const disabled = provider.setupState !== 'ready';
-      const action = disabled ? '' : `onclick="navigateProvider('${provider.key}')"`;
-      const opacity = disabled ? 'opacity:0.55;cursor:not-allowed;' : '';
-      const statusPill = disabled
-        ? `<span style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.45);">Preview</span>`
-        : '';
+      const action = `data-provider-key="${provider.key}"`;
       return `
-        <button ${action} ${disabled ? 'disabled' : ''} style="background: ${provider.quickStartButtonBg}; border: 1px solid ${provider.quickStartButtonBorder}; color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; transition: background 0.2s; ${opacity}">
+        <button ${action} style="background: ${provider.quickStartBg}; border: 1px solid ${provider.quickStartBorder}; color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; transition: background 0.2s;">
           <img src="${resolveIconUrl(provider)}" style="width: 20px; border-radius: 4px;" alt="">
-          <span>${provider.quickStartDescription}</span>
-          ${statusPill}
+          <span>Connect ${escHtml(provider.label)}</span>
         </button>
       `;
     })
@@ -133,14 +131,13 @@ function buildQuickStartButtons() {
 }
 
 function providerButtonLabel(provider, isLinked) {
-  if (isLinked) return getHasSetupSession() ? 'Disconnect' : 'Connected';
-  if (provider.setupState === 'preview') return 'Setup Soon';
+  if (isLinked) return 'Disconnect';
   return 'Link Account';
 }
 
 function providerStatusLabel(provider, isLinked) {
   if (isLinked) return 'Connected';
-  return provider.setupState === 'preview' ? 'Preview' : 'Not Linked';
+  return 'Not Linked';
 }
 
 function renderPlatformScaffolding() {
@@ -153,19 +150,18 @@ function renderPlatformScaffolding() {
           <div id="${provider.key}-card" class="platform-card disconnected">
             <div class="flex items-start justify-between">
               <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center" style="background:${provider.iconBg};">
-                <img class="${provider.iconClassName}" src="${resolveIconUrl(provider)}" alt="${provider.label}">
+                <img class="w-6 h-6 object-contain" src="${resolveIconUrl(provider)}" alt="${escHtml(provider.label)}">
               </div>
               <span id="${provider.key}-status" class="status-pill disconnected">${providerStatusLabel(provider, false)}</span>
             </div>
             <div>
-              <h3 class="font-bold text-base mb-0.5">${provider.label}</h3>
-              <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">${provider.description}</p>
+              <h3 class="font-bold text-base mb-0.5">${escHtml(provider.label)}</h3>
             </div>
             <button id="${provider.key}-btn" class="card-action-btn link" type="button">${providerButtonLabel(provider, false)}</button>
             <div class="inline-confirm" id="${provider.key}-disconnect-confirm">
               <div>
                 <div class="inline-confirm-body">
-                  <span class="inline-confirm-label">Disconnect <strong>${provider.label}</strong>? This removes all syncing.</span>
+                  <span class="inline-confirm-label">Disconnect <strong>${escHtml(provider.label)}</strong>? This removes all syncing.</span>
                   <div class="inline-confirm-btns">
                     <button class="inline-cancel-btn" type="button" data-cancel-disconnect="${provider.key}">Cancel</button>
                     <button class="inline-danger-btn" id="${provider.key}-confirm-btn" type="button">Disconnect</button>
@@ -186,15 +182,15 @@ function renderPlatformScaffolding() {
           <article class="svr-cfg-tile" id="server-tile-${provider.key}" style="display: none;">
             <div class="svr-cfg-tile-head">
               <div class="svr-cfg-tile-icon">
-                <img src="${resolveIconUrl(provider)}" alt="${provider.label}" style="border-radius:4px;">
+                <img src="${resolveIconUrl(provider)}" alt="${escHtml(provider.label)}" style="border-radius:4px;">
               </div>
               <div class="svr-cfg-tile-text">
-                <span class="svr-cfg-tile-label">${provider.serverTileLabel}</span>
-                <span class="svr-cfg-tile-hint">${provider.serverTileHint}</span>
+                <span class="svr-cfg-tile-label">Enable ${escHtml(provider.label)} for this Server</span>
+                <span class="svr-cfg-tile-hint">${escHtml(provider.serverTileHint)}</span>
               </div>
             </div>
             <div class="svr-cfg-tile-ctrl">
-              <div id="toggle-serverEnable${provider.key[0].toUpperCase()}${provider.key.slice(1)}" class="svr-cfg-switch active" role="switch" aria-label="${provider.serverTileLabel}"></div>
+              <div id="toggle-serverEnable${provider.key[0].toUpperCase()}${provider.key.slice(1)}" class="svr-cfg-switch active" role="switch" aria-label="Enable ${escHtml(provider.label)} for this Server"></div>
             </div>
           </article>
         `
@@ -299,11 +295,21 @@ export function renderQuickStart() {
           <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
             ${buildQuickStartButtons()}
           </div>
-          <button onclick="dismissQuickStart()" style="background: transparent; color: rgba(255,255,255,0.4); border: none; font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 4px;">I'll set this up later</button>
+          <button data-action="dismiss-quickstart" style="background: transparent; color: rgba(255,255,255,0.4); border: none; font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 4px;">I'll set this up later</button>
         </div>
       </div>
     `;
     document.body.appendChild(modal);
+    modal.querySelectorAll('[data-provider-key]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.providerKey;
+        if (key) navigateProvider(key);
+      });
+    });
+    const dismissBtn = modal.querySelector('[data-action="dismiss-quickstart"]');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', dismissQuickStart);
+    }
   }
 }
 
@@ -372,81 +378,118 @@ async function ensureSetupSessionCookie() {
   return res.ok;
 }
 
-export async function navigateGumroad() {
-  if (getSetupToken()) {
-    const restored = await ensureSetupSessionCookie();
-    if (!restored) {
-      redirectToExpiredLinkError();
-      return;
-    }
-  }
-  const tid = getTenantId();
-  const gid = getGuildId();
-  if (tid && gid) {
-    window.location.href = `${getApiBase()}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tid)}&guildId=${encodeURIComponent(gid)}`;
-  } else if (getHasSetupSession()) {
-    window.location.href = `${getApiBase()}/api/connect/gumroad/begin`;
-  } else {
-    showSelectServerNotice();
-  }
-}
-
-export async function navigateJinxxy() {
-  if (getSetupToken()) {
-    const restored = await ensureSetupSessionCookie();
-    if (!restored) {
-      redirectToExpiredLinkError();
-      return;
-    }
-  }
-  const tid = getTenantId();
-  const gid = getGuildId();
-  if (tid && gid) {
-    window.location.href = `${getApiBase()}/jinxxy-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
-  } else if (getHasSetupSession()) {
-    window.location.href = `${getApiBase()}/jinxxy-setup`;
-  } else {
-    showSelectServerNotice();
-  }
-}
-
-export async function navigateLemonSqueezy() {
-  if (getSetupToken()) {
-    const restored = await ensureSetupSessionCookie();
-    if (!restored) {
-      redirectToExpiredLinkError();
-      return;
-    }
-  }
-  const tid = getTenantId();
-  const gid = getGuildId();
-  if (tid && gid) {
-    window.location.href = `${getApiBase()}/lemonsqueezy-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
-  } else if (getHasSetupSession()) {
-    window.location.href = `${getApiBase()}/lemonsqueezy-setup`;
-  } else {
-    showSelectServerNotice();
-  }
-}
-
 export async function navigateProvider(providerKey) {
-  if (providerKey === 'gumroad') {
-    return navigateGumroad();
+  const btn = document.getElementById(`${providerKey}-btn`);
+  setButtonLoading(btn, 'Connecting…');
+  try {
+    if (getSetupToken()) {
+      const restored = await ensureSetupSessionCookie();
+      if (!restored) {
+        redirectToExpiredLinkError();
+        return;
+      }
+    }
+    const provider = getActiveSetupProviders().find((p) => p.key === providerKey);
+    if (!provider) return;
+    const tid = getTenantId();
+    const gid = getGuildId();
+    let connectUrl = `${getApiBase()}${provider.connectPath}`;
+    if (tid && gid) {
+      if (provider.connectParamStyle === 'camelCase') {
+        connectUrl += `?tenantId=${encodeURIComponent(tid)}&guildId=${encodeURIComponent(gid)}`;
+      } else {
+        connectUrl += `?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
+      }
+    }
+    window.location.href = connectUrl;
+  } catch (e) {
+    clearButtonLoading(btn);
+    throw e;
   }
-  if (providerKey === 'jinxxy') {
-    return navigateJinxxy();
-  }
-  if (providerKey === 'lemonsqueezy') {
-    return navigateLemonSqueezy();
-  }
-  return undefined;
 }
 
 export function updatePlatformCards() {
+  renderAccountsSection();
   platformProviders.forEach((provider) => {
     updateCard(provider.key, connectionsMap.has(provider.key));
   });
   renderQuickStart();
+}
+
+function getProviderMeta() {
+  return Object.fromEntries(
+    getActiveSetupProviders().map((p) => [
+      p.key,
+      {
+        name: p.label,
+        icon: resolveIconUrl(p),
+        iconBg: p.iconBg,
+        navigate: () => navigateProvider(p.key),
+      },
+    ])
+  );
+}
+
+function renderAddButtons() {
+  const container = document.getElementById('add-account-buttons');
+  if (!container) return;
+
+  container.innerHTML = platformProviders
+    .map(
+      (p) => `<button class="card-action-btn link" data-provider="${p.key}"
+          style="flex:1;min-width:160px;display:flex;align-items:center;justify-content:center;gap:8px;">
+          <img src="${resolveIconUrl(p)}" style="width:16px;border-radius:3px;" alt="">
+          Add ${p.label} Account
+        </button>`
+    )
+    .join('');
+
+  container.querySelectorAll('[data-provider]').forEach((btn) => {
+    const key = btn.getAttribute('data-provider');
+    btn.addEventListener('click', () => navigateProvider(key));
+  });
+}
+
+function renderAccountsSection() {
+  const container = document.getElementById('user-accounts-list');
+  if (!container) return;
+
+  const accounts = userAccountsList;
+  if (accounts.length === 0) {
+    container.innerHTML = `
+      <div style="color:rgba(255,255,255,0.5); font-size:14px; font-family:'DM Sans',sans-serif; padding: 16px 0;">
+        No store accounts linked yet. Use the buttons below to connect.
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = accounts.map((conn) => {
+    const meta = getProviderMeta()[conn.provider] || { name: conn.provider, icon: '', iconBg: '#333', navigate: () => {} };
+    const label = conn.label || meta.name;
+    return `
+      <div class="platform-card connected" style="position:relative;">
+        <div class="flex items-start justify-between">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden" style="background:${meta.iconBg}; flex-shrink:0;">
+            <img src="${meta.icon}" class="w-6 h-6 object-contain" alt="${meta.name}">
+          </div>
+          <span class="status-pill connected">Connected</span>
+        </div>
+        <div>
+          <h3 class="font-bold text-base mb-0.5">${meta.name}</h3>
+          <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">${escHtml(label)}</p>
+        </div>
+        <button
+          class="card-action-btn disconnect"
+          data-conn-id="${escHtml(conn.id)}"
+          data-provider="${escHtml(conn.provider)}"
+        >Disconnect</button>
+      </div>`;
+  }).join('');
+  container.querySelectorAll('.card-action-btn.disconnect').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      confirmDisconnectUserAccount(btn.dataset.connId, btn.dataset.provider, btn);
+    });
+  });
 }
 
 function updateCard(platform, isLinked) {
@@ -463,11 +506,11 @@ function updateCard(platform, isLinked) {
     card.classList.add('connected');
     status.className = 'status-pill connected';
     status.innerText = providerStatusLabel(provider, true);
-    btn.className = getHasSetupSession() ? 'card-action-btn disconnect' : 'card-action-btn link';
+    btn.className = 'card-action-btn disconnect';
     btn.innerText = providerButtonLabel(provider, true);
     btn.style = '';
-    btn.onclick = getHasSetupSession() ? () => openModal(platform) : null;
-    btn.disabled = !getHasSetupSession();
+    btn.onclick = () => openModal(platform);
+    btn.disabled = false;
   } else {
     card.classList.add('disconnected');
     card.classList.remove('connected');
@@ -496,7 +539,7 @@ function updateSettingsUI() {
     const el = document.getElementById(`toggle-${key}`);
     if (el) el.classList.toggle('active', !!settingsMap.get(key));
   });
-  ['verificationScope', 'duplicateVerificationBehavior', 'suspiciousAccountBehavior'].forEach((key) => {
+  ['verificationScope', 'duplicateVerificationBehavior', 'suspiciousAccountBehavior', 'logChannelId', 'announcementsChannelId'].forEach((key) => {
     const el = document.getElementById(`select-${key}`);
     if (el && settingsMap.has(key)) {
       el.value = settingsMap.get(key);
@@ -541,16 +584,13 @@ function showSaveError(key) {
 }
 
 async function toggleSetting(key) {
-  if (!getHasSetupSession()) {
-    alert('Settings can only be changed using a secure setup link from Discord.');
-    return;
-  }
   const el = document.getElementById(`toggle-${key}`);
   const newValue = !settingsMap.get(key);
   el.classList.toggle('active');
   settingsMap.set(key, newValue);
+  el.classList.add('saving');
   try {
-    const res = await apiFetch(`${getApiBase()}/api/connect/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value: newValue }) });
+    const res = await apiFetch(`${getApiBase()}/api/connect/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value: newValue, authUserId: getTenantId() }) });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data?.error || 'Failed to save setting.');
@@ -564,18 +604,16 @@ async function toggleSetting(key) {
     el.classList.toggle('active');
     settingsMap.set(key, !newValue);
     renderQuickStart();
+  } finally {
+    el.classList.remove('saving');
   }
 }
 
 async function selectSetting(key, value) {
-  if (!getHasSetupSession()) {
-    alert('Settings can only be changed using a secure setup link from Discord.');
-    return;
-  }
   const oldValue = settingsMap.get(key);
   settingsMap.set(key, value);
   try {
-    const res = await apiFetch(`${getApiBase()}/api/connect/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) });
+    const res = await apiFetch(`${getApiBase()}/api/connect/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value, authUserId: getTenantId() }) });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data?.error || 'Failed to save setting.');
@@ -612,7 +650,6 @@ function openModal(platform) {
 }
 
 async function confirmDisconnect(platform) {
-  if (!getHasSetupSession()) return;
   const conn = connectionsMap.get(platform);
   if (!conn) return;
   const btn = document.getElementById(`${platform}-confirm-btn`);
@@ -621,7 +658,9 @@ async function confirmDisconnect(platform) {
     btn.textContent = 'Disconnecting…';
   }
   try {
-    const res = await apiFetch(`${getApiBase()}/api/connections?id=${conn.id}`, { method: 'DELETE' });
+    const authUserId = getTenantId();
+    const urlSuffix = authUserId ? `&authUserId=${encodeURIComponent(authUserId)}` : '';
+    const res = await apiFetch(`${getApiBase()}/api/connections?id=${conn.id}${urlSuffix}`, { method: 'DELETE' });
     if (res.ok) {
       connectionsMap.delete(platform);
       const el = document.getElementById(`${platform}-disconnect-confirm`);
@@ -640,55 +679,142 @@ async function confirmDisconnect(platform) {
   }
 }
 
+export async function confirmDisconnectUserAccount(connId, provider, btn) {
+  if (!connId || typeof connId !== 'string' || connId.length > 256) return;
+  if (!provider || typeof provider !== 'string' || provider.length > 64) return;
+  if (!confirm(`Disconnect this ${provider} account? This removes syncing for all servers.`)) return;
+  setButtonLoading(btn, 'Disconnecting…');
+  try {
+    const res = await apiFetch(`${getApiBase()}/api/connect/user/accounts?id=${encodeURIComponent(connId)}`, { method: 'DELETE' });
+    if (res.ok) {
+      setUserAccountsList(userAccountsList.filter((c) => c.id !== connId));
+      updatePlatformCards();
+    } else {
+      alert('Failed to disconnect. Please try again.');
+    }
+  } catch (e) {
+    console.error('Disconnect error:', e);
+    alert('Network error while disconnecting.');
+  } finally {
+    clearButtonLoading(btn);
+  }
+}
+
+async function loadGuildChannels() {
+  try {
+    const guildId = getGuildId();
+    const tenantId = getTenantId();
+    let url = `${getApiBase()}/api/connect/guild/channels`;
+    // Web-session users have no setup-session cookie; pass guildId for server-side ownership check.
+    if (!getHasSetupSession() && guildId) {
+      url += `?guildId=${encodeURIComponent(guildId)}`;
+      if (tenantId) url += `&authUserId=${encodeURIComponent(tenantId)}`;
+    }
+    const res = await apiFetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    const channels = data.channels || [];
+    refreshChannelSelect('select-logChannelId', channels, settingsMap.get('logChannelId'));
+    refreshChannelSelect('select-announcementsChannelId', channels, settingsMap.get('announcementsChannelId'));
+  } catch (err) {
+    console.error('Failed to load guild channels', err);
+  }
+}
+
+function refreshChannelSelect(selectId, channels, savedValue) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+
+  // initCustomSelects inserts the wrapper as a SIBLING after the select (not a parent),
+  // so use nextElementSibling — not closest() — to find and remove it.
+  const sibling = select.nextElementSibling;
+  if (sibling?.classList.contains('custom-select-wrapper')) sibling.remove();
+  delete select.dataset.customized;
+
+  // Repopulate options
+  select.innerHTML = '<option value="">— None —</option>';
+  channels.forEach((ch) => {
+    const opt = document.createElement('option');
+    opt.value = ch.id;
+    opt.textContent = `#${ch.name}`;
+    select.appendChild(opt);
+  });
+
+  if (savedValue) {
+    select.value = savedValue;
+  }
+
+  // Re-apply the custom select widget
+  initCustomSelects();
+
+  if (savedValue) {
+    select.dispatchEvent(new CustomEvent('value-updated'));
+  }
+}
+
 export async function fetchAllData() {
   try {
+    // Always fetch user-scoped accounts (works regardless of server selection)
+    const userAccountsRes = await apiFetch(`${getApiBase()}/api/connect/user/accounts`);
+    if (userAccountsRes.ok) {
+      const userAccountsData = await userAccountsRes.json();
+      setUserAccountsList(userAccountsData.connections || []);
+    }
+
     if (getHasSetupSession()) {
+      // Also fetch setup-session-scoped connections (legacy flow)
       const statusRes = await apiFetch(`${getApiBase()}/api/connections`);
       if (statusRes.ok) {
         const statusData = await statusRes.json();
-        connectionsMap.clear();
+        // Merge setup-session connections with user accounts (deduplicate by id)
+        const existing = new Set(userAccountsList.map((c) => c.id));
+        const merged = [...userAccountsList];
         if (statusData.connections) {
           statusData.connections.forEach((c) => {
-            if (c.status === 'active') connectionsMap.set(c.providerKey || c.provider, c);
+            if (c.status === 'active') {
+              const providerKey = c.providerKey || c.provider;
+              if (!providerKey) return;
+              const normalized = { ...c, provider: c.provider || providerKey };
+              connectionsMap.set(providerKey, normalized);
+              if (!existing.has(normalized.id)) merged.push(normalized);
+            }
           });
         }
-        updatePlatformCards();
+        setUserAccountsList(merged);
       }
       const settingsRes = await apiFetch(`${getApiBase()}/api/connect/settings`);
       if (settingsRes.ok) {
         const settingsData = await settingsRes.json();
         if (settingsData.policy) {
           const policy = settingsData.policy;
-          ['allowMismatchedEmails', 'autoVerifyOnJoin', 'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers', 'verificationScope', 'duplicateVerificationBehavior', 'suspiciousAccountBehavior'].forEach((k) => {
+          ['allowMismatchedEmails', 'autoVerifyOnJoin', 'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers', 'verificationScope', 'duplicateVerificationBehavior', 'suspiciousAccountBehavior', 'logChannelId', 'announcementsChannelId'].forEach((k) => {
+            if (policy[k] !== undefined) settingsMap.set(k, policy[k]);
+          });
+          updateSettingsUI();
+        }
+        await loadGuildChannels();
+      }
+    } else if (getTenantId()) {
+      const settingsRes = await apiFetch(`${getApiBase()}/api/connect/settings?authUserId=${encodeURIComponent(getTenantId())}`);
+      if (settingsRes.ok) {
+        const settingsData = await settingsRes.json();
+        if (settingsData.policy) {
+          const policy = settingsData.policy;
+          ['allowMismatchedEmails', 'autoVerifyOnJoin', 'shareVerificationWithServers', 'enableDiscordRoleFromOtherServers', 'verificationScope', 'duplicateVerificationBehavior', 'suspiciousAccountBehavior', 'logChannelId', 'announcementsChannelId'].forEach((k) => {
             if (policy[k] !== undefined) settingsMap.set(k, policy[k]);
           });
           updateSettingsUI();
         }
       }
-    } else if (getTenantId()) {
-      const statusRes = await apiFetch(`${getApiBase()}/api/connect/status?tenantId=${encodeURIComponent(getTenantId())}`);
-      if (statusRes.ok) {
-        const statusData = await statusRes.json();
-        connectionsMap.clear();
-        if (Array.isArray(statusData.connections)) {
-          statusData.connections.forEach((connection) => {
-            const providerKey = connection.providerKey || connection.provider;
-            if (providerKey) connectionsMap.set(providerKey, connection);
-          });
-        } else {
-          if (statusData.gumroad) connectionsMap.set('gumroad', { provider: 'gumroad', status: 'active' });
-          if (statusData.jinxxy) connectionsMap.set('jinxxy', { provider: 'jinxxy', status: 'active' });
-          if (statusData.lemonsqueezy) connectionsMap.set('lemonsqueezy', { provider: 'lemonsqueezy', status: 'active' });
-        }
-        updatePlatformCards();
-      }
+      if (getGuildId()) await loadGuildChannels();
     }
+    updatePlatformCards();
   } catch (err) {
     console.error('Failed to fetch data', err);
   }
 }
 
-function initCustomSelects() {
+export function initCustomSelects() {
   document.querySelectorAll('.setting-select, .svr-cfg-pick').forEach((select) => {
     if (select.dataset.customized) return;
     select.dataset.customized = 'true';
@@ -748,16 +874,19 @@ function initCustomSelects() {
   });
 }
 
-export function initPlatforms() {
+export async function initPlatforms() {
+  await loadProviders(getApiBase());
+  platformProviders = getActiveSetupProviders();
+
   renderPlatformScaffolding();
-  window.navigateGumroad = navigateGumroad;
-  window.navigateJinxxy = navigateJinxxy;
-  window.navigateLemonSqueezy = navigateLemonSqueezy;
   window.navigateProvider = navigateProvider;
   window.dismissQuickStart = dismissQuickStart;
   window.toggleSetting = toggleSetting;
   window.selectSetting = selectSetting;
   window.cancelDisconnect = cancelDisconnect;
+  window.confirmDisconnectUserAccount = confirmDisconnectUserAccount;
+
+  renderAddButtons();
 
   document.querySelectorAll('.setting-select, .svr-cfg-pick').forEach((select) => {
     const key = select.id?.replace('select-', '') || '';

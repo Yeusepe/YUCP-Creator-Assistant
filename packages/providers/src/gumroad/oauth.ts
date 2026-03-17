@@ -74,14 +74,13 @@ export class GumroadOAuthClient {
 
   /**
    * Generate the authorization URL for the OAuth flow.
-   * User should be redirected to this URL to authorize the application.
    *
-   * @param tenantId - The tenant ID for multi-tenant context
+   * @param authUserId - The auth user ID for user-first context
    * @param options - Optional parameters (scope, subjectId)
    * @returns Authorization URL and state for the OAuth flow
    */
   async getAuthorizationUrl(
-    tenantId: string,
+    _authUserId: string,
     options?: {
       scope?: string;
       subjectId?: string;
@@ -268,10 +267,10 @@ export class GumroadOAuthClient {
   /**
    * Create a state object for storage
    */
-  createState(tenantId: string, subjectId?: string): OAuthState {
+  createState(authUserId: string, subjectId?: string): OAuthState {
     return {
       state: generateRandomString(32),
-      tenantId,
+      authUserId,
       subjectId,
       createdAt: Date.now(),
     };

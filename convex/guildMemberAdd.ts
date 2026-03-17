@@ -6,15 +6,8 @@
  */
 
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
 import { mutation } from './_generated/server';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 /**
  * Handle guild member join: queue role_sync jobs if user has entitlements.
@@ -44,12 +37,15 @@ export const handleGuildMemberJoin = mutation({
       return { queued: false, jobCount: 0, reason: 'Guild not linked' };
     }
 
-    const tenant = await ctx.db.get(guildLink.tenantId);
-    if (!tenant) {
-      return { queued: false, jobCount: 0, reason: 'Tenant not found' };
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', guildLink.authUserId))
+      .first();
+    if (!profile) {
+      return { queued: false, jobCount: 0, reason: 'Creator profile not found' };
     }
 
-    const autoVerifyOnJoin = tenant.policy?.autoVerifyOnJoin ?? false;
+    const autoVerifyOnJoin = profile.policy?.autoVerifyOnJoin ?? false;
     if (!autoVerifyOnJoin) {
       return { queued: false, jobCount: 0, reason: 'autoVerifyOnJoin disabled' };
     }
@@ -72,8 +68,8 @@ export const handleGuildMemberJoin = mutation({
 
     const entitlements = await ctx.db
       .query('entitlements')
-      .withIndex('by_tenant_subject', (q) =>
-        q.eq('tenantId', guildLink.tenantId).eq('subjectId', subject._id)
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', guildLink.authUserId).eq('subjectId', subject._id)
       )
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
@@ -86,7 +82,7 @@ export const handleGuildMemberJoin = mutation({
     let jobCount = 0;
 
     for (const ent of entitlements) {
-      const idempotencyKey = `guild_join_sync:${guildLink.tenantId}:${subject._id}:${ent._id}:${args.discordGuildId}`;
+      const idempotencyKey = `guild_join_sync:${guildLink.authUserId}:${subject._id}:${ent._id}:${args.discordGuildId}`;
       const existing = await ctx.db
         .query('outbox_jobs')
         .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', idempotencyKey))
@@ -94,7 +90,7 @@ export const handleGuildMemberJoin = mutation({
       if (existing) continue;
 
       await ctx.db.insert('outbox_jobs', {
-        tenantId: guildLink.tenantId,
+        authUserId: guildLink.authUserId,
         jobType: 'role_sync',
         payload: {
           subjectId: subject._id,

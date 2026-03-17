@@ -99,6 +99,15 @@ export interface GumroadSalesResponse {
   message?: string;
 }
 
+/**
+ * Gumroad API response wrapper for a single sale (GET /v2/sales/:id)
+ */
+export interface GumroadSaleResponse {
+  success: boolean;
+  sale: GumroadSale;
+  message?: string;
+}
+
 // ============================================================================
 // PRODUCTS API TYPES
 // ============================================================================
@@ -244,8 +253,8 @@ export interface GumroadAdapterConfig {
 export interface OAuthState {
   /** Random state token */
   state: string;
-  /** Tenant ID for multi-tenant context */
-  tenantId: string;
+  /** Auth user ID for user-first context */
+  authUserId: string;
   /** Subject ID (YUCP user) */
   subjectId?: string;
   /** Timestamp when state was created */

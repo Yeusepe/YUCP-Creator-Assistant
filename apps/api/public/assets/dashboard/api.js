@@ -1,6 +1,5 @@
 import { getApiBase, getTenantId, apiFetch, publicApiKeys, setPublicApiKeys } from './store.js';
-import { escHtml } from './utils.js';
-import { copyText } from './utils.js';
+import { escHtml, copyText, setButtonLoading, clearButtonLoading } from './utils.js';
 
 let currentApiKeyValue = '';
 
@@ -106,11 +105,11 @@ function renderApiKeysSection() {
       const menuBtns = menu.querySelectorAll('button');
       menuBtns[0].addEventListener('click', () => {
         menu.classList.remove('open');
-        rotatePublicApiKey(key._id);
+        rotatePublicApiKey(key._id, menuBtn);
       });
       menuBtns[1].addEventListener('click', () => {
         menu.classList.remove('open');
-        revokePublicApiKey(key._id);
+        revokePublicApiKey(key._id, menuBtn);
       });
       actions.appendChild(menuBtn);
       actions.appendChild(menu);
@@ -234,7 +233,7 @@ function showApiKeyReveal(apiKey, keyName) {
               <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
             </svg>
           </div>
-          <h3 style="font-size:20px; font-weight:800; font-family:'Plus Jakarta Sans',sans-serif; margin:0 0 8px; color:white;">Key created — ${escHtml(keyName || 'New key')}</h3>
+          <h3 style="font-size:20px; font-weight:800; font-family:'Plus Jakarta Sans',sans-serif; margin:0 0 8px; color:white;">Key created, ${escHtml(keyName || 'New key')}</h3>
           <p style="font-size:14px; color:rgba(255,255,255,0.7); margin:0;">Copy it now, this is the only time you'll see it</p>
         </div>
         <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:12px; padding:12px; margin-bottom:20px; text-align:left; display:flex; gap:12px;">
@@ -256,7 +255,7 @@ function showApiKeyReveal(apiKey, keyName) {
           <input type="checkbox" id="api-key-copied-check" style="width:18px; height:18px; accent-color:#0ea5e9; cursor:pointer;" aria-label="Confirm copy">
           <label for="api-key-copied-check" style="font-size:14px; color:#e2e8f0; cursor:pointer; user-select:none; font-family:'DM Sans',sans-serif; margin:0;">I have securely copied this secret key</label>
         </div>
-        <button id="api-key-reveal-done" style="width:100%; justify-content:center; background:#0ea5e9; color:#fff; border:none; padding:12px 24px; font-size:15px; font-weight:700; border-radius:12px; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; transition:all 0.2s; opacity:0.5; pointer-events:none; display:flex; align-items:center;">Done — Close window</button>
+        <button id="api-key-reveal-done" style="width:100%; justify-content:center; background:#0ea5e9; color:#fff; border:none; padding:12px 24px; font-size:15px; font-weight:700; border-radius:12px; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; transition:all 0.2s; opacity:0.5; pointer-events:none; display:flex; align-items:center;">Done, Close window</button>
       </div>
     </div>
   `;
@@ -289,10 +288,11 @@ function showApiKeyReveal(apiKey, keyName) {
   });
 }
 
-async function revokePublicApiKey(keyId) {
+async function revokePublicApiKey(keyId, btn) {
   if (!confirm('Revoke this API key? It will stop working immediately.')) return;
   const tid = getTenantId();
   if (!tid) return;
+  setButtonLoading(btn, 'Revoking…');
   try {
     const res = await apiFetch(`${getApiBase()}/api/connect/public-api/keys/${encodeURIComponent(keyId)}/revoke`, {
       method: 'POST',
@@ -310,13 +310,16 @@ async function revokePublicApiKey(keyId) {
   } catch (e) {
     console.error('Revoke API key failed:', e);
     alert('Network error. Please try again.');
+  } finally {
+    clearButtonLoading(btn);
   }
 }
 
-async function rotatePublicApiKey(keyId) {
+async function rotatePublicApiKey(keyId, btn) {
   if (!confirm('Rotate this key? A new key will be created and this one will be revoked. Copy the new key when it appears.')) return;
   const tid = getTenantId();
   if (!tid) return;
+  setButtonLoading(btn, 'Rotating…');
   try {
     const res = await apiFetch(`${getApiBase()}/api/connect/public-api/keys/${encodeURIComponent(keyId)}/rotate`, {
       method: 'POST',
@@ -335,6 +338,8 @@ async function rotatePublicApiKey(keyId) {
     showApiKeyReveal(currentApiKeyValue, 'Rotated key');
   } catch (e) {
     alert(e.message || 'Failed to rotate key. Please try again.');
+  } finally {
+    clearButtonLoading(btn);
   }
 }
 

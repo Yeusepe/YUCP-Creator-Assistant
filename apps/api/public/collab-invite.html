@@ -10,6 +10,7 @@
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="./tokens.css">
+    <link rel="stylesheet" href="./loading.css">
     <link rel="stylesheet" href="/assets/collab-invite/collab-invite.css">
     <style>
         :root {
@@ -244,31 +245,6 @@
             background: rgba(67, 181, 129, 0.05);
         }
 
-        .page-loading-spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(255, 255, 255, 0.1);
-            border-top-color: #5865F2;
-            border-radius: 50%;
-            animation: page-loading-spin 0.8s linear infinite;
-        }
-
-        @keyframes page-loading-spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* ── Flash fix ─────────────────────────────────────────────────────── */
-        #page-loading-overlay {
-            transition: opacity 0.35s ease;
-        }
-
-        #page-loading-overlay.is-hiding {
-            opacity: 0;
-            pointer-events: none;
-        }
-
         #page-content {
             opacity: 0;
             transition: opacity 0.3s ease 0.05s;
@@ -281,12 +257,8 @@
 </head>
 
 <body class="flex flex-col items-center justify-center min-h-screen p-4 py-8">
-    <div id="page-loading-overlay" class="fixed inset-0 z-[100] flex flex-col items-center justify-center"
-        style="background-color: var(--bg-color);">
-        <img src="__API_BASE__/Icons/MainLogo.png" alt="Creator Assistant"
-            class="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mb-8" />
-        <div class="page-loading-spinner"></div>
-        <p class="mt-4" style="color: var(--text-secondary);">Loading...</p>
+    <!-- Full-page loading overlay (content injected by site.js) -->
+    <div id="page-loading-overlay"></div>
     </div>
     <div id="page-content" style="display: none;">
         <a id="back-to-dashboard-btn" href="#"
@@ -345,7 +317,7 @@
                             <li class="flex gap-2 items-start">
                                 <img src="__API_BASE__/Icons/Checkmark.png" width="16" height="16" alt=""
                                     style="margin-top:2px;flex-shrink:0;opacity:0.8;">
-                                <span>Your Jinxxy™ API key is used to verify licenses sold through your store</span>
+                                <span id="consent-provider-description">Your store API key is used to verify licenses sold through your store</span>
                             </li>
                             <li class="flex gap-2 items-start">
                                 <img src="__API_BASE__/Icons/Checkmark.png" width="16" height="16" alt=""
@@ -389,7 +361,8 @@
             <!-- Stage 3: Type selection -->
             <div id="stage-type" class="stage">
                 <div class="fade-in">
-                    <h2 class="text-xl font-heading font-bold mb-2 text-center">Choose how to connect</h2>
+                    <h2 class="text-xl font-heading font-bold mb-1 text-center">Choose how to connect</h2>
+                    <p class="text-center mb-1 text-sm" id="stage-type-provider" style="color: var(--text-secondary);"></p>
                     <p class="text-center mb-6" style="color: var(--text-secondary);">Select your preferred integration
                         method.</p>
 
@@ -698,7 +671,7 @@
                                 previously saved API key</p>
                         </div>
                         <div id="api-key-input-group" class="mb-3">
-                            <input type="password" class="input-field" id="account-api-key" placeholder="jinxxy_..."
+                            <input type="password" class="input-field" id="account-api-key" placeholder="Paste your API key..."
                                 autocomplete="off">
                         </div>
                         <div id="account-error" class="warning-box mb-3 hidden"></div>
@@ -744,21 +717,15 @@
                         </div>
                     </div>
 
-                    <h2 class="text-xl font-heading font-bold mb-3">Enter your Jinxxy™ API key</h2>
+                    <h2 class="text-xl font-heading font-bold mb-3" id="api-form-heading">Enter your API key</h2>
 
                     <div class="warning-box mb-4">
                         <strong>Manual verification only</strong> - users must run /verify manually. There is no
                         automatic role assignment when someone makes a purchase.
                     </div>
 
-                    <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.7;">
-                        In Jinxxy™, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong
-                            style="color:white;">New API Key</strong>. Enable these scopes: <code
-                            style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code>
-                        <code
-                            style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code>
-                        <code
-                            style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>.
+                    <p class="mb-4" style="color:var(--text-secondary);font-size:14px;line-height:1.7;" id="api-form-instructions">
+                        Go to your provider dashboard and create an API key with the required scopes.
                         Then paste it below.
                     </p>
 
@@ -770,7 +737,7 @@
                     </div>
 
                     <div id="api-form-key-group" class="mb-3">
-                        <input type="password" class="input-field" id="api-form-key" placeholder="jinxxy_..."
+                        <input type="password" class="input-field" id="api-form-key" placeholder="Paste your API key..."
                             autocomplete="off">
                     </div>
 
@@ -993,14 +960,67 @@
             }, 2500);
         }
 
+        // Minimal provider label map for the collab invite page.
+        const PROVIDER_UI = {
+            jinxxy: {
+                label: 'Jinxxy™',
+                placeholder: 'jinxxy_...',
+                apiFormHeading: 'Enter your Jinxxy™ API key',
+                apiFormInstructions: 'In Jinxxy™, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong style="color:white;">New API Key</strong>. Enable scopes: <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>. Then paste it below.',
+                consentDescription: 'Your Jinxxy™ API key is used to verify licenses sold through your store',
+                errorEmpty: 'Please enter your Jinxxy™ API key.',
+                supportsAccountLinking: true,
+            },
+            lemonsqueezy: {
+                label: 'Lemon Squeezy',
+                placeholder: 'eyJ0...',
+                apiFormHeading: 'Enter your Lemon Squeezy API key',
+                apiFormInstructions: 'In Lemon Squeezy, go to <strong style="color:white;">Settings → API</strong> and click <strong style="color:white;">Create new API key</strong>. Then paste it below.',
+                consentDescription: 'Your Lemon Squeezy API key is used to verify licenses sold through your store',
+                errorEmpty: 'Please enter your Lemon Squeezy API key.',
+                supportsAccountLinking: false,
+            },
+        };
+
+        function getProviderUI(providerKey) {
+            return PROVIDER_UI[providerKey] || {
+                label: providerKey,
+                placeholder: 'Paste your API key...',
+                apiFormHeading: 'Enter your API key',
+                apiFormInstructions: 'Go to your provider dashboard and create an API key, then paste it below.',
+                consentDescription: 'Your API key is used to verify licenses sold through your store',
+                errorEmpty: 'Please enter your API key.',
+            };
+        }
+
+        function updateProviderUI(providerKey) {
+            const ui = getProviderUI(providerKey);
+            const consentDesc = document.getElementById('consent-provider-description');
+            if (consentDesc) consentDesc.textContent = ui.consentDescription;
+            const apiFormHeading = document.getElementById('api-form-heading');
+            if (apiFormHeading) apiFormHeading.textContent = ui.apiFormHeading;
+            const apiFormInstructions = document.getElementById('api-form-instructions');
+            if (apiFormInstructions) apiFormInstructions.innerHTML = ui.apiFormInstructions;
+            const accountApiKey = document.getElementById('account-api-key');
+            if (accountApiKey) accountApiKey.placeholder = ui.placeholder;
+            const apiFormKey = document.getElementById('api-form-key');
+            if (apiFormKey) apiFormKey.placeholder = ui.placeholder;
+            // Show which store is being connected on the type-selection stage
+            const stageTypeProvider = document.getElementById('stage-type-provider');
+            if (stageTypeProvider) stageTypeProvider.textContent = `Connecting your ${ui.label} store`;
+            // Show the Account Linking card only for providers that use webhook-based setup
+            const cardAccount = document.getElementById('card-account');
+            if (cardAccount) cardAccount.style.display = ui.supportsAccountLinking ? '' : 'none';
+        }
+
         async function submitAccountLinking() {
             const btn = document.getElementById('btn-account-submit');
             const errorEl = document.getElementById('account-error');
             errorEl.classList.add('hidden');
 
-            const jinxxyApiKey = document.getElementById('account-api-key').value.trim();
-            if (!jinxxyApiKey) {
-                errorEl.textContent = 'Please enter your Jinxxy API key.';
+            const apiKey = document.getElementById('account-api-key').value.trim();
+            if (!apiKey) {
+                errorEl.textContent = getProviderUI(inviteData?.providerKey).errorEmpty;
                 errorEl.classList.remove('hidden');
                 return;
             }
@@ -1013,7 +1033,7 @@
                 // server-side from the invite - never sent by the client.
                 const body = {
                     linkType: 'account',
-                    jinxxyApiKey,
+                    apiKey,
                 };
 
                 const res = await fetch(`${API_BASE}/api/collab/session/submit`, {
@@ -1046,9 +1066,9 @@
             const errorEl = document.getElementById('api-form-error');
             errorEl.classList.add('hidden');
 
-            const jinxxyApiKey = document.getElementById('api-form-key').value.trim();
-            if (!jinxxyApiKey) {
-                errorEl.textContent = 'Please enter your Jinxxy API key.';
+            const apiKey = document.getElementById('api-form-key').value.trim();
+            if (!apiKey) {
+                errorEl.textContent = getProviderUI(inviteData?.providerKey).errorEmpty;
                 errorEl.classList.remove('hidden');
                 return;
             }
@@ -1060,7 +1080,7 @@
                 // Identity is derived server-side from the invite.
                 const body = {
                     linkType: 'api',
-                    jinxxyApiKey,
+                    apiKey,
                 };
 
                 const res = await fetch(`${API_BASE}/api/collab/session/submit`, {
@@ -1160,8 +1180,9 @@
                 }
 
                 // Populate consent title and expiry
+                updateProviderUI(inviteData.providerKey);
                 document.getElementById('consent-title').textContent =
-                    `${inviteData.ownerDisplayName} wants to share license verification with your Jinxxy™ store`;
+                    `${inviteData.ownerDisplayName} wants to share license verification with your ${getProviderUI(inviteData.providerKey).label} store`;
                 const expiryDate = new Date(inviteData.expiresAt).toLocaleDateString(undefined, {
                     month: 'long', day: 'numeric', year: 'numeric'
                 });
@@ -1206,36 +1227,6 @@
         });
     </script>
     <script type="module" src="/assets/collab-invite/collab-invite.js"></script>
-
-    <script>
-        // Smooth overlay fade: intercepts site.js instant display:none
-        (function () {
-            var overlay = document.getElementById('page-loading-overlay');
-            var content = document.getElementById('page-content');
-            if (!overlay) return;
-            function dismissOverlay() {
-                observer.disconnect();
-                overlay.classList.add('is-hiding');
-                if (content) {
-                    content.style.display = '';
-                    requestAnimationFrame(function () {
-                        requestAnimationFrame(function () { content.classList.add('is-visible'); });
-                    });
-                }
-                setTimeout(function () { overlay.style.display = 'none'; }, 370);
-            }
-            var observer = new MutationObserver(function () {
-                if (overlay.style.display === 'none') {
-                    overlay.style.display = '';
-                    setTimeout(dismissOverlay, 500);
-                    observer.disconnect();
-                }
-            });
-            observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
-            // Fallback: dismiss if site.js fails to load or call hideLoading()
-            setTimeout(dismissOverlay, 10000);
-        })();
-    </script>
 </body>
 
 </html>

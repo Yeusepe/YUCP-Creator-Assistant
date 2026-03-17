@@ -39,7 +39,7 @@ export interface TestSecrets {
   };
 }
 
-const ENV_KEYS = {
+const _ENV_KEYS = {
   gumroad: ['GUMROAD_CLIENT_ID', 'GUMROAD_CLIENT_SECRET'] as const,
   discord: ['DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET'] as const,
   jinxxy: ['JINXXY_API_KEY'] as const,
@@ -123,7 +123,7 @@ function secretsFromInfisicalList(
   return result;
 }
 
-let cachedSecrets: TestSecrets | null | undefined = undefined;
+let cachedSecrets: TestSecrets | null | undefined;
 
 /**
  * Load test secrets from Infisical or process.env.

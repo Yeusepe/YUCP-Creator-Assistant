@@ -9,9 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: discord-bot-e2e
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
         with:
           bun-version: latest
 
@@ -32,7 +32,7 @@ jobs:
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
           API_INTERNAL_URL: ${{ secrets.API_INTERNAL_URL }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
-          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          E2E_BETTER_AUTH_SECRET: ${{ secrets.E2E_BETTER_AUTH_SECRET }} # Uses a dedicated E2E secret, not the production BETTER_AUTH_SECRET
           BOT_E2E_TARGET_GUILD_ID: ${{ secrets.BOT_E2E_TARGET_GUILD_ID }}
           BOT_E2E_SOURCE_GUILD_ID: ${{ secrets.BOT_E2E_SOURCE_GUILD_ID }}
           BOT_E2E_TENANT_ID: ${{ secrets.BOT_E2E_TENANT_ID }}
@@ -56,7 +56,7 @@ jobs:
             API_BASE_URL
             API_INTERNAL_URL
             FRONTEND_URL
-            BETTER_AUTH_SECRET
+            E2E_BETTER_AUTH_SECRET
             BOT_E2E_TARGET_GUILD_ID
             BOT_E2E_SOURCE_GUILD_ID
             BOT_E2E_TENANT_ID
@@ -94,7 +94,7 @@ jobs:
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
           API_INTERNAL_URL: ${{ secrets.API_INTERNAL_URL }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
-          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          E2E_BETTER_AUTH_SECRET: ${{ secrets.E2E_BETTER_AUTH_SECRET }} # Uses a dedicated E2E secret, not the production BETTER_AUTH_SECRET
           BOT_E2E_TARGET_GUILD_ID: ${{ secrets.BOT_E2E_TARGET_GUILD_ID }}
           BOT_E2E_SOURCE_GUILD_ID: ${{ secrets.BOT_E2E_SOURCE_GUILD_ID }}
           BOT_E2E_TENANT_ID: ${{ secrets.BOT_E2E_TENANT_ID }}

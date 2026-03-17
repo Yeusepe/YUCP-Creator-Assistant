@@ -4,6 +4,7 @@ import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
 import { decrypt } from '../../lib/encrypt';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
+import { PURPOSES as JINXXY } from '../../providers/jinxxy';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
 import type { VerificationConfig } from '../sessionManager';
 import type { LicenseVerificationHandler } from './index';
@@ -26,27 +27,16 @@ function normalizeEmail(email: string): string {
 async function resolveJinxxyApiKey(
   convex: ConvexServerClient,
   config: VerificationConfig,
-  tenantId: string
+  authUserId: string
 ): Promise<{ key: string } | { error: string }> {
-  let encrypted: string | null = null;
-
-  const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
+  const data = await convex.query(api.providerConnections.getConnectionForBackfill, {
     apiSecret: config.convexApiSecret,
-    tenantId,
+    authUserId,
     provider: 'jinxxy',
   });
-  if (conn?.jinxxyApiKeyEncrypted) {
-    encrypted = conn.jinxxyApiKeyEncrypted;
-  }
+  const encryptedKey = data?.credentials.api_key;
 
-  if (!encrypted) {
-    encrypted = await convex.query(api.tenantConfig.getJinxxyApiKeyForVerification, {
-      apiSecret: config.convexApiSecret,
-      tenantId,
-    });
-  }
-
-  if (!encrypted) {
+  if (!encryptedKey) {
     return {
       error: 'Jinxxy API key not configured. Add your Jinxxy API key in `/creator setup`.',
     };
@@ -59,10 +49,10 @@ async function resolveJinxxyApiKey(
   }
 
   try {
-    const key = await decrypt(encrypted, config.encryptionSecret);
+    const key = await decrypt(encryptedKey, config.encryptionSecret, JINXXY.credential);
     return { key };
   } catch (err) {
-    logger.error('Failed to decrypt tenant Jinxxy API key', { tenantId, err });
+    logger.error('Failed to decrypt creator Jinxxy API key', { authUserId, err });
     return {
       error: 'Failed to decrypt stored Jinxxy API key. Re-add your key in `/creator setup`.',
     };
@@ -75,9 +65,9 @@ export const jinxxyHandler: LicenseVerificationHandler = {
     config: VerificationConfig,
     convex: ConvexServerClient
   ): Promise<CompleteLicenseResult> {
-    const { licenseKey, tenantId, subjectId } = input;
+    const { licenseKey, authUserId, subjectId } = input;
 
-    const keyResult = await resolveJinxxyApiKey(convex, config, tenantId);
+    const keyResult = await resolveJinxxyApiKey(convex, config, authUserId);
     if ('error' in keyResult) return { success: false, error: keyResult.error };
 
     const jinxxyClient = new JinxxyApiClient({
@@ -104,7 +94,7 @@ export const jinxxyHandler: LicenseVerificationHandler = {
       api.licenseVerification.completeLicenseVerification,
       {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         subjectId,
         provider: 'jinxxy',
         providerUserId: customerId,
@@ -124,7 +114,7 @@ export const jinxxyHandler: LicenseVerificationHandler = {
       try {
         const orderId = license.order_id;
         logger.info('[jinxxyHandler] Post-verify sync: starting', {
-          tenantId,
+          authUserId,
           subjectId,
           licenseId: license.id,
           orderId: orderId ?? '(null)',
@@ -151,7 +141,7 @@ export const jinxxyHandler: LicenseVerificationHandler = {
         }
 
         logger.info('[jinxxyHandler] Post-verify sync: scheduling backfill', {
-          tenantId,
+          authUserId,
           subjectId,
           providerUserId: customerId,
           hasEmailHash: !!emailHash,
@@ -159,7 +149,7 @@ export const jinxxyHandler: LicenseVerificationHandler = {
 
         await convex.mutation(api.backgroundSync.scheduleBackfillThenSyncForBuyer, {
           apiSecret: config.convexApiSecret,
-          tenantId,
+          authUserId,
           subjectId,
           provider: 'jinxxy',
           emailHash,
@@ -167,12 +157,12 @@ export const jinxxyHandler: LicenseVerificationHandler = {
         });
 
         logger.info('[jinxxyHandler] Post-verify sync: scheduled successfully', {
-          tenantId,
+          authUserId,
           subjectId,
         });
       } catch (syncErr) {
         logger.warn('[jinxxyHandler] Post-verify buyer sync scheduling failed (non-fatal)', {
-          tenantId,
+          authUserId,
           subjectId,
           error: syncErr instanceof Error ? syncErr.message : String(syncErr),
           stack: syncErr instanceof Error ? syncErr.stack : undefined,
@@ -181,18 +171,19 @@ export const jinxxyHandler: LicenseVerificationHandler = {
       return { success: true, provider: 'jinxxy', entitlementIds: mutationResult.entitlementIds };
     }
 
-    // Primary key failed — try collaborator connections
+    // Primary key failed, try collaborator connections
     const collabConnections = (await convex.query(
       api.collaboratorInvites.getCollabConnectionsForVerification,
-      { apiSecret: config.convexApiSecret, ownerTenantId: tenantId }
-    )) as Array<{ id: string; jinxxyApiKeyEncrypted?: string }>;
+      { apiSecret: config.convexApiSecret, ownerAuthUserId: authUserId }
+    )) as Array<{ id: string; credentialEncrypted?: string }>;
 
     for (const collab of collabConnections) {
-      if (!collab.jinxxyApiKeyEncrypted) continue;
+      if (!collab.credentialEncrypted) continue;
       try {
         const collabKey = await decrypt(
-          collab.jinxxyApiKeyEncrypted,
-          config.encryptionSecret ?? ''
+          collab.credentialEncrypted,
+          config.encryptionSecret ?? '',
+          JINXXY.credential
         );
         const collabClient = new JinxxyApiClient({
           apiKey: collabKey,
@@ -206,7 +197,7 @@ export const jinxxyHandler: LicenseVerificationHandler = {
             api.licenseVerification.completeLicenseVerification,
             {
               apiSecret: config.convexApiSecret,
-              tenantId,
+              authUserId,
               subjectId,
               provider: 'jinxxy',
               providerUserId: cl.customer_id ?? cl.id,
@@ -224,7 +215,7 @@ export const jinxxyHandler: LicenseVerificationHandler = {
               if (collabCustomerId) {
                 await convex.mutation(api.backgroundSync.scheduleBackfillThenSyncForBuyer, {
                   apiSecret: config.convexApiSecret,
-                  tenantId,
+                  authUserId,
                   subjectId,
                   provider: 'jinxxy',
                   emailHash: undefined,
@@ -233,7 +224,7 @@ export const jinxxyHandler: LicenseVerificationHandler = {
               }
             } catch (syncErr) {
               logger.warn('[jinxxyHandler] Collab post-verify buyer sync failed (non-fatal)', {
-                tenantId,
+                authUserId,
                 subjectId,
                 error: syncErr instanceof Error ? syncErr.message : String(syncErr),
               });

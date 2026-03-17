@@ -4,16 +4,16 @@
 
 import { describe, expect, it } from 'bun:test';
 import {
-  type DiscordProviderConfig,
   createDiscordProvider,
+  type DiscordProviderConfig,
   validateDiscordConfig,
 } from './discord';
 import { type AuthConfig, createAuth } from './index';
 import {
-  DEV_COOKIE_ATTRIBUTES,
-  SECURE_COOKIE_ATTRIBUTES,
   createCookieConfig,
   createSessionConfig,
+  DEV_COOKIE_ATTRIBUTES,
+  SECURE_COOKIE_ATTRIBUTES,
 } from './session';
 
 describe('Discord Provider', () => {

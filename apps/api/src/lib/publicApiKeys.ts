@@ -7,9 +7,9 @@ export function generatePublicApiKeyValue(prefix = PUBLIC_API_KEY_PREFIX): strin
 }
 
 export function getPublicApiKeyPepper(): string {
-  const pepper = process.env.PUBLIC_API_KEY_PEPPER ?? process.env.BETTER_AUTH_SECRET;
+  const pepper = process.env.PUBLIC_API_KEY_PEPPER;
   if (!pepper) {
-    throw new Error('PUBLIC_API_KEY_PEPPER or BETTER_AUTH_SECRET must be set');
+    throw new Error('PUBLIC_API_KEY_PEPPER must be set');
   }
   return pepper;
 }

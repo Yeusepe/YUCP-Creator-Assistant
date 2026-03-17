@@ -74,13 +74,10 @@ export function createAuth(config: AuthConfig) {
 
   function getInternalAuthSecret(): string {
     const secret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
-    if (secret) {
-      return secret;
+    if (!secret) {
+      throw new Error('INTERNAL_SERVICE_AUTH_SECRET is required');
     }
-    if (process.env.NODE_ENV !== 'production' && process.env.BETTER_AUTH_SECRET) {
-      return process.env.BETTER_AUTH_SECRET;
-    }
-    throw new Error('INTERNAL_SERVICE_AUTH_SECRET is required for internal auth requests');
+    return secret;
   }
 
   function canonicalizeValue(value: unknown): unknown {
@@ -328,8 +325,10 @@ export function createAuth(config: AuthConfig) {
             cookieLength: cookie.length,
             cookieNames: summarizeCookieNames(cookie),
             responseBodyPreview: responseBody.slice(0, 500),
-            setCookieHeader: res.headers.get('set-cookie'),
-            setBetterAuthCookieHeader: res.headers.get('set-better-auth-cookie'),
+            setCookieHeader: res.headers.has('set-cookie') ? '[REDACTED]' : null,
+            setBetterAuthCookieHeader: res.headers.has('set-better-auth-cookie')
+              ? '[REDACTED]'
+              : null,
           });
           return null;
         }
@@ -360,8 +359,10 @@ export function createAuth(config: AuthConfig) {
             cookieNames: summarizeCookieNames(cookie),
             responseBodyRaw: responseBody.slice(0, 500),
             responseBodyLength: responseBody.length,
-            setCookieHeader: res.headers.get('set-cookie'),
-            setBetterAuthCookieHeader: res.headers.get('set-better-auth-cookie'),
+            setCookieHeader: res.headers.has('set-cookie') ? '[REDACTED]' : null,
+            setBetterAuthCookieHeader: res.headers.has('set-better-auth-cookie')
+              ? '[REDACTED]'
+              : null,
           });
         }
         return json ?? null;
@@ -412,7 +413,7 @@ export function createAuth(config: AuthConfig) {
         }
 
         return { session: json, setCookieHeaders };
-      } catch (err) {
+      } catch (_err) {
         return { session: null, setCookieHeaders: [] };
       }
     },
@@ -528,10 +529,10 @@ export function createAuth(config: AuthConfig) {
   };
 }
 
+export { createDiscordProvider, validateDiscordConfig } from './discord';
 // Re-export types and utilities
-export type { SessionManager, SessionInfo } from './session';
+export type { SessionInfo, SessionManager } from './session';
 export { createSessionManager } from './session';
-export { validateDiscordConfig, createDiscordProvider } from './discord';
 
 /**
  * Auth instance type

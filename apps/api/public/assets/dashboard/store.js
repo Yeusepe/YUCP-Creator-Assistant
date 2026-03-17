@@ -11,6 +11,17 @@ let hasSetupSession = false;
 let setupToken = '';
 
 export const connectionsMap = new Map();
+export let userAccountsList = []; // All user-scoped + legacy connections (multi-account)
+export function setUserAccountsList(v) {
+  userAccountsList = v;
+  // Also rebuild connectionsMap for backward-compat (first active connection per provider)
+  connectionsMap.clear();
+  for (const conn of v) {
+    if (conn.status !== 'disconnected' && !connectionsMap.has(conn.provider)) {
+      connectionsMap.set(conn.provider, conn);
+    }
+  }
+}
 export const settingsMap = new Map();
 export let collabConnections = [];
 export let publicApiKeys = [];
@@ -83,5 +94,6 @@ export function apiFetch(url, options = {}) {
   if (setupToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${setupToken}`);
   }
+  headers.set('X-Requested-With', 'XMLHttpRequest');
   return fetch(url, { credentials: 'include', ...options, headers });
 }

@@ -1,0 +1,23 @@
+message EmptyResponse {
+}
+
+message TokenResponse {
+  1 -> string token;
+}
+
+message SuccessResponse {
+  1 -> bool success;
+  2 -> string error;
+  3 -> string supportCode;
+}
+
+message ProductRecord {
+  1 -> string id;
+  2 -> string name;
+  3 -> string collaboratorName;
+}
+
+message ProductsResponse {
+  1 -> ProductRecord[] products;
+  2 -> string error;
+}

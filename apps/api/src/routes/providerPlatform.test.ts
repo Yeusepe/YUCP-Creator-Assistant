@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Auth } from '../auth';
 
 const apiMock = {
-  tenants: {
-    getTenant: 'tenants.getTenant',
+  creatorProfiles: {
+    getCreatorProfile: 'creatorProfiles.getCreatorProfile',
   },
   providerConnections: {
     createProviderConnection: 'providerConnections.createProviderConnection',
@@ -120,6 +120,7 @@ describe('provider platform routes', () => {
 
   const routes = createProviderPlatformRoutes(auth, {
     apiBaseUrl: 'http://localhost:3001',
+    frontendBaseUrl: 'http://localhost:3001',
     convexApiSecret: 'convex-secret',
     convexUrl: 'http://convex.invalid',
     encryptionSecret: 'encrypt-secret',
@@ -134,13 +135,13 @@ describe('provider platform routes', () => {
     resolveSetupSessionMock.mockClear();
 
     queryImpl = async (ref, args) => {
-      if (ref === apiMock.tenants.getTenant) {
-        return { ownerAuthUserId: 'owner-user' };
+      if (ref === apiMock.creatorProfiles.getCreatorProfile) {
+        return { authUserId: 'owner-user', ownerDiscordUserId: 'discord_owner' };
       }
       if (ref === apiMock.providerPlatform.getProviderConnectionAdmin) {
         return {
           connectionId: 'conn_1',
-          tenantId: 'tenant_1',
+          authUserId: 'user_abc1',
           providerKey: 'lemonsqueezy',
           provider: 'lemonsqueezy',
           webhookConfigured: false,
@@ -171,8 +172,8 @@ describe('provider platform routes', () => {
       }
       if (ref === apiMock.providerConnections.getConnectionForBackfill) {
         return {
-          lemonApiTokenEncrypted: 'enc:api-token',
-          webhookSecretEncrypted: 'enc:webhook-secret',
+          credentials: { api_token: 'enc:api-token' },
+          webhookSecretRef: 'enc:webhook-secret',
         };
       }
       if (ref === apiMock.providerConnections.listConnections) {
@@ -405,7 +406,7 @@ describe('provider platform routes', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tenantId: 'tenant_1',
+          authUserId: 'user_abc1',
           providerKey: 'lemonsqueezy',
           verificationMethod: 'license_key',
         }),
@@ -425,11 +426,12 @@ describe('provider platform routes', () => {
 
   it('runs reconciliation jobs and persists canonical Lemon records', async () => {
     queryImpl = async (ref, args) => {
-      if (ref === apiMock.tenants.getTenant) return { ownerAuthUserId: 'owner-user' };
+      if (ref === apiMock.creatorProfiles.getCreatorProfile)
+        return { authUserId: 'owner-user', ownerDiscordUserId: 'discord_owner' };
       if (ref === apiMock.providerPlatform.getProviderConnectionAdmin) {
         return {
           connectionId: 'conn_1',
-          tenantId: 'tenant_1',
+          authUserId: 'user_abc1',
           providerKey: 'lemonsqueezy',
           provider: 'lemonsqueezy',
           externalShopId: 'store_1',
@@ -439,7 +441,7 @@ describe('provider platform routes', () => {
         };
       }
       if (ref === apiMock.providerConnections.getConnectionForBackfill)
-        return { lemonApiTokenEncrypted: 'enc:api-token' };
+        return { credentials: { api_token: 'enc:api-token' } };
       if (ref === apiMock.providerPlatform.listCatalogMappingsForConnection) {
         return [
           {
@@ -503,7 +505,7 @@ describe('provider platform routes', () => {
       if (ref === apiMock.providerPlatform.getProviderConnectionAdmin) {
         return {
           connectionId: 'conn_1',
-          tenantId: 'tenant_1',
+          authUserId: 'user_abc1',
           providerKey: 'lemonsqueezy',
           provider: 'lemonsqueezy',
           remoteWebhookSecretRef: 'enc:webhook-secret',
@@ -542,5 +544,57 @@ describe('provider platform routes', () => {
         (call) => call[0] === apiMock.webhookIngestion.insertWebhookEvent
       )
     ).toBe(true);
+  });
+
+  describe('GET /api/providers', () => {
+    it('returns 200 with a JSON array', async () => {
+      const response = await routes.handleRequest(
+        new Request('http://localhost:3001/api/providers', { method: 'GET' })
+      );
+      expect(response?.status).toBe(200);
+      const body = (await response?.json()) as unknown[];
+      expect(Array.isArray(body)).toBe(true);
+      expect(body.length).toBeGreaterThan(0);
+    });
+
+    it('includes every provider that has a dashboardConnectPath', async () => {
+      const { ALL_PROVIDERS } = await import('../providers/index');
+      const expected = ALL_PROVIDERS.filter((p) => p.displayMeta?.dashboardConnectPath).map(
+        (p) => p.id
+      );
+
+      const response = await routes.handleRequest(
+        new Request('http://localhost:3001/api/providers', { method: 'GET' })
+      );
+      const body = (await response?.json()) as Array<{ key: string }>;
+      const returned = body.map((p) => p.key);
+
+      expect(returned.sort()).toEqual(expected.sort());
+    });
+
+    it('each provider entry has the required dashboard fields', async () => {
+      const response = await routes.handleRequest(
+        new Request('http://localhost:3001/api/providers', { method: 'GET' })
+      );
+      const body = (await response?.json()) as Array<Record<string, unknown>>;
+
+      const REQUIRED = [
+        'key',
+        'label',
+        'icon',
+        'iconBg',
+        'quickStartBg',
+        'quickStartBorder',
+        'serverTileHint',
+        'connectPath',
+        'connectParamStyle',
+      ] as const;
+
+      for (const provider of body) {
+        for (const field of REQUIRED) {
+          expect(provider[field], `${provider.key}.${field} must be present`).toBeTruthy();
+        }
+      }
+    });
   });
 });

@@ -6,7 +6,7 @@ import {
   CollaboratorClient,
   type CreateCollaboratorInviteResponse,
   type DiscordRoleSetupResultResponse,
-  type ResolveVrchatAvatarNameResponse,
+  type ResolveProductNameResponse,
   SetupClient,
   type SuccessResponse,
   VerificationClient,
@@ -83,7 +83,7 @@ async function getClients(): Promise<PrivateRpcClients> {
 export async function createSetupSessionToken(params: {
   discordUserId: string;
   guildId: string;
-  tenantId: string;
+  authUserId: string;
 }): Promise<string | undefined> {
   const response = await (await getClients()).setup.createSetupSession(params);
   return response.token;
@@ -91,6 +91,7 @@ export async function createSetupSessionToken(params: {
 
 export async function createConnectToken(params: {
   discordUserId: string;
+  guildId: string;
 }): Promise<string | undefined> {
   const response = await (await getClients()).setup.createConnectToken(params);
   return response.token;
@@ -99,7 +100,7 @@ export async function createConnectToken(params: {
 export async function createDiscordRoleSetupSessionToken(params: {
   adminDiscordUserId: string;
   guildId: string;
-  tenantId: string;
+  authUserId: string;
 }): Promise<string | undefined> {
   const response = await (await getClients()).setup.createDiscordRoleSetupSession(params);
   return response.token;
@@ -135,47 +136,56 @@ function normalizeProducts(
   }));
 }
 
-export async function listGumroadProducts(tenantId: string): Promise<{
+/** Generic product listing — calls the provider-specific RPC via the catalog service. */
+export async function listProviderProducts(
+  provider: string,
+  authUserId: string
+): Promise<{
   error?: string;
   products: Array<{ collaboratorName?: string; id: string; name: string }>;
 }> {
-  const response = await (await getClients()).catalog.listGumroadProducts({ tenantId });
+  const response = await (await getClients()).catalog.listProviderProducts({
+    provider,
+    authUserId,
+  });
   return {
     products: normalizeProducts(response.products),
     error: response.error,
   };
 }
 
-export async function listJinxxyProducts(tenantId: string): Promise<{
-  error?: string;
-  products: Array<{ collaboratorName?: string; id: string; name: string }>;
-}> {
-  const response = await (await getClients()).catalog.listJinxxyProducts({ tenantId });
-  return {
-    products: normalizeProducts(response.products),
-    error: response.error,
-  };
-}
-
-export async function listLemonSqueezyProducts(tenantId: string): Promise<{
-  error?: string;
-  products: Array<{ collaboratorName?: string; id: string; name: string }>;
-}> {
-  const response = await (await getClients()).catalog.listLemonSqueezyProducts({ tenantId });
-  return {
-    products: normalizeProducts(response.products),
-    error: response.error,
-  };
-}
-
-export async function resolveVrchatAvatarName(params: {
-  avatarId: string;
-  tenantId: string;
-}): Promise<ResolveVrchatAvatarNameResponse> {
-  const response = await (await getClients()).catalog.resolveVrchatAvatarName(params);
+/** Resolve a human-readable display name for a product URL or ID. */
+export async function resolveProductName(params: {
+  provider: string;
+  authUserId: string;
+  urlOrId: string;
+}): Promise<ResolveProductNameResponse> {
+  const response = await (await getClients()).catalog.resolveProductName(params);
   return {
     name: response.name,
+    error: response.error,
   };
+}
+
+/** @deprecated Use listProviderProducts instead */
+export const listGumroadProducts = (authUserId: string) =>
+  listProviderProducts('gumroad', authUserId);
+/** @deprecated Use listProviderProducts instead */
+export const listJinxxyProducts = (authUserId: string) =>
+  listProviderProducts('jinxxy', authUserId);
+/** @deprecated Use listProviderProducts instead */
+export const listLemonSqueezyProducts = (authUserId: string) =>
+  listProviderProducts('lemonsqueezy', authUserId);
+/** @deprecated Use listProviderProducts instead */
+export const listVrchatProducts = (authUserId: string) =>
+  listProviderProducts('vrchat', authUserId);
+
+/** @deprecated Use resolveProductName instead */
+export async function resolveVrchatProductName(params: {
+  urlOrId: string;
+  authUserId: string;
+}): Promise<ResolveProductNameResponse> {
+  return resolveProductName({ provider: 'vrchat', ...params });
 }
 
 export async function bindVerifyPanel(params: {
@@ -185,7 +195,7 @@ export async function bindVerifyPanel(params: {
   interactionToken: string;
   messageId: string;
   panelToken: string;
-  tenantId: string;
+  authUserId: string;
 }): Promise<SuccessResponse> {
   const response = await (await getClients()).verification.bindVerifyPanel(params);
   return {
@@ -200,7 +210,7 @@ export async function completeLicenseVerification(params: {
   licenseKey: string;
   productId?: string;
   subjectId: string;
-  tenantId: string;
+  authUserId: string;
 }): Promise<VerificationResultResponse> {
   const response = await (await getClients()).verification.completeLicenseVerification(params);
   return {
@@ -215,7 +225,7 @@ export async function completeLicenseVerification(params: {
 export async function completeVrchatVerification(params: {
   password: string;
   subjectId: string;
-  tenantId: string;
+  authUserId: string;
   twoFactorCode?: string;
   username: string;
 }): Promise<VerificationResultResponse> {
@@ -232,7 +242,7 @@ export async function completeVrchatVerification(params: {
 export async function disconnectVerification(params: {
   provider: string;
   subjectId: string;
-  tenantId: string;
+  authUserId: string;
 }): Promise<SuccessResponse> {
   const response = await (await getClients()).verification.disconnectVerification(params);
   return {
@@ -246,7 +256,8 @@ export async function createCollaboratorInvite(params: {
   actorDiscordUserId: string;
   guildId: string;
   guildName: string;
-  tenantId: string;
+  authUserId: string;
+  providerKey: string;
 }): Promise<CreateCollaboratorInviteResponse> {
   const response = await (await getClients()).collaborator.createInvite(params);
   return {
@@ -258,7 +269,7 @@ export async function createCollaboratorInvite(params: {
 export async function listCollaboratorConnections(params: {
   actorDiscordUserId: string;
   guildId: string;
-  tenantId: string;
+  authUserId: string;
 }): Promise<
   Array<{
     collaboratorDiscordUserId: string;
@@ -287,11 +298,19 @@ export async function listCollaboratorConnections(params: {
 export async function addCollaboratorConnectionManual(params: {
   actorDiscordUserId: string;
   guildId: string;
-  jinxxyApiKey: string;
+  providerKey: string;
+  credential: string;
   serverName?: string;
-  tenantId: string;
+  authUserId: string;
 }): Promise<AddCollaboratorConnectionManualResponse> {
-  const response = await (await getClients()).collaborator.addConnectionManual(params);
+  const response = await (await getClients()).collaborator.addConnectionManual({
+    actorDiscordUserId: params.actorDiscordUserId,
+    guildId: params.guildId,
+    credential: params.credential,
+    providerKey: params.providerKey,
+    serverName: params.serverName,
+    authUserId: params.authUserId,
+  });
   return {
     success: response.success ?? false,
     connectionId: response.connectionId,
@@ -304,9 +323,23 @@ export async function removeCollaboratorConnection(params: {
   actorDiscordUserId: string;
   connectionId: string;
   guildId: string;
-  tenantId: string;
+  authUserId: string;
 }): Promise<SuccessResponse> {
   const response = await (await getClients()).collaborator.removeConnection(params);
+  return {
+    success: response.success ?? false,
+    error: response.error,
+    supportCode: response.supportCode,
+  };
+}
+
+export async function upsertProductCredential(params: {
+  authUserId: string;
+  providerKey: string;
+  productId: string;
+  productSecretKey: string;
+}): Promise<SuccessResponse> {
+  const response = await (await getClients()).catalog.upsertProductCredential(params);
   return {
     success: response.success ?? false,
     error: response.error,

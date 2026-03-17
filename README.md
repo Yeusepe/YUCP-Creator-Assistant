@@ -154,6 +154,8 @@ Full options and catalog: `apps/bot/src/commands/index.ts`.
 - Never commit secrets; use Infisical or gitignored env files.
 - Webhook handlers validate payloads and signatures (e.g. Jinxxy HMAC). Gumroad webhooks are deduplicated.
 - Protect `BETTER_AUTH_SECRET` and Convex API secrets.
+- Third-party credentials (VRChat sessions, Gumroad/Jinxxy API keys) are encrypted at rest with HKDF using provider-specific, domain-separated purpose strings. Credentials are never logged and are decrypted only within the request that needs them.
+- Session/credential expiry is handled explicitly: a 401 from an external API marks the connection as `'degraded'` in Convex and surfaces a reconnect prompt to the creator. Silent swallowing is never acceptable.
 
 ---
 

@@ -5,10 +5,9 @@
  */
 
 import type { ConvexHttpClient } from 'convex/browser';
-import { EmbedBuilder, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
+import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { E } from '../lib/emojis';
 
 const POSTHOG_DASHBOARD_URL = 'https://us.posthog.com';
@@ -18,13 +17,13 @@ export async function handleAnalytics(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const stats = await convex.query(api.entitlements.getStatsOverview, {
     apiSecret,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
   });
 
   const embed = new EmbedBuilder()
@@ -45,7 +44,7 @@ export async function handleAnalytics(
 export async function handleAnalyticsLink(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
-  _ctx: { tenantId: Id<'tenants'>; guildId: string }
+  _ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   const embed = new EmbedBuilder()
     .setTitle('Analytics')
@@ -61,13 +60,13 @@ export async function handleAnalyticsSummary(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const stats = await convex.query(api.entitlements.getStatsOverview, {
     apiSecret,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
   });
 
   const embed = new EmbedBuilder()

@@ -130,7 +130,7 @@ export class ManualLicenseManager {
 
     // Create the license record
     const license = await this.storage.create({
-      tenantId: input.tenantId,
+      authUserId: input.authUserId,
       productId: input.productId,
       catalogProductId: input.catalogProductId,
       maxUses: input.maxUses,
@@ -168,8 +168,8 @@ export class ManualLicenseManager {
       return { valid: false, reason: 'wrong_product' };
     }
 
-    // Check tenant match
-    if (license.tenantId !== input.tenantId) {
+    // Check creator match
+    if (license.authUserId !== input.authUserId) {
       return { valid: false, reason: 'not_found' };
     }
 
@@ -242,8 +242,8 @@ export class ManualLicenseManager {
       throw new Error('License not found');
     }
 
-    // Verify tenant ownership
-    if (license.tenantId !== input.tenantId) {
+    // Verify creator ownership
+    if (license.authUserId !== input.authUserId) {
       throw new Error('License not found');
     }
 
@@ -268,7 +268,7 @@ export class ManualLicenseManager {
     const licensesToCreate: Array<{
       licenseKeyHash: string;
       licenseKey: string; // Keep plaintext for result
-      tenantId: string;
+      authUserId: string;
       productId: string;
       maxUses?: number;
       expiresAt?: number;
@@ -301,7 +301,7 @@ export class ManualLicenseManager {
         licensesToCreate.push({
           licenseKeyHash,
           licenseKey, // Store plaintext for result
-          tenantId: input.tenantId,
+          authUserId: input.authUserId,
           productId: input.productId,
           maxUses: entry.maxUses ?? input.defaultMaxUses,
           expiresAt: entry.expiresAt ?? input.defaultExpiresAt,
@@ -347,13 +347,13 @@ export class ManualLicenseManager {
   }
 
   /**
-   * List licenses for a tenant/product.
+   * List licenses for a creator/product.
    */
   async listLicenses(
-    tenantId: string,
+    authUserId: string,
     productId?: string
   ): Promise<Array<Omit<ManualLicense, 'licenseKeyHash'>>> {
-    const licenses = await this.storage.list(tenantId, productId);
+    const licenses = await this.storage.list(authUserId, productId);
     return licenses.map((l) => this.stripHash(l));
   }
 

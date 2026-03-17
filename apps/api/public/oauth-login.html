@@ -258,7 +258,7 @@
         const apiBase = __API_BASE__;
 
         // The cross-domain plugin stores the session under this localStorage key.
-        // Key format: `${storagePrefix}_cookie` — prefix defaults to "better-auth".
+        // Key format: `${storagePrefix}_cookie`  prefix defaults to "better-auth".
         const STORAGE_KEY = 'better-auth_cookie';
 
         const loadingEl = document.getElementById('loading-state');
@@ -333,10 +333,10 @@
         }
 
         async function runOAuthLoginFlow() {
-            // Step 1 — if returning from Discord OAuth, exchange OTT for session.
+            // Step 1, if returning from Discord OAuth, exchange OTT for session.
             await exchangeOneTimeToken();
 
-            // Step 2 — check whether we now have a session.
+            // Step 2, check whether we now have a session.
             const sessionData = await checkSession();
             if (sessionData?.user) {
                 // Signed in: redirect back to the consent page using the signed OAuth
@@ -348,7 +348,7 @@
                 return;
             }
 
-            // Step 3 — not signed in: send user to Discord with this page as callback
+            // Step 3, not signed in: send user to Discord with this page as callback
             // (current URL already carries the signed OAuth params; OTT is stripped).
             const callbackUrl = window.location.href;
             const signInUrl = `${apiBase}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;

@@ -4,8 +4,7 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import confetti from 'canvas-confetti';
 import HolographicSticker from 'holographic-sticker';
 import { createIcons, icons } from 'lucide';
-import { Suspense } from 'react';
-import React, { Component, useRef } from 'react';
+import React, { Component, Suspense, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as THREE from 'three';
 import cloudTextureUrl from './assets/cloud.png';
@@ -337,17 +336,21 @@ function bootClouds() {
   }
 }
 
+// Expose window.lucide at module-evaluation time so any DOMContentLoaded handler
+// (including those in setup pages loaded as plain <script> blocks) can call
+// lucide.createIcons() safely.  The actual DOM scan is deferred to window.load
+// so all markup is present.
+const _lucideApply: (options?: Parameters<typeof createIcons>[0]) => void = (options = {}) =>
+  createIcons({ icons, ...options });
+(
+  window as Window & {
+    lucide?: { createIcons: typeof _lucideApply };
+  }
+).lucide = { createIcons: _lucideApply };
+
 function bootLucide() {
-  const apply = (options: Parameters<typeof createIcons>[0] = {}) =>
-    createIcons({ icons, ...options });
-
-  (
-    window as Window & {
-      lucide?: { createIcons: typeof apply };
-    }
-  ).lucide = { createIcons: apply };
-
-  apply();
+  // Re-scan after full page load in case markup was inserted late.
+  _lucideApply();
 }
 
 function bootConfetti() {
@@ -394,12 +397,57 @@ function bootHolographicStickers() {
   }
 }
 
+const _BAG_PATH =
+  'M10.4532 65.9999C3.56938 65.9999 0 62.4297 0 55.5789V22.2894C0 15.4064 3.56938 11.8684' +
+  ' 10.4532 11.8684H15.6479C16.3172 5.08187 21.7031 0 28.7781 0C35.885 0 41.271 5.0497' +
+  ' 41.9084 11.8684H47.135C53.9869 11.8684 57.5882 15.4386 57.5882 22.2894V55.5789C57.5882' +
+  ' 62.4297 54.0188 65.9999 47.9317 65.9999H10.4532ZM28.7781 5.62865C25.0176 5.62865 22.2768' +
+  ' 8.13742 21.735 11.8684H35.8532C35.3114 8.13742 32.5706 5.62865 28.7781 5.62865Z';
+
+function bootLoadingOverlay() {
+  const overlay = document.getElementById('page-loading-overlay');
+  if (!overlay || overlay.children.length > 0) return;
+  overlay.innerHTML =
+    '<div class="plo-bag-scene">' +
+    '<svg class="plo-bag-outline" viewBox="0 0 58 66" fill="none"' +
+    ' xmlns="http://www.w3.org/2000/svg" aria-hidden="true" overflow="visible">' +
+    `<path d="${_BAG_PATH}" fill="none" stroke="white" stroke-width="10"/>` +
+    '</svg>' +
+    '<div class="plo-bag-color">' +
+    '<div class="plo-blob plo-blob-1"></div>' +
+    '<div class="plo-blob plo-blob-2"></div>' +
+    '<div class="plo-blob plo-blob-3"></div>' +
+    '<div class="plo-blob plo-blob-4"></div>' +
+    '<div class="plo-blob plo-blob-5"></div>' +
+    '</div>' +
+    '</div>' +
+    '<div class="plo-bar-wrap"><div class="plo-bar"></div></div>';
+}
+
 function hideLoading() {
   const overlay = document.getElementById('page-loading-overlay');
   const content = document.getElementById('page-content');
-  if (overlay) overlay.style.display = 'none';
-  if (content) content.style.display = '';
+
+  // Step 1: reveal content underneath the still-opaque overlay so it can
+  // layout and paint without the user seeing anything.
+  if (content) {
+    content.style.display = '';
+    requestAnimationFrame(() => requestAnimationFrame(() => content.classList.add('is-visible')));
+  }
+
+  // Step 2: after content finishes its own 0.3s opacity transition + paint
+  // buffer, fade the overlay out over the already-visible page.
+  setTimeout(() => {
+    if (!overlay) return;
+    overlay.classList.add('is-hiding');
+    setTimeout(() => {
+      overlay.style.display = 'none';
+    }, 600);
+  }, 400);
 }
+
+// Populate the loading overlay as early as possible (module scripts run after DOM parse).
+bootLoadingOverlay();
 
 window.addEventListener('load', () => {
   bootConfetti();

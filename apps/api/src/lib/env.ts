@@ -1,8 +1,8 @@
 // Environment loader with Infisical integration
 // Fetches secrets from Infisical when INFISICAL_PROJECT_ID + machine identity are set
 
-import { createLogger } from '@yucp/shared';
 import type { EnvConfig } from '@yucp/shared';
+import { createLogger } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -18,6 +18,7 @@ export interface LocalEnv {
   // Auth
   SITE_URL?: string;
   BETTER_AUTH_SECRET?: string;
+  ENCRYPTION_SECRET?: string;
   ERROR_REFERENCE_SECRET?: string;
   /** Legacy alias for CONVEX_SITE_URL. Avoid using for new config. */
   BETTER_AUTH_URL?: string;
@@ -27,6 +28,7 @@ export interface LocalEnv {
   PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON?: string;
   INTERNAL_SERVICE_AUTH_SECRET?: string;
   INTERNAL_RPC_SHARED_SECRET?: string;
+  INTERNAL_SERVICE_TOKEN?: string;
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
   // Discord
@@ -114,6 +116,7 @@ function loadFromEnv(): LocalEnv {
     CONVEX_API_SECRET: process.env.CONVEX_API_SECRET,
     SITE_URL: siteUrl,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+    ENCRYPTION_SECRET: process.env.ENCRYPTION_SECRET,
     ERROR_REFERENCE_SECRET: process.env.ERROR_REFERENCE_SECRET,
     BETTER_AUTH_URL: normalizeUrl(process.env.BETTER_AUTH_URL),
     FRONTEND_URL: process.env.FRONTEND_URL,
@@ -121,6 +124,7 @@ function loadFromEnv(): LocalEnv {
     PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON: process.env.PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON,
     INTERNAL_SERVICE_AUTH_SECRET: process.env.INTERNAL_SERVICE_AUTH_SECRET,
     INTERNAL_RPC_SHARED_SECRET: process.env.INTERNAL_RPC_SHARED_SECRET,
+    INTERNAL_SERVICE_TOKEN: process.env.INTERNAL_SERVICE_TOKEN,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,

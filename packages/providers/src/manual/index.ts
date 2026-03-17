@@ -25,7 +25,7 @@
  *
  * // Generate and store a license
  * const result = await manager.generateLicense({
- *   tenantId: 'tenant-123',
+ *   authUserId: 'tenant-123',
  *   productId: 'product-456',
  *   maxUses: 5,
  *   expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000, // 1 year
@@ -35,26 +35,26 @@
  * const validation = await manager.validateLicense({
  *   licenseKey: 'YUCP-ABCD-EFGH-IJKL',
  *   productId: 'product-456',
- *   tenantId: 'tenant-123',
+ *   authUserId: 'tenant-123',
  * });
  *
  * // Use a license (increment usage)
  * const usage = await manager.useLicense({
  *   licenseKey: 'YUCP-ABCD-EFGH-IJKL',
  *   productId: 'product-456',
- *   tenantId: 'tenant-123',
+ *   authUserId: 'tenant-123',
  * });
  *
  * // Revoke a license
  * await manager.revokeLicense({
  *   licenseId: 'license-id',
- *   tenantId: 'tenant-123',
+ *   authUserId: 'tenant-123',
  *   reason: 'Refund issued',
  * });
  *
  * // Bulk import
  * const importResult = await manager.bulkImport({
- *   tenantId: 'tenant-123',
+ *   authUserId: 'tenant-123',
  *   productId: 'product-456',
  *   licenses: [
  *     { maxUses: 1 },
@@ -68,27 +68,27 @@
 
 // Core manager class
 export {
-  ManualLicenseManager,
-  hashLicenseKey,
   generateLicenseKey,
+  hashLicenseKey,
+  ManualLicenseManager,
   normalizeLicenseKey,
 } from './manager';
 
 // Types
 export type {
-  ManualLicense,
-  ManualLicenseStatus,
-  CreateLicenseInput,
-  CreateLicenseResult,
-  ValidateLicenseInput,
-  ValidateLicenseResult,
-  UseLicenseInput,
-  UseLicenseResult,
-  RevokeLicenseInput,
   BulkImportInput,
   BulkImportResult,
+  CreateLicenseInput,
+  CreateLicenseResult,
   GenerateKeyOptions,
+  ManualLicense,
+  ManualLicenseStatus,
   ManualLicenseStorage,
+  RevokeLicenseInput,
+  UseLicenseInput,
+  UseLicenseResult,
+  ValidateLicenseInput,
+  ValidateLicenseResult,
 } from './types';
 
 // CSV parsing utilities for bulk import
@@ -100,7 +100,7 @@ import type { BulkImportInput } from './types';
  */
 export function parseBulkImportCSV(
   csvContent: string,
-  tenantId: string,
+  authUserId: string,
   productId: string,
   defaults?: {
     defaultMaxUses?: number;
@@ -169,7 +169,7 @@ export function parseBulkImportCSV(
   }
 
   return {
-    tenantId,
+    authUserId,
     productId,
     licenses,
     defaultMaxUses: defaults?.defaultMaxUses,
@@ -183,7 +183,7 @@ export function parseBulkImportCSV(
  */
 export function parseBulkImportJSON(
   jsonContent: string,
-  tenantId: string,
+  authUserId: string,
   productId: string,
   defaults?: {
     defaultMaxUses?: number;
@@ -205,7 +205,7 @@ export function parseBulkImportJSON(
   }));
 
   return {
-    tenantId,
+    authUserId,
     productId,
     licenses,
     defaultMaxUses: defaults?.defaultMaxUses,

@@ -27,7 +27,7 @@ export interface VerificationSupportTokenPayload {
   issuedAt: string;
   surface: string;
   stage: string;
-  tenantId?: string;
+  authUserId?: string;
   guildId?: string;
   discordUserId?: string;
   provider?: string;
@@ -39,7 +39,7 @@ export interface VerificationSupportTokenPayload {
 export interface VerificationSupportTokenInput {
   surface: string;
   stage: string;
-  tenantId?: string | null;
+  authUserId?: string | null;
   guildId?: string | null;
   discordUserId?: string | null;
   provider?: string | null;
@@ -126,7 +126,7 @@ export function buildVerificationSupportPayload(
     issuedAt: new Date().toISOString(),
     surface: input.surface,
     stage: input.stage,
-    tenantId: normalizeField(input.tenantId ?? undefined),
+    authUserId: normalizeField(input.authUserId ?? undefined),
     guildId: normalizeField(input.guildId ?? undefined),
     discordUserId: normalizeField(input.discordUserId ?? undefined),
     provider: normalizeField(input.provider ?? undefined),
@@ -144,7 +144,7 @@ function encodePayloadForToken(
     i: Date.parse(payload.issuedAt),
     sf: payload.surface,
     st: payload.stage,
-    t: payload.tenantId,
+    t: payload.authUserId,
     g: payload.guildId,
     d: payload.discordUserId,
     p: payload.provider,
@@ -162,7 +162,7 @@ function decodePayloadFromToken(
     issuedAt: new Date(payload.i).toISOString(),
     surface: payload.sf,
     stage: payload.st,
-    tenantId: payload.t,
+    authUserId: payload.t,
     guildId: payload.g,
     discordUserId: payload.d,
     provider: payload.p,

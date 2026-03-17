@@ -18,7 +18,7 @@
  * import { evaluatePolicy, STRICT_DEFAULT_POLICY } from '@yucp/policy';
  *
  * const decision = evaluatePolicy(STRICT_DEFAULT_POLICY, {
- *   tenantId: 'tenant-123',
+ *   authUserId: 'user_abc123',
  *   subjectId: 'user-456',
  *   productId: 'product-789',
  *   currentBindingCount: 0,
@@ -39,31 +39,30 @@
  * ```
  */
 
+// Defaults exports
+export {
+  CURRENT_POLICY_VERSION,
+  isStrictDefault,
+  mergeWithDefaults,
+  PERMISSIVE_POLICY,
+  STRICT_DEFAULT_POLICY,
+  validatePolicyConfig,
+} from './defaults';
 // Engine exports
 export {
-  evaluatePolicy,
   evaluateBindingPolicy,
+  evaluatePolicy,
   evaluateTransferPolicy,
-  shouldAutoVerify,
-  getRevocationTiming,
-  shouldUseCatalogBackedVerification,
-  shouldAutoDiscoverProducts,
-  isDiscordRoleSyncNeeded,
   getPolicySummary,
+  getRevocationTiming,
+  isDiscordRoleSyncNeeded,
   type PolicyConfig,
   type PolicyContext,
   type PolicyDecision,
   type PolicyVersion,
   type Remediation,
   type RevocationBehavior,
+  shouldAutoDiscoverProducts,
+  shouldAutoVerify,
+  shouldUseCatalogBackedVerification,
 } from './engine';
-
-// Defaults exports
-export {
-  CURRENT_POLICY_VERSION,
-  STRICT_DEFAULT_POLICY,
-  PERMISSIVE_POLICY,
-  mergeWithDefaults,
-  validatePolicyConfig,
-  isStrictDefault,
-} from './defaults';

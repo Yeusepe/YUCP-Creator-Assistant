@@ -1,5 +1,5 @@
 /**
- * YUCP Certificate Authority — HTTP routes (Convex HTTP router).
+ * YUCP Certificate Authority, HTTP routes (Convex HTTP router).
  *
  * Public API routes follow Spotify/GitHub/Stripe conventions: versioned (/v1/),
  * noun-based resources, and /v1/me for the authenticated current user.
@@ -7,12 +7,12 @@
  * Public API (Authorization: Bearer <oauth_access_token>):
  *
  *   GET  /v1/keys
- *        CA trust anchor — returns the root public key as a JWK Set (no auth).
+ *        CA trust anchor, returns the root public key as a JWK Set (no auth).
  *        Clients fetch this once and cache it; eliminates hardcoded keys.
  *
  *   GET  /v1/me
  *        Returns the authenticated creator's profile (sub, name, email).
- *        Like Spotify GET /v1/me — token identifies "me".
+ *        Like Spotify GET /v1/me, token identifies "me".
  *
  *   GET  /v1/products
  *        List the authenticated creator's registered products (all providers).
@@ -40,9 +40,9 @@
  *        Revoke a certificate by nonce.
  *        Body: { certNonce, reason }
  *
- * OAuth infrastructure (not public API — these are part of the PKCE flow):
- *   GET  /api/yucp/oauth/authorize  — loopback port proxy (RFC 8252)
- *   GET  /api/yucp/oauth/callback   — restores original loopback port
+ * OAuth infrastructure (not public API, these are part of the PKCE flow):
+ *   GET  /api/yucp/oauth/authorize , loopback port proxy (RFC 8252)
+ *   GET  /api/yucp/oauth/callback  , restores original loopback port
  *
  * References:
  *   PKCE flow          https://www.rfc-editor.org/rfc/rfc7636
@@ -56,12 +56,12 @@ import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '../packages/shared/
 import { api, components, internal } from './_generated/api';
 import { httpAction } from './_generated/server';
 import { authComponent, createAuth } from './auth';
-import { decryptForPurpose } from './lib/vrchat/crypto';
+import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
-  type CertEnvelope,
-  type LicenseClaims,
   base64ToBytes,
+  type CertEnvelope,
   getPublicKeyFromPrivate,
+  type LicenseClaims,
   signLicenseJwt,
   verifyCertEnvelope,
 } from './lib/yucpCrypto';
@@ -71,7 +71,7 @@ import {
  *
  *   POST /v1/licenses/verify
  *        Verify a Gumroad or Jinxxy purchase license for a YUCP package.
- *        No auth header — license key is the credential.
+ *        No auth header, license key is the credential.
  *        Body: { packageId, licenseKey, provider, productPermalink,
  *                machineFingerprint, nonce, timestamp }
  *
@@ -105,6 +105,191 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function errorResponse(message: string, status: number): Response {
   return jsonResponse({ error: message }, status);
+}
+
+type PublicProductProviderRef = {
+  provider: string;
+  providerProductRef: string;
+};
+
+type PublicProductRecord = {
+  productId: string;
+  displayName?: string;
+  providers: PublicProductProviderRef[];
+  owner: string | null;
+  configured: boolean;
+  live: boolean;
+};
+
+type ProviderProductsApiResponse = {
+  products?: Array<{
+    id?: string;
+    name?: string;
+    collaboratorName?: string;
+  }>;
+};
+
+function normalizeProductToken(value: string | null | undefined): string {
+  if (!value) return '';
+  return value
+    .toLowerCase()
+    .split('')
+    .filter((char) => /[a-z0-9]/.test(char))
+    .join('');
+}
+
+function getDisplayOwnerMergeKey(displayName: string | undefined, owner: string | null): string {
+  return `${normalizeProductToken(displayName)}||${normalizeProductToken(owner)}`;
+}
+
+function getProviderMergeKey(
+  provider: string | undefined,
+  providerProductRef: string | undefined
+): string {
+  return `${normalizeProductToken(provider)}::${normalizeProductToken(providerProductRef)}`;
+}
+
+function mergePublicProducts(products: PublicProductRecord[]): PublicProductRecord[] {
+  const merged: PublicProductRecord[] = [];
+  const byProductId = new Map<string, PublicProductRecord>();
+  const byProviderRef = new Map<string, PublicProductRecord>();
+  const byDisplayOwner = new Map<string, PublicProductRecord>();
+
+  const register = (product: PublicProductRecord) => {
+    if (product.productId) {
+      byProductId.set(product.productId, product);
+    }
+    for (const provider of product.providers) {
+      byProviderRef.set(
+        getProviderMergeKey(provider.provider, provider.providerProductRef),
+        product
+      );
+    }
+    const displayOwnerKey = getDisplayOwnerMergeKey(product.displayName, product.owner);
+    if (displayOwnerKey !== '||') {
+      byDisplayOwner.set(displayOwnerKey, product);
+    }
+  };
+
+  for (const candidate of products) {
+    let existing: PublicProductRecord | undefined;
+
+    if (candidate.productId) {
+      existing = byProductId.get(candidate.productId);
+    }
+
+    if (!existing) {
+      for (const provider of candidate.providers) {
+        existing = byProviderRef.get(
+          getProviderMergeKey(provider.provider, provider.providerProductRef)
+        );
+        if (existing) break;
+      }
+    }
+
+    if (!existing) {
+      existing = byDisplayOwner.get(
+        getDisplayOwnerMergeKey(candidate.displayName, candidate.owner)
+      );
+    }
+
+    if (!existing) {
+      const created: PublicProductRecord = {
+        productId: candidate.productId ?? '',
+        displayName: candidate.displayName,
+        owner: candidate.owner,
+        providers: [...candidate.providers],
+        configured: candidate.configured,
+        live: candidate.live,
+      };
+      merged.push(created);
+      register(created);
+      continue;
+    }
+
+    if (!existing.productId && candidate.productId) {
+      existing.productId = candidate.productId;
+    }
+    if (!existing.displayName && candidate.displayName) {
+      existing.displayName = candidate.displayName;
+    }
+    if (existing.owner == null && candidate.owner != null) {
+      existing.owner = candidate.owner;
+    }
+    existing.configured ||= candidate.configured;
+    existing.live ||= candidate.live;
+
+    for (const provider of candidate.providers) {
+      const alreadyPresent = existing.providers.some(
+        (current) =>
+          current.provider === provider.provider &&
+          current.providerProductRef === provider.providerProductRef
+      );
+      if (!alreadyPresent) {
+        existing.providers.push(provider);
+      }
+    }
+
+    register(existing);
+  }
+
+  return merged;
+}
+
+async function fetchLiveProviderProductsForSources(
+  sources: Array<{ authUserId: string; owner: string | null }>
+): Promise<PublicProductRecord[]> {
+  const apiBaseUrl = (process.env.API_BASE_URL ?? process.env.SITE_URL ?? '').replace(/\/$/, '');
+  const apiSecret = process.env.CONVEX_API_SECRET;
+  if (!apiBaseUrl || !apiSecret || sources.length === 0) {
+    return [];
+  }
+
+  const liveProviders = PROVIDER_REGISTRY.filter(
+    (provider) =>
+      provider.status === 'active' &&
+      (provider.capabilities as ReadonlyArray<string>).includes('catalog_sync')
+  ).map((provider) => provider.providerKey);
+
+  const liveProducts: PublicProductRecord[] = [];
+
+  await Promise.all(
+    sources.flatMap((source) =>
+      liveProviders.map(async (providerKey) => {
+        try {
+          const response = await fetch(`${apiBaseUrl}/api/${providerKey}/products`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              apiSecret,
+              authUserId: source.authUserId,
+            }),
+          });
+
+          if (!response.ok) {
+            return;
+          }
+
+          const payload = (await response.json()) as ProviderProductsApiResponse;
+          for (const product of payload.products ?? []) {
+            if (!product?.id) continue;
+            liveProducts.push({
+              productId: '',
+              displayName: product.name ?? product.id,
+              providers: [{ provider: providerKey, providerProductRef: product.id }],
+              owner: (product.collaboratorName as string | undefined) ?? source.owner,
+              configured: false,
+              live: true,
+            });
+          }
+        } catch (error) {
+          console.warn(`[products] live provider fetch failed for ${providerKey}`, error);
+        }
+      })
+    )
+  );
+
+  return liveProducts;
 }
 
 http.route({
@@ -172,7 +357,7 @@ async function parseBearerCert(
  *
  * The token is a JWT issued by Better Auth's oauth-provider plugin.
  * Profile claims (name, email) are embedded via customAccessTokenClaims so
- * that callers never need a secondary DB lookup — the token is the source of truth.
+ * that callers never need a secondary DB lookup, the token is the source of truth.
  *
  * Reference: https://www.rfc-editor.org/rfc/rfc9700.html (OAuth 2.0 Security BCP)
  */
@@ -189,15 +374,7 @@ async function verifyOAuthToken(
     const authBase = `${siteUrl.replace(/\/$/, '')}/api/auth`;
 
     // Detect token type for diagnostics: JWTs are 3 dot-separated base64 segments
-    const isJwtShape = (token.match(/\./g) ?? []).length === 2;
-    console.log(
-      '[verifyOAuthToken] token_type=' +
-        (isJwtShape ? 'jwt' : 'opaque') +
-        ' length=' +
-        token.length +
-        ' issuer=' +
-        authBase
-    );
+    const _isJwtShape = (token.match(/\./g) ?? []).length === 2;
 
     const verified = await verifyAccessToken(token, {
       verifyOptions: {
@@ -211,7 +388,6 @@ async function verifyOAuthToken(
     const claims = verified as Record<string, unknown>;
     const scope: string = (claims.scope as string) ?? '';
     const scopes = scope.split(' ');
-    console.log('[verifyOAuthToken] verified ok, scopes=' + scope);
     if (!scopes.includes(requiredScope)) {
       return { ok: false, error: `Token missing required scope: ${requiredScope}` };
     }
@@ -221,21 +397,19 @@ async function verifyOAuthToken(
     if (!userId) return { ok: false, error: 'No user identity in token' };
 
     // Read stable profile claims embedded by customAccessTokenClaims on the server.
-    // This avoids a DB lookup — the JWT is the source of truth for name/email.
+    // This avoids a DB lookup, the JWT is the source of truth for name/email.
     const name = (claims.name as string) ?? null;
     const email = (claims.email as string) ?? null;
 
     return { ok: true, yucpUserId: userId, name, email };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Token verification failed';
-    const errName = err instanceof Error ? err.name : 'unknown';
-    console.log('[verifyOAuthToken] FAILED err=' + errName + ' msg=' + msg);
     return { ok: false, error: msg };
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RFC 8252 loopback proxy — wildcard port support for Unity Editor OAuth
+// RFC 8252 loopback proxy, wildcard port support for Unity Editor OAuth
 //
 // Better Auth's oauthProvider does not yet support wildcard loopback ports
 // (https://github.com/better-auth/better-auth/issues/8426). This proxy:
@@ -249,7 +423,7 @@ async function verifyOAuthToken(
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
-const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const _SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 function isLoopback(uri: string): boolean {
   try {
@@ -274,8 +448,18 @@ http.route({
       return errorResponse('redirect_uri and state are required', 400);
     }
 
+    // Enforce minimum state entropy: at least 32 URL-safe characters (≥128 bits
+    // of entropy when randomly generated), preventing predictable CSRF tokens.
+    const STATE_RE = /^[A-Za-z0-9\-_.~]{32,512}$/;
+    if (!STATE_RE.test(state)) {
+      return errorResponse(
+        'state must be at least 32 URL-safe characters (use a cryptographically random value)',
+        400
+      );
+    }
+
     if (!isLoopback(redirectUri)) {
-      // Non-loopback clients go directly — no port proxy needed
+      // Non-loopback clients go directly, no port proxy needed
       incoming.pathname = '/api/auth/oauth2/authorize';
       return Response.redirect(incoming.toString(), 302);
     }
@@ -304,8 +488,8 @@ http.route({
 
     if (!state) return errorResponse('Missing state parameter', 400);
 
-    // Look up the original loopback redirect URI
-    const session = await ctx.runQuery(internal.oauthLoopback.getSession, {
+    // Atomically look up and consume the loopback session (prevents TOCTOU)
+    const session = await ctx.runMutation(internal.oauthLoopback.consumeSession, {
       oauthState: state,
     });
 
@@ -315,9 +499,6 @@ http.route({
         { status: 400, headers: { 'Content-Type': 'text/html' } }
       );
     }
-
-    // Clean up the session record
-    await ctx.runMutation(internal.oauthLoopback.deleteSession, { oauthState: state });
 
     // Build the redirect back to the Unity local server
     const target = new URL(session.originalRedirectUri);
@@ -333,7 +514,7 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /v1/me — Current authenticated creator (like Spotify GET /v1/me)
+// GET /v1/me, Current authenticated creator (like Spotify GET /v1/me)
 //
 // Validates the Bearer token, then fetches fresh user data from DB using the
 // `sub` claim (which is the user's stable primary key in Better Auth).
@@ -351,7 +532,10 @@ http.route({
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
 
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    // /v1/me is an identity endpoint — any valid token (any scope) should
+    // identify the caller. Use the minimum scope so narrowly-scoped tokens
+    // (e.g. verification:read only) can still introspect their own identity.
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'verification:read');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
     // Look up fresh user data from Better Auth's user table.
@@ -373,11 +557,11 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /v1/products — List authenticated creator's registered products
+// GET /v1/products, List authenticated creator's registered products
 //
 // Returns all active products from product_catalog for the requesting creator.
 // Used by the Unity PackageSigning editor to populate Gumroad/Jinxxy dropdowns.
-// Pattern mirrors GET /v1/me — validate Bearer token → sub → tenant → products.
+// Pattern mirrors GET /v1/me, validate Bearer token → sub → tenant → products.
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
@@ -398,22 +582,25 @@ http.route({
       ownerAuthUserId: tokenResult.yucpUserId,
     });
     if (!tenant) {
-      console.log(`[products] No tenant found for user ${tokenResult.yucpUserId}`);
+      console.log(`[products] No creator profile found for user ${tokenResult.yucpUserId}`);
       return errorResponse('Creator account not found', 404);
     }
 
+    const productSources = new Map<string, string | null>();
+    productSources.set(tokenResult.yucpUserId, null);
+
     // ── Own products (includes Discord if role_rules are configured) ──────────
     const ownProducts = await ctx.runQuery(internal.yucpLicenses.getProductsForTenant, {
-      tenantId: tenant._id,
+      authUserId: tokenResult.yucpUserId,
     });
 
     // Tag own products with owner=null
-    const allProducts: Array<{
-      productId: string;
-      displayName?: string;
-      providers: Array<{ provider: string; providerProductRef: string }>;
-      owner: string | null;
-    }> = ownProducts.map((p) => ({ ...p, owner: null }));
+    const allProducts: PublicProductRecord[] = ownProducts.map((p) => ({
+      ...p,
+      owner: null,
+      configured: true,
+      live: false,
+    }));
 
     // ── Collaborator products ─────────────────────────────────────────────────
     // If the creator has linked Discord, check for collaborator connections
@@ -434,21 +621,27 @@ http.route({
         );
 
         for (const conn of collabConnections) {
-          // Skip if this is the same tenant as own (shouldn't happen, but guard)
-          if (conn.ownerTenantId === tenant._id) continue;
+          // Skip if this is the same creator as own (shouldn't happen, but guard)
+          if (conn.ownerAuthUserId === tokenResult.yucpUserId) continue;
 
-          const [collabProducts, ownerTenant] = await Promise.all([
+          const [collabProducts, ownerProfile] = await Promise.all([
             ctx.runQuery(internal.yucpLicenses.getProductsForTenant, {
-              tenantId: conn.ownerTenantId,
+              authUserId: conn.ownerAuthUserId,
             }),
-            ctx.runQuery(internal.yucpLicenses.getTenantById, {
-              tenantId: conn.ownerTenantId,
+            ctx.runQuery(internal.yucpLicenses.getTenantByAuthUser, {
+              ownerAuthUserId: conn.ownerAuthUserId,
             }),
           ]);
 
-          const ownerName = ownerTenant?.name ?? 'Collaborator';
+          const ownerName = ownerProfile?.name ?? 'Collaborator';
+          productSources.set(conn.ownerAuthUserId, ownerName);
           for (const p of collabProducts) {
-            allProducts.push({ ...p, owner: ownerName });
+            allProducts.push({
+              ...p,
+              owner: ownerName,
+              configured: true,
+              live: false,
+            });
           }
         }
       }
@@ -457,18 +650,26 @@ http.route({
       console.warn('[products] collaborator lookup failed:', err);
     }
 
-    console.log(
-      `[products] tenant=${tenant._id} own=${ownProducts.length} total=${allProducts.length}`
+    const liveProducts = await fetchLiveProviderProductsForSources(
+      Array.from(productSources.entries()).map(([authUserId, owner]) => ({ authUserId, owner }))
     );
-    return jsonResponse({ products: allProducts });
+    const mergedProducts = mergePublicProducts([...allProducts, ...liveProducts]).sort((a, b) => {
+      if (a.configured !== b.configured) return a.configured ? -1 : 1;
+      return (a.displayName ?? a.productId).localeCompare(b.displayName ?? b.productId);
+    });
+
+    console.log(
+      `[products] authUserId=${tokenResult.yucpUserId} own=${ownProducts.length} catalog=${allProducts.length} live=${liveProducts.length} total=${mergedProducts.length}`
+    );
+    return jsonResponse({ products: mergedProducts });
   }),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /v1/keys — YUCP CA root public key (JWK Set format, no auth required)
+// GET /v1/keys, YUCP CA root public key (JWK Set format, no auth required)
 //
 // Returns the trust anchor used to verify all YUCP certificates.
-// Clients (Unity) fetch this once and cache it in settings — no hardcoding.
+// Clients (Unity) fetch this once and cache it in settings, no hardcoding.
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
@@ -495,7 +696,7 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /v1/certificates/me — Restore active cert for this machine's key
+// GET /v1/certificates/me, Restore active cert for this machine's key
 //
 // Called by new Unity projects that are already signed in but have no local
 // SigningSettings asset yet. Returns the active cert for the authenticated
@@ -523,6 +724,15 @@ http.route({
     const devPublicKey = request.headers.get('X-Dev-Public-Key');
     if (!devPublicKey) return errorResponse('X-Dev-Public-Key header required', 400);
 
+    // c90: Validate devPublicKey is a valid base64-encoded 32-byte Ed25519 public key.
+    try {
+      const keyBytes = base64ToBytes(devPublicKey);
+      if (keyBytes.length !== 32) {
+        return errorResponse('Invalid X-Dev-Public-Key: must be a 32-byte Ed25519 public key', 400);
+      }
+    } catch {
+      return errorResponse('Invalid X-Dev-Public-Key: must be base64-encoded', 400);
+    }
     const cert = await ctx.runQuery(internal.yucpCertificates.getActiveCertForUser, {
       yucpUserId: tokenResult.yucpUserId,
       devPublicKey,
@@ -535,7 +745,7 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /v1/certificates — Issue cert via YUCP OAuth token (was /api/yucp/certificates/issue)
+// POST /v1/certificates, Issue cert via YUCP OAuth token (was /api/yucp/certificates/issue)
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
@@ -556,6 +766,7 @@ http.route({
 
     // Look up the user's subject to get their Discord ID (secondary identity anchor)
     const subjectResult = await ctx.runQuery(api.subjects.getSubjectByAuthId, {
+      apiSecret: process.env.CONVEX_API_SECRET ?? '',
       authUserId: yucpUserId,
     });
     const discordUserId = subjectResult?.found
@@ -569,16 +780,14 @@ http.route({
     } catch {
       return errorResponse('Invalid JSON body', 400);
     }
-    console.log(
-      '[cert/issue] body keys=' +
-        Object.keys(body ?? {}).join(',') +
-        ' devPublicKey_len=' +
-        (body?.devPublicKey?.length ?? 'null') +
-        ' publisherName=' +
-        (body?.publisherName ?? 'null')
-    );
     if (!body.devPublicKey || !body.publisherName) {
       return errorResponse('devPublicKey and publisherName are required', 400);
+    }
+
+    // Validate publisherName against allowlist: alphanumeric, spaces, underscore, dash, dot (1-100 chars)
+    const PUBLISHER_NAME_RE = /^[a-zA-Z0-9 _\-.]{1,100}$/;
+    if (!PUBLISHER_NAME_RE.test(body.publisherName)) {
+      return errorResponse('Invalid publisherName', 400);
     }
 
     // Validate devPublicKey is a 32-byte Ed25519 key
@@ -600,13 +809,16 @@ http.route({
       })) as CertEnvelope;
     } catch (err) {
       const raw = err instanceof Error ? err.message : '';
-      // Sanitize Convex-wrapped errors — never expose stack traces or internal paths.
+      // Sanitize Convex-wrapped errors, never expose stack traces or internal paths.
       // Map known failure modes to appropriate HTTP status codes.
       if (raw.includes('not configured') || raw.includes('not set')) {
         return errorResponse('Certificate service is not available', 503);
       }
       if (raw.includes('Rate limit')) {
-        return errorResponse(raw.replace(/Uncaught Error: /g, '').split('\n')[0], 429);
+        return errorResponse(
+          'Certificate issuance rate limit exceeded. Please wait before registering another machine.',
+          429
+        );
       }
       if (raw.includes('already has an active certificate')) {
         return errorResponse('An active certificate already exists for this key', 409);
@@ -619,7 +831,7 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /v1/packages/:hash — Consumer verification (was /api/yucp/packages/by-hash/:hash)
+// GET /v1/packages/:hash, Consumer verification (was /api/yucp/packages/by-hash/:hash)
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
@@ -667,7 +879,7 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /v1/signatures — Register in transparency log (was /api/yucp/sign-manifest)
+// POST /v1/signatures, Register in transparency log (was /api/yucp/sign-manifest)
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
@@ -683,7 +895,7 @@ http.route({
     if (!certResult.ok) return errorResponse(certResult.error, 401);
     const { envelope } = certResult;
 
-    // Reject revoked certificates — revocation via /v1/certificates/revoke must
+    // Reject revoked certificates, revocation via /v1/certificates/revoke must
     // be enforced here; parseBearerCert only checks signature validity and expiry.
     const certRecord = await ctx.runQuery(internal.yucpCertificates.getCertByNonce, {
       certNonce: envelope.cert.nonce,
@@ -752,7 +964,7 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /v1/certificates/revoke — Admin revocation (was /api/yucp/certificates/revoke)
+// POST /v1/certificates/revoke, Admin revocation (was /api/yucp/certificates/revoke)
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
@@ -761,7 +973,7 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const apiSecret = process.env.CONVEX_API_SECRET;
     const auth = request.headers.get('Authorization');
-    if (!apiSecret || auth !== `Bearer ${apiSecret}`) {
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
       return errorResponse('Unauthorized', 401);
     }
 
@@ -785,7 +997,7 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /v1/licenses/verify — Unity editor license gate
+// POST /v1/licenses/verify, Unity editor license gate
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
@@ -830,9 +1042,34 @@ http.route({
       return errorResponse('Missing required fields', 400);
     }
 
+    // Rate limit: 10 license verification attempts per machine per 60 seconds.
+    // Prevents brute-force enumeration of license keys for a given machine.
+    const fingerprintDigest = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(machineFingerprint)
+    );
+    const fingerprintHex = Array.from(new Uint8Array(fingerprintDigest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const rateLimited = await ctx.runMutation(
+      internal.lib.httpRateLimit.checkAndIncrement,
+      { key: `fingerprint:${fingerprintHex}`, limit: 10, windowMs: 60_000 }
+    );
+    if (rateLimited) {
+      return errorResponse('Too many verification attempts. Please wait before retrying.', 429);
+    }
+
+    const licenseKeyDigest = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(licenseKey)
+    );
+    const licenseKeyHash = Array.from(new Uint8Array(licenseKeyDigest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
     const result = await ctx.runAction(internal.yucpLicenses.verifyLicense, {
       packageId,
-      licenseKey,
+      licenseKey: licenseKeyHash,
       provider,
       productPermalink,
       machineFingerprint,
@@ -849,11 +1086,11 @@ http.route({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /v1/licenses/verify-discord — Discord role entitlement verification
+// POST /v1/licenses/verify-discord, Discord role entitlement verification
 //
 // The buyer must have already been granted an entitlement via the creator's
 // Discord bot. This endpoint checks for that existing entitlement and issues
-// a license JWT — no license key input required.
+// a license JWT, no license key input required.
 //
 // Flow: buyer does YUCP OAuth → Bearer token → server maps to Discord user ID
 //   → checks entitlements table → issues machine-bound license JWT
@@ -900,6 +1137,10 @@ http.route({
       return errorResponse('Missing required fields', 400);
     }
 
+    // c74: Validate packageId format — only safe characters, bounded length.
+    if (!/^[a-z0-9\-_./:]{1,128}$/.test(packageId)) {
+      return errorResponse('Invalid packageId format', 400);
+    }
     const nowSeconds = Math.floor(Date.now() / 1000);
     if (Math.abs(nowSeconds - (timestamp as number)) > 120) {
       return errorResponse('Request timestamp out of range', 422);
@@ -930,15 +1171,15 @@ http.route({
       );
     }
 
-    // Look up creator's tenant
-    const tenant = await ctx.runQuery(internal.yucpLicenses.getTenantByAuthUser, {
+    // Look up creator's profile
+    const creatorProfile = await ctx.runQuery(internal.yucpLicenses.getTenantByAuthUser, {
       ownerAuthUserId: creatorAuthUserId,
     });
-    if (!tenant) return errorResponse('Creator account not found', 404);
+    if (!creatorProfile) return errorResponse('Creator account not found', 404);
 
     // Check for an active entitlement
     const hasEntitlement = await ctx.runQuery(internal.yucpLicenses.checkSubjectEntitlement, {
-      tenantId: tenant._id,
+      authUserId: creatorAuthUserId,
       subjectId: subject._id,
       productId,
     });
@@ -957,6 +1198,9 @@ http.route({
     if (!packageReg || packageReg.yucpUserId !== creatorAuthUserId) {
       return errorResponse('Package not found or not owned by the specified creator', 403);
     }
+
+    // c64: Consume nonce before issuing JWT — prevents replay of identical requests.
+    await ctx.runMutation(internal.yucpLicenses.checkAndConsumeNonce, { nonce });
 
     // Issue machine-fingerprint-bound license JWT
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
@@ -986,105 +1230,6 @@ http.route({
     );
 
     return jsonResponse({ success: true, token: licenseToken, expiresAt: exp });
-  }),
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /v1/vrchat/avatar-name — Bot-internal: resolve avatar display name
-// Auth: Bearer <CONVEX_API_SECRET>
-// Body: { tenantId, avatarId }
-// Uses the tenant owner's stored VRChat session (from BetterAuth) to call
-// GET /avatars/{id} and return the avatar name. Non-fatal — returns null if
-// the owner has no linked VRChat account or the avatar is inaccessible.
-// ─────────────────────────────────────────────────────────────────────────────
-
-http.route({
-  method: 'POST',
-  path: '/v1/vrchat/avatar-name',
-  handler: httpAction(async (ctx, request) => {
-    const apiSecret = process.env.CONVEX_API_SECRET;
-    const auth = request.headers.get('Authorization');
-    if (!apiSecret || auth !== `Bearer ${apiSecret}`) {
-      return errorResponse('Unauthorized', 401);
-    }
-
-    let body: { tenantId: string; avatarId: string };
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return errorResponse('Invalid JSON body', 400);
-    }
-    if (!body.tenantId || !body.avatarId) {
-      return errorResponse('tenantId and avatarId are required', 400);
-    }
-
-    // Get tenant to find owner's auth user ID
-    const tenant = await ctx.runQuery(internal.yucpLicenses.getTenantOwnerById, {
-      tenantId: body.tenantId as any,
-    });
-    if (!tenant) return jsonResponse({ name: null });
-
-    // Look up owner's VRChat account from BetterAuth
-    const vrchatAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: 'account',
-      where: [
-        { field: 'userId', value: tenant.ownerAuthUserId },
-        { field: 'providerId', value: 'vrchat' },
-      ],
-      select: ['accessToken', 'idToken'],
-    })) as { accessToken?: string; idToken?: string } | null;
-
-    if (!vrchatAccount?.accessToken) return jsonResponse({ name: null });
-
-    // Decrypt the stored VRChat session (mirrors loadStoredSession in vrchat plugin)
-    const ENCRYPTED_PREFIX = 'enc:v1:';
-    const PROVIDER_SESSION_PURPOSE = 'vrchat-provider-session';
-    const sessionSecret =
-      process.env.VRCHAT_PROVIDER_SESSION_SECRET ?? process.env.BETTER_AUTH_SECRET;
-    if (!sessionSecret) return jsonResponse({ name: null });
-
-    let authToken: string;
-    let twoFactorAuthToken: string | undefined;
-    try {
-      const rawAuth = vrchatAccount.accessToken;
-      authToken = rawAuth.startsWith(ENCRYPTED_PREFIX)
-        ? await decryptForPurpose(
-            rawAuth.slice(ENCRYPTED_PREFIX.length),
-            sessionSecret,
-            PROVIDER_SESSION_PURPOSE
-          )
-        : rawAuth;
-      if (vrchatAccount.idToken) {
-        const rawTfa = vrchatAccount.idToken;
-        twoFactorAuthToken = rawTfa.startsWith(ENCRYPTED_PREFIX)
-          ? await decryptForPurpose(
-              rawTfa.slice(ENCRYPTED_PREFIX.length),
-              sessionSecret,
-              PROVIDER_SESSION_PURPOSE
-            )
-          : rawTfa;
-      }
-    } catch {
-      return jsonResponse({ name: null });
-    }
-
-    // Call VRChat API with the decrypted session
-    const cookieParts = [`auth=${authToken}`];
-    if (twoFactorAuthToken) cookieParts.push(`twoFactorAuth=${twoFactorAuthToken}`);
-    const avatarRes = await fetch(
-      `https://api.vrchat.cloud/api/1/avatars/${encodeURIComponent(body.avatarId)}`,
-      {
-        headers: {
-          cookie: cookieParts.join('; '),
-          'user-agent': 'YUCP Creator Assistant/0.1.0 (https://yucp.app)',
-        },
-      }
-    );
-
-    if (!avatarRes.ok) return jsonResponse({ name: null });
-    const avatarData = (await avatarRes.json().catch(() => null)) as Record<string, unknown> | null;
-    const name = typeof avatarData?.name === 'string' ? avatarData.name : null;
-    return jsonResponse({ name });
   }),
 });
 

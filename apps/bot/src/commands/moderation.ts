@@ -8,22 +8,22 @@
 
 import { createLogger } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  StringSelectMenuInteraction,
+} from 'discord.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
   MessageFlags,
+  PermissionFlagsBits,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
-import type {
-  ButtonInteraction,
-  ChatInputCommandInteraction,
-  StringSelectMenuInteraction,
-} from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
 
@@ -34,13 +34,35 @@ export async function handleModerationMark(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
   _apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
+  if (!ctx.guildId) {
+    await interaction.reply({
+      content: 'This command must be used in a server.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const member = interaction.member;
+  if (member && typeof member === 'object' && 'permissions' in member) {
+    const perms = member.permissions as { has: (bit: bigint) => boolean };
+    const hasAdmin = perms.has(PermissionFlagsBits.Administrator);
+    const hasManageGuild = perms.has(PermissionFlagsBits.ManageGuild);
+    if (!hasAdmin && !hasManageGuild) {
+      await interaction.reply({
+        content: 'You do not have permission to use this command.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  }
+
   const targetUser = interaction.options.getUser('user', true);
 
   const select = new StringSelectMenuBuilder()
     .setCustomId(
-      `creator_moderation:reason_select:${interaction.user.id}:${ctx.tenantId}:${targetUser.id}`
+      `creator_moderation:reason_select:${interaction.user.id}:${ctx.authUserId}:${targetUser.id}`
     )
     .setPlaceholder('Select a reason...')
     .addOptions(
@@ -81,13 +103,14 @@ export async function handleModerationReasonSelect(
   convex: ConvexHttpClient,
   apiSecret: string,
   actorId: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   targetUserId: string
 ): Promise<void> {
   const reason = interaction.values[0];
   await interaction.deferUpdate();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId: targetUserId,
   });
 
@@ -104,12 +127,12 @@ export async function handleModerationReasonSelect(
     subjectId: subjectResult.subject._id,
     reason,
     actorId,
-    tenantId,
+    authUserId,
     quarantine: true,
   });
 
   track(actorId, 'suspicious_marked', {
-    tenantId,
+    authUserId,
     subjectId: subjectResult.subject._id,
     targetUserId,
     reason,
@@ -132,13 +155,13 @@ export async function handleModerationList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const list = await convex.query(api.identitySync.listSuspiciousSubjects, {
     apiSecret,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     limit: 25,
   });
 
@@ -168,7 +191,7 @@ export async function handleModerationClear(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
   _apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
 
@@ -182,7 +205,7 @@ export async function handleModerationClear(
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(
-        `creator_moderation:confirm_clear:${targetUser.id}:${ctx.tenantId}:${interaction.user.id}`
+        `creator_moderation:confirm_clear:${targetUser.id}:${ctx.authUserId}:${interaction.user.id}`
       )
       .setLabel('Yes, Clear Flag')
       .setStyle(ButtonStyle.Success),
@@ -205,12 +228,13 @@ export async function handleModerationConfirmClear(
   convex: ConvexHttpClient,
   apiSecret: string,
   targetUserId: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   actorId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId: targetUserId,
   });
 
@@ -227,7 +251,7 @@ export async function handleModerationConfirmClear(
     apiSecret,
     subjectId: subjectResult.subject._id,
     actorId,
-    tenantId,
+    authUserId,
   });
 
   const embed = new EmbedBuilder()
@@ -245,7 +269,7 @@ export async function handleModerationUnverify(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
   const productId = interaction.options.getString('product_id', true);
@@ -255,13 +279,14 @@ export async function handleModerationUnverify(
   try {
     const result = await convex.mutation(api.entitlements.revokeEntitlementsByProduct, {
       apiSecret,
-      tenantId: ctx.tenantId,
+      authUserId: ctx.authUserId,
       discordUserId: targetUser.id,
       productId,
     });
 
     const productsWithNames = await convex.query(api.role_rules.getByGuildWithProductNames, {
-      tenantId: ctx.tenantId,
+      apiSecret,
+      authUserId: ctx.authUserId,
       guildId: ctx.guildId,
     });
     const productDisplayName =
@@ -295,7 +320,7 @@ export async function handleModerationUnverify(
     await interaction.editReply({ embeds: [embed] });
 
     track(interaction.user.id, 'moderation_unverify_used', {
-      tenantId: ctx.tenantId,
+      authUserId: ctx.authUserId,
       targetUserId: targetUser.id,
       productId,
       revokedCount: result.revokedCount,
@@ -303,7 +328,7 @@ export async function handleModerationUnverify(
   } catch (err) {
     logger.error('Failed to remove verification via moderation command', {
       error: err instanceof Error ? err.message : String(err),
-      tenantId: ctx.tenantId,
+      authUserId: ctx.authUserId,
       guildId: ctx.guildId,
       targetUserId: targetUser.id,
       productId,
@@ -320,7 +345,7 @@ export async function handleSuspiciousMark(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   return handleModerationMark(interaction, convex, apiSecret, ctx);
 }
@@ -329,7 +354,7 @@ export async function handleSuspiciousList(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   return handleModerationList(interaction, convex, apiSecret, ctx);
 }
@@ -338,7 +363,7 @@ export async function handleSuspiciousClear(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   return handleModerationClear(interaction, convex, apiSecret, ctx);
 }

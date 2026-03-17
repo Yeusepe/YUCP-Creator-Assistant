@@ -11,9 +11,9 @@
  * - Emit audit events for all role changes
  */
 
-import { type StructuredLogger, createStructuredLogger } from '@yucp/shared';
+import { createStructuredLogger, type StructuredLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
-import { Client, Guild, GuildMember, RESTJSONErrorCodes, Role } from 'discord.js';
+import { Client, GuildMember, RESTJSONErrorCodes } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 
 type BotConvexClient = {
@@ -59,14 +59,14 @@ export interface CreatorAlertPayload {
 
 /** Retroactive rule sync job payload */
 export interface RetroactiveRuleSyncPayload {
-  tenantId: Id<'tenants'>;
+  authUserId: string;
   productId: string;
 }
 
 /** Outbox job document type */
 export interface OutboxJob {
   _id: Id<'outbox_jobs'>;
-  tenantId: Id<'tenants'>;
+  authUserId: string;
   jobType: 'role_sync' | 'role_removal' | 'creator_alert' | 'retroactive_rule_sync';
   payload: RoleSyncPayload | RoleRemovalPayload | CreatorAlertPayload | RetroactiveRuleSyncPayload;
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'dead_letter';
@@ -81,7 +81,7 @@ export interface OutboxJob {
 /** Role rule document type */
 export interface RoleRule {
   _id: Id<'role_rules'>;
-  tenantId: Id<'tenants'>;
+  authUserId: string;
   guildId: string;
   productId: string;
   verifiedRoleId: string;
@@ -101,7 +101,7 @@ export interface Subject {
 /** Entitlement document type */
 export interface Entitlement {
   _id: Id<'entitlements'>;
-  tenantId: Id<'tenants'>;
+  authUserId: string;
   subjectId: Id<'subjects'>;
   productId: string;
   status: 'active' | 'revoked' | 'expired' | 'refunded' | 'disputed';
@@ -402,7 +402,7 @@ export class RoleSyncService {
     }
 
     // Get all role rules for this product
-    let roleRules = await this.fetchRoleRules(job.tenantId, entitlement.productId);
+    let roleRules = await this.fetchRoleRules(job.authUserId, entitlement.productId);
 
     // When targetGuildId is set (e.g. from guild member add), only sync in that guild
     if (payload.targetGuildId) {
@@ -527,7 +527,7 @@ export class RoleSyncService {
       throw new Error(`Channel ${payload.channelId} not found or not text channel`);
     }
 
-    await channel.send({ content: payload.message });
+    await channel.send({ content: payload.message, allowedMentions: { parse: [] } });
   }
 
   /**
@@ -540,8 +540,8 @@ export class RoleSyncService {
    */
   private async processRetroactiveRuleSyncJob(job: OutboxJob): Promise<void> {
     const payload = job.payload as RetroactiveRuleSyncPayload;
-    if (!payload.tenantId || !payload.productId) {
-      throw new Error('Retroactive rule sync payload missing tenantId or productId');
+    if (!payload.authUserId || !payload.productId) {
+      throw new Error('Retroactive rule sync payload missing authUserId or productId');
     }
 
     const result = (await this.convexClient.mutation(
@@ -549,7 +549,7 @@ export class RoleSyncService {
       {
         apiSecret: this.apiSecret,
         jobId: job._id,
-        tenantId: payload.tenantId,
+        authUserId: payload.authUserId,
         productId: payload.productId,
       }
     )) as {
@@ -580,7 +580,7 @@ export class RoleSyncService {
       payload.productId.startsWith('discord_role:')
     ) {
       await this.proactiveDiscordRoleCheck(
-        payload.tenantId,
+        payload.authUserId,
         payload.productId,
         result.discordTokenAccounts
       );
@@ -592,7 +592,7 @@ export class RoleSyncService {
    * Used during retroactive sync when a new discord_role product is added.
    */
   private async proactiveDiscordRoleCheck(
-    tenantId: string,
+    authUserId: string,
     productId: string,
     accounts: Array<{
       externalAccountId: string;
@@ -616,7 +616,7 @@ export class RoleSyncService {
     const requiredRoleId = parts[2];
 
     this.logger.info('Starting proactive discord role check', {
-      tenantId,
+      authUserId,
       productId,
       sourceGuildId,
       requiredRoleId,
@@ -679,7 +679,7 @@ export class RoleSyncService {
           const sourceReference = `discord_role:${sourceGuildId}:${requiredRoleId}`;
           await this.convexClient.mutation(api.entitlements.grantEntitlement, {
             apiSecret: this.apiSecret,
-            tenantId,
+            authUserId,
             subjectId,
             productId,
             evidence: {
@@ -701,7 +701,7 @@ export class RoleSyncService {
     }
 
     this.logger.info('Proactive discord role check completed', {
-      tenantId,
+      authUserId,
       productId,
       granted,
       skipped,
@@ -957,7 +957,7 @@ export class RoleSyncService {
 
       await this.convexClient.mutation(api.audit_events.createAuditEvent, {
         apiSecret: this.apiSecret,
-        tenantId: job.tenantId,
+        authUserId: job.authUserId,
         eventType,
         actorType: 'system',
         actorId: 'role-sync-service',
@@ -1033,19 +1033,20 @@ export class RoleSyncService {
   }
 
   /**
-   * Fetch role rules for a tenant and product.
+   * Fetch role rules for a creator and product.
    */
-  private async fetchRoleRules(tenantId: Id<'tenants'>, productId: string): Promise<RoleRule[]> {
+  private async fetchRoleRules(authUserId: string, productId: string): Promise<RoleRule[]> {
     try {
       const rules = await this.convexClient.query(api.role_rules.getByProduct, {
-        tenantId,
+        apiSecret: this.apiSecret,
+        authUserId,
         productId,
       });
 
       return rules as RoleRule[];
     } catch (error) {
       this.logger.error('Failed to fetch role rules', {
-        tenantId,
+        authUserId,
         productId,
         error: error instanceof Error ? error.message : String(error),
       });

@@ -7,15 +7,18 @@
   background: #ffffff;
   border: none;
   border-radius: 16px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04), 0 2px 4px rgba(0, 0, 0, 0.05), 0 12px 24px
-    rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 2px 4px rgba(0, 0, 0, 0.05),
+    0 12px 24px rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
   align-self: start;
   position: relative;
   overflow: hidden;
-  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s
-    cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition:
+    transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .section-card::before {
@@ -25,8 +28,12 @@
   padding: 1px;
   border-radius: inherit;
   background: linear-gradient(135deg, var(--card-gradient-from), var(--card-gradient-to));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
@@ -41,8 +48,10 @@
 
 .section-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 8px 16px rgba(0, 0, 0, 0.08), 0 24px 48px
-    rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.05),
+    0 8px 16px rgba(0, 0, 0, 0.08),
+    0 24px 48px rgba(0, 0, 0, 0.08);
 }
 
 .section-card:hover::before {
@@ -55,8 +64,10 @@
   position: relative;
   overflow: hidden;
   background: linear-gradient(135deg, #fefefe 0%, #f8f7f6 100%);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04), 0 4px 8px rgba(0, 0, 0, 0.05), 0 16px 32px
-    rgba(0, 0, 0, 0.07);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 4px 8px rgba(0, 0, 0, 0.05),
+    0 16px 32px rgba(0, 0, 0, 0.07);
 }
 
 .quick-start-card::before {
@@ -139,7 +150,10 @@
   height: 38px;
   border-radius: 12px;
   cursor: pointer;
-  transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
   font-size: 18px;
   line-height: 1;
 }
@@ -215,8 +229,11 @@
   border-radius: 16px;
   border: 1px solid #e2e8f0;
   background: #ffffff;
-  transition: transform 0.28s ease, border-color 0.28s ease, background 0.28s ease, box-shadow 0.28s
-    ease;
+  transition:
+    transform 0.28s ease,
+    border-color 0.28s ease,
+    background 0.28s ease,
+    box-shadow 0.28s ease;
   overflow: hidden;
 }
 
@@ -228,7 +245,9 @@
   transform: translateY(-3px);
   border-color: rgba(0, 0, 0, 0.1);
   background: #ffffff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .quick-start-step.is-complete {
@@ -346,7 +365,10 @@
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
-  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .quick-start-jump:hover {
@@ -369,11 +391,15 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s ease, border-color
-    0.3s ease;
+  transition:
+    transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.03),
+    0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .platform-card::before {
@@ -383,8 +409,12 @@
   padding: 1px;
   border-radius: inherit;
   background: linear-gradient(135deg, #9e7aff, #fe8bbb);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
@@ -396,7 +426,9 @@
   transform: translateY(-4px);
   background: #fefefe;
   border-color: transparent;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04), 0 12px 24px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 12px 24px rgba(0, 0, 0, 0.08);
 }
 
 .platform-card:hover::before {
@@ -405,7 +437,9 @@
 
 .platform-card.connected {
   border-color: rgba(134, 239, 172, 0.5);
-  box-shadow: 0 0 0 1px rgba(134, 239, 172, 0.3), 0 4px 14px rgba(74, 222, 128, 0.15);
+  box-shadow:
+    0 0 0 1px rgba(134, 239, 172, 0.3),
+    0 4px 14px rgba(74, 222, 128, 0.15);
 }
 
 .platform-card.connected::before {
@@ -542,7 +576,9 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.25s ease, visibility 0.25s;
+  transition:
+    opacity 0.25s ease,
+    visibility 0.25s;
 }
 
 .server-dropdown-backdrop.open {
@@ -562,7 +598,9 @@
   -webkit-backdrop-filter: blur(32px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 20px;
-  box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.2), inset 0 2px 5px rgba(255, 255, 255, 0.5);
+  box-shadow:
+    inset 0 0 40px rgba(255, 255, 255, 0.2),
+    inset 0 2px 5px rgba(255, 255, 255, 0.5);
   background-image: radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px);
   background-size: 24px 24px;
   display: flex;
@@ -570,7 +608,9 @@
   opacity: 0;
   visibility: hidden;
   transform: translateY(-10px);
-  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+  transition:
+    opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     visibility 0.2s;
   z-index: 100002;
   overflow: hidden;
@@ -654,7 +694,9 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s, transform 0.1s;
+  transition:
+    background 0.2s,
+    transform 0.1s;
 }
 
 .server-dropdown-item:hover {
@@ -718,7 +760,9 @@
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+  transition:
+    background 0.2s,
+    color 0.2s;
 }
 
 .server-dropdown-action-btn:hover {
@@ -731,7 +775,9 @@
   border: 1px solid #e2e8f0;
   border-radius: 16px;
   padding: 20px 24px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .intg-card:hover {
@@ -1195,7 +1241,9 @@
   border-radius: 5px;
   letter-spacing: 0.01em;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
   user-select: all;
 }
 
@@ -1336,7 +1384,9 @@
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 14px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.3) inset;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.3) inset;
   padding: 6px;
   z-index: 50;
   display: none;
@@ -1375,7 +1425,9 @@
   border: none;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .dropdown-menu button:hover {
@@ -1408,7 +1460,9 @@
   backdrop-filter: blur(24px) saturate(200%);
   -webkit-backdrop-filter: blur(24px) saturate(200%);
   border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset;
 }
 
 .intg-card .dropdown-menu button {
@@ -1701,7 +1755,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
   flex-shrink: 0;
 }
 
@@ -1728,7 +1784,9 @@
   -webkit-backdrop-filter: blur(12px);
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.3s ease, visibility 0.3s;
+  transition:
+    opacity 0.3s ease,
+    visibility 0.3s;
 }
 
 .inline-panel.open {
@@ -1755,8 +1813,10 @@
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.06) 100%);
   backdrop-filter: blur(48px) saturate(200%) brightness(1.02);
   -webkit-backdrop-filter: blur(48px) saturate(200%) brightness(1.02);
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 1px 0
-    rgba(255, 255, 255, 0.12) inset;
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 1px 0 rgba(255, 255, 255, 0.12) inset;
   padding: 24px;
 }
 
@@ -1872,7 +1932,9 @@
   font-size: 13px;
   font-weight: 500;
   outline: none;
-  transition: border-color 0.18s, box-shadow 0.18s;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
 }
 
 .modal-textarea {
@@ -1915,7 +1977,9 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.05);
-  transition: border-color 0.18s, background 0.18s;
+  transition:
+    border-color 0.18s,
+    background 0.18s;
 }
 
 .scope-toggle:hover .scope-toggle-card {
@@ -1999,7 +2063,10 @@
   font-weight: 700;
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.18s, color 0.18s, border-color 0.18s;
+  transition:
+    background 0.18s,
+    color 0.18s,
+    border-color 0.18s;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
@@ -2024,7 +2091,9 @@
   font-size: 12px;
   cursor: pointer;
   box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2);
-  transition: transform 0.18s, box-shadow 0.18s;
+  transition:
+    transform 0.18s,
+    box-shadow 0.18s;
 }
 
 .btn-danger:hover {

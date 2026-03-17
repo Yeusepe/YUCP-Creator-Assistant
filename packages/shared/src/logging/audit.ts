@@ -85,7 +85,7 @@ export interface AuditTarget {
  */
 export interface AuditContext {
   correlationId?: CorrelationId;
-  tenantId?: string;
+  authUserId?: string;
   environment?: string;
   requestId?: string;
   sessionId?: string;

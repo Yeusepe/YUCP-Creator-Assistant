@@ -2,8 +2,9 @@ import { LemonSqueezyApiClient } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
-import { decrypt } from '../../lib/encrypt';
+import { decrypt, encrypt } from '../../lib/encrypt';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
+import { PURPOSES as LEMONSQUEEZY } from '../../providers/lemonsqueezy';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
 import type { VerificationConfig } from '../sessionManager';
 import type { LicenseVerificationHandler } from './index';
@@ -60,16 +61,16 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
     config: VerificationConfig,
     convex: ConvexServerClient
   ): Promise<CompleteLicenseResult> {
-    const { licenseKey, tenantId, subjectId } = input;
+    const { licenseKey, authUserId, subjectId } = input;
 
     // Get the LS connection and decrypt the API token
     const secrets = await convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret: config.convexApiSecret,
-      tenantId,
+      authUserId,
       provider: 'lemonsqueezy',
     });
 
-    const encryptedApiToken = secrets?.lemonApiTokenEncrypted;
+    const encryptedApiToken = secrets?.credentials.api_token;
     if (!encryptedApiToken) {
       return {
         success: false,
@@ -83,9 +84,9 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
 
     let apiToken: string;
     try {
-      apiToken = await decrypt(encryptedApiToken, config.encryptionSecret);
+      apiToken = await decrypt(encryptedApiToken, config.encryptionSecret, LEMONSQUEEZY.credential);
     } catch (err) {
-      logger.error('Failed to decrypt Lemon Squeezy API token', { tenantId, err });
+      logger.error('Failed to decrypt Lemon Squeezy API token', { authUserId, err });
       return {
         success: false,
         error:
@@ -127,7 +128,7 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
     // Find the connection record (needed for catalog mapping lookup)
     const connectionsResult = await convex.query(api.providerConnections.listConnections, {
       apiSecret: config.convexApiSecret,
-      tenantId,
+      authUserId,
     });
     const connection = (
       connectionsResult.connections as Array<{
@@ -152,7 +153,7 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
       }),
       convex.query(api.providerPlatform.listCatalogProductsForTenant, {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
       }),
     ]);
 
@@ -173,7 +174,7 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
     const normalizedEmail = userEmail ? normalizeEmail(userEmail) : undefined;
 
     logger.info('[lemonSqueezyHandler] License validated, granting entitlement', {
-      tenantId,
+      authUserId,
       licenseId,
       productId: match.productId,
       catalogProductId: match.catalogProductId,
@@ -183,12 +184,21 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
       api.licenseVerification.completeLicenseVerification,
       {
         apiSecret: config.convexApiSecret,
-        tenantId,
+        authUserId,
         subjectId,
         provider: 'lemonsqueezy',
         providerUserId: String(customerId ?? userEmail ?? licenseId),
         providerUsername: userName,
-        providerMetadata: normalizedEmail ? { email: normalizedEmail } : undefined,
+        providerMetadata: normalizedEmail
+          ? {
+              emailEncrypted: await encrypt(
+                normalizedEmail,
+                config.encryptionSecret ?? '',
+                'external-account-metadata-email'
+              ),
+              emailHash: await sha256Hex(normalizedEmail),
+            }
+          : undefined,
         productsToGrant: [
           {
             productId: match.productId,
@@ -205,7 +215,7 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
         const emailHash = await sha256Hex(normalizedEmail);
         await convex.mutation(api.backgroundSync.scheduleBackfillThenSyncForBuyer, {
           apiSecret: config.convexApiSecret,
-          tenantId,
+          authUserId,
           subjectId,
           provider: 'lemonsqueezy',
           emailHash,
@@ -213,7 +223,7 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
         });
       } catch (syncErr) {
         logger.warn('[lemonSqueezyHandler] Post-verify buyer sync scheduling failed (non-fatal)', {
-          tenantId,
+          authUserId,
           subjectId,
           error: syncErr instanceof Error ? syncErr.message : String(syncErr),
         });

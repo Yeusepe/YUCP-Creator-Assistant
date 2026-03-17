@@ -1,5 +1,5 @@
 /**
- * YUCP Certificate Authority — Ed25519 signing utilities.
+ * YUCP Certificate Authority, Ed25519 signing utilities.
  *
  * Uses @noble/ed25519 v2 wired to the Web Crypto API's SHA-512 implementation
  * so no additional hash-library dependency is required at runtime.
@@ -189,7 +189,7 @@ function base64urlEncode(data: Uint8Array | string): string {
 
 /**
  * Create a signed license JWT (EdDSA / Ed25519).
- * The client can parse the payload without signature verification — security
+ * The client can parse the payload without signature verification, security
  * relies on: valid token only obtainable via server license check, machine
  * fingerprint binding, short TTL, and HMAC-authenticated on-disk cache.
  */

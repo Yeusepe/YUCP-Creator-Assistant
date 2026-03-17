@@ -5,10 +5,10 @@
  * Uses SHA-256 hashing - license keys are NEVER stored in plaintext.
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
-import type { Doc } from './_generated/dataModel';
-import { mutation, query } from './_generated/server';
+import { internalMutation, mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 
 // ============================================================================
 // TYPES
@@ -24,7 +24,7 @@ export const ManualLicenseStatus = v.union(
 
 /** Input for creating a manual license */
 export const CreateManualLicenseInput = v.object({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
   licenseKeyHash: v.string(),
   productId: v.string(),
   catalogProductId: v.optional(v.id('product_catalog')),
@@ -43,7 +43,7 @@ export const CreateManualLicenseResult = v.object({
 export const ValidateManualLicenseInput = v.object({
   licenseKeyHash: v.string(),
   productId: v.string(),
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
 });
 
 /** Result of validating a manual license */
@@ -65,20 +65,13 @@ export const UseManualLicenseInput = v.object({
 /** Input for revoking a manual license */
 export const RevokeManualLicenseInput = v.object({
   licenseId: v.id('manual_licenses'),
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
   reason: v.optional(v.string()),
 });
 
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
-
 /** Input for bulk creating manual licenses */
 export const BulkCreateManualLicensesInput = v.object({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
   licenses: v.array(
     v.object({
       licenseKeyHash: v.string(),
@@ -97,12 +90,22 @@ export const BulkCreateManualLicensesInput = v.object({
 
 /**
  * Get a manual license by ID.
+ * Requires apiSecret and scoped to the requesting tenant.
  */
 export const getById = query({
-  args: { licenseId: v.id('manual_licenses') },
-  handler: async (ctx, { licenseId }) => {
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    licenseId: v.id('manual_licenses'),
+  },
+  handler: async (ctx, { apiSecret, authUserId, licenseId }) => {
+    requireApiSecret(apiSecret);
     const license = await ctx.db.get(licenseId);
     if (!license) {
+      return null;
+    }
+    // Scope to requesting tenant to prevent cross-tenant data access
+    if (license.authUserId !== authUserId) {
       return null;
     }
     // Never return the hash
@@ -113,10 +116,16 @@ export const getById = query({
 
 /**
  * Find a manual license by key hash.
+ * Requires apiSecret. Scoped by the hash itself — no cross-tenant enumeration possible
+ * since only the holder of the raw key can compute the correct hash.
  */
 export const findByKeyHash = query({
-  args: { licenseKeyHash: v.string() },
-  handler: async (ctx, { licenseKeyHash }) => {
+  args: {
+    apiSecret: v.string(),
+    licenseKeyHash: v.string(),
+  },
+  handler: async (ctx, { apiSecret, licenseKeyHash }) => {
+    requireApiSecret(apiSecret);
     const license = await ctx.db
       .query('manual_licenses')
       .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', licenseKeyHash))
@@ -133,18 +142,22 @@ export const findByKeyHash = query({
 });
 
 /**
- * List manual licenses for a tenant.
+ * List manual licenses for a creator.
  */
 export const listByTenant = query({
   args: {
-    tenantId: v.id('tenants'),
+    apiSecret: v.string(),
+    authUserId: v.string(),
     productId: v.optional(v.string()),
     status: v.optional(ManualLicenseStatus),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
   },
-  handler: async (ctx, { tenantId, productId, status }) => {
+  handler: async (ctx, { apiSecret, authUserId, productId, status }) => {
+    requireApiSecret(apiSecret);
     const query = ctx.db
       .query('manual_licenses')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', tenantId));
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId));
 
     const licenses = await query.collect();
 
@@ -167,11 +180,15 @@ export const listByTenant = query({
  * Get statistics for manual licenses.
  */
 export const getStats = query({
-  args: { tenantId: v.id('tenants') },
-  handler: async (ctx, { tenantId }) => {
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  handler: async (ctx, { apiSecret, authUserId }) => {
+    requireApiSecret(apiSecret);
     const licenses = await ctx.db
       .query('manual_licenses')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
       .collect();
 
     return {
@@ -195,7 +212,7 @@ export const getStats = query({
 export const create = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     licenseKeyHash: v.string(),
     productId: v.string(),
     catalogProductId: v.optional(v.id('product_catalog')),
@@ -209,7 +226,7 @@ export const create = mutation({
     const now = Date.now();
 
     const licenseId = await ctx.db.insert('manual_licenses', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       licenseKeyHash: args.licenseKeyHash,
       productId: args.productId,
       catalogProductId: args.catalogProductId,
@@ -230,7 +247,7 @@ export const create = mutation({
 /**
  * Increment usage count for a license.
  */
-export const incrementUsage = mutation({
+export const incrementUsage = internalMutation({
   args: { licenseId: v.id('manual_licenses') },
   handler: async (ctx, { licenseId }) => {
     const license = await ctx.db.get(licenseId);
@@ -267,18 +284,18 @@ export const revoke = mutation({
   args: {
     apiSecret: v.string(),
     licenseId: v.id('manual_licenses'),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     reason: v.optional(v.string()),
   },
-  handler: async (ctx, { apiSecret, licenseId, tenantId, reason }) => {
+  handler: async (ctx, { apiSecret, licenseId, authUserId, reason }) => {
     requireApiSecret(apiSecret);
     const license = await ctx.db.get(licenseId);
     if (!license) {
       throw new Error('License not found');
     }
 
-    // Verify tenant ownership
-    if (license.tenantId !== tenantId) {
+    // Verify creator ownership
+    if (license.authUserId !== authUserId) {
       throw new Error('License not found');
     }
 
@@ -335,7 +352,7 @@ export const updateStatus = mutation({
 export const bulkCreate = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     licenses: v.array(
       v.object({
         licenseKeyHash: v.string(),
@@ -347,14 +364,14 @@ export const bulkCreate = mutation({
       })
     ),
   },
-  handler: async (ctx, { apiSecret, tenantId, licenses }) => {
+  handler: async (ctx, { apiSecret, authUserId, licenses }) => {
     requireApiSecret(apiSecret);
     const now = Date.now();
     const results: Id<'manual_licenses'>[] = [];
 
     for (const input of licenses) {
       const licenseId = await ctx.db.insert('manual_licenses', {
-        tenantId,
+        authUserId,
         licenseKeyHash: input.licenseKeyHash,
         productId: input.productId,
         maxUses: input.maxUses,
@@ -378,9 +395,12 @@ export const bulkCreate = mutation({
  * Requires apiSecret - called by API server only.
  */
 export const hardDelete = mutation({
-  args: { apiSecret: v.string(), licenseId: v.id('manual_licenses') },
-  handler: async (ctx, { apiSecret, licenseId }) => {
+  args: { apiSecret: v.string(), authUserId: v.string(), licenseId: v.id('manual_licenses') },
+  handler: async (ctx, { apiSecret, authUserId, licenseId }) => {
     requireApiSecret(apiSecret);
+    const license = await ctx.db.get(licenseId);
+    if (!license) throw new Error(`Manual license not found: ${licenseId}`);
+    if (license.authUserId !== authUserId) throw new ConvexError('Unauthorized: not the owner');
     await ctx.db.delete(licenseId);
     return { success: true };
   },
@@ -388,26 +408,41 @@ export const hardDelete = mutation({
 
 /**
  * Validate a license by hash.
+ * Requires apiSecret. The licenseKeyHash field was previously named `hashedKey`
+ * in the API server call — both names are accepted for backward compatibility,
+ * but the canonical field name in Convex is `licenseKeyHash`.
  */
 export const validateByHash = query({
-  args: ValidateManualLicenseInput,
-  handler: async (ctx, { licenseKeyHash, productId, tenantId }) => {
+  args: {
+    apiSecret: v.string(),
+    licenseKeyHash: v.optional(v.string()),
+    /** @deprecated Use licenseKeyHash. Accepted for backward compat with API server callers. */
+    hashedKey: v.optional(v.string()),
+    productId: v.optional(v.string()),
+    authUserId: v.string(),
+  },
+  handler: async (ctx, { apiSecret, licenseKeyHash, hashedKey, productId, authUserId }) => {
+    requireApiSecret(apiSecret);
+    const resolvedHash = licenseKeyHash ?? hashedKey;
+    if (!resolvedHash) {
+      return { valid: false as const, reason: 'not_found' };
+    }
     const license = await ctx.db
       .query('manual_licenses')
-      .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', licenseKeyHash))
+      .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', resolvedHash))
       .first();
 
     if (!license) {
       return { valid: false, reason: 'not_found' };
     }
 
-    // Check product match
-    if (license.productId !== productId) {
+    // Check product match (only if productId was supplied)
+    if (productId !== undefined && license.productId !== productId) {
       return { valid: false, reason: 'wrong_product' };
     }
 
-    // Check tenant match
-    if (license.tenantId !== tenantId) {
+    // Check creator match
+    if (license.authUserId !== authUserId) {
       return { valid: false, reason: 'not_found' };
     }
 
