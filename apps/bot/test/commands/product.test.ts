@@ -13,7 +13,7 @@ const mockListProducts = mock(() =>
 );
 
 mock.module('../../src/lib/internalRpc', () => ({
-  listProducts: mockListProducts,
+  listProviderProducts: mockListProducts,
   createDiscordRoleSetupSessionToken: mock(() => Promise.resolve(undefined)),
   getDiscordRoleSetupResult: mock(() => Promise.resolve({ completed: false })),
   resolveVrchatAvatarName: mock(() => Promise.resolve({ name: undefined })),

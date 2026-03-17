@@ -141,6 +141,13 @@ export interface ProviderDescriptor {
     description: string;
     /** Optional placeholder for the input field */
     placeholder?: string;
+    /**
+     * When false, this product-input entry is always shown in the product-add menu
+     * regardless of whether the provider is connected. Defaults to true.
+     * Set to false for providers whose productInput works without a dashboard connection
+     * (e.g. VRChat — you can add an avatar by ID before connecting the creator session).
+     */
+    requiresConnection?: boolean;
   };
   /**
    * URL template for a catalog product link.
@@ -431,6 +438,7 @@ export const PROVIDER_REGISTRY = [
       label: 'VRChat Avatar ID or URL',
       description: 'VRChat Avatar ID (avtr_…) or vrchat.com/home/avatar/avtr_… URL',
       placeholder: 'avtr_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+      requiresConnection: false,
     },
   },
 ] as const satisfies readonly ProviderDescriptor[];

@@ -229,10 +229,11 @@ export async function handleProductAddInteractive(
           const hasPerProduct = 'perProductCredential' in d;
           const hasProductInput = d.productInput != null;
           if (!hasCatalog && !hasPerProduct && !hasProductInput) return false;
-          // Providers needing a dashboard connection are only shown when connected.
-          if (hasCatalog || hasPerProduct) return !!connectionStatus[d.providerKey];
-          // productInput-only providers (e.g. VRChat) never need a dashboard connection.
-          return true;
+          // productInput entries that don't require a connection are always shown
+          // (e.g. VRChat — avatars can be added by ID before the creator connects).
+          if (hasProductInput && d.productInput!.requiresConnection === false) return true;
+          // All other providers require an active dashboard connection.
+          return !!connectionStatus[d.providerKey];
         })
         .flatMap((d) => {
           const emoji = Emoji[d.emojiKey as keyof typeof Emoji];
