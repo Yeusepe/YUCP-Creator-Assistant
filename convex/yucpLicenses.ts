@@ -481,6 +481,15 @@ export const verifyLicense = internalAction({
     });
 
     if (product) {
+      // c62: Verify packageId is registered to the same creator that owns this product.
+      // Without this, a buyer can forge the package_id claim in the issued JWT.
+      const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+        packageId: args.packageId,
+      });
+      if (!packageReg || packageReg.yucpUserId !== product.authUserId) {
+        return { success: false, error: 'Package not found or not registered to the product owner' };
+      }
+
       const conn = await ctx.runQuery(internal.yucpLicenses.getProviderConnection, {
         authUserId: product.authUserId,
         provider: args.provider,
@@ -519,33 +528,8 @@ export const verifyLicense = internalAction({
       }
     }
 
-    // 4. Fall back to global env-var credentials (YUCP's own products)
-    if (!verifyResult?.valid) {
-      if (args.provider === 'gumroad') {
-        const fallbackToken = process.env.GUMROAD_ACCESS_TOKEN;
-        if (!fallbackToken) {
-          return { success: false, error: 'Gumroad credentials not configured for this product' };
-        }
-        verifyResult = await verifyGumroadLicense(
-          args.licenseKey,
-          args.productPermalink,
-          fallbackToken
-        );
-      } else if (args.provider === 'jinxxy') {
-        const fallbackKey = process.env.JINXXY_API_KEY;
-        if (!fallbackKey) {
-          return { success: false, error: 'Jinxxy credentials not configured for this product' };
-        }
-        verifyResult = await verifyJinxxyLicense(
-          args.licenseKey,
-          args.productPermalink,
-          fallbackKey
-        );
-      } else {
-        return { success: false, error: `Unknown provider: ${args.provider}` };
-      }
-    }
-
+    // c63: No global credential fallback — only the product owner's credentials are accepted.
+    // Removed: GUMROAD_ACCESS_TOKEN / JINXXY_API_KEY env-var fallback that bypassed product ownership.
     if (!verifyResult?.valid) {
       return { success: false, error: verifyResult?.reason ?? 'License verification failed' };
     }

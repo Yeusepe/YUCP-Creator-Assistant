@@ -418,6 +418,25 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
+    // Verify the authenticated user owns this guild before performing mutations.
+    // Same ownership check as uninstallFromGuild.
+    try {
+      const convex = getConvexClient();
+      const apiSecret = getConvexApiSecret();
+      const guildLink = await convex.query(api.guildLinks.getGuildLinkForUninstall, {
+        apiSecret,
+        discordGuildId: guildId,
+      });
+      if (!guildLink || guildLink.authUserId !== session.user.id) {
+        return Response.json({ error: 'Forbidden: you do not own this guild' }, { status: 403 });
+      }
+    } catch (err) {
+      logger.error('Guild health check ownership verification failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to verify guild ownership' }, { status: 500 });
+    }
+
     try {
       // Query Discord API to check if bot is in guild
       const guildResponse = await fetch(`https://discord.com/api/v10/guilds/${guildId}`, {
