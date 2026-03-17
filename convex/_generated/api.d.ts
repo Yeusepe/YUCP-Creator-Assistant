@@ -27,6 +27,7 @@ import type * as lib_apiAuth from "../lib/apiAuth.js";
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
 import type * as lib_httpRateLimit from "../lib/httpRateLimit.js";
+import type * as lib_piiCrypto from "../lib/piiCrypto.js";
 import type * as lib_providers from "../lib/providers.js";
 import type * as lib_roleRules_catalog from "../lib/roleRules/catalog.js";
 import type * as lib_roleRules_discord from "../lib/roleRules/discord.js";
@@ -98,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
   "lib/httpRateLimit": typeof lib_httpRateLimit;
+  "lib/piiCrypto": typeof lib_piiCrypto;
   "lib/providers": typeof lib_providers;
   "lib/roleRules/catalog": typeof lib_roleRules_catalog;
   "lib/roleRules/discord": typeof lib_roleRules_discord;
