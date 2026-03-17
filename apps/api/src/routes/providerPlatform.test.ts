@@ -544,4 +544,56 @@ describe('provider platform routes', () => {
       )
     ).toBe(true);
   });
+
+  describe('GET /api/providers', () => {
+    it('returns 200 with a JSON array', async () => {
+      const response = await routes.handleRequest(
+        new Request('http://localhost:3001/api/providers', { method: 'GET' })
+      );
+      expect(response?.status).toBe(200);
+      const body = (await response?.json()) as unknown[];
+      expect(Array.isArray(body)).toBe(true);
+      expect(body.length).toBeGreaterThan(0);
+    });
+
+    it('includes every provider that has a dashboardConnectPath', async () => {
+      const { ALL_PROVIDERS } = await import('../providers/index');
+      const expected = ALL_PROVIDERS.filter((p) => p.displayMeta?.dashboardConnectPath).map(
+        (p) => p.id
+      );
+
+      const response = await routes.handleRequest(
+        new Request('http://localhost:3001/api/providers', { method: 'GET' })
+      );
+      const body = (await response?.json()) as Array<{ key: string }>;
+      const returned = body.map((p) => p.key);
+
+      expect(returned.sort()).toEqual(expected.sort());
+    });
+
+    it('each provider entry has the required dashboard fields', async () => {
+      const response = await routes.handleRequest(
+        new Request('http://localhost:3001/api/providers', { method: 'GET' })
+      );
+      const body = (await response?.json()) as Array<Record<string, unknown>>;
+
+      const REQUIRED = [
+        'key',
+        'label',
+        'icon',
+        'iconBg',
+        'quickStartBg',
+        'quickStartBorder',
+        'serverTileHint',
+        'connectPath',
+        'connectParamStyle',
+      ] as const;
+
+      for (const provider of body) {
+        for (const field of REQUIRED) {
+          expect(provider[field], `${provider['key']}.${field} must be present`).toBeTruthy();
+        }
+      }
+    });
+  });
 });

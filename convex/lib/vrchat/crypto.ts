@@ -10,23 +10,39 @@ export function base64ToBytes(value: string): Uint8Array {
   return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 }
 
+async function hmacSha256(keyBytes: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  return new Uint8Array(await crypto.subtle.sign('HMAC', key, data));
+}
+
+/**
+ * Derives a 256-bit AES-GCM key using RFC 5869 HKDF, implemented manually
+ * via HMAC-SHA256 because Convex's V8 runtime does not support
+ * `crypto.subtle.importKey` for the 'HKDF' algorithm.
+ */
 async function deriveKey(secret: string, purpose: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, [
-    'deriveKey',
+  const secretBytes = encoder.encode(secret);
+  const purposeBytes = encoder.encode(purpose);
+
+  // HKDF-Extract: PRK = HMAC-SHA256(salt=HashLen zeros, IKM=secret)
+  const salt = new Uint8Array(32);
+  const prk = await hmacSha256(salt, secretBytes);
+
+  // HKDF-Expand T(1) = HMAC-SHA256(PRK, info || 0x01) — 32 bytes = AES-256 key
+  const expandInput = new Uint8Array([...purposeBytes, 0x01]);
+  const okm = await hmacSha256(prk, expandInput);
+
+  return crypto.subtle.importKey('raw', okm, { name: 'AES-GCM', length: 256 }, false, [
+    'encrypt',
+    'decrypt',
   ]);
-  return crypto.subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: new Uint8Array(0),
-      info: encoder.encode(purpose),
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
 }
 
 export async function encryptForPurpose(

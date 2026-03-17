@@ -29,13 +29,19 @@ const gumroadProvider: ProviderPlugin = {
   purposes: PURPOSES,
   displayMeta: {
     label: 'Gumroad',
-    icon: 'Gumroad.png',
+    icon: 'Gumorad.png',
     color: '#ff90e8',
     shadowColor: '#ff90e8',
     textColor: '#000000',
     connectedColor: '#e269c9',
     confettiColors: ['#ff90e8', '#e269c9', '#ff70d0', '#ffffff'],
     description: 'Marketplace',
+    dashboardConnectPath: '/api/connect/gumroad/begin',
+    dashboardConnectParamStyle: 'camelCase',
+    dashboardIconBg: '#0f0f12',
+    dashboardQuickStartBg: 'rgba(255,255,255,0.05)',
+    dashboardQuickStartBorder: 'rgba(255,255,255,0.1)',
+    dashboardServerTileHint: 'Allow users to verify Gumroad purchases in this Discord server.',
   },
 
   async getCredential(ctx: ProviderContext) {

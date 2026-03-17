@@ -1,6 +1,7 @@
 import { getConfig } from './config.js';
 import { escHtml, setButtonLoading, clearButtonLoading } from './utils.js';
 import {
+  loadProviders,
   getActiveSetupProviders,
   getDashboardProvider,
 } from './providers.js';
@@ -30,7 +31,7 @@ import {
 const SETTINGS_TOUCHED_PREFIX = 'yucp_dashboard_settings_touched:';
 const QUICK_START_DISMISS_PREFIX = 'yucp_dashboard_quick_start_dismissed:';
 const SETUP_COMPLETE_PREFIX = 'yucp_dashboard_setup_completed:';
-const platformProviders = getActiveSetupProviders();
+let platformProviders = [];
 
 function getTenantStorageKey(prefix) {
   return `${prefix}${getTenantId() || getGuildId() || 'unknown'}`;
@@ -92,7 +93,7 @@ function persistSetupCompleted() {
 }
 
 function resolveIconUrl(provider) {
-  return provider.iconUrl.replace('__API_BASE__', getApiBase());
+  return `${getApiBase()}/Icons/${provider.icon}`;
 }
 
 function getConnectedProviderKeys() {
@@ -111,7 +112,6 @@ function hasMeaningfulSettings() {
 
 function getQuickStartProviderNames() {
   return platformProviders
-    .filter((provider) => provider.setupState === 'ready')
     .map((provider) => provider.label)
     .join(', ');
 }
@@ -119,17 +119,11 @@ function getQuickStartProviderNames() {
 function buildQuickStartButtons() {
   return platformProviders
     .map((provider) => {
-      const disabled = provider.setupState !== 'ready';
-      const action = disabled ? 'disabled' : `data-provider-key="${provider.key}"`;
-      const opacity = disabled ? 'opacity:0.55;cursor:not-allowed;' : '';
-      const statusPill = disabled
-        ? `<span style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.45);">Preview</span>`
-        : '';
+      const action = `data-provider-key="${provider.key}"`;
       return `
-        <button ${action} style="background: ${provider.quickStartButtonBg}; border: 1px solid ${provider.quickStartButtonBorder}; color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; transition: background 0.2s; ${opacity}">
+        <button ${action} style="background: ${provider.quickStartBg}; border: 1px solid ${provider.quickStartBorder}; color: white; border-radius: 12px; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; transition: background 0.2s;">
           <img src="${resolveIconUrl(provider)}" style="width: 20px; border-radius: 4px;" alt="">
-          <span>${provider.quickStartDescription}</span>
-          ${statusPill}
+          <span>Connect ${escHtml(provider.label)}</span>
         </button>
       `;
     })
@@ -138,13 +132,12 @@ function buildQuickStartButtons() {
 
 function providerButtonLabel(provider, isLinked) {
   if (isLinked) return 'Disconnect';
-  if (provider.setupState === 'preview') return 'Setup Soon';
   return 'Link Account';
 }
 
 function providerStatusLabel(provider, isLinked) {
   if (isLinked) return 'Connected';
-  return provider.setupState === 'preview' ? 'Preview' : 'Not Linked';
+  return 'Not Linked';
 }
 
 function renderPlatformScaffolding() {
@@ -157,19 +150,18 @@ function renderPlatformScaffolding() {
           <div id="${provider.key}-card" class="platform-card disconnected">
             <div class="flex items-start justify-between">
               <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center" style="background:${provider.iconBg};">
-                <img class="${provider.iconClassName}" src="${resolveIconUrl(provider)}" alt="${provider.label}">
+                <img class="w-6 h-6 object-contain" src="${resolveIconUrl(provider)}" alt="${escHtml(provider.label)}">
               </div>
               <span id="${provider.key}-status" class="status-pill disconnected">${providerStatusLabel(provider, false)}</span>
             </div>
             <div>
-              <h3 class="font-bold text-base mb-0.5">${provider.label}</h3>
-              <p class="text-xs text-white/60" style="font-family:'DM Sans',sans-serif;">${provider.description}</p>
+              <h3 class="font-bold text-base mb-0.5">${escHtml(provider.label)}</h3>
             </div>
             <button id="${provider.key}-btn" class="card-action-btn link" type="button">${providerButtonLabel(provider, false)}</button>
             <div class="inline-confirm" id="${provider.key}-disconnect-confirm">
               <div>
                 <div class="inline-confirm-body">
-                  <span class="inline-confirm-label">Disconnect <strong>${provider.label}</strong>? This removes all syncing.</span>
+                  <span class="inline-confirm-label">Disconnect <strong>${escHtml(provider.label)}</strong>? This removes all syncing.</span>
                   <div class="inline-confirm-btns">
                     <button class="inline-cancel-btn" type="button" data-cancel-disconnect="${provider.key}">Cancel</button>
                     <button class="inline-danger-btn" id="${provider.key}-confirm-btn" type="button">Disconnect</button>
@@ -190,15 +182,15 @@ function renderPlatformScaffolding() {
           <article class="svr-cfg-tile" id="server-tile-${provider.key}" style="display: none;">
             <div class="svr-cfg-tile-head">
               <div class="svr-cfg-tile-icon">
-                <img src="${resolveIconUrl(provider)}" alt="${provider.label}" style="border-radius:4px;">
+                <img src="${resolveIconUrl(provider)}" alt="${escHtml(provider.label)}" style="border-radius:4px;">
               </div>
               <div class="svr-cfg-tile-text">
-                <span class="svr-cfg-tile-label">${provider.serverTileLabel}</span>
-                <span class="svr-cfg-tile-hint">${provider.serverTileHint}</span>
+                <span class="svr-cfg-tile-label">Enable ${escHtml(provider.label)} for this Server</span>
+                <span class="svr-cfg-tile-hint">${escHtml(provider.serverTileHint)}</span>
               </div>
             </div>
             <div class="svr-cfg-tile-ctrl">
-              <div id="toggle-serverEnable${provider.key[0].toUpperCase()}${provider.key.slice(1)}" class="svr-cfg-switch active" role="switch" aria-label="${provider.serverTileLabel}"></div>
+              <div id="toggle-serverEnable${provider.key[0].toUpperCase()}${provider.key.slice(1)}" class="svr-cfg-switch active" role="switch" aria-label="Enable ${escHtml(provider.label)} for this Server"></div>
             </div>
           </article>
         `
@@ -386,99 +378,30 @@ async function ensureSetupSessionCookie() {
   return res.ok;
 }
 
-export async function navigateGumroad() {
-  if (getSetupToken()) {
-    const restored = await ensureSetupSessionCookie();
-    if (!restored) {
-      redirectToExpiredLinkError();
-      return;
-    }
-  }
-  const tid = getTenantId();
-  const gid = getGuildId();
-  if (tid && gid) {
-    window.location.href = `${getApiBase()}/api/connect/gumroad/begin?tenantId=${encodeURIComponent(tid)}&guildId=${encodeURIComponent(gid)}`;
-  } else if (getHasSetupSession()) {
-    window.location.href = `${getApiBase()}/api/connect/gumroad/begin`;
-  } else {
-    // User-scoped: connect without server context (auth session only)
-    window.location.href = `${getApiBase()}/api/connect/gumroad/begin`;
-  }
-}
-
-export async function navigateJinxxy() {
-  if (getSetupToken()) {
-    const restored = await ensureSetupSessionCookie();
-    if (!restored) {
-      redirectToExpiredLinkError();
-      return;
-    }
-  }
-  const tid = getTenantId();
-  const gid = getGuildId();
-  if (tid && gid) {
-    window.location.href = `${getApiBase()}/jinxxy-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
-  } else if (getHasSetupSession()) {
-    window.location.href = `${getApiBase()}/jinxxy-setup`;
-  } else {
-    // User-scoped: connect without server context
-    window.location.href = `${getApiBase()}/jinxxy-setup`;
-  }
-}
-
-export async function navigateLemonSqueezy() {
-  if (getSetupToken()) {
-    const restored = await ensureSetupSessionCookie();
-    if (!restored) {
-      redirectToExpiredLinkError();
-      return;
-    }
-  }
-  const tid = getTenantId();
-  const gid = getGuildId();
-  if (tid && gid) {
-    window.location.href = `${getApiBase()}/lemonsqueezy-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
-  } else {
-    // User-scoped: navigate without server context; session auth is sufficient.
-    window.location.href = `${getApiBase()}/lemonsqueezy-setup`;
-  }
-}
-
-export async function navigatePayhip() {
-  if (getSetupToken()) {
-    const restored = await ensureSetupSessionCookie();
-    if (!restored) {
-      redirectToExpiredLinkError();
-      return;
-    }
-  }
-  const tid = getTenantId();
-  const gid = getGuildId();
-  if (tid && gid) {
-    window.location.href = `${getApiBase()}/payhip-setup?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
-  } else {
-    // User-scoped: navigate without server context; session auth is sufficient.
-    window.location.href = `${getApiBase()}/payhip-setup`;
-  }
-}
-
 export async function navigateProvider(providerKey) {
   const btn = document.getElementById(`${providerKey}-btn`);
   setButtonLoading(btn, 'Connecting…');
   try {
-    if (providerKey === 'gumroad') {
-      return await navigateGumroad();
+    if (getSetupToken()) {
+      const restored = await ensureSetupSessionCookie();
+      if (!restored) {
+        redirectToExpiredLinkError();
+        return;
+      }
     }
-    if (providerKey === 'jinxxy') {
-      return await navigateJinxxy();
+    const provider = getActiveSetupProviders().find((p) => p.key === providerKey);
+    if (!provider) return;
+    const tid = getTenantId();
+    const gid = getGuildId();
+    let connectUrl = `${getApiBase()}${provider.connectPath}`;
+    if (tid && gid) {
+      if (provider.connectParamStyle === 'camelCase') {
+        connectUrl += `?tenantId=${encodeURIComponent(tid)}&guildId=${encodeURIComponent(gid)}`;
+      } else {
+        connectUrl += `?tenant_id=${encodeURIComponent(tid)}&guild_id=${encodeURIComponent(gid)}`;
+      }
     }
-    if (providerKey === 'lemonsqueezy') {
-      return await navigateLemonSqueezy();
-    }
-    if (providerKey === 'payhip') {
-      return await navigatePayhip();
-    }
-    return undefined;
+    window.location.href = connectUrl;
   } catch (e) {
     clearButtonLoading(btn);
     throw e;
@@ -493,21 +416,19 @@ export function updatePlatformCards() {
   renderQuickStart();
 }
 
-/**
- * PROVIDER_META is derived from the DASHBOARD_PROVIDER_REGISTRY (providers.js).
- * Adding a new provider to that registry automatically includes it here.
- */
-const PROVIDER_META = Object.fromEntries(
-  platformProviders.map((p) => [
-    p.key,
-    {
-      name: p.label,
-      icon: resolveIconUrl(p),
-      iconBg: p.iconBg,
-      navigate: () => navigateProvider(p.key),
-    },
-  ])
-);
+function getProviderMeta() {
+  return Object.fromEntries(
+    getActiveSetupProviders().map((p) => [
+      p.key,
+      {
+        name: p.label,
+        icon: resolveIconUrl(p),
+        iconBg: p.iconBg,
+        navigate: () => navigateProvider(p.key),
+      },
+    ])
+  );
+}
 
 function renderAddButtons() {
   const container = document.getElementById('add-account-buttons');
@@ -543,7 +464,7 @@ function renderAccountsSection() {
   }
 
   container.innerHTML = accounts.map((conn) => {
-    const meta = PROVIDER_META[conn.provider] || { name: conn.provider, icon: '', iconBg: '#333', navigate: () => {} };
+    const meta = getProviderMeta()[conn.provider] || { name: conn.provider, icon: '', iconBg: '#333', navigate: () => {} };
     const label = conn.label || meta.name;
     return `
       <div class="platform-card connected" style="position:relative;">
@@ -953,12 +874,11 @@ export function initCustomSelects() {
   });
 }
 
-export function initPlatforms() {
+export async function initPlatforms() {
+  await loadProviders(getApiBase());
+  platformProviders = getActiveSetupProviders();
+
   renderPlatformScaffolding();
-  window.navigateGumroad = navigateGumroad;
-  window.navigateJinxxy = navigateJinxxy;
-  window.navigateLemonSqueezy = navigateLemonSqueezy;
-  window.navigatePayhip = navigatePayhip;
   window.navigateProvider = navigateProvider;
   window.dismissQuickStart = dismissQuickStart;
   window.toggleSetting = toggleSetting;

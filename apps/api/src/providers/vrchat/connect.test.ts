@@ -85,15 +85,58 @@ describe('VRChat connect — GET /begin', () => {
     expect(location).toContain('token=');
   });
 
-  it('returns 401 when setup session is not bound', async () => {
-    const ctx = makeContext({
-      ok: false,
-      response: Response.json({ error: 'Unauthorized' }, { status: 401 }),
-    });
-    const beginRoute = vrchatConnect.routes.find(
-      (r) => r.method === 'GET' && r.path.endsWith('/begin')
-    );
+  it('forwards guild_id and tenant_id to the verify page redirect URL', async () => {
+    const ctx = makeContext();
+    const beginRoute = vrchatConnect.routes.find((r) => r.method === 'GET' && r.path.endsWith('/begin'));
 
+    const request = new Request(
+      'https://api.example.com/api/connect/vrchat/begin?guildId=guild_abc&tenantId=tenant_xyz'
+    );
+    const response = await beginRoute!.handler(request, ctx as unknown as ConnectContext);
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get('location')!;
+    expect(location).toContain('guild_id=guild_abc');
+    expect(location).toContain('tenant_id=tenant_xyz');
+  });
+
+  it('redirects to vrchat-verify when authenticated via dashboard session (no setup session)', async () => {
+    // Dashboard flow: user has a Better Auth session but no bot-issued setup session cookie.
+    const ctx = makeContext({ ok: false, response: Response.json({ error: 'Unauthorized' }, { status: 401 }) });
+    // No setup session token in request
+    ctx.getSetupSessionTokenFromRequest.mockImplementation(() => null);
+    // But a valid auth session exists
+    ctx.auth.getSession.mockImplementation(async () => ({ user: { id: 'dashboard_user_456' } }) as never);
+
+    const beginRoute = vrchatConnect.routes.find((r) => r.method === 'GET' && r.path.endsWith('/begin'));
+    const request = new Request('https://api.example.com/api/connect/vrchat/begin');
+    const response = await beginRoute!.handler(request, ctx as unknown as ConnectContext);
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get('location');
+    expect(location).toContain('/vrchat-verify');
+    expect(location).toContain('mode=connect');
+    expect(location).toContain('token=');
+  });
+
+  it('returns 401 when no setup session and no auth session (unauthenticated)', async () => {
+    const ctx = makeContext({ ok: false, response: Response.json({ error: 'Unauthorized' }, { status: 401 }) });
+    ctx.getSetupSessionTokenFromRequest.mockImplementation(() => null);
+    // auth.getSession returns null (default in makeContext)
+
+    const beginRoute = vrchatConnect.routes.find((r) => r.method === 'GET' && r.path.endsWith('/begin'));
+    const request = new Request('https://api.example.com/api/connect/vrchat/begin');
+    const response = await beginRoute!.handler(request, ctx as unknown as ConnectContext);
+
+    expect(response.status).toBe(401);
+  });
+
+  it('returns 401 when a setup session token was present but failed validation', async () => {
+    const ctx = makeContext({ ok: false, response: Response.json({ error: 'Invalid token' }, { status: 401 }) });
+    // Token IS present in request (invalid/expired)
+    ctx.getSetupSessionTokenFromRequest.mockImplementation(() => 'some-bad-token');
+
+    const beginRoute = vrchatConnect.routes.find((r) => r.method === 'GET' && r.path.endsWith('/begin'));
     const request = new Request('https://api.example.com/api/connect/vrchat/begin');
     const response = await beginRoute!.handler(request, ctx as unknown as ConnectContext);
 
@@ -180,8 +223,10 @@ describe('VRChat connect — POST /session', () => {
     });
     const response = await sessionRoute!.handler(request, ctx as unknown as ConnectContext);
     expect(response.status).toBe(200);
-    const body = await response.json() as { needsTwoFactor?: boolean };
-    expect(body.needsTwoFactor).toBe(true);
+    const body = await response.json() as { twoFactorRequired?: boolean; types?: string[] };
+    // Must match the canonical shape that vrchat-verify.html checks: twoFactorRequired + types
+    expect(body.twoFactorRequired).toBe(true);
+    expect(body.types).toEqual(['emailOtp']);
   });
 });
 

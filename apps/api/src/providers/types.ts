@@ -248,4 +248,20 @@ export interface ConnectDisplayMeta {
   readonly confettiColors: readonly string[];
   /** Short description shown below label */
   readonly description: string;
+  /** URL path to initiate the dashboard connect flow */
+  readonly dashboardConnectPath: string;
+  /**
+   * Query-param naming convention expected by the connect endpoint.
+   * 'camelCase' → tenantId + guildId (used by /api/connect/* routes)
+   * 'snakeCase' → tenant_id + guild_id (used by legacy setup pages)
+   */
+  readonly dashboardConnectParamStyle: 'camelCase' | 'snakeCase';
+  /** Background color for the provider icon container in the dashboard */
+  readonly dashboardIconBg: string;
+  /** Background style for the quick-start connect button */
+  readonly dashboardQuickStartBg: string;
+  /** Border style for the quick-start connect button */
+  readonly dashboardQuickStartBorder: string;
+  /** Hint text shown on the server configuration tile */
+  readonly dashboardServerTileHint: string;
 }

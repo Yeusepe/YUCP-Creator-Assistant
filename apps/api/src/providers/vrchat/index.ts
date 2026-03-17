@@ -94,6 +94,12 @@ const vrchatProvider: ProviderPlugin = {
     connectedColor: '#008a6b',
     confettiColors: ['#00b48c', '#008a6b', '#80ffd8', '#ffffff'],
     description: 'Store',
+    dashboardConnectPath: '/api/connect/vrchat/begin',
+    dashboardConnectParamStyle: 'camelCase',
+    dashboardIconBg: '#00b48c',
+    dashboardQuickStartBg: 'rgba(0,180,140,0.1)',
+    dashboardQuickStartBorder: 'rgba(0,180,140,0.3)',
+    dashboardServerTileHint: 'Allow users to verify VRChat avatar access in this Discord server.',
   },
   async resolveProductName(
     credential: string | null,

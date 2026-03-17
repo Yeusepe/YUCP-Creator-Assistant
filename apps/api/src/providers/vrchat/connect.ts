@@ -51,9 +51,26 @@ async function handleVrchatConnectBegin(
   ctx: ConnectContext
 ): Promise<Response> {
   const binding = await ctx.requireBoundSetupSession(request);
-  if (!binding.ok) return binding.response;
 
-  const { authUserId } = binding.setupSession;
+  let authUserId: string;
+  if (binding.ok) {
+    authUserId = binding.setupSession.authUserId;
+  } else {
+    // If a setup session token was present but failed validation, reject it.
+    // If no token was present at all (dashboard flow), fall back to the auth session.
+    if (ctx.getSetupSessionTokenFromRequest(request)) {
+      return binding.response;
+    }
+    const authSession = await ctx.auth.getSession(request);
+    if (!authSession) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    authUserId = authSession.user.id;
+  }
+  const url = new URL(request.url);
+  const guildId = url.searchParams.get('guildId') ?? url.searchParams.get('guild_id') ?? '';
+  const tenantId = url.searchParams.get('tenantId') ?? url.searchParams.get('tenant_id') ?? '';
+
   const token = crypto.randomUUID();
   const store = getStateStore();
   await store.set(
@@ -62,9 +79,14 @@ async function handleVrchatConnectBegin(
     CONNECT_TOKEN_TTL_MS
   );
 
-  // Reuse the buyer login UI; mode=connect switches its API endpoint
-  const redirectUrl = `${ctx.config.frontendBaseUrl}/vrchat-verify?token=${encodeURIComponent(token)}&mode=connect`;
-  return Response.redirect(redirectUrl, 302);
+  // Reuse the buyer login UI; mode=connect switches its API endpoint.
+  // Forward guild_id/tenant_id so the verify page can redirect back to the right dashboard context.
+  const redirectUrl = new URL(`${ctx.config.frontendBaseUrl}/vrchat-verify`);
+  redirectUrl.searchParams.set('token', token);
+  redirectUrl.searchParams.set('mode', 'connect');
+  if (guildId) redirectUrl.searchParams.set('guild_id', guildId);
+  if (tenantId) redirectUrl.searchParams.set('tenant_id', tenantId);
+  return Response.redirect(redirectUrl.toString(), 302);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -165,7 +187,7 @@ async function handleVrchatConnectSession(
       });
       responseHeaders.append('Set-Cookie', pendingCookie);
       return Response.json(
-        { needsTwoFactor: true, twoFactorTypes: result.requiresTwoFactorAuth },
+        { twoFactorRequired: true, types: result.requiresTwoFactorAuth },
         { status: 200, headers: responseHeaders }
       );
     }

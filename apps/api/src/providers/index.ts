@@ -16,6 +16,8 @@ import type { ProviderPlugin } from './types';
 
 const ALL_PROVIDERS: ProviderPlugin[] = [gumroad, jinxxy, lemonsqueezy, payhip, vrchat];
 
+export { ALL_PROVIDERS };
+
 export const PROVIDERS: ReadonlyMap<string, ProviderPlugin> = new Map(
   ALL_PROVIDERS.map((p) => [p.id, p])
 );

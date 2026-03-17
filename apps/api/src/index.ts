@@ -672,6 +672,11 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
 
+  if (pathname === '/api/providers' && request.method === 'GET' && providerPlatformRoutes) {
+    const response = await providerPlatformRoutes.handleRequest(request);
+    if (response) return response;
+  }
+
   if (
     pathname.startsWith('/api/auth/') ||
     pathname.startsWith('/api/yucp/') ||

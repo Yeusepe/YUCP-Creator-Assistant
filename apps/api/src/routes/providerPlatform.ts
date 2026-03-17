@@ -12,6 +12,7 @@ import {
   readWebhookTextBody,
 } from '../lib/webhookBody';
 import { PURPOSES as LEMONSQUEEZY } from '../providers/lemonsqueezy';
+import { ALL_PROVIDERS } from '../providers/index';
 
 const PROVIDER_PLATFORM_CREDENTIAL_PURPOSE = 'provider-platform-credential' as const;
 
@@ -1150,6 +1151,27 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     async handleRequest(request: Request): Promise<Response | null> {
       const url = new URL(request.url);
       const requestId = newRequestId();
+
+      if (request.method === 'GET' && url.pathname === '/api/providers') {
+        const providers = ALL_PROVIDERS
+          .filter((p) => p.displayMeta?.dashboardConnectPath)
+          .map((p) => ({
+            key: p.id,
+            label: p.displayMeta!.label,
+            icon: p.displayMeta!.icon,
+            iconBg: p.displayMeta!.dashboardIconBg,
+            quickStartBg: p.displayMeta!.dashboardQuickStartBg,
+            quickStartBorder: p.displayMeta!.dashboardQuickStartBorder,
+            serverTileHint: p.displayMeta!.dashboardServerTileHint,
+            connectPath: p.displayMeta!.dashboardConnectPath,
+            connectParamStyle: p.displayMeta!.dashboardConnectParamStyle,
+          }));
+        return new Response(JSON.stringify(providers), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
       const cacheKey = getIdempotencyCacheKey(request, url.pathname);
       const cached = cacheKey ? getCachedIdempotentResponse(cacheKey, requestId) : null;
       if (cached) return cached;

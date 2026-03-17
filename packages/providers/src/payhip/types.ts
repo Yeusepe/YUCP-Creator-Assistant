@@ -70,6 +70,8 @@ export interface PayhipLicenseVerifyData {
   buyer_email: string;
   /** Number of times this key has been used/activated */
   uses: number;
+  /** The name of the product as defined by the seller */
+  product_name?: string;
   /** ISO 8601 date the key was created */
   date: string;
 }
