@@ -579,7 +579,6 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     }
 
     return jsonResponse({
-      authUserId: tenant.authUserId,
       name: tenant.name,
       slug: tenant.slug,
     });

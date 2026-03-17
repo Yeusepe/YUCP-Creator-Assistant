@@ -1137,6 +1137,10 @@ http.route({
       return errorResponse('Missing required fields', 400);
     }
 
+    // c74: Validate packageId format — only safe characters, bounded length.
+    if (!/^[a-z0-9\-_./:]{1,128}$/.test(packageId)) {
+      return errorResponse('Invalid packageId format', 400);
+    }
     const nowSeconds = Math.floor(Date.now() / 1000);
     if (Math.abs(nowSeconds - (timestamp as number)) > 120) {
       return errorResponse('Request timestamp out of range', 422);

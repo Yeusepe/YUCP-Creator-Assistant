@@ -65,6 +65,13 @@ const ALL_CONNECTED = makeMockConvex({
   payhip: true,
 });
 
+/** Minimal convex mock for handleProductTypeSelect: returns empty guild product list. */
+const TYPE_SELECT_CONVEX = {
+  query: mock(() => Promise.resolve([])),
+  mutation: mock(() => Promise.resolve(undefined)),
+  action: mock(() => Promise.resolve(undefined)),
+} as unknown as import('convex/browser').ConvexHttpClient;
+
 describe('product command', () => {
   it('given /product add slash command, shows provider selection menu', async () => {
     const interaction = mockSlashCommand({
@@ -150,7 +157,9 @@ describe('product command', () => {
 
     await handleProductTypeSelect(
       selectInteraction as unknown as StringSelectMenuInteraction,
-      'auth_product_url'
+      'auth_product_url',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
     );
 
     // Should show a modal (not a catalog picker)

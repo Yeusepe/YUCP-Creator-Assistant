@@ -303,10 +303,8 @@ export const getSubjectWithAccounts = query({
           providerUsername: v.optional(v.string()),
           providerMetadata: v.optional(
             v.object({
-              email: v.optional(v.string()),
               avatarUrl: v.optional(v.string()),
               profileUrl: v.optional(v.string()),
-              rawData: v.optional(v.any()),
             })
           ),
           lastValidatedAt: v.optional(v.number()),
@@ -380,7 +378,14 @@ export const getSubjectWithAccounts = query({
             provider: account.provider,
             providerUserId: account.providerUserId,
             providerUsername: account.providerUsername,
-            providerMetadata: account.providerMetadata,
+            providerMetadata: account.providerMetadata
+              ? {
+                  // c87: Strip email and rawData — they are not needed by callers
+                  // and increase breach surface. Use avatarUrl/profileUrl only.
+                  avatarUrl: account.providerMetadata.avatarUrl,
+                  profileUrl: account.providerMetadata.profileUrl,
+                }
+              : undefined,
             lastValidatedAt: account.lastValidatedAt,
             status: account.status,
             createdAt: account.createdAt,

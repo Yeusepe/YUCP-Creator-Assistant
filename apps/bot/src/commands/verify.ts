@@ -41,7 +41,7 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const VERIFY_PREFIX = 'creator_verify:';
 
 /** Default embed for spawn-verify: explains verification (scannable, benefit-first, plain language). */
-const DEFAULT_SPAWN_TITLE = `${E.Assistant} Verify your purchase`;
+const DEFAULT_SPAWN_TITLE = `${E.Assistant} Get your special access`;
 const _spawnOAuthList = PROVIDER_REGISTRY.filter(
   (d) => d.status === 'active' && d.supportsOAuth && d.category === 'commerce'
 )
@@ -53,13 +53,18 @@ const _spawnLicenseList = PROVIDER_REGISTRY.filter(
   .map((d) => `${E[d.emojiKey as keyof typeof E] ?? ''} ${d.label}`)
   .join(' or ');
 const DEFAULT_SPAWN_DESCRIPTION = [
-  `${E.Touch} Click the button below to open the verification panel.`,
+  `${E.Assistant} **Verify your purchase to get access**`,
   '',
-  `${E.Link} **Sign in** - Connect ${_spawnOAuthList || 'your store account'}. We recognize your purchases and grant your role automatically.`,
+  `${E.Touch} **Getting started:**`,
+  `1️⃣ Click the **Verify** button below`,
+  `2️⃣ Choose how to prove your purchase`,
+  `3️⃣ Follow the steps (takes about 30 seconds)`,
   '',
-  `${E.KeyCloud} **One license key, then you’re set** - Using ${_spawnLicenseList}? Enter one key once. We link your account and sync all past and future purchases so you only verify once.`,
+  `${E.Link} **Sign in** - Connect your ${_spawnOAuthList || 'store account'}. We'll find your purchases and grant access automatically.`,
   '',
-  'Connections are secure and used only for verification.',
+  `${E.KeyCloud} **Use license key** - Using ${_spawnLicenseList}? Enter your key once. We'll link your account and sync all purchases so you only verify once.`,
+  '',
+  `${E.Point} **Need help?** Ask a server admin or check our support guide.`,
 ].join('\n');
 const DEFAULT_SPAWN_BUTTON_TEXT = 'Verify';
 const DEFAULT_SPAWN_COLOR = 0x5865f2; // Discord Blurple
@@ -424,7 +429,7 @@ function getConnectedNoProductsPrompt(enabledSet: Set<string>): string {
   if (methods.length === 0) return '';
   const hint =
     methods.length === 1 ? `try connecting via ${methods[0]}` : 'try another verification method';
-  return `Your account is connected but we didn't find any matching purchases.\nMake sure you're using the account you bought with, or ${hint}:`;
+  return `We found your account, but couldn't locate any purchases for this server.\n\n💡 **Try this:** Make sure you're using the same account you bought with, or ${hint}:`;
 }
 
 function getUniqueActiveEnabledProviders(
@@ -640,7 +645,7 @@ function buildStatusContainer(
     } else {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `${E.Wrench} No products have been added to this server for verification. Contact the server admin to add products.`
+          `${E.Wrench} **Nothing to verify yet!** This server hasn't set up any products for verification. Contact the server admin to add products so you can get access.`
         )
       );
     }
@@ -649,7 +654,7 @@ function buildStatusContainer(
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         connectedPrompt ||
-          "Your account is connected but we didn't find any matching purchases.\nMake sure you're using the account you bought with, or try another method:"
+          "We found your account, but couldn't locate any purchases for this server.\n💡 **Try this:** Make sure you're using the same account you bought with, or try another method:"
       )
     );
 

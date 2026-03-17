@@ -129,7 +129,7 @@ export async function handleProductStringSelect(
   if (customId.startsWith('creator_product:type_select:')) {
     const authUserId = customId.slice('creator_product:type_select:'.length) as string;
     const { handleProductTypeSelect } = await import('../../commands/product');
-    await handleProductTypeSelect(interaction, authUserId);
+    await handleProductTypeSelect(interaction, authUserId, ctx.convex, ctx.apiSecret);
     return true;
   }
 

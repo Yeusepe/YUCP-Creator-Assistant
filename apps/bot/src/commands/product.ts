@@ -290,7 +290,9 @@ export async function handleProductAddInteractive(
 /** Step 2: Type selected - show relevant modal */
 export async function handleProductTypeSelect(
   interaction: StringSelectMenuInteraction,
-  authUserId: string
+  authUserId: string,
+  convex: ConvexHttpClient,
+  apiSecret: string
 ): Promise<void> {
   const selectedType = interaction.values[0] as string;
   const sessionKey = getSessionKey(interaction.user.id, authUserId, interaction.guildId ?? '');
@@ -420,7 +422,14 @@ export async function handleProductTypeSelect(
     const label = descriptor.label;
     await interaction.deferUpdate();
     try {
-      const data = await listProviderProducts(selectedType, authUserId);
+      const [data, guildProducts] = await Promise.all([
+        listProviderProducts(selectedType, authUserId),
+        convex.query(api.role_rules.getByGuildWithProductNames, {
+          apiSecret,
+          authUserId,
+          guildId: session.guildId,
+        }),
+      ]);
 
       if (data.error && (!data.products || data.products.length === 0)) {
         const msg =
@@ -446,6 +455,13 @@ export async function handleProductTypeSelect(
         return;
       }
 
+      // Build a set of product IDs already configured for this guild (for this provider)
+      const alreadyAddedIds = new Set(
+        (guildProducts as Array<{ productId: string; provider?: string }>)
+          .filter((gp) => gp.provider === selectedType)
+          .map((gp) => gp.productId)
+      );
+
       // Store product name and source maps generically by provider key
       session.productNames = {
         ...session.productNames,
@@ -458,9 +474,17 @@ export async function handleProductTypeSelect(
         session.productSources = { ...session.productSources, [selectedType]: sourcesMap };
       }
 
+      // Sort: own products first → collab products → already-added products at the bottom
+      const sortedProducts = [
+        ...products.filter((p) => !p.collaboratorName && !alreadyAddedIds.has(p.id)),
+        ...products.filter((p) => p.collaboratorName && !alreadyAddedIds.has(p.id)),
+        ...products.filter((p) => alreadyAddedIds.has(p.id)),
+      ];
+
       const MAX_OPTIONS = 25;
-      const toShow = products.slice(0, MAX_OPTIONS);
+      const toShow = sortedProducts.slice(0, MAX_OPTIONS);
       const hasCollabProducts = products.some((p) => p.collaboratorName);
+      const hasAlreadyAdded = products.some((p) => alreadyAddedIds.has(p.id));
       const catalogSelectId = getCatalogSelectCustomId(
         selectedType,
         interaction.user.id,
@@ -473,13 +497,17 @@ export async function handleProductTypeSelect(
         .addOptions(
           toShow.map((p) => {
             const productLabel = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
+            const isAdded = alreadyAddedIds.has(p.id);
             const sourcePrefix = p.collaboratorName ? `[${p.collaboratorName}] ` : '';
-            const raw = sourcePrefix + p.name;
+            const addedSuffix = isAdded ? ' (already added)' : '';
+            const raw = sourcePrefix + p.name + addedSuffix;
             const description = raw.length > 100 ? `${raw.slice(0, 97)}...` : raw || `ID: ${p.id}`;
-            return new StringSelectMenuOptionBuilder()
+            const opt = new StringSelectMenuOptionBuilder()
               .setLabel(productLabel)
               .setValue(p.id)
               .setDescription(description);
+            if (isAdded) opt.setEmoji('✅');
+            return opt;
           })
         );
 
@@ -491,8 +519,11 @@ export async function handleProductTypeSelect(
       const collabNote = hasCollabProducts
         ? '\n\nCollaborator products are shown with **[Name]** in the description.'
         : '';
+      const addedNote = hasAlreadyAdded
+        ? '\n\n**✅** = already added to this server (re-adding maps additional roles).'
+        : '';
       await interaction.editReply({
-        content: `**Step 2 of 3:** Select a ${label} product from your store.${moreNote}${collabNote}`,
+        content: `**Step 2 of 3:** Select a ${label} product from your store.${moreNote}${collabNote}${addedNote}`,
         components: [row],
       });
     } catch (err) {

@@ -324,30 +324,34 @@ async function handleAutocomplete(
       return;
     }
 
-    const products = (await ctx.convex.query(api.productResolution.getProductsForTenant, {
+    // Use getByGuildWithProductNames so autocomplete only shows products configured for THIS guild.
+    const products = await ctx.convex.query(api.role_rules.getByGuildWithProductNames, {
       apiSecret: ctx.apiSecret,
       authUserId: guildLink.authUserId,
-    })) as Array<{
-      productId: string;
-      provider: string;
-      providerProductRef: string;
-      canonicalSlug?: string;
-      displayName?: string;
-    }>;
+      guildId,
+    });
 
     const query = focused.value.toLowerCase();
     const filtered = products
-      .filter((p) => {
-        const label = (p.displayName ?? p.canonicalSlug ?? p.productId).toLowerCase();
-        return !query || label.includes(query) || p.provider.includes(query);
+      .filter((p: { productId: string; displayName: string | null; provider?: string }) => {
+        // Discord-role products cannot be verified with a license key
+        if (p.provider === 'discord' || p.productId.startsWith('discord_role:')) return false;
+        const label = (p.displayName ?? p.productId).toLowerCase();
+        const providerName = (p.provider ?? '').toLowerCase();
+        return !query || label.includes(query) || providerName.includes(query);
       })
       .slice(0, 25);
 
     await interaction.respond(
-      filtered.map((p) => ({
-        name: `${E[(getProviderDescriptor(p.provider)?.emojiKey ?? '') as keyof typeof E] ?? '🔷'} ${p.displayName ?? p.canonicalSlug ?? p.productId}`,
-        value: `${p.provider}::${p.providerProductRef}`,
-      }))
+      filtered.map((p: { productId: string; displayName: string | null; provider?: string }) => {
+        const provider = p.provider ?? 'manual';
+        const emojiKey = getProviderDescriptor(provider)?.emojiKey ?? '';
+        const emoji = E[emojiKey as keyof typeof E] ?? '🔷';
+        return {
+          name: `${emoji} ${p.displayName ?? p.productId}`.slice(0, 100),
+          value: `${provider}::${p.productId}`.slice(0, 100),
+        };
+      })
     );
   } catch {
     await interaction.respond([]);

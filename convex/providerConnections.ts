@@ -529,7 +529,6 @@ export const getConnectionForBackfill = query({
     v.object({
       credentials: v.record(v.string(), v.string()),
       webhookSecretRef: v.optional(v.string()),
-      webhookRouteToken: v.optional(v.string()),
     })
   ),
   handler: async (ctx, args) => {
@@ -555,10 +554,11 @@ export const getConnectionForBackfill = query({
       }
     }
 
+    // c91: webhookRouteToken is a routing secret that backfill callers do not need.
+    // Returning it unnecessarily expands its blast radius.
     return {
       credentials,
       webhookSecretRef: conn.webhookSecretRef ?? undefined,
-      webhookRouteToken: conn.webhookRouteToken ?? undefined,
     };
   },
 });

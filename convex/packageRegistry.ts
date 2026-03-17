@@ -61,6 +61,11 @@ export const registerPackage = internalMutation({
     yucpUserId: v.string(),
   },
   handler: async (ctx, args): Promise<RegistrationResult> => {
+    // c74: Validate packageId format — only safe characters, bounded length.
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
+    }
+
     const existing = await ctx.db
       .query('package_registry')
       .withIndex('by_package_id', (q) => q.eq('packageId', args.packageId))

@@ -13,8 +13,11 @@
  *   Certificate Transparency (RFC 6962)           https://www.rfc-editor.org/rfc/rfc6962
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { internalMutation, internalQuery } from './_generated/server';
+
+const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
+const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Queries
@@ -62,6 +65,14 @@ export const writeEntry = internalMutation({
     packageVersion: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<WriteEntryResult> => {
+    // c74/75: Validate input formats — packageId safe grammar, contentHash is SHA-256 hex.
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
+    }
+    if (!CONTENT_HASH_RE.test(args.contentHash)) {
+      throw new ConvexError(`Invalid contentHash: must be 64 lowercase hex characters`);
+    }
+
     const existing = await ctx.db
       .query('signing_log')
       .withIndex('by_content_and_package', (q) =>
