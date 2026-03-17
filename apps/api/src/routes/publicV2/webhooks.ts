@@ -2,7 +2,7 @@ import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
-import { resolveAuth } from './auth';
+import { resolveAuth as _resolveAuthBase } from './auth';
 import {
   errorResponse,
   extractListData,
@@ -166,8 +166,10 @@ function sanitizeSubscription(sub: Record<string, unknown>): Record<string, unkn
 export async function handleWebhooksRoutes(
   request: Request,
   subPath: string,
-  config: PublicV2Config
+  config: PublicV2Config,
+  services: { resolveAuth?: typeof _resolveAuthBase } = {}
 ): Promise<Response> {
+  const resolveAuth = services.resolveAuth ?? _resolveAuthBase;
   const reqId = generateRequestId();
   const url = new URL(request.url);
   const convex = getConvexClientFromUrl(config.convexUrl);

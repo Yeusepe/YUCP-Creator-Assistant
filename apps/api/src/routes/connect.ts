@@ -1086,7 +1086,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     if (!session) {
       const url = new URL(request.url);
       logger.warn('Ensure tenant rejected due to missing session', {
-        requestUrl: request.url,
         requestOrigin: request.headers.get('origin'),
         requestHost: request.headers.get('host'),
         hasCookieHeader: Boolean(request.headers.get('cookie')),

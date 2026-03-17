@@ -233,9 +233,11 @@ function initializeAuth(webhookBaseUrl?: string) {
       frontendUrl,
       publicBaseUrl,
       env.FRONTEND_URL,
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:5173',
+      // Allow localhost origins only outside of production to avoid broadening
+      // the cross-origin trust surface in deployed environments.
+      ...((env.NODE_ENV ?? 'development') !== 'production'
+        ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173']
+        : []),
     ]
       .map(normalizeOrigin)
       .filter((origin): origin is string => Boolean(origin))
