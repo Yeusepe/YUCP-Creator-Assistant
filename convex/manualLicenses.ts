@@ -8,6 +8,7 @@
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { internalMutation, mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 
 // ============================================================================
 // TYPES
@@ -67,13 +68,6 @@ export const RevokeManualLicenseInput = v.object({
   authUserId: v.string(),
   reason: v.optional(v.string()),
 });
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 /** Input for bulk creating manual licenses */
 export const BulkCreateManualLicensesInput = v.object({

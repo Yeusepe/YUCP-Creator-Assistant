@@ -1,5 +1,6 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 
 const RoleLogic = v.union(v.literal('all'), v.literal('any'));
 const DownloadArtifactStatus = v.union(
@@ -16,13 +17,6 @@ const DownloadFile = v.object({
   contentType: v.optional(v.string()),
   extension: v.string(),
 });
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 export const listRoutesByGuild = query({
   args: {

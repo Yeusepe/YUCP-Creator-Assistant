@@ -18,6 +18,7 @@ import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { internalQuery, mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -90,13 +91,6 @@ export function buildFullUsername(username: string, discriminator: string | unde
 /** Build Discord profile URL */
 export function buildDiscordProfileUrl(discordUserId: string): string {
   return `https://discord.com/users/${discordUserId}`;
-}
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
 }
 
 // ============================================================================

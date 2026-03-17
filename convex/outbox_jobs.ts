@@ -10,6 +10,7 @@
 
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 
 /** Outbox job status values */
 export const OutboxJobStatus = v.union(
@@ -30,13 +31,6 @@ export const OutboxJobType = v.union(
   v.literal('creator_alert'),
   v.literal('retroactive_rule_sync')
 );
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 // ============================================================================
 // QUERIES

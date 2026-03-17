@@ -9,13 +9,7 @@
 
 import { v } from 'convex/values';
 import { internalQuery, mutation, query } from './_generated/server';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 /** Strip signingSecretEnc from a subscription doc before returning it publicly. */
 function redactSubscription(doc: Record<string, unknown>): Record<string, unknown> {

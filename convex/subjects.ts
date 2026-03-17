@@ -13,13 +13,7 @@ import {
   selectCanonicalExternalAccountCandidates,
 } from './lib/externalAccountIdentity';
 import { ProviderV } from './lib/providers';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 export const PublicSubjectSelector = v.union(
   v.object({

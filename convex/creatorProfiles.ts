@@ -11,6 +11,7 @@
 import { ConvexError, v } from 'convex/values';
 import { components } from './_generated/api';
 import { internalQuery, mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 
 const PolicyInput = v.optional(
   v.object({
@@ -46,13 +47,6 @@ const PolicyInput = v.optional(
     allowMismatchedEmails: v.optional(v.boolean()),
   })
 );
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 /**
  * Create (or return existing) creator profile. Called by API after creator onboarding.

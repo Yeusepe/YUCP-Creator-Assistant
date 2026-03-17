@@ -7,19 +7,13 @@
 
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 
 const GuildLinkStatus = v.union(
   v.literal('active'),
   v.literal('uninstalled'),
   v.literal('suspended')
 );
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 /**
  * Upsert a guild link. Called by API after bot install callback.

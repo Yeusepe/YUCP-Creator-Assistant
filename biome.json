@@ -43,5 +43,5 @@
       "semicolons": "always",
       "trailingCommas": "es5"
     }
-  },
+  }
 }

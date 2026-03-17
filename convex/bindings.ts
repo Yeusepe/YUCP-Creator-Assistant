@@ -15,6 +15,7 @@ import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { internalQuery, mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 
 // ============================================================================
 // TYPES
@@ -35,13 +36,6 @@ const BindingStatus = v.union(
 );
 
 const ActorType = v.union(v.literal('subject'), v.literal('system'), v.literal('admin'));
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 // ============================================================================
 // HELPER FUNCTIONS

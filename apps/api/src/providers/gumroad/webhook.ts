@@ -56,13 +56,25 @@ export const webhook: WebhookPlugin = {
         }
       }
 
-      // Resolve authUserId: new connections use a random webhookRouteToken; legacy
-      // connections used authUserId directly as the URL path segment.
+      // Resolve authUserId via the random webhookRouteToken stored at connection time.
+      // Legacy connections that embedded authUserId directly in the URL are no longer
+      // supported — requiring a registered token prevents unknown callers from injecting
+      // events under an arbitrary user ID.
       const tokenResult = await convex.query(
         api.providerConnections.getConnectionByWebhookRouteToken,
         { apiSecret, webhookRouteToken: routeId }
       );
-      const resolvedUserId = tokenResult?.authUserId ?? routeId;
+
+      if (!tokenResult?.authUserId) {
+        logger.warn('Gumroad webhook: rejected', {
+          routeId,
+          saleId,
+          reason: 'No connection registered for this routeId',
+        });
+        return new Response('Forbidden', { status: 403 });
+      }
+
+      const resolvedUserId = tokenResult.authUserId;
 
       // Gumroad Ping has no signature — security relies on the routeId being private.
       const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {

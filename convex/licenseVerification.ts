@@ -18,6 +18,7 @@ import { canReactivate } from '../packages/shared/src/entitlement/service';
 import type { Id } from './_generated/dataModel';
 import { mutation } from './_generated/server';
 import { LicenseProviderV } from './lib/providers';
+import { requireApiSecret } from './lib/apiAuth';
 
 // ============================================================================
 // TYPES
@@ -30,13 +31,6 @@ const ProductToGrant = v.object({
   sourceReference: v.string(),
   catalogProductId: v.optional(v.id('product_catalog')),
 });
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 /**
  * Hash email for provider_customers normalizedEmailHash (SHA-256 hex)

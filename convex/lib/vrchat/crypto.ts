@@ -114,13 +114,13 @@ export async function signValue(secret: string, value: string): Promise<string> 
 export function constantTimeEqual(left: string, right: string): boolean {
   const leftBytes = new TextEncoder().encode(left);
   const rightBytes = new TextEncoder().encode(right);
-  if (leftBytes.length !== rightBytes.length) {
-    return false;
-  }
+  const maxLen = Math.max(leftBytes.length, rightBytes.length);
 
-  let diff = 0;
-  for (let index = 0; index < leftBytes.length; index += 1) {
-    diff |= leftBytes[index] ^ rightBytes[index];
+  // Always iterate the full length so comparisons take constant time
+  // regardless of where the strings diverge or differ in length.
+  let diff = leftBytes.length ^ rightBytes.length;
+  for (let index = 0; index < maxLen; index += 1) {
+    diff |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
   }
   return diff === 0;
 }

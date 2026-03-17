@@ -16,6 +16,7 @@ import { canReactivate } from '../packages/shared/src/entitlement/service';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
 
 // ============================================================================
@@ -72,13 +73,6 @@ export const RevocationReason = v.union(
   v.literal('transfer'),
   v.literal('policy_violation')
 );
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 type EntitlementReaderCtx = MutationCtx | QueryCtx;
 

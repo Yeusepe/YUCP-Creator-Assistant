@@ -186,14 +186,15 @@ describe('VRChat connect — GET /begin', () => {
 // ──────────────────────────────────────────────────────────────────────────────
 
 describe('VRChat connect — POST /session', () => {
-  let sessionRoute: (typeof vrchatConnect.routes)[number] | undefined;
+  let sessionRoute: (typeof vrchatConnect.routes)[number];
 
   beforeEach(() => {
-    sessionRoute = vrchatConnect.routes.find(
+    const found = vrchatConnect.routes.find(
       (r) => r.method === 'POST' && r.path.endsWith('/session')
     );
-    expect(sessionRoute).toBeDefined();
-    if (!sessionRoute) throw new Error('POST /session route not registered in vrchatConnect');
+    expect(found).toBeDefined();
+    if (!found) throw new Error('POST /session route not registered in vrchatConnect');
+    sessionRoute = found;
   });
 
   it('returns 400 when token is missing from request body', async () => {

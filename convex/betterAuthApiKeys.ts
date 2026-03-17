@@ -1,17 +1,11 @@
 import { v } from 'convex/values';
 import { mutation } from './_generated/server';
 import { createAuth } from './auth';
+import { requireApiSecret } from './lib/apiAuth';
 
 const PUBLIC_API_KEY_PREFIX = 'ypsk_';
 const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 const PUBLIC_API_KEY_METADATA_KIND = 'public-api';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 function toTimestamp(value: unknown): number | null {
   if (value instanceof Date) {

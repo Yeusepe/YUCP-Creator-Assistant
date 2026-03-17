@@ -7,13 +7,7 @@
 
 import { v } from 'convex/values';
 import { internalMutation, internalQuery, query } from './_generated/server';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 // Exponential backoff in milliseconds: 30s, 5min, 30min, 2h, 8h
 const BACKOFF_MS = [30_000, 300_000, 1_800_000, 7_200_000, 28_800_000];

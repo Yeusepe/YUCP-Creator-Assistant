@@ -2,12 +2,7 @@
  * Shared helper functions for role_rules mutations and queries.
  */
 
-export function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+export { requireApiSecret } from '../apiAuth';
 
 export async function sha256Hex(input: string): Promise<string> {
   const encoder = new TextEncoder();

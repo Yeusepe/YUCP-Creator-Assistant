@@ -448,6 +448,16 @@ http.route({
       return errorResponse('redirect_uri and state are required', 400);
     }
 
+    // Enforce minimum state entropy: at least 32 URL-safe characters (≥128 bits
+    // of entropy when randomly generated), preventing predictable CSRF tokens.
+    const STATE_RE = /^[A-Za-z0-9\-_.~]{32,512}$/;
+    if (!STATE_RE.test(state)) {
+      return errorResponse(
+        'state must be at least 32 URL-safe characters (use a cryptographically random value)',
+        400
+      );
+    }
+
     if (!isLoopback(redirectUri)) {
       // Non-loopback clients go directly, no port proxy needed
       incoming.pathname = '/api/auth/oauth2/authorize';
@@ -522,7 +532,10 @@ http.route({
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
 
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    // /v1/me is an identity endpoint — any valid token (any scope) should
+    // identify the caller. Use the minimum scope so narrowly-scoped tokens
+    // (e.g. verification:read only) can still introspect their own identity.
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'verification:read');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
     // Look up fresh user data from Better Auth's user table.
@@ -793,7 +806,10 @@ http.route({
         return errorResponse('Certificate service is not available', 503);
       }
       if (raw.includes('Rate limit')) {
-        return errorResponse(raw.replace(/Uncaught Error: /g, '').split('\n')[0], 429);
+        return errorResponse(
+          'Certificate issuance rate limit exceeded. Please wait before registering another machine.',
+          429
+        );
       }
       if (raw.includes('already has an active certificate')) {
         return errorResponse('An active certificate already exists for this key', 409);
@@ -1015,6 +1031,23 @@ http.route({
       !timestamp
     ) {
       return errorResponse('Missing required fields', 400);
+    }
+
+    // Rate limit: 10 license verification attempts per machine per 60 seconds.
+    // Prevents brute-force enumeration of license keys for a given machine.
+    const fingerprintDigest = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(machineFingerprint)
+    );
+    const fingerprintHex = Array.from(new Uint8Array(fingerprintDigest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const rateLimited = await ctx.runMutation(
+      internal.lib.httpRateLimit.checkAndIncrement,
+      { key: `fingerprint:${fingerprintHex}`, limit: 10, windowMs: 60_000 }
+    );
+    if (rateLimited) {
+      return errorResponse('Too many verification attempts. Please wait before retrying.', 429);
     }
 
     const licenseKeyDigest = await crypto.subtle.digest(

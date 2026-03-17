@@ -7,6 +7,7 @@
 
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 
 const AuditEventType = v.union(
   v.literal('verification.session.created'),
@@ -38,13 +39,6 @@ const AuditEventType = v.union(
   v.literal('collaborator.connection.added'),
   v.literal('collaborator.connection.removed')
 );
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 /**
  * Create an audit event. Called by role sync service and other internal callers.

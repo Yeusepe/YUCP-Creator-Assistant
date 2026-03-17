@@ -1488,6 +1488,23 @@ const cert_issuance_log = defineTable({
   .index('by_issued_at', ['issuedAt']);
 
 /**
+ * HTTP rate limit counters for unauthenticated public endpoints.
+ * Tracks request counts by (key, windowStart) where key is e.g. "ip:<addr>" or
+ * "fingerprint:<hash>". Each window is a fixed-size time bucket (60 s default).
+ * Old buckets are cleaned up lazily when a new request comes in.
+ */
+const http_rate_limits = defineTable({
+  /** Opaque rate-limit key: "fingerprint:<hex>" or "ip:<addr>" */
+  key: v.string(),
+  /** Start of the time window (Unix ms, floored to windowSize) */
+  windowStart: v.number(),
+  /** Number of requests recorded in this window */
+  count: v.number(),
+})
+  .index('by_key_window', ['key', 'windowStart'])
+  .index('by_window_start', ['windowStart']);
+
+/**
  * Short-lived session store for the RFC 8252 loopback OAuth proxy.
  * Maps an OAuth `state` parameter to the original loopback redirect_uri
  * so the callback can forward the code back to the Unity editor process.
@@ -1642,4 +1659,7 @@ export default defineSchema({
   cert_issuance_log,
   oauth_loopback_sessions,
   used_nonces,
+
+  // HTTP rate limiting for unauthenticated public endpoints
+  http_rate_limits,
 });

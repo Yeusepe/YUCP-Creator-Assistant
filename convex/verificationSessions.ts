@@ -15,6 +15,7 @@
 import { v } from 'convex/values';
 import { internalMutation, mutation, query } from './_generated/server';
 import { VerificationModeV } from './lib/providers';
+import { requireApiSecret } from './lib/apiAuth';
 
 // ============================================================================
 // CONSTANTS
@@ -33,13 +34,6 @@ export const CLEANUP_AGE_MS = 24 * 60 * 60 * 1000;
 export const VerificationMode = VerificationModeV;
 
 export type VerificationMode = typeof VerificationMode.type;
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 // ============================================================================
 // QUERIES

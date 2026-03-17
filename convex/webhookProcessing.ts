@@ -15,6 +15,7 @@ import { processGumroadEvent } from './webhooks/gumroad';
 import { processJinxxyEvent } from './webhooks/jinxxy';
 import { processLemonEvent } from './webhooks/lemonsqueezy';
 import { processPayhipEvent } from './webhooks/payhip';
+import { requireApiSecret } from './lib/apiAuth';
 
 /**
  * Get IDs of pending webhook events for processing.
@@ -36,13 +37,6 @@ export const getPendingEventIds = internalQuery({
     return events.map((e) => e._id);
   },
 });
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
 
 /**
  * Process a single webhook event.

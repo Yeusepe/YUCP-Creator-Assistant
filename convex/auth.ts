@@ -113,15 +113,14 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         }
       : {};
 
+  const localhostOrigins =
+    process.env.NODE_ENV !== 'production'
+      ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173']
+      : [];
+
   const trustedOrigins = Array.from(
     new Set(
-      [
-        siteUrl,
-        process.env.FRONTEND_URL,
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://localhost:5173',
-      ]
+      [siteUrl, process.env.FRONTEND_URL, ...localhostOrigins]
         .map(normalizeOrigin)
         .filter((origin): origin is string => Boolean(origin))
     )

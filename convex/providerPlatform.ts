@@ -2,13 +2,7 @@ import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
 import { ProviderV } from './lib/providers';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 export const upsertCatalogMapping = mutation({
   args: {

@@ -8,13 +8,7 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { ProviderV, WebhookProviderV } from './lib/providers';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 /**
  * Insert a webhook event from any provider.
@@ -128,12 +122,14 @@ export const getPendingWebhookEvents = query({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const limit = Math.min(args.limit ?? 50, 100);
+    // Over-fetch then filter: only process events with a verified signature so
+    // the pipeline never acts on tampered or unverifiable payloads.
     const events = await ctx.db
       .query('webhook_events')
       .withIndex('by_status', (q) => q.eq('status', 'pending'))
       .order('asc')
-      .take(limit);
-    return events;
+      .take(limit * 2);
+    return events.filter((e) => e.signatureValid === true).slice(0, limit);
   },
 });
 
