@@ -5,7 +5,12 @@
  * then the bot walks them through each step using Discord.js v14 UI components.
  */
 
-import { CATALOG_SYNC_PROVIDER_KEYS, buildCatalogProductUrl, getProviderDescriptor, createLogger } from '@yucp/shared';
+import {
+  buildCatalogProductUrl,
+  CATALOG_SYNC_PROVIDER_KEYS,
+  createLogger,
+  getProviderDescriptor,
+} from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type {
   ButtonInteraction,

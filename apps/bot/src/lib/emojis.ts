@@ -39,6 +39,16 @@ export const E = {
   Dance: '<:Dance:1478761065863970998>',
   Home: '<:Home:1478761067155951749>',
   Checkmark: '<:Checkmark:1478775474443518084>',
+  Num0: '<:0_:1483581222457442304>',
+  Num1: '<:1_:1483581224034373665>',
+  Num2: '<:2_:1483581225837789264>',
+  Num3: '<:3_:1483581226735501392>',
+  Num4: '<:4_:1483581227628888205>',
+  Num5: '<:5_:1483581228522405989>',
+  Num6: '<:6_:1483581229529039062>',
+  Num7: '<:7_:1483581231047377137>',
+  Num8: '<:8_:1483581232280240258>',
+  Num9: '<:9_:1483581233643524096>',
 } as const;
 
 /** Shape accepted by discord.js setEmoji() for custom emojis. */
@@ -75,6 +85,16 @@ export const Emoji = {
   Dance: customEmoji('1478761065863970998', 'Dance'),
   Home: customEmoji('1478761067155951749', 'Home'),
   Checkmark: customEmoji('1478775474443518084', 'Checkmark'),
+  Num0: customEmoji('1483581222457442304', '0_'),
+  Num1: customEmoji('1483581224034373665', '1_'),
+  Num2: customEmoji('1483581225837789264', '2_'),
+  Num3: customEmoji('1483581226735501392', '3_'),
+  Num4: customEmoji('1483581227628888205', '4_'),
+  Num5: customEmoji('1483581228522405989', '5_'),
+  Num6: customEmoji('1483581229529039062', '6_'),
+  Num7: customEmoji('1483581231047377137', '7_'),
+  Num8: customEmoji('1483581232280240258', '8_'),
+  Num9: customEmoji('1483581233643524096', '9_'),
 } as const;
 
 /** Emoji IDs for CDN URLs (embed thumbnails). Use with getEmojiCdnUrl(). */

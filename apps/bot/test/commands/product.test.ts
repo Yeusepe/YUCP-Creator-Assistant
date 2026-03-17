@@ -204,7 +204,9 @@ describe('product command', () => {
 
     await handleProductTypeSelect(
       selectInteraction as unknown as StringSelectMenuInteraction,
-      'auth_product_test'
+      'auth_product_test',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
     );
 
     // editReply should report no products found
@@ -252,7 +254,9 @@ describe('product command', () => {
 
     await handleProductTypeSelect(
       selectInteraction as unknown as StringSelectMenuInteraction,
-      'auth_product_test'
+      'auth_product_test',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
     );
 
     // Should show catalog select menu (editReply with components)
@@ -281,7 +285,9 @@ describe('product command', () => {
 
     await handleProductTypeSelect(
       selectInteraction as unknown as StringSelectMenuInteraction,
-      'auth_ghost'
+      'auth_ghost',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
     );
 
     // No deferUpdate — session check happens first; update() is called with expired message
@@ -319,7 +325,9 @@ describe('product command', () => {
 
     await handleProductTypeSelect(
       selectInteraction as unknown as StringSelectMenuInteraction,
-      'auth_product_guard_1'
+      'auth_product_guard_1',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
     );
 
     const updatePayload = selectInteraction.update.mock.calls[0]?.[0];
@@ -359,7 +367,9 @@ describe('product command', () => {
 
     await handleProductTypeSelect(
       selectInteraction as unknown as StringSelectMenuInteraction,
-      'auth_product_other'
+      'auth_product_other',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
     );
 
     const updatePayload = selectInteraction.update.mock.calls[0]?.[0];
@@ -410,7 +420,9 @@ describe('product command', () => {
 
     await handleProductTypeSelect(
       replayInteraction as unknown as StringSelectMenuInteraction,
-      'auth_product_guard_3'
+      'auth_product_guard_3',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
     );
 
     const updatePayload = replayInteraction.update.mock.calls[0]?.[0];

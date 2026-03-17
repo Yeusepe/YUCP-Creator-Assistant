@@ -91,7 +91,7 @@ describe('buildVerifyStatusReply', () => {
     );
 
     const text = JSON.stringify(reply.components[0].toJSON());
-    expect(text).toContain('No products have been added');
+    expect(text).toContain('Nothing to verify yet!');
   });
 
   it('shows verified state with product names when user has active entitlements in this guild', async () => {
