@@ -685,6 +685,9 @@ export function createCollabRoutes(config: CollabConfig) {
     }
 
     const inviteProviderKey = session.invite.providerKey;
+    if (!inviteProviderKey) {
+      return Response.json({ error: 'missing_provider' }, { status: 400 });
+    }
 
     // Validate the API key against the correct provider
     let credentialEncrypted: string;

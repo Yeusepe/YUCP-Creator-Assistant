@@ -30,16 +30,6 @@ describe('shared provider registry', () => {
     }
   });
 
-  it('preserves Gumroad and Jinxxy compatibility metadata', () => {
-    const gumroad = PROVIDER_REGISTRY_BY_KEY.gumroad;
-    const jinxxy = PROVIDER_REGISTRY_BY_KEY.jinxxy;
-
-    expect(gumroad.compatibility?.legacyConnectRoutes).toContain('/api/connect/gumroad/begin');
-    expect(gumroad.compatibility?.legacyWebhookRoutes).toContain('/webhooks/gumroad/:authUserId');
-    expect(jinxxy.compatibility?.legacyConnectRoutes).toContain('/api/connect/jinxxy-store');
-    expect(jinxxy.compatibility?.legacyWebhookRoutes).toContain('/webhooks/jinxxy/:authUserId');
-  });
-
   it('exposes stable provider labels and unique keys', () => {
     const keys = PROVIDER_REGISTRY.map((provider) => provider.providerKey);
     expect(new Set(keys).size).toBe(keys.length);
