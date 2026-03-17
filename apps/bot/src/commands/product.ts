@@ -250,7 +250,7 @@ export async function handleProductAddInteractive(
 
             const manualOpt = new StringSelectMenuOptionBuilder()
               .setLabel(`${d.label} (by URL or ID)`)
-              .setDescription(d.productInput?.description)
+              .setDescription(d.productInput?.description ?? '')
               .setValue(`${d.providerKey}_url`);
             if (emoji) manualOpt.setEmoji(emoji);
 

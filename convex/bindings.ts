@@ -979,3 +979,65 @@ export const getBindingsByTenant = internalQuery({
     return await query.take(limit);
   },
 });
+
+// ============================================================================
+// PUBLIC API QUERIES
+// ============================================================================
+
+export const listByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    subjectId: v.optional(v.string()),
+    status: v.optional(v.string()),
+    bindingType: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('bindings')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.subjectId) {
+      all = all.filter((b) => String(b.subjectId) === args.subjectId);
+    }
+    if (args.status) {
+      all = all.filter((b) => b.status === args.status);
+    }
+    if (args.bindingType) {
+      all = all.filter((b) => b.bindingType === args.bindingType);
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+export const getBindingById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    bindingId: v.id('bindings'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.bindingId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});

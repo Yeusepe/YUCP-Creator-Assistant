@@ -87,7 +87,7 @@ describe('VRChat connect — GET /begin', () => {
     expect(beginRoute).toBeDefined();
 
     const request = new Request('https://api.example.com/api/connect/vrchat/begin');
-    const response = await beginRoute?.handler(request, ctx as unknown as ConnectContext);
+    const response = await beginRoute!.handler(request, ctx as unknown as ConnectContext);
 
     expect(response.status).toBe(302);
     const location = response.headers.get('location');
@@ -105,7 +105,7 @@ describe('VRChat connect — GET /begin', () => {
     const request = new Request(
       'https://api.example.com/api/connect/vrchat/begin?guildId=guild_abc&tenantId=tenant_xyz'
     );
-    const response = await beginRoute?.handler(request, ctx as unknown as ConnectContext);
+    const response = await beginRoute!.handler(request, ctx as unknown as ConnectContext);
 
     expect(response.status).toBe(302);
     const location = response.headers.get('location')!;
@@ -130,7 +130,7 @@ describe('VRChat connect — GET /begin', () => {
       (r) => r.method === 'GET' && r.path.endsWith('/begin')
     );
     const request = new Request('https://api.example.com/api/connect/vrchat/begin');
-    const response = await beginRoute?.handler(request, ctx as unknown as ConnectContext);
+    const response = await beginRoute!.handler(request, ctx as unknown as ConnectContext);
 
     expect(response.status).toBe(302);
     const location = response.headers.get('location');
@@ -151,7 +151,7 @@ describe('VRChat connect — GET /begin', () => {
       (r) => r.method === 'GET' && r.path.endsWith('/begin')
     );
     const request = new Request('https://api.example.com/api/connect/vrchat/begin');
-    const response = await beginRoute?.handler(request, ctx as unknown as ConnectContext);
+    const response = await beginRoute!.handler(request, ctx as unknown as ConnectContext);
 
     expect(response.status).toBe(401);
   });
@@ -168,7 +168,7 @@ describe('VRChat connect — GET /begin', () => {
       (r) => r.method === 'GET' && r.path.endsWith('/begin')
     );
     const request = new Request('https://api.example.com/api/connect/vrchat/begin');
-    const response = await beginRoute?.handler(request, ctx as unknown as ConnectContext);
+    const response = await beginRoute!.handler(request, ctx as unknown as ConnectContext);
 
     expect(response.status).toBe(401);
   });
@@ -195,7 +195,7 @@ describe('VRChat connect — POST /session', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ username: 'user', password: 'pass' }),
     });
-    const response = await sessionRoute?.handler(request, ctx as unknown as ConnectContext);
+    const response = await sessionRoute!.handler(request, ctx as unknown as ConnectContext);
     expect(response.status).toBe(400);
   });
 
@@ -206,7 +206,7 @@ describe('VRChat connect — POST /session', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: 'nonexistent-token', username: 'user', password: 'pass' }),
     });
-    const response = await sessionRoute?.handler(request, ctx as unknown as ConnectContext);
+    const response = await sessionRoute!.handler(request, ctx as unknown as ConnectContext);
     expect(response.status).toBe(400);
   });
 
@@ -230,7 +230,7 @@ describe('VRChat connect — POST /session', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: 'valid-token', username: 'bad-user', password: 'bad-pass' }),
     });
-    const response = await sessionRoute?.handler(request, ctx as unknown as ConnectContext);
+    const response = await sessionRoute!.handler(request, ctx as unknown as ConnectContext);
     expect(response.status).toBe(401);
   });
 
@@ -260,7 +260,7 @@ describe('VRChat connect — POST /session', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: 'valid-token', username: 'user', password: 'pass' }),
     });
-    const response = await sessionRoute?.handler(request, ctx as unknown as ConnectContext);
+    const response = await sessionRoute!.handler(request, ctx as unknown as ConnectContext);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { twoFactorRequired?: boolean; types?: string[] };
     // Must match the canonical shape that vrchat-verify.html checks: twoFactorRequired + types

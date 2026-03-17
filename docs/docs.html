@@ -27,7 +27,7 @@
             color: rgba(255,255,255,0.9);
             background: #09090f;
             overflow-x: hidden;
-            cursor: none;
+            cursor: auto;
         }
 
         h1,h2,h3,h4,.display-text {
@@ -522,8 +522,6 @@
         <div class="blob"></div>
         <div class="blob"></div>
     </div>
-    <div class="cursor-dot hidden md:block"></div>
-    <div class="cursor-dot-outline hidden md:block"></div>
 
     <!-- ── Navbar ───────────────────────────────────────────────────────────── -->
     <nav class="top-navbar">
@@ -1171,17 +1169,6 @@
             }
             requestAnimationFrame(tick);
         })();
-
-        // Custom cursor
-        const dot = document.querySelector('.cursor-dot');
-        const outline = document.querySelector('.cursor-dot-outline');
-        if (dot && outline) {
-            window.addEventListener('mousemove', (e) => {
-                dot.style.left = `${e.clientX}px`;
-                dot.style.top  = `${e.clientY}px`;
-                outline.animate({ left: `${e.clientX}px`, top: `${e.clientY}px` }, { duration: 300, fill: 'forwards', easing: 'ease-out' });
-            });
-        }
 
         // Copy command to clipboard
         function _copyCmd(btn, text) {
