@@ -206,7 +206,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   const siteUrl = env.SITE_URL ?? 'http://localhost:3001';
   // Use a tunnel only for externally reachable webhook/install callbacks.
   const publicBaseUrl = webhookBaseUrl ?? siteUrl;
-  const frontendUrl = siteUrl;
+  const frontendUrl = env.FRONTEND_URL ?? siteUrl;
 
   resolvedApiBaseUrl = publicBaseUrl;
   resolvedFrontendOrigin = frontendUrl !== publicBaseUrl ? new URL(frontendUrl).origin : null;
@@ -233,11 +233,8 @@ function initializeAuth(webhookBaseUrl?: string) {
       convexSiteUrl,
     });
   }
-  if (env.FRONTEND_URL && env.FRONTEND_URL !== frontendUrl) {
-    logger.warn('Ignoring FRONTEND_URL in favor of SITE_URL', {
-      configuredFrontendUrl: env.FRONTEND_URL,
-      siteUrl,
-    });
+  if (!env.FRONTEND_URL) {
+    logger.warn('FRONTEND_URL not set, falling back to SITE_URL for frontend origin', { siteUrl });
   }
 
   auth = createAuth({
