@@ -166,12 +166,12 @@ describe('VrchatApiClient.getOwnershipFromSession — productId in ownedAvatarId
 
     expect(result).not.toBeNull();
     // Must contain both avatar IDs
-    expect(result!.ownedAvatarIds).toContain('avtr_aaa');
-    expect(result!.ownedAvatarIds).toContain('avtr_bbb');
+    expect(result?.ownedAvatarIds).toContain('avtr_aaa');
+    expect(result?.ownedAvatarIds).toContain('avtr_bbb');
     // Must also contain the productId of the avatar that has one
-    expect(result!.ownedAvatarIds).toContain('prod_xxx');
+    expect(result?.ownedAvatarIds).toContain('prod_xxx');
     // Avatar without productId: no extra entry
-    expect(result!.ownedAvatarIds).toHaveLength(3);
+    expect(result?.ownedAvatarIds).toHaveLength(3);
   });
 
   it('does not add undefined/null productId to ownedAvatarIds', async () => {

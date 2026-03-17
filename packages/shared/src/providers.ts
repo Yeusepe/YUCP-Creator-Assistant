@@ -487,10 +487,7 @@ export const CATALOG_SYNC_PROVIDER_KEYS = (PROVIDER_REGISTRY as readonly Provide
  * Build the canonical URL for a catalog product entry.
  * Returns null if the provider has no URL template (e.g. discord_role, payhip).
  */
-export function buildCatalogProductUrl(
-  providerKey: string,
-  productRef: string
-): string | null {
+export function buildCatalogProductUrl(providerKey: string, productRef: string): string | null {
   const descriptor = getProviderDescriptor(providerKey);
   if (!descriptor?.catalogProductUrlTemplate) return null;
   return descriptor.catalogProductUrlTemplate.replace('{ref}', productRef);
