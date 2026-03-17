@@ -191,7 +191,11 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
         providerUsername: userName,
         providerMetadata: normalizedEmail
           ? {
-              emailEncrypted: await encrypt(normalizedEmail, config.encryptionSecret ?? '', 'external-account-metadata-email'),
+              emailEncrypted: await encrypt(
+                normalizedEmail,
+                config.encryptionSecret ?? '',
+                'external-account-metadata-email'
+              ),
               emailHash: await sha256Hex(normalizedEmail),
             }
           : undefined,

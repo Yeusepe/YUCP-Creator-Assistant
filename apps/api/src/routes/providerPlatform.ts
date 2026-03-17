@@ -1053,7 +1053,9 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       encrypt(JSON.stringify(validation), config.encryptionSecret, 'external-account-raw-data'),
     ]);
     const emailHash = emailHashBuf
-      ? Array.from(new Uint8Array(emailHashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('')
+      ? Array.from(new Uint8Array(emailHashBuf))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('')
       : undefined;
     const verification = await convex.mutation(
       api.licenseVerification.completeLicenseVerification,

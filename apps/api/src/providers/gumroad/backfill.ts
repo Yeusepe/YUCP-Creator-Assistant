@@ -1,6 +1,6 @@
 import { createLogger } from '@yucp/shared';
-import type { BackfillPlugin, BackfillRecord } from '../types';
 import { encrypt } from '../../lib/encrypt';
+import type { BackfillPlugin, BackfillRecord } from '../types';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 

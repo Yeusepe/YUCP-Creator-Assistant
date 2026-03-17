@@ -52,7 +52,7 @@ describe('Gumroad backfill fetchPage', () => {
       ],
     });
 
-    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, "");
+    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, '');
 
     expect(result.facts).toHaveLength(1);
     // purchasedAt must match the historical date, not Date.now()
@@ -68,7 +68,7 @@ describe('Gumroad backfill fetchPage', () => {
       sales: [{ sale_id: 'sale-002', product_id: 'prod-abc' }],
     });
 
-    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, "");
+    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, '');
 
     const after = Date.now();
     expect(result.facts[0].purchasedAt).toBeGreaterThanOrEqual(before);
@@ -81,7 +81,7 @@ describe('Gumroad backfill fetchPage', () => {
       sales: [{ sale_id: 'sale-003', product_id: 'prod-abc', sale_timestamp: saleTimestampSec }],
     });
 
-    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, "");
+    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, '');
 
     expect(result.facts[0].purchasedAt).toBe(saleTimestampSec * 1000);
   });
@@ -98,7 +98,7 @@ describe('Gumroad backfill fetchPage', () => {
       ],
     });
 
-    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, "");
+    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, '');
 
     expect(result.facts[0].lifecycleStatus).toBe('refunded');
   });
@@ -109,7 +109,7 @@ describe('Gumroad backfill fetchPage', () => {
       next_page_url: 'https://api.gumroad.com/v2/sales?page=2',
     });
 
-    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, "");
+    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, '');
 
     expect(result.nextCursor).toBe('2');
   });
@@ -117,7 +117,7 @@ describe('Gumroad backfill fetchPage', () => {
   it('returns null nextCursor when no next_page_url', async () => {
     restoreFetch = mockFetch({ sales: [] });
 
-    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, "");
+    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, '');
 
     expect(result.nextCursor).toBeNull();
   });
@@ -125,7 +125,7 @@ describe('Gumroad backfill fetchPage', () => {
   it('throws on a non-200, non-429 response', async () => {
     restoreFetch = mockFetch({ error: 'Unauthorized' }, 401);
 
-    await expect(backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, "")).rejects.toThrow(
+    await expect(backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, '')).rejects.toThrow(
       'Gumroad API error: 401'
     );
   });
