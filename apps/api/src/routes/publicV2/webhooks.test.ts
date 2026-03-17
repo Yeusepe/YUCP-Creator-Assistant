@@ -54,7 +54,7 @@ const config = {
 
 /** Thin wrapper that injects the mock auth resolver so tests don't need mock.module('./auth'). */
 const routes = (request: Request, subPath: string) =>
-  routes(request, subPath, config, { resolveAuth: mockResolveAuth });
+  handleWebhooksRoutes(request, subPath, config, { resolveAuth: mockResolveAuth });
 
 const sampleSubscription = {
   _id: 'wh_001',
