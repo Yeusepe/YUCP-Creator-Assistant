@@ -46,7 +46,7 @@ describe('vrchatProvider.getCredential', () => {
   });
 
   it('returns null when connection exists but has no vrchatSessionEncrypted', async () => {
-    const ctx = makeCtx({ convexResult: {} });
+    const ctx = makeCtx({ convexResult: { credentials: {} } });
     const credential = await vrchatProvider.getCredential(ctx);
     expect(credential).toBeNull();
   });
@@ -61,7 +61,7 @@ describe('vrchatProvider.getCredential', () => {
     const encrypted = await encrypt(sessionPayload, encryptionSecret, 'vrchat-creator-session');
 
     const ctx = makeCtx({
-      convexResult: { vrchatSessionEncrypted: encrypted },
+      convexResult: { credentials: { 'vrchat_session': encrypted } },
       encryptionSecret,
     });
     const credential = await vrchatProvider.getCredential(ctx);

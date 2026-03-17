@@ -1,8 +1,8 @@
 /**
- * Creator Provider Config - Per-creator Jinxxy API key storage
+ * Creator Provider Config - Legacy credential retrieval
  *
- * Gumroad uses global env vars. Jinxxy keys are per-creator.
- * Caller encrypts the API key before storing; decrypts when fetching.
+ * All new credentials are stored in provider_connections + provider_credentials.
+ * These functions query the generic credential system.
  */
 
 import { v } from 'convex/values';
@@ -16,8 +16,8 @@ function requireApiSecret(apiSecret: string | undefined): void {
 }
 
 /**
- * Get Jinxxy API key for verification (API-only, requires apiSecret).
- * Returns per-creator key; falls back to null if creator has none configured.
+ * Get Jinxxy API key for verification — reads from provider_credentials.
+ * Returns the encrypted api_key credential for the jinxxy provider connection.
  */
 export const getJinxxyApiKeyForVerification = query({
   args: {
@@ -27,17 +27,27 @@ export const getJinxxyApiKeyForVerification = query({
   returns: v.union(v.null(), v.string()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const config = await ctx.db
-      .query('creator_provider_config')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'jinxxy')
+      )
+      .filter((q) => q.neq(q.field('status'), 'disconnected'))
       .first();
-    if (!config?.jinxxyApiKeyEncrypted) return null;
-    return config.jinxxyApiKeyEncrypted;
+    if (!conn) return null;
+    const cred = await ctx.db
+      .query('provider_credentials')
+      .withIndex('by_connection_key', (q) =>
+        q.eq('providerConnectionId', conn._id).eq('credentialKey', 'api_key')
+      )
+      .first();
+    return cred?.encryptedValue ?? null;
   },
 });
 
 /**
  * Get creator provider config (for API/bot to fetch Jinxxy key).
+ * @deprecated Use getJinxxyApiKeyForVerification instead.
  */
 export const getCreatorProviderConfig = query({
   args: {
@@ -52,21 +62,28 @@ export const getCreatorProviderConfig = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const config = await ctx.db
-      .query('creator_provider_config')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'jinxxy')
+      )
+      .filter((q) => q.neq(q.field('status'), 'disconnected'))
       .first();
-
-    if (!config) return null;
-    return {
-      jinxxyApiKeyEncrypted: config.jinxxyApiKeyEncrypted,
-    };
+    if (!conn) return null;
+    const cred = await ctx.db
+      .query('provider_credentials')
+      .withIndex('by_connection_key', (q) =>
+        q.eq('providerConnectionId', conn._id).eq('credentialKey', 'api_key')
+      )
+      .first();
+    return { jinxxyApiKeyEncrypted: cred?.encryptedValue };
   },
 });
 
 /**
  * Upsert Jinxxy API key for a creator.
- * Caller must encrypt the key before passing; we store as-is.
+ * @deprecated Use upsertProviderConnection or putProviderCredential instead.
+ * Kept for backward compat with bot flows that call this directly.
  */
 export const upsertJinxxyApiKey = mutation({
   args: {
@@ -78,24 +95,56 @@ export const upsertJinxxyApiKey = mutation({
     requireApiSecret(args.apiSecret);
     const now = Date.now();
 
+    let conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'jinxxy')
+      )
+      .first();
+
+    if (!conn) {
+      const id = await ctx.db.insert('provider_connections', {
+        authUserId: args.authUserId,
+        provider: 'jinxxy' as any,
+        providerKey: 'jinxxy' as any,
+        label: 'Jinxxy Store',
+        connectionType: 'setup',
+        status: 'active',
+        authMode: 'api_key',
+        webhookConfigured: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      conn = await ctx.db.get(id);
+    }
+
+    if (!conn) throw new Error('Failed to resolve Jinxxy connection');
+
     const existing = await ctx.db
-      .query('creator_provider_config')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .query('provider_credentials')
+      .withIndex('by_connection_key', (q) =>
+        q.eq('providerConnectionId', conn!._id).eq('credentialKey', 'api_key')
+      )
       .first();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
+        encryptedValue: args.jinxxyApiKeyEncrypted,
         updatedAt: now,
       });
     } else {
-      await ctx.db.insert('creator_provider_config', {
-        authUserId: args.authUserId,
-        jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
+      await ctx.db.insert('provider_credentials', {
+        providerConnectionId: conn._id,
+        providerKey: 'jinxxy' as any,
+        credentialKey: 'api_key',
+        kind: 'api_key',
+        status: 'active',
+        encryptedValue: args.jinxxyApiKeyEncrypted,
         createdAt: now,
         updatedAt: now,
       });
     }
+    await ctx.db.patch(conn._id, { updatedAt: now });
   },
 });
 
@@ -110,17 +159,21 @@ export const clearJinxxyApiKey = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const now = Date.now();
-
-    const existing = await ctx.db
-      .query('creator_provider_config')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'jinxxy')
+      )
       .first();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        jinxxyApiKeyEncrypted: undefined,
-        updatedAt: now,
-      });
+    if (!conn) return;
+    const cred = await ctx.db
+      .query('provider_credentials')
+      .withIndex('by_connection_key', (q) =>
+        q.eq('providerConnectionId', conn._id).eq('credentialKey', 'api_key')
+      )
+      .first();
+    if (cred) {
+      await ctx.db.patch(cred._id, { encryptedValue: undefined, updatedAt: now });
     }
   },
 });

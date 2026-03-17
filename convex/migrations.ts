@@ -30,7 +30,6 @@ const LEGACY_TABLES = [
   'entitlement_evidence',
   'creator_oauth_apps',
   'manual_licenses',
-  'creator_provider_config',
   'webhook_events',
   'collaborator_invites',
   'collaborator_connections',

@@ -29,25 +29,14 @@ async function resolveJinxxyApiKey(
   config: VerificationConfig,
   authUserId: string
 ): Promise<{ key: string } | { error: string }> {
-  let encrypted: string | null = null;
-
-  const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
+  const data = await convex.query(api.providerConnections.getConnectionForBackfill, {
     apiSecret: config.convexApiSecret,
     authUserId,
     provider: 'jinxxy',
   });
-  if (conn?.jinxxyApiKeyEncrypted) {
-    encrypted = conn.jinxxyApiKeyEncrypted;
-  }
+  const encryptedKey = data?.credentials['api_key'];
 
-  if (!encrypted) {
-    encrypted = await convex.query(api.creatorConfig.getJinxxyApiKeyForVerification, {
-      apiSecret: config.convexApiSecret,
-      authUserId,
-    });
-  }
-
-  if (!encrypted) {
+  if (!encryptedKey) {
     return {
       error: 'Jinxxy API key not configured. Add your Jinxxy API key in `/creator setup`.',
     };
@@ -60,7 +49,7 @@ async function resolveJinxxyApiKey(
   }
 
   try {
-    const key = await decrypt(encrypted, config.encryptionSecret, JINXXY.credential);
+    const key = await decrypt(encryptedKey, config.encryptionSecret, JINXXY.credential);
     return { key };
   } catch (err) {
     logger.error('Failed to decrypt creator Jinxxy API key', { authUserId, err });
@@ -186,13 +175,13 @@ export const jinxxyHandler: LicenseVerificationHandler = {
     const collabConnections = (await convex.query(
       api.collaboratorInvites.getCollabConnectionsForVerification,
       { apiSecret: config.convexApiSecret, ownerAuthUserId: authUserId }
-    )) as Array<{ id: string; jinxxyApiKeyEncrypted?: string }>;
+    )) as Array<{ id: string; credentialEncrypted?: string }>;
 
     for (const collab of collabConnections) {
-      if (!collab.jinxxyApiKeyEncrypted) continue;
+      if (!collab.credentialEncrypted) continue;
       try {
         const collabKey = await decrypt(
-          collab.jinxxyApiKeyEncrypted,
+          collab.credentialEncrypted,
           config.encryptionSecret ?? '',
           JINXXY.credential
         );

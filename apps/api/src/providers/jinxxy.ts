@@ -82,22 +82,15 @@ const jinxxyProvider: ProviderPlugin = {
   purposes: PURPOSES,
 
   async getCredential(ctx: ProviderContext) {
-    const conn = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
+    const data = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret: ctx.apiSecret,
       authUserId: ctx.authUserId,
       provider: 'jinxxy',
     });
-    if (conn?.jinxxyApiKeyEncrypted) {
-      return decrypt(conn.jinxxyApiKeyEncrypted, ctx.encryptionSecret, PURPOSES.credential);
+    const encryptedKey = data?.credentials['api_key'];
+    if (encryptedKey) {
+      return decrypt(encryptedKey, ctx.encryptionSecret, PURPOSES.credential);
     }
-
-    // Legacy fallback: check tenant_provider_config table
-    const legacyKey = await ctx.convex.query(api.creatorConfig.getJinxxyApiKeyForVerification, {
-      apiSecret: ctx.apiSecret,
-      authUserId: ctx.authUserId,
-    });
-    if (legacyKey) return decrypt(legacyKey, ctx.encryptionSecret, PURPOSES.credential);
-
     return null;
   },
 
@@ -129,13 +122,13 @@ const jinxxyProvider: ProviderPlugin = {
       const collabConnections = (await ctx.convex.query(
         api.collaboratorInvites.getCollabConnectionsForVerification,
         { apiSecret: ctx.apiSecret, ownerAuthUserId: ctx.authUserId }
-      )) as Array<{ id: string; jinxxyApiKeyEncrypted?: string; collaboratorDisplayName?: string }>;
+      )) as Array<{ id: string; credentialEncrypted?: string; collaboratorDisplayName?: string }>;
 
       for (const collab of collabConnections) {
-        if (!collab.jinxxyApiKeyEncrypted) continue;
+        if (!collab.credentialEncrypted) continue;
         try {
           const collabKey = await decrypt(
-            collab.jinxxyApiKeyEncrypted,
+            collab.credentialEncrypted,
             ctx.encryptionSecret,
             PURPOSES.credential
           );

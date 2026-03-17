@@ -229,12 +229,22 @@ async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Respo
       webhookEndpoint = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${webhookTarget}`;
     }
     const convex = getConvexClientFromUrl(config.convexUrl);
-    await convex.mutation(api.providerConnections.upsertJinxxyConnection, {
+    await convex.mutation(api.providerConnections.upsertProviderConnection, {
       apiSecret: config.convexApiSecret,
       authUserId: authUserId ?? undefined,
-      jinxxyApiKeyEncrypted: apiKeyEncrypted,
+      providerKey: 'jinxxy',
+      authMode: 'api_key',
       webhookSecretRef,
       webhookEndpoint,
+      webhookConfigured: !!(webhookSecretRef && webhookEndpoint),
+      credentials: [
+        { credentialKey: 'api_key', kind: 'api_key', encryptedValue: apiKeyEncrypted },
+        ...(webhookSecretRef ? [{ credentialKey: 'webhook_secret', kind: 'webhook_secret' as const, encryptedValue: webhookSecretRef }] : []),
+      ],
+      capabilities: [
+        { capabilityKey: 'catalog_sync', status: 'configured', requiredCredentialKeys: ['api_key'] },
+        { capabilityKey: 'webhooks', status: webhookSecretRef ? 'configured' : 'pending', requiredCredentialKeys: ['webhook_secret'] },
+      ],
     });
     if (pendingWebhookRaw) {
       await store.delete(`${JINXXY_PENDING_WEBHOOK_PREFIX}${webhookTarget}`);

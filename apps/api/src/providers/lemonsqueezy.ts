@@ -184,13 +184,14 @@ const lemonSqueezyProvider: ProviderPlugin = {
   purposes: PURPOSES,
 
   async getCredential(ctx: ProviderContext) {
-    const conn = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
+    const data = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret: ctx.apiSecret,
       authUserId: ctx.authUserId,
       provider: 'lemonsqueezy',
     });
-    if (!conn?.lemonApiTokenEncrypted) return null;
-    return decrypt(conn.lemonApiTokenEncrypted, ctx.encryptionSecret, PURPOSES.credential);
+    const encryptedToken = data?.credentials['api_token'];
+    if (!encryptedToken) return null;
+    return decrypt(encryptedToken, ctx.encryptionSecret, PURPOSES.credential);
   },
 
   async fetchProducts(credential) {

@@ -41,14 +41,15 @@ const vrchatProvider: ProviderPlugin = {
    * Returns null if the creator has not connected VRChat.
    */
   async getCredential(ctx: ProviderContext): Promise<string | null> {
-    const conn = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
+    const data = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret: ctx.apiSecret,
       authUserId: ctx.authUserId,
       provider: 'vrchat',
     });
 
-    if (!conn?.vrchatSessionEncrypted) return null;
-    return decrypt(conn.vrchatSessionEncrypted, ctx.encryptionSecret, PURPOSES.credential);
+    const encryptedSession = data?.credentials?.['vrchat_session'];
+    if (!encryptedSession) return null;
+    return decrypt(encryptedSession, ctx.encryptionSecret, PURPOSES.credential);
   },
 
   /**

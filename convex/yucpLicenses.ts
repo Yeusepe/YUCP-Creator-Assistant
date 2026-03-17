@@ -71,7 +71,7 @@ export const getProductByProviderRef = internalQuery({
   },
 });
 
-/** Get the encrypted provider connection for a user. */
+/** Get the encrypted provider connection credentials for a user. */
 export const getProviderConnection = internalQuery({
   args: {
     authUserId: v.string(),
@@ -80,8 +80,7 @@ export const getProviderConnection = internalQuery({
   returns: v.union(
     v.null(),
     v.object({
-      gumroadAccessTokenEncrypted: v.optional(v.string()),
-      jinxxyApiKeyEncrypted: v.optional(v.string()),
+      credentials: v.record(v.string(), v.string()),
     })
   ),
   handler: async (ctx, args) => {
@@ -93,17 +92,26 @@ export const getProviderConnection = internalQuery({
       .filter((q) => q.neq(q.field('status'), 'disconnected'))
       .first();
     if (!conn) return null;
-    return {
-      gumroadAccessTokenEncrypted: conn.gumroadAccessTokenEncrypted,
-      jinxxyApiKeyEncrypted: conn.jinxxyApiKeyEncrypted,
-    };
+
+    const credRows = await ctx.db
+      .query('provider_credentials')
+      .withIndex('by_connection', (q) => q.eq('providerConnectionId', conn._id))
+      .collect();
+
+    const credentials: Record<string, string> = {};
+    for (const row of credRows) {
+      if (row.encryptedValue) {
+        credentials[row.credentialKey] = row.encryptedValue;
+      }
+    }
+    return { credentials };
   },
 });
 
-/** Get active collaborator Jinxxy API keys for a creator owner. */
+/** Get active collaborator API keys for a creator owner. */
 export const getCollaboratorConnections = internalQuery({
   args: { ownerAuthUserId: v.string() },
-  returns: v.array(v.object({ jinxxyApiKeyEncrypted: v.optional(v.string()) })),
+  returns: v.array(v.object({ credentialEncrypted: v.optional(v.string()) })),
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query('collaborator_connections')
@@ -112,8 +120,8 @@ export const getCollaboratorConnections = internalQuery({
       )
       .collect();
     return rows
-      .filter((r) => r.jinxxyApiKeyEncrypted)
-      .map((r) => ({ jinxxyApiKeyEncrypted: r.jinxxyApiKeyEncrypted }));
+      .filter((r) => r.credentialEncrypted)
+      .map((r) => ({ credentialEncrypted: r.credentialEncrypted }));
   },
 });
 
@@ -478,15 +486,15 @@ export const verifyLicense = internalAction({
         provider: args.provider,
       });
 
-      if (args.provider === 'gumroad' && conn?.gumroadAccessTokenEncrypted) {
-        const token = await decryptCredential(conn.gumroadAccessTokenEncrypted);
+      if (args.provider === 'gumroad' && conn?.credentials['oauth_access_token']) {
+        const token = await decryptCredential(conn.credentials['oauth_access_token']);
         if (token) {
           verifyResult = await verifyGumroadLicense(args.licenseKey, args.productPermalink, token);
         }
       } else if (args.provider === 'jinxxy') {
         // Try primary connection first
-        if (conn?.jinxxyApiKeyEncrypted) {
-          const key = await decryptCredential(conn.jinxxyApiKeyEncrypted);
+        if (conn?.credentials['api_key']) {
+          const key = await decryptCredential(conn.credentials['api_key']);
           if (key) {
             verifyResult = await verifyJinxxyLicense(args.licenseKey, args.productPermalink, key);
           }
@@ -498,8 +506,8 @@ export const verifyLicense = internalAction({
             ownerAuthUserId: product.authUserId,
           });
           for (const collab of collabConns) {
-            if (!collab.jinxxyApiKeyEncrypted) continue;
-            const key = await decryptCredential(collab.jinxxyApiKeyEncrypted);
+            if (!collab.credentialEncrypted) continue;
+            const key = await decryptCredential(collab.credentialEncrypted);
             if (!key) continue;
             const result = await verifyJinxxyLicense(args.licenseKey, args.productPermalink, key);
             if (result.valid) {

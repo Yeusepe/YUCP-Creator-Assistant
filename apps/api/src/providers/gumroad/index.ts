@@ -39,13 +39,14 @@ const gumroadProvider: ProviderPlugin = {
   },
 
   async getCredential(ctx: ProviderContext) {
-    const conn = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
+    const data = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
       apiSecret: ctx.apiSecret,
       authUserId: ctx.authUserId,
       provider: 'gumroad',
     });
-    if (!conn?.gumroadAccessTokenEncrypted) return null;
-    return decrypt(conn.gumroadAccessTokenEncrypted, ctx.encryptionSecret, PURPOSES.credential);
+    const encryptedToken = data?.credentials['oauth_access_token'];
+    if (!encryptedToken) return null;
+    return decrypt(encryptedToken, ctx.encryptionSecret, PURPOSES.credential);
   },
 
   async fetchProducts(credential) {

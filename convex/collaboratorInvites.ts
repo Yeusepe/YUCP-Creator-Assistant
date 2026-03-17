@@ -481,9 +481,7 @@ export const getCollabConnectionsForVerification = query({
       id: v.id('collaborator_connections'),
       provider: v.string(),
       collaboratorDisplayName: v.string(),
-      /** Legacy Jinxxy-specific field; present on old records */
-      jinxxyApiKeyEncrypted: v.optional(v.string()),
-      /** Generic credential field; present on new records */
+      /** Generic encrypted credential (API key) */
       credentialEncrypted: v.optional(v.string()),
     })
   ),
@@ -497,12 +495,11 @@ export const getCollabConnectionsForVerification = query({
       .collect();
 
     return connections
-      .filter((c) => c.jinxxyApiKeyEncrypted || c.credentialEncrypted)
+      .filter((c) => c.credentialEncrypted)
       .map((c) => ({
         id: c._id,
         provider: c.provider,
         collaboratorDisplayName: c.collaboratorDisplayName,
-        jinxxyApiKeyEncrypted: c.jinxxyApiKeyEncrypted,
         credentialEncrypted: c.credentialEncrypted,
       }));
   },

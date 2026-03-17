@@ -318,14 +318,20 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
       }
     }
 
-    await convex.mutation(api.providerConnections.upsertGumroadConnection, {
+    await convex.mutation(api.providerConnections.upsertProviderConnection, {
       apiSecret: config.convexApiSecret,
       authUserId: authUserId ?? undefined,
-      gumroadAccessTokenEncrypted: accessEncrypted,
-      gumroadRefreshTokenEncrypted: refreshEncrypted,
-      gumroadUserId,
-      resourceSubscriptionIds,
+      providerKey: 'gumroad',
+      authMode: 'oauth',
+      label: 'Gumroad Store',
+      externalShopId: gumroadUserId || undefined,
       webhookRouteToken,
+      webhookConfigured: resourceSubscriptionIds.length > 0,
+      credentials: [
+        { credentialKey: 'oauth_access_token', kind: 'oauth_access_token', encryptedValue: accessEncrypted },
+        ...(refreshEncrypted ? [{ credentialKey: 'oauth_refresh_token', kind: 'oauth_refresh_token' as const, encryptedValue: refreshEncrypted }] : []),
+      ],
+      capabilities: [{ capabilityKey: 'account_link', status: 'active', requiredCredentialKeys: ['oauth_access_token'] }],
     });
 
     const redirectParams: Record<string, string> = { gumroad: 'connected' };

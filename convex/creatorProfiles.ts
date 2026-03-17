@@ -202,39 +202,6 @@ export const updateCreatorPolicy = mutation({
 });
 
 /**
- * Upsert Jinxxy API key for a creator (delegates to creator_provider_config).
- * Used by bot during setup.
- */
-export const upsertJinxxyApiKey = mutation({
-  args: {
-    apiSecret: v.string(),
-    authUserId: v.string(),
-    jinxxyApiKeyEncrypted: v.string(),
-  },
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    const now = Date.now();
-    const existing = await ctx.db
-      .query('creator_provider_config')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .first();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert('creator_provider_config', {
-        authUserId: args.authUserId,
-        jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-  },
-});
-
-/**
  * Get creator profile by authUserId. Used when creator logs in.
  */
 export const getCreatorByAuthUser = query({

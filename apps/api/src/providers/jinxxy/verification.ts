@@ -17,28 +17,16 @@ async function resolveJinxxyApiKey(
   ctx: ProviderContext,
   authUserId: string
 ): Promise<string | null> {
-  let encrypted: string | null = null;
-
-  const conn = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
+  const data = await ctx.convex.query(api.providerConnections.getConnectionForBackfill, {
     apiSecret: ctx.apiSecret,
     authUserId,
     provider: 'jinxxy',
   });
-  if (conn?.jinxxyApiKeyEncrypted) {
-    encrypted = conn.jinxxyApiKeyEncrypted;
-  }
-
-  if (!encrypted) {
-    encrypted = await ctx.convex.query(api.creatorConfig.getJinxxyApiKeyForVerification, {
-      apiSecret: ctx.apiSecret,
-      authUserId,
-    });
-  }
-
-  if (!encrypted) return null;
+  const encryptedKey = data?.credentials['api_key'];
+  if (!encryptedKey) return null;
 
   try {
-    return await decrypt(encrypted, ctx.encryptionSecret, CREDENTIAL_PURPOSE);
+    return await decrypt(encryptedKey, ctx.encryptionSecret, CREDENTIAL_PURPOSE);
   } catch (err) {
     logger.error('Failed to decrypt Jinxxy API key', { authUserId, err });
     return null;

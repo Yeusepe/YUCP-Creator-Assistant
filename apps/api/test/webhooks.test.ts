@@ -142,7 +142,7 @@ describe('Gumroad webhook security', () => {
     await withWebhookHarness(
       {
         query: {
-          [refs.getConnectionForBackfill]: () => ({ webhookSecretEncrypted: null }),
+          [refs.getConnectionForBackfill]: () => ({ credentials: {} }),
         },
         mutation: {
           [refs.insertWebhookEvent]: (args) => store.insert(args),
@@ -203,7 +203,7 @@ describe('Gumroad webhook security', () => {
       {
         query: {
           [refs.getConnectionByWebhookRouteToken]: () => null,
-          [refs.getConnectionForBackfill]: () => ({ gumroadAccessTokenEncrypted: null }),
+          [refs.getConnectionForBackfill]: () => ({ credentials: {} }),
           [refs.resolveWebhookTenantIds]: () => [],
         },
         mutation: {
