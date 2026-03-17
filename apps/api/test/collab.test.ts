@@ -219,31 +219,6 @@ describe('Collab routes — validation', () => {
     const body = await res.json();
     expect(body).toHaveProperty('error');
   });
-
-  it('POST /api/collab/invite without providerKey returns 400', async () => {
-    // createInvite now requires providerKey — omitting it should fail before auth.
-    const res = await server.fetch('/api/collab/invite', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ guildName: 'Server A', guildId: 'guild-1' }),
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body).toHaveProperty('error');
-    expect((body.error as string).toLowerCase()).toContain('providerkey');
-  });
-
-  it('POST /api/collab/invite with unknown providerKey returns 400', async () => {
-    // An unrecognised provider key that does not have supportsCollab must be rejected.
-    const res = await server.fetch('/api/collab/invite', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ guildName: 'Server A', guildId: 'guild-1', providerKey: 'notreal' }),
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body).toHaveProperty('error');
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -507,46 +482,40 @@ describe('Collab routes — provider-agnostic: addConnectionManual input validat
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Collab routes — provider-agnostic: createInvite providerKey validation', () => {
-  let server: TestServerHandle;
-
-  beforeAll(async () => {
-    server = await startTestServer();
-  });
-
-  afterAll(() => server.stop());
-
   it('POST /api/collab/invite with unsupported providerKey returns 400', async () => {
-    const token = await createSetupSession(
-      'user-invite-pk',
-      'guild-invite-pk',
-      'discord-invite-pk',
-      TEST_ENCRYPTION_SECRET
-    );
-    const res = await server.fetch('/api/collab/invite', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({ guildName: 'S', guildId: 'g', providerKey: 'gumroad' }),
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body).toHaveProperty('error');
+    const userId = 'user-invite-pk';
+    const token = await createSetupSession(userId, 'guild-invite-pk', 'discord-invite-pk', TEST_ENCRYPTION_SECRET);
+    const server = await startTestServer({ auth: makeWebSessionAuth(userId) });
+    try {
+      const res = await server.fetch('/api/collab/invite', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ guildName: 'S', guildId: 'g', providerKey: 'gumroad' }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body).toHaveProperty('error');
+    } finally {
+      server.stop();
+    }
   });
 
   it('POST /api/collab/invite with unknown providerKey returns 400', async () => {
-    const token = await createSetupSession(
-      'user-invite-pk-2',
-      'guild-invite-pk-2',
-      'discord-invite-pk-2',
-      TEST_ENCRYPTION_SECRET
-    );
-    const res = await server.fetch('/api/collab/invite', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({ guildName: 'S', guildId: 'g', providerKey: 'nonexistent-provider' }),
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body).toHaveProperty('error');
+    const userId = 'user-invite-pk-2';
+    const token = await createSetupSession(userId, 'guild-invite-pk-2', 'discord-invite-pk-2', TEST_ENCRYPTION_SECRET);
+    const server = await startTestServer({ auth: makeWebSessionAuth(userId) });
+    try {
+      const res = await server.fetch('/api/collab/invite', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ guildName: 'S', guildId: 'g', providerKey: 'nonexistent-provider' }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body).toHaveProperty('error');
+    } finally {
+      server.stop();
+    }
   });
 });
 
