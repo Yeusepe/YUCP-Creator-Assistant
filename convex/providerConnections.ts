@@ -1590,12 +1590,29 @@ export const listPublic = query({
       const idx = all.findIndex((item) => String(item._id) === args.cursor);
       if (idx !== -1) startIndex = idx + 1;
     }
-    const data = all.slice(startIndex, startIndex + limit);
+    const page = all.slice(startIndex, startIndex + limit);
     const hasMore = startIndex + limit < all.length;
+    // Project: strip webhook secrets, route tokens, raw metadata, and internal fields
+    const data = page.map((c) => ({
+      id: c._id,
+      provider: c.provider,
+      providerKey: c.providerKey,
+      label: c.label,
+      connectionType: c.connectionType,
+      status: c.status,
+      authMode: c.authMode,
+      externalShopId: c.externalShopId,
+      externalShopName: c.externalShopName,
+      webhookConfigured: c.webhookConfigured,
+      lastHealthcheckAt: c.lastHealthcheckAt,
+      lastSyncAt: c.lastSyncAt,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    }));
     return {
       data,
       hasMore,
-      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+      nextCursor: hasMore ? String(page[page.length - 1]._id) : null,
     };
   },
 });
@@ -1608,9 +1625,25 @@ export const getConnectionPublic = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const doc = await ctx.db.get(args.connectionId);
-    if (!doc || doc.authUserId !== args.authUserId) return null;
-    return doc;
+    const c = await ctx.db.get(args.connectionId);
+    if (!c || c.authUserId !== args.authUserId) return null;
+    // Project: strip webhook secrets, route tokens, raw metadata, and internal fields
+    return {
+      id: c._id,
+      provider: c.provider,
+      providerKey: c.providerKey,
+      label: c.label,
+      connectionType: c.connectionType,
+      status: c.status,
+      authMode: c.authMode,
+      externalShopId: c.externalShopId,
+      externalShopName: c.externalShopName,
+      webhookConfigured: c.webhookConfigured,
+      lastHealthcheckAt: c.lastHealthcheckAt,
+      lastSyncAt: c.lastSyncAt,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    };
   },
 });
 
@@ -1658,12 +1691,33 @@ export const listTransactionsByAuthUser = query({
       const idx = all.findIndex((item) => String(item._id) === args.cursor);
       if (idx !== -1) startIndex = idx + 1;
     }
-    const data = all.slice(startIndex, startIndex + limit);
+    const page = all.slice(startIndex, startIndex + limit);
     const hasMore = startIndex + limit < all.length;
+    // Project: strip customerEmail (PII plaintext), rawWebhookEventId, and metadata
+    const data = page.map((t) => ({
+      id: t._id,
+      providerConnectionId: t.providerConnectionId,
+      providerKey: t.providerKey,
+      externalTransactionId: t.externalTransactionId,
+      externalOrderNumber: t.externalOrderNumber,
+      externalOrderItemId: t.externalOrderItemId,
+      externalStoreId: t.externalStoreId,
+      externalProductId: t.externalProductId,
+      externalVariantId: t.externalVariantId,
+      externalCustomerId: t.externalCustomerId,
+      currency: t.currency,
+      amountSubtotal: t.amountSubtotal,
+      amountTotal: t.amountTotal,
+      status: t.status,
+      purchasedAt: t.purchasedAt,
+      refundedAt: t.refundedAt,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    }));
     return {
       data,
       hasMore,
-      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+      nextCursor: hasMore ? String(page[page.length - 1]._id) : null,
     };
   },
 });
@@ -1676,9 +1730,29 @@ export const getTransactionById = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const doc = await ctx.db.get(args.transactionId);
-    if (!doc || doc.authUserId !== args.authUserId) return null;
-    return doc;
+    const t = await ctx.db.get(args.transactionId);
+    if (!t || t.authUserId !== args.authUserId) return null;
+    // Project: strip customerEmail (PII plaintext), rawWebhookEventId, and metadata
+    return {
+      id: t._id,
+      providerConnectionId: t.providerConnectionId,
+      providerKey: t.providerKey,
+      externalTransactionId: t.externalTransactionId,
+      externalOrderNumber: t.externalOrderNumber,
+      externalOrderItemId: t.externalOrderItemId,
+      externalStoreId: t.externalStoreId,
+      externalProductId: t.externalProductId,
+      externalVariantId: t.externalVariantId,
+      externalCustomerId: t.externalCustomerId,
+      currency: t.currency,
+      amountSubtotal: t.amountSubtotal,
+      amountTotal: t.amountTotal,
+      status: t.status,
+      purchasedAt: t.purchasedAt,
+      refundedAt: t.refundedAt,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    };
   },
 });
 
@@ -1726,12 +1800,30 @@ export const listMembershipsByAuthUser = query({
       const idx = all.findIndex((item) => String(item._id) === args.cursor);
       if (idx !== -1) startIndex = idx + 1;
     }
-    const data = all.slice(startIndex, startIndex + limit);
+    const page = all.slice(startIndex, startIndex + limit);
     const hasMore = startIndex + limit < all.length;
+    // Project: strip customerEmail (PII plaintext), rawWebhookEventId, and metadata
+    const data = page.map((m) => ({
+      id: m._id,
+      providerConnectionId: m.providerConnectionId,
+      providerKey: m.providerKey,
+      externalMembershipId: m.externalMembershipId,
+      externalTransactionId: m.externalTransactionId,
+      externalProductId: m.externalProductId,
+      externalVariantId: m.externalVariantId,
+      externalCustomerId: m.externalCustomerId,
+      status: m.status,
+      startedAt: m.startedAt,
+      renewsAt: m.renewsAt,
+      endsAt: m.endsAt,
+      cancelledAt: m.cancelledAt,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
+    }));
     return {
       data,
       hasMore,
-      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+      nextCursor: hasMore ? String(page[page.length - 1]._id) : null,
     };
   },
 });
@@ -1744,9 +1836,26 @@ export const getMembershipById = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const doc = await ctx.db.get(args.membershipId);
-    if (!doc || doc.authUserId !== args.authUserId) return null;
-    return doc;
+    const m = await ctx.db.get(args.membershipId);
+    if (!m || m.authUserId !== args.authUserId) return null;
+    // Project: strip customerEmail (PII plaintext), rawWebhookEventId, and metadata
+    return {
+      id: m._id,
+      providerConnectionId: m.providerConnectionId,
+      providerKey: m.providerKey,
+      externalMembershipId: m.externalMembershipId,
+      externalTransactionId: m.externalTransactionId,
+      externalProductId: m.externalProductId,
+      externalVariantId: m.externalVariantId,
+      externalCustomerId: m.externalCustomerId,
+      status: m.status,
+      startedAt: m.startedAt,
+      renewsAt: m.renewsAt,
+      endsAt: m.endsAt,
+      cancelledAt: m.cancelledAt,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
+    };
   },
 });
 
@@ -1794,12 +1903,31 @@ export const listProviderLicensesByAuthUser = query({
       const idx = all.findIndex((item) => String(item._id) === args.cursor);
       if (idx !== -1) startIndex = idx + 1;
     }
-    const data = all.slice(startIndex, startIndex + limit);
+    const page = all.slice(startIndex, startIndex + limit);
     const hasMore = startIndex + limit < all.length;
+    // Project: strip customerEmail (PII plaintext), licenseKeyHash, rawWebhookEventId, and metadata
+    const data = page.map((l) => ({
+      id: l._id,
+      providerConnectionId: l.providerConnectionId,
+      providerKey: l.providerKey,
+      externalLicenseId: l.externalLicenseId,
+      externalTransactionId: l.externalTransactionId,
+      externalProductId: l.externalProductId,
+      externalVariantId: l.externalVariantId,
+      externalCustomerId: l.externalCustomerId,
+      shortKey: l.shortKey,
+      status: l.status,
+      issuedAt: l.issuedAt,
+      expiresAt: l.expiresAt,
+      lastValidatedAt: l.lastValidatedAt,
+      revokedAt: l.revokedAt,
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt,
+    }));
     return {
       data,
       hasMore,
-      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+      nextCursor: hasMore ? String(page[page.length - 1]._id) : null,
     };
   },
 });
@@ -1812,8 +1940,26 @@ export const getProviderLicenseById = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const doc = await ctx.db.get(args.licenseId);
-    if (!doc || doc.authUserId !== args.authUserId) return null;
-    return doc;
+    const l = await ctx.db.get(args.licenseId);
+    if (!l || l.authUserId !== args.authUserId) return null;
+    // Project: strip customerEmail (PII plaintext), licenseKeyHash, rawWebhookEventId, and metadata
+    return {
+      id: l._id,
+      providerConnectionId: l.providerConnectionId,
+      providerKey: l.providerKey,
+      externalLicenseId: l.externalLicenseId,
+      externalTransactionId: l.externalTransactionId,
+      externalProductId: l.externalProductId,
+      externalVariantId: l.externalVariantId,
+      externalCustomerId: l.externalCustomerId,
+      shortKey: l.shortKey,
+      status: l.status,
+      issuedAt: l.issuedAt,
+      expiresAt: l.expiresAt,
+      lastValidatedAt: l.lastValidatedAt,
+      revokedAt: l.revokedAt,
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt,
+    };
   },
 });

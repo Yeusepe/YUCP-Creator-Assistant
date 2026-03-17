@@ -1621,12 +1621,26 @@ export const listByAuthUser = query({
       const idx = all.findIndex((item) => String(item._id) === args.cursor);
       if (idx !== -1) startIndex = idx + 1;
     }
-    const data = all.slice(startIndex, startIndex + limit);
+    const page = all.slice(startIndex, startIndex + limit);
     const hasMore = startIndex + limit < all.length;
+    // Project: strip tenantId (deprecated), providerCustomerId (internal), and policySnapshotVersion (internal)
+    const data = page.map((e) => ({
+      id: e._id,
+      subjectId: e.subjectId,
+      productId: e.productId,
+      sourceProvider: e.sourceProvider,
+      sourceReference: e.sourceReference,
+      catalogProductId: e.catalogProductId,
+      status: e.status,
+      grantedAt: e.grantedAt,
+      revokedAt: e.revokedAt,
+      expiresAt: e.expiresAt,
+      updatedAt: e.updatedAt,
+    }));
     return {
       data,
       hasMore,
-      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+      nextCursor: hasMore ? String(page[page.length - 1]._id) : null,
     };
   },
 });
@@ -1639,8 +1653,21 @@ export const getByIdForAuthUser = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const doc = await ctx.db.get(args.entitlementId);
-    if (!doc || doc.authUserId !== args.authUserId) return null;
-    return doc;
+    const e = await ctx.db.get(args.entitlementId);
+    if (!e || e.authUserId !== args.authUserId) return null;
+    // Project: strip tenantId (deprecated), providerCustomerId (internal), and policySnapshotVersion (internal)
+    return {
+      id: e._id,
+      subjectId: e.subjectId,
+      productId: e.productId,
+      sourceProvider: e.sourceProvider,
+      sourceReference: e.sourceReference,
+      catalogProductId: e.catalogProductId,
+      status: e.status,
+      grantedAt: e.grantedAt,
+      revokedAt: e.revokedAt,
+      expiresAt: e.expiresAt,
+      updatedAt: e.updatedAt,
+    };
   },
 });

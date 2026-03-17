@@ -1018,12 +1018,23 @@ export const listByAuthUser = query({
       const idx = all.findIndex((item) => String(item._id) === args.cursor);
       if (idx !== -1) startIndex = idx + 1;
     }
-    const data = all.slice(startIndex, startIndex + limit);
+    const page = all.slice(startIndex, startIndex + limit);
     const hasMore = startIndex + limit < all.length;
+    // Project: strip tenantId (deprecated), version (internal concurrency), and createdBy (internal)
+    const data = page.map((b) => ({
+      id: b._id,
+      subjectId: b.subjectId,
+      externalAccountId: b.externalAccountId,
+      bindingType: b.bindingType,
+      status: b.status,
+      reason: b.reason,
+      createdAt: b.createdAt,
+      updatedAt: b.updatedAt,
+    }));
     return {
       data,
       hasMore,
-      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+      nextCursor: hasMore ? String(page[page.length - 1]._id) : null,
     };
   },
 });
@@ -1036,8 +1047,18 @@ export const getBindingById = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const doc = await ctx.db.get(args.bindingId);
-    if (!doc || doc.authUserId !== args.authUserId) return null;
-    return doc;
+    const b = await ctx.db.get(args.bindingId);
+    if (!b || b.authUserId !== args.authUserId) return null;
+    // Project: strip tenantId (deprecated), version (internal concurrency), and createdBy (internal)
+    return {
+      id: b._id,
+      subjectId: b.subjectId,
+      externalAccountId: b.externalAccountId,
+      bindingType: b.bindingType,
+      status: b.status,
+      reason: b.reason,
+      createdAt: b.createdAt,
+      updatedAt: b.updatedAt,
+    };
   },
 });
