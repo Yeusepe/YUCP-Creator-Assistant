@@ -90,7 +90,7 @@ export async function storeInstallState(state: string, authUserId: string): Prom
   };
   const store = getStateStore();
   await store.set(`${INSTALL_STATE_PREFIX}${state}`, JSON.stringify(data), STATE_EXPIRY_MS);
-  logger.debug('Install state stored', { state, authUserId });
+  logger.debug('Install state stored', { statePrefix: `${state.slice(0, 8)}...`, authUserId });
 }
 
 /**
@@ -101,7 +101,7 @@ export async function validateInstallState(state: string): Promise<InstallState 
   const raw = await store.get(`${INSTALL_STATE_PREFIX}${state}`);
 
   if (!raw) {
-    logger.warn('Install state not found', { state });
+    logger.warn('Install state not found', { statePrefix: `${state.slice(0, 8)}...` });
     return null;
   }
 
@@ -111,16 +111,16 @@ export async function validateInstallState(state: string): Promise<InstallState 
   try {
     stored = JSON.parse(raw) as InstallState;
   } catch {
-    logger.warn('Install state invalid JSON', { state });
+    logger.warn('Install state invalid JSON', { statePrefix: `${state.slice(0, 8)}...` });
     return null;
   }
 
   if (Date.now() > stored.expiresAt) {
-    logger.warn('Install state expired', { state });
+    logger.warn('Install state expired', { statePrefix: `${state.slice(0, 8)}...` });
     return null;
   }
 
-  logger.debug('Install state validated', { state });
+  logger.debug('Install state validated', { statePrefix: `${state.slice(0, 8)}...` });
   return stored;
 }
 

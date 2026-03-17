@@ -1298,13 +1298,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     let authUserId: string;
 
-    const setupSession = await resolveSetupSessionFromRequest(request);
-    if (setupSession) {
-      const authSession = await auth.getSession(request);
-      if (!authSession) {
-        return Response.json({ error: 'Authentication required' }, { status: 401 });
-      }
-      authUserId = setupSession.authUserId;
+    const tentativeSetupSession = await resolveSetupSessionFromRequest(request);
+    if (tentativeSetupSession) {
+      const bound = await requireBoundSetupSession(request);
+      if (!bound.ok) return bound.response;
+      authUserId = bound.setupSession.authUserId;
     } else {
       const ownerCheck = await requireOwnerSessionForTenant(
         request,
@@ -1339,13 +1337,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   async function getSettingsHandler(request: Request): Promise<Response> {
     let authUserId: string;
 
-    const setupSession = await resolveSetupSessionFromRequest(request);
-    if (setupSession) {
-      const authSession = await auth.getSession(request);
-      if (!authSession) {
-        return Response.json({ error: 'Authentication required' }, { status: 401 });
-      }
-      authUserId = setupSession.authUserId;
+    const tentativeSetupSession = await resolveSetupSessionFromRequest(request);
+    if (tentativeSetupSession) {
+      const bound = await requireBoundSetupSession(request);
+      if (!bound.ok) return bound.response;
+      authUserId = bound.setupSession.authUserId;
     } else {
       const url = new URL(request.url);
       const ownerCheck = await requireOwnerSessionForTenant(
@@ -1380,14 +1376,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     // Prefer setup session (bot-initiated flow); fall back to Better Auth web session.
     let guildId: string | null = null;
 
-    const setupSession = await resolveSetupSessionFromRequest(request);
-    if (setupSession) {
-      // Setup session path: also requires a valid auth session (bound check)
-      const authSession = await auth.getSession(request);
-      if (!authSession) {
-        return Response.json({ error: 'Authentication required' }, { status: 401 });
-      }
-      guildId = setupSession.guildId;
+    const tentativeSetupSession = await resolveSetupSessionFromRequest(request);
+    if (tentativeSetupSession) {
+      const bound = await requireBoundSetupSession(request);
+      if (!bound.ok) return bound.response;
+      guildId = bound.setupSession.guildId;
     } else {
       // Web session path: Better Auth session + guildId query param + guild ownership check
       const authSession = await auth.getSession(request);
@@ -1475,13 +1468,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     let authUserId: string;
 
-    const setupSession = await resolveSetupSessionFromRequest(request);
-    if (setupSession) {
-      const authSession = await auth.getSession(request);
-      if (!authSession) {
-        return Response.json({ error: 'Authentication required' }, { status: 401 });
-      }
-      authUserId = setupSession.authUserId;
+    const tentativeSetupSession = await resolveSetupSessionFromRequest(request);
+    if (tentativeSetupSession) {
+      const bound = await requireBoundSetupSession(request);
+      if (!bound.ok) return bound.response;
+      authUserId = bound.setupSession.authUserId;
     } else {
       const ownerCheck = await requireOwnerSessionForTenant(request, body.authUserId);
       if (!ownerCheck.ok) return ownerCheck.response;

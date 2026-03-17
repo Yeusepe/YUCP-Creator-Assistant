@@ -77,7 +77,12 @@ function jsonResponse(
 function getIdempotencyCacheKey(request: Request, pathname: string): string | null {
   const key = request.headers.get('Idempotency-Key')?.trim();
   if (!key) return null;
-  return `${request.method}:${pathname}:${key}`;
+  // Scope the key to the authenticated principal so two different tenants
+  // sending the same Idempotency-Key on the same path cannot collide.
+  // The Authorization header value is never persisted; it is only used here
+  // as a cache-key discriminator.
+  const authToken = request.headers.get('authorization') ?? 'anon';
+  return `${request.method}:${pathname}:${authToken}:${key}`;
 }
 
 function getCachedIdempotentResponse(cacheKey: string, requestId: string): Response | null {

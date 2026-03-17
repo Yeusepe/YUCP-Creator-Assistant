@@ -14,9 +14,25 @@ import type { PublicV2Config } from './types';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
-async function hashLicenseKey(key: string): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
-  return Array.from(new Uint8Array(hash))
+/**
+ * Hash a license key with HMAC-SHA256 keyed by the server encryption secret.
+ * Using a server-side key prevents offline dictionary attacks if the database
+ * is ever leaked — an attacker would also need the secret to brute-force keys.
+ *
+ * NOTE: Changing this function invalidates all previously stored hashes.
+ * Existing license keys must be re-imported after deploying this change.
+ */
+async function hashLicenseKey(key: string, secret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(key));
+  return Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
@@ -57,7 +73,7 @@ export async function handleManualLicensesRoutes(
       const hashedLicenses = await Promise.all(
         licenses.map(async (lic: Record<string, unknown>) => ({
           ...lic,
-          hashedKey: lic.key ? await hashLicenseKey(lic.key as string) : undefined,
+          hashedKey: lic.key ? await hashLicenseKey(lic.key as string, config.encryptionSecret) : undefined,
           key: undefined,
         }))
       );

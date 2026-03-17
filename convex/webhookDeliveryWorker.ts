@@ -118,6 +118,17 @@ export const processWebhookDeliveries = internalAction({
           continue;
         }
 
+        if (!subscription.enabled) {
+          // Subscription was disabled after this delivery was queued — drop it so the
+          // creator's disable action takes effect even for already-queued jobs.
+          await ctx.runMutation(internal.webhookDeliveries.markFailed, {
+            deliveryId: delivery._id as any,
+            lastError: 'Subscription disabled',
+          });
+          failed++;
+          continue;
+        }
+
         const event = (await ctx.runQuery(internal.creatorEvents.getByIdInternal, {
           eventId: delivery.eventId as any,
         })) as {

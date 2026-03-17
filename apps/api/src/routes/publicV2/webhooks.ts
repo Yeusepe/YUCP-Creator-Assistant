@@ -17,6 +17,51 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const WEBHOOK_SIGNING_SECRET_PURPOSE = 'yucp-webhook-signing-secret';
 
+/**
+ * Private IPv4 CIDR ranges and known-dangerous hostnames that must not be
+ * used as webhook destinations (SSRF protection).
+ */
+const BLOCKED_IP_PATTERN =
+  /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1([01]\d|2[0-7]))\.|0\.0\.0\.0|::1$|fc|fd)/i;
+
+const BLOCKED_HOSTNAME_PATTERN = /^(localhost|metadata\.google\.internal|.*\.local)$/i;
+
+/**
+ * Validates a webhook destination URL.
+ * Returns null on success or an error string describing why it was rejected.
+ *
+ * Rules enforced:
+ *  - Must use HTTPS scheme
+ *  - Hostname must not resolve to loopback, RFC1918, link-local, CGNAT, or
+ *    other private ranges (checked against the literal hostname/IP; full DNS
+ *    resolution is the responsibility of the delivery layer / egress firewall)
+ *  - Hostname must not be a known-internal service name
+ */
+function validateWebhookUrl(rawUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return 'url is not a valid URL';
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return 'url must use HTTPS';
+  }
+
+  const { hostname } = parsed;
+
+  if (BLOCKED_HOSTNAME_PATTERN.test(hostname)) {
+    return 'url hostname is not allowed';
+  }
+
+  if (BLOCKED_IP_PATTERN.test(hostname)) {
+    return 'url must not target a private or reserved IP address';
+  }
+
+  return null;
+}
+
 const WEBHOOK_EVENT_TYPES = [
   {
     type: 'entitlement.granted',
@@ -193,8 +238,9 @@ export async function handleWebhooksRoutes(
         return errorResponse('bad_request', 'url is required', 400, reqId);
       }
 
-      if (!body.url.startsWith('https://')) {
-        return errorResponse('bad_request', 'url must use HTTPS', 400, reqId);
+      const urlError = validateWebhookUrl(body.url);
+      if (urlError) {
+        return errorResponse('bad_request', urlError, 400, reqId);
       }
 
       const signingSecret = generateSigningSecret();
@@ -369,6 +415,13 @@ export async function handleWebhooksRoutes(
         body = (await request.json()) as Record<string, unknown>;
       } catch {
         return errorResponse('bad_request', 'Invalid JSON body', 400, reqId);
+      }
+
+      if (typeof body.url === 'string') {
+        const urlError = validateWebhookUrl(body.url);
+        if (urlError) {
+          return errorResponse('bad_request', urlError, 400, reqId);
+        }
       }
 
       try {

@@ -444,7 +444,7 @@ export function createVerificationSessionManager(
       logger.info('Verification session started', {
         mode: input.mode,
         authUserId: input.authUserId,
-        state,
+        statePrefix: `${state.slice(0, 8)}...`,
       });
 
       const expiresAt = Date.now() + SESSION_EXPIRY_MS;
@@ -534,7 +534,7 @@ export function createVerificationSessionManager(
         };
       }
 
-      logger.info('Handling OAuth callback', { mode, state });
+      logger.info('Handling OAuth callback', { mode, statePrefix: `${state.slice(0, 8)}...` });
 
       // When Convex not configured, return placeholder (e.g. tests)
       if (!config.convexUrl || !config.convexApiSecret) {
