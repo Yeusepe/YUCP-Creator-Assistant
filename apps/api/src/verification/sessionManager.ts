@@ -19,7 +19,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { createAuth, type VrchatOwnershipPayload, type VrchatSessionTokensPayload } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
-import { encrypt, decrypt } from '../lib/encrypt';
+import { decrypt, encrypt } from '../lib/encrypt';
 import { getStateStore } from '../lib/stateStore';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { createApiVerificationSupportError } from '../lib/verificationSupport';
@@ -1443,7 +1443,11 @@ export function createVerificationRoutes(config: VerificationConfig) {
     try {
       interactionToken =
         encryptionSecret && panel.encryptedInteractionToken
-          ? await decrypt(panel.encryptedInteractionToken, encryptionSecret, INTERACTION_TOKEN_PURPOSE)
+          ? await decrypt(
+              panel.encryptedInteractionToken,
+              encryptionSecret,
+              INTERACTION_TOKEN_PURPOSE
+            )
           : panel.encryptedInteractionToken;
     } catch {
       await store.delete(`${VERIFY_PANEL_PREFIX}${panelToken}`);

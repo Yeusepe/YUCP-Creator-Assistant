@@ -255,13 +255,10 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
         };
         for (const sub of listData.resource_subscriptions ?? []) {
           if (sub.post_url.startsWith(webhookBase)) {
-            await fetch(
-              `https://api.gumroad.com/v2/resource_subscriptions/${sub.id}`,
-              {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${accessToken}` },
-              }
-            );
+            await fetch(`https://api.gumroad.com/v2/resource_subscriptions/${sub.id}`, {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
             logger.info('Gumroad: deleted stale resource_subscription', {
               id: sub.id,
               post_url: sub.post_url,

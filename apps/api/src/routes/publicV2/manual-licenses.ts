@@ -73,7 +73,9 @@ export async function handleManualLicensesRoutes(
       const hashedLicenses = await Promise.all(
         licenses.map(async (lic: Record<string, unknown>) => ({
           ...lic,
-          hashedKey: lic.key ? await hashLicenseKey(lic.key as string, config.encryptionSecret) : undefined,
+          hashedKey: lic.key
+            ? await hashLicenseKey(lic.key as string, config.encryptionSecret)
+            : undefined,
           key: undefined,
         }))
       );
