@@ -324,8 +324,8 @@ function getProtectedFilesFromForwardedMessage(message: Message): Array<{
   extension: string;
 }> {
   const snapshot = getForwardedSnapshot(message);
-  // Prefer the forwarded message's own attachments (persistent URLs) over the snapshot
-  // (original message URLs that break when the original is deleted).
+  // Prefer the forwarded message's own attachments over the snapshot so downloads stay tied
+  // to the archive copy instead of the original message.
   const attachments =
     message.attachments.size > 0
       ? message.attachments
@@ -1294,8 +1294,8 @@ export class LienedDownloadsService {
       return;
     }
 
-    // Prefer URLs from the live forwarded message in the archive (persistent) over stored URLs
-    // (snapshot URLs that break when the original message is deleted).
+    // Force-refresh the archive message before reading attachments because Discord attachment
+    // URLs can rotate; a cached message can point at an expired CDN URL.
     let files = artifact.files;
     let linkSource: 'live_archive' | 'stored_artifact' = 'stored_artifact';
     if (artifact.archiveChannelId && artifact.archiveMessageId) {
@@ -1304,7 +1304,7 @@ export class LienedDownloadsService {
         const channel = await this.client.channels.fetch(channelId).catch(() => null);
         if (channel?.isTextBased() && 'messages' in channel) {
           const archiveMessage = await (channel as TextBasedChannel).messages
-            .fetch(artifact.archiveMessageId)
+            .fetch({ message: artifact.archiveMessageId, force: true })
             .catch(() => null);
           if (archiveMessage) {
             const liveFiles = getProtectedFilesFromForwardedMessage(archiveMessage);

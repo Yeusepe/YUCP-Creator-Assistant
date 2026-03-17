@@ -13,8 +13,7 @@ describe('LienedDownloadsService', () => {
       routeId: 'route_123',
       sourceChannelId: 'source_channel_123',
       sourceMessageId: 'source_message_123',
-      sourceMessageUrl:
-        'https://discord.com/channels/guild_123/source_channel_123/source_message_123',
+      sourceMessageUrl: 'https://discord.com/channels/guild_123/source_channel_123/source_message_123',
       archiveChannelId: 'archive_channel_123',
       archiveMessageId: 'archive_message_123',
       requiredRoleIds: ['role_123'],
