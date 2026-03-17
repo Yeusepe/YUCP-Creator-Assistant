@@ -1043,6 +1043,18 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       );
 
     const normalizedEmail = license.userEmail ? normalizeEmail(license.userEmail) : undefined;
+    const [emailEncrypted, emailHashBuf, rawDataEncrypted] = await Promise.all([
+      normalizedEmail
+        ? encrypt(normalizedEmail, config.encryptionSecret, 'external-account-metadata-email')
+        : Promise.resolve(undefined),
+      normalizedEmail
+        ? crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalizedEmail))
+        : Promise.resolve(undefined),
+      encrypt(JSON.stringify(validation), config.encryptionSecret, 'external-account-raw-data'),
+    ]);
+    const emailHash = emailHashBuf
+      ? Array.from(new Uint8Array(emailHashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('')
+      : undefined;
     const verification = await convex.mutation(
       api.licenseVerification.completeLicenseVerification,
       {
@@ -1054,9 +1066,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
           license.customerId ?? license.userEmail ?? license.orderId ?? license.id
         ),
         providerUsername: license.userName ?? undefined,
-        providerMetadata: normalizedEmail
-          ? { email: normalizedEmail, rawData: validation }
-          : { rawData: validation },
+        providerMetadata: { emailEncrypted, emailHash, rawDataEncrypted },
         productsToGrant: [
           {
             productId: match.productId,

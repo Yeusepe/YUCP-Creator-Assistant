@@ -11,3 +11,15 @@ export const AUTH_MODE_CREDENTIAL_KEY: Record<string, string> = {
   api_token: 'api_token',
   session: 'vrchat_session',
 };
+
+/**
+ * HKDF purpose strings for PII fields stored encrypted at rest.
+ * Each field type uses a domain-separated purpose so a key derived for
+ * one purpose cannot decrypt a ciphertext for another.
+ */
+export const PII_PURPOSES = {
+  externalAccountEmail: 'external-account-email',
+  externalAccountMetadataEmail: 'external-account-metadata-email',
+  externalAccountRawData: 'external-account-raw-data',
+  purchaseBuyerEmail: 'purchase-buyer-email',
+} as const;

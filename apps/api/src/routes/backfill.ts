@@ -124,7 +124,8 @@ export async function handleBackfillProduct(request: Request): Promise<Response>
         creds,
         providerProductRef,
         cursor,
-        BATCH_SIZE
+        BATCH_SIZE,
+        encryptionSecret
       );
 
       if (facts.length > 0) {

@@ -821,8 +821,9 @@ const purchase_facts = defineTable({
   externalOrderId: v.string(),
   externalLineItemId: v.optional(v.string()),
   externalLicenseId: v.optional(v.string()),
-  buyerEmailNormalized: v.optional(v.string()),
   buyerEmailHash: v.optional(v.string()),
+  // AES-256-GCM encrypted normalized buyer email (HKDF purpose: 'purchase-buyer-email')
+  buyerEmailEncrypted: v.optional(v.string()),
   providerUserId: v.optional(v.string()),
   providerProductId: v.string(),
   providerProductVersionId: v.optional(v.string()),
@@ -1128,17 +1129,19 @@ const external_accounts = defineTable({
   providerUserId: v.string(),
   // Provider's username (may change)
   providerUsername: v.optional(v.string()),
-  // Normalized email for purchase→subject linking (lowercase, trimmed)
-  normalizedEmail: v.optional(v.string()),
   // SHA-256 hash of normalized email for matching without storing plaintext
   emailHash: v.optional(v.string()),
-  // Provider-specific metadata
+  // AES-256-GCM encrypted normalized email (HKDF purpose: 'external-account-email')
+  normalizedEmailEncrypted: v.optional(v.string()),
+  // Provider-specific metadata — PII fields are encrypted at rest
   providerMetadata: v.optional(
     v.object({
-      email: v.optional(v.string()),
+      // AES-256-GCM encrypted email (HKDF purpose: 'external-account-metadata-email')
+      emailEncrypted: v.optional(v.string()),
       avatarUrl: v.optional(v.string()),
       profileUrl: v.optional(v.string()),
-      rawData: v.optional(v.any()),
+      // AES-256-GCM encrypted JSON-stringified rawData (HKDF purpose: 'external-account-raw-data')
+      rawDataEncrypted: v.optional(v.string()),
     })
   ),
   // Encrypted Discord OAuth2 access token (for proactive guild member checks)

@@ -5,6 +5,8 @@ import {
   revokeEntitlementForPurchaseFact,
   sha256Hex,
 } from './_helpers';
+import { PII_PURPOSES } from '../lib/credentialKeys';
+import { encryptPii } from '../lib/piiCrypto';
 
 export async function processGumroadEvent(
   ctx: any,
@@ -23,8 +25,9 @@ export async function processGumroadEvent(
   }
 
   const lifecycleStatus = refunded ? 'refunded' : 'active';
-  const buyerEmailNormalized = email ? normalizeEmail(email) : undefined;
-  const buyerEmailHash = buyerEmailNormalized ? await sha256Hex(buyerEmailNormalized) : undefined;
+  const normalized = email ? normalizeEmail(email) : undefined;
+  const buyerEmailHash = normalized ? await sha256Hex(normalized) : undefined;
+  const buyerEmailEncrypted = await encryptPii(normalized, PII_PURPOSES.purchaseBuyerEmail);
 
   const saleTimestamp = payload.sale_timestamp
     ? Number.parseInt(String(payload.sale_timestamp), 10) * 1000
@@ -64,8 +67,8 @@ export async function processGumroadEvent(
       authUserId,
       provider: 'gumroad',
       externalOrderId: saleId,
-      buyerEmailNormalized,
       buyerEmailHash,
+      buyerEmailEncrypted,
       providerProductId: productId,
       paymentStatus: 'paid',
       lifecycleStatus: 'active',

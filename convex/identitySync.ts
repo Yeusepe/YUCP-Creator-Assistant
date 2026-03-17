@@ -19,10 +19,8 @@ import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { internalQuery, mutation, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
+import { PII_PURPOSES } from './lib/credentialKeys';
+import { encryptPii, normalizeAndEncryptEmail } from './lib/piiCrypto';
 
 async function sha256Hex(input: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -376,12 +374,12 @@ export const syncUserFromAuth = mutation({
       await ctx.db.patch(existingExternalAccount._id, {
         providerUsername: fullUsername,
         providerMetadata: {
-          email: args.discord.email,
+          emailEncrypted: await encryptPii(args.discord.email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar),
           profileUrl: buildDiscordProfileUrl(args.discord.discordUserId),
-          rawData: {
-            discriminator: args.discord.discriminator,
-          },
+          rawDataEncrypted: args.discord.discriminator
+            ? await encryptPii(JSON.stringify({ discriminator: args.discord.discriminator }), PII_PURPOSES.externalAccountRawData)
+            : undefined,
         },
         lastValidatedAt: now,
         status: 'active', // Reactivate if was disconnected
@@ -394,12 +392,12 @@ export const syncUserFromAuth = mutation({
         providerUserId: args.discord.discordUserId,
         providerUsername: fullUsername,
         providerMetadata: {
-          email: args.discord.email,
+          emailEncrypted: await encryptPii(args.discord.email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar),
           profileUrl: buildDiscordProfileUrl(args.discord.discordUserId),
-          rawData: {
-            discriminator: args.discord.discriminator,
-          },
+          rawDataEncrypted: args.discord.discriminator
+            ? await encryptPii(JSON.stringify({ discriminator: args.discord.discriminator }), PII_PURPOSES.externalAccountRawData)
+            : undefined,
         },
         lastValidatedAt: now,
         status: 'active',
@@ -519,20 +517,18 @@ export const syncUserFromProvider = mutation({
       )
       .first();
 
-    const normalizedEmail = email ? normalizeEmail(email) : undefined;
-    const emailHash = normalizedEmail ? await sha256Hex(normalizedEmail) : undefined;
+    const { emailHash, normalizedEmailEncrypted } = await normalizeAndEncryptEmail(email, sha256Hex);
 
     if (existingAccount) {
       externalAccountId = existingAccount._id;
       await ctx.db.patch(externalAccountId, {
         providerUsername: username ?? existingAccount.providerUsername,
-        normalizedEmail,
         emailHash,
+        normalizedEmailEncrypted,
         providerMetadata: {
-          email: email,
+          emailEncrypted: await encryptPii(email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: avatarUrl,
           profileUrl: profileUrl,
-          rawData: existingAccount.providerMetadata?.rawData,
         },
         lastValidatedAt: now,
         status: 'active',
@@ -543,10 +539,10 @@ export const syncUserFromProvider = mutation({
         provider: args.provider,
         providerUserId: args.providerUserId,
         providerUsername: username,
-        normalizedEmail,
         emailHash,
+        normalizedEmailEncrypted,
         providerMetadata: {
-          email: email,
+          emailEncrypted: await encryptPii(email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: avatarUrl,
           profileUrl: profileUrl,
         },
@@ -885,10 +881,8 @@ export const linkExternalAccountToSubject = mutation({
     providerUsername: v.optional(v.string()),
     providerMetadata: v.optional(
       v.object({
-        email: v.optional(v.string()),
         avatarUrl: v.optional(v.string()),
         profileUrl: v.optional(v.string()),
-        rawData: v.optional(v.any()),
       })
     ),
   },
@@ -1047,10 +1041,12 @@ export const internalSyncUserFromAuth = mutation({
       await ctx.db.patch(existingAccount._id, {
         providerUsername: fullUsername,
         providerMetadata: {
-          email: args.discord.email,
+          emailEncrypted: await encryptPii(args.discord.email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar),
           profileUrl: buildDiscordProfileUrl(args.discord.discordUserId),
-          rawData: { discriminator: args.discord.discriminator },
+          rawDataEncrypted: args.discord.discriminator
+            ? await encryptPii(JSON.stringify({ discriminator: args.discord.discriminator }), PII_PURPOSES.externalAccountRawData)
+            : undefined,
         },
         lastValidatedAt: now,
         status: 'active',
@@ -1062,10 +1058,12 @@ export const internalSyncUserFromAuth = mutation({
         providerUserId: args.discord.discordUserId,
         providerUsername: fullUsername,
         providerMetadata: {
-          email: args.discord.email,
+          emailEncrypted: await encryptPii(args.discord.email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar),
           profileUrl: buildDiscordProfileUrl(args.discord.discordUserId),
-          rawData: { discriminator: args.discord.discriminator },
+          rawDataEncrypted: args.discord.discriminator
+            ? await encryptPii(JSON.stringify({ discriminator: args.discord.discriminator }), PII_PURPOSES.externalAccountRawData)
+            : undefined,
         },
         lastValidatedAt: now,
         status: 'active',

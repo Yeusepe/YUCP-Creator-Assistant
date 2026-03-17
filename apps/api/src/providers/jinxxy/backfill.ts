@@ -9,7 +9,7 @@ const MAX_RATE_LIMIT_RETRIES = 10;
 export const backfill: BackfillPlugin = {
   pageDelayMs: 600,
 
-  async fetchPage(apiKey, productRef, cursor, pageSize) {
+  async fetchPage(apiKey, productRef, cursor, pageSize, _encryptionSecret) {
     const page = cursor ? Number.parseInt(cursor, 10) : 1;
     const client = new JinxxyApiClient({ apiKey });
     let retries = 0;

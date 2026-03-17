@@ -6,6 +6,8 @@ import {
   revokeEntitlementForPurchaseFact,
   sha256Hex,
 } from './_helpers';
+import { PII_PURPOSES } from '../lib/credentialKeys';
+import { encryptPii } from '../lib/piiCrypto';
 
 /**
  * Find subjectId by Jinxxy user ID via external_accounts + bindings.
@@ -60,8 +62,9 @@ export async function processJinxxyEvent(
     name?: string;
   }>;
 
-  const buyerEmailNormalized = email ? normalizeEmail(email) : undefined;
-  const buyerEmailHash = buyerEmailNormalized ? await sha256Hex(buyerEmailNormalized) : undefined;
+  const normalized = email ? normalizeEmail(email) : undefined;
+  const buyerEmailHash = normalized ? await sha256Hex(normalized) : undefined;
+  const buyerEmailEncrypted = await encryptPii(normalized, PII_PURPOSES.purchaseBuyerEmail);
 
   const jinxxyUserId = (data.user as { id?: string })?.id;
 
@@ -117,8 +120,8 @@ export async function processJinxxyEvent(
         provider: 'jinxxy',
         externalOrderId: orderId,
         externalLineItemId,
-        buyerEmailNormalized,
         buyerEmailHash,
+        buyerEmailEncrypted,
         providerUserId: jinxxyUserId,
         providerProductId,
         paymentStatus: paymentStatus.toLowerCase(),

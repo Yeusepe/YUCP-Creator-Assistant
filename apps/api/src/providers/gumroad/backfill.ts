@@ -1,10 +1,12 @@
 import { createLogger } from '@yucp/shared';
 import type { BackfillPlugin, BackfillRecord } from '../types';
+import { encrypt } from '../../lib/encrypt';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const GUMROAD_API_BASE = 'https://api.gumroad.com/v2';
 const MAX_RATE_LIMIT_RETRIES = 10;
+const PURCHASE_BUYER_EMAIL_PURPOSE = 'purchase-buyer-email';
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -22,7 +24,7 @@ async function sha256Hex(input: string): Promise<string> {
 export const backfill: BackfillPlugin = {
   pageDelayMs: 1500,
 
-  async fetchPage(accessToken, productRef, cursor, pageSize) {
+  async fetchPage(accessToken, productRef, cursor, pageSize, encryptionSecret) {
     const page = cursor ? Number.parseInt(cursor, 10) : 1;
     let retries = 0;
 
@@ -64,11 +66,16 @@ export const backfill: BackfillPlugin = {
         sales.map(async (s) => {
           const email = (s.email ?? '') as string;
           const normalized = email ? normalizeEmail(email) : undefined;
+          const buyerEmailHash = normalized ? await sha256Hex(normalized) : undefined;
+          const buyerEmailEncrypted = normalized
+            ? await encrypt(normalized, encryptionSecret, PURCHASE_BUYER_EMAIL_PURPOSE)
+            : undefined;
           return {
             authUserId: '',
             provider: 'gumroad',
             externalOrderId: String(s.sale_id ?? s.id ?? ''),
-            buyerEmailHash: normalized ? await sha256Hex(normalized) : undefined,
+            buyerEmailHash,
+            buyerEmailEncrypted,
             providerProductId: String(s.product_id ?? ''),
             paymentStatus: s.refunded === true || s.refunded === 'true' ? 'refunded' : 'paid',
             lifecycleStatus: (s.refunded === true || s.refunded === 'true'

@@ -29,6 +29,8 @@ export interface BackfillRecord {
   externalOrderId: string;
   externalLineItemId?: string;
   buyerEmailHash: string | undefined;
+  /** AES-256-GCM encrypted normalized email (encrypted by the API before sending to Convex) */
+  buyerEmailEncrypted?: string | undefined;
   providerUserId?: string;
   providerProductId: string;
   paymentStatus: string;
@@ -53,12 +55,14 @@ export interface BackfillPlugin {
    * @param productRef Provider-specific product identifier
    * @param cursor Opaque pagination cursor; null = first page
    * @param pageSize Number of items to request per page
+   * @param encryptionSecret HKDF root secret for encrypting PII fields at rest
    */
   fetchPage(
     credential: string,
     productRef: string,
     cursor: string | null,
-    pageSize: number
+    pageSize: number,
+    encryptionSecret: string
   ): Promise<{ facts: BackfillRecord[]; nextCursor: string | null }>;
 }
 

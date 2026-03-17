@@ -6,6 +6,8 @@ import {
   revokeEntitlementForPurchaseFact,
   sha256Hex,
 } from './_helpers';
+import { PII_PURPOSES } from '../lib/credentialKeys';
+import { encryptPii } from '../lib/piiCrypto';
 
 /**
  * Upsert a Payhip product entry into `provider_catalog_mappings`.
@@ -88,8 +90,9 @@ export async function processPayhipEvent(
     throw new Error('Payhip webhook missing id field');
   }
 
-  const buyerEmailNormalized = email ? normalizeEmail(email) : undefined;
-  const buyerEmailHash = buyerEmailNormalized ? await sha256Hex(buyerEmailNormalized) : undefined;
+  const normalized = email ? normalizeEmail(email) : undefined;
+  const buyerEmailHash = normalized ? await sha256Hex(normalized) : undefined;
+  const buyerEmailEncrypted = await encryptPii(normalized, PII_PURPOSES.purchaseBuyerEmail);
   const subjectId = buyerEmailHash
     ? await findSubjectByEmailHash(ctx, authUserId, buyerEmailHash)
     : undefined;
@@ -149,8 +152,8 @@ export async function processPayhipEvent(
           provider: 'payhip',
           externalOrderId: transactionId,
           externalLineItemId,
-          buyerEmailNormalized,
           buyerEmailHash,
+          buyerEmailEncrypted,
           providerProductId: permalink,
           paymentStatus: 'paid',
           lifecycleStatus: 'active',
