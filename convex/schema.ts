@@ -1,22 +1,22 @@
 /**
  * YUCP Creator Assistant - Convex Application Schema
  *
- * This schema defines all tables for the multi-tenant creator verification platform.
+ * This schema defines all tables for the creator verification platform.
  *
- * Tenant-scoped tables (require tenantId):
- * - tenants, bindings, verification_sessions, entitlements, guild_links,
+ * Creator-scoped tables (require authUserId — Better Auth user ID):
+ * - creator_profiles, bindings, verification_sessions, entitlements, guild_links,
  *   role_rules, unity_installations, runtime_assertions, outbox_jobs, audit_events
  *
- * Platform-level tables (no tenantId):
+ * Platform-level tables (no authUserId):
  * - subjects, external_accounts, provider_customers, catalog_product_links, webhook_events
  *
  * Mixed-ownership:
- * - product_catalog (has tenantId for owner, but globally queryable for catalog resolution)
+ * - product_catalog (has authUserId for owner, but globally queryable for catalog resolution)
  */
 
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
-import { CustomerProviderV, ProviderV, VerificationModeV, WebhookProviderV } from './lib/providers';
+import { CustomerProviderV, ProviderV, VerificationModeV } from './lib/providers';
 
 // ============================================================================
 // ENUM-LIKE LITERALS
@@ -272,7 +272,12 @@ const AuditEventType = v.union(
   v.literal('subject.suspicious.marked'),
   v.literal('subject.suspicious.cleared'),
   v.literal('public.api_key.created'),
-  v.literal('public.api_key.revoked')
+  v.literal('public.api_key.revoked'),
+  v.literal('collaborator.invite.created'),
+  v.literal('collaborator.invite.accepted'),
+  v.literal('collaborator.invite.revoked'),
+  v.literal('collaborator.connection.added'),
+  v.literal('collaborator.connection.removed')
 );
 
 // ============================================================================
@@ -280,19 +285,19 @@ const AuditEventType = v.union(
 // ============================================================================
 
 /**
- * Tenants - Creator organizations or configured communities
- * Owner of the tenant scope for all tenant-specific data.
+ * Creator Profiles - Creator identity and settings
+ * Root owner of all creator-scoped data. Keyed by Better Auth user ID.
  */
-const tenants = defineTable({
-  // Human-readable name for the tenant
+const creator_profiles = defineTable({
+  // Better Auth user ID — primary identity (unique per creator)
+  authUserId: v.string(),
+  // Human-readable name for the creator
   name: v.string(),
-  // Discord user ID of the tenant owner
+  // Discord user ID of the creator
   ownerDiscordUserId: v.string(),
-  // Better Auth user ID of the owner
-  ownerAuthUserId: v.string(),
   // Optional slug for URL-friendly identification
   slug: v.optional(v.string()),
-  // Tenant status
+  // Creator status
   status: SubjectStatus,
   // Policy configuration snapshot
   policy: v.optional(
@@ -324,6 +329,7 @@ const tenants = defineTable({
         v.union(v.literal('quarantine'), v.literal('notify'), v.literal('revoke'))
       ),
       suspiciousNotifyChannelId: v.optional(v.string()),
+      announcementsChannelId: v.optional(v.string()),
       enableDiscordRoleFromOtherServers: v.optional(v.boolean()),
       allowedSourceGuildIds: v.optional(v.array(v.string())),
       allowMismatchedEmails: v.optional(v.boolean()),
@@ -333,18 +339,20 @@ const tenants = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_owner_discord', ['ownerDiscordUserId'])
-  .index('by_owner_auth', ['ownerAuthUserId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_discord_user', ['ownerDiscordUserId'])
   .index('by_slug', ['slug'])
   .index('by_status', ['status']);
 
 /**
  * Bindings - Relationship between a subject and an external account
- * Links a YUCP subject to their provider identity within a tenant context.
+ * Links a YUCP subject to their provider identity within a creator context.
  */
 const bindings = defineTable({
-  // Tenant scope
-  tenantId: v.id('tenants'),
+  // Creator scope (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   // The subject being bound
   subjectId: v.id('subjects'),
   // The external account being bound
@@ -363,20 +371,22 @@ const bindings = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_subject', ['tenantId', 'subjectId'])
-  .index('by_tenant_external', ['tenantId', 'externalAccountId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_subject', ['authUserId', 'subjectId'])
+  .index('by_auth_user_external', ['authUserId', 'externalAccountId'])
   .index('by_subject', ['subjectId'])
   .index('by_external_account', ['externalAccountId'])
-  .index('by_tenant_status', ['tenantId', 'status']);
+  .index('by_auth_user_status', ['authUserId', 'status']);
 
 /**
  * Verification Sessions - Short-lived flow state for OAuth and verification UX
  * Tracks the state of ongoing verification attempts.
  */
 const verification_sessions = defineTable({
-  // Tenant scope
-  tenantId: v.id('tenants'),
+  // Creator scope (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   // Subject (null until OAuth callback completes)
   subjectId: v.optional(v.id('subjects')),
   // Verification mode being used
@@ -391,8 +401,6 @@ const verification_sessions = defineTable({
   state: v.string(),
   // PKCE verifier hash for security
   pkceVerifierHash: v.optional(v.string()),
-  // PKCE verifier (plaintext, short-lived, used once at token exchange)
-  pkceVerifier: v.optional(v.string()),
   // Redirect URI for the flow (OAuth callback)
   redirectUri: v.string(),
   // Where to send user after verification completes
@@ -413,19 +421,21 @@ const verification_sessions = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_state', ['tenantId', 'state'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_state', ['authUserId', 'state'])
   .index('by_subject', ['subjectId'])
   .index('by_status_expires', ['status', 'expiresAt'])
   .index('by_nonce', ['nonce']);
 
 /**
  * Entitlements - Creator-approved rights derived from provider evidence
- * Represents what a subject is entitled to within a tenant.
+ * Represents what a subject is entitled to within a creator context.
  */
 const entitlements = defineTable({
-  // Tenant scope
-  tenantId: v.id('tenants'),
+  // Creator scope (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   // Subject who holds the entitlement
   subjectId: v.id('subjects'),
   // Product reference (local product ID)
@@ -449,26 +459,29 @@ const entitlements = defineTable({
   // Computed from policy: grantedAt + gracePeriodHours; used for expiration checks
   expiresAt: v.optional(v.number()),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_subject', ['tenantId', 'subjectId'])
-  .index('by_tenant_product', ['tenantId', 'productId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_subject', ['authUserId', 'subjectId'])
+  .index('by_auth_user_product', ['authUserId', 'productId'])
   .index('by_subject', ['subjectId'])
   .index('by_provider_customer', ['providerCustomerId'])
   .index('by_catalog_product', ['catalogProductId'])
-  .index('by_tenant_status', ['tenantId', 'status']);
+  .index('by_auth_user_status', ['authUserId', 'status']);
 
 /**
- * Guild Links - Per-tenant guild configuration and bot install state
- * Links a tenant to a Discord guild.
+ * Guild Links - Per-creator guild configuration and bot install state
+ * Links a creator to a Discord guild.
  */
 const guild_links = defineTable({
-  // Tenant scope
-  tenantId: v.id('tenants'),
+  // Creator scope (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy fields from tenant-first architecture
+  tenantId: v.optional(v.any()),
+  installedByTenantId: v.optional(v.any()),
   // Discord guild ID
   discordGuildId: v.string(),
-  // Human-readable guild name (optional — populated when bot installs)
+  // Human-readable guild name (optional, populated when bot installs)
   discordGuildName: v.optional(v.string()),
-  // Discord guild icon hash (optional — for CDN URL)
+  // Discord guild icon hash (optional, for CDN URL)
   discordGuildIcon: v.optional(v.string()),
   // Who installed the bot
   installedByAuthUserId: v.string(),
@@ -487,7 +500,7 @@ const guild_links = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
+  .index('by_auth_user', ['authUserId'])
   .index('by_discord_guild', ['discordGuildId'])
   .index('by_status', ['status']);
 
@@ -496,8 +509,10 @@ const guild_links = defineTable({
  * Maps products to Discord roles within a guild.
  */
 const role_rules = defineTable({
-  // Tenant scope
-  tenantId: v.id('tenants'),
+  // Creator scope (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   // Discord guild ID (denormalized for queries)
   guildId: v.string(),
   // Reference to guild link
@@ -524,12 +539,14 @@ const role_rules = defineTable({
   requiredRoleIds: v.optional(v.array(v.string())),
   // Match mode for requiredRoleIds: 'any' = at least one, 'all' = every role
   requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
+  // Human-readable name for discord_role products — set at add time, avoids repeated Discord API calls
+  displayName: v.optional(v.string()),
   // Timestamps
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_guild', ['tenantId', 'guildId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_guild', ['authUserId', 'guildId'])
   .index('by_guild_link', ['guildLinkId'])
   .index('by_product', ['productId'])
   .index('by_catalog_product', ['catalogProductId'])
@@ -540,7 +557,9 @@ const role_rules = defineTable({
  * Routes qualifying attachments from source locations into private archive locations.
  */
 const download_routes = defineTable({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   guildId: v.string(),
   guildLinkId: v.id('guild_links'),
   sourceChannelId: v.string(),
@@ -554,8 +573,8 @@ const download_routes = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_guild', ['tenantId', 'guildId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_guild', ['authUserId', 'guildId'])
   .index('by_guild_source_channel', ['guildId', 'sourceChannelId'])
   .index('by_guild_archive_channel', ['guildId', 'archiveChannelId'])
   .index('by_guild_link', ['guildLinkId']);
@@ -565,7 +584,9 @@ const download_routes = defineTable({
  * One record per archived download post / file set.
  */
 const download_artifacts = defineTable({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   guildId: v.string(),
   routeId: v.id('download_routes'),
   sourceChannelId: v.string(),
@@ -592,8 +613,8 @@ const download_artifacts = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_guild', ['tenantId', 'guildId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_guild', ['authUserId', 'guildId'])
   .index('by_route', ['routeId'])
   .index('by_source_message', ['sourceMessageId'])
   .index('by_archive_message', ['archiveMessageId'])
@@ -604,9 +625,10 @@ const download_artifacts = defineTable({
  * Tracks Unity client installations for device binding.
  */
 const unity_installations = defineTable({
-  // Tenant scope
-  tenantId: v.id('tenants'),
-  // Subject who owns this installation
+  // Creator scope (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   subjectId: v.id('subjects'),
   // Hashed device fingerprint
   deviceFingerprintHash: v.string(),
@@ -633,11 +655,11 @@ const unity_installations = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_subject', ['tenantId', 'subjectId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_subject', ['authUserId', 'subjectId'])
   .index('by_subject', ['subjectId'])
   .index('by_fingerprint', ['deviceFingerprintHash'])
-  .index('by_tenant_status', ['tenantId', 'status']);
+  .index('by_auth_user_status', ['authUserId', 'status']);
 
 /**
  * Runtime Assertions - Issued Unity assertions for audit and replay tracking
@@ -646,9 +668,10 @@ const unity_installations = defineTable({
 const runtime_assertions = defineTable({
   // JWT ID (unique identifier)
   jti: v.string(),
-  // Tenant scope
-  tenantId: v.id('tenants'),
-  // Subject who received this assertion
+  // Creator scope (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   subjectId: v.id('subjects'),
   // Installation this assertion is bound to
   installationId: v.optional(v.id('unity_installations')),
@@ -668,8 +691,8 @@ const runtime_assertions = defineTable({
   revocationReason: v.optional(v.string()),
 })
   .index('by_jti', ['jti'])
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_subject', ['tenantId', 'subjectId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_subject', ['authUserId', 'subjectId'])
   .index('by_subject', ['subjectId'])
   .index('by_installation', ['installationId'])
   .index('by_status_expires', ['status', 'expiresAt']);
@@ -679,9 +702,10 @@ const runtime_assertions = defineTable({
  * Ensures reliable delivery of role sync, notifications, etc.
  */
 const outbox_jobs = defineTable({
-  // Tenant scope
-  tenantId: v.id('tenants'),
-  // Type of job
+  // Creator scope (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   jobType: OutboxJobType,
   // Job payload
   payload: v.any(),
@@ -706,11 +730,11 @@ const outbox_jobs = defineTable({
   updatedAt: v.number(),
   completedAt: v.optional(v.number()),
 })
-  .index('by_tenant', ['tenantId'])
+  .index('by_auth_user', ['authUserId'])
   .index('by_status', ['status'])
   .index('by_status_next_retry', ['status', 'nextRetryAt'])
   .index('by_idempotency', ['idempotencyKey'])
-  .index('by_tenant_type', ['tenantId', 'jobType'])
+  .index('by_auth_user_type', ['authUserId', 'jobType'])
   .index('by_guild_user', ['targetGuildId', 'targetDiscordUserId']);
 
 /**
@@ -718,9 +742,10 @@ const outbox_jobs = defineTable({
  * Records all security-sensitive operations.
  */
 const audit_events = defineTable({
-  // Tenant scope (null for platform-level events)
-  tenantId: v.optional(v.id('tenants')),
-  // Type of event
+  // Creator scope — null for platform-level events
+  authUserId: v.optional(v.string()),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   eventType: AuditEventType,
   // Actor who performed the action (subject or system)
   actorType: v.union(v.literal('subject'), v.literal('system'), v.literal('admin')),
@@ -742,9 +767,9 @@ const audit_events = defineTable({
   // Timestamp
   createdAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
+  .index('by_auth_user', ['authUserId'])
   .index('by_event_type', ['eventType'])
-  .index('by_tenant_event', ['tenantId', 'eventType'])
+  .index('by_auth_user_event', ['authUserId', 'eventType'])
   .index('by_subject', ['subjectId'])
   .index('by_actor', ['actorType', 'actorId'])
   .index('by_correlation', ['correlationId'])
@@ -752,12 +777,13 @@ const audit_events = defineTable({
 
 /**
  * Product Catalog - Global registry of products
- * Has tenantId for the owning creator, but globally queryable.
+ * Has authUserId for the owning creator, but globally queryable.
  */
 const product_catalog = defineTable({
-  // Creator who owns this product entry
-  tenantId: v.id('tenants'),
-  // Local product identifier
+  // Creator who owns this product entry (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   productId: v.string(),
   // Provider this product is from
   provider: Provider,
@@ -777,7 +803,7 @@ const product_catalog = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
+  .index('by_auth_user', ['authUserId'])
   .index('by_provider_ref', ['provider', 'providerProductRef'])
   .index('by_slug', ['canonicalSlug'])
   .index('by_status', ['status']);
@@ -785,16 +811,19 @@ const product_catalog = defineTable({
 /**
  * Purchase Facts - Canonical purchase layer for automatic verification
  * Stores raw purchase data from webhooks; entitlements are projected from these.
- * Uniqueness: (tenantId, provider, externalOrderId, externalLineItemId?) when provider exposes line items.
+ * Uniqueness: (authUserId, provider, externalOrderId, externalLineItemId?) when provider exposes line items.
  */
 const purchase_facts = defineTable({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   provider: Provider,
   externalOrderId: v.string(),
   externalLineItemId: v.optional(v.string()),
   externalLicenseId: v.optional(v.string()),
-  buyerEmailNormalized: v.optional(v.string()),
   buyerEmailHash: v.optional(v.string()),
+  // AES-256-GCM encrypted normalized buyer email (HKDF purpose: 'purchase-buyer-email')
+  buyerEmailEncrypted: v.optional(v.string()),
   providerUserId: v.optional(v.string()),
   providerProductId: v.string(),
   providerProductVersionId: v.optional(v.string()),
@@ -807,19 +836,22 @@ const purchase_facts = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_provider_order', ['tenantId', 'provider', 'externalOrderId'])
-  .index('by_tenant_product', ['tenantId', 'providerProductId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_provider_order', ['authUserId', 'provider', 'externalOrderId'])
+  .index('by_auth_user_product', ['authUserId', 'providerProductId'])
   .index('by_email_hash', ['buyerEmailHash'])
   .index('by_provider_user', ['provider', 'providerUserId'])
   .index('by_subject', ['subjectId']);
 
 /**
- * Provider Connections - Per-tenant creator credentials and webhook config
- * Gumroad: OAuth tokens, resource subscriptions; Jinxxy: API key, webhook secret.
+ * Provider Connections - Per-creator credentials and webhook config.
+ * All credentials are stored in the generic provider_credentials table.
  */
 const provider_connections = defineTable({
-  tenantId: v.id('tenants'),
+  // Owner identity — Better Auth user ID of the creator.
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   provider: Provider,
   providerKey: v.optional(Provider),
   // Human-readable label for multi-store support (e.g. "Main Store", "VRChat Assets")
@@ -834,17 +866,12 @@ const provider_connections = defineTable({
   installedBySubjectId: v.optional(v.id('subjects')),
   lastHealthcheckAt: v.optional(v.number()),
   lastSyncAt: v.optional(v.number()),
-  gumroadAccessTokenEncrypted: v.optional(v.string()),
-  gumroadRefreshTokenEncrypted: v.optional(v.string()),
-  gumroadUserId: v.optional(v.string()),
   webhookConfigured: v.boolean(),
-  resourceSubscriptionIds: v.optional(v.array(v.string())),
-  jinxxyApiKeyEncrypted: v.optional(v.string()),
   webhookSecretRef: v.optional(v.string()),
-  gumroadWebhookSecretRef: v.optional(v.string()),
   webhookEndpoint: v.optional(v.string()),
   remoteWebhookId: v.optional(v.string()),
   remoteWebhookSecretRef: v.optional(v.string()),
+  webhookRouteToken: v.optional(v.string()),
   testMode: v.optional(v.boolean()),
   metadata: v.optional(v.any()),
   lastSuccessfulBackfillAt: v.optional(v.number()),
@@ -853,14 +880,16 @@ const provider_connections = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_provider', ['tenantId', 'provider'])
-  .index('by_tenant_provider_key', ['tenantId', 'providerKey'])
-  .index('by_tenant_provider_label', ['tenantId', 'provider', 'label']);
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_provider', ['authUserId', 'provider'])
+  .index('by_auth_user_provider_key', ['authUserId', 'providerKey'])
+  .index('by_auth_user_provider_label', ['authUserId', 'provider', 'label'])
+  .index('by_webhook_route_token', ['webhookRouteToken']);
 
 const provider_credentials = defineTable({
-  tenantId: v.id('tenants'),
   providerConnectionId: v.id('provider_connections'),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerKey: Provider,
   credentialKey: v.string(),
   kind: ProviderCredentialKind,
@@ -874,12 +903,12 @@ const provider_credentials = defineTable({
   updatedAt: v.number(),
 })
   .index('by_connection', ['providerConnectionId'])
-  .index('by_connection_key', ['providerConnectionId', 'credentialKey'])
-  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+  .index('by_connection_key', ['providerConnectionId', 'credentialKey']);
 
 const provider_connection_capabilities = defineTable({
-  tenantId: v.id('tenants'),
   providerConnectionId: v.id('provider_connections'),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerKey: Provider,
   capabilityKey: v.string(),
   status: ProviderCapabilityStatus,
@@ -891,12 +920,13 @@ const provider_connection_capabilities = defineTable({
   updatedAt: v.number(),
 })
   .index('by_connection', ['providerConnectionId'])
-  .index('by_connection_capability', ['providerConnectionId', 'capabilityKey'])
-  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+  .index('by_connection_capability', ['providerConnectionId', 'capabilityKey']);
 
 const provider_catalog_mappings = defineTable({
-  tenantId: v.id('tenants'),
-  providerConnectionId: v.id('provider_connections'),
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
+  providerConnectionId: v.optional(v.id('provider_connections')),
   providerKey: Provider,
   catalogProductId: v.optional(v.id('product_catalog')),
   localProductId: v.optional(v.string()),
@@ -915,10 +945,12 @@ const provider_catalog_mappings = defineTable({
   .index('by_connection', ['providerConnectionId'])
   .index('by_catalog_product', ['catalogProductId'])
   .index('by_external_variant', ['providerKey', 'externalVariantId'])
-  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+  .index('by_auth_user_provider', ['authUserId', 'providerKey']);
 
 const provider_transactions = defineTable({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerConnectionId: v.id('provider_connections'),
   providerKey: Provider,
   externalTransactionId: v.string(),
@@ -943,11 +975,13 @@ const provider_transactions = defineTable({
 })
   .index('by_connection', ['providerConnectionId'])
   .index('by_external_id', ['providerKey', 'externalTransactionId'])
-  .index('by_tenant_provider', ['tenantId', 'providerKey'])
+  .index('by_auth_user_provider', ['authUserId', 'providerKey'])
   .index('by_customer_email_hash', ['customerEmailHash']);
 
 const provider_memberships = defineTable({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerConnectionId: v.id('provider_connections'),
   providerKey: Provider,
   externalMembershipId: v.string(),
@@ -969,10 +1003,12 @@ const provider_memberships = defineTable({
 })
   .index('by_connection', ['providerConnectionId'])
   .index('by_external_id', ['providerKey', 'externalMembershipId'])
-  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+  .index('by_auth_user_provider', ['authUserId', 'providerKey']);
 
 const provider_licenses = defineTable({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerConnectionId: v.id('provider_connections'),
   providerKey: Provider,
   externalLicenseId: v.string(),
@@ -997,10 +1033,12 @@ const provider_licenses = defineTable({
   .index('by_connection', ['providerConnectionId'])
   .index('by_external_id', ['providerKey', 'externalLicenseId'])
   .index('by_license_key_hash', ['licenseKeyHash'])
-  .index('by_tenant_provider', ['tenantId', 'providerKey']);
+  .index('by_auth_user_provider', ['authUserId', 'providerKey']);
 
 const entitlement_evidence = defineTable({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   subjectId: v.optional(v.id('subjects')),
   providerKey: Provider,
   providerConnectionId: v.optional(v.id('provider_connections')),
@@ -1018,18 +1056,20 @@ const entitlement_evidence = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant_subject', ['tenantId', 'subjectId'])
+  .index('by_auth_user_subject', ['authUserId', 'subjectId'])
   .index('by_source_reference', ['providerKey', 'sourceReference'])
   .index('by_license', ['licenseId'])
   .index('by_transaction', ['transactionId']);
 
 /**
- * Creator OAuth Apps - tenant mappings for OAuth clients stored by Better Auth.
- * Better Auth owns the client + secret records; this table maps those clients to tenants.
+ * Creator OAuth Apps - creator mappings for OAuth clients stored by Better Auth.
+ * Better Auth owns the client + secret records; this table maps those clients to creators.
  * clientSecretHash is retained as an optional legacy field for older rows.
  */
 const creator_oauth_apps = defineTable({
-  tenantId: v.id('tenants'),
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   name: v.string(),
   clientId: v.string(),
   clientSecretHash: v.optional(v.string()),
@@ -1039,11 +1079,11 @@ const creator_oauth_apps = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
+  .index('by_auth_user', ['authUserId'])
   .index('by_client_id', ['clientId']);
 
 // ============================================================================
-// PLATFORM-LEVEL TABLES (no tenantId)
+// PLATFORM-LEVEL TABLES (no authUserId)
 // ============================================================================
 
 /**
@@ -1053,7 +1093,7 @@ const creator_oauth_apps = defineTable({
 const subjects = defineTable({
   // Primary Discord user ID
   primaryDiscordUserId: v.string(),
-  // Better Auth user ID (linked from auth system)
+  // Better Auth user ID (linked from auth system, optional for Discord-only subjects)
   authUserId: v.optional(v.string()),
   // Current status
   status: SubjectStatus,
@@ -1089,17 +1129,19 @@ const external_accounts = defineTable({
   providerUserId: v.string(),
   // Provider's username (may change)
   providerUsername: v.optional(v.string()),
-  // Normalized email for purchase→subject linking (lowercase, trimmed)
-  normalizedEmail: v.optional(v.string()),
   // SHA-256 hash of normalized email for matching without storing plaintext
   emailHash: v.optional(v.string()),
-  // Provider-specific metadata
+  // AES-256-GCM encrypted normalized email (HKDF purpose: 'external-account-email')
+  normalizedEmailEncrypted: v.optional(v.string()),
+  // Provider-specific metadata — PII fields are encrypted at rest
   providerMetadata: v.optional(
     v.object({
-      email: v.optional(v.string()),
+      // AES-256-GCM encrypted email (HKDF purpose: 'external-account-metadata-email')
+      emailEncrypted: v.optional(v.string()),
       avatarUrl: v.optional(v.string()),
       profileUrl: v.optional(v.string()),
-      rawData: v.optional(v.any()),
+      // AES-256-GCM encrypted JSON-stringified rawData (HKDF purpose: 'external-account-raw-data')
+      rawDataEncrypted: v.optional(v.string()),
     })
   ),
   // Encrypted Discord OAuth2 access token (for proactive guild member checks)
@@ -1124,7 +1166,7 @@ const external_accounts = defineTable({
 /**
  * Provider Customers - Platform-level purchaser memory
  * Remembers verified purchaser identity for faster future verifications.
- * NO tenantId - this is platform-level data.
+ * NO authUserId - this is platform-level data.
  */
 const provider_customers = defineTable({
   // Provider type
@@ -1160,7 +1202,7 @@ const provider_customers = defineTable({
 /**
  * Catalog Product Links - Normalized sale links for product resolution
  * Allows later creators to resolve products by pasting a known link.
- * NO tenantId - links are global, but reference the submitting tenant.
+ * NO authUserId - links are global, but reference the submitting creator.
  */
 const catalog_product_links = defineTable({
   // The catalog product this link belongs to
@@ -1177,8 +1219,10 @@ const catalog_product_links = defineTable({
   linkKind: LinkKind,
   // Current status
   status: CatalogLinkStatus,
-  // Tenant who submitted this link
-  submittedByTenantId: v.id('tenants'),
+  // Creator who submitted this link (Better Auth user ID)
+  submittedByAuthUserId: v.optional(v.string()),
+  // @deprecated Legacy field from tenant-first architecture
+  submittedByTenantId: v.optional(v.any()),
   // Timestamps
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -1196,6 +1240,8 @@ const webhook_events = defineTable({
   // Provider that sent the webhook
   provider: Provider,
   providerKey: v.optional(Provider),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   providerConnectionId: v.optional(v.id('provider_connections')),
   // Provider's event ID for deduplication
   providerEventId: v.string(),
@@ -1203,14 +1249,24 @@ const webhook_events = defineTable({
   eventType: v.string(),
   // Raw payload (stored for replay/debugging)
   rawPayload: v.any(),
-  // Signature verification status
+  // Signature verification status: true if the event's body-bound signature (HMAC) was verified.
+  // Note: Gumroad Ping has no body signature; its authenticity comes from the private
+  // webhookRouteToken. Use `verificationMethod` to distinguish security models.
   signatureValid: v.boolean(),
+  // How the event was authenticated:
+  //   'hmac'        – body-bound HMAC verified (Jinxxy, LemonSqueezy)
+  //   'static-key'  – static key hash checked (Payhip: SHA256(apiKey), not body-bound)
+  //   'route-token' – authenticated by a private random URL token (Gumroad Ping)
+  // When absent, falls back to the legacy `signatureValid` boolean alone.
+  verificationMethod: v.optional(
+    v.union(v.literal('hmac'), v.literal('static-key'), v.literal('route-token'))
+  ),
   // Processing status
   status: WebhookEventStatus,
   // Error message if processing failed
   errorMessage: v.optional(v.string()),
-  // Related tenant (if determined from payload)
-  tenantId: v.optional(v.id('tenants')),
+  // Related creator user ID. Resolved from route; falls back to routeId for unknown connections.
+  authUserId: v.string(),
   // Related subject (if determined from payload)
   subjectId: v.optional(v.id('subjects')),
   // Related entitlement (if determined from payload)
@@ -1223,9 +1279,9 @@ const webhook_events = defineTable({
   .index('by_provider_event', ['provider', 'providerEventId'])
   .index('by_provider', ['provider'])
   .index('by_status', ['status'])
-  .index('by_tenant', ['tenantId'])
+  .index('by_auth_user', ['authUserId'])
   .index('by_connection_event', ['providerConnectionId', 'providerEventId'])
-  .index('by_tenant_provider_event', ['tenantId', 'provider', 'providerEventId'])
+  .index('by_auth_user_provider_event', ['authUserId', 'provider', 'providerEventId'])
   .index('by_received', ['receivedAt']);
 
 /**
@@ -1243,9 +1299,10 @@ const ManualLicenseStatus = v.union(
  * Stores hashed license keys for secure validation.
  */
 const manual_licenses = defineTable({
-  // Tenant scope
-  tenantId: v.id('tenants'),
-  // SHA-256 hash of the license key (never store plaintext)
+  // Creator scope (Better Auth user ID)
+  authUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  tenantId: v.optional(v.any()),
   licenseKeyHash: v.string(),
   // Product this license is for
   productId: v.string(),
@@ -1267,33 +1324,20 @@ const manual_licenses = defineTable({
   createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_tenant', ['tenantId'])
-  .index('by_tenant_product', ['tenantId', 'productId'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_product', ['authUserId', 'productId'])
   .index('by_license_key_hash', ['licenseKeyHash'])
-  .index('by_tenant_status', ['tenantId', 'status'])
+  .index('by_auth_user_status', ['authUserId', 'status'])
   .index('by_expires', ['expiresAt']);
-
-/**
- * Tenant Provider Config - Per-tenant provider credentials
- * Jinxxy API keys are per-creator; Gumroad uses global env.
- */
-const tenant_provider_config = defineTable({
-  // Tenant scope
-  tenantId: v.id('tenants'),
-  // Encrypted Jinxxy API key (caller encrypts before storage)
-  jinxxyApiKeyEncrypted: v.optional(v.string()),
-  // Timestamps
-  createdAt: v.number(),
-  updatedAt: v.number(),
-}).index('by_tenant', ['tenantId']);
 
 /**
  * Collaborator Invites - Single-use invite tokens for cross-creator API key sharing
  * Allows a server owner to invite another creator to share Jinxxy credentials.
  */
 const collaborator_invites = defineTable({
-  ownerTenantId: v.id('tenants'),
-  /** SHA-256 hex of raw invite token (never stored plaintext) */
+  ownerAuthUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  ownerTenantId: v.optional(v.any()),
   tokenHash: v.string(),
   status: v.union(v.literal('pending'), v.literal('accepted'), v.literal('revoked')),
   /** Guild name shown to collaborator on consent page */
@@ -1305,10 +1349,13 @@ const collaborator_invites = defineTable({
   targetDiscordDisplayName: v.optional(v.string()),
   expiresAt: v.number(),
   createdAt: v.number(),
+  usedAt: v.optional(v.number()),
+  /** Commerce provider for this invite (e.g. 'jinxxy', 'lemonsqueezy'). Defaults to 'jinxxy' for legacy records. */
+  providerKey: v.optional(v.string()),
 })
   .index('by_token_hash', ['tokenHash'])
-  .index('by_owner', ['ownerTenantId'])
-  .index('by_owner_status', ['ownerTenantId', 'status'])
+  .index('by_owner', ['ownerAuthUserId'])
+  .index('by_owner_status', ['ownerAuthUserId', 'status'])
   .index('by_target_discord_user', ['targetDiscordUserId']);
 
 /**
@@ -1316,11 +1363,14 @@ const collaborator_invites = defineTable({
  * Created when a collaborator accepts an invite or is manually added.
  */
 const collaborator_connections = defineTable({
-  ownerTenantId: v.id('tenants'),
-  /** Omitted for manual adds */
+  ownerAuthUserId: v.string(),
+  // @deprecated Legacy field from tenant-first architecture
+  ownerTenantId: v.optional(v.any()),
   inviteId: v.optional(v.id('collaborator_invites')),
-  provider: v.literal('jinxxy'),
-  jinxxyApiKeyEncrypted: v.optional(v.string()),
+  /** Commerce provider for this connection (e.g. 'jinxxy', 'lemonsqueezy') */
+  provider: v.string(),
+  /** Generic encrypted credential (API key) for all providers */
+  credentialEncrypted: v.optional(v.string()),
   /** Encrypted webhook signing secret; null for api-type connections */
   webhookSecretRef: v.optional(v.string()),
   /** null for api-type connections */
@@ -1328,19 +1378,21 @@ const collaborator_connections = defineTable({
   webhookConfigured: v.boolean(),
   linkType: v.union(v.literal('account'), v.literal('api')),
   status: v.union(v.literal('active'), v.literal('paused'), v.literal('disconnected')),
-  /** Discord user ID for invite flow; manual:{jinxxy_user_id} for manual adds */
+  /** Discord user ID for invite flow; manual:{provider_user_id} for manual adds */
   collaboratorDiscordUserId: v.string(),
   collaboratorDisplayName: v.string(),
+  /** Discord avatar hash (e.g. "a_abc123…" for animated, plain hex for static). Server-validated. */
+  collaboratorAvatarHash: v.optional(v.string()),
   /** 'invite' when created via invite link; 'manual' when added by admin. Optional for backward compat. */
   source: v.optional(v.union(v.literal('invite'), v.literal('manual'))),
   /** Discord user ID of admin who ran the manual add (audit) */
   addedByDiscordUserId: v.optional(v.string()),
   createdAt: v.number(),
 })
-  .index('by_owner', ['ownerTenantId'])
+  .index('by_owner', ['ownerAuthUserId'])
   .index('by_invite', ['inviteId'])
-  .index('by_owner_status', ['ownerTenantId', 'status'])
-  .index('by_owner_provider', ['ownerTenantId', 'provider'])
+  .index('by_owner_status', ['ownerAuthUserId', 'status'])
+  .index('by_owner_provider', ['ownerAuthUserId', 'provider'])
   .index('by_collaborator_discord', ['collaboratorDiscordUserId']);
 
 // ============================================================================
@@ -1386,7 +1438,7 @@ const yucp_certificates = defineTable({
   .index('by_status', ['status']);
 
 /**
- * Package Name Registry — Layer 1 defense.
+ * Package Name Registry, Layer 1 defense.
  * First publisher to sign a packageId owns the namespace.
  * Subsequent signers with a different yucpUserId are rejected.
  */
@@ -1409,7 +1461,7 @@ const package_registry = defineTable({
   .index('by_publisher_id', ['publisherId']);
 
 /**
- * Signing Log — Layer 2 defense.
+ * Signing Log, Layer 2 defense.
  * Append-only transparency log: content hash + identity, one entry per (hash, packageId) pair.
  * Same hash signed by a different identity triggers a conflict flag.
  */
@@ -1449,24 +1501,132 @@ const cert_issuance_log = defineTable({
   .index('by_issued_at', ['issuedAt']);
 
 /**
+ * HTTP rate limit counters for unauthenticated public endpoints.
+ * Tracks request counts by (key, windowStart) where key is e.g. "ip:<addr>" or
+ * "fingerprint:<hash>". Each window is a fixed-size time bucket (60 s default).
+ * Old buckets are cleaned up lazily when a new request comes in.
+ */
+const http_rate_limits = defineTable({
+  /** Opaque rate-limit key: "fingerprint:<hex>" or "ip:<addr>" */
+  key: v.string(),
+  /** Start of the time window (Unix ms, floored to windowSize) */
+  windowStart: v.number(),
+  /** Number of requests recorded in this window */
+  count: v.number(),
+})
+  .index('by_key_window', ['key', 'windowStart'])
+  .index('by_window_start', ['windowStart']);
+
+/**
  * Short-lived session store for the RFC 8252 loopback OAuth proxy.
  * Maps an OAuth `state` parameter to the original loopback redirect_uri
  * so the callback can forward the code back to the Unity editor process.
  */
 const oauth_loopback_sessions = defineTable({
-  /** The `state` parameter sent by the Unity client — used as the lookup key */
+  /** The `state` parameter sent by the Unity client, used as the lookup key */
   oauthState: v.string(),
   /** The original loopback redirect_uri (e.g. http://127.0.0.1:PORT/callback) */
   originalRedirectUri: v.string(),
-  /** Unix ms — records when the session was created so TTL can be enforced */
+  /** Unix ms, records when the session was created so TTL can be enforced */
   createdAt: v.number(),
 })
   .index('by_oauth_state', ['oauthState'])
   .index('by_created_at', ['createdAt']);
 
+/**
+ * Used YUCP JWT nonces — tracks consumed nonces for replay prevention.
+ */
+const used_nonces = defineTable({
+  /** The JWT nonce (jti claim) that was consumed */
+  nonce: v.string(),
+  /** Creator (authUserId) that consumed the nonce */
+  authUserId: v.string(),
+  /** When the nonce was consumed (Unix ms) */
+  usedAt: v.number(),
+}).index('by_nonce', ['nonce']);
+
+// ============================================================================
+// PUBLIC API V2 TABLES
+// ============================================================================
+
+const WebhookSubscriptionStatus = v.union(
+  v.literal('active'),
+  v.literal('disabled'),
+  v.literal('error')
+);
+
+const WebhookDeliveryStatus = v.union(
+  v.literal('pending'),
+  v.literal('in_progress'),
+  v.literal('delivered'),
+  v.literal('failed'),
+  v.literal('dead_letter')
+);
+
+/**
+ * Creator Events — platform-emitted events for outbound webhook delivery
+ * and the GET /events API endpoint.
+ */
+const creator_events = defineTable({
+  authUserId: v.string(),
+  eventType: v.string(),
+  resourceType: v.string(),
+  resourceId: v.string(),
+  data: v.any(),
+  createdAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_type', ['authUserId', 'eventType'])
+  .index('by_auth_user_resource', ['authUserId', 'resourceId'])
+  .index('by_created', ['createdAt']);
+
+/**
+ * Webhook Subscriptions — outbound delivery endpoint registrations.
+ * Signing secrets are encrypted at rest with HKDF-AES-256-GCM.
+ */
+const webhook_subscriptions = defineTable({
+  authUserId: v.string(),
+  url: v.string(),
+  events: v.array(v.string()),
+  enabled: v.boolean(),
+  description: v.optional(v.string()),
+  signingSecretEnc: v.string(),
+  signingSecretPrefix: v.string(),
+  status: WebhookSubscriptionStatus,
+  lastDeliveryAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_enabled', ['authUserId', 'enabled']);
+
+/**
+ * Webhook Deliveries — per-event delivery attempt tracking with retry state.
+ */
+const webhook_deliveries = defineTable({
+  authUserId: v.string(),
+  subscriptionId: v.id('webhook_subscriptions'),
+  eventId: v.id('creator_events'),
+  status: WebhookDeliveryStatus,
+  attemptCount: v.number(),
+  maxAttempts: v.number(),
+  nextRetryAt: v.optional(v.number()),
+  lastHttpStatus: v.optional(v.number()),
+  lastError: v.optional(v.string()),
+  deliveredAt: v.optional(v.number()),
+  requestDurationMs: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_subscription', ['subscriptionId'])
+  .index('by_event', ['eventId'])
+  .index('by_status_retry', ['status', 'nextRetryAt'])
+  .index('by_subscription_created', ['subscriptionId', 'createdAt']);
+
 export default defineSchema({
-  // Tenant-scoped tables
-  tenants,
+  // Creator-scoped tables
+  creator_profiles,
   bindings,
   verification_sessions,
   entitlements,
@@ -1480,7 +1640,6 @@ export default defineSchema({
   audit_events,
   product_catalog,
   manual_licenses,
-  tenant_provider_config,
   purchase_facts,
   provider_connections,
   provider_credentials,
@@ -1493,6 +1652,11 @@ export default defineSchema({
   creator_oauth_apps,
   collaborator_invites,
   collaborator_connections,
+
+  // Public API v2 tables
+  creator_events,
+  webhook_subscriptions,
+  webhook_deliveries,
 
   // Platform-level tables
   subjects,
@@ -1507,4 +1671,8 @@ export default defineSchema({
   signing_log,
   cert_issuance_log,
   oauth_loopback_sessions,
+  used_nonces,
+
+  // HTTP rate limiting for unauthenticated public endpoints
+  http_rate_limits,
 });

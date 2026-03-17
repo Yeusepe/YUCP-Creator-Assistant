@@ -22,25 +22,28 @@ import {
   type GetDiscordRoleSetupResultRequest,
   type ListCollaboratorConnectionsRequest,
   type ListCollaboratorConnectionsResponse,
-  type ListProductsRequest,
+  type ListProviderProductsRequest,
   type ProductsResponse,
   type RemoveCollaboratorConnectionRequest,
-  type ResolveVrchatAvatarNameRequest,
-  type ResolveVrchatAvatarNameResponse,
+  type ResolveProductNameRequest,
+  type ResolveProductNameResponse,
   type SuccessResponse,
   TempoServiceRegistry,
   type TokenResponse,
+  type UpsertProductCredentialRequest,
   type VerificationResultResponse,
 } from '@yucp/private-rpc';
 import { VrchatApiClient } from '@yucp/providers';
+import { timingSafeStringEqual } from '@yucp/shared';
+import { getConvexClientFromUrl } from '../lib/convex';
 import { createSetupSession } from '../lib/setupSession';
+import { getProvider } from '../providers/index';
+import type { ProviderContext } from '../providers/types';
 import type { VerificationRouteHandlers } from '../routes';
 import type { CollabConfig } from '../routes/collab';
 import { createCollabRoutes } from '../routes/collab';
 import { type ConnectConfig, createConnectRoutes } from '../routes/connect';
-import { handleGumroadProducts } from '../routes/gumroadProducts';
-import { handleJinxxyProducts } from '../routes/jinxxyProducts';
-import { handleLemonSqueezyProducts } from '../routes/lemonsqueezyProducts';
+import { handleProviderProducts } from '../routes/products';
 import { handleCompleteVrchat } from '../verification/completeVrchat';
 import type { VerificationConfig } from '../verification/sessionManager';
 import { createJsonRequest, readJsonResponse } from './httpAdapter';
@@ -53,7 +56,7 @@ export const INTERNAL_RPC_PATH = '/__internal/tempo';
 
 const INTERNAL_RPC_IDENTITY = 'internal-rpc';
 const telemetry = new InternalRpcTelemetry();
-const INTERNAL_RPC_TIMEOUT_MS = 10_000;
+const _INTERNAL_RPC_TIMEOUT_MS = 10_000;
 const TELEMETRY_REDACTED_KEYS = new Set([
   'apiSecret',
   'authorization',
@@ -70,6 +73,8 @@ export type InternalRpcConfig = {
   apiBaseUrl: string;
   convexApiSecret: string;
   convexSiteUrl: string;
+  convexUrl: string;
+  encryptionSecret: string;
   internalRpcSharedSecret: string;
   logLevel?: string;
 };
@@ -98,20 +103,6 @@ function toTempoLogLevel(value: string | undefined): TempoLogLevel {
     default:
       return TempoLogLevel.Info;
   }
-}
-
-function timingSafeEqual(left: string, right: string): boolean {
-  const leftBytes = new TextEncoder().encode(left);
-  const rightBytes = new TextEncoder().encode(right);
-  if (leftBytes.length !== rightBytes.length) {
-    return false;
-  }
-
-  let difference = 0;
-  for (let index = 0; index < leftBytes.length; index += 1) {
-    difference |= leftBytes[index] ^ rightBytes[index];
-  }
-  return difference === 0;
 }
 
 function sanitizeForTelemetry(payload: unknown): unknown {
@@ -188,11 +179,11 @@ async function withTelemetry<TResponse>(
 
 async function createCollabSetupToken(
   encryptionSecret: string,
-  tenantId: string,
+  authUserId: string,
   guildId: string,
   actorDiscordUserId: string
 ): Promise<string> {
-  return createSetupSession(tenantId, guildId, actorDiscordUserId, encryptionSecret);
+  return createSetupSession(authUserId, guildId, actorDiscordUserId, encryptionSecret);
 }
 
 function normalizeTokenResponse(payload: Partial<TokenResponse> | null | undefined): TokenResponse {
@@ -280,7 +271,7 @@ class InternalRpcAuthInterceptor extends AuthInterceptor {
     _context: ServerContext,
     authorizationValue: string
   ): Promise<AuthContext> {
-    if (!timingSafeEqual(authorizationValue, `Bearer ${this.expectedSecret}`)) {
+    if (!timingSafeStringEqual(authorizationValue, `Bearer ${this.expectedSecret}`)) {
       throw new Error('unauthorized');
     }
 
@@ -295,80 +286,67 @@ class InternalRpcAuthInterceptor extends AuthInterceptor {
 function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
   TempoServiceRegistry.register(BaseCatalogService.serviceName)(
     class CatalogTempoService extends BaseCatalogService {
-      async listGumroadProducts(
-        request: ListProductsRequest,
+      async listProviderProducts(
+        request: ListProviderProductsRequest,
         _context: ServerContext
       ): Promise<ProductsResponse> {
-        return withTelemetry('CatalogService.listGumroadProducts', request, async () => {
-          const response = await handleGumroadProducts(
-            createJsonRequest(`${deps.config.apiBaseUrl}/api/gumroad/products`, {
+        return withTelemetry('CatalogService.listProviderProducts', request, async () => {
+          const provider = request.provider ?? '';
+          const response = await handleProviderProducts(
+            createJsonRequest(`${deps.config.apiBaseUrl}/api/${provider}/products`, {
               apiSecret: deps.config.convexApiSecret,
-              tenantId: request.tenantId ?? '',
-            })
-          );
-          return normalizeProductsResponse(
-            await readJsonResponse<Partial<ProductsResponse>>(response)
-          );
-        });
-      }
-
-      async listJinxxyProducts(
-        request: ListProductsRequest,
-        _context: ServerContext
-      ): Promise<ProductsResponse> {
-        return withTelemetry('CatalogService.listJinxxyProducts', request, async () => {
-          const response = await handleJinxxyProducts(
-            createJsonRequest(`${deps.config.apiBaseUrl}/api/jinxxy/products`, {
-              apiSecret: deps.config.convexApiSecret,
-              tenantId: request.tenantId ?? '',
-            })
-          );
-          return normalizeProductsResponse(
-            await readJsonResponse<Partial<ProductsResponse>>(response)
-          );
-        });
-      }
-
-      async listLemonSqueezyProducts(
-        request: ListProductsRequest,
-        _context: ServerContext
-      ): Promise<ProductsResponse> {
-        return withTelemetry('CatalogService.listLemonSqueezyProducts', request, async () => {
-          const response = await handleLemonSqueezyProducts(
-            createJsonRequest(`${deps.config.apiBaseUrl}/api/lemonsqueezy/products`, {
-              apiSecret: deps.config.convexApiSecret,
-              tenantId: request.tenantId ?? '',
-            })
-          );
-          return normalizeProductsResponse(
-            await readJsonResponse<Partial<ProductsResponse>>(response)
-          );
-        });
-      }
-
-      async resolveVrchatAvatarName(
-        request: ResolveVrchatAvatarNameRequest,
-        _context: ServerContext
-      ): Promise<ResolveVrchatAvatarNameResponse> {
-        return withTelemetry('CatalogService.resolveVrchatAvatarName', request, async () => {
-          const response = await fetch(`${deps.config.convexSiteUrl}/v1/vrchat/avatar-name`, {
-            method: 'POST',
-            signal: AbortSignal.timeout(INTERNAL_RPC_TIMEOUT_MS),
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${deps.config.convexApiSecret}`,
-            },
-            body: JSON.stringify({
-              tenantId: request.tenantId ?? '',
-              avatarId: request.avatarId ?? '',
+              authUserId: request.authUserId ?? '',
             }),
-          });
+            provider
+          );
+          return normalizeProductsResponse(
+            await readJsonResponse<Partial<ProductsResponse>>(response)
+          );
+        });
+      }
 
-          if (!response.ok) {
-            return { name: undefined };
+      async resolveProductName(
+        request: ResolveProductNameRequest,
+        _context: ServerContext
+      ): Promise<ResolveProductNameResponse> {
+        return withTelemetry('CatalogService.resolveProductName', request, async () => {
+          const provider = request.provider ?? '';
+          const plugin = getProvider(provider);
+          if (!plugin?.resolveProductName) {
+            return { name: '', error: 'not_supported' };
           }
 
-          return await readJsonResponse<ResolveVrchatAvatarNameResponse>(response);
+          const authUserId = request.authUserId ?? '';
+          const convex = getConvexClientFromUrl(deps.config.convexUrl);
+          const ctx: ProviderContext = {
+            convex,
+            apiSecret: deps.config.convexApiSecret,
+            authUserId,
+            encryptionSecret: deps.config.encryptionSecret,
+          };
+
+          const credential = await plugin.getCredential(ctx);
+          const result = await plugin.resolveProductName(credential, request.urlOrId ?? '', ctx);
+          return { name: result.name ?? '', error: result.error };
+        });
+      }
+
+      async upsertProductCredential(
+        request: UpsertProductCredentialRequest,
+        _context: ServerContext
+      ): Promise<SuccessResponse> {
+        return withTelemetry('CatalogService.upsertProductCredential', request, async () => {
+          const result = await deps.connectRoutes.serverUpsertProductCredential({
+            authUserId: request.authUserId ?? '',
+            providerKey: request.providerKey ?? '',
+            productId: request.productId ?? '',
+            plaintextSecretKey: request.productSecretKey ?? '',
+          });
+          return {
+            success: result.success,
+            error: result.error,
+            supportCode: undefined,
+          };
         });
       }
     }
@@ -383,7 +361,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
         return withTelemetry('SetupService.createSetupSession', request, async () => {
           const response = await deps.connectRoutes.createSessionEndpoint(
             createJsonRequest(`${deps.config.apiBaseUrl}/api/setup/create-session`, {
-              tenantId: request.tenantId ?? '',
+              authUserId: request.authUserId ?? '',
               guildId: request.guildId ?? '',
               discordUserId: request.discordUserId ?? '',
               apiSecret: deps.config.convexApiSecret,
@@ -401,6 +379,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
           const response = await deps.connectRoutes.createTokenEndpoint(
             createJsonRequest(`${deps.config.apiBaseUrl}/api/connect/create-token`, {
               discordUserId: request.discordUserId ?? '',
+              guildId: request.guildId ?? '',
               apiSecret: deps.config.convexApiSecret,
             })
           );
@@ -415,7 +394,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
         return withTelemetry('SetupService.createDiscordRoleSetupSession', request, async () => {
           const response = await deps.connectRoutes.createDiscordRoleSession(
             createJsonRequest(`${deps.config.apiBaseUrl}/api/setup/discord-role-session`, {
-              tenantId: request.tenantId ?? '',
+              authUserId: request.authUserId ?? '',
               guildId: request.guildId ?? '',
               adminDiscordUserId: request.adminDiscordUserId ?? '',
               apiSecret: deps.config.convexApiSecret,
@@ -461,7 +440,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
               interactionToken: request.interactionToken ?? '',
               messageId: request.messageId ?? '',
               panelToken: request.panelToken ?? '',
-              tenantId: request.tenantId ?? '',
+              authUserId: request.authUserId ?? '',
             })
           );
           return normalizeSuccessResponse(
@@ -485,7 +464,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
                 apiSecret: deps.config.convexApiSecret,
                 licenseKey: request.licenseKey ?? '',
                 productId: request.productId,
-                tenantId: request.tenantId ?? '',
+                authUserId: request.authUserId ?? '',
                 subjectId: request.subjectId ?? '',
                 discordUserId: request.discordUserId,
               })
@@ -515,7 +494,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
             );
             return normalizeVerificationResponse(
               await handleCompleteVrchat(createVerificationConfig(deps), {
-                tenantId: request.tenantId ?? '',
+                authUserId: request.authUserId ?? '',
                 subjectId: request.subjectId ?? '',
                 vrchatUserId: ownership.vrchatUserId,
                 displayName: ownership.displayName,
@@ -534,7 +513,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
           const response = await deps.verificationHandlers.disconnectVerification(
             createJsonRequest(`${deps.config.apiBaseUrl}/api/verification/disconnect`, {
               apiSecret: deps.config.convexApiSecret,
-              tenantId: request.tenantId ?? '',
+              authUserId: request.authUserId ?? '',
               subjectId: request.subjectId ?? '',
               provider: request.provider ?? '',
             })
@@ -558,7 +537,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
         return withTelemetry('CollaboratorService.createInvite', request, async () => {
           const setupToken = await createCollabSetupToken(
             deps.collabConfig.encryptionSecret,
-            request.tenantId ?? '',
+            request.authUserId ?? '',
             request.guildId ?? '',
             request.actorDiscordUserId ?? ''
           );
@@ -568,6 +547,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
               {
                 guildId: request.guildId,
                 guildName: request.guildName,
+                providerKey: request.providerKey,
               },
               {
                 headers: {
@@ -576,7 +556,11 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
               }
             )
           );
-          return await readJsonResponse<CreateCollaboratorInviteResponse>(response);
+          const json = await readJsonResponse<{ inviteUrl?: string; expiresAt?: number }>(response);
+          return {
+            inviteUrl: json.inviteUrl,
+            expiresAt: json.expiresAt !== undefined ? BigInt(json.expiresAt) : undefined,
+          };
         });
       }
 
@@ -587,7 +571,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
         return withTelemetry('CollaboratorService.listConnections', request, async () => {
           const setupToken = await createCollabSetupToken(
             deps.collabConfig.encryptionSecret,
-            request.tenantId ?? '',
+            request.authUserId ?? '',
             request.guildId ?? '',
             request.actorDiscordUserId ?? ''
           );
@@ -613,7 +597,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
         return withTelemetry('CollaboratorService.addConnectionManual', request, async () => {
           const setupToken = await createCollabSetupToken(
             deps.collabConfig.encryptionSecret,
-            request.tenantId ?? '',
+            request.authUserId ?? '',
             request.guildId ?? '',
             request.actorDiscordUserId ?? ''
           );
@@ -621,7 +605,8 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
             createJsonRequest(
               `${deps.config.apiBaseUrl}/api/collab/connections/manual`,
               {
-                jinxxyApiKey: request.jinxxyApiKey ?? '',
+                providerKey: request.providerKey ?? '',
+                credential: request.credential ?? '',
                 serverName: request.serverName,
               },
               {
@@ -644,7 +629,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
         return withTelemetry('CollaboratorService.removeConnection', request, async () => {
           const setupToken = await createCollabSetupToken(
             deps.collabConfig.encryptionSecret,
-            request.tenantId ?? '',
+            request.authUserId ?? '',
             request.guildId ?? '',
             request.actorDiscordUserId ?? ''
           );

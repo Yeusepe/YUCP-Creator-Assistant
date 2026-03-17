@@ -7,6 +7,7 @@
     <title>Connect Lemon Squeezy® | Creator Assistant</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./tokens.css">
+    <link rel="stylesheet" href="./loading.css">
     <style>
         :root {
             --ls-yellow: #FFD234;
@@ -80,18 +81,8 @@
         .step-content { overflow: visible; }
 
         /* ─── Loading overlay ────────────────────────────────────────── */
-        #page-loading-overlay { transition: opacity 0.35s ease; }
-        #page-loading-overlay.is-hiding { opacity: 0; pointer-events: none; }
         #page-content { opacity: 0; transition: opacity 0.3s ease 0.05s; }
         #page-content.is-visible { opacity: 1; }
-        .page-loading-spinner {
-            width: 40px; height: 40px;
-            border: 3px solid rgba(255,255,255,0.08);
-            border-top-color: var(--ls-yellow);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
 
         /* ─── Copy button ────────────────────────────────────────────── */
         .copy-btn:active { transform: scale(0.94); }
@@ -464,12 +455,8 @@
 
 <!-- Blob background (liquid glass) -->
 <!-- ─── Loading overlay ─────────────────────────────────────────────── -->
-<div id="page-loading-overlay"
-     class="fixed inset-0 z-[100] flex flex-col items-center justify-center pointer-events-none"
-     style="background-color: var(--bg-color);">
-    <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-10 mb-8" />
-    <div class="page-loading-spinner"></div>
-    <p class="mt-4" style="color: rgba(255,255,255,0.45); font-size:13px;">Loading…</p>
+<!-- Full-page loading overlay (content injected by site.js) -->
+    <div id="page-loading-overlay"></div>
 </div>
 
 <!-- ─── Page content ─────────────────────────────────────────────────── -->
@@ -527,7 +514,7 @@
                     <h1 class="text-3xl sm:text-4xl font-bold text-white leading-none tracking-tight">
                         Connect&nbsp;<span style="color:#FFD234;">Lemon&nbsp;Squeezy®</span>
                     </h1>
-                    <p class="mt-2 text-sm" style="color:rgba(255,255,255,0.4);">Webhook creation is handled automatically — just paste your API key.</p>
+                    <p class="mt-2 text-sm" style="color:rgba(255,255,255,0.4);">Webhook creation is handled automatically, just paste your API key.</p>
                 </div>
                 <div class="flex flex-col items-end gap-2.5">
                     <span class="text-sm font-semibold" style="color:rgba(255,255,255,0.5);">Step <span id="current-step-num">1</span> of 2</span>
@@ -744,7 +731,7 @@
                                             </div>
                                             <!-- Revealed key -->
                                             <div>
-                                                <div class="ls-field-label" style="margin-bottom:6px;">Your API key — copy it now</div>
+                                                <div class="ls-field-label" style="margin-bottom:6px;">Your API key, copy it now</div>
                                                 <div class="ls-revealed-key">
                                                     <span class="ls-key-icon">🔑</span>
                                                     <span class="ls-key-text">eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQ...</span>
@@ -774,7 +761,7 @@
 
                                     <div class="space-y-1.5">
                                         <p style="color:rgba(255,255,255,0.55); font-size:14px; line-height:1.6;">
-                                            Click <strong style="color:#fff;">+</strong> on the API page, give it any name (e.g. <em>Creator Assistant</em>), then click <strong style="color:#fff;">Create API key</strong>. Copy the key shown — it's only revealed once.
+                                            Click <strong style="color:#fff;">+</strong> on the API page, give it any name (e.g. <em>Creator Assistant</em>), then click <strong style="color:#fff;">Create API key</strong>. Copy the key shown, it's only revealed once.
                                         </p>
                                     </div>
 
@@ -1018,7 +1005,7 @@
             connectBtn.style.boxShadow = 'none';
 
             try {
-                const body = { apiKey, tenantId: TENANT_ID };
+                const body = Object.assign({ apiKey }, TENANT_ID ? { tenantId: TENANT_ID } : {});
                 const res = await apiFetch(`${API_BASE}/api/connect/lemonsqueezy-finish`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1070,7 +1057,7 @@
             const overlay = document.getElementById('page-loading-overlay');
             const content = document.getElementById('page-content');
             if (content) content.style.display = '';
-            if (overlay) setTimeout(() => { overlay.classList.add('is-hiding'); setTimeout(() => overlay.style.display = 'none', 370); }, 500);
+            if (overlay) setTimeout(() => { overlay.classList.add('is-hiding'); setTimeout(() => overlay.style.display = 'none', 700); }, 500);
             if (content) requestAnimationFrame(() => requestAnimationFrame(() => content.classList.add('is-visible')));
             requestAnimationFrame(() => observeActiveStepHeight());
         }

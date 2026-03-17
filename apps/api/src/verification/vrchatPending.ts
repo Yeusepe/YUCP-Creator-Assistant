@@ -66,7 +66,11 @@ export async function createPendingVrchatState(
     expiresAt: now + PENDING_STATE_TTL_MS,
   };
   const id = crypto.randomUUID();
-  const encrypted = await encrypt(JSON.stringify(state), getPendingSecret());
+  const encrypted = await encrypt(
+    JSON.stringify(state),
+    getPendingSecret(),
+    'vrchat-pending-state'
+  );
   await store.set(`${PENDING_STATE_PREFIX}${id}`, encrypted, PENDING_STATE_TTL_MS);
   return buildCookie(request, id, Math.floor(PENDING_STATE_TTL_MS / 1000));
 }
@@ -87,7 +91,7 @@ export async function readPendingVrchatState(
   }
 
   try {
-    const decrypted = await decrypt(encrypted, getPendingSecret());
+    const decrypted = await decrypt(encrypted, getPendingSecret(), 'vrchat-pending-state');
     const state = JSON.parse(decrypted) as Partial<VrchatPendingState>;
     const validTypes = Array.isArray(state.types)
       ? state.types.filter(

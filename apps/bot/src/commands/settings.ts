@@ -14,7 +14,7 @@ export async function handleSettingsDisconnect(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
   _apiSecret: string,
-  _ctx: { logger: Logger; tenantId: string; guildId: string }
+  _ctx: { logger: Logger; authUserId: string; guildId: string }
 ) {
   const embed = new EmbedBuilder()
     .setTitle('⚠️ Warning: Disconnect Server')
@@ -110,8 +110,18 @@ export async function handleDisconnectConfirm(
   await interaction.deferUpdate();
 
   try {
+    const guildLink = await convex.query(api.guildLinks.getByDiscordGuildForBot, {
+      apiSecret,
+      discordGuildId: ctx.guildId,
+    });
+
+    if (!guildLink) {
+      throw new Error('Guild link not found');
+    }
+
     const result = await convex.mutation(api.guildLinks.hardDisconnectGuild, {
       apiSecret,
+      authUserId: guildLink.authUserId,
       discordGuildId: ctx.guildId,
     });
 

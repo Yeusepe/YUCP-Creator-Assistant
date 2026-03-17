@@ -1,7 +1,7 @@
 // Placeholder test scaffold for providers package
 
 import { describe, expect, it } from 'bun:test';
-import { type ProviderAdapter, createProviderAdapter, detectLicenseFormat } from '../src/index';
+import { createProviderAdapter, detectLicenseFormat, type ProviderAdapter } from '../src/index';
 
 describe('providers', () => {
   describe('createProviderAdapter', () => {

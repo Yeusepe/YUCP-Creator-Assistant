@@ -18,7 +18,7 @@ interface TunnelResult {
  * Try to detect Tailscale Funnel by running `tailscale status --json`
  * and checking if the machine has a DNS name with funnel enabled.
  */
-async function detectTailscale(port: number): Promise<string | null> {
+async function detectTailscale(_port: number): Promise<string | null> {
   try {
     const proc = Bun.spawn(['tailscale', 'status', '--json'], {
       stdout: 'pipe',

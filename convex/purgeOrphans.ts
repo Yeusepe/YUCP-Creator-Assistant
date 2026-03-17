@@ -1,12 +1,6 @@
 import { v } from 'convex/values';
 import { mutation } from './_generated/server';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 export const purge = mutation({
   args: {
@@ -30,7 +24,7 @@ export const purge = mutation({
       // just in case old rules don't have catalogProductId set
       const refsByStringId = await ctx.db
         .query('role_rules')
-        .withIndex('by_tenant', (q) => q.eq('tenantId', prod.tenantId))
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', prod.authUserId))
         .filter((q) => q.eq(q.field('productId'), prod.productId))
         .first();
 

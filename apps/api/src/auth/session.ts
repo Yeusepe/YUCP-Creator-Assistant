@@ -31,7 +31,7 @@ export const DEV_COOKIE_ATTRIBUTES = {
  * - 1 day refresh window (86400 seconds)
  * - Cookie caching enabled for performance
  */
-export function createSessionConfig(isProduction: boolean) {
+export function createSessionConfig(_isProduction: boolean) {
   return {
     modelName: 'session',
     expiresIn: 60 * 60 * 24 * 7, // 7 days in seconds

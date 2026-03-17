@@ -64,8 +64,8 @@ export interface ProviderEvidence {
 
 /** Entitlement grant request */
 export interface GrantEntitlementRequest {
-  /** Tenant to grant within */
-  tenantId: string;
+  /** Auth user ID of the creator to grant within */
+  authUserId: string;
   /** Subject to grant to */
   subjectId: string;
   /** Product being entitled */
@@ -114,7 +114,7 @@ export interface RevokeEntitlementResult {
 export interface Entitlement {
   _id: string;
   _creationTime: number;
-  tenantId: string;
+  authUserId: string;
   subjectId: string;
   productId: string;
   sourceProvider: Provider;
@@ -230,36 +230,36 @@ export function getReasonLabel(reason: RevocationReason): string {
  * Generate an idempotency key for role sync jobs.
  */
 export function generateRoleSyncIdempotencyKey(
-  tenantId: string,
+  authUserId: string,
   subjectId: string,
   entitlementId: string,
   timestamp?: number
 ): string {
-  return `role_sync:${tenantId}:${subjectId}:${entitlementId}:${timestamp ?? Date.now()}`;
+  return `role_sync:${authUserId}:${subjectId}:${entitlementId}:${timestamp ?? Date.now()}`;
 }
 
 /**
  * Generate an idempotency key for role removal jobs.
  */
 export function generateRoleRemovalIdempotencyKey(
-  tenantId: string,
+  authUserId: string,
   subjectId: string,
   guildId: string,
   productId: string,
   timestamp?: number
 ): string {
-  return `role_removal:${tenantId}:${subjectId}:${guildId}:${productId}:${timestamp ?? Date.now()}`;
+  return `role_removal:${authUserId}:${subjectId}:${guildId}:${productId}:${timestamp ?? Date.now()}`;
 }
 
 /**
  * Generate an idempotency key for entitlement grants.
  */
 export function generateGrantIdempotencyKey(
-  tenantId: string,
+  authUserId: string,
   subjectId: string,
   sourceReference: string
 ): string {
-  return `grant:${tenantId}:${subjectId}:${sourceReference}`;
+  return `grant:${authUserId}:${subjectId}:${sourceReference}`;
 }
 
 // ============================================================================

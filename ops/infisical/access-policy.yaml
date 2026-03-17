@@ -114,18 +114,17 @@ identities:
   # CI/CD Identity
   ci-cd:
     name: "CI/CD Pipeline"
-    description: "Read-only access for CI/CD pipelines"
+    description: "Read-only access for CI/CD pipelines (dev and preview only)"
     type: machine
     projects:
       - project: dev
         role: viewer
       - project: preview
         role: viewer
-      - project: prod
-        role: viewer
     allowed_paths:
-      - /*  # Read-only access to all paths
-    environments: [dev, preview, prod]
+      - /api/
+      - /bot/
+    environments: [dev, preview]
     constraints:
       ip_whitelist: false  # CI runs from various IPs
       time_based_access: false
@@ -145,7 +144,9 @@ identities:
       - project: prod
         role: admin
     allowed_paths:
-      - /*  # Full access
+      - /api/
+      - /bot/
+      - /infra/
     environments: [dev, preview, prod]
     constraints:
       mfa_required: true
@@ -201,40 +202,40 @@ path_access:
     allowed_roles: [admin]
 
   "/api/":
-    description: "API service secrets"
+    description: "API service secrets (dev/preview only for ci-cd)"
     allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
 
   "/api/auth/":
     description: "Authentication secrets"
-    allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
+    allowed_identities: [api-dev, api-preview, api-prod, admin]
 
   "/api/database/":
     description: "Database connection strings"
-    allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
+    allowed_identities: [api-dev, api-preview, api-prod, admin]
 
   "/api/integrations/":
     description: "Third-party integration secrets"
-    allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
+    allowed_identities: [api-dev, api-preview, api-prod, admin]
 
   "/bot/":
-    description: "Discord bot secrets"
+    description: "Discord bot secrets (dev/preview only for ci-cd)"
     allowed_identities: [bot-dev, bot-preview, bot-prod, ci-cd, admin]
 
   "/bot/discord/":
     description: "Discord-specific credentials"
-    allowed_identities: [bot-dev, bot-preview, bot-prod, ci-cd, admin]
+    allowed_identities: [bot-dev, bot-preview, bot-prod, admin]
 
   "/infra/":
     description: "Infrastructure secrets"
-    allowed_identities: [api-dev, api-preview, api-prod, bot-dev, bot-preview, bot-prod, ci-cd, admin]
+    allowed_identities: [api-dev, api-preview, api-prod, bot-dev, bot-preview, bot-prod, admin]
 
   "/infra/convex/":
     description: "Convex deployment secrets"
-    allowed_identities: [api-dev, api-preview, api-prod, bot-dev, bot-preview, bot-prod, ci-cd, admin]
+    allowed_identities: [api-dev, api-preview, api-prod, bot-dev, bot-preview, bot-prod, admin]
 
   "/infra/signing/":
     description: "Webhook signing keys"
-    allowed_identities: [api-dev, api-preview, api-prod, ci-cd, admin]
+    allowed_identities: [api-dev, api-preview, api-prod, admin]
 
 # =============================================================================
 # Environment Isolation

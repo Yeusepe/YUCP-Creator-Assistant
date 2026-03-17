@@ -2,6 +2,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
+  type AuditEvent,
+  type AuditTarget,
+  type AuditWriter,
+  ConsoleAuditWriter,
+  createAuditEvent,
+  createAuditHelper,
+} from '../src/logging/audit';
+import {
   type CorrelationContext,
   type CorrelationStorage,
   createChildSpanId,
@@ -11,7 +19,7 @@ import {
   runWithCorrelationContext,
   setCorrelationStorage,
 } from '../src/logging/correlation';
-
+import { createStructuredLogger, type LogEntry } from '../src/logging/index';
 import {
   isSensitiveField,
   redactEmail,
@@ -19,17 +27,6 @@ import {
   redactObject,
   redactString,
 } from '../src/logging/redaction';
-
-import {
-  type AuditEvent,
-  type AuditTarget,
-  type AuditWriter,
-  ConsoleAuditWriter,
-  createAuditEvent,
-  createAuditHelper,
-} from '../src/logging/audit';
-
-import { type LogEntry, createStructuredLogger } from '../src/logging/index';
 
 // Mock AsyncLocalStorage for testing
 class MockAsyncLocalStorage implements CorrelationStorage {

@@ -86,3 +86,32 @@ export interface VrchatVerifyOwnershipResult {
   ownedAvatarIds: string[];
   licensedAvatars: VrchatLicensedAvatar[];
 }
+
+/**
+ * Thrown by VrchatApiClient when the VRChat API returns 401 — the stored
+ * session has expired or been invalidated. The provider plugin layer
+ * (apps/api/src/providers/vrchat/index.ts) catches this and rethrows as
+ * the framework-level CredentialExpiredError.
+ *
+ * Source: https://vrchat.community/reference/get-product-listings
+ */
+export class VrchatSessionExpiredError extends Error {
+  constructor() {
+    super('VRChat session expired or invalid (HTTP 401)');
+    this.name = 'VrchatSessionExpiredError';
+  }
+}
+
+/**
+ * A single product listing from the VRChat creator store.
+ * Source: GET /api/1/user/{userId}/listings
+ * @see https://vrchat.community/reference/get-product-listings
+ * @see https://github.com/vrchatapi/specification/blob/main/openapi/components/paths/economy.yaml
+ */
+export interface VrchatProductListing {
+  id: string;
+  displayName: string;
+  listingType: string;
+  hasAvatar: boolean;
+  sellerId: string;
+}

@@ -13,9 +13,9 @@
  */
 
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
-import { mutation, query } from './_generated/server';
+import { internalMutation, mutation, query } from './_generated/server';
 import { VerificationModeV } from './lib/providers';
+import { requireApiSecret } from './lib/apiAuth';
 
 // ============================================================================
 // CONSTANTS
@@ -35,13 +35,6 @@ export const VerificationMode = VerificationModeV;
 
 export type VerificationMode = typeof VerificationMode.type;
 
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
-
 // ============================================================================
 // QUERIES
 // ============================================================================
@@ -55,7 +48,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
 export const getVerificationSessionByState = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     state: v.string(),
   },
   returns: v.union(
@@ -64,7 +57,7 @@ export const getVerificationSessionByState = query({
       session: v.object({
         _id: v.id('verification_sessions'),
         _creationTime: v.number(),
-        tenantId: v.id('tenants'),
+        authUserId: v.string(),
         subjectId: v.optional(v.id('subjects')),
         mode: VerificationModeV,
         providerKey: v.optional(v.string()),
@@ -72,7 +65,6 @@ export const getVerificationSessionByState = query({
         productId: v.optional(v.id('product_catalog')),
         state: v.string(),
         pkceVerifierHash: v.optional(v.string()),
-        pkceVerifier: v.optional(v.string()),
         redirectUri: v.string(),
         successRedirectUri: v.optional(v.string()),
         discordUserId: v.optional(v.string()),
@@ -100,7 +92,9 @@ export const getVerificationSessionByState = query({
     requireApiSecret(args.apiSecret);
     const session = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_tenant_state', (q) => q.eq('tenantId', args.tenantId).eq('state', args.state))
+      .withIndex('by_auth_user_state', (q) =>
+        q.eq('authUserId', args.authUserId).eq('state', args.state)
+      )
       .first();
 
     if (!session) {
@@ -138,7 +132,7 @@ export const getVerificationSessionByNonce = query({
       session: v.object({
         _id: v.id('verification_sessions'),
         _creationTime: v.number(),
-        tenantId: v.id('tenants'),
+        authUserId: v.string(),
         subjectId: v.optional(v.id('subjects')),
         mode: VerificationModeV,
         providerKey: v.optional(v.string()),
@@ -200,7 +194,7 @@ export const getVerificationSessionByNonce = query({
 export const getPendingSessionsForTenant = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.array(
     v.object({
@@ -216,7 +210,7 @@ export const getPendingSessionsForTenant = query({
     const now = Date.now();
     const sessions = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('status'), 'pending'))
       .filter((q) => q.gt(q.field('expiresAt'), now))
       .collect();
@@ -237,19 +231,18 @@ export const getPendingSessionsForTenant = query({
 
 /**
  * Create a new verification session.
- * Stores state, nonce, PKCE verifier hash, mode, tenantId, and expiry.
+ * Stores state, nonce, PKCE verifier hash, mode, authUserId, and expiry.
  * Requires apiSecret - called by API server only.
  */
 export const createVerificationSession = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     mode: VerificationMode,
     providerKey: v.optional(v.string()),
     verificationMethod: v.optional(v.string()),
     state: v.string(),
     pkceVerifierHash: v.optional(v.string()),
-    pkceVerifier: v.optional(v.string()),
     redirectUri: v.string(),
     successRedirectUri: v.optional(v.string()),
     discordUserId: v.optional(v.string()),
@@ -270,7 +263,9 @@ export const createVerificationSession = mutation({
     // Check for existing session with same state (replay protection)
     const existingSession = await ctx.db
       .query('verification_sessions')
-      .withIndex('by_tenant_state', (q) => q.eq('tenantId', args.tenantId).eq('state', args.state))
+      .withIndex('by_auth_user_state', (q) =>
+        q.eq('authUserId', args.authUserId).eq('state', args.state)
+      )
       .first();
 
     if (existingSession && existingSession.status === 'pending') {
@@ -292,13 +287,12 @@ export const createVerificationSession = mutation({
     }
 
     const sessionId = await ctx.db.insert('verification_sessions', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       mode: args.mode,
       providerKey: args.providerKey,
       verificationMethod: args.verificationMethod ?? args.mode,
       state: args.state,
       pkceVerifierHash: args.pkceVerifierHash,
-      pkceVerifier: args.pkceVerifier,
       redirectUri: args.redirectUri,
       successRedirectUri: args.successRedirectUri,
       discordUserId: args.discordUserId,
@@ -498,7 +492,7 @@ export const cancelVerificationSession = mutation({
  * Removes sessions that have been expired for more than CLEANUP_AGE_MS.
  * This is a maintenance mutation that should be called periodically.
  */
-export const cleanupExpiredSessions = mutation({
+export const cleanupExpiredSessions = internalMutation({
   args: {},
   returns: v.object({
     cleaned: v.number(),
@@ -546,7 +540,7 @@ export const cleanupExpiredSessions = mutation({
 export const getOrCreateSessionByNonce = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     mode: VerificationMode,
     providerKey: v.optional(v.string()),
     verificationMethod: v.optional(v.string()),
@@ -589,7 +583,7 @@ export const getOrCreateSessionByNonce = mutation({
     const expiresAt = now + SESSION_EXPIRY_MS;
 
     const sessionId = await ctx.db.insert('verification_sessions', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       mode: args.mode,
       providerKey: args.providerKey,
       verificationMethod: args.verificationMethod ?? args.mode,
@@ -626,3 +620,68 @@ export function generateState(): string {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+
+/**
+ * List verification sessions for a creator with optional filters and pagination.
+ */
+export const listByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    subjectId: v.optional(v.id('subjects')),
+    status: v.optional(v.string()),
+    mode: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('verification_sessions')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.subjectId) {
+      all = all.filter((s) => s.subjectId === args.subjectId);
+    }
+    if (args.status) {
+      all = all.filter((s) => s.status === args.status);
+    }
+    if (args.mode) {
+      all = all.filter((s) => s.mode === args.mode);
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+/**
+ * Get a single verification session by ID, scoped to authUserId.
+ */
+export const getSessionById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    sessionId: v.id('verification_sessions'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.sessionId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});

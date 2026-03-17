@@ -12,13 +12,7 @@ import {
   JinxxyApiError,
   JinxxyRateLimitError,
 } from '../../src/jinxxy/index';
-import type {
-  JinxxyCustomer,
-  JinxxyEvidence,
-  JinxxyLicense,
-  JinxxyOrder,
-  JinxxyPagination,
-} from '../../src/jinxxy/types';
+import type { JinxxyCustomer, JinxxyLicense, JinxxyOrder } from '../../src/jinxxy/types';
 import {
   isLicenseValid,
   isOrderValid,

@@ -10,11 +10,41 @@ export function base64ToBytes(value: string): Uint8Array {
   return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 }
 
+async function hmacSha256(keyBytes: ArrayBuffer, data: ArrayBuffer): Promise<ArrayBuffer> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  return crypto.subtle.sign('HMAC', key, data);
+}
+
+/**
+ * Derives a 256-bit AES-GCM key using RFC 5869 HKDF, implemented manually
+ * via HMAC-SHA256 because Convex's V8 runtime does not support
+ * `crypto.subtle.importKey` for the 'HKDF' algorithm.
+ */
 async function deriveKey(secret: string, purpose: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
-  const material = encoder.encode(`${purpose}:${secret}`);
-  const digest = await crypto.subtle.digest('SHA-256', material);
-  return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  const secretBytes = encoder.encode(secret);
+  const purposeBytes = encoder.encode(purpose);
+
+  // HKDF-Extract: PRK = HMAC-SHA256(salt=HashLen zeros, IKM=secret)
+  const salt = new Uint8Array(32);
+  const prk = await hmacSha256(salt.buffer as ArrayBuffer, secretBytes.buffer as ArrayBuffer);
+
+  // HKDF-Expand T(1) = HMAC-SHA256(PRK, info || 0x01) — 32 bytes = AES-256 key
+  const expandInput = new Uint8Array(purposeBytes.byteLength + 1);
+  expandInput.set(purposeBytes);
+  expandInput[purposeBytes.byteLength] = 0x01;
+  const okm = await hmacSha256(prk, expandInput.buffer as ArrayBuffer);
+
+  return crypto.subtle.importKey('raw', okm, { name: 'AES-GCM', length: 256 }, false, [
+    'encrypt',
+    'decrypt',
+  ]);
 }
 
 export async function encryptForPurpose(
@@ -84,13 +114,13 @@ export async function signValue(secret: string, value: string): Promise<string> 
 export function constantTimeEqual(left: string, right: string): boolean {
   const leftBytes = new TextEncoder().encode(left);
   const rightBytes = new TextEncoder().encode(right);
-  if (leftBytes.length !== rightBytes.length) {
-    return false;
-  }
+  const maxLen = Math.max(leftBytes.length, rightBytes.length);
 
-  let diff = 0;
-  for (let index = 0; index < leftBytes.length; index += 1) {
-    diff |= leftBytes[index] ^ rightBytes[index];
+  // Always iterate the full length so comparisons take constant time
+  // regardless of where the strings diverge or differ in length.
+  let diff = leftBytes.length ^ rightBytes.length;
+  for (let index = 0; index < maxLen; index += 1) {
+    diff |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
   }
   return diff === 0;
 }

@@ -17,11 +17,10 @@
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
-import { mutation, query } from './_generated/server';
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
+import { internalQuery, mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
+import { PII_PURPOSES } from './lib/credentialKeys';
+import { encryptPii, normalizeAndEncryptEmail } from './lib/piiCrypto';
 
 async function sha256Hex(input: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -92,13 +91,6 @@ export function buildDiscordProfileUrl(discordUserId: string): string {
   return `https://discord.com/users/${discordUserId}`;
 }
 
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
-
 // ============================================================================
 // INTERNAL QUERIES
 // ============================================================================
@@ -107,7 +99,7 @@ function requireApiSecret(apiSecret: string | undefined): void {
  * Internal query to find a subject by authUserId.
  * Used by sync operations to check for existing subjects.
  */
-export const findSubjectByAuthId = query({
+export const findSubjectByAuthId = internalQuery({
   args: {
     authUserId: v.string(),
   },
@@ -145,7 +137,7 @@ export const findSubjectByAuthId = query({
  * Internal query to find a subject by Discord user ID.
  * Used to detect account reconnection scenarios.
  */
-export const findSubjectByDiscordId = query({
+export const findSubjectByDiscordId = internalQuery({
   args: {
     discordUserId: v.string(),
   },
@@ -182,7 +174,7 @@ export const findSubjectByDiscordId = query({
 /**
  * Find external account by provider and provider user ID.
  */
-export const findExternalAccount = query({
+export const findExternalAccount = internalQuery({
   args: {
     provider: v.string(),
     providerUserId: v.string(),
@@ -382,12 +374,12 @@ export const syncUserFromAuth = mutation({
       await ctx.db.patch(existingExternalAccount._id, {
         providerUsername: fullUsername,
         providerMetadata: {
-          email: args.discord.email,
+          emailEncrypted: await encryptPii(args.discord.email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar),
           profileUrl: buildDiscordProfileUrl(args.discord.discordUserId),
-          rawData: {
-            discriminator: args.discord.discriminator,
-          },
+          rawDataEncrypted: args.discord.discriminator
+            ? await encryptPii(JSON.stringify({ discriminator: args.discord.discriminator }), PII_PURPOSES.externalAccountRawData)
+            : undefined,
         },
         lastValidatedAt: now,
         status: 'active', // Reactivate if was disconnected
@@ -400,12 +392,12 @@ export const syncUserFromAuth = mutation({
         providerUserId: args.discord.discordUserId,
         providerUsername: fullUsername,
         providerMetadata: {
-          email: args.discord.email,
+          emailEncrypted: await encryptPii(args.discord.email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar),
           profileUrl: buildDiscordProfileUrl(args.discord.discordUserId),
-          rawData: {
-            discriminator: args.discord.discriminator,
-          },
+          rawDataEncrypted: args.discord.discriminator
+            ? await encryptPii(JSON.stringify({ discriminator: args.discord.discriminator }), PII_PURPOSES.externalAccountRawData)
+            : undefined,
         },
         lastValidatedAt: now,
         status: 'active',
@@ -525,20 +517,18 @@ export const syncUserFromProvider = mutation({
       )
       .first();
 
-    const normalizedEmail = email ? normalizeEmail(email) : undefined;
-    const emailHash = normalizedEmail ? await sha256Hex(normalizedEmail) : undefined;
+    const { emailHash, normalizedEmailEncrypted } = await normalizeAndEncryptEmail(email, sha256Hex);
 
     if (existingAccount) {
       externalAccountId = existingAccount._id;
       await ctx.db.patch(externalAccountId, {
         providerUsername: username ?? existingAccount.providerUsername,
-        normalizedEmail,
         emailHash,
+        normalizedEmailEncrypted,
         providerMetadata: {
-          email: email,
+          emailEncrypted: await encryptPii(email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: avatarUrl,
           profileUrl: profileUrl,
-          rawData: existingAccount.providerMetadata?.rawData,
         },
         lastValidatedAt: now,
         status: 'active',
@@ -549,10 +539,10 @@ export const syncUserFromProvider = mutation({
         provider: args.provider,
         providerUserId: args.providerUserId,
         providerUsername: username,
-        normalizedEmail,
         emailHash,
+        normalizedEmailEncrypted,
         providerMetadata: {
-          email: email,
+          emailEncrypted: await encryptPii(email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: avatarUrl,
           profileUrl: profileUrl,
         },
@@ -613,46 +603,6 @@ export const storeDiscordToken = mutation({
     return { success: true };
   },
 });
-
-/**
- * Get Discord external accounts that have stored OAuth tokens.
- * Used by retroactive rule sync to proactively check guild membership.
- */
-export const getDiscordAccountsWithTokens = query({
-  args: {
-    apiSecret: v.string(),
-  },
-  returns: v.array(
-    v.object({
-      externalAccountId: v.id('external_accounts'),
-      providerUserId: v.string(),
-      discordAccessTokenEncrypted: v.string(),
-      discordTokenExpiresAt: v.optional(v.number()),
-      discordRefreshTokenEncrypted: v.optional(v.string()),
-    })
-  ),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    // Get all active Discord external accounts
-    const accounts = await ctx.db
-      .query('external_accounts')
-      .withIndex('by_provider', (q) => q.eq('provider', 'discord'))
-      .filter((q) => q.eq(q.field('status'), 'active'))
-      .collect();
-
-    // Filter to those with tokens
-    return accounts
-      .filter((a) => a.discordAccessTokenEncrypted)
-      .map((a) => ({
-        externalAccountId: a._id,
-        providerUserId: a.providerUserId,
-        discordAccessTokenEncrypted: a.discordAccessTokenEncrypted!,
-        discordTokenExpiresAt: a.discordTokenExpiresAt,
-        discordRefreshTokenEncrypted: a.discordRefreshTokenEncrypted,
-      }));
-  },
-});
-
 /**
  * Update subject status.
  * Used for account suspension, quarantine, or deletion.
@@ -720,7 +670,7 @@ export const markSubjectSuspicious = mutation({
     subjectId: v.id('subjects'),
     reason: v.string(),
     actorId: v.string(),
-    tenantId: v.optional(v.id('tenants')),
+    authUserId: v.optional(v.string()),
     quarantine: v.optional(v.boolean()),
   },
   returns: v.object({
@@ -728,10 +678,7 @@ export const markSubjectSuspicious = mutation({
     wasAlreadySuspicious: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const expected = process.env.CONVEX_API_SECRET;
-    if (!expected || args.apiSecret !== expected) {
-      throw new Error('Unauthorized: invalid or missing API secret');
-    }
+    requireApiSecret(args.apiSecret);
 
     const subject = await ctx.db.get(args.subjectId);
     if (!subject) {
@@ -754,7 +701,7 @@ export const markSubjectSuspicious = mutation({
     });
 
     await ctx.db.insert('audit_events', {
-      ...(args.tenantId && { tenantId: args.tenantId }),
+      ...(args.authUserId && { authUserId: args.authUserId }),
       eventType: 'subject.suspicious.marked',
       actorType: 'admin',
       actorId: args.actorId,
@@ -774,7 +721,7 @@ export const markSubjectSuspicious = mutation({
 export const listSuspiciousSubjects = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.optional(v.id('tenants')),
+    authUserId: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   returns: v.array(
@@ -787,17 +734,14 @@ export const listSuspiciousSubjects = query({
     })
   ),
   handler: async (ctx, args) => {
-    const expected = process.env.CONVEX_API_SECRET;
-    if (!expected || args.apiSecret !== expected) {
-      throw new Error('Unauthorized');
-    }
+    requireApiSecret(args.apiSecret);
     const limit = Math.min(args.limit ?? 25, 50);
     let subjectIds: Id<'subjects'>[];
-    if (args.tenantId) {
+    if (args.authUserId) {
       const events = await ctx.db
         .query('audit_events')
-        .withIndex('by_tenant_event', (q) =>
-          q.eq('tenantId', args.tenantId!).eq('eventType', 'subject.suspicious.marked')
+        .withIndex('by_auth_user_event', (q) =>
+          q.eq('authUserId', args.authUserId!).eq('eventType', 'subject.suspicious.marked')
         )
         .order('desc')
         .take(limit * 2);
@@ -849,16 +793,13 @@ export const clearSubjectSuspicious = mutation({
     apiSecret: v.string(),
     subjectId: v.id('subjects'),
     actorId: v.string(),
-    tenantId: v.optional(v.id('tenants')),
+    authUserId: v.optional(v.string()),
   },
   returns: v.object({
     success: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const expected = process.env.CONVEX_API_SECRET;
-    if (!expected || args.apiSecret !== expected) {
-      throw new Error('Unauthorized: invalid or missing API secret');
-    }
+    requireApiSecret(args.apiSecret);
 
     const subject = await ctx.db.get(args.subjectId);
     if (!subject) {
@@ -882,7 +823,7 @@ export const clearSubjectSuspicious = mutation({
     });
 
     await ctx.db.insert('audit_events', {
-      ...(args.tenantId && { tenantId: args.tenantId }),
+      ...(args.authUserId && { authUserId: args.authUserId }),
       eventType: 'subject.suspicious.cleared',
       actorType: 'admin',
       actorId: args.actorId,
@@ -940,10 +881,8 @@ export const linkExternalAccountToSubject = mutation({
     providerUsername: v.optional(v.string()),
     providerMetadata: v.optional(
       v.object({
-        email: v.optional(v.string()),
         avatarUrl: v.optional(v.string()),
         profileUrl: v.optional(v.string()),
-        rawData: v.optional(v.any()),
       })
     ),
   },
@@ -1102,10 +1041,12 @@ export const internalSyncUserFromAuth = mutation({
       await ctx.db.patch(existingAccount._id, {
         providerUsername: fullUsername,
         providerMetadata: {
-          email: args.discord.email,
+          emailEncrypted: await encryptPii(args.discord.email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar),
           profileUrl: buildDiscordProfileUrl(args.discord.discordUserId),
-          rawData: { discriminator: args.discord.discriminator },
+          rawDataEncrypted: args.discord.discriminator
+            ? await encryptPii(JSON.stringify({ discriminator: args.discord.discriminator }), PII_PURPOSES.externalAccountRawData)
+            : undefined,
         },
         lastValidatedAt: now,
         status: 'active',
@@ -1117,10 +1058,12 @@ export const internalSyncUserFromAuth = mutation({
         providerUserId: args.discord.discordUserId,
         providerUsername: fullUsername,
         providerMetadata: {
-          email: args.discord.email,
+          emailEncrypted: await encryptPii(args.discord.email, PII_PURPOSES.externalAccountMetadataEmail),
           avatarUrl: buildDiscordAvatarUrl(args.discord.discordUserId, args.discord.avatar),
           profileUrl: buildDiscordProfileUrl(args.discord.discordUserId),
-          rawData: { discriminator: args.discord.discriminator },
+          rawDataEncrypted: args.discord.discriminator
+            ? await encryptPii(JSON.stringify({ discriminator: args.discord.discriminator }), PII_PURPOSES.externalAccountRawData)
+            : undefined,
         },
         lastValidatedAt: now,
         status: 'active',

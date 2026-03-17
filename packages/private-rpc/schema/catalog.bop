@@ -1,0 +1,28 @@
+message ListProviderProductsRequest {
+  1 -> string authUserId;
+  2 -> string provider;
+}
+
+message ResolveProductNameRequest {
+  1 -> string authUserId;
+  2 -> string provider;
+  3 -> string urlOrId;
+}
+
+message ResolveProductNameResponse {
+  1 -> string name;
+  2 -> string error;
+}
+
+message UpsertProductCredentialRequest {
+  1 -> string authUserId;
+  2 -> string providerKey;
+  3 -> string productId;
+  4 -> string productSecretKey;
+}
+
+service Catalog {
+  listProviderProducts(ListProviderProductsRequest): ProductsResponse;
+  resolveProductName(ResolveProductNameRequest): ResolveProductNameResponse;
+  upsertProductCredential(UpsertProductCredentialRequest): SuccessResponse;
+}

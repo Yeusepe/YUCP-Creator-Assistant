@@ -1,20 +1,23 @@
 /**
- * YUCP Signing Log — Layer 2 defense.
+ * YUCP Signing Log, Layer 2 defense.
  *
  * Append-only transparency log recording every (contentHash, packageId, identity) triple.
  * If the same content hash is submitted by a different YUCP user, a conflict is detected
- * and the signing endpoint returns IDENTITY_CONFLICT — blocking the re-sign.
+ * and the signing endpoint returns IDENTITY_CONFLICT, blocking the re-sign.
  *
  * Identity is anchored to the Better Auth user ID (yucpUserId), not to any specific
- * storefront — so this works regardless of which stores a creator connects.
+ * storefront, so this works regardless of which stores a creator connects.
  *
  * Design inspired by:
  *   Sigstore Rekor (append-only, tamper-evident)  https://docs.sigstore.dev/logging/overview/
  *   Certificate Transparency (RFC 6962)           https://www.rfc-editor.org/rfc/rfc6962
  */
 
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { internalMutation, internalQuery } from './_generated/server';
+
+const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
+const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Queries
@@ -62,6 +65,14 @@ export const writeEntry = internalMutation({
     packageVersion: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<WriteEntryResult> => {
+    // c74/75: Validate input formats — packageId safe grammar, contentHash is SHA-256 hex.
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
+    }
+    if (!CONTENT_HASH_RE.test(args.contentHash)) {
+      throw new ConvexError(`Invalid contentHash: must be 64 lowercase hex characters`);
+    }
+
     const existing = await ctx.db
       .query('signing_log')
       .withIndex('by_content_and_package', (q) =>
@@ -79,7 +90,7 @@ export const writeEntry = internalMutation({
           existingPublisherId: existing.publisherId,
         };
       }
-      // Same identity, same content → legitimate re-sign (key rotation, etc.) — no-op
+      // Same identity, same content → legitimate re-sign (key rotation, etc.), no-op
       return { written: false, conflict: false };
     }
 

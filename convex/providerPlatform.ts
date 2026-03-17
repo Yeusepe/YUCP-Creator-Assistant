@@ -2,18 +2,12 @@ import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
 import { ProviderV } from './lib/providers';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { requireApiSecret } from './lib/apiAuth';
 
 export const upsertCatalogMapping = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     providerConnectionId: v.id('provider_connections'),
     providerKey: ProviderV,
     catalogProductId: v.optional(v.id('product_catalog')),
@@ -36,7 +30,7 @@ export const upsertCatalogMapping = mutation({
           .withIndex('by_external_variant', (q) =>
             q.eq('providerKey', args.providerKey).eq('externalVariantId', args.externalVariantId)
           )
-          .filter((q) => q.eq(q.field('tenantId'), args.tenantId))
+          .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
           .first()
       : null;
 
@@ -58,7 +52,7 @@ export const upsertCatalogMapping = mutation({
     }
 
     return await ctx.db.insert('provider_catalog_mappings', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       providerConnectionId: args.providerConnectionId,
       providerKey: args.providerKey,
       catalogProductId: args.catalogProductId,
@@ -81,7 +75,7 @@ export const upsertCatalogMapping = mutation({
 export const upsertProviderTransaction = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     providerConnectionId: v.id('provider_connections'),
     providerKey: ProviderV,
     externalTransactionId: v.string(),
@@ -121,7 +115,7 @@ export const upsertProviderTransaction = mutation({
           .eq('providerKey', args.providerKey)
           .eq('externalTransactionId', args.externalTransactionId)
       )
-      .filter((q) => q.eq(q.field('tenantId'), args.tenantId))
+      .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
       .first();
 
     if (existing) {
@@ -148,7 +142,7 @@ export const upsertProviderTransaction = mutation({
     }
 
     return await ctx.db.insert('provider_transactions', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       providerConnectionId: args.providerConnectionId,
       providerKey: args.providerKey,
       externalTransactionId: args.externalTransactionId,
@@ -177,7 +171,7 @@ export const upsertProviderTransaction = mutation({
 export const upsertProviderMembership = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     providerConnectionId: v.id('provider_connections'),
     providerKey: ProviderV,
     externalMembershipId: v.string(),
@@ -211,7 +205,7 @@ export const upsertProviderMembership = mutation({
       .withIndex('by_external_id', (q) =>
         q.eq('providerKey', args.providerKey).eq('externalMembershipId', args.externalMembershipId)
       )
-      .filter((q) => q.eq(q.field('tenantId'), args.tenantId))
+      .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
       .first();
 
     if (existing) {
@@ -235,7 +229,7 @@ export const upsertProviderMembership = mutation({
     }
 
     return await ctx.db.insert('provider_memberships', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       providerConnectionId: args.providerConnectionId,
       providerKey: args.providerKey,
       externalMembershipId: args.externalMembershipId,
@@ -261,7 +255,7 @@ export const upsertProviderMembership = mutation({
 export const upsertProviderLicense = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     providerConnectionId: v.id('provider_connections'),
     providerKey: ProviderV,
     externalLicenseId: v.string(),
@@ -296,7 +290,7 @@ export const upsertProviderLicense = mutation({
       .withIndex('by_external_id', (q) =>
         q.eq('providerKey', args.providerKey).eq('externalLicenseId', args.externalLicenseId)
       )
-      .filter((q) => q.eq(q.field('tenantId'), args.tenantId))
+      .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
       .first();
 
     if (existing) {
@@ -322,7 +316,7 @@ export const upsertProviderLicense = mutation({
     }
 
     return await ctx.db.insert('provider_licenses', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       providerConnectionId: args.providerConnectionId,
       providerKey: args.providerKey,
       externalLicenseId: args.externalLicenseId,
@@ -350,7 +344,7 @@ export const upsertProviderLicense = mutation({
 export const upsertEntitlementEvidence = mutation({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     subjectId: v.optional(v.id('subjects')),
     providerKey: ProviderV,
     providerConnectionId: v.optional(v.id('provider_connections')),
@@ -380,7 +374,7 @@ export const upsertEntitlementEvidence = mutation({
       .withIndex('by_source_reference', (q) =>
         q.eq('providerKey', args.providerKey).eq('sourceReference', args.sourceReference)
       )
-      .filter((q) => q.eq(q.field('tenantId'), args.tenantId))
+      .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
       .first();
 
     if (existing) {
@@ -402,7 +396,7 @@ export const upsertEntitlementEvidence = mutation({
     }
 
     return await ctx.db.insert('entitlement_evidence', {
-      tenantId: args.tenantId,
+      authUserId: args.authUserId,
       subjectId: args.subjectId,
       providerKey: args.providerKey,
       providerConnectionId: args.providerConnectionId,
@@ -447,7 +441,7 @@ export const getProviderConnectionAdmin = query({
     v.null(),
     v.object({
       connectionId: v.id('provider_connections'),
-      tenantId: v.id('tenants'),
+      authUserId: v.string(),
       providerKey: ProviderV,
       provider: v.string(),
       label: v.optional(v.string()),
@@ -474,7 +468,7 @@ export const getProviderConnectionAdmin = query({
 
     return {
       connectionId: connection._id,
-      tenantId: connection.tenantId,
+      authUserId: connection.authUserId,
       providerKey: (connection.providerKey ?? connection.provider) as any,
       provider: connection.provider,
       label: connection.label,
@@ -560,7 +554,7 @@ export const updateProviderConnectionState = mutation({
 export const listCatalogProductsForTenant = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
   },
   returns: v.array(
     v.object({
@@ -577,7 +571,7 @@ export const listCatalogProductsForTenant = query({
     requireApiSecret(args.apiSecret);
     const products = await ctx.db
       .query('product_catalog')
-      .withIndex('by_tenant', (q) => q.eq('tenantId', args.tenantId))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
 
@@ -595,7 +589,7 @@ export const listCatalogProductsForTenant = query({
 
 async function findSubjectByEmailHash(
   ctx: any,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   emailHash: string
 ): Promise<Id<'subjects'> | null> {
   const externalAccounts = await ctx.db
@@ -607,8 +601,8 @@ async function findSubjectByEmailHash(
   for (const account of externalAccounts) {
     const binding = await ctx.db
       .query('bindings')
-      .withIndex('by_tenant_external', (q: any) =>
-        q.eq('tenantId', tenantId).eq('externalAccountId', account._id)
+      .withIndex('by_auth_user_external', (q: any) =>
+        q.eq('authUserId', authUserId).eq('externalAccountId', account._id)
       )
       .filter((q: any) => q.eq(q.field('status'), 'active'))
       .first();
@@ -623,12 +617,12 @@ async function findSubjectByEmailHash(
 export const resolveTenantSubjectByEmailHash = query({
   args: {
     apiSecret: v.string(),
-    tenantId: v.id('tenants'),
+    authUserId: v.string(),
     emailHash: v.string(),
   },
   returns: v.union(v.null(), v.id('subjects')),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    return await findSubjectByEmailHash(ctx, args.tenantId, args.emailHash);
+    return await findSubjectByEmailHash(ctx, args.authUserId, args.emailHash);
   },
 });

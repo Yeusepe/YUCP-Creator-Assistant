@@ -2,6 +2,7 @@
  * /creator-admin setup start - Opens the dashboard for configuration
  */
 
+import { PROVIDER_REGISTRY, type ProviderDescriptor } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,
@@ -17,13 +18,22 @@ import {
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E } from '../lib/emojis';
-import { createSetupSessionToken } from '../lib/internalRpc';
+import { createConnectToken, createSetupSessionToken } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 
 const SETUP_PREFIX = 'creator_setup:';
 
+/** Comma-/or-separated list of active commerce provider labels for embed text. */
+const ACTIVE_COMMERCE_PROVIDER_LIST = (() => {
+  const labels = (PROVIDER_REGISTRY as readonly ProviderDescriptor[])
+    .filter((p) => p.status === 'active' && p.category === 'commerce')
+    .map((p) => p.label);
+  if (labels.length <= 2) return labels.join(' or ');
+  return `${labels.slice(0, -1).join(', ')}, or ${labels[labels.length - 1]}`;
+})();
+
 export interface SetupContext {
-  tenantId: Id<'tenants'>;
+  authUserId: string;
   guildLinkId: Id<'guild_links'>;
   guildId: string;
 }
@@ -31,12 +41,12 @@ export interface SetupContext {
 export async function runSetupStart(
   interaction: ChatInputCommandInteraction,
   _convex: ConvexHttpClient,
-  apiSecret: string,
+  _apiSecret: string,
   ctx: SetupContext
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const { apiInternal, apiPublic, webPublic } = getApiUrls();
+  const { apiPublic, webPublic } = getApiUrls();
   if (!apiPublic) {
     throw new Error('API_BASE_URL is not configured for the bot service');
   }
@@ -52,7 +62,7 @@ export async function runSetupStart(
   try {
     setupToken =
       (await createSetupSessionToken({
-        tenantId: ctx.tenantId,
+        authUserId: ctx.authUserId,
         guildId: ctx.guildId,
         discordUserId: interaction.user.id,
       })) ?? '';
@@ -70,7 +80,7 @@ export async function runSetupStart(
     return;
   }
 
-  const dashboardUrl = `${apiBase}/dashboard?tenant_id=${ctx.tenantId}&guild_id=${ctx.guildId}#s=${encodeURIComponent(setupToken)}`;
+  const dashboardUrl = `${apiBase}/dashboard?tenant_id=${ctx.authUserId}&guild_id=${ctx.guildId}#s=${encodeURIComponent(setupToken)}`;
 
   const embed = new EmbedBuilder()
     .setTitle(`${E.Wrench} Creator Setup`)
@@ -80,7 +90,7 @@ export async function runSetupStart(
     .setColor(0x5865f2)
     .addFields(
       {
-        name: '1. Connect Gumroad or Jinxxy',
+        name: `1. Connect ${ACTIVE_COMMERCE_PROVIDER_LIST}`,
         value:
           'Use the platform cards in the dashboard to connect the storefronts you sell through.',
         inline: false,
@@ -112,8 +122,77 @@ export async function runSetupStart(
   });
 
   track(interaction.user.id, 'setup_started', {
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
     guildId: ctx.guildId,
+  });
+}
+
+/**
+ * Shows the setup panel for a server that hasn't been registered yet.
+ * Generates a connect token so the admin can sign in and register the server in one click.
+ */
+export async function runSetupStartUnconfigured(
+  interaction: ChatInputCommandInteraction,
+  guildId: string
+): Promise<void> {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const { webPublic, apiPublic } = getApiUrls();
+  const linkBase = webPublic ?? apiPublic;
+
+  if (!linkBase) {
+    await interaction.editReply({
+      content:
+        'This server is not yet configured. Visit the Creator Portal to set it up (API_BASE_URL not configured).',
+    });
+    return;
+  }
+
+  let dashboardUrl = `${linkBase}/dashboard?guild_id=${guildId}`;
+  try {
+    const token = await createConnectToken({ discordUserId: interaction.user.id, guildId });
+    if (token) {
+      dashboardUrl = `${linkBase}/dashboard?guild_id=${guildId}#token=${token}`;
+    }
+  } catch (_) {
+    // Use URL without token as fallback
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${E.Wrench} Creator Setup`)
+    .setDescription(
+      'This server is not yet registered. Sign in to the Creator Portal to link this server and connect your stores.'
+    )
+    .setColor(0x5865f2)
+    .addFields(
+      {
+        name: '1. Sign In & Register This Server',
+        value:
+          'Click the button below. Sign in with your creator account and the portal will automatically link this server.',
+        inline: false,
+      },
+      {
+        name: '2. Connect Your Stores',
+        value: `Connect ${ACTIVE_COMMERCE_PROVIDER_LIST} from the dashboard.`,
+        inline: false,
+      },
+      {
+        name: '3. Return to Discord',
+        value: 'After setup, run `/creator-admin autosetup` to finish role and channel automation.',
+        inline: false,
+      }
+    );
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setLabel('Sign In & Setup Server')
+      .setStyle(ButtonStyle.Link)
+      .setURL(dashboardUrl)
+  );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [row],
   });
 }
 
@@ -144,10 +223,10 @@ export async function handleSetupJinxxyModal(
   });
 }
 
-export function buildSetupStep2Components(_tenantId: Id<'tenants'>) {
+export function buildSetupStep2Components(_authUserId: string) {
   return { logChannelSelect: null, jinxxyButton: null };
 }
 
-export function buildJinxxyModal(_tenantId: Id<'tenants'>) {
+export function buildJinxxyModal(_authUserId: string) {
   return null;
 }

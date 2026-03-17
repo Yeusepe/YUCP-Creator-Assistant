@@ -29,7 +29,7 @@ const isProd = process.argv.includes('--prod');
 async function runConvexEnvSet(
   name: string,
   value: string,
-  env: Record<string, string | undefined>,
+  env: Record<string, string | undefined>
 ): Promise<void> {
   const args = ['convex', 'env', 'set', name, value];
   if (isProd) {
@@ -58,16 +58,23 @@ async function runConvexEnvSet(
 async function main() {
   const secrets = await fetchInfisicalSecrets();
   if (Object.keys(secrets).length === 0) {
+    if (isProd) {
+      console.error('sync-convex-env: FATAL - No secrets returned from Infisical in production. Refusing to deploy with potentially stale/missing secrets.');
+      process.exit(1);
+    }
     console.warn('sync-convex-env: No secrets from Infisical, skipping');
     process.exit(0);
   }
 
   const deployKey = isProd
-    ? secrets.CONVEX_DEPLOY_KEY_PROD ?? process.env.CONVEX_DEPLOY_KEY_PROD
-    : secrets.CONVEX_DEPLOY_KEY ?? secrets.CONVEX_API_SECRET ?? process.env.CONVEX_DEPLOY_KEY ?? process.env.CONVEX_API_SECRET;
+    ? (secrets.CONVEX_DEPLOY_KEY_PROD ?? process.env.CONVEX_DEPLOY_KEY_PROD)
+    : (secrets.CONVEX_DEPLOY_KEY ??
+      secrets.CONVEX_API_SECRET ??
+      process.env.CONVEX_DEPLOY_KEY ??
+      process.env.CONVEX_API_SECRET);
   const deployment = isProd
-    ? secrets.CONVEX_DEPLOYMENT_PROD ?? process.env.CONVEX_DEPLOYMENT_PROD
-    : secrets.CONVEX_DEPLOYMENT ?? process.env.CONVEX_DEPLOYMENT;
+    ? (secrets.CONVEX_DEPLOYMENT_PROD ?? process.env.CONVEX_DEPLOYMENT_PROD)
+    : (secrets.CONVEX_DEPLOYMENT ?? process.env.CONVEX_DEPLOYMENT);
 
   if (!deployKey && !deployment) {
     console.warn(
@@ -84,6 +91,10 @@ async function main() {
   }
 
   if (changes.length === 0) {
+    if (isProd) {
+      console.error('sync-convex-env: FATAL - No auth secrets to sync in production.');
+      process.exit(1);
+    }
     console.warn('sync-convex-env: No auth secrets to sync, skipping');
     process.exit(0);
   }
@@ -98,7 +109,9 @@ async function main() {
     await runConvexEnvSet(change.name, change.value, childEnv);
   }
 
-  console.log(`sync-convex-env: Synced ${changes.length} vars to Convex ${isProd ? 'prod' : 'dev'}`);
+  console.log(
+    `sync-convex-env: Synced ${changes.length} vars to Convex ${isProd ? 'prod' : 'dev'}`
+  );
 }
 
 main().catch((err) => {

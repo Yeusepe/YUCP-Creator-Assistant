@@ -31,47 +31,46 @@
  * ```
  */
 
+export type {
+  DecryptOptions,
+  EncryptOptions,
+} from './envelope';
+// Re-export envelope encryption functions
+export {
+  createAAD,
+  decrypt,
+  decryptToBytes,
+  encrypt,
+  extractKeyMetadata,
+  isKeyVersion,
+  reEncrypt,
+  validatePayload,
+} from './envelope';
 // Re-export all types
 export type {
-  EncryptionAAD,
+  DEK,
   EncryptedPayload,
+  EncryptionAAD,
   KEKReference,
   TokenProvider,
   TokenType,
   WrappedDEK,
-  DEK,
 } from './keys';
-
-export type {
-  EncryptOptions,
-  DecryptOptions,
-} from './envelope';
-
 // Re-export key management functions
 export {
-  generateDEK,
-  importDEK,
+  aadToBytes,
+  base64ToBytes,
+  bytesToBase64,
   exportDEK,
+  generateDEK,
+  generateIV,
+  importDEK,
   importKEK,
   importKEKForGCM,
-  wrapDEK,
   unwrapDEK,
-  wrapDEKWithGCM,
   unwrapDEKWithGCM,
-  generateIV,
-  aadToBytes,
-  bytesToBase64,
-  base64ToBytes,
+  wrapDEK,
+  wrapDEKWithGCM,
 } from './keys';
-
-// Re-export envelope encryption functions
-export {
-  encrypt,
-  decrypt,
-  decryptToBytes,
-  reEncrypt,
-  validatePayload,
-  createAAD,
-  isKeyVersion,
-  extractKeyMetadata,
-} from './envelope';
+// Re-export timing-safe comparison
+export { timingSafeStringEqual } from './timingSafeEqual';

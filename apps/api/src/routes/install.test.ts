@@ -9,9 +9,9 @@ import { describe, expect, it } from 'bun:test';
 import { createAuth } from '../auth';
 import {
   BOT_PERMISSIONS,
-  type InstallConfig,
   createInstallRoutes,
   generateState,
+  type InstallConfig,
   storeInstallState,
   validateInstallState,
 } from './install';
@@ -52,14 +52,12 @@ describe('Install State Management', () => {
   describe('storeInstallState and validateInstallState', () => {
     it('stores and retrieves state', async () => {
       const state = generateState();
-      const tenantId = 'tenant-123';
       const authUserId = 'user-456';
 
-      await storeInstallState(state, tenantId, authUserId);
+      await storeInstallState(state, authUserId);
       const retrieved = await validateInstallState(state);
 
       expect(retrieved).not.toBeNull();
-      expect(retrieved?.tenantId).toBe(tenantId);
       expect(retrieved?.authUserId).toBe(authUserId);
     });
 
@@ -70,10 +68,9 @@ describe('Install State Management', () => {
 
     it('consumes state on validation (single use)', async () => {
       const state = generateState();
-      const tenantId = 'tenant-123';
       const authUserId = 'user-456';
 
-      await storeInstallState(state, tenantId, authUserId);
+      await storeInstallState(state, authUserId);
 
       const first = await validateInstallState(state);
       expect(first).not.toBeNull();
@@ -87,7 +84,7 @@ describe('Install State Management', () => {
 describe('Install Routes', () => {
   describe('initiateBotInstall', () => {
     it('returns 401 when not authenticated', async () => {
-      const request = new Request('http://localhost:3001/api/install/bot?tenantId=tenant-123');
+      const request = new Request('http://localhost:3001/api/install/bot?authUserId=user-456');
       const response = await routes.initiateBotInstall(request);
 
       expect(response.status).toBe(401);

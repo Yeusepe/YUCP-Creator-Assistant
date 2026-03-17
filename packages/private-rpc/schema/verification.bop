@@ -1,0 +1,46 @@
+message BindVerifyPanelRequest {
+  1 -> string applicationId;
+  2 -> string discordUserId;
+  3 -> string guildId;
+  4 -> string interactionToken;
+  5 -> string messageId;
+  6 -> string panelToken;
+  7 -> string authUserId;
+}
+
+message CompleteLicenseVerificationRequest {
+  1 -> string licenseKey;
+  2 -> string productId;
+  3 -> string authUserId;
+  4 -> string subjectId;
+  5 -> string discordUserId;
+}
+
+message CompleteVrchatVerificationRequest {
+  1 -> string authUserId;
+  2 -> string subjectId;
+  3 -> string username;
+  4 -> string password;
+  5 -> string twoFactorCode;
+}
+
+message DisconnectVerificationRequest {
+  1 -> string authUserId;
+  2 -> string subjectId;
+  3 -> string provider;
+}
+
+message VerificationResultResponse {
+  1 -> bool success;
+  2 -> string error;
+  3 -> string provider;
+  4 -> string supportCode;
+  5 -> string[] entitlementIds;
+}
+
+service Verification {
+  bindVerifyPanel(BindVerifyPanelRequest): SuccessResponse;
+  completeLicenseVerification(CompleteLicenseVerificationRequest): VerificationResultResponse;
+  completeVrchatVerification(CompleteVrchatVerificationRequest): VerificationResultResponse;
+  disconnectVerification(DisconnectVerificationRequest): SuccessResponse;
+}

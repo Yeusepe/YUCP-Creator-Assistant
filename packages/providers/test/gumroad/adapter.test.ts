@@ -4,7 +4,7 @@
  * Tests the OAuth flow, token management, and purchase verification.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   type EncryptionService,
   GumroadAdapter,
@@ -14,11 +14,7 @@ import {
   OAuthError,
   type TokenStorage,
 } from '../../src/gumroad/index';
-import type {
-  AuthorizationUrlResult,
-  GumroadPurchaseEvidence,
-  GumroadSale,
-} from '../../src/gumroad/types';
+import type { GumroadSale } from '../../src/gumroad/types';
 import { getSaleStatus, isSaleValid, normalizeSaleToEvidence } from '../../src/gumroad/types';
 
 // Test configuration
@@ -38,21 +34,21 @@ class MockTokenStorage implements TokenStorage {
   >();
 
   async storeTokens(
-    tenantId: string,
+    authUserId: string,
     gumroadUserId: string,
     accessToken: string,
     refreshToken: string,
     expiresAt: number
   ): Promise<void> {
-    this.tokens.set(`${tenantId}:${gumroadUserId}`, { accessToken, refreshToken, expiresAt });
+    this.tokens.set(`${authUserId}:${gumroadUserId}`, { accessToken, refreshToken, expiresAt });
   }
 
-  async getTokens(tenantId: string, gumroadUserId: string) {
-    return this.tokens.get(`${tenantId}:${gumroadUserId}`) ?? null;
+  async getTokens(authUserId: string, gumroadUserId: string) {
+    return this.tokens.get(`${authUserId}:${gumroadUserId}`) ?? null;
   }
 
-  async deleteTokens(tenantId: string, gumroadUserId: string): Promise<void> {
-    this.tokens.delete(`${tenantId}:${gumroadUserId}`);
+  async deleteTokens(authUserId: string, gumroadUserId: string): Promise<void> {
+    this.tokens.delete(`${authUserId}:${gumroadUserId}`);
   }
 
   clear(): void {
@@ -83,7 +79,7 @@ describe('GumroadOAuthClient', () => {
 
   describe('getAuthorizationUrl', () => {
     it('should generate a valid authorization URL', async () => {
-      const result = await client.getAuthorizationUrl('tenant-123');
+      const result = await client.getAuthorizationUrl('user_test123');
 
       expect(result.url).toContain('https://test-oauth.gumroad.com/oauth/authorize');
       expect(result.url).toContain('client_id=test-client-id');
@@ -96,7 +92,7 @@ describe('GumroadOAuthClient', () => {
     });
 
     it('should include custom scope if provided', async () => {
-      const result = await client.getAuthorizationUrl('tenant-123', {
+      const result = await client.getAuthorizationUrl('user_test123', {
         scope: 'view_profile',
       });
 
@@ -104,8 +100,8 @@ describe('GumroadOAuthClient', () => {
     });
 
     it('should generate unique state and code verifier each time', async () => {
-      const result1 = await client.getAuthorizationUrl('tenant-123');
-      const result2 = await client.getAuthorizationUrl('tenant-123');
+      const result1 = await client.getAuthorizationUrl('user_test123');
+      const result2 = await client.getAuthorizationUrl('user_test123');
 
       expect(result1.state).not.toBe(result2.state);
       expect(result1.codeVerifier).not.toBe(result2.codeVerifier);
@@ -135,9 +131,9 @@ describe('GumroadOAuthClient', () => {
 
   describe('createState', () => {
     it('should create a state object with tenant and subject IDs', () => {
-      const state = client.createState('tenant-123', 'subject-456');
+      const state = client.createState('user_test123', 'subject-456');
 
-      expect(state.tenantId).toBe('tenant-123');
+      expect(state.authUserId).toBe('user_test123');
       expect(state.subjectId).toBe('subject-456');
       expect(state.state).toHaveLength(32);
       expect(state.createdAt).toBeLessThanOrEqual(Date.now());
@@ -146,14 +142,14 @@ describe('GumroadOAuthClient', () => {
 
   describe('isStateExpired', () => {
     it('should return false for fresh state', () => {
-      const state = client.createState('tenant-123');
+      const state = client.createState('user_test123');
       expect(client.isStateExpired(state)).toBe(false);
     });
 
     it('should return true for expired state', () => {
       const state = {
         state: 'test',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         createdAt: Date.now() - 600001, // 10+ minutes ago
       };
       expect(client.isStateExpired(state)).toBe(true);
@@ -186,7 +182,7 @@ describe('GumroadAdapter', () => {
 
   describe('beginVerification', () => {
     it('should generate an authorization URL and store state', async () => {
-      const result = await adapter.beginVerification('tenant-123', 'subject-456');
+      const result = await adapter.beginVerification('user_test123', 'subject-456');
 
       expect(result.url).toContain('oauth/authorize');
       expect(result.state).toBeDefined();
@@ -195,7 +191,7 @@ describe('GumroadAdapter', () => {
       // Verify state was stored: consumeState returns data on first call, then deletes
       const stateData = await stateStorage.consumeState(result.state);
       expect(stateData).not.toBeNull();
-      expect(stateData?.tenantId).toBe('tenant-123');
+      expect(stateData?.authUserId).toBe('user_test123');
       expect(stateData?.codeVerifier).toBeDefined();
       // Second call returns null (already consumed)
       const consumedAgain = await stateStorage.consumeState(result.state);
@@ -269,16 +265,16 @@ describe('GumroadAdapter', () => {
   describe('revokeAccess', () => {
     it('should delete tokens from storage', async () => {
       await tokenStorage.storeTokens(
-        'tenant-123',
+        'user_test123',
         'gumroad-456',
         'access',
         'refresh',
         Date.now() + 3600000
       );
 
-      await adapter.revokeAccess('tenant-123', 'gumroad-456');
+      await adapter.revokeAccess('user_test123', 'gumroad-456');
 
-      const tokens = await tokenStorage.getTokens('tenant-123', 'gumroad-456');
+      const tokens = await tokenStorage.getTokens('user_test123', 'gumroad-456');
       expect(tokens).toBeNull();
     });
   });
@@ -497,7 +493,7 @@ describe('InMemoryStateStorage', () => {
 
   it('should store and retrieve state', async () => {
     await storage.storeState('state-123', {
-      tenantId: 'tenant-456',
+      authUserId: 'user_test456',
       subjectId: 'subject-789',
       codeVerifier: 'verifier-abc',
     });
@@ -505,7 +501,7 @@ describe('InMemoryStateStorage', () => {
     const data = await storage.consumeState('state-123');
 
     expect(data).toEqual({
-      tenantId: 'tenant-456',
+      authUserId: 'user_test456',
       subjectId: 'subject-789',
       codeVerifier: 'verifier-abc',
     });
@@ -513,7 +509,7 @@ describe('InMemoryStateStorage', () => {
 
   it('should delete state after consumption', async () => {
     await storage.storeState('state-123', {
-      tenantId: 'tenant-456',
+      authUserId: 'user_test456',
       codeVerifier: 'verifier-abc',
     });
 

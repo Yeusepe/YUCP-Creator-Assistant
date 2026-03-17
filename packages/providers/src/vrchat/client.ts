@@ -14,9 +14,11 @@ import type {
   VrchatCurrentUser,
   VrchatLicensedAvatar,
   VrchatPendingLoginState,
+  VrchatProductListing,
   VrchatSessionTokens,
   VrchatVerifyOwnershipResult,
 } from './types';
+import { VrchatSessionExpiredError } from './types';
 
 const VRCHAT_API_BASE = 'https://api.vrchat.cloud/api/1';
 const VRCHAT_USER_AGENT = 'YUCP Creator Assistant/0.1.0 (https://yucp.app)';
@@ -390,6 +392,11 @@ export class VrchatApiClient {
       const page = await this.getLicensedAvatars(session, pageSize, offset);
       for (const avatar of page) {
         ownedAvatarIds.push(avatar.id);
+        // Also track productId so that prod_xxx refs can be verified without
+        // a separate lookup. The productId is already present in the type.
+        if (avatar.productId) {
+          ownedAvatarIds.push(avatar.productId);
+        }
         licensedAvatars.push(avatar);
       }
       if (page.length < pageSize) break;
@@ -419,8 +426,45 @@ export class VrchatApiClient {
   }
 
   /**
+   * Fetch all product listings from this creator's VRChat store.
+   *
+   * Calls GET /auth/user first to obtain the userId, then calls
+   * GET /user/{userId}/listings to retrieve the creator's listings.
+   * Throws VrchatSessionExpiredError when the session is invalid (HTTP 401).
+   *
+   * Source: https://vrchat.community/reference/get-product-listings
+   * OpenAPI: https://github.com/vrchatapi/specification/blob/main/openapi/components/paths/economy.yaml
+   */
+  async getProductListings(session: VrchatSessionTokens): Promise<VrchatProductListing[]> {
+    const user = await this.getCurrentUser(session.authToken, session.twoFactorAuthToken);
+    if (!user) {
+      throw new VrchatSessionExpiredError();
+    }
+
+    const { response, data } = await request(`/user/${encodeURIComponent(user.id)}/listings`, {
+      method: 'GET',
+      headers: { cookie: buildCookieHeader(session) },
+    });
+
+    if (response.status === 401) {
+      throw new VrchatSessionExpiredError();
+    }
+
+    if (!Array.isArray(data)) return [];
+
+    return data.filter(
+      (entry): entry is VrchatProductListing =>
+        !!entry &&
+        typeof entry === 'object' &&
+        typeof (entry as VrchatProductListing).id === 'string'
+    );
+  }
+
+  /**
    * Look up a single avatar by ID. Returns `{ id, name }` or null if not found / inaccessible.
    * Requires an active session (any authenticated VRChat account).
+   *
+   * Source: https://vrchat.community/reference/get-avatar
    */
   async getAvatarById(
     session: VrchatSessionTokens,

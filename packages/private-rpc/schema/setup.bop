@@ -1,0 +1,35 @@
+message CreateSetupSessionRequest {
+  1 -> string authUserId;
+  2 -> string guildId;
+  3 -> string discordUserId;
+}
+
+message CreateConnectTokenRequest {
+  1 -> string discordUserId;
+  2 -> string guildId;
+}
+
+message CreateDiscordRoleSetupSessionRequest {
+  1 -> string authUserId;
+  2 -> string guildId;
+  3 -> string adminDiscordUserId;
+}
+
+message GetDiscordRoleSetupResultRequest {
+  1 -> string token;
+}
+
+message DiscordRoleSetupResultResponse {
+  1 -> bool completed;
+  2 -> string sourceGuildId;
+  3 -> string sourceRoleId;
+  4 -> string[] sourceRoleIds;
+  5 -> string requiredRoleMatchMode;
+}
+
+service Setup {
+  createSetupSession(CreateSetupSessionRequest): TokenResponse;
+  createConnectToken(CreateConnectTokenRequest): TokenResponse;
+  createDiscordRoleSetupSession(CreateDiscordRoleSetupSessionRequest): TokenResponse;
+  getDiscordRoleSetupResult(GetDiscordRoleSetupResultRequest): DiscordRoleSetupResultResponse;
+}

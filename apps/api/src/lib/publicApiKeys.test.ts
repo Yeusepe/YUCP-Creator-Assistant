@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  PUBLIC_API_KEY_PREFIX,
   generatePublicApiKeyValue,
   getPublicApiKeyPrefix,
   hashPublicApiKey,
+  PUBLIC_API_KEY_PREFIX,
 } from './publicApiKeys';
 
 describe('publicApiKeys', () => {

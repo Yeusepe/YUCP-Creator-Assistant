@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { type VerificationConfig, createVerificationRoutes } from './sessionManager';
+import { createVerificationRoutes, type VerificationConfig } from './sessionManager';
 
 const originalFetch = globalThis.fetch;
 const originalWarn = console.warn;
@@ -44,7 +44,7 @@ describe('verification support codes in api routes', () => {
           interactionToken: 'token_123',
           messageId: 'message_123',
           panelToken: 'panel_123',
-          tenantId: 'tenant_123',
+          authUserId: 'user_test123',
         }),
         headers: {
           'content-type': 'application/json',

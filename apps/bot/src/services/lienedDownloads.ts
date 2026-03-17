@@ -58,7 +58,7 @@ type SendableTextChannel = TextBasedChannel & {
 
 type DownloadRoute = {
   _id: string;
-  tenantId: string;
+  authUserId: string;
   guildId: string;
   guildLinkId: string;
   sourceChannelId: string;
@@ -176,13 +176,52 @@ function selectRoute(
   return null;
 }
 
+const MAX_ATTACHMENT_SIZE = 500 * 1024 * 1024;
+
 async function fetchAttachmentBuffer(url: string): Promise<Buffer> {
-  const response = await fetch(url);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!response.ok) {
     throw new Error(`Failed to fetch attachment: HTTP ${response.status}`);
   }
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+
+  const contentLength = response.headers.get('content-length');
+  if (contentLength && parseInt(contentLength, 10) > MAX_ATTACHMENT_SIZE) {
+    throw new Error(`Attachment too large: Content-Length ${contentLength} exceeds 500 MB limit`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('Response body is not readable');
+  }
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.length;
+      if (totalBytes > MAX_ATTACHMENT_SIZE) {
+        controller.abort();
+        throw new Error('Attachment too large: exceeds 500 MB limit during download');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks);
 }
 
 async function delay(ms: number): Promise<void> {
@@ -222,7 +261,7 @@ async function fetchAttachmentBufferWithRetry(
   );
 }
 
-async function buildRelayFiles(
+async function _buildRelayFiles(
   message: Message,
   matchedFiles: MatchedFile[]
 ): Promise<AttachmentBuilder[]> {
@@ -758,7 +797,7 @@ export class LienedDownloadsService {
     }
     const artifact = (await this.convex.mutation(api.downloads.createArtifact, {
       apiSecret: this.apiSecret,
-      tenantId: route.tenantId,
+      authUserId: route.authUserId,
       guildId: route.guildId,
       routeId: route._id,
       sourceChannelId: message.channelId,

@@ -16,7 +16,7 @@
  * - Short-lived tokens (verification-session-bound)
  */
 
-import { type EncryptedPayload, createAAD, decrypt, encrypt } from '@yucp/shared';
+import { createAAD, decrypt, type EncryptedPayload, encrypt } from '@yucp/shared';
 import {
   DEFAULT_SCOPES,
   type DiscordAPIError,
@@ -112,7 +112,7 @@ async function encryptToken(
     keyId: config.keyId,
     keyVersion: config.keyVersion,
     kekBytes: config.kekBytes,
-    aad: createAAD(config.tenantId, 'discord', tokenType),
+    aad: createAAD(config.authUserId, 'discord', tokenType),
   });
 }
 
@@ -127,7 +127,7 @@ async function decryptToken(
   return decrypt({
     kekBytes: config.kekBytes,
     payload: encryptedToken,
-    aad: createAAD(config.tenantId, 'discord', tokenType),
+    aad: createAAD(config.authUserId, 'discord', tokenType),
   });
 }
 
@@ -144,7 +144,7 @@ async function decryptToken(
  *   kekBytes: kekFromInfisical,
  *   keyId: 'kek-v1',
  *   keyVersion: 1,
- *   tenantId: 'tenant-123',
+ *   authUserId: 'user_abc123',
  * }, tokenStorage);
  *
  * // Begin verification

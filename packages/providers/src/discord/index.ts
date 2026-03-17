@@ -5,5 +5,5 @@
  * supporting cross-server role verification.
  */
 
-export * from './types';
 export { DiscordOAuthProvider } from './oauth';
+export * from './types';

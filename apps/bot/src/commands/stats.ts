@@ -6,6 +6,11 @@
  */
 
 import type { ConvexHttpClient } from 'convex/browser';
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  UserSelectMenuInteraction,
+} from 'discord.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -14,13 +19,7 @@ import {
   MessageFlags,
   UserSelectMenuBuilder,
 } from 'discord.js';
-import type {
-  ButtonInteraction,
-  ChatInputCommandInteraction,
-  UserSelectMenuInteraction,
-} from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { E, Emoji, EmojiIds, getEmojiCdnUrl } from '../lib/emojis';
 
 const USERS_PAGE_SIZE = 25;
@@ -35,8 +34,8 @@ interface StatsUsersSession {
 
 const statsUsersSessions = new Map<string, StatsUsersSession>();
 
-function getStatsSessionKey(userId: string, tenantId: string): string {
-  return `${userId}:${tenantId}`;
+function getStatsSessionKey(userId: string, authUserId: string, guildId: string): string {
+  return `${userId}:${authUserId}:${guildId}`;
 }
 
 function cleanExpiredStatsSessions(): void {
@@ -47,22 +46,22 @@ function cleanExpiredStatsSessions(): void {
 }
 
 function buildOverviewButtons(
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string
 ): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`creator_stats:view_users:${tenantId}:${guildId}`)
+      .setCustomId(`creator_stats:view_users:${authUserId}:${guildId}`)
       .setLabel('View Users')
       .setEmoji(Emoji.Library)
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId(`creator_stats:view_products:${tenantId}:${guildId}`)
+      .setCustomId(`creator_stats:view_products:${authUserId}:${guildId}`)
       .setLabel('View Products')
       .setEmoji(Emoji.Bag)
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId(`creator_stats:check_user:${tenantId}:${guildId}`)
+      .setCustomId(`creator_stats:check_user:${authUserId}:${guildId}`)
       .setLabel('Check a User')
       .setEmoji(Emoji.PersonKey)
       .setStyle(ButtonStyle.Secondary)
@@ -74,17 +73,25 @@ export async function handleStats(
   interaction: ChatInputCommandInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  ctx: { tenantId: Id<'tenants'>; guildId: string }
+  ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
+  if (!ctx.guildId) {
+    await interaction.reply({
+      content: 'This command must be used in a server.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const rules = await convex.query(api.role_rules.getByGuild, {
-    tenantId: ctx.tenantId,
+    apiSecret,
+    authUserId: ctx.authUserId,
     guildId: ctx.guildId,
   });
   const stats = await convex.query(api.entitlements.getStatsOverviewExtended, {
     apiSecret,
-    tenantId: ctx.tenantId,
+    authUserId: ctx.authUserId,
   });
 
   const embed = new EmbedBuilder()
@@ -104,7 +111,7 @@ export async function handleStats(
     .setTimestamp()
     .setFooter({ text: 'Use the buttons below to explore' });
 
-  const row = buildOverviewButtons(ctx.tenantId, ctx.guildId);
+  const row = buildOverviewButtons(ctx.authUserId, ctx.guildId);
   await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
@@ -113,13 +120,13 @@ export async function handleStatsViewUsersButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
   cleanExpiredStatsSessions();
-  const sessionKey = getStatsSessionKey(interaction.user.id, tenantId);
+  const sessionKey = getStatsSessionKey(interaction.user.id, authUserId, guildId);
   statsUsersSessions.set(sessionKey, {
     cursorStack: [undefined],
     pageIndex: 0,
@@ -131,7 +138,7 @@ export async function handleStatsViewUsersButton(
     api.entitlements.getVerifiedUsersPaginated,
     {
       apiSecret,
-      tenantId,
+      authUserId,
       limit: USERS_PAGE_SIZE,
     }
   );
@@ -153,7 +160,7 @@ export async function handleStatsViewUsersButton(
 
     const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+        .setCustomId(`creator_stats:back:${authUserId}:${guildId}`)
         .setLabel('Back to Overview')
         .setEmoji(Emoji.Home)
         .setStyle(ButtonStyle.Secondary)
@@ -176,7 +183,7 @@ export async function handleStatsViewUsersButton(
       text: `Page 1 • Showing ${users.length} of ${totalCount} users`,
     });
 
-  const row = buildViewUsersPaginationRow(tenantId, guildId, 0, totalCount, nextCursor != null);
+  const row = buildViewUsersPaginationRow(authUserId, guildId, 0, totalCount, nextCursor != null);
   await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
@@ -185,14 +192,14 @@ export async function handleStatsViewUsersPageButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string,
   direction: 'next' | 'prev'
 ): Promise<void> {
   await interaction.deferUpdate();
 
   cleanExpiredStatsSessions();
-  const sessionKey = getStatsSessionKey(interaction.user.id, tenantId);
+  const sessionKey = getStatsSessionKey(interaction.user.id, authUserId, guildId);
   const session = statsUsersSessions.get(sessionKey);
 
   if (!session || Date.now() > session.expiresAt) {
@@ -210,7 +217,7 @@ export async function handleStatsViewUsersPageButton(
     api.entitlements.getVerifiedUsersPaginated,
     {
       apiSecret,
-      tenantId,
+      authUserId,
       limit: USERS_PAGE_SIZE,
       cursor: cursor ?? undefined,
     }
@@ -246,7 +253,7 @@ export async function handleStatsViewUsersPageButton(
     });
 
   const row = buildViewUsersPaginationRow(
-    tenantId,
+    authUserId,
     guildId,
     newPageIndex,
     totalCount,
@@ -256,10 +263,10 @@ export async function handleStatsViewUsersPageButton(
 }
 
 function buildViewUsersPaginationRow(
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string,
   pageIndex: number,
-  totalCount: number,
+  _totalCount: number,
   hasNext: boolean
 ): ActionRowBuilder<ButtonBuilder> {
   const buttons: ButtonBuilder[] = [];
@@ -267,7 +274,7 @@ function buildViewUsersPaginationRow(
   if (pageIndex > 0) {
     buttons.push(
       new ButtonBuilder()
-        .setCustomId(`creator_stats:view_users_page:${tenantId}:${guildId}:prev`)
+        .setCustomId(`creator_stats:view_users_page:${authUserId}:${guildId}:prev`)
         .setLabel('Previous')
         .setStyle(ButtonStyle.Secondary)
     );
@@ -275,7 +282,7 @@ function buildViewUsersPaginationRow(
 
   buttons.push(
     new ButtonBuilder()
-      .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+      .setCustomId(`creator_stats:back:${authUserId}:${guildId}`)
       .setLabel('Back to Overview')
       .setEmoji(Emoji.Home)
       .setStyle(ButtonStyle.Secondary)
@@ -284,7 +291,7 @@ function buildViewUsersPaginationRow(
   if (hasNext) {
     buttons.push(
       new ButtonBuilder()
-        .setCustomId(`creator_stats:view_users_page:${tenantId}:${guildId}:next`)
+        .setCustomId(`creator_stats:view_users_page:${authUserId}:${guildId}:next`)
         .setLabel('Next')
         .setStyle(ButtonStyle.Secondary)
     );
@@ -298,22 +305,23 @@ export async function handleStatsBackButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
   cleanExpiredStatsSessions();
-  const sessionKey = getStatsSessionKey(interaction.user.id, tenantId);
+  const sessionKey = getStatsSessionKey(interaction.user.id, authUserId, guildId);
   statsUsersSessions.delete(sessionKey);
 
   const rules = await convex.query(api.role_rules.getByGuild, {
-    tenantId,
+    apiSecret,
+    authUserId,
     guildId,
   });
   const stats = await convex.query(api.entitlements.getStatsOverviewExtended, {
     apiSecret,
-    tenantId,
+    authUserId,
   });
 
   const embed = new EmbedBuilder()
@@ -333,7 +341,7 @@ export async function handleStatsBackButton(
     .setTimestamp()
     .setFooter({ text: 'Use the buttons below to explore' });
 
-  const row = buildOverviewButtons(tenantId, guildId);
+  const row = buildOverviewButtons(authUserId, guildId);
   await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
@@ -342,7 +350,7 @@ export async function handleStatsViewProductsButton(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
@@ -350,10 +358,11 @@ export async function handleStatsViewProductsButton(
   const [productStats, productNames] = await Promise.all([
     convex.query(api.entitlements.getProductStats, {
       apiSecret,
-      tenantId,
+      authUserId,
     }),
     convex.query(api.role_rules.getByGuildWithProductNames, {
-      tenantId,
+      apiSecret,
+      authUserId,
       guildId,
     }),
   ]);
@@ -375,7 +384,7 @@ export async function handleStatsViewProductsButton(
 
     const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+        .setCustomId(`creator_stats:back:${authUserId}:${guildId}`)
         .setLabel('Back to Overview')
         .setEmoji(Emoji.Home)
         .setStyle(ButtonStyle.Secondary)
@@ -401,7 +410,7 @@ export async function handleStatsViewProductsButton(
 
   const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+      .setCustomId(`creator_stats:back:${authUserId}:${guildId}`)
       .setLabel('Back to Overview')
       .setEmoji(Emoji.Home)
       .setStyle(ButtonStyle.Secondary)
@@ -412,13 +421,13 @@ export async function handleStatsViewProductsButton(
 /** Button: Check a User - shows user select menu */
 export async function handleStatsCheckUserButton(
   interaction: ButtonInteraction,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
 
   const userSelect = new UserSelectMenuBuilder()
-    .setCustomId(`creator_stats:check_user_select:${tenantId}:${guildId}`)
+    .setCustomId(`creator_stats:check_user_select:${authUserId}:${guildId}`)
     .setPlaceholder('Select a user to check verification status...')
     .setMinValues(1)
     .setMaxValues(1);
@@ -434,7 +443,7 @@ export async function handleStatsCheckUserButton(
 
   const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+      .setCustomId(`creator_stats:back:${authUserId}:${guildId}`)
       .setLabel('Back to Overview')
       .setEmoji(Emoji.Home)
       .setStyle(ButtonStyle.Secondary)
@@ -451,7 +460,7 @@ export async function handleStatsCheckUserSelect(
   interaction: UserSelectMenuInteraction,
   convex: ConvexHttpClient,
   apiSecret: string,
-  tenantId: Id<'tenants'>,
+  authUserId: string,
   guildId: string
 ): Promise<void> {
   const selectedUser = interaction.users.first();
@@ -464,6 +473,7 @@ export async function handleStatsCheckUserSelect(
   await interaction.deferUpdate();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    apiSecret,
     discordUserId,
   });
 
@@ -478,7 +488,7 @@ export async function handleStatsCheckUserSelect(
 
   const entitlements = (await convex.query(api.entitlements.getEntitlementsBySubject, {
     apiSecret,
-    tenantId,
+    authUserId,
     subjectId: subjectResult.subject._id,
     includeInactive: false,
   })) as { productId: string }[];
@@ -489,7 +499,8 @@ export async function handleStatsCheckUserSelect(
   let productDisplay = 'None';
   if (productIds.length) {
     const productNames = await convex.query(api.role_rules.getByGuildWithProductNames, {
-      tenantId,
+      apiSecret,
+      authUserId,
       guildId,
     });
     const nameMap = new Map(
@@ -515,7 +526,7 @@ export async function handleStatsCheckUserSelect(
 
   const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`creator_stats:back:${tenantId}:${guildId}`)
+      .setCustomId(`creator_stats:back:${authUserId}:${guildId}`)
       .setLabel('Back to Overview')
       .setEmoji(Emoji.Home)
       .setStyle(ButtonStyle.Secondary)

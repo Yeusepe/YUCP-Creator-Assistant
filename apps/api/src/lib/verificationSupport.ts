@@ -1,13 +1,13 @@
 import {
-  type StructuredLogger,
   encodeVerificationSupportToken,
   getVerificationSupportErrorDetails,
+  type StructuredLogger,
 } from '@yucp/shared';
 
 export interface PublicApiSupportErrorInput {
   error: unknown;
   stage: string;
-  tenantId?: string;
+  authUserId?: string;
 }
 
 /** Creates an encrypted support code for Public API errors. Same format as verification flow. */
@@ -19,14 +19,14 @@ export async function createPublicApiSupportError(
   const support = await encodeVerificationSupportToken({
     surface: 'public_api',
     stage: input.stage,
-    tenantId: input.tenantId,
+    authUserId: input.authUserId,
     ...errorDetails,
   });
 
   logger.warn('Public API error', {
     supportCode: support.supportCode,
     stage: input.stage,
-    tenantId: input.tenantId,
+    authUserId: input.authUserId,
     error: input.error instanceof Error ? input.error.message : String(input.error),
   });
 
@@ -39,7 +39,7 @@ interface ApiVerificationSupportInput {
   guildId?: string;
   provider?: string;
   stage: string;
-  tenantId?: string;
+  authUserId?: string;
 }
 
 export async function createApiVerificationSupportError(
@@ -50,7 +50,7 @@ export async function createApiVerificationSupportError(
   const support = await encodeVerificationSupportToken({
     surface: 'api',
     stage: input.stage,
-    tenantId: input.tenantId,
+    authUserId: input.authUserId,
     guildId: input.guildId,
     discordUserId: input.discordUserId,
     provider: input.provider,
@@ -61,7 +61,7 @@ export async function createApiVerificationSupportError(
     supportCode: support.supportCode,
     supportCodeMode: support.mode,
     stage: input.stage,
-    tenantId: input.tenantId,
+    authUserId: input.authUserId,
     guildId: input.guildId,
     discordUserId: input.discordUserId,
     provider: input.provider,

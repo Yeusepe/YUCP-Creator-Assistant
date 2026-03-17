@@ -1,0 +1,63 @@
+message CreateCollaboratorInviteRequest {
+  1 -> string authUserId;
+  2 -> string guildId;
+  3 -> string guildName;
+  4 -> string actorDiscordUserId;
+  5 -> string providerKey;
+}
+
+message CreateCollaboratorInviteResponse {
+  1 -> string inviteUrl;
+  2 -> uint64 expiresAt;
+}
+
+message ListCollaboratorConnectionsRequest {
+  1 -> string authUserId;
+  2 -> string guildId;
+  3 -> string actorDiscordUserId;
+}
+
+message CollaboratorConnectionRecord {
+  1 -> string id;
+  2 -> string linkType;
+  3 -> string status;
+  4 -> string source;
+  5 -> bool webhookConfigured;
+  6 -> string collaboratorDiscordUserId;
+  7 -> string collaboratorDisplayName;
+  8 -> uint64 createdAt;
+}
+
+message ListCollaboratorConnectionsResponse {
+  1 -> CollaboratorConnectionRecord[] connections;
+}
+
+message AddCollaboratorConnectionManualRequest {
+  1 -> string authUserId;
+  2 -> string guildId;
+  3 -> string actorDiscordUserId;
+  4 -> string credential;
+  5 -> string serverName;
+  6 -> string providerKey;
+}
+
+message AddCollaboratorConnectionManualResponse {
+  1 -> bool success;
+  2 -> string connectionId;
+  3 -> string displayName;
+  4 -> string error;
+}
+
+message RemoveCollaboratorConnectionRequest {
+  1 -> string authUserId;
+  2 -> string guildId;
+  3 -> string actorDiscordUserId;
+  4 -> string connectionId;
+}
+
+service Collaborator {
+  createInvite(CreateCollaboratorInviteRequest): CreateCollaboratorInviteResponse;
+  listConnections(ListCollaboratorConnectionsRequest): ListCollaboratorConnectionsResponse;
+  addConnectionManual(AddCollaboratorConnectionManualRequest): AddCollaboratorConnectionManualResponse;
+  removeConnection(RemoveCollaboratorConnectionRequest): SuccessResponse;
+}

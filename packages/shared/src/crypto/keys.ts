@@ -20,7 +20,7 @@ export type TokenType = 'access' | 'refresh' | 'api_key';
  * This ensures ciphertext cannot be used in a different context.
  */
 export interface EncryptionAAD {
-  tenantId: string;
+  authUserId: string;
   provider: TokenProvider;
   tokenType: TokenType;
 }
@@ -68,7 +68,7 @@ export interface EncryptedPayload {
   wrappedDek: WrappedDEK;
   /** The AAD metadata (for audit/debugging, NOT used in decryption - must be provided separately) */
   aadMetadata: {
-    tenantId: string;
+    authUserId: string;
     provider: TokenProvider;
     tokenType: TokenType;
   };
@@ -231,7 +231,7 @@ export function generateIV(): Uint8Array {
  * Convert AAD object to bytes for encryption binding.
  */
 export function aadToBytes(aad: EncryptionAAD): Uint8Array {
-  const aadString = `${aad.tenantId}:${aad.provider}:${aad.tokenType}`;
+  const aadString = `${aad.authUserId}:${aad.provider}:${aad.tokenType}`;
   return new TextEncoder().encode(aadString).slice();
 }
 

@@ -72,6 +72,24 @@ export const SETUP_REQUIREMENT_KEYS = [
 ] as const;
 export type SetupRequirementKey = (typeof SETUP_REQUIREMENT_KEYS)[number];
 
+/**
+ * Describes a per-product credential required by a provider (e.g. Payhip's product-secret-key).
+ * When present on a ProviderDescriptor, the bot and dashboard will collect this credential
+ * alongside the product ID so that license verification works immediately.
+ */
+export interface PerProductCredentialDescriptor {
+  /** Prefix used when storing in provider_credentials.credentialKey, e.g. "product_key:" */
+  credentialKeyPrefix: string;
+  /** UI label for the secret key input, e.g. "Product Secret Key" */
+  credentialLabel: string;
+  /** UI label for the product identifier input, e.g. "Product Permalink" */
+  productIdLabel: string;
+  /** Placeholder shown in the product ID input, e.g. "e.g. RGsF" */
+  productIdPlaceholder: string;
+  /** Short help text explaining where to find the key */
+  helpText: string;
+}
+
 export interface ProviderDescriptor {
   providerKey: ProviderKey;
   label: string;
@@ -91,10 +109,58 @@ export interface ProviderDescriptor {
   supportsWebhook: boolean;
   supportsLicenseVerify: boolean;
   supportsTestMode: boolean;
-  compatibility?: {
-    legacyConnectRoutes?: string[];
-    legacyWebhookRoutes?: string[];
+  /** When set, this provider requires a per-product credential for license verification. */
+  perProductCredential?: PerProductCredentialDescriptor;
+  /** When true, this provider can be added as a collab store source */
+  supportsCollab?: boolean;
+  /** Config for the manual collab add credential modal (only when supportsCollab is true) */
+  collabCredential?: {
+    /** Modal input label, e.g. "Jinxxy API Key" */
+    label: string;
+    /** Modal input placeholder */
+    placeholder?: string;
   };
+  /**
+   * License key input config for the verification modal.
+   * Only present if supportsLicenseVerify is true AND the provider uses typed license keys.
+   */
+  licenseKey?: {
+    /** Modal input label, e.g. "License Key (XXXX-XXXX-XXXX-XXXX)" */
+    inputLabel: string;
+    /** Modal input placeholder, e.g. "XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX" */
+    placeholder: string;
+  };
+  /**
+   * Product ID/URL input config for the product add flow.
+   * The label and description are shown in the step-2 modal for typing in a product.
+   */
+  productInput?: {
+    /** Step label for the text input, e.g. "Gumroad Product URL or ID" */
+    label: string;
+    /** Description/help text, e.g. "URL (gumroad.com/l/abc123) or product ID" */
+    description: string;
+    /** Optional placeholder for the input field */
+    placeholder?: string;
+    /**
+     * When false, this product-input entry is always shown in the product-add menu
+     * regardless of whether the provider is connected. Defaults to true.
+     * Set to false for providers whose productInput works without a dashboard connection
+     * (e.g. VRChat — you can add an avatar by ID before connecting the creator session).
+     */
+    requiresConnection?: boolean;
+  };
+  /**
+   * URL template for a catalog product link.
+   * The placeholder `{ref}` is replaced with the provider product ref at runtime.
+   * Only set for providers with `catalog_sync` capability.
+   * Example: "https://gumroad.com/l/{ref}"
+   */
+  catalogProductUrlTemplate?: string;
+  /**
+   * Whether this provider supports automatic purchase discovery (backfill from sales API).
+   * Only true for providers with the `reconciliation` capability that expose a sales list API.
+   */
+  supportsAutoDiscovery?: boolean;
 }
 
 export const PROVIDER_REGISTRY = [
@@ -125,7 +191,12 @@ export const PROVIDER_REGISTRY = [
     status: 'active',
     docsUrl: 'https://gumroad.com/api',
     emojiKey: 'Gumorad',
-    addProductDescription: 'Sold on gumroad.com',
+    addProductDescription: 'Pick a product from your connected Gumroad store',
+    productInput: {
+      label: 'Gumroad Product URL or ID',
+      description: 'URL (gumroad.com/l/abc123) or product ID',
+      placeholder: 'https://gumroad.com/l/abc123 or abc123',
+    },
     creatorAuthModes: ['oauth'],
     buyerVerificationMethods: ['license_key', 'account_link', 'oauth'],
     capabilities: [
@@ -145,9 +216,11 @@ export const PROVIDER_REGISTRY = [
     supportsWebhook: true,
     supportsLicenseVerify: true,
     supportsTestMode: false,
-    compatibility: {
-      legacyConnectRoutes: ['/api/connect/gumroad/begin', '/api/connect/gumroad/callback'],
-      legacyWebhookRoutes: ['/webhooks/gumroad/:tenantId'],
+    supportsAutoDiscovery: true,
+    catalogProductUrlTemplate: 'https://gumroad.com/l/{ref}',
+    licenseKey: {
+      inputLabel: 'License Key (XXXX-XXXX-XXXX-XXXX)',
+      placeholder: 'XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX',
     },
   },
   {
@@ -177,9 +250,15 @@ export const PROVIDER_REGISTRY = [
     supportsWebhook: true,
     supportsLicenseVerify: true,
     supportsTestMode: false,
-    compatibility: {
-      legacyConnectRoutes: ['/api/connect/jinxxy/webhook-config', '/api/connect/jinxxy-store'],
-      legacyWebhookRoutes: ['/webhooks/jinxxy/:tenantId'],
+    catalogProductUrlTemplate: 'https://jinxxy.app/products/{ref}',
+    licenseKey: {
+      inputLabel: 'License Key',
+      placeholder: 'Enter your license key',
+    },
+    supportsCollab: true,
+    collabCredential: {
+      label: 'Jinxxy API Key',
+      placeholder: 'Paste the API key the creator shared with you',
     },
   },
   {
@@ -212,6 +291,12 @@ export const PROVIDER_REGISTRY = [
     supportsWebhook: true,
     supportsLicenseVerify: true,
     supportsTestMode: true,
+    catalogProductUrlTemplate: 'https://app.lemonsqueezy.com/products/{ref}',
+    supportsCollab: true,
+    collabCredential: {
+      label: 'Lemon Squeezy API Key',
+      placeholder: 'Paste your Lemon Squeezy API key…',
+    },
   },
   {
     providerKey: 'manual',
@@ -304,14 +389,24 @@ export const PROVIDER_REGISTRY = [
     providerKey: 'payhip',
     label: 'Payhip',
     category: 'commerce',
-    status: 'planned',
-    docsUrl: 'https://help.payhip.com',
-    emojiKey: 'CreditCard',
+    status: 'active',
+    // Webhook doc: https://help.payhip.com/article/115-webhooks
+    // License key doc: https://help.payhip.com/article/317-software-license-keys-new
+    docsUrl: 'https://help.payhip.com/category/48-developer',
+    emojiKey: 'Payhip',
     addProductDescription: 'Sold on payhip.com',
     creatorAuthModes: ['api_key'],
     buyerVerificationMethods: ['license_key', 'account_link'],
-    capabilities: ['account_link', 'webhooks', 'reconciliation', 'orders', 'refunds'],
-    setupRequirements: ['api_key', 'webhook_secret'],
+    // Note: no separate webhook_secret — Payhip signature = SHA256(apiKey), derived from api_key
+    capabilities: [
+      'account_link',
+      'webhooks',
+      'reconciliation',
+      'license_verification',
+      'orders',
+      'refunds',
+    ],
+    setupRequirements: ['api_key', 'webhook_endpoint'],
     verificationMethods: ['license_key'],
     supportsDisconnect: true,
     supportsCredentialLogin: true,
@@ -319,6 +414,13 @@ export const PROVIDER_REGISTRY = [
     supportsWebhook: true,
     supportsLicenseVerify: true,
     supportsTestMode: false,
+    perProductCredential: {
+      credentialKeyPrefix: 'product_key:',
+      credentialLabel: 'Product Secret Key',
+      productIdLabel: 'Product Permalink',
+      productIdPlaceholder: 'e.g. RGsF',
+      helpText: 'Found on the product edit page in Payhip under License Keys → Developer section.',
+    },
   },
   {
     providerKey: 'vrchat',
@@ -330,7 +432,7 @@ export const PROVIDER_REGISTRY = [
     addProductDescription: 'Avatar from vrchat.com/...',
     creatorAuthModes: ['credentials'],
     buyerVerificationMethods: ['account_link'],
-    capabilities: ['account_link', 'ownership_verification'],
+    capabilities: ['account_link', 'ownership_verification', 'catalog_sync'],
     setupRequirements: [],
     verificationMethods: ['account_link'],
     supportsDisconnect: true,
@@ -339,6 +441,13 @@ export const PROVIDER_REGISTRY = [
     supportsWebhook: false,
     supportsLicenseVerify: false,
     supportsTestMode: false,
+    catalogProductUrlTemplate: 'https://vrchat.com/store/listing/{ref}',
+    productInput: {
+      label: 'VRChat Avatar ID or URL',
+      description: 'VRChat Avatar ID (avtr_…) or vrchat.com/home/avatar/avtr_… URL',
+      placeholder: 'avtr_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+      requiresConnection: false,
+    },
   },
 ] as const satisfies readonly ProviderDescriptor[];
 
@@ -368,4 +477,26 @@ export function getProviderDescriptor(providerKey: string): ProviderDescriptor |
 
 export function providerLabel(providerKey: string): string {
   return getProviderDescriptor(providerKey)?.label ?? providerKey;
+}
+
+/** Returns providers that require a per-product credential for license verification. */
+export const PER_PRODUCT_CREDENTIAL_PROVIDER_KEYS = (
+  PROVIDER_REGISTRY as readonly ProviderDescriptor[]
+)
+  .filter((provider) => provider.perProductCredential != null)
+  .map((provider) => provider.providerKey);
+
+/** Returns providers that support catalog sync (have the 'catalog_sync' capability). */
+export const CATALOG_SYNC_PROVIDER_KEYS = (PROVIDER_REGISTRY as readonly ProviderDescriptor[])
+  .filter((p) => p.capabilities.includes('catalog_sync'))
+  .map((p) => p.providerKey);
+
+/**
+ * Build the canonical URL for a catalog product entry.
+ * Returns null if the provider has no URL template (e.g. discord_role, payhip).
+ */
+export function buildCatalogProductUrl(providerKey: string, productRef: string): string | null {
+  const descriptor = getProviderDescriptor(providerKey);
+  if (!descriptor?.catalogProductUrlTemplate) return null;
+  return descriptor.catalogProductUrlTemplate.replace('{ref}', productRef);
 }

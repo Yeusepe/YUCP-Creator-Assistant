@@ -4,20 +4,12 @@
 
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {
-  ManualLicenseManager,
   generateLicenseKey,
   hashLicenseKey,
+  ManualLicenseManager,
   normalizeLicenseKey,
 } from '../src/manual/manager';
-import type {
-  BulkImportInput,
-  CreateLicenseInput,
-  ManualLicense,
-  ManualLicenseStorage,
-  RevokeLicenseInput,
-  UseLicenseInput,
-  ValidateLicenseInput,
-} from '../src/manual/types';
+import type { CreateLicenseInput, ManualLicense, ManualLicenseStorage } from '../src/manual/types';
 
 // In-memory storage implementation for testing
 class InMemoryStorage implements ManualLicenseStorage {
@@ -31,7 +23,7 @@ class InMemoryStorage implements ManualLicenseStorage {
     const now = Date.now();
     const license: ManualLicense = {
       _id: id,
-      tenantId: input.tenantId,
+      authUserId: input.authUserId,
       licenseKeyHash: input.licenseKeyHash,
       productId: input.productId,
       catalogProductId: input.catalogProductId,
@@ -90,10 +82,10 @@ class InMemoryStorage implements ManualLicenseStorage {
     return license;
   }
 
-  async list(tenantId: string, productId?: string): Promise<ManualLicense[]> {
+  async list(authUserId: string, productId?: string): Promise<ManualLicense[]> {
     return Array.from(this.licenses.values()).filter((l) => {
       if (productId && l.productId !== productId) return false;
-      return l.tenantId === tenantId;
+      return l.authUserId === authUserId;
     });
   }
 
@@ -173,12 +165,12 @@ describe('ManualLicenseManager', () => {
   describe('generateLicense', () => {
     it('should generate a license with default options', async () => {
       const result = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
 
       expect(result.license).toBeDefined();
-      expect(result.license.tenantId).toBe('tenant-123');
+      expect(result.license.authUserId).toBe('user_test123');
       expect(result.license.productId).toBe('product-456');
       expect(result.license.status).toBe('active');
       expect(result.licenseKey).toMatch(/^YUCP-/);
@@ -186,7 +178,7 @@ describe('ManualLicenseManager', () => {
 
     it('should generate license with custom key', async () => {
       const result = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         licenseKey: 'CUSTOM-KEY-123',
       });
@@ -197,7 +189,7 @@ describe('ManualLicenseManager', () => {
 
     it('should generate license with max uses', async () => {
       const result = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         maxUses: 5,
       });
@@ -209,7 +201,7 @@ describe('ManualLicenseManager', () => {
     it('should generate license with expiry', async () => {
       const futureExpiry = Date.now() + 365 * 24 * 60 * 60 * 1000; // 1 year
       const result = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         expiresAt: futureExpiry,
       });
@@ -219,14 +211,14 @@ describe('ManualLicenseManager', () => {
 
     it('should reject duplicate license keys', async () => {
       await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         licenseKey: 'EXISTING-KEY',
       });
 
       await expect(
         manager.generateLicense({
-          tenantId: 'tenant-123',
+          authUserId: 'user_test123',
           productId: 'product-456',
           licenseKey: 'EXISTING-KEY',
         })
@@ -235,7 +227,7 @@ describe('ManualLicenseManager', () => {
 
     it('should generate license with notes and buyer email', async () => {
       const result = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         notes: 'Test license',
         buyerEmail: 'buyer@example.com',
@@ -249,14 +241,14 @@ describe('ManualLicenseManager', () => {
   describe('validateLicense', () => {
     it('should validate an active license', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
 
       const result = await manager.validateLicense({
         licenseKey: created.licenseKey,
         productId: 'product-456',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
 
       expect(result.valid).toBe(true);
@@ -268,7 +260,7 @@ describe('ManualLicenseManager', () => {
       const result = await manager.validateLicense({
         licenseKey: 'INVALID-KEY',
         productId: 'product-456',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
 
       expect(result.valid).toBe(false);
@@ -277,14 +269,14 @@ describe('ManualLicenseManager', () => {
 
     it('should reject license for wrong product', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
 
       const result = await manager.validateLicense({
         licenseKey: created.licenseKey,
         productId: 'wrong-product',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
 
       expect(result.valid).toBe(false);
@@ -293,14 +285,14 @@ describe('ManualLicenseManager', () => {
 
     it('should reject license for wrong tenant', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
 
       const result = await manager.validateLicense({
         licenseKey: created.licenseKey,
         productId: 'product-456',
-        tenantId: 'wrong-tenant',
+        authUserId: 'user_wrong',
       });
 
       expect(result.valid).toBe(false);
@@ -310,7 +302,7 @@ describe('ManualLicenseManager', () => {
     it('should reject expired license', async () => {
       const pastExpiry = Date.now() - 1000; // 1 second ago
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         expiresAt: pastExpiry,
       });
@@ -318,7 +310,7 @@ describe('ManualLicenseManager', () => {
       const result = await manager.validateLicense({
         licenseKey: created.licenseKey,
         productId: 'product-456',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
 
       expect(result.valid).toBe(false);
@@ -327,20 +319,20 @@ describe('ManualLicenseManager', () => {
 
     it('should reject revoked license', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
 
       await manager.revokeLicense({
         licenseId: created.license._id,
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         reason: 'Test revocation',
       });
 
       const result = await manager.validateLicense({
         licenseKey: created.licenseKey,
         productId: 'product-456',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
 
       expect(result.valid).toBe(false);
@@ -349,7 +341,7 @@ describe('ManualLicenseManager', () => {
 
     it('should reject exhausted license', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         maxUses: 1,
       });
@@ -358,7 +350,7 @@ describe('ManualLicenseManager', () => {
       const firstUse = await manager.useLicense({
         licenseKey: created.licenseKey,
         productId: 'product-456',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
       expect(firstUse.success).toBe(true);
 
@@ -366,7 +358,7 @@ describe('ManualLicenseManager', () => {
       const result = await manager.validateLicense({
         licenseKey: created.licenseKey,
         productId: 'product-456',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
       expect(result.valid).toBe(false);
       expect(result.reason).toBe('exhausted');
@@ -376,7 +368,7 @@ describe('ManualLicenseManager', () => {
   describe('useLicense', () => {
     it('should increment usage count', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         maxUses: 5,
       });
@@ -384,7 +376,7 @@ describe('ManualLicenseManager', () => {
       const result = await manager.useLicense({
         licenseKey: created.licenseKey,
         productId: 'product-456',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
 
       expect(result.success).toBe(true);
@@ -393,7 +385,7 @@ describe('ManualLicenseManager', () => {
 
     it('should track multiple uses', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         maxUses: 5,
       });
@@ -402,7 +394,7 @@ describe('ManualLicenseManager', () => {
         const result = await manager.useLicense({
           licenseKey: created.licenseKey,
           productId: 'product-456',
-          tenantId: 'tenant-123',
+          authUserId: 'user_test123',
         });
         expect(result.success).toBe(true);
         expect(result.license?.currentUses).toBe(i + 1);
@@ -411,7 +403,7 @@ describe('ManualLicenseManager', () => {
 
     it('should fail when license exhausted', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         maxUses: 1,
       });
@@ -420,14 +412,14 @@ describe('ManualLicenseManager', () => {
       await manager.useLicense({
         licenseKey: created.licenseKey,
         productId: 'product-456',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
 
       // Second use should fail
       const result = await manager.useLicense({
         licenseKey: created.licenseKey,
         productId: 'product-456',
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
       });
       expect(result.success).toBe(false);
       expect(result.reason).toBe('exhausted');
@@ -435,7 +427,7 @@ describe('ManualLicenseManager', () => {
 
     it('should allow unlimited uses when maxUses is undefined', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         // No maxUses = unlimited
       });
@@ -444,7 +436,7 @@ describe('ManualLicenseManager', () => {
         const result = await manager.useLicense({
           licenseKey: created.licenseKey,
           productId: 'product-456',
-          tenantId: 'tenant-123',
+          authUserId: 'user_test123',
         });
         expect(result.success).toBe(true);
       }
@@ -454,13 +446,13 @@ describe('ManualLicenseManager', () => {
   describe('revokeLicense', () => {
     it('should revoke an active license', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
 
       const revoked = await manager.revokeLicense({
         licenseId: created.license._id,
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         reason: 'Test revocation',
       });
 
@@ -470,14 +462,14 @@ describe('ManualLicenseManager', () => {
 
     it('should reject revocation for wrong tenant', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
 
       await expect(
         manager.revokeLicense({
           licenseId: created.license._id,
-          tenantId: 'wrong-tenant',
+          authUserId: 'user_wrong',
         })
       ).rejects.toThrow('not found');
     });
@@ -486,7 +478,7 @@ describe('ManualLicenseManager', () => {
       await expect(
         manager.revokeLicense({
           licenseId: 'non-existent',
-          tenantId: 'tenant-123',
+          authUserId: 'user_test123',
         })
       ).rejects.toThrow('not found');
     });
@@ -495,7 +487,7 @@ describe('ManualLicenseManager', () => {
   describe('bulkImport', () => {
     it('should import multiple licenses', async () => {
       const result = await manager.bulkImport({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         licenses: [{}, {}, {}],
         defaultMaxUses: 1,
@@ -509,7 +501,7 @@ describe('ManualLicenseManager', () => {
 
     it('should import licenses with custom keys', async () => {
       const result = await manager.bulkImport({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         licenses: [{ licenseKey: 'CUSTOM-1' }, { licenseKey: 'CUSTOM-2' }],
       });
@@ -521,7 +513,7 @@ describe('ManualLicenseManager', () => {
 
     it('should reject duplicate keys in batch', async () => {
       const result = await manager.bulkImport({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         licenses: [{ licenseKey: 'DUPLICATE' }, { licenseKey: 'DUPLICATE' }],
       });
@@ -534,7 +526,7 @@ describe('ManualLicenseManager', () => {
 
     it('should import licenses with per-license settings', async () => {
       const result = await manager.bulkImport({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
         licenses: [
           { maxUses: 1, notes: 'Single use' },
@@ -553,40 +545,40 @@ describe('ManualLicenseManager', () => {
   describe('listLicenses', () => {
     it('should list licenses for tenant', async () => {
       await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
       await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-789',
       });
 
-      const licenses = await manager.listLicenses('tenant-123');
+      const licenses = await manager.listLicenses('user_test123');
       expect(licenses).toHaveLength(2);
     });
 
     it('should filter licenses by product', async () => {
       await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
       await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-789',
       });
 
-      const licenses = await manager.listLicenses('tenant-123', 'product-456');
+      const licenses = await manager.listLicenses('user_test123', 'product-456');
       expect(licenses).toHaveLength(1);
       expect(licenses[0].productId).toBe('product-456');
     });
 
     it('should not expose license key hashes', async () => {
       const created = await manager.generateLicense({
-        tenantId: 'tenant-123',
+        authUserId: 'user_test123',
         productId: 'product-456',
       });
 
-      const licenses = await manager.listLicenses('tenant-123');
+      const licenses = await manager.listLicenses('user_test123');
       const license = licenses.find((l) => l._id === created.license._id);
       expect(license).toBeDefined();
       expect(license).not.toHaveProperty('licenseKeyHash');

@@ -465,6 +465,32 @@
         const apiBase = '__API_BASE__';
         const params = new URLSearchParams(window.location.search);
         const token = params.get('token');
+        const isConnectMode = params.get('mode') === 'connect';
+        const passedGuildId = params.get('guild_id') || '';
+        const passedTenantId = params.get('tenant_id') || '';
+
+        // Customize UI for connect mode (creator connecting their account)
+        if (isConnectMode) {
+            document.title = 'Connect VRChat® Account | Creator Assistant';
+            document.querySelector('#form-heading').innerHTML =
+                '<img src="Icons/VRC.png" alt="" class="vrchat-heading-icon" aria-hidden="true"> Connect your VRChat® account';
+            document.querySelector('#form-subtitle').textContent =
+                'Sign in to connect your VRChat® store to Creator Assistant';
+            document.querySelector('main').setAttribute('aria-label', 'VRChat account connect');
+            document.querySelector('#no-token-view p').innerHTML =
+                'This page requires a valid connection link. Please use the <strong>Add VRChat Account</strong> button in the Creator Assistant dashboard to get started.';
+            document.querySelector('.disclaimer-long').innerHTML =
+                '<strong>Your sign-in is used to connect your VRChat® store to Creator Assistant.</strong> We send your credentials directly to VRChat® and never save your password or 2FA code. We keep an encrypted session (like a "remember me" token) to sync your store listings until VRChat® expires it.';
+            document.querySelector('.disclaimer-short').innerHTML =
+                '<strong>Sign-in connects your VRChat® store to Creator Assistant.</strong> We never save your password or 2FA code.';
+        }
+
+        /** API endpoint to POST to — differs between verify and connect modes */
+        function getSessionEndpoint() {
+            return isConnectMode
+                ? `${apiBase}/api/connect/vrchat/session`
+                : `${apiBase}/api/verification/vrchat-verify`;
+        }
 
         const noTokenView = document.getElementById('no-token-view');
         const formView = document.getElementById('form-view');
@@ -499,10 +525,25 @@
         }
 
         function showSuccess() {
+            sessionStorage.removeItem(PENDING_STEP_KEY);
+            sessionStorage.removeItem(PENDING_TYPES_KEY);
+
+            if (isConnectMode) {
+                // Redirect back to the dashboard, signalling that VRChat just connected.
+                const dashboardUrl = new URL(apiBase + '/');
+                dashboardUrl.searchParams.set('vrchat', 'connected');
+                if (passedGuildId) dashboardUrl.searchParams.set('guild_id', passedGuildId);
+                if (passedTenantId) dashboardUrl.searchParams.set('tenant_id', passedTenantId);
+                window.location.href = dashboardUrl.toString();
+                return;
+            }
+
+            // Verify mode: show success message and attempt to auto-close.
             form.style.display = 'none';
             successMsg.style.display = 'block';
             successMsg.setAttribute('aria-hidden', 'false');
             successMsg.focus({ preventScroll: true });
+            setTimeout(() => window.close(), 1500);
         }
 
         function showError(msg) {
@@ -567,14 +608,15 @@
         }
 
         // On page load: attempt auto-verify using a stored VRChat session.
+        // Skipped in connect mode (no existing session to check for creators).
         // If the server responds with needsCredentials, show the form normally.
-        if (token) {
+        if (token && !isConnectMode) {
             restorePendingStep();
             submitBtn.disabled = true;
             submitBtn.setAttribute('aria-busy', 'true');
             submitBtn.textContent = 'Checking…';
 
-            fetch(`${apiBase}/api/verification/vrchat-verify`, {
+            fetch(getSessionEndpoint(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -585,7 +627,7 @@
                 if (data.success) {
                     showSuccess();
                 } else if (data.needsCredentials || data.sessionExpired) {
-                    // No stored session (or expired) — show the credentials form
+                    // No stored session (or expired), show the credentials form
                     if (data.sessionExpired) {
                         showError('Your previous VRChat session has expired. Please sign in again.');
                     }
@@ -600,7 +642,7 @@
                 }
             })
             .catch(() => {
-                // Network error — fall back to manual form
+                // Network error, fall back to manual form
                 showCredentialStep();
                 submitBtn.disabled = false;
                 submitBtn.setAttribute('aria-busy', 'false');
@@ -616,7 +658,9 @@
             const twoFactorCode = form.twoFactorCode.value?.trim() || undefined;
 
             if (!token) {
-                showError('Invalid or expired link. Please use the Verify with VRChat button in Discord.');
+                showError(isConnectMode
+                    ? 'Invalid or expired link. Please use the Connect VRChat button in the dashboard.'
+                    : 'Invalid or expired link. Please use the Verify with VRChat button in Discord.');
                 return;
             }
 
@@ -645,7 +689,7 @@
             submitBtn.textContent = twoFactorGroup.style.display !== 'none' ? 'Verifying...' : 'Continuing...';
 
             try {
-                const res = await fetch(`${apiBase}/api/verification/vrchat-verify`, {
+                const res = await fetch(getSessionEndpoint(), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
@@ -654,8 +698,6 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    sessionStorage.removeItem(PENDING_STEP_KEY);
-                    sessionStorage.removeItem(PENDING_TYPES_KEY);
                     showSuccess();
                 } else if (data.twoFactorRequired) {
                     clearError();

@@ -2,40 +2,38 @@
 // Main entry point for the logging module
 
 export {
-  generateCorrelationId,
-  createCorrelationContext,
-  getCorrelationContext,
-  runWithCorrelationContext,
-  createChildSpanId,
-  setCorrelationStorage,
-  type CorrelationContext,
-  type CorrelationId,
-  type CorrelationStorage,
-} from './correlation';
-
-export {
-  redactString,
-  redactEmail,
-  redactObject,
-  redactForLogging,
-  isSensitiveField,
-} from './redaction';
-
-export {
-  createAuditEvent,
-  ConsoleAuditWriter,
-  createAuditHelper,
+  type AuditActor,
+  type AuditContext,
   type AuditEvent,
   type AuditEventType,
   type AuditSeverity,
-  type AuditActor,
   type AuditTarget,
-  type AuditContext,
   type AuditWriter,
+  ConsoleAuditWriter,
   type CreateAuditEvent,
+  createAuditEvent,
+  createAuditHelper,
 } from './audit';
+export {
+  type CorrelationContext,
+  type CorrelationId,
+  type CorrelationStorage,
+  createChildSpanId,
+  createCorrelationContext,
+  generateCorrelationId,
+  getCorrelationContext,
+  runWithCorrelationContext,
+  setCorrelationStorage,
+} from './correlation';
+export {
+  isSensitiveField,
+  redactEmail,
+  redactForLogging,
+  redactObject,
+  redactString,
+} from './redaction';
 
-import { type CorrelationContext, getCorrelationContext } from './correlation';
+import { getCorrelationContext } from './correlation';
 import { redactForLogging } from './redaction';
 
 /**

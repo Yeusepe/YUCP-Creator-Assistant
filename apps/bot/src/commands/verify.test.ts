@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { buildVerifyStatusReply, handleRefreshCommand, handleVerifyStartButton } from './verify';
 
 const originalWarn = console.warn;
@@ -48,7 +47,7 @@ describe('verification support codes in bot handlers', () => {
       convex as unknown as VerifyStartConvex,
       'api-secret',
       'https://api.example.com',
-      { tenantId: 'tenant_123' as Id<'tenants'>, guildId: 'guild_123' }
+      { authUserId: 'user_abc123' as string, guildId: 'guild_123' }
     );
 
     const message = editReply.mock.calls[0]?.[0]?.content;
@@ -89,7 +88,7 @@ describe('verification support codes in bot handlers', () => {
       convex as unknown as RefreshConvex,
       'api-secret',
       {
-        tenantId: 'tenant_456' as Id<'tenants'>,
+        authUserId: 'user_abc456' as string,
       }
     );
 
@@ -112,6 +111,11 @@ describe('verification support codes in bot handlers', () => {
       removedBindings: 1,
       removedExternalAccounts: 1,
     }));
+    // getEnabledVerificationProvidersFromProducts and getByGuildWithProductNames both receive
+    // { apiSecret, authUserId, guildId } — use a call counter to tell them apart.
+    // Call order: getEnabledVerification... fires first (outer Promise.all item 2),
+    // getByGuildWithProductNames fires later (inner fetchVerifyData Promise.all item 3).
+    let guildQueryCount = 0;
     const convex = {
       mutation,
       query: mock(async (_ref: unknown, args: Record<string, unknown>) => {
@@ -138,12 +142,13 @@ describe('verification support codes in bot handlers', () => {
         }
 
         if ('apiSecret' in args && 'guildId' in args) {
-          return {
-            gumroad: true,
-            jinxxy: false,
-            discord: true,
-            vrchat: false,
-          };
+          guildQueryCount++;
+          if (guildQueryCount === 1) {
+            // getEnabledVerificationProvidersFromProducts — called first in outer Promise.all
+            return { providers: ['gumroad', 'discord'] };
+          }
+          // getByGuildWithProductNames — called second inside fetchVerifyData
+          return [{ productId: 'product_123', displayName: 'My Product' }];
         }
 
         return [{ productId: 'product_123', displayName: 'My Product' }];
@@ -152,7 +157,7 @@ describe('verification support codes in bot handlers', () => {
 
     const reply = await buildVerifyStatusReply(
       'user_123',
-      'tenant_123' as Id<'tenants'>,
+      'user_test123' as string,
       'guild_123',
       convex as unknown as VerifyStatusConvex,
       'api-secret',
@@ -176,7 +181,7 @@ describe('verification support codes in bot handlers', () => {
       expect.objectContaining({
         apiSecret: 'api-secret',
         subjectId: 'subject_123',
-        tenantId: 'tenant_123',
+        authUserId: 'user_test123',
       })
     );
   });

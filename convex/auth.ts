@@ -12,11 +12,11 @@
 import './polyfills';
 
 import { oauthProvider } from '@better-auth/oauth-provider';
-import { createClient } from '@convex-dev/better-auth';
 import type { GenericCtx } from '@convex-dev/better-auth';
+import { createClient } from '@convex-dev/better-auth';
 import { convex, crossDomain } from '@convex-dev/better-auth/plugins';
-import { betterAuth } from 'better-auth';
 import type { BetterAuthOptions } from 'better-auth';
+import { betterAuth } from 'better-auth';
 import { apiKey, jwt } from 'better-auth/plugins';
 import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
@@ -113,15 +113,14 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         }
       : {};
 
+  const localhostOrigins =
+    process.env.NODE_ENV !== 'production'
+      ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173']
+      : [];
+
   const trustedOrigins = Array.from(
     new Set(
-      [
-        siteUrl,
-        process.env.FRONTEND_URL,
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://localhost:5173',
-      ]
+      [siteUrl, process.env.FRONTEND_URL, ...localhostOrigins]
         .map(normalizeOrigin)
         .filter((origin): origin is string => Boolean(origin))
     )
@@ -135,20 +134,15 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
     !hasLoggedIgnoredBetterAuthUrl
   ) {
     hasLoggedIgnoredBetterAuthUrl = true;
-    console.warn(
+    // Downgrade to debug to avoid noisy WARN logs in runtime environments where
+    // CONVEX_SITE_URL is authoritative. This remains available for debugging.
+    console.debug(
       `BETTER_AUTH_URL (${legacyBetterAuthOrigin}) is ignored; Better Auth runs on ${authOrigin}`
     );
   }
 
   if (!hasLoggedBetterAuthConfig) {
     hasLoggedBetterAuthConfig = true;
-    console.log('Better Auth config', {
-      siteUrl,
-      authBaseUrl: `${convexSiteUrl}/api/auth`,
-      betterAuthUrl: process.env.BETTER_AUTH_URL ?? null,
-      frontendUrl: process.env.FRONTEND_URL ?? null,
-      trustedOrigins,
-    });
   }
 
   const authBaseUrl = `${convexSiteUrl}/api/auth`;
@@ -199,7 +193,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
           scope: scopes.join(' '),
           auth_user_id: user?.id,
           // Include stable profile data so clients can read identity from
-          // the token itself — no extra /v1/me round-trip needed.
+          // the token itself, no extra /v1/me round-trip needed.
           // Industry standard: Auth0, Okta, etc. all embed name/email in
           // first-party access tokens via custom claims.
           name: user?.name ?? null,

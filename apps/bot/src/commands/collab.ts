@@ -2,11 +2,11 @@
  * Collaborating Creators - /creator-admin collab invite/list
  *
  * Allows a server owner to generate an invite link for a collaborator to share
- * their Jinxxy API key for cross-store license verification.
+ * their credentials for cross-store license verification.
  * The collaborator's identity is verified via Discord OAuth on the consent page.
  */
 
-import { createLogger } from '@yucp/shared';
+import { createLogger, PROVIDER_REGISTRY, type ProviderDescriptor } from '@yucp/shared';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -16,16 +16,17 @@ import {
   MessageFlags,
   ModalBuilder,
   type ModalSubmitInteraction,
+  StringSelectMenuBuilder,
+  type StringSelectMenuInteraction,
+  StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E } from '../lib/emojis';
 import {
   addCollaboratorConnectionManual,
   createCollaboratorInvite,
-  createSetupSessionToken,
   listCollaboratorConnections,
   removeCollaboratorConnection,
 } from '../lib/internalRpc';
@@ -34,54 +35,156 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 /**
  * /creator-admin collab invite
- * Immediately generates and shows an invite link that the owner can share with any creator.
- * The collaborator verifies their Discord identity via OAuth on the consent page.
+ * Shows a provider selector so the admin can specify what kind of credential the collaborator
+ * will submit. Generates and shows the invite link after the provider is chosen.
  */
 export async function handleCollabInvite(
   interaction: ChatInputCommandInteraction,
-  apiSecret: string,
-  tenantId: Id<'tenants'>
+  _apiSecret: string,
+  authUserId: string
 ): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const collabProviders = (PROVIDER_REGISTRY as readonly ProviderDescriptor[]).filter(
+    (p) => p.supportsCollab === true
+  );
+
+  if (collabProviders.length === 0) {
+    await interaction.reply({
+      content: `${E.X_} No providers support collaborator invites at this time.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`creator_collab:invite_select:${authUserId}`)
+    .setPlaceholder('Select a provider')
+    .addOptions(
+      collabProviders.map((p) =>
+        new StringSelectMenuOptionBuilder().setLabel(p.label).setValue(p.providerKey)
+      )
+    );
+
+  await interaction.reply({
+    content: `${E.Link} **Create Collaborator Invite** — Select the provider for the collaborator's credential:`,
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/**
+ * Handle provider selection for collab invite — generates and shows the invite link.
+ */
+export async function handleCollabInviteProviderSelect(
+  interaction: StringSelectMenuInteraction,
+  authUserId: string
+): Promise<void> {
+  const providerKey = interaction.values[0];
+  if (!providerKey) {
+    await interaction.reply({
+      content: `${E.X_} No provider selected.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
 
   const { apiInternal, apiPublic } = getApiUrls();
   const apiBase = apiInternal ?? apiPublic;
 
   if (!apiBase) {
-    await interaction.editReply({ content: 'API base URL not configured.' });
+    await interaction.editReply({ content: 'API base URL not configured.', components: [] });
     return;
   }
 
   await generateAndShowInviteLink(
     interaction,
     apiBase,
-    apiSecret,
-    tenantId,
+    authUserId,
     interaction.guildId ?? '',
-    interaction.guild?.name ?? 'this server'
+    interaction.guild?.name ?? 'this server',
+    providerKey
   );
 }
 
 /**
  * /creator-admin collab add
- * Manually add a collaborator by API key. Shows a modal for the key.
+ * Shows a provider selector for providers that support manual collaborator connections.
  */
 export async function handleCollabAdd(
   interaction: ChatInputCommandInteraction,
-  apiSecret: string,
-  tenantId: Id<'tenants'>
+  _apiSecret: string,
+  authUserId: string
 ): Promise<void> {
+  const collabProviders = (PROVIDER_REGISTRY as readonly ProviderDescriptor[]).filter(
+    (p) => p.supportsCollab === true
+  );
+
+  if (collabProviders.length === 0) {
+    await interaction.reply({
+      content: `${E.X_} No providers support manual collaborator connections at this time.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`creator_collab:add_select:${authUserId}`)
+    .setPlaceholder('Select a provider')
+    .addOptions(
+      collabProviders.map((p) =>
+        new StringSelectMenuOptionBuilder().setLabel(p.label).setValue(p.providerKey)
+      )
+    );
+
+  await interaction.reply({
+    content: `${E.Key} **Add Collaborator** — Select the provider for the credential:`,
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/**
+ * Handle provider selection for collab add — shows the credential modal.
+ */
+export async function handleCollabAddProviderSelect(
+  interaction: StringSelectMenuInteraction,
+  authUserId: string
+): Promise<void> {
+  const providerKey = interaction.values[0];
+  if (!providerKey) {
+    await interaction.reply({
+      content: `${E.X_} No provider selected.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const descriptor = (PROVIDER_REGISTRY as readonly ProviderDescriptor[]).find(
+    (p) => p.providerKey === providerKey
+  );
+  if (!descriptor?.collabCredential) {
+    await interaction.reply({
+      content: `${E.X_} Provider not configured for manual collaboration.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
   const modal = new ModalBuilder()
-    .setCustomId(`creator_collab:add_modal:${tenantId}`)
-    .setTitle('Add Collaborator by API Key');
+    .setCustomId(`creator_collab:add_modal:${providerKey}:${authUserId}`)
+    .setTitle(`Add Collaborator – ${descriptor.label}`);
 
   const keyInput = new TextInputBuilder()
-    .setCustomId('jinxxy_api_key')
-    .setLabel('Jinxxy API Key')
-    .setPlaceholder('Paste the API key the creator shared with you')
+    .setCustomId('collab_credential')
+    .setLabel(descriptor.collabCredential.label)
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setMinLength(10);
+
+  if (descriptor.collabCredential.placeholder) {
+    keyInput.setPlaceholder(descriptor.collabCredential.placeholder);
+  }
 
   modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(keyInput));
   await interaction.showModal(modal);
@@ -89,17 +192,29 @@ export async function handleCollabAdd(
 
 /**
  * Handle modal submit for collab add.
+ * providerKey is extracted from the customId by the interactions handler.
  */
 export async function handleCollabAddModalSubmit(
   interaction: ModalSubmitInteraction,
-  apiSecret: string,
-  tenantId: Id<'tenants'>
+  _apiSecret: string,
+  authUserId: string,
+  providerKey: string
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const apiKey = interaction.fields.getTextInputValue('jinxxy_api_key')?.trim();
-  if (!apiKey) {
-    await interaction.editReply({ content: `${E.X_} API key is required.` });
+  // Support both 'collab_credential' (new) and 'jinxxy_api_key' (old, backward compat)
+  let credential: string | undefined;
+  try {
+    credential = interaction.fields.getTextInputValue('collab_credential')?.trim();
+  } catch (_) {}
+  if (!credential) {
+    try {
+      credential = interaction.fields.getTextInputValue('jinxxy_api_key')?.trim();
+    } catch (_) {}
+  }
+
+  if (!credential) {
+    await interaction.editReply({ content: `${E.X_} Credential is required.` });
     return;
   }
 
@@ -113,10 +228,11 @@ export async function handleCollabAddModalSubmit(
 
   try {
     const data = await addCollaboratorConnectionManual({
-      tenantId,
+      authUserId,
       guildId: interaction.guildId ?? '',
       actorDiscordUserId: interaction.user.id,
-      jinxxyApiKey: apiKey,
+      providerKey,
+      credential,
       serverName: interaction.guild?.name ?? 'this server',
     });
 
@@ -142,8 +258,8 @@ export async function handleCollabAddModalSubmit(
  */
 export async function handleCollabList(
   interaction: ChatInputCommandInteraction,
-  apiSecret: string,
-  tenantId: Id<'tenants'>
+  _apiSecret: string,
+  authUserId: string
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -168,7 +284,7 @@ export async function handleCollabList(
 
   try {
     connections = await listCollaboratorConnections({
-      tenantId,
+      authUserId,
       guildId: interaction.guildId ?? '',
       actorDiscordUserId: interaction.user.id,
     });
@@ -207,15 +323,15 @@ export async function handleCollabList(
     content += `${collaboratorLabel} - ${typeBadge}${manualBadge}${webhookStatus}\n`;
 
     const removeBtn = new ButtonBuilder()
-      .setCustomId(`creator_collab:remove:${tenantId}:${conn.id}`)
+      .setCustomId(`creator_collab:remove:${authUserId}:${conn.id}`)
       .setLabel(`Remove ${conn.collaboratorDisplayName || conn.collaboratorDiscordUserId}`)
       .setStyle(ButtonStyle.Danger);
 
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(removeBtn));
   }
 
-  if (connections.length > 5) {
-    content += `\n_...and ${connections.length - 5} more_`;
+  if (activeConnections.length > 5) {
+    content += `\n_...and ${activeConnections.length - 5} more_`;
   }
 
   await interaction.editReply({ content, components: rows });
@@ -226,8 +342,8 @@ export async function handleCollabList(
  */
 export async function handleCollabRemove(
   interaction: ButtonInteraction,
-  apiSecret: string,
-  tenantId: Id<'tenants'>,
+  _apiSecret: string,
+  authUserId: string,
   connectionId: string
 ): Promise<void> {
   await interaction.deferUpdate();
@@ -242,7 +358,7 @@ export async function handleCollabRemove(
 
   try {
     const response = await removeCollaboratorConnection({
-      tenantId,
+      authUserId,
       guildId: interaction.guildId ?? '',
       actorDiscordUserId: interaction.user.id,
       connectionId,
@@ -270,25 +386,26 @@ export async function handleCollabRemove(
 }
 
 /**
- * Helper: generate an invite link and show it to the admin.
+ * Helper: generate an invite link for the given provider and show it to the admin.
  */
 async function generateAndShowInviteLink(
-  interaction: ChatInputCommandInteraction | ButtonInteraction,
-  apiBase: string,
-  apiSecret: string,
-  tenantId: Id<'tenants'>,
+  interaction: ChatInputCommandInteraction | ButtonInteraction | StringSelectMenuInteraction,
+  _apiBase: string,
+  authUserId: string,
   guildId: string,
-  guildName: string
+  guildName: string,
+  providerKey: string
 ): Promise<void> {
   let inviteUrl: string | null = null;
   let expiresAt: number | null = null;
 
   try {
     const data = await createCollaboratorInvite({
-      tenantId,
+      authUserId,
       guildId,
       guildName,
       actorDiscordUserId: interaction.user.id,
+      providerKey,
     });
     inviteUrl = data.inviteUrl ?? null;
     expiresAt = data.expiresAt ? Number(data.expiresAt) : null;

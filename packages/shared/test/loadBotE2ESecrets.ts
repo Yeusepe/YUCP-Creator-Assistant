@@ -22,7 +22,7 @@ export interface BotE2ESecrets {
   betterAuthSecret: string;
   targetGuildId: string;
   sourceGuildId: string;
-  tenantId: string;
+  authUserId: string;
   guildLinkId: string;
   adminUserId: string;
   memberUserId: string;
@@ -49,7 +49,7 @@ const REQUIRED_KEYS = [
   'BETTER_AUTH_SECRET',
   'BOT_E2E_TARGET_GUILD_ID',
   'BOT_E2E_SOURCE_GUILD_ID',
-  'BOT_E2E_TENANT_ID',
+  'BOT_E2E_AUTH_USER_ID',
   'BOT_E2E_GUILD_LINK_ID',
   'BOT_E2E_ADMIN_USER_ID',
   'BOT_E2E_MEMBER_USER_ID',
@@ -75,7 +75,7 @@ function toRawMap(value: Record<string, string>): RawSecretMap {
     BETTER_AUTH_SECRET: value.BETTER_AUTH_SECRET,
     BOT_E2E_TARGET_GUILD_ID: value.BOT_E2E_TARGET_GUILD_ID,
     BOT_E2E_SOURCE_GUILD_ID: value.BOT_E2E_SOURCE_GUILD_ID,
-    BOT_E2E_TENANT_ID: value.BOT_E2E_TENANT_ID,
+    BOT_E2E_AUTH_USER_ID: value.BOT_E2E_AUTH_USER_ID,
     BOT_E2E_GUILD_LINK_ID: value.BOT_E2E_GUILD_LINK_ID,
     BOT_E2E_ADMIN_USER_ID: value.BOT_E2E_ADMIN_USER_ID,
     BOT_E2E_MEMBER_USER_ID: value.BOT_E2E_MEMBER_USER_ID,
@@ -136,7 +136,7 @@ function normalizeBotE2ESecrets(raw: RawSecretMap): BotE2ESecrets {
     betterAuthSecret: requireRawSecret(raw, 'BETTER_AUTH_SECRET'),
     targetGuildId: requireRawSecret(raw, 'BOT_E2E_TARGET_GUILD_ID'),
     sourceGuildId: requireRawSecret(raw, 'BOT_E2E_SOURCE_GUILD_ID'),
-    tenantId: requireRawSecret(raw, 'BOT_E2E_TENANT_ID'),
+    authUserId: requireRawSecret(raw, 'BOT_E2E_AUTH_USER_ID'),
     guildLinkId: requireRawSecret(raw, 'BOT_E2E_GUILD_LINK_ID'),
     adminUserId: requireRawSecret(raw, 'BOT_E2E_ADMIN_USER_ID'),
     memberUserId: requireRawSecret(raw, 'BOT_E2E_MEMBER_USER_ID'),

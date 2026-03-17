@@ -27,7 +27,7 @@
             color: rgba(255,255,255,0.9);
             background: #09090f;
             overflow-x: hidden;
-            cursor: none;
+            cursor: auto;
         }
 
         h1,h2,h3,h4,.display-text {
@@ -510,7 +510,7 @@
             .overview-step { padding: 0.75rem 0.25rem; flex-direction: row; text-align: left; gap: 1rem; align-items: center; }
             .overview-num { flex-shrink: 0; margin-bottom: 0; }
         }
-        @media (min-width: 901px) { .hamburger-btn { display: none !important; } }
+        @media (min-width: 901px) { .hamburger-btn { display: none; } }
     </style>
 </head>
 
@@ -522,8 +522,6 @@
         <div class="blob"></div>
         <div class="blob"></div>
     </div>
-    <div class="cursor-dot hidden md:block"></div>
-    <div class="cursor-dot-outline hidden md:block"></div>
 
     <!-- ── Navbar ───────────────────────────────────────────────────────────── -->
     <nav class="top-navbar">
@@ -934,7 +932,7 @@
                     <div class="product-card" style="border-color:rgba(54,169,174,0.2);">
                         <div class="product-icon" style="background:rgba(54,169,174,0.12);"><img src="Icons/Gumorad.png" alt="Gumroad®"></div>
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>OAuth</h4><span class="badge badge-gumroad">Gumroad®</span></div>
-                        <p>Buyers sign in with Gumroad® (OAuth). The bot reads purchase history automatically — no key entry needed.</p>
+                        <p>Buyers sign in with Gumroad® (OAuth). The bot reads purchase history automatically, no key entry needed.</p>
                     </div>
 
                     <div class="product-card" style="border-color:rgba(255,211,110,0.2);">
@@ -961,7 +959,7 @@
                     <div class="product-card" style="border-color:rgba(88,101,242,0.2);">
                         <div class="product-icon" style="background:rgba(88,101,242,0.12);"><img src="Icons/Discord.png" alt="Discord® Role"></div>
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>Cross-Server</h4><span class="badge badge-discord">Discord® Role</span></div>
-                        <p>Prove a role in another server — useful for partnerships and cross-server access passes.</p>
+                        <p>Prove a role in another server, useful for partnerships and cross-server access passes.</p>
                     </div>
                 </div>
 
@@ -1142,7 +1140,7 @@
         // Each blob floats on an independent Lissajous-style path using sin/cos
         // with different frequencies, amplitudes, and phase offsets so they
         // never repeat in sync. Positions are in pixels from top-left of viewport.
-        (function () {
+        (() => {
             const blobs = document.querySelectorAll('.blob');
             const W = () => window.innerWidth;
             const H = () => window.innerHeight;
@@ -1172,19 +1170,8 @@
             requestAnimationFrame(tick);
         })();
 
-        // Custom cursor
-        const dot = document.querySelector('.cursor-dot');
-        const outline = document.querySelector('.cursor-dot-outline');
-        if (dot && outline) {
-            window.addEventListener('mousemove', (e) => {
-                dot.style.left = `${e.clientX}px`;
-                dot.style.top  = `${e.clientY}px`;
-                outline.animate({ left: `${e.clientX}px`, top: `${e.clientY}px` }, { duration: 300, fill: 'forwards', easing: 'ease-out' });
-            });
-        }
-
         // Copy command to clipboard
-        function copyCmd(btn, text) {
+        function _copyCmd(btn, text) {
             navigator.clipboard.writeText(text).then(() => {
                 const isSm = btn.classList.contains('copy-btn-sm');
                 const sz = isSm ? 11 : 13;
@@ -1206,7 +1193,7 @@
         }));
 
         // Active section tracking + hash sync
-        const NAV_OFFSET = 80; // px — fixed navbar height
+        const NAV_OFFSET = 80; // px, fixed navbar height
         const sections = document.querySelectorAll('.doc-section[id]');
         const links    = document.querySelectorAll('.sidebar-link[data-section]');
 
@@ -1229,7 +1216,7 @@
             entries.forEach(e => {
                 if (e.isIntersecting) {
                     links.forEach(l => l.classList.toggle('active', l.dataset.section === e.target.id));
-                    history.replaceState(null, '', '#' + e.target.id);
+                    history.replaceState(null, '', `#${e.target.id}`);
                 }
             });
         }, { rootMargin: `-${NAV_OFFSET}px 0px -60% 0px`, threshold: 0 });
