@@ -324,7 +324,7 @@ async function buildLemonClientForConnection(
     authUserId,
     provider: 'lemonsqueezy',
   });
-  const encryptedApiToken = secrets?.lemonApiTokenEncrypted;
+  const encryptedApiToken = secrets?.credentials['api_token'];
   if (!encryptedApiToken) throw new Error('Lemon Squeezy API token not configured');
   const apiToken = await decrypt(
     encryptedApiToken,
@@ -1081,7 +1081,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       provider: 'lemonsqueezy',
     });
     const encryptedWebhookSecret =
-      connection.remoteWebhookSecretRef ?? secrets?.webhookSecretEncrypted ?? null;
+      connection.remoteWebhookSecretRef ?? secrets?.webhookSecretRef ?? null;
     if (!encryptedWebhookSecret)
       return jsonResponse({ error: 'Webhook secret not configured' }, requestId, 409);
 

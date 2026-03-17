@@ -70,7 +70,7 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
       provider: 'lemonsqueezy',
     });
 
-    const encryptedApiToken = secrets?.lemonApiTokenEncrypted;
+    const encryptedApiToken = secrets?.credentials['api_token'];
     if (!encryptedApiToken) {
       return {
         success: false,

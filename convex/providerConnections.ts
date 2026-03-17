@@ -1021,7 +1021,7 @@ export const upsertGumroadConnection = mutation({
 
 /**
  * Upsert Jinxxy provider connection (API key, webhook secret).
- * authUserId is optional, omit only for system-level setup without user scope.
+ * @deprecated Use upsertProviderConnection instead.
  */
 export const upsertJinxxyConnection = mutation({
   args: {
@@ -1057,7 +1057,6 @@ export const upsertJinxxyConnection = mutation({
         providerKey: 'jinxxy',
         status: 'active',
         authMode: 'api_key',
-        jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted ?? existing.jinxxyApiKeyEncrypted,
         webhookSecretRef: args.webhookSecretRef ?? existing.webhookSecretRef,
         webhookEndpoint: args.webhookEndpoint ?? existing.webhookEndpoint,
         webhookConfigured: webhookConfigured || existing.webhookConfigured,
@@ -1107,7 +1106,6 @@ export const upsertJinxxyConnection = mutation({
       connectionType: 'setup',
       status: 'active',
       authMode: 'api_key',
-      jinxxyApiKeyEncrypted: args.jinxxyApiKeyEncrypted,
       webhookSecretRef: args.webhookSecretRef,
       webhookEndpoint: args.webhookEndpoint,
       webhookConfigured,
@@ -1445,10 +1443,10 @@ export const listConnectionsForUser = query({
       connectionType: c.connectionType ?? 'setup',
       status:
         c.status ??
-        (c.gumroadAccessTokenEncrypted || c.jinxxyApiKeyEncrypted ? 'active' : 'disconnected'),
+        (c.webhookConfigured ? 'active' : 'disconnected'),
       webhookConfigured: c.webhookConfigured,
-      hasApiKey: !!c.jinxxyApiKeyEncrypted,
-      hasAccessToken: !!c.gumroadAccessTokenEncrypted,
+      hasApiKey: false,
+      hasAccessToken: false,
       authUserId: c.authUserId,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
@@ -1811,8 +1809,12 @@ export const getConnectionStatusForUser = query({
         .first(),
     ]);
 
-    const hasGumroad = !!gumroadUser?.gumroadAccessTokenEncrypted;
-    const hasJinxxy = !!jinxxyUser?.jinxxyApiKeyEncrypted;
+    const hasGumroad = gumroadUser
+      ? !!(await getCredentialValue(ctx, gumroadUser._id, 'oauth_access_token'))
+      : false;
+    const hasJinxxy = jinxxyUser
+      ? !!(await getCredentialValue(ctx, jinxxyUser._id, 'api_key'))
+      : false;
 
     return { gumroad: hasGumroad, jinxxy: hasJinxxy };
   },

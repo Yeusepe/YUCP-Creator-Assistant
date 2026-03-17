@@ -205,10 +205,17 @@ async function finishConnect(
   const encrypted = await encrypt(sessionJson, ctx.config.encryptionSecret, SESSION_PURPOSE);
 
   const convex = getConvexClientFromUrl(ctx.config.convexUrl);
-  await convex.mutation(api.providerConnections.upsertVrchatConnection, {
+  await convex.mutation(api.providerConnections.upsertProviderConnection, {
     apiSecret: ctx.config.convexApiSecret,
     authUserId,
-    vrchatSessionEncrypted: encrypted,
+    providerKey: 'vrchat',
+    authMode: 'session',
+    credentials: [
+      { credentialKey: 'vrchat_session', kind: 'api_token', encryptedValue: encrypted },
+    ],
+    capabilities: [
+      { capabilityKey: 'catalog_sync', status: 'configured', requiredCredentialKeys: ['vrchat_session'] },
+    ],
   });
 
   logger.info('[vrchat-connect] session stored (token values redacted)', { authUserId });
