@@ -2,6 +2,7 @@ import { GumroadAdapter } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
+import { encrypt } from '../../lib/encrypt';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
 import type { VerificationConfig } from '../sessionManager';
@@ -55,6 +56,19 @@ export const gumroadHandler: LicenseVerificationHandler = {
     const providerUserId = result.purchaseEmail ?? `gumroad:${productId}:${licenseKey.slice(0, 8)}`;
     const sourceReference = result.saleId ?? `gumroad:${productId}:${licenseKey}`;
 
+    let providerMetadata: { emailEncrypted?: string; emailHash?: string } | undefined;
+    if (result.purchaseEmail) {
+      const normalized = result.purchaseEmail.trim().toLowerCase();
+      const [emailEncrypted, hashBuf] = await Promise.all([
+        encrypt(normalized, config.encryptionSecret ?? '', 'external-account-metadata-email'),
+        crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalized)),
+      ]);
+      const emailHash = Array.from(new Uint8Array(hashBuf))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      providerMetadata = { emailEncrypted, emailHash };
+    }
+
     const mutationResult = await convex.mutation(
       api.licenseVerification.completeLicenseVerification,
       {
@@ -63,7 +77,7 @@ export const gumroadHandler: LicenseVerificationHandler = {
         subjectId,
         provider: 'gumroad',
         providerUserId,
-        providerMetadata: result.purchaseEmail ? { email: result.purchaseEmail } : undefined,
+        providerMetadata,
         productsToGrant: [{ productId, sourceReference }],
       }
     );

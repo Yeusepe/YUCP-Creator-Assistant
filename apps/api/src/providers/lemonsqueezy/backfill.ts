@@ -8,7 +8,10 @@
 
 import { LemonSqueezyApiClient } from '@yucp/providers/lemonsqueezy';
 import { createLogger } from '@yucp/shared';
+import { encrypt } from '../../lib/encrypt';
 import type { BackfillPlugin, BackfillRecord } from '../types';
+
+const PURCHASE_BUYER_EMAIL_PURPOSE = 'purchase-buyer-email';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -32,7 +35,7 @@ async function sha256Hex(input: string): Promise<string> {
 export const backfill: BackfillPlugin = {
   pageDelayMs: 250,
 
-  async fetchPage(apiKey, productRef, cursor, pageSize) {
+  async fetchPage(apiKey, productRef, cursor, pageSize, encryptionSecret) {
     const state: LSCursor = cursor
       ? (JSON.parse(cursor) as LSCursor)
       : { phase: 'subscriptions', page: 1 };
@@ -53,12 +56,17 @@ export const backfill: BackfillPlugin = {
             subscriptions.map(async (sub) => {
               const email = sub.userEmail ?? '';
               const normalized = email ? normalizeEmail(email) : undefined;
+              const buyerEmailHash = normalized ? await sha256Hex(normalized) : undefined;
+              const buyerEmailEncrypted = normalized
+                ? await encrypt(normalized, encryptionSecret, PURCHASE_BUYER_EMAIL_PURPOSE)
+                : undefined;
               const isCancelled = sub.status === 'cancelled' || sub.status === 'expired';
               return {
                 authUserId: '',
                 provider: 'lemonsqueezy',
                 externalOrderId: sub.orderId ?? sub.id,
-                buyerEmailHash: normalized ? await sha256Hex(normalized) : undefined,
+                buyerEmailHash,
+                buyerEmailEncrypted,
                 providerProductId: productRef,
                 paymentStatus: 'paid',
                 lifecycleStatus: (isCancelled
@@ -126,12 +134,17 @@ export const backfill: BackfillPlugin = {
             if (!order) continue;
             const email = order.userEmail ?? '';
             const normalized = email ? normalizeEmail(email) : undefined;
+            const buyerEmailHash = normalized ? await sha256Hex(normalized) : undefined;
+            const buyerEmailEncrypted = normalized
+              ? await encrypt(normalized, encryptionSecret, PURCHASE_BUYER_EMAIL_PURPOSE)
+              : undefined;
             facts.push({
               authUserId: '',
               provider: 'lemonsqueezy',
               externalOrderId: item.orderId,
               externalLineItemId: item.id,
-              buyerEmailHash: normalized ? await sha256Hex(normalized) : undefined,
+              buyerEmailHash,
+              buyerEmailEncrypted,
               providerProductId: productRef,
               paymentStatus: order.refunded ? 'refunded' : 'paid',
               lifecycleStatus: (order.refunded

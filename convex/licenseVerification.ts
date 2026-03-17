@@ -57,10 +57,11 @@ export const completeLicenseVerification = mutation({
     providerUsername: v.optional(v.string()),
     providerMetadata: v.optional(
       v.object({
-        email: v.optional(v.string()),
+        emailEncrypted: v.optional(v.string()),
+        emailHash: v.optional(v.string()),
         avatarUrl: v.optional(v.string()),
         profileUrl: v.optional(v.string()),
-        rawData: v.optional(v.any()),
+        rawDataEncrypted: v.optional(v.string()),
       })
     ),
     productsToGrant: v.array(ProductToGrant),
@@ -147,13 +148,9 @@ export const completeLicenseVerification = mutation({
     }
 
     // 3. Upsert provider_customer
-    const email = args.providerMetadata?.email;
-    const normalizedEmailHash = email ? await hashForStorage(email) : undefined;
-    const displayHints = email
-      ? {
-          emailPrefix: `${email.slice(0, 3)}***`,
-          usernamePrefix: args.providerUsername?.slice(0, 3),
-        }
+    const normalizedEmailHash = args.providerMetadata?.emailHash;
+    const displayHints = args.providerUsername
+      ? { usernamePrefix: args.providerUsername.slice(0, 3) }
       : undefined;
 
     let providerCustomerId: Id<'provider_customers'> | undefined;

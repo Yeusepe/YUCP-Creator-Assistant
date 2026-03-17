@@ -2,7 +2,7 @@ import { LemonSqueezyApiClient } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
-import { decrypt } from '../../lib/encrypt';
+import { decrypt, encrypt } from '../../lib/encrypt';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
 import { PURPOSES as LEMONSQUEEZY } from '../../providers/lemonsqueezy';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
@@ -189,7 +189,12 @@ export const lemonSqueezyHandler: LicenseVerificationHandler = {
         provider: 'lemonsqueezy',
         providerUserId: String(customerId ?? userEmail ?? licenseId),
         providerUsername: userName,
-        providerMetadata: normalizedEmail ? { email: normalizedEmail } : undefined,
+        providerMetadata: normalizedEmail
+          ? {
+              emailEncrypted: await encrypt(normalizedEmail, config.encryptionSecret ?? '', 'external-account-metadata-email'),
+              emailHash: await sha256Hex(normalizedEmail),
+            }
+          : undefined,
         productsToGrant: [
           {
             productId: match.productId,
