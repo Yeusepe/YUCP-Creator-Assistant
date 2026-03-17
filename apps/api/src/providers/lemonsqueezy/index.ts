@@ -134,6 +134,12 @@ const lemonSqueezyProvider: ProviderPlugin = {
     connectedColor: '#e6b600',
     confettiColors: ['#ffd35a', '#e6b600', '#fff0a0', '#ffffff'],
     description: 'Marketplace',
+    dashboardConnectPath: '/lemonsqueezy-setup',
+    dashboardConnectParamStyle: 'snakeCase',
+    dashboardIconBg: '#f7b84b',
+    dashboardQuickStartBg: 'rgba(247,184,75,0.12)',
+    dashboardQuickStartBorder: 'rgba(247,184,75,0.32)',
+    dashboardServerTileHint: 'Allow users to verify Lemon Squeezy purchases and licenses in this Discord server.',
   },
   async collabValidate(credential: string): Promise<void> {
     const client = new LemonSqueezyApiClient({ apiToken: credential });

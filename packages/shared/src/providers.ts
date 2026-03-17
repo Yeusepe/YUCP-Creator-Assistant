@@ -385,7 +385,7 @@ export const PROVIDER_REGISTRY = [
     // Webhook doc: https://help.payhip.com/article/115-webhooks
     // License key doc: https://help.payhip.com/article/317-software-license-keys-new
     docsUrl: 'https://help.payhip.com/category/48-developer',
-    emojiKey: 'CreditCard',
+    emojiKey: 'Payhip',
     addProductDescription: 'Sold on payhip.com',
     creatorAuthModes: ['api_key'],
     buyerVerificationMethods: ['license_key', 'account_link'],

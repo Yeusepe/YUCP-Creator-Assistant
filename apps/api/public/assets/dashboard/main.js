@@ -14,6 +14,7 @@ import {
   ensureBoundSetupSession,
   renderQuickStart,
 } from './platform.js';
+import { getActiveSetupProviders } from './providers.js';
 import { initCollab, fetchCollabConnections } from './collab.js';
 import { initApiKeys, fetchPublicApiKeys } from './api.js';
 import { initOAuth, fetchOAuthApps } from './oauth.js';
@@ -80,19 +81,20 @@ async function init() {
   }
 }
 
-function runInits() {
+async function runInits() {
   initStore();
   initTheme();
   initTabs();
   initSidebar();
   initDropdowns();
-  initPlatforms();
+  await initPlatforms();
   initCollab();
   initApiKeys();
   initOAuth();
 
   const params = new URLSearchParams(window.location.search);
-  if (params.get('gumroad') === 'connected' || params.get('jinxxy') === 'connected') {
+  const justConnected = getActiveSetupProviders().some((p) => params.get(p.key) === 'connected');
+  if (justConnected) {
     const cleanParams = new URLSearchParams();
     if (getGuildId()) cleanParams.set('guild_id', getGuildId());
     if (getTenantId()) cleanParams.set('tenant_id', getTenantId());
