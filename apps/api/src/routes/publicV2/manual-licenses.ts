@@ -110,7 +110,7 @@ export async function handleManualLicensesRoutes(
     }
 
     try {
-      const hashedKey = await hashLicenseKey(body.key as string);
+      const hashedKey = await hashLicenseKey(body.key as string, config.encryptionSecret);
       const result = await convex.query(api.manualLicenses.validateByHash, {
         apiSecret: config.convexApiSecret,
         authUserId: auth.authUserId,
@@ -218,7 +218,7 @@ export async function handleManualLicensesRoutes(
       }
 
       try {
-        const hashedKey = await hashLicenseKey(body.key as string);
+        const hashedKey = await hashLicenseKey(body.key as string, config.encryptionSecret);
         const result = await convex.mutation(api.manualLicenses.create, {
           apiSecret: config.convexApiSecret,
           authUserId: auth.authUserId,
