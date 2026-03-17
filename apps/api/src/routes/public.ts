@@ -804,7 +804,13 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     // supplies a mismatched body authUserId would otherwise query a different tenant.
     const verifiedAuthUserId = auth.authUserId;
 
-    const resolved = await resolveSubjectOrResponse(convex, config, verifiedAuthUserId, selector, 200);
+    const resolved = await resolveSubjectOrResponse(
+      convex,
+      config,
+      verifiedAuthUserId,
+      selector,
+      200
+    );
     if ('response' in resolved) {
       return jsonResponse({
         verified: false,

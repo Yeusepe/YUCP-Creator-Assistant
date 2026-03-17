@@ -67,12 +67,15 @@ export const webhook: WebhookPlugin = {
       }
 
       // Payhip signature = SHA256(apiKey) — static, not HMAC of the body.
-      const encryptedKey = await convex.query(api.providerConnections.getWebhookCredentialByRouteId, {
-        apiSecret,
-        routeId,
-        provider: 'payhip',
-        credentialKey: 'api_key',
-      });
+      const encryptedKey = await convex.query(
+        api.providerConnections.getWebhookCredentialByRouteId,
+        {
+          apiSecret,
+          routeId,
+          provider: 'payhip',
+          credentialKey: 'api_key',
+        }
+      );
       const apiKey = encryptedKey
         ? await decrypt(encryptedKey, encryptionSecret, CREDENTIAL_PURPOSE)
         : null;

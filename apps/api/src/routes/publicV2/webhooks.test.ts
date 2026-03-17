@@ -107,48 +107,33 @@ beforeEach(() => {
 describe('handleWebhooksRoutes', () => {
   describe('GET /webhook-event-types', () => {
     it('returns 200', async () => {
-      const res = await routes(
-        makeRequest('GET', '/webhook-event-types'),
-        '/webhook-event-types'
-);
+      const res = await routes(makeRequest('GET', '/webhook-event-types'), '/webhook-event-types');
       expect(res.status).toBe(200);
     });
 
     it('body has object:list with event type objects', async () => {
-      const res = await routes(
-        makeRequest('GET', '/webhook-event-types'),
-        '/webhook-event-types'
-);
+      const res = await routes(makeRequest('GET', '/webhook-event-types'), '/webhook-event-types');
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.object).toBe('list');
       expect(Array.isArray(body.data)).toBe(true);
     });
 
     it('includes entitlement.granted in the event types', async () => {
-      const res = await routes(
-        makeRequest('GET', '/webhook-event-types'),
-        '/webhook-event-types'
-);
+      const res = await routes(makeRequest('GET', '/webhook-event-types'), '/webhook-event-types');
       const body = (await res.json()) as { data: Array<{ type: string; description: string }> };
       const types = body.data.map((e) => e.type);
       expect(types).toContain('entitlement.granted');
     });
 
     it('includes ping in the event types', async () => {
-      const res = await routes(
-        makeRequest('GET', '/webhook-event-types'),
-        '/webhook-event-types'
-);
+      const res = await routes(makeRequest('GET', '/webhook-event-types'), '/webhook-event-types');
       const body = (await res.json()) as { data: Array<{ type: string; description: string }> };
       const types = body.data.map((e) => e.type);
       expect(types).toContain('ping');
     });
 
     it('each event type entry has type and description fields', async () => {
-      const res = await routes(
-        makeRequest('GET', '/webhook-event-types'),
-        '/webhook-event-types'
-);
+      const res = await routes(makeRequest('GET', '/webhook-event-types'), '/webhook-event-types');
       const body = (await res.json()) as { data: Array<Record<string, unknown>> };
       for (const entry of body.data) {
         expect(typeof entry.type).toBe('string');
@@ -189,7 +174,7 @@ describe('handleWebhooksRoutes', () => {
           events: ['entitlement.granted'],
         }),
         '/webhooks'
-);
+      );
       expect(res.status).toBe(201);
     });
 
@@ -200,7 +185,7 @@ describe('handleWebhooksRoutes', () => {
           events: ['entitlement.granted'],
         }),
         '/webhooks'
-);
+      );
       const body = (await res.json()) as Record<string, unknown>;
       expect(typeof body.signingSecret).toBe('string');
       expect((body.signingSecret as string).startsWith('whsec_')).toBe(true);
@@ -213,7 +198,7 @@ describe('handleWebhooksRoutes', () => {
           events: [],
         }),
         '/webhooks'
-);
+      );
       const body = (await res.json()) as Record<string, unknown>;
       expect(body).not.toHaveProperty('signingSecretEnc');
     });
@@ -221,10 +206,7 @@ describe('handleWebhooksRoutes', () => {
 
   describe('POST /webhooks — validation errors', () => {
     it('returns 400 when url field is missing', async () => {
-      const res = await routes(
-        makeRequest('POST', '/webhooks', { events: [] }),
-        '/webhooks'
-);
+      const res = await routes(makeRequest('POST', '/webhooks', { events: [] }), '/webhooks');
       expect(res.status).toBe(400);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('bad_request');
@@ -237,7 +219,7 @@ describe('handleWebhooksRoutes', () => {
           events: [],
         }),
         '/webhooks'
-);
+      );
       expect(res.status).toBe(400);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('bad_request');
@@ -247,25 +229,19 @@ describe('handleWebhooksRoutes', () => {
       const res = await routes(
         makeRequest('POST', '/webhooks', { url: '', events: [] }),
         '/webhooks'
-);
+      );
       expect(res.status).toBe(400);
     });
   });
 
   describe('GET /webhooks/:id', () => {
     it('returns 200 with the subscription object', async () => {
-      const res = await routes(
-        makeRequest('GET', '/webhooks/wh_001'),
-        '/webhooks/wh_001'
-);
+      const res = await routes(makeRequest('GET', '/webhooks/wh_001'), '/webhooks/wh_001');
       expect(res.status).toBe(200);
     });
 
     it('strips signingSecretEnc from the response', async () => {
-      const res = await routes(
-        makeRequest('GET', '/webhooks/wh_001'),
-        '/webhooks/wh_001'
-);
+      const res = await routes(makeRequest('GET', '/webhooks/wh_001'), '/webhooks/wh_001');
       const body = (await res.json()) as Record<string, unknown>;
       expect(body).not.toHaveProperty('signingSecretEnc');
     });
@@ -275,20 +251,14 @@ describe('handleWebhooksRoutes', () => {
         if (fn === apiMock.webhookSubscriptions.getById) return null;
         throw new Error(`Unhandled query: ${String(fn)}`);
       };
-      const res = await routes(
-        makeRequest('GET', '/webhooks/unknown_id'),
-        '/webhooks/unknown_id'
-);
+      const res = await routes(makeRequest('GET', '/webhooks/unknown_id'), '/webhooks/unknown_id');
       expect(res.status).toBe(404);
     });
   });
 
   describe('DELETE /webhooks/:id', () => {
     it('returns 200 with deleted:true', async () => {
-      const res = await routes(
-        makeRequest('DELETE', '/webhooks/wh_001'),
-        '/webhooks/wh_001'
-);
+      const res = await routes(makeRequest('DELETE', '/webhooks/wh_001'), '/webhooks/wh_001');
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.deleted).toBe(true);
@@ -296,10 +266,7 @@ describe('handleWebhooksRoutes', () => {
     });
 
     it('calls convex mutation to delete the subscription', async () => {
-      await routes(
-        makeRequest('DELETE', '/webhooks/wh_001'),
-        '/webhooks/wh_001'
-);
+      await routes(makeRequest('DELETE', '/webhooks/wh_001'), '/webhooks/wh_001');
       expect(
         mutationMock.mock.calls.some(
           (call) => call[0] === apiMock.webhookSubscriptions.deleteSubscription
@@ -310,10 +277,7 @@ describe('handleWebhooksRoutes', () => {
 
   describe('unknown sub-paths', () => {
     it('returns 404 for an unrecognised sub-path', async () => {
-      const res = await routes(
-        makeRequest('GET', '/unknown-route'),
-        '/unknown-route'
-);
+      const res = await routes(makeRequest('GET', '/unknown-route'), '/unknown-route');
       expect(res.status).toBe(404);
     });
   });

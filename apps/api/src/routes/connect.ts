@@ -317,9 +317,7 @@ function normalizeRedirectUris(redirectUris: unknown): string[] {
         parsed.hostname === '127.0.0.1' ||
         parsed.hostname === '[::1]';
       if (parsed.protocol !== 'https:' && !isLocalhost) {
-        throw new Error(
-          `Redirect URI must use HTTPS or target localhost: ${redirectUri}`
-        );
+        throw new Error(`Redirect URI must use HTTPS or target localhost: ${redirectUri}`);
       }
     }
   }
@@ -1320,14 +1318,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     authUserId: string
   ): Promise<void> {
     try {
-      const connInfo = await convex.query(
-        api.providerConnections.getConnectionForDisconnect,
-        {
-          apiSecret: config.convexApiSecret,
-          connectionId: connectionId as any,
-          authUserId,
-        }
-      );
+      const connInfo = await convex.query(api.providerConnections.getConnectionForDisconnect, {
+        apiSecret: config.convexApiSecret,
+        connectionId: connectionId as any,
+        authUserId,
+      });
       if (!connInfo) return;
 
       const plugin = PROVIDERS.get(connInfo.provider);
