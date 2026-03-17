@@ -722,10 +722,7 @@ export const markSubjectSuspicious = mutation({
     wasAlreadySuspicious: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const expected = process.env.CONVEX_API_SECRET;
-    if (!expected || args.apiSecret !== expected) {
-      throw new Error('Unauthorized: invalid or missing API secret');
-    }
+    requireApiSecret(args.apiSecret);
 
     const subject = await ctx.db.get(args.subjectId);
     if (!subject) {
@@ -781,10 +778,7 @@ export const listSuspiciousSubjects = query({
     })
   ),
   handler: async (ctx, args) => {
-    const expected = process.env.CONVEX_API_SECRET;
-    if (!expected || args.apiSecret !== expected) {
-      throw new Error('Unauthorized');
-    }
+    requireApiSecret(args.apiSecret);
     const limit = Math.min(args.limit ?? 25, 50);
     let subjectIds: Id<'subjects'>[];
     if (args.authUserId) {
@@ -849,10 +843,7 @@ export const clearSubjectSuspicious = mutation({
     success: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const expected = process.env.CONVEX_API_SECRET;
-    if (!expected || args.apiSecret !== expected) {
-      throw new Error('Unauthorized: invalid or missing API secret');
-    }
+    requireApiSecret(args.apiSecret);
 
     const subject = await ctx.db.get(args.subjectId);
     if (!subject) {
