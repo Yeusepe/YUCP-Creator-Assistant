@@ -21,6 +21,7 @@ import {
   type UserSelectMenuInteraction,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { runSetupStart, runSetupStartUnconfigured } from '../commands/setup';
 import { getApiUrls } from '../lib/apiUrls';
 import { E } from '../lib/emojis';
@@ -1251,27 +1252,10 @@ async function handleSelectMenu(
 ): Promise<void> {
   const customId = interaction.customId;
 
-  if (customId.startsWith('creator_setup:')) {
-    // biome-ignore lint/suspicious/noExplicitAny: setup select handler accepts the relevant select interactions at runtime.
-    await handleSetupSelect(interaction as any, ctx.convex, ctx.apiSecret);
-    return;
-  }
-
-  // Collab invite provider select: creator_collab:invite_select:{authUserId}
-  if (customId.startsWith('creator_collab:invite_select:')) {
-    const authUserId = customId.slice('creator_collab:invite_select:'.length) as string;
-    const { handleCollabInviteProviderSelect } = await import('../commands/collab');
-    await handleCollabInviteProviderSelect(interaction, authUserId);
-    return;
-  }
-
-  // Collab provider select: creator_collab:add_select:{authUserId}
-  if (customId.startsWith('creator_collab:add_select:')) {
-    const authUserId = customId.slice('creator_collab:add_select:'.length) as string;
-    const { handleCollabAddProviderSelect } = await import('../commands/collab');
-    await handleCollabAddProviderSelect(interaction, authUserId);
-    return;
-  }
+  if (await handleSetupStringSelect(interaction, ctx)) return;
+  if (await handleCollabStringSelect(interaction, ctx)) return;
+  if (await handleVerifyStringSelect(interaction, ctx)) return;
+  if (await handleProductStringSelect(interaction, ctx)) return;
 
   // Autosetup - mode select
   if (customId.startsWith('creator_autosetup:mode:')) {
@@ -1312,74 +1296,6 @@ async function handleSelectMenu(
       ctx.convex,
       ctx.apiSecret,
       userId,
-      authUserId
-    );
-    return;
-  }
-
-  // Product picker - product selected
-  if (customId.startsWith('creator_verify:lp_select:')) {
-    // Format: creator_verify:lp_select:{authUserId}:{filter}:{page}
-    const rest = customId.slice('creator_verify:lp_select:'.length);
-    const parts = rest.split(':');
-    const authUserId = parts[0] as string;
-    const { handleProductSelected } = await import('../commands/licenseVerify');
-    await handleProductSelected(interaction, authUserId);
-    return;
-  }
-
-  // Product type select: creator_product:type_select:{authUserId}
-  if (customId.startsWith('creator_product:type_select:')) {
-    const authUserId = customId.slice('creator_product:type_select:'.length) as string;
-    const { handleProductTypeSelect } = await import('../commands/product');
-    await handleProductTypeSelect(interaction, authUserId);
-    return;
-  }
-
-  // Product Jinxxy product select: creator_product:jinxxy_product_select:{userId}:{authUserId}
-  if (customId.startsWith('creator_product:jinxxy_product_select:')) {
-    const rest = customId.slice('creator_product:jinxxy_product_select:'.length);
-    const colonIdx = rest.indexOf(':');
-    const userId = rest.slice(0, colonIdx);
-    const authUserId = rest.slice(colonIdx + 1) as string;
-    const { handleProductJinxxySelect } = await import('../commands/product');
-    await handleProductJinxxySelect(interaction, userId, authUserId);
-    return;
-  }
-
-  // Product Lemon Squeezy product select: creator_product:ls_product_select:{userId}:{authUserId}
-  if (customId.startsWith('creator_product:ls_product_select:')) {
-    const rest = customId.slice('creator_product:ls_product_select:'.length);
-    const colonIdx = rest.indexOf(':');
-    const userId = rest.slice(0, colonIdx);
-    const authUserId = rest.slice(colonIdx + 1) as string;
-    const { handleProductLemonSqueezySelect } = await import('../commands/product');
-    await handleProductLemonSqueezySelect(interaction, userId, authUserId);
-    return;
-  }
-
-  // Generic catalog product select: creator_product:catalog_select:{provider}:{userId}:{authUserId}
-  if (customId.startsWith('creator_product:catalog_select:')) {
-    const rest = customId.slice('creator_product:catalog_select:'.length);
-    const firstColon = rest.indexOf(':');
-    const provider = rest.slice(0, firstColon);
-    const rest2 = rest.slice(firstColon + 1);
-    const colonIdx = rest2.indexOf(':');
-    const userId = rest2.slice(0, colonIdx);
-    const authUserId = rest2.slice(colonIdx + 1) as string;
-    const { handleProductCatalogSelect } = await import('../commands/product');
-    await handleProductCatalogSelect(interaction, provider, userId, authUserId);
-    return;
-  }
-
-  // Product remove select: creator_product:remove_select:{authUserId}
-  if (customId.startsWith('creator_product:remove_select:')) {
-    const authUserId = customId.slice('creator_product:remove_select:'.length) as string;
-    const { handleProductRemoveSelect } = await import('../commands/product');
-    await handleProductRemoveSelect(
-      interaction as StringSelectMenuInteraction,
-      ctx.convex,
-      ctx.apiSecret,
       authUserId
     );
     return;
@@ -1465,6 +1381,8 @@ async function handleRoleSelectMenu(
 
   const customId = interaction.customId;
 
+  if (await handleProductRoleSelect(interaction, ctx)) return;
+
   // Autosetup - migrate role select
   if (customId.startsWith('creator_autosetup:migrate_role:')) {
     const rest = customId.slice('creator_autosetup:migrate_role:'.length);
@@ -1495,17 +1413,6 @@ async function handleRoleSelectMenu(
       userId,
       authUserId
     );
-    return;
-  }
-
-  // Product role select: creator_product:role_select:{userId}:{authUserId}
-  if (customId.startsWith('creator_product:role_select:')) {
-    const rest = customId.slice('creator_product:role_select:'.length);
-    const colonIdx = rest.indexOf(':');
-    const userId = rest.slice(0, colonIdx);
-    const authUserId = rest.slice(colonIdx + 1) as string;
-    const { handleProductRoleSelect } = await import('../commands/product');
-    await handleProductRoleSelect(interaction, userId, authUserId);
     return;
   }
 
