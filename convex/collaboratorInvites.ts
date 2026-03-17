@@ -544,3 +544,84 @@ export const getActiveByCollaboratorDiscord = internalQuery({
     return connections.map((c) => ({ ownerAuthUserId: c.ownerAuthUserId }));
   },
 });
+
+
+/**
+ * List collaborator_connections for a creator (owner) with optional provider/status filters.
+ * Credential fields are never returned.
+ */
+export const listConnectionsByOwner = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.optional(v.string()),
+    status: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('collaborator_connections')
+      .withIndex('by_owner', (q) => q.eq('ownerAuthUserId', args.authUserId))
+      .collect();
+
+    if (args.provider) {
+      all = all.filter((c) => c.provider === args.provider);
+    }
+    if (args.status) {
+      all = all.filter((c) => c.status === args.status);
+    }
+
+    return all.map((c) => ({
+      _id: c._id,
+      _creationTime: c._creationTime,
+      ownerAuthUserId: c.ownerAuthUserId,
+      provider: c.provider,
+      linkType: c.linkType,
+      status: c.status,
+      collaboratorDiscordUserId: c.collaboratorDiscordUserId,
+      collaboratorDisplayName: c.collaboratorDisplayName,
+      collaboratorAvatarHash: c.collaboratorAvatarHash,
+      source: c.source,
+      inviteId: c.inviteId,
+      addedByDiscordUserId: c.addedByDiscordUserId,
+      webhookConfigured: c.webhookConfigured,
+      webhookEndpoint: c.webhookEndpoint,
+      createdAt: c.createdAt,
+    }));
+  },
+});
+
+/**
+ * Get a single collaborator_connection by ID, scoped to ownerAuthUserId.
+ * Credential fields are never returned.
+ */
+export const getConnectionById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    connectionId: v.id('collaborator_connections'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.connectionId);
+    if (!doc || doc.ownerAuthUserId !== args.authUserId) return null;
+    return {
+      _id: doc._id,
+      _creationTime: doc._creationTime,
+      ownerAuthUserId: doc.ownerAuthUserId,
+      provider: doc.provider,
+      linkType: doc.linkType,
+      status: doc.status,
+      collaboratorDiscordUserId: doc.collaboratorDiscordUserId,
+      collaboratorDisplayName: doc.collaboratorDisplayName,
+      collaboratorAvatarHash: doc.collaboratorAvatarHash,
+      source: doc.source,
+      inviteId: doc.inviteId,
+      addedByDiscordUserId: doc.addedByDiscordUserId,
+      webhookConfigured: doc.webhookConfigured,
+      webhookEndpoint: doc.webhookEndpoint,
+      createdAt: doc.createdAt,
+    };
+  },
+});

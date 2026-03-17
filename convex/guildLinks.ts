@@ -266,3 +266,47 @@ export const hardDisconnectGuild = mutation({
     return { success: true };
   },
 });
+
+/**
+ * List all guild links for a creator with optional status filter.
+ */
+export const listByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    status: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('guild_links')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.status) {
+      all = all.filter((g) => g.status === args.status);
+    }
+    return all;
+  },
+});
+
+/**
+ * Get a guild link by Discord guild ID, scoped to authUserId.
+ */
+export const getByGuildId = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    guildId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const link = await ctx.db
+      .query('guild_links')
+      .withIndex('by_discord_guild', (q) => q.eq('discordGuildId', args.guildId))
+      .first();
+    if (!link || link.authUserId !== args.authUserId) return null;
+    return link;
+  },
+});

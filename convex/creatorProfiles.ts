@@ -269,3 +269,74 @@ export const getDiscordUserIdFromAuthUser = internalQuery({
     return null;
   },
 });
+
+
+/**
+ * Get creator profile by authUserId. Alias for public API surface.
+ */
+export const getByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id('creator_profiles'),
+      _creationTime: v.number(),
+      authUserId: v.string(),
+      name: v.string(),
+      ownerDiscordUserId: v.string(),
+      slug: v.optional(v.string()),
+      status: v.string(),
+      policy: v.optional(v.any()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    return await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+  },
+});
+
+/**
+ * Patch the policy field of a creator profile. Returns the updated profile or null if not found.
+ */
+export const updatePolicy = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    policyPatch: v.any(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id('creator_profiles'),
+      _creationTime: v.number(),
+      authUserId: v.string(),
+      name: v.string(),
+      ownerDiscordUserId: v.string(),
+      slug: v.optional(v.string()),
+      status: v.string(),
+      policy: v.optional(v.any()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    if (!profile) return null;
+    const now = Date.now();
+    const merged = { ...profile.policy, ...args.policyPatch };
+    await ctx.db.patch(profile._id, { policy: merged, updatedAt: now });
+    return await ctx.db.get(profile._id);
+  },
+});

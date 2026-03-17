@@ -1515,6 +1515,85 @@ const used_nonces = defineTable({
   usedAt: v.number(),
 }).index('by_nonce', ['nonce']);
 
+// ============================================================================
+// PUBLIC API V2 TABLES
+// ============================================================================
+
+const WebhookSubscriptionStatus = v.union(
+  v.literal('active'),
+  v.literal('disabled'),
+  v.literal('error')
+);
+
+const WebhookDeliveryStatus = v.union(
+  v.literal('pending'),
+  v.literal('in_progress'),
+  v.literal('delivered'),
+  v.literal('failed'),
+  v.literal('dead_letter')
+);
+
+/**
+ * Creator Events — platform-emitted events for outbound webhook delivery
+ * and the GET /events API endpoint.
+ */
+const creator_events = defineTable({
+  authUserId: v.string(),
+  eventType: v.string(),
+  resourceType: v.string(),
+  resourceId: v.string(),
+  data: v.any(),
+  createdAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_type', ['authUserId', 'eventType'])
+  .index('by_auth_user_resource', ['authUserId', 'resourceId'])
+  .index('by_created', ['createdAt']);
+
+/**
+ * Webhook Subscriptions — outbound delivery endpoint registrations.
+ * Signing secrets are encrypted at rest with HKDF-AES-256-GCM.
+ */
+const webhook_subscriptions = defineTable({
+  authUserId: v.string(),
+  url: v.string(),
+  events: v.array(v.string()),
+  enabled: v.boolean(),
+  description: v.optional(v.string()),
+  signingSecretEnc: v.string(),
+  signingSecretPrefix: v.string(),
+  status: WebhookSubscriptionStatus,
+  lastDeliveryAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_enabled', ['authUserId', 'enabled']);
+
+/**
+ * Webhook Deliveries — per-event delivery attempt tracking with retry state.
+ */
+const webhook_deliveries = defineTable({
+  authUserId: v.string(),
+  subscriptionId: v.id('webhook_subscriptions'),
+  eventId: v.id('creator_events'),
+  status: WebhookDeliveryStatus,
+  attemptCount: v.number(),
+  maxAttempts: v.number(),
+  nextRetryAt: v.optional(v.number()),
+  lastHttpStatus: v.optional(v.number()),
+  lastError: v.optional(v.string()),
+  deliveredAt: v.optional(v.number()),
+  requestDurationMs: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_subscription', ['subscriptionId'])
+  .index('by_event', ['eventId'])
+  .index('by_status_retry', ['status', 'nextRetryAt'])
+  .index('by_subscription_created', ['subscriptionId', 'createdAt']);
+
 export default defineSchema({
   // Creator-scoped tables
   creator_profiles,
@@ -1543,6 +1622,11 @@ export default defineSchema({
   creator_oauth_apps,
   collaborator_invites,
   collaborator_connections,
+
+  // Public API v2 tables
+  creator_events,
+  webhook_subscriptions,
+  webhook_deliveries,
 
   // Platform-level tables
   subjects,

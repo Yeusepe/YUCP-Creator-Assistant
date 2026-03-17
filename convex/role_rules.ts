@@ -1289,3 +1289,52 @@ export const bulkCreateRoleRules = mutation({
     };
   },
 });
+
+/**
+ * List role rules for a creator with optional guildId, productId, and enabled filters.
+ */
+export const listByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    guildId: v.optional(v.string()),
+    productId: v.optional(v.string()),
+    enabled: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('role_rules')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.guildId !== undefined) {
+      all = all.filter((r) => r.guildId === args.guildId);
+    }
+    if (args.productId !== undefined) {
+      all = all.filter((r) => r.productId === args.productId);
+    }
+    if (args.enabled !== undefined) {
+      all = all.filter((r) => r.enabled === args.enabled);
+    }
+    return all;
+  },
+});
+
+/**
+ * Get a single role rule by ID, scoped to authUserId.
+ */
+export const getRuleById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    ruleId: v.id('role_rules'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.ruleId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});

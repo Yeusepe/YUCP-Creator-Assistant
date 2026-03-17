@@ -398,3 +398,112 @@ export const getArtifactBySourceMessage = query({
       .first();
   },
 });
+
+
+/**
+ * List download_routes for a creator with optional guildId/enabled filters and pagination.
+ */
+export const listRoutesByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    guildId: v.optional(v.string()),
+    enabled: v.optional(v.boolean()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('download_routes')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.guildId !== undefined) {
+      all = all.filter((r) => r.guildId === args.guildId);
+    }
+    if (args.enabled !== undefined) {
+      all = all.filter((r) => r.enabled === args.enabled);
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+/**
+ * List download_artifacts for a creator with optional routeId/guildId/status filters and pagination.
+ */
+export const listArtifactsByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    routeId: v.optional(v.id('download_routes')),
+    guildId: v.optional(v.string()),
+    status: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('download_artifacts')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.routeId !== undefined) {
+      all = all.filter((a) => a.routeId === args.routeId);
+    }
+    if (args.guildId !== undefined) {
+      all = all.filter((a) => a.guildId === args.guildId);
+    }
+    if (args.status !== undefined) {
+      all = all.filter((a) => a.status === args.status);
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+/**
+ * Get a single download_artifact by ID, scoped to authUserId.
+ */
+export const getArtifactById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    artifactId: v.id('download_artifacts'),
+  },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.artifactId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});

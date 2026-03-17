@@ -626,3 +626,68 @@ export function generateState(): string {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+
+/**
+ * List verification sessions for a creator with optional filters and pagination.
+ */
+export const listByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    subjectId: v.optional(v.id('subjects')),
+    status: v.optional(v.string()),
+    mode: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('verification_sessions')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.subjectId) {
+      all = all.filter((s) => s.subjectId === args.subjectId);
+    }
+    if (args.status) {
+      all = all.filter((s) => s.status === args.status);
+    }
+    if (args.mode) {
+      all = all.filter((s) => s.mode === args.mode);
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+/**
+ * Get a single verification session by ID, scoped to authUserId.
+ */
+export const getSessionById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    sessionId: v.id('verification_sessions'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.sessionId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});

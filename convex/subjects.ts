@@ -438,6 +438,55 @@ export const ensureSubjectForDiscord = mutation({
 });
 
 /**
+ * List subjects by authUserId with optional status filter, text search, and pagination.
+ */
+export const listByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    status: v.optional(v.string()),
+    q: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('subjects')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.status) {
+      all = all.filter((s) => s.status === args.status);
+    }
+    if (args.q) {
+      const q = args.q.toLowerCase();
+      all = all.filter(
+        (s) =>
+          (s.displayName && s.displayName.toLowerCase().includes(q)) ||
+          String(s._id).toLowerCase().includes(q) ||
+          s.primaryDiscordUserId.includes(q)
+      );
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+/**
  * Get subject ID by Discord user ID.
  * Returns just the ID for efficient lookups.
  */

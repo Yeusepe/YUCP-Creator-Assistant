@@ -27,6 +27,7 @@ import {
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
 import { createPublicRoutes } from './routes/public';
+import { createPublicV2Routes } from './routes/publicV2';
 import { createSuiteRoutes } from './routes/suite';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -43,6 +44,7 @@ let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | nu
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
 let publicRoutes: ReturnType<typeof createPublicRoutes> | null = null;
+let publicV2Routes: ReturnType<typeof createPublicV2Routes> | null = null;
 let suiteRoutes: ReturnType<typeof createSuiteRoutes> | null = null;
 let internalRpcRouter: ReturnType<typeof createInternalRpcRouter> | null = null;
 let allowedCorsOrigins = new Set<string>();
@@ -351,6 +353,13 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
+  });
+
+  publicV2Routes = createPublicV2Routes({
+    convexUrl: env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '',
+    convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    convexSiteUrl,
+    encryptionSecret: env.ENCRYPTION_SECRET ?? env.BETTER_AUTH_SECRET ?? '',
   });
 
   internalRpcRouter = createInternalRpcRouter({
@@ -975,6 +984,12 @@ async function routeRequest(request: Request): Promise<Response> {
   // Collab routes
   if (pathname.startsWith('/api/collab/') && collabRoutes) {
     return collabRoutes.handleCollabRequest(request);
+  }
+
+  // Public API v2 — must be checked before v1 since both share /api/public/ prefix
+  if (pathname.startsWith('/api/public/v2/') && publicV2Routes) {
+    const response = await publicV2Routes.handleRequest(request, pathname);
+    if (response) return response;
   }
 
   // Public verification API
