@@ -15,13 +15,9 @@ import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
-
-function requireApiSecret(apiSecret: string | undefined): void {
-  const expected = process.env.CONVEX_API_SECRET;
-  if (!expected || apiSecret !== expected) {
-    throw new Error('Unauthorized: invalid or missing API secret');
-  }
-}
+import { addCatalogProductImpl } from './lib/roleRules/catalog';
+import { addProductFromDiscordRoleImpl, buildDiscordRoleKey } from './lib/roleRules/discord';
+import { normalizeProductUrl, requireApiSecret, sha256Hex } from './lib/roleRules/queries';
 
 // ============================================================================
 // QUERIES
@@ -898,72 +894,7 @@ export const addCatalogProduct = mutation({
     productId: v.string(),
     catalogProductId: v.id('product_catalog'),
   }),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    const now = Date.now();
-
-    const existing = await ctx.db
-      .query('product_catalog')
-      .withIndex('by_provider_ref', (q) =>
-        q.eq('provider', args.provider).eq('providerProductRef', args.providerProductRef)
-      )
-      .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
-      .first();
-
-    if (existing) {
-      if (args.displayName && existing.displayName !== args.displayName) {
-        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
-      }
-      if (args.supportsAutoDiscovery) {
-        await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
-          authUserId: args.authUserId,
-          productId: args.productId,
-          provider: args.provider,
-          providerProductRef: args.providerProductRef,
-        });
-      }
-      return { productId: existing.productId, catalogProductId: existing._id };
-    }
-
-    const normalized = args.canonicalUrl.toLowerCase().trim();
-    const urlHash = await sha256Hex(normalized);
-
-    const catalogId = await ctx.db.insert('product_catalog', {
-      authUserId: args.authUserId,
-      productId: args.productId,
-      provider: args.provider,
-      providerProductRef: args.providerProductRef,
-      displayName: args.displayName,
-      status: 'active',
-      supportsAutoDiscovery: args.supportsAutoDiscovery,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await ctx.db.insert('catalog_product_links', {
-      catalogProductId: catalogId,
-      provider: args.provider,
-      originalUrl: args.canonicalUrl,
-      normalizedUrl: normalized,
-      urlHash,
-      linkKind: 'direct_product',
-      status: 'active',
-      submittedByAuthUserId: args.authUserId,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    if (args.supportsAutoDiscovery) {
-      await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
-        authUserId: args.authUserId,
-        productId: args.productId,
-        provider: args.provider,
-        providerProductRef: args.providerProductRef,
-      });
-    }
-
-    return { productId: args.productId, catalogProductId: catalogId };
-  },
+  handler: (ctx, args) => addCatalogProductImpl(ctx, args),
 });
 
 /**
@@ -1133,22 +1064,6 @@ export const addProductFromVrchatCatalog = mutation({
 });
 
 
-function buildDiscordRoleKey(
-  sourceGuildId: string,
-  requiredRoleIds: string[],
-  requiredRoleMatchMode?: 'any' | 'all'
-): string {
-  if (requiredRoleIds.length === 0) {
-    throw new Error('At least one required role is needed');
-  }
-  if (requiredRoleIds.length === 1) {
-    return `discord_role:${sourceGuildId}:${requiredRoleIds[0]}`;
-  }
-  const mode = requiredRoleMatchMode ?? 'any';
-  const sorted = [...requiredRoleIds].sort();
-  return `discord_role:${sourceGuildId}:${mode}:${sorted.join(',')}`;
-}
-
 /**
  * Get or create a product catalog entry for a Payhip product.
  * The permalink (e.g., "RGsF") is the canonical Payhip product identifier.
@@ -1258,98 +1173,8 @@ export const addProductFromDiscordRole = mutation({
     productId: v.string(),
     ruleId: v.id('role_rules'),
   }),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-
-    const reqIds = args.requiredRoleIds ?? (args.requiredRoleId ? [args.requiredRoleId] : []);
-    if (reqIds.length === 0) {
-      throw new Error('At least one required role is needed');
-    }
-
-    const productId = buildDiscordRoleKey(
-      args.sourceGuildId,
-      reqIds,
-      args.requiredRoleMatchMode
-    );
-    const now = Date.now();
-
-    const existing = await ctx.db
-      .query('role_rules')
-      .withIndex('by_auth_user_guild', (q) =>
-        q.eq('authUserId', args.authUserId).eq('guildId', args.guildId)
-      )
-      .filter((q) => q.eq(q.field('productId'), productId))
-      .first();
-
-    if (existing) {
-      // Update displayName when the bot resolved a better name on re-add
-      if (args.displayName && existing.displayName !== args.displayName) {
-        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: Date.now() });
-      }
-      return { productId, ruleId: existing._id };
-    }
-
-    const roleIds = args.verifiedRoleIds ?? (args.verifiedRoleId ? [args.verifiedRoleId] : []);
-    if (roleIds.length === 0) {
-      throw new Error('At least one verified role is required');
-    }
-    const verifiedRoleId = roleIds[0];
-
-    const ruleId = await ctx.db.insert('role_rules', {
-      authUserId: args.authUserId,
-      guildId: args.guildId,
-      guildLinkId: args.guildLinkId,
-      productId,
-      verifiedRoleId,
-      verifiedRoleIds: roleIds.length > 1 ? roleIds : undefined,
-      removeOnRevoke: true,
-      priority: 0,
-      enabled: true,
-      sourceGuildId: args.sourceGuildId,
-      requiredRoleId: reqIds.length === 1 ? reqIds[0] : undefined,
-      requiredRoleIds: reqIds.length > 1 ? reqIds : undefined,
-      requiredRoleMatchMode: reqIds.length > 1 ? (args.requiredRoleMatchMode ?? 'any') : undefined,
-      displayName: args.displayName,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Schedule retroactive sync so existing members with the source role get the target role.
-    // Use ruleId in idempotency key so re-adds (after remove) create a fresh job.
-    const idempotencyKey = `retroactive_rule_sync:${args.authUserId}:${productId}:${ruleId}`;
-    await ctx.db.insert('outbox_jobs', {
-      authUserId: args.authUserId,
-      jobType: 'retroactive_rule_sync',
-      payload: { authUserId: args.authUserId, productId },
-      status: 'pending',
-      idempotencyKey,
-      retryCount: 0,
-      maxRetries: 5,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    return { productId, ruleId };
-  },
+  handler: (ctx, args) => addProductFromDiscordRoleImpl(ctx, args),
 });
-
-function normalizeProductUrl(url: string): string {
-  try {
-    const parsed = new URL(url.trim().toLowerCase());
-    const path = parsed.pathname.replace(/\/+$/, '') || '/';
-    return `${parsed.origin}${path}`;
-  } catch {
-    return url.trim().toLowerCase();
-  }
-}
-
-async function sha256Hex(input: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(input);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-}
 
 /**
  * Resolve catalog product by URL (for cross-server verification).
