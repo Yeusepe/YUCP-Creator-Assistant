@@ -1246,8 +1246,15 @@ const webhook_events = defineTable({
   eventType: v.string(),
   // Raw payload (stored for replay/debugging)
   rawPayload: v.any(),
-  // Signature verification status
+  // Signature verification status: true if the event's body-bound signature (HMAC) was verified.
+  // Note: Gumroad Ping has no body signature; its authenticity comes from the private
+  // webhookRouteToken. Use `verificationMethod` to distinguish security models.
   signatureValid: v.boolean(),
+  // How the event was authenticated:
+  //   'hmac'        – body-bound HMAC verified (Jinxxy, Payhip, LemonSqueezy)
+  //   'route-token' – authenticated by a private random URL token (Gumroad Ping)
+  // When absent, falls back to the legacy `signatureValid` boolean alone.
+  verificationMethod: v.optional(v.union(v.literal('hmac'), v.literal('route-token'))),
   // Processing status
   status: WebhookEventStatus,
   // Error message if processing failed

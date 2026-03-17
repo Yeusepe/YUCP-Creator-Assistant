@@ -19,7 +19,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { createAuth, type VrchatOwnershipPayload, type VrchatSessionTokensPayload } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
-import { encrypt } from '../lib/encrypt';
+import { encrypt, decrypt } from '../lib/encrypt';
 import { getStateStore } from '../lib/stateStore';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { createApiVerificationSupportError } from '../lib/verificationSupport';
@@ -38,6 +38,7 @@ const VERIFY_PANEL_PREFIX = 'verify_panel:';
 const VERIFY_PANEL_TTL_MS = 15 * 60 * 1000;
 // Prefix for PKCE verifiers stored in the state store (never stored in Convex)
 const PKCE_VERIFIER_PREFIX = 'pkce_verifier:';
+const INTERACTION_TOKEN_PURPOSE = 'verify-panel-interaction-token';
 
 // ============================================================================
 // CRYPTO UTILITIES
@@ -1081,7 +1082,8 @@ interface StoredVerifyPanel {
   applicationId: string;
   discordUserId: string;
   guildId: string;
-  interactionToken: string;
+  /** AES-GCM encrypted interaction token (see INTERACTION_TOKEN_PURPOSE). */
+  encryptedInteractionToken: string;
   messageId: string;
   authUserId: string;
 }
@@ -1368,13 +1370,17 @@ export function createVerificationRoutes(config: VerificationConfig) {
     try {
       const { getStateStore } = await import('../lib/stateStore');
       const store = getStateStore();
+      const encryptionSecret = config.encryptionSecret ?? '';
+      const encryptedInteractionToken = encryptionSecret
+        ? await encrypt(body.interactionToken, encryptionSecret, INTERACTION_TOKEN_PURPOSE)
+        : body.interactionToken;
       await store.set(
         `${VERIFY_PANEL_PREFIX}${body.panelToken}`,
         JSON.stringify({
           applicationId: body.applicationId,
           discordUserId: body.discordUserId,
           guildId: body.guildId,
-          interactionToken: body.interactionToken,
+          encryptedInteractionToken,
           messageId: body.messageId,
           authUserId: body.authUserId,
         } satisfies StoredVerifyPanel),
@@ -1432,8 +1438,20 @@ export function createVerificationRoutes(config: VerificationConfig) {
       return jsonNoStore({ success: false, error: 'Invalid panel token' }, { status: 400 });
     }
 
+    const encryptionSecret = config.encryptionSecret ?? '';
+    let interactionToken: string;
+    try {
+      interactionToken =
+        encryptionSecret && panel.encryptedInteractionToken
+          ? await decrypt(panel.encryptedInteractionToken, encryptionSecret, INTERACTION_TOKEN_PURPOSE)
+          : panel.encryptedInteractionToken;
+    } catch {
+      await store.delete(`${VERIFY_PANEL_PREFIX}${panelToken}`);
+      return jsonNoStore({ success: false, error: 'Invalid panel token' }, { status: 400 });
+    }
+
     const discordResponse = await fetch(
-      `https://discord.com/api/v10/webhooks/${panel.applicationId}/${panel.interactionToken}/messages/${panel.messageId}`,
+      `https://discord.com/api/v10/webhooks/${panel.applicationId}/${interactionToken}/messages/${panel.messageId}`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

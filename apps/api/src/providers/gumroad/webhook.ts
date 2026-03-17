@@ -111,7 +111,11 @@ export const webhook: WebhookPlugin = {
               providerEventId,
               eventType,
               rawPayload: payload,
-              signatureValid: true,
+              // Gumroad Ping has no cryptographic signature — security relies on the
+              // private random routeId / webhookRouteToken. Mark accordingly so
+              // downstream processing does not treat this as a verified event.
+              signatureValid: false,
+              verificationMethod: 'route-token',
             });
             if (result.duplicate) {
               logger.debug('Gumroad webhook: duplicate event', { saleId, authUserId });
@@ -138,7 +142,8 @@ export const webhook: WebhookPlugin = {
             providerEventId,
             eventType,
             rawPayload: payload,
-            signatureValid: true,
+            signatureValid: false,
+            verificationMethod: 'route-token',
           });
           if (result.duplicate) {
             logger.debug('Gumroad webhook: duplicate event (user-scoped)', {

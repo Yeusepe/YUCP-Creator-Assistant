@@ -30,6 +30,7 @@ const BASE_WEBHOOK_ARGS = {
   eventType: 'sale',
   rawPayload: {},
   signatureValid: true,
+  verificationMethod: 'hmac',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -156,6 +157,7 @@ describe('processWebhookEvent pipeline', () => {
         email: 'buyer@example.com',
       },
       signatureValid: true,
+      verificationMethod: 'hmac',
     });
 
     const eventId = insertResult.eventId!;
@@ -190,6 +192,7 @@ describe('processWebhookEvent pipeline', () => {
         email: 'buyer2@example.com',
       },
       signatureValid: true,
+      verificationMethod: 'hmac',
     });
 
     const eventId = insertResult.eventId!;
@@ -233,6 +236,7 @@ describe('processWebhookEvent pipeline', () => {
         email: 'nobody@totally-unknown-domain.invalid',
       },
       signatureValid: true,
+      verificationMethod: 'hmac',
     });
 
     const eventId = insertResult.eventId!;
@@ -269,6 +273,7 @@ describe('processWebhookEvent pipeline', () => {
         email: 'buyer4@example.com',
       },
       signatureValid: true,
+      verificationMethod: 'hmac',
     });
     const eventId = insertResult.eventId!;
     const before = await getWebhookSecurityCounts(t);
@@ -307,6 +312,7 @@ describe('webhook deduplication', () => {
       eventType: 'sale',
       rawPayload: {},
       signatureValid: true,
+      verificationMethod: 'hmac',
     } as const;
 
     await Promise.all([
@@ -317,5 +323,161 @@ describe('webhook deduplication', () => {
 
     const events = await t.run(async (ctx) => ctx.db.query('webhook_events').collect());
     expect(events).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// verificationMethod trust model
+// ---------------------------------------------------------------------------
+
+describe('verificationMethod trust model', () => {
+  beforeEach(() => {
+    process.env.CONVEX_API_SECRET = API_SECRET;
+  });
+
+  it('given route-token event (signatureValid:false, verificationMethod:route-token), then getPendingWebhookEvents includes it', async () => {
+    const t = makeTestConvex();
+
+    const result = await t.mutation(api.webhookIngestion.insertWebhookEvent, {
+      apiSecret: API_SECRET,
+      authUserId: 'auth-gumroad-1',
+      provider: 'gumroad',
+      providerEventId: 'sale_route_token_1',
+      eventType: 'sale',
+      rawPayload: { sale_id: 'rt-001', product_id: 'prod-x' },
+      signatureValid: false,
+      verificationMethod: 'route-token',
+    });
+
+    expect(result.eventId).toBeTruthy();
+
+    const pending = await t.run(async (ctx) =>
+      ctx.runQuery(internal.webhookIngestion.getPendingWebhookEvents, {
+        apiSecret: API_SECRET,
+        limit: 10,
+      })
+    );
+
+    const ids = pending.map((e: { _id: string }) => e._id);
+    expect(ids).toContain(result.eventId);
+  });
+
+  it('given unverified event (signatureValid:false, no verificationMethod), then getPendingWebhookEvents excludes it', async () => {
+    const t = makeTestConvex();
+
+    const result = await t.mutation(api.webhookIngestion.insertWebhookEvent, {
+      apiSecret: API_SECRET,
+      authUserId: 'auth-unverified-1',
+      provider: 'gumroad',
+      providerEventId: 'sale_unverified_1',
+      eventType: 'sale',
+      rawPayload: { sale_id: 'uv-001' },
+      signatureValid: false,
+    });
+
+    expect(result.eventId).toBeTruthy();
+
+    const pending = await t.run(async (ctx) =>
+      ctx.runQuery(internal.webhookIngestion.getPendingWebhookEvents, {
+        apiSecret: API_SECRET,
+        limit: 10,
+      })
+    );
+
+    const ids = pending.map((e: { _id: string }) => e._id);
+    expect(ids).not.toContain(result.eventId);
+  });
+
+  it('given route-token event, when processWebhookEvent is called, then it processes successfully', async () => {
+    const t = makeTestConvex();
+
+    const result = await t.mutation(api.webhookIngestion.insertWebhookEvent, {
+      apiSecret: API_SECRET,
+      authUserId: 'auth-gumroad-2',
+      provider: 'gumroad',
+      providerEventId: 'sale_route_token_process',
+      eventType: 'sale',
+      rawPayload: { sale_id: 'rt-proc-001', product_id: 'prod-y', email: 'buyer-rt@example.com' },
+      signatureValid: false,
+      verificationMethod: 'route-token',
+    });
+
+    const eventId = result.eventId!;
+
+    const processResult = await t.run(async (ctx) =>
+      ctx.runMutation(internal.webhookProcessing.processWebhookEvent, {
+        apiSecret: API_SECRET,
+        eventId,
+      })
+    );
+
+    expect(processResult.success).toBe(true);
+
+    const event = await t.run(async (ctx) => ctx.db.get(eventId));
+    expect(event?.status).toBe('processed');
+  });
+
+  it('given unverified event, when processWebhookEvent is called, then it throws', async () => {
+    const t = makeTestConvex();
+
+    const result = await t.mutation(api.webhookIngestion.insertWebhookEvent, {
+      apiSecret: API_SECRET,
+      authUserId: 'auth-unverified-2',
+      provider: 'gumroad',
+      providerEventId: 'sale_unverified_process',
+      eventType: 'sale',
+      rawPayload: { sale_id: 'uv-proc-001' },
+      signatureValid: false,
+    });
+
+    const eventId = result.eventId!;
+
+    await expect(
+      t.run(async (ctx) =>
+        ctx.runMutation(internal.webhookProcessing.processWebhookEvent, {
+          apiSecret: API_SECRET,
+          eventId,
+        })
+      )
+    ).rejects.toThrow();
+  });
+
+  it('given route-token event processed, when resetWebhookForReprocessing is called, then succeeds', async () => {
+    const t = makeTestConvex();
+
+    const result = await t.mutation(api.webhookIngestion.insertWebhookEvent, {
+      apiSecret: API_SECRET,
+      authUserId: 'auth-gumroad-3',
+      provider: 'gumroad',
+      providerEventId: 'sale_route_token_reset',
+      eventType: 'sale',
+      rawPayload: { sale_id: 'rt-reset-001', product_id: 'prod-reset', email: 'buyer-reset@example.com' },
+      signatureValid: false,
+      verificationMethod: 'route-token',
+    });
+
+    const eventId = result.eventId!;
+
+    // Process it first
+    await t.run(async (ctx) =>
+      ctx.runMutation(internal.webhookProcessing.processWebhookEvent, {
+        apiSecret: API_SECRET,
+        eventId,
+      })
+    );
+
+    const processed = await t.run(async (ctx) => ctx.db.get(eventId));
+    expect(processed?.status).toBe('processed');
+
+    // Now reset for reprocessing
+    await t.run(async (ctx) =>
+      ctx.runMutation(internal.webhookIngestion.resetWebhookForReprocessing, {
+        apiSecret: API_SECRET,
+        eventId,
+      })
+    );
+
+    const reset = await t.run(async (ctx) => ctx.db.get(eventId));
+    expect(reset?.status).toBe('pending');
   });
 });

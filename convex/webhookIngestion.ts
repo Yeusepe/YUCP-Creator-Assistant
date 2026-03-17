@@ -11,6 +11,30 @@ import { ProviderV, WebhookProviderV } from './lib/providers';
 import { requireApiSecret } from './lib/apiAuth';
 
 /**
+ * Determines whether a webhook event is considered authenticated and may enter
+ * the processing pipeline.
+ *
+ * Two verification models are supported:
+ *   - 'hmac': the event carries a body-bound HMAC that was verified (Jinxxy, Payhip, LS).
+ *             signatureValid must also be true.
+ *   - 'route-token': the event was authenticated by a private random URL token (Gumroad Ping).
+ *             No body signature exists by design; the token IS the authenticator.
+ *
+ * Legacy events with no verificationMethod fall back to the original signatureValid flag.
+ */
+export function isAuthenticatedEvent(event: {
+  signatureValid: boolean;
+  verificationMethod?: 'hmac' | 'route-token';
+}): boolean {
+  if (event.verificationMethod === 'route-token') return true;
+  if (event.verificationMethod === 'hmac') return event.signatureValid === true;
+  // Legacy path: no verificationMethod stored — trust signatureValid directly.
+  return event.signatureValid === true;
+}
+
+const VerificationMethodV = v.optional(v.union(v.literal('hmac'), v.literal('route-token')));
+
+/**
  * Insert a webhook event from any provider.
  * Idempotent: deduplication by (authUserId, provider, providerEventId).
  */
@@ -25,6 +49,7 @@ export const insertWebhookEvent = mutation({
     eventType: v.string(),
     rawPayload: v.any(),
     signatureValid: v.boolean(),
+    verificationMethod: VerificationMethodV,
   },
   returns: v.object({
     success: v.boolean(),
@@ -59,6 +84,7 @@ export const insertWebhookEvent = mutation({
       eventType: args.eventType,
       rawPayload: args.rawPayload,
       signatureValid: args.signatureValid,
+      verificationMethod: args.verificationMethod,
       status: 'pending',
       authUserId: args.authUserId,
       receivedAt: now,
@@ -85,7 +111,7 @@ export const resetWebhookForReprocessing = mutation({
     if (!event) {
       return { success: false, message: 'Event not found' };
     }
-    if (event.signatureValid !== true) {
+    if (!isAuthenticatedEvent(event)) {
       throw new ConvexError('Cannot requeue an unverified webhook event');
     }
     if (event.status !== 'processed') {
@@ -115,6 +141,7 @@ export const getPendingWebhookEvents = query({
       eventType: v.string(),
       rawPayload: v.any(),
       signatureValid: v.boolean(),
+      verificationMethod: VerificationMethodV,
       status: v.string(),
       receivedAt: v.number(),
     })
@@ -122,14 +149,14 @@ export const getPendingWebhookEvents = query({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const limit = Math.min(args.limit ?? 50, 100);
-    // Over-fetch then filter: only process events with a verified signature so
-    // the pipeline never acts on tampered or unverifiable payloads.
+    // Over-fetch then filter: only process events that are authenticated (HMAC or route-token)
+    // so the pipeline never acts on tampered or unverifiable payloads.
     const events = await ctx.db
       .query('webhook_events')
       .withIndex('by_status', (q) => q.eq('status', 'pending'))
       .order('asc')
       .take(limit * 2);
-    return events.filter((e) => e.signatureValid === true).slice(0, limit);
+    return events.filter(isAuthenticatedEvent).slice(0, limit);
   },
 });
 

@@ -295,11 +295,32 @@ function normalizeRedirectUris(redirectUris: unknown): string[] {
     throw new Error('At least one redirect URI is required');
   }
 
+  const isProduction = (process.env.NODE_ENV ?? 'development') === 'production';
+
   for (const redirectUri of values) {
+    let parsed: URL;
     try {
-      new URL(redirectUri);
+      parsed = new URL(redirectUri);
     } catch {
       throw new Error(`Invalid redirect URI: ${redirectUri}`);
+    }
+
+    if (isProduction) {
+      // In production, require HTTPS for all redirect URIs.
+      if (parsed.protocol !== 'https:') {
+        throw new Error(`Redirect URI must use HTTPS in production: ${redirectUri}`);
+      }
+    } else {
+      // In development, allow localhost/127.0.0.1 over HTTP only.
+      const isLocalhost =
+        parsed.hostname === 'localhost' ||
+        parsed.hostname === '127.0.0.1' ||
+        parsed.hostname === '[::1]';
+      if (parsed.protocol !== 'https:' && !isLocalhost) {
+        throw new Error(
+          `Redirect URI must use HTTPS or target localhost: ${redirectUri}`
+        );
+      }
     }
   }
 

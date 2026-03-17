@@ -1141,6 +1141,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       eventType,
       rawPayload: payload,
       signatureValid: true,
+      verificationMethod: 'hmac',
     });
     await convex.mutation(api.providerPlatform.updateProviderConnectionState, {
       apiSecret: config.convexApiSecret,

@@ -96,12 +96,18 @@ export const webhook: WebhookPlugin = {
         return new Response('Forbidden', { status: 403 });
       }
 
-      if (payload.created_at) {
-        const ts = Date.parse(payload.created_at);
-        if (Number.isFinite(ts) && Date.now() - ts > WEBHOOK_MAX_AGE_MS) {
-          logger.warn('Payhip webhook: rejected (event too old)', { routeId, eventId });
-          return new Response('Forbidden', { status: 403 });
-        }
+      if (!payload.created_at) {
+        logger.warn('Payhip webhook: rejected (missing created_at timestamp)', {
+          routeId,
+          eventId,
+        });
+        return new Response('Forbidden', { status: 403 });
+      }
+
+      const ts = Date.parse(payload.created_at);
+      if (!Number.isFinite(ts) || Date.now() - ts > WEBHOOK_MAX_AGE_MS) {
+        logger.warn('Payhip webhook: rejected (event too old)', { routeId, eventId });
+        return new Response('Forbidden', { status: 403 });
       }
 
       let authUserIds: string[];
@@ -126,6 +132,7 @@ export const webhook: WebhookPlugin = {
               eventType,
               rawPayload: payload,
               signatureValid,
+              verificationMethod: 'hmac',
             });
             if (result.duplicate) {
               logger.debug('Payhip webhook: duplicate event', { eventId, authUserId });
@@ -153,6 +160,7 @@ export const webhook: WebhookPlugin = {
             eventType,
             rawPayload: payload,
             signatureValid,
+            verificationMethod: 'hmac',
           });
           if (result.duplicate) {
             logger.debug('Payhip webhook: duplicate event (user-scoped)', { eventId, routeId });

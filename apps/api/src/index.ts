@@ -147,13 +147,18 @@ async function handleAppSignOut(request: Request, url: URL, pathname: string): P
     }
   }
 
+  // Clear the exact cookie names configured in auth/session.ts: yucp_session_token, yucp_csrf_token.
+  // Legacy dot-notation names kept for belt-and-suspenders in case of prior config.
   for (const name of [
+    'yucp_session_token',
+    '__Secure-yucp_session_token',
+    'yucp_csrf_token',
+    '__Secure-yucp_csrf_token',
+    // legacy dot-notation names from previous configuration
     'yucp.session_token',
     '__Secure-yucp.session_token',
     'yucp.session_data',
     '__Secure-yucp.session_data',
-    'yucp.dont_remember',
-    '__Secure-yucp.dont_remember',
   ]) {
     signOutHeaders.append('Set-Cookie', clearCookie(name, request));
   }

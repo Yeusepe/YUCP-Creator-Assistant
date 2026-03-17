@@ -16,6 +16,7 @@ import { processJinxxyEvent } from './webhooks/jinxxy';
 import { processLemonEvent } from './webhooks/lemonsqueezy';
 import { processPayhipEvent } from './webhooks/payhip';
 import { requireApiSecret } from './lib/apiAuth';
+import { isAuthenticatedEvent } from './webhookIngestion';
 
 /**
  * Get IDs of pending webhook events for processing.
@@ -58,7 +59,7 @@ export const processWebhookEvent = internalMutation({
     if (!event) {
       return { success: false, error: 'Event not found' };
     }
-    if (event.signatureValid !== true) {
+    if (!isAuthenticatedEvent(event)) {
       throw new ConvexError('Cannot process unverified webhook event');
     }
     if (event.status !== 'pending') {
