@@ -28,7 +28,6 @@ import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
 import { PROVIDERS } from '../providers/index';
-import { PURPOSES as PAYHIP } from '../providers/payhip/index';
 import type { ConnectConfig, ConnectContext, DisconnectContext } from '../providers/types';
 
 // Re-exported for backwards compatibility — ConnectConfig is defined in providers/types.ts
@@ -2770,10 +2769,18 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
+      const plugin = PROVIDERS.get(providerKey);
+      const credentialPurpose = plugin?.productCredentialPurpose;
+      if (!credentialPurpose) {
+        logger.error('Provider missing productCredentialPurpose for per-product credential', {
+          providerKey,
+        });
+        return Response.json({ error: 'Provider credential configuration error' }, { status: 500 });
+      }
       const encryptedSecretKey = await encrypt(
         productSecretKey,
         config.encryptionSecret,
-        PAYHIP.productSecret
+        credentialPurpose
       );
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertProductCredential, {
@@ -2883,10 +2890,18 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       };
     }
     try {
+      const plugin = PROVIDERS.get(params.providerKey);
+      const credentialPurpose = plugin?.productCredentialPurpose;
+      if (!credentialPurpose) {
+        return {
+          success: false,
+          error: `Provider "${params.providerKey}" is missing productCredentialPurpose`,
+        };
+      }
       const encryptedSecretKey = await encrypt(
         params.plaintextSecretKey,
         config.encryptionSecret,
-        PAYHIP.productSecret
+        credentialPurpose
       );
       const convex = getConvexClientFromUrl(config.convexUrl);
       await convex.mutation(api.providerConnections.upsertProductCredential, {
