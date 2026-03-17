@@ -202,7 +202,7 @@ describe('Gumroad webhook security', () => {
     await withWebhookHarness(
       {
         query: {
-          [refs.getConnectionByWebhookRouteToken]: () => null,
+          [refs.getConnectionByWebhookRouteToken]: () => ({ authUserId: 'user_dedup_test' }),
           [refs.getConnectionForBackfill]: () => ({ credentials: {} }),
           [refs.resolveWebhookTenantIds]: () => [],
         },
