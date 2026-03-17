@@ -1578,3 +1578,69 @@ async function createAuditEvent(
     createdAt: Date.now(),
   });
 }
+
+// ============================================================================
+// PUBLIC API QUERIES
+// ============================================================================
+
+export const listByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    subjectId: v.optional(v.string()),
+    productId: v.optional(v.string()),
+    status: v.optional(v.string()),
+    sourceProvider: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.subjectId) {
+      all = all.filter((e) => String(e.subjectId) === args.subjectId);
+    }
+    if (args.productId) {
+      all = all.filter((e) => e.productId === args.productId);
+    }
+    if (args.status) {
+      all = all.filter((e) => e.status === args.status);
+    }
+    if (args.sourceProvider) {
+      all = all.filter((e) => e.sourceProvider === args.sourceProvider);
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+export const getByIdForAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    entitlementId: v.id('entitlements'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.entitlementId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});

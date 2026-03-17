@@ -1555,3 +1555,265 @@ export const markPayhipWebhookConfigured = mutation({
     return null;
   },
 });
+
+// ============================================================================
+// PUBLIC API QUERIES
+// ============================================================================
+
+export const listPublic = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.optional(v.string()),
+    status: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.provider) {
+      all = all.filter((c) => c.provider === args.provider || c.providerKey === args.provider);
+    }
+    if (args.status) {
+      all = all.filter((c) => c.status === args.status);
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+export const getConnectionPublic = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    connectionId: v.id('provider_connections'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.connectionId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});
+
+export const listTransactionsByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.optional(v.string()),
+    status: v.optional(v.string()),
+    subjectId: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('provider_transactions')
+      .withIndex('by_auth_user_provider', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.provider) {
+      all = all.filter((t) => t.providerKey === args.provider);
+    }
+    if (args.status) {
+      all = all.filter((t) => t.status === args.status);
+    }
+    if (args.subjectId) {
+      const allBindings = await ctx.db
+        .query('bindings')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+        .collect();
+      const subjectBindings = allBindings.filter((b) => String(b.subjectId) === args.subjectId);
+      const emailHashes = new Set<string>();
+      for (const binding of subjectBindings) {
+        const extAccount = await ctx.db.get(binding.externalAccountId);
+        if (extAccount?.emailHash) emailHashes.add(extAccount.emailHash);
+      }
+      all = all.filter((t) => t.customerEmailHash != null && emailHashes.has(t.customerEmailHash));
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+export const getTransactionById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    transactionId: v.id('provider_transactions'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.transactionId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});
+
+export const listMembershipsByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.optional(v.string()),
+    status: v.optional(v.string()),
+    subjectId: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('provider_memberships')
+      .withIndex('by_auth_user_provider', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.provider) {
+      all = all.filter((m) => m.providerKey === args.provider);
+    }
+    if (args.status) {
+      all = all.filter((m) => m.status === args.status);
+    }
+    if (args.subjectId) {
+      const allBindings = await ctx.db
+        .query('bindings')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+        .collect();
+      const subjectBindings = allBindings.filter((b) => String(b.subjectId) === args.subjectId);
+      const emailHashes = new Set<string>();
+      for (const binding of subjectBindings) {
+        const extAccount = await ctx.db.get(binding.externalAccountId);
+        if (extAccount?.emailHash) emailHashes.add(extAccount.emailHash);
+      }
+      all = all.filter((m) => m.customerEmailHash != null && emailHashes.has(m.customerEmailHash));
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+export const getMembershipById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    membershipId: v.id('provider_memberships'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.membershipId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});
+
+export const listProviderLicensesByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.optional(v.string()),
+    status: v.optional(v.string()),
+    subjectId: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    let all = await ctx.db
+      .query('provider_licenses')
+      .withIndex('by_auth_user_provider', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    if (args.provider) {
+      all = all.filter((l) => l.providerKey === args.provider);
+    }
+    if (args.status) {
+      all = all.filter((l) => l.status === args.status);
+    }
+    if (args.subjectId) {
+      const allBindings = await ctx.db
+        .query('bindings')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+        .collect();
+      const subjectBindings = allBindings.filter((b) => String(b.subjectId) === args.subjectId);
+      const emailHashes = new Set<string>();
+      for (const binding of subjectBindings) {
+        const extAccount = await ctx.db.get(binding.externalAccountId);
+        if (extAccount?.emailHash) emailHashes.add(extAccount.emailHash);
+      }
+      all = all.filter((l) => l.customerEmailHash != null && emailHashes.has(l.customerEmailHash));
+    }
+
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+    const data = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < all.length;
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+    };
+  },
+});
+
+export const getProviderLicenseById = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    licenseId: v.id('provider_licenses'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.licenseId);
+    if (!doc || doc.authUserId !== args.authUserId) return null;
+    return doc;
+  },
+});
