@@ -42,6 +42,7 @@ describe('VRChat BetterAuth proxy helpers', () => {
     const auth = createAuth({
       baseUrl: 'http://localhost:3001',
       convexSiteUrl: 'https://test.convex.site',
+      convexUrl: 'https://test.convex.site',
     });
 
     const result = await auth.persistVrchatSession(

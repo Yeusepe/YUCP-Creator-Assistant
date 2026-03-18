@@ -1,12 +1,10 @@
 /**
- * Better Auth configuration for YUCP Creator Assistant
- * Runs on Convex with Discord OAuth and cross-domain support.
+ * Better Auth configuration for YUCP Creator Assistant.
  *
- * The cross-domain plugin is required because the Bun API server (localhost:3001)
- * is on a different domain than Convex (.convex.site). It handles:
- * - Custom cookie headers (Set-Better-Auth-Cookie / Better-Auth-Cookie)
- * - One-time-token (OTT) pattern for OAuth callbacks
- * - State verification via database instead of cookies
+ * Convex owns browser auth, JWT issuance, API keys, and OAuth clients. The web
+ * app proxies `/api/auth/*` to Convex, so this configuration intentionally
+ * stays on the same-origin model and does not enable cross-domain auth
+ * transport.
  */
 
 import './polyfills';
@@ -15,7 +13,7 @@ import { apiKey } from '@better-auth/api-key';
 import { oauthProvider } from '@better-auth/oauth-provider';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import { createClient } from '@convex-dev/better-auth';
-import { convex, crossDomain } from '@convex-dev/better-auth/plugins';
+import { convex } from '@convex-dev/better-auth/plugins';
 import type { BetterAuthOptions } from 'better-auth';
 import { betterAuth } from 'better-auth';
 import { jwt } from 'better-auth/plugins';
@@ -23,7 +21,7 @@ import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
 import authSchema from './betterAuth/schema';
-import { buildTrustedBrowserOrigins, normalizeOrigin } from './lib/trustedOrigins';
+import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
 
 const PUBLIC_API_AUDIENCE = 'yucp-public-api';
@@ -106,7 +104,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
       : {};
 
   const trustedOrigins = buildTrustedBrowserOrigins({
-    siteUrl: process.env.SITE_URL,
+    siteUrl,
     frontendUrl: process.env.FRONTEND_URL ?? siteUrl,
   });
 
@@ -126,7 +124,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
     database: authComponent.adapter(ctx),
     socialProviders: discordConfig,
     plugins: [
-      crossDomain({ siteUrl }),
       convex({ authConfig }),
       apiKey({
         defaultPrefix: PUBLIC_API_KEY_PREFIX,

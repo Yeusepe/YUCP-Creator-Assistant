@@ -14,17 +14,6 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-        // Auth routes are handled by TanStack Start's /api/auth/$ catch-all,
-        // which proxies directly to Convex. Skip them here.
-        bypass: (req) => {
-          if (req.url?.startsWith('/api/auth')) {
-            return req.url;
-          }
-        },
-      },
       '/Icons': {
         target: 'http://localhost:3001',
         changeOrigin: true,

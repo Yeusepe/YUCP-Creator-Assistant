@@ -2,7 +2,7 @@
  * VRChat Connect Plugin unit tests — TDD
  *
  * Tests the connect plugin routes:
- * - GET /api/connect/vrchat/begin → creates state token, redirects to vrchat-verify?mode=connect
+ * - GET /api/connect/vrchat/begin → creates state token, redirects to /setup/vrchat?mode=connect
  * - POST /api/connect/vrchat/session → validates token, calls VrchatApiClient, stores session
  */
 
@@ -79,7 +79,7 @@ function makeContext(
 // ──────────────────────────────────────────────────────────────────────────────
 
 describe('VRChat connect — GET /begin', () => {
-  it('redirects to vrchat-verify.html with token and mode=connect when setup session is valid', async () => {
+  it('redirects to /setup/vrchat with token and mode=connect when setup session is valid', async () => {
     const ctx = makeContext();
     const beginRoute = vrchatConnect.routes.find(
       (r) => r.method === 'GET' && r.path.endsWith('/begin')
@@ -92,7 +92,7 @@ describe('VRChat connect — GET /begin', () => {
 
     expect(response.status).toBe(302);
     const location = response.headers.get('location');
-    expect(location).toContain('/vrchat-verify');
+    expect(location).toContain('/setup/vrchat');
     expect(location).toContain('mode=connect');
     expect(location).toContain('token=');
   });
@@ -117,8 +117,8 @@ describe('VRChat connect — GET /begin', () => {
     expect(location).toContain('tenant_id=tenant_xyz');
   });
 
-  it('redirects to vrchat-verify when authenticated via dashboard session (no setup session)', async () => {
-    // Dashboard flow: user has a Better Auth session but no bot-issued setup session cookie.
+  it('redirects to /setup/vrchat when authenticated via dashboard session (no setup session)', async () => {
+    // Dashboard flow: user has a viewer token but no bot-issued setup session cookie.
     const ctx = makeContext({
       ok: false,
       response: Response.json({ error: 'Unauthorized' }, { status: 401 }),
@@ -139,7 +139,7 @@ describe('VRChat connect — GET /begin', () => {
 
     expect(response.status).toBe(302);
     const location = response.headers.get('location');
-    expect(location).toContain('/vrchat-verify');
+    expect(location).toContain('/setup/vrchat');
     expect(location).toContain('mode=connect');
     expect(location).toContain('token=');
   });

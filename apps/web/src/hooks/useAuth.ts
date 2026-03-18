@@ -1,8 +1,9 @@
+import { useConvexAuth } from 'convex/react';
 import { useCallback } from 'react';
 import { authClient } from '@/lib/auth-client';
 
 export function useAuth() {
-  const session = authClient.useSession();
+  const { isAuthenticated, isLoading } = useConvexAuth();
 
   const signIn = useCallback(async (redirectTo?: string) => {
     await authClient.signIn.social({
@@ -24,9 +25,8 @@ export function useAuth() {
   }, []);
 
   return {
-    session: session.data,
-    isPending: session.isPending,
-    isAuthenticated: !!session.data?.user,
+    isPending: isLoading,
+    isAuthenticated,
     signIn,
     signOut,
   };

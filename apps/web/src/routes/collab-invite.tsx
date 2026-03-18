@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
@@ -88,6 +88,9 @@ interface InviteData {
 // ---------------------------------------------------------------------------
 
 function CollabInvitePage() {
+  const navigate = useNavigate();
+  const { auth, t: inviteTokenFromSearch } = Route.useSearch();
+
   // ---- State ----
   const [activeStage, setActiveStage] = useState<Stage>('stage-loading');
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
@@ -120,6 +123,7 @@ function CollabInvitePage() {
 
   const testWebhookIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const inviteDataRef = useRef<InviteData | null>(null);
+  const normalizedHashTokenRef = useRef<string | null>(null);
 
   // Keep ref in sync for use in async callbacks
   useEffect(() => {
@@ -404,56 +408,69 @@ function CollabInvitePage() {
     }
   }, [apiFormKey, goToStage]);
 
-  // ---- Read invite token from hash ----
-
-  const readInviteTokenFromHash = useCallback((): string | null => {
-    const hash = window.location.hash.startsWith('#')
-      ? window.location.hash.slice(1)
-      : window.location.hash;
-    const params = new URLSearchParams(hash);
-    return params.get('t');
-  }, []);
-
   // ---- Exchange invite token ----
 
-  const exchangeInviteToken = useCallback(async (rawToken: string): Promise<InviteData> => {
-    const res = await fetch('/api/collab/session/exchange', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ token: rawToken }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const errorMap: Record<string, [string, string]> = {
-        not_found: ['Invite Not Found', 'This invite link is invalid or has already been used.'],
-        revoked: ['Invite Revoked', 'This invite has been revoked by the server owner.'],
-        already_used: [
-          'Already Used',
-          'This invite has already been accepted. Each invite can only be used once.',
-        ],
-        expired: [
-          'Invite Expired',
-          'This invite link has expired. Please ask the server owner to send a new one.',
-        ],
-      };
-      const [title, msg] = errorMap[data.error] || [
-        'Error',
-        'Something went wrong with this invite link.',
-      ];
-      throw new Error(JSON.stringify({ title, msg }));
-    }
-    window.history.replaceState(
-      {},
-      document.title,
-      window.location.pathname + window.location.search
-    );
-    return data;
-  }, []);
+  const exchangeInviteToken = useCallback(
+    async (rawToken: string): Promise<InviteData> => {
+      const res = await fetch('/api/collab/session/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ token: rawToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const errorMap: Record<string, [string, string]> = {
+          not_found: ['Invite Not Found', 'This invite link is invalid or has already been used.'],
+          revoked: ['Invite Revoked', 'This invite has been revoked by the server owner.'],
+          already_used: [
+            'Already Used',
+            'This invite has already been accepted. Each invite can only be used once.',
+          ],
+          expired: [
+            'Invite Expired',
+            'This invite link has expired. Please ask the server owner to send a new one.',
+          ],
+        };
+        const [title, msg] = errorMap[data.error] || [
+          'Error',
+          'Something went wrong with this invite link.',
+        ];
+        throw new Error(JSON.stringify({ title, msg }));
+      }
+      navigate({
+        to: '/collab-invite',
+        search: {
+          auth,
+          t: undefined,
+        },
+        hash: '',
+        replace: true,
+      });
+      return data;
+    },
+    [auth, navigate]
+  );
 
   // ---- Init ----
 
   useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const legacyToken = hash.get('t');
+    if (legacyToken && legacyToken !== normalizedHashTokenRef.current) {
+      normalizedHashTokenRef.current = legacyToken;
+      navigate({
+        to: '/collab-invite',
+        search: {
+          auth,
+          t: legacyToken,
+        },
+        hash: '',
+        replace: true,
+      });
+      return;
+    }
+
     // Back to dashboard button
     const urlParams = new URLSearchParams(window.location.search);
     const tId = urlParams.get('tenant_id') || urlParams.get('tenantId') || '';
@@ -470,11 +487,7 @@ function CollabInvitePage() {
 
     // Main init
     const init = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const authParam = params.get('auth');
-      const hashToken = readInviteTokenFromHash();
-
-      if (authParam === 'error') {
+      if (auth === 'error') {
         showError(
           'Authentication Failed',
           'Could not verify your Discord\u00ae identity. Please try the link again or contact the server owner.'
@@ -485,8 +498,8 @@ function CollabInvitePage() {
       let invite: InviteData;
 
       try {
-        if (hashToken) {
-          invite = await exchangeInviteToken(hashToken);
+        if (inviteTokenFromSearch) {
+          invite = await exchangeInviteToken(inviteTokenFromSearch);
         } else {
           const res = await fetch('/api/collab/session/invite', {
             credentials: 'include',
@@ -533,7 +546,7 @@ function CollabInvitePage() {
         return;
       }
 
-      if (authParam === 'done') {
+      if (auth === 'done') {
         try {
           const statusRes = await fetch('/api/collab/session/discord-status', {
             credentials: 'include',
@@ -562,7 +575,7 @@ function CollabInvitePage() {
     };
 
     init();
-  }, [exchangeInviteToken, goToStage, readInviteTokenFromHash, showError]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [auth, exchangeInviteToken, goToStage, inviteTokenFromSearch, navigate, showError]);
 
   // ---- Derived values ----
 
@@ -1960,6 +1973,10 @@ function CollabInvitePage() {
 // ---------------------------------------------------------------------------
 
 export const Route = createFileRoute('/collab-invite')({
+  validateSearch: (search: Record<string, unknown>) => ({
+    auth: typeof search.auth === 'string' ? search.auth : undefined,
+    t: typeof search.t === 'string' ? search.t : undefined,
+  }),
   head: () => ({
     meta: [{ title: 'Collaborator Invite | Creator Assistant' }],
     links: routeStylesheetLinks(routeStyleHrefs.collabInvite),

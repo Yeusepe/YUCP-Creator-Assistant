@@ -59,7 +59,7 @@ const payhipProvider: ProviderPlugin = {
     connectedColor: '#00a896',
     confettiColors: ['#00d1b2', '#00a896', '#80ffe8', '#ffffff'],
     description: 'Marketplace',
-    dashboardConnectPath: '/payhip-setup',
+    dashboardConnectPath: '/setup/payhip',
     dashboardConnectParamStyle: 'snakeCase',
     dashboardIconBg: '#3b82f6',
     dashboardQuickStartBg: 'rgba(59,130,246,0.12)',

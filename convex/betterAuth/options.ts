@@ -10,7 +10,7 @@ const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 export const createSchemaAuthOptions = (): BetterAuthOptions =>
   ({
     secret: process.env.BETTER_AUTH_SECRET ?? 'MISSING_BETTER_AUTH_SECRET_CONFIGURE_CONVEX_ENV',
-    baseURL: 'https://example.convex.site',
+    baseURL: 'https://example.com',
     database: {} as never,
     plugins: [
       apiKey({
@@ -25,16 +25,21 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
         },
       }),
       jwt({
+        jwks: {
+          keyPairConfig: { alg: 'ES256' },
+        },
         jwt: {
           issuer: 'https://example.convex.site/api/auth',
           audience: PUBLIC_API_AUDIENCE,
         },
+        disableSettingJwtHeader: true,
       }),
       oauthProvider({
-        loginPage: 'http://localhost:3001/oauth/login',
-        consentPage: 'http://localhost:3001/oauth/consent',
-        scopes: ['verification:read'],
+        loginPage: 'https://example.com/oauth/login',
+        consentPage: 'https://example.com/oauth/consent',
+        scopes: ['verification:read', 'cert:issue'],
         validAudiences: [PUBLIC_API_AUDIENCE],
+        cachedTrustedClients: new Set<string>(),
         allowDynamicClientRegistration: false,
         allowUnauthenticatedClientRegistration: false,
         grantTypes: ['authorization_code', 'refresh_token'],

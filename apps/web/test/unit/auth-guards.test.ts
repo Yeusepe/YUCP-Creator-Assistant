@@ -23,9 +23,7 @@ function readRoute(name: string): string {
 }
 
 // Routes that MUST have auth guards (creator-authenticated pages)
-const PROTECTED_ROUTES = [
-  'dashboard.tsx',
-];
+const PROTECTED_ROUTES = ['dashboard.tsx'];
 
 // Routes that MUST NOT require auth (public-facing pages)
 const PUBLIC_ROUTES = [
@@ -102,8 +100,7 @@ describe('Auth guards: sign-in route', () => {
 
   it('redirects AUTHENTICATED users away from sign-in', () => {
     // The sign-in page should send already-authenticated users away via redirect
-    const checksAuth =
-      source.includes('isAuthenticated') || source.includes('context.token');
+    const checksAuth = source.includes('isAuthenticated') || source.includes('context.token');
     const throwsRedirect = source.includes('throw redirect');
     expect(checksAuth).toBe(true);
     expect(throwsRedirect).toBe(true);
@@ -123,18 +120,14 @@ describe('Auth guards: setup wizard routes use setup tokens', () => {
       // Setup routes should use setup tokens (via cookie/URL param),
       // not Better Auth getSession/useSession as the primary auth mechanism
       const usesBetterAuthAsPrimary =
-        source.includes('auth.getSession') ||
-        source.includes('authClient.getSession');
+        source.includes('auth.getSession') || source.includes('authClient.getSession');
       expect(usesBetterAuthAsPrimary).toBe(false);
     });
   }
 });
 
 describe('Auth configuration: auth client', () => {
-  const source = readFileSync(
-    join(__dirname, '../../src/lib/auth-client.ts'),
-    'utf8'
-  );
+  const source = readFileSync(join(__dirname, '../../src/lib/auth-client.ts'), 'utf8');
 
   it('uses convexClient plugin for cross-domain auth', () => {
     expect(source).toContain('convexClient');
@@ -148,10 +141,7 @@ describe('Auth configuration: auth client', () => {
 });
 
 describe('Auth configuration: auth proxy route', () => {
-  const source = readFileSync(
-    join(__dirname, '../../src/routes/api/auth/$.ts'),
-    'utf8'
-  );
+  const source = readFileSync(join(__dirname, '../../src/routes/api/auth/$.ts'), 'utf8');
 
   it('handles both GET and POST methods', () => {
     expect(source).toContain('GET');
@@ -164,10 +154,7 @@ describe('Auth configuration: auth proxy route', () => {
 });
 
 describe('Auth configuration: root route SSR auth', () => {
-  const source = readFileSync(
-    join(__dirname, '../../src/routes/__root.tsx'),
-    'utf8'
-  );
+  const source = readFileSync(join(__dirname, '../../src/routes/__root.tsx'), 'utf8');
 
   it('calls getAuth in beforeLoad for SSR token setup', () => {
     expect(source).toContain('getAuth');
@@ -189,10 +176,7 @@ describe('Auth configuration: root route SSR auth', () => {
 });
 
 describe('Auth configuration: router uses expectAuth', () => {
-  const source = readFileSync(
-    join(__dirname, '../../src/router.tsx'),
-    'utf8'
-  );
+  const source = readFileSync(join(__dirname, '../../src/router.tsx'), 'utf8');
 
   it('creates ConvexQueryClient with expectAuth: true', () => {
     expect(source).toContain('ConvexQueryClient');

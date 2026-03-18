@@ -136,12 +136,8 @@ export function createCollabRoutes(config: CollabConfig) {
   }
 
   /**
-   * Resolves the owner authUserId from either a setup session or a Better Auth
-   * web session. Returns null and a Response when auth fails.
-   *
-   * - Setup session path: setup token present → also require Better Auth session.
-   * - Web session path: no setup token → require Better Auth session + authUserId +
-   *   ownership verification.
+   * Owner-facing collaborator APIs are dashboard operations.
+   * They require the forwarded viewer token from the TanStack web app.
    */
   async function requireOwnerAuth(
     request: Request,
@@ -149,31 +145,6 @@ export function createCollabRoutes(config: CollabConfig) {
   ): Promise<
     { ok: true; authUserId: string; displayName: string } | { ok: false; response: Response }
   > {
-    const setupSession = await resolveSetupToken(request, config.encryptionSecret);
-    if (setupSession) {
-      const webSession = await config.auth.getSession(request);
-      if (!webSession) {
-        return {
-          ok: false,
-          response: Response.json({ error: 'Authentication required' }, { status: 401 }),
-        };
-      }
-      // Cross-check: the web session must belong to the same user as the setup token.
-      // Prevents user B from using user A's stolen setup token with B's own web session.
-      if (webSession.user.id !== setupSession.authUserId) {
-        return {
-          ok: false,
-          response: Response.json({ error: 'Forbidden' }, { status: 403 }),
-        };
-      }
-      return {
-        ok: true,
-        authUserId: setupSession.authUserId,
-        displayName: webSession.user.name ?? '',
-      };
-    }
-
-    // Web session path
     const webSession = await config.auth.getSession(request);
     if (!webSession) {
       return {

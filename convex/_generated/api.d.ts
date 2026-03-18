@@ -10,6 +10,7 @@
 
 import type * as audit_events from "../audit_events.js";
 import type * as auth from "../auth.js";
+import type * as authViewer from "../authViewer.js";
 import type * as backgroundSync from "../backgroundSync.js";
 import type * as betterAuthApiKeys from "../betterAuthApiKeys.js";
 import type * as bindings from "../bindings.js";
@@ -44,6 +45,7 @@ import type * as licenseVerification from "../licenseVerification.js";
 import type * as manualLicenses from "../manualLicenses.js";
 import type * as migrations from "../migrations.js";
 import type * as oauthApps from "../oauthApps.js";
+import type * as oauthClients from "../oauthClients.js";
 import type * as oauthLoopback from "../oauthLoopback.js";
 import type * as outbox_jobs from "../outbox_jobs.js";
 import type * as packageRegistry from "../packageRegistry.js";
@@ -83,6 +85,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   audit_events: typeof audit_events;
   auth: typeof auth;
+  authViewer: typeof authViewer;
   backgroundSync: typeof backgroundSync;
   betterAuthApiKeys: typeof betterAuthApiKeys;
   bindings: typeof bindings;
@@ -117,6 +120,7 @@ declare const fullApi: ApiFromModules<{
   manualLicenses: typeof manualLicenses;
   migrations: typeof migrations;
   oauthApps: typeof oauthApps;
+  oauthClients: typeof oauthClients;
   oauthLoopback: typeof oauthLoopback;
   outbox_jobs: typeof outbox_jobs;
   packageRegistry: typeof packageRegistry;

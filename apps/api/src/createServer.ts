@@ -17,13 +17,8 @@
 
 import path from 'node:path';
 import { buildAllowedBrowserOrigins, createLogger } from '@yucp/shared';
-import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import type { Auth } from './auth';
-import {
-  buildDiscordCallbackUrl,
-  type DiscordSignInFetch,
-  handleDiscordSignInBridge,
-} from './lib/discordSignInBridge';
+import { type DiscordSignInFetch } from './lib/discordSignInBridge';
 import {
   createVerificationRoutes,
   mountVerificationRouteHandlers,
@@ -37,61 +32,6 @@ import { createSuiteRoutes } from './routes/suite';
 import { createWebhookHandler } from './routes/webhooks';
 
 const PUBLIC_BASE_DIR = path.resolve(import.meta.dir, '..', 'public');
-
-// Source: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html
-function escapeForSingleQuotedJsString(value: string): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/\r/g, '\\r')
-    .replace(/\n/g, '\\n')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029')
-    .replace(/<\/script/gi, '<\\/script');
-}
-
-// Source: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-// Source: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/09-Testing_for_Clickjacking
-// Source: https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html
-const HTML_SECURITY_HEADERS: Record<string, string> = {
-  'Content-Security-Policy':
-    "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline'; " +
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-    "img-src 'self' data: blob: https:; " +
-    "font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; " +
-    "connect-src 'self' https: wss:; " +
-    "worker-src 'self' blob:; " +
-    "child-src 'self'; " +
-    "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
-  'Referrer-Policy': 'no-referrer',
-  'X-Content-Type-Options': 'nosniff',
-  'X-Frame-Options': 'DENY',
-};
-
-const DASHBOARD_HTML_SECURITY_HEADERS: Record<string, string> = {
-  'Content-Security-Policy':
-    "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' blob: https://ga.jspm.io https://unpkg.com https://esm.sh; " +
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-    "img-src 'self' data: blob: https:; " +
-    "font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; " +
-    "connect-src 'self' https: wss:; " +
-    "worker-src 'self' blob:; " +
-    "child-src 'self'; " +
-    "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
-  'Referrer-Policy': 'no-referrer',
-  'X-Content-Type-Options': 'nosniff',
-  'X-Frame-Options': 'DENY',
-};
 
 function getContentType(filePath: string): string {
   switch (path.extname(filePath).toLowerCase()) {
@@ -129,7 +69,7 @@ export interface TestServerConfig {
   baseUrl?: string;
   /** Frontend/browser URL used for auth callback generation (defaults to baseUrl). */
   frontendUrl?: string;
-  /** Override the Better Auth bridge fetch used by /api/auth/sign-in/discord tests. */
+  /** Retained for compatibility with older tests; not used by the migrated server routes. */
   authFetch?: DiscordSignInFetch;
   /**
    * Override the Auth implementation used by all routes.
@@ -154,9 +94,20 @@ function createStubAuth(): Auth {
   return {
     getSession: async () => null,
     getDiscordUserId: async () => null,
-    exchangeOTT: async () => ({ session: null, setCookieHeaders: [] as string[] }),
-    signOut: async () => ({ ok: false, setCookieHeaders: [] as string[] }),
   } as unknown as Auth;
+}
+
+function redirectToFrontendRoute(
+  requestUrl: URL,
+  frontendUrl: string,
+  pathname: string
+): Response | null {
+  const target = new URL(pathname, `${frontendUrl.replace(/\/$/, '')}/`);
+  target.search = requestUrl.search;
+  if (target.origin === requestUrl.origin && target.pathname === requestUrl.pathname) {
+    return null;
+  }
+  return Response.redirect(target.toString(), 302);
 }
 
 const testServerLogger = createLogger('error');
@@ -237,61 +188,9 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
   async function handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
-    const browserApiBase = baseUrl;
 
     if (pathname === '/health') {
       return Response.json({ status: 'ok', timestamp: new Date().toISOString() });
-    }
-
-    if (pathname === '/api/auth/sign-in/discord') {
-      return handleDiscordSignInBridge({
-        requestUrl: url,
-        callbackURL: url.searchParams.get('callbackURL'),
-        allowedBrowserOrigins,
-        convexSiteUrl: config.convexSiteUrl,
-        logger: testServerLogger,
-        fetchImpl: config.authFetch,
-      });
-    }
-
-    if (pathname === '/api/auth/sign-in/discord/start') {
-      return handleDiscordSignInBridge({
-        requestUrl: url,
-        callbackURL: buildDiscordCallbackUrl(frontendUrl, url.searchParams.get('returnTo')),
-        allowedBrowserOrigins,
-        convexSiteUrl: config.convexSiteUrl,
-        logger: testServerLogger,
-        fetchImpl: config.authFetch,
-      });
-    }
-
-    if (pathname === '/api/auth/exchange-ott' && request.method === 'POST') {
-      let body: unknown;
-      try {
-        body = await request.json();
-      } catch {
-        return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
-      }
-
-      const token = body && typeof body === 'object' ? (body as { token?: unknown }).token : undefined;
-      if (typeof token !== 'string' || token.trim().length === 0) {
-        return Response.json({ error: 'token is required' }, { status: 400 });
-      }
-
-      const { session, setCookieHeaders } = await stubAuth.exchangeOTT(token);
-      if (!session || setCookieHeaders.length === 0) {
-        return Response.json({ error: 'Invalid or expired one-time token' }, { status: 401 });
-      }
-
-      const headers = new Headers({ 'Content-Type': 'application/json' });
-      for (const cookie of setCookieHeaders) {
-        headers.append('Set-Cookie', cookie);
-      }
-
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers,
-      });
     }
 
     if (pathname === '/tokens.css') {
@@ -354,8 +253,56 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       return handleBackfillProduct(request);
     }
 
+    const legacyFrontendRoute =
+      pathname === '/connect'
+        ? '/connect'
+        : pathname === '/sign-in'
+          ? '/sign-in'
+          : pathname === '/dashboard' || pathname === '/dashboard.html'
+            ? '/dashboard'
+            : pathname === '/oauth/login'
+              ? '/oauth/login'
+              : pathname === '/oauth/consent'
+                ? '/oauth/consent'
+                : pathname === '/oauth/error'
+                  ? '/oauth/error'
+                  : pathname === '/collab-invite' || pathname === '/collab-invite.html'
+                    ? '/collab-invite'
+                    : pathname === '/verify-success' || pathname === '/verify-success.html'
+                      ? '/verify/success'
+                      : pathname === '/verify-error' || pathname === '/verify-error.html'
+                        ? '/verify/error'
+                        : pathname === '/legal/privacy-policy' ||
+                            pathname === '/legal/privacy-policy.html'
+                          ? '/legal/privacy-policy'
+                          : pathname === '/legal/terms-of-service' ||
+                              pathname === '/legal/terms-of-service.html'
+                            ? '/legal/terms-of-service'
+                            : pathname === '/discord-role-setup' ||
+                                pathname === '/discord-role-setup.html'
+                              ? '/setup/discord-role'
+                              : pathname === '/jinxxy-setup' || pathname === '/jinxxy-setup.html'
+                                ? '/setup/jinxxy'
+                                : pathname === '/lemonsqueezy-setup' ||
+                                    pathname === '/lemonsqueezy-setup.html'
+                                  ? '/setup/lemonsqueezy'
+                                  : pathname === '/payhip-setup' ||
+                                      pathname === '/payhip-setup.html'
+                                    ? '/setup/payhip'
+                                    : pathname === '/vrchat-verify' ||
+                                        pathname === '/vrchat-verify.html'
+                                      ? '/setup/vrchat'
+                                      : null;
+
+    if (legacyFrontendRoute) {
+      const response = redirectToFrontendRoute(url, frontendUrl, legacyFrontendRoute);
+      if (response) {
+        return response;
+      }
+      return new Response('This UI route has moved to the TanStack web app.', { status: 404 });
+    }
+
     // Connect routes
-    if (pathname === '/connect') return connectRoutes.serveConnectPage(request);
     if (pathname === '/api/connect/complete') return connectRoutes.completeSetup(request);
     if (pathname === '/api/connect/bootstrap')
       return connectRoutes.exchangeConnectBootstrap(request);
@@ -432,94 +379,6 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     if (pathname.startsWith('/api/suite/')) {
       const response = await suiteRoutes.handleRequest(request, pathname);
       if (response) return response;
-    }
-
-    if (pathname === '/verify-success' || pathname === '/verify-success.html') {
-      const filePath = `${import.meta.dir}/../public/verify-success.html`;
-      let html = await Bun.file(filePath).text();
-      html = html.replaceAll('__API_BASE__', browserApiBase);
-      return new Response(html, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', ...HTML_SECURITY_HEADERS },
-      });
-    }
-
-    if (pathname === '/verify-error' || pathname === '/verify-error.html') {
-      const filePath = `${import.meta.dir}/../public/verify-error.html`;
-      let html = await Bun.file(filePath).text();
-      html = html.replaceAll('__API_BASE__', browserApiBase);
-      return new Response(html, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', ...HTML_SECURITY_HEADERS },
-      });
-    }
-
-    if (pathname === '/sign-in') {
-      const redirectTo = normalizeAuthRedirectTarget(url.searchParams.get('redirectTo'));
-      const callbackUrl = new URL('/sign-in', `${frontendUrl.replace(/\/$/, '')}/`);
-      callbackUrl.searchParams.set('redirectTo', redirectTo);
-      const signInUrl = `${browserApiBase.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl.toString())}`;
-      const filePath = `${import.meta.dir}/../public/sign-in.html`;
-      let html = await Bun.file(filePath).text();
-      html = html.replaceAll('__SIGN_IN_URL__', JSON.stringify(signInUrl));
-      html = html.replaceAll(
-        '__API_BASE__',
-        escapeHtmlAttribute(browserApiBase.replace(/\/$/, ''))
-      );
-      return new Response(html, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', ...HTML_SECURITY_HEADERS },
-      });
-    }
-
-    if (pathname === '/dashboard' || pathname === '/dashboard.html') {
-      // Mirror the auth guard from index.ts: unauthenticated users get the
-      // sign-in-redirect page so hash-fragment tokens (#s=... / #token=...)
-      // can be exchanged for cookies before the OAuth redirect.
-      const webSession = await stubAuth.getSession(request);
-      if (!webSession) {
-        const callbackUrl = `${frontendUrl.replace(/\/$/, '')}${normalizeAuthRedirectTarget(`${pathname}${url.search}`)}`;
-        const signInUrl = `${browserApiBase.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
-        const redirectFilePath = `${import.meta.dir}/../public/sign-in-redirect.html`;
-        let redirectHtml = await Bun.file(redirectFilePath).text();
-        redirectHtml = redirectHtml.replace('__SIGN_IN_URL__', JSON.stringify(signInUrl));
-        redirectHtml = redirectHtml.replace('__CALLBACK_URL__', JSON.stringify(callbackUrl));
-        return new Response(redirectHtml, {
-          status: 200,
-          headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
-        });
-      }
-
-      const filePath = `${import.meta.dir}/../public/dashboard.html`;
-      let html = await Bun.file(filePath).text();
-      const authUserId =
-        url.searchParams.get('tenant_id') ?? url.searchParams.get('authUserId') ?? '';
-      const guildId = url.searchParams.get('guild_id') ?? url.searchParams.get('guildId') ?? '';
-      html = html.replaceAll('__TENANT_ID__', escapeForSingleQuotedJsString(authUserId));
-      html = html.replaceAll('__GUILD_ID__', escapeForSingleQuotedJsString(guildId));
-      html = html.replaceAll('__API_BASE__', escapeForSingleQuotedJsString(browserApiBase));
-      html = html.replaceAll('__HAS_SETUP_SESSION__', 'false');
-      return new Response(html, {
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          ...DASHBOARD_HTML_SECURITY_HEADERS,
-        },
-      });
-    }
-
-    if (pathname === '/oauth/consent') {
-      const clientId = url.searchParams.get('client_id') ?? '';
-      const scope = url.searchParams.get('scope') ?? '';
-      const consentAction = '/api/auth/oauth2/consent';
-      const filePath = `${import.meta.dir}/../public/oauth-consent.html`;
-      let html = await Bun.file(filePath).text();
-      html = html.replace(/__CLIENT_ID__/g, escapeHtmlAttribute(clientId || 'unknown client'));
-      html = html.replace(
-        /__SCOPE__/g,
-        escapeForSingleQuotedJsString(escapeHtmlAttribute(scope || 'openid verification:read'))
-      );
-      html = html.replace(/__CONSENT_CODE__/g, '');
-      html = html.replace(/__CONSENT_ACTION__/g, escapeForSingleQuotedJsString(consentAction));
-      return new Response(html, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', ...HTML_SECURITY_HEADERS },
-      });
     }
 
     // 404 fallback

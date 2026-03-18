@@ -33,6 +33,7 @@ import { Route as DashboardServerRulesRouteImport } from './routes/dashboard/ser
 import { Route as DashboardIntegrationsRouteImport } from './routes/dashboard/integrations'
 import { Route as DashboardCollaborationRouteImport } from './routes/dashboard/collaboration'
 import { Route as DashboardAuditLogsRouteImport } from './routes/dashboard/audit-logs'
+import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const SignInRedirectRoute = SignInRedirectRouteImport.update({
@@ -155,6 +156,11 @@ const DashboardAuditLogsRoute = DashboardAuditLogsRouteImport.update({
   path: '/audit-logs',
   getParentRoute: () => DashboardRoute,
 } as any)
+const ApiSplatRoute = ApiSplatRouteImport.update({
+  id: '/api/$',
+  path: '/api/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -169,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRouteWithChildren
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
+  '/api/$': typeof ApiSplatRoute
   '/dashboard/audit-logs': typeof DashboardAuditLogsRoute
   '/dashboard/collaboration': typeof DashboardCollaborationRoute
   '/dashboard/integrations': typeof DashboardIntegrationsRoute
@@ -195,6 +202,7 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
+  '/api/$': typeof ApiSplatRoute
   '/dashboard/audit-logs': typeof DashboardAuditLogsRoute
   '/dashboard/collaboration': typeof DashboardCollaborationRoute
   '/dashboard/integrations': typeof DashboardIntegrationsRoute
@@ -223,6 +231,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRouteWithChildren
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
+  '/api/$': typeof ApiSplatRoute
   '/dashboard/audit-logs': typeof DashboardAuditLogsRoute
   '/dashboard/collaboration': typeof DashboardCollaborationRoute
   '/dashboard/integrations': typeof DashboardIntegrationsRoute
@@ -252,6 +261,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/sign-in'
     | '/sign-in-redirect'
+    | '/api/$'
     | '/dashboard/audit-logs'
     | '/dashboard/collaboration'
     | '/dashboard/integrations'
@@ -278,6 +288,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/sign-in'
     | '/sign-in-redirect'
+    | '/api/$'
     | '/dashboard/audit-logs'
     | '/dashboard/collaboration'
     | '/dashboard/integrations'
@@ -305,6 +316,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/sign-in'
     | '/sign-in-redirect'
+    | '/api/$'
     | '/dashboard/audit-logs'
     | '/dashboard/collaboration'
     | '/dashboard/integrations'
@@ -333,6 +345,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRouteWithChildren
   SignInRoute: typeof SignInRoute
   SignInRedirectRoute: typeof SignInRedirectRoute
+  ApiSplatRoute: typeof ApiSplatRoute
   LegalPrivacyPolicyRoute: typeof LegalPrivacyPolicyRoute
   LegalTermsOfServiceRoute: typeof LegalTermsOfServiceRoute
   OauthConsentRoute: typeof OauthConsentRoute
@@ -518,6 +531,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAuditLogsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/api/$': {
+      id: '/api/$'
+      path: '/api/$'
+      fullPath: '/api/$'
+      preLoaderRoute: typeof ApiSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -556,6 +576,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRouteWithChildren,
   SignInRoute: SignInRoute,
   SignInRedirectRoute: SignInRedirectRoute,
+  ApiSplatRoute: ApiSplatRoute,
   LegalPrivacyPolicyRoute: LegalPrivacyPolicyRoute,
   LegalTermsOfServiceRoute: LegalTermsOfServiceRoute,
   OauthConsentRoute: OauthConsentRoute,

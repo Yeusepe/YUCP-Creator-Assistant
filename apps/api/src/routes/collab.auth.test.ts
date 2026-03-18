@@ -16,6 +16,7 @@ const ENCRYPTION_SECRET = 'test-encryption-secret-32chars!!';
 const auth = createAuth({
   baseUrl: 'http://localhost:3001',
   convexSiteUrl: 'http://localhost:3210',
+  convexUrl: 'http://localhost:3210',
 });
 
 const testConfig: CollabConfig = {

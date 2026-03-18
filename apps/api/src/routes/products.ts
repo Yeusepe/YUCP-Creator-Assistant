@@ -74,12 +74,12 @@ export async function handleProviderProducts(
     }
 
     const _env = loadEnv();
-    const encryptionSecret = _env.ENCRYPTION_SECRET ?? _env.BETTER_AUTH_SECRET;
+    const encryptionSecret = _env.ENCRYPTION_SECRET;
     if (!encryptionSecret) {
-      return new Response(
-        JSON.stringify({ error: 'ENCRYPTION_SECRET or BETTER_AUTH_SECRET not configured' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'ENCRYPTION_SECRET not configured' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     convex = getConvexClientFromUrl(convexUrl);

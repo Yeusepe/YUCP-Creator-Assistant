@@ -243,10 +243,9 @@ export interface ConnectConfig {
 }
 
 type SetupSession = { authUserId: string; guildId: string; discordUserId: string };
-type AuthSession = NonNullable<Awaited<ReturnType<Auth['getSession']>>>;
 
 export type BoundSetupResult =
-  | { ok: true; setupSession: SetupSession; authSession: AuthSession; authDiscordUserId: string }
+  | { ok: true; setupSession: SetupSession }
   | { ok: false; response: Response };
 
 export interface ConnectContext {

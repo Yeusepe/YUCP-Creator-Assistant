@@ -210,7 +210,8 @@ describe('API server — route mounting', () => {
   });
 
   it('GET /api/auth/sign-in/discord/start computes a same-origin callback URL from a safe relative returnTo path', async () => {
-    const authRequests: Array<{ url: string; body: { provider: string; callbackURL: string } }> = [];
+    const authRequests: Array<{ url: string; body: { provider: string; callbackURL: string } }> =
+      [];
     const bridgeServer = await startTestServer({
       baseUrl: 'http://localhost:3101',
       frontendUrl: 'http://localhost:3000',

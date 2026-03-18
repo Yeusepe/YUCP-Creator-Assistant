@@ -73,10 +73,9 @@ export const processWebhookDeliveries = internalAction({
     errors: v.array(v.string()),
   }),
   handler: async (ctx): Promise<{ processed: number; failed: number; errors: string[] }> => {
-    const encryptionSecret =
-      process.env.ENCRYPTION_SECRET ?? process.env.BETTER_AUTH_SECRET;
+    const encryptionSecret = process.env.ENCRYPTION_SECRET;
     if (!encryptionSecret) {
-      throw new Error('ENCRYPTION_SECRET or BETTER_AUTH_SECRET is required for delivery worker');
+      throw new Error('ENCRYPTION_SECRET is required for delivery worker');
     }
 
     const deliveries = (await ctx.runQuery(

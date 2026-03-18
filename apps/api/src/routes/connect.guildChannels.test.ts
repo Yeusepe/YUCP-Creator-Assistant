@@ -1,14 +1,27 @@
 /**
- * Tests for GET /api/connect/guild/channels
+ * Tests for auth-token based connect route behavior.
  *
- * Covers auth-guard behaviour without standing up a full Convex backend.
- * Session resolution uses the in-memory StateStore (no Redis needed in CI).
+ * These tests cover the setup-session path that replaced the old Better Auth
+ * bridge. The routes should accept a bound setup token and resolve their
+ * Convex-backed operations without needing a browser session cookie.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { createAuth } from '../auth';
 import { createSetupSession } from '../lib/setupSession';
-import { type ConnectConfig, createConnectRoutes } from './connect';
+import type { ConnectConfig } from './connect';
+
+let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
+let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
+
+mock.module('../lib/convex', () => ({
+  getConvexClientFromUrl: () => ({
+    query: (...args: unknown[]) => queryImpl(...args),
+    mutation: (...args: unknown[]) => mutationImpl(...args),
+  }),
+}));
+
+const { createConnectRoutes } = await import('./connect');
 
 const ENCRYPTION_SECRET = 'test-encryption-secret-32chars!!';
 
@@ -27,9 +40,15 @@ const testConfig: ConnectConfig = {
 const auth = createAuth({
   baseUrl: testConfig.apiBaseUrl,
   convexSiteUrl: testConfig.convexSiteUrl,
+  convexUrl: testConfig.convexUrl,
 });
 
 const routes = createConnectRoutes(auth, testConfig);
+
+afterEach(() => {
+  queryImpl = async () => null;
+  mutationImpl = async () => null;
+});
 
 describe('GET /api/connect/guild/channels', () => {
   it('returns 401 when no setup session token is present', async () => {
@@ -40,7 +59,7 @@ describe('GET /api/connect/guild/channels', () => {
     expect(body.error).toMatch(/authentication required/i);
   });
 
-  it('returns 401 when setup session token is present but no auth session', async () => {
+  it('returns channels for a valid setup session token without a browser session', async () => {
     const token = await createSetupSession(
       'user-test-001',
       'guild-test-001',
@@ -51,31 +70,34 @@ describe('GET /api/connect/guild/channels', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     const res = await routes.getGuildChannels(req);
-    // Auth session (Better Auth cookie) is absent → 401
-    expect(res.status).toBe(401);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/authentication required/i);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      channels: Array<{ id: string; name: string; type: number }>;
+    };
+    expect(body.channels).toEqual([]);
   });
 
-  it('returns 400 when no guildId provided in web-session path', async () => {
-    // No setup session, no guildId → 400
+  it('returns 401 when no setup token exists and the web-session path is missing auth', async () => {
     const req = new Request(
       'http://localhost:3001/api/connect/guild/channels?authUserId=some-user'
     );
     const res = await routes.getGuildChannels(req);
-    // No Better Auth session cookie → 401 (auth check comes first)
     expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/authentication required/i);
   });
 });
 
-describe('GET /api/connect/settings (web-session path)', () => {
-  it('returns 401 when no session is present (no setup session, no auth session)', async () => {
+describe('GET /api/connect/settings (setup-session path)', () => {
+  it('returns 401 when no session is present', async () => {
     const req = new Request('http://localhost:3001/api/connect/settings?authUserId=some-user');
     const res = await routes.getSettingsHandler(req);
     expect(res.status).toBe(401);
   });
 
-  it('returns 401 when setup session present but no auth session', async () => {
+  it('returns settings for a valid setup session token without a browser session', async () => {
+    queryImpl = async () => ({ policy: { allowMismatchedEmails: true } });
+
     const token = await createSetupSession(
       'user-test-002',
       'guild-test-002',
@@ -86,11 +108,13 @@ describe('GET /api/connect/settings (web-session path)', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     const res = await routes.getSettingsHandler(req);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { policy: { allowMismatchedEmails: boolean } };
+    expect(body.policy.allowMismatchedEmails).toBe(true);
   });
 });
 
-describe('DELETE /api/connections (disconnect) — auth guard', () => {
+describe('DELETE /api/connections (disconnect) - setup-session path', () => {
   it('returns 401 when no auth is present', async () => {
     const req = new Request('http://localhost:3001/api/connections?id=conn-1&authUserId=user-1', {
       method: 'DELETE',
@@ -99,7 +123,10 @@ describe('DELETE /api/connections (disconnect) — auth guard', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 401 when setup session present but no Better Auth session', async () => {
+  it('disconnects a connection with a valid setup session token', async () => {
+    queryImpl = async () => null;
+    mutationImpl = async () => null;
+
     const token = await createSetupSession(
       'user-test-004',
       'guild-test-004',
@@ -111,11 +138,13 @@ describe('DELETE /api/connections (disconnect) — auth guard', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     const res = await routes.disconnectConnectionHandler(req);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean };
+    expect(body.success).toBe(true);
   });
 });
 
-describe('POST /api/connect/settings (web-session path)', () => {
+describe('POST /api/connect/settings (setup-session path)', () => {
   it('returns 401 when no session is present', async () => {
     const req = new Request('http://localhost:3001/api/connect/settings', {
       method: 'POST',
@@ -126,7 +155,9 @@ describe('POST /api/connect/settings (web-session path)', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 401 when setup session present but no auth session', async () => {
+  it('updates a setting for a valid setup session token without a browser session', async () => {
+    mutationImpl = async () => null;
+
     const token = await createSetupSession(
       'user-test-003',
       'guild-test-003',
@@ -139,6 +170,8 @@ describe('POST /api/connect/settings (web-session path)', () => {
       body: JSON.stringify({ key: 'allowMismatchedEmails', value: true }),
     });
     const res = await routes.updateSettingHandler(req);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean };
+    expect(body.success).toBe(true);
   });
 });

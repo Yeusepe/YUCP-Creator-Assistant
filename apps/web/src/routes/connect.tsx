@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, apiClient } from '@/api/client';
@@ -10,6 +10,14 @@ import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 // ---------------------------------------------------------------------------
 
 export const Route = createFileRoute('/connect')({
+  validateSearch: (search: Record<string, unknown>) => ({
+    guild_id: typeof search.guild_id === 'string' ? search.guild_id : undefined,
+    guildId: typeof search.guildId === 'string' ? search.guildId : undefined,
+    tenant_id: typeof search.tenant_id === 'string' ? search.tenant_id : undefined,
+    tenantId: typeof search.tenantId === 'string' ? search.tenantId : undefined,
+    setup_token: typeof search.setup_token === 'string' ? search.setup_token : undefined,
+    connect_token: typeof search.connect_token === 'string' ? search.connect_token : undefined,
+  }),
   head: () => ({
     meta: [{ title: 'Connect Accounts | Creator Assistant' }],
     links: [
@@ -39,6 +47,15 @@ interface ConnectionsResponse {
   gumroad?: boolean;
   jinxxy?: boolean;
   vrchat?: boolean;
+}
+
+interface ConnectSearch {
+  guild_id: string | undefined;
+  guildId: string | undefined;
+  tenant_id: string | undefined;
+  tenantId: string | undefined;
+  setup_token: string | undefined;
+  connect_token: string | undefined;
 }
 
 interface CompleteResponse {
@@ -102,8 +119,8 @@ const PLATFORMS: PlatformDef[] = [
     confettiColors: ['#9146FF', '#ffffff'],
     connectRedirect: (tid, gid) =>
       tid && gid
-        ? `/jinxxy-setup?tenantId=${encodeURIComponent(tid)}&guildId=${encodeURIComponent(gid)}`
-        : '/jinxxy-setup',
+        ? `/setup/jinxxy?tenantId=${encodeURIComponent(tid)}&guildId=${encodeURIComponent(gid)}`
+        : '/setup/jinxxy',
   },
   {
     key: 'vrchat',
@@ -135,15 +152,16 @@ function redirectToExpiredLinkError() {
 // ---------------------------------------------------------------------------
 
 function ConnectPage() {
-  // -- URL params -----------------------------------------------------------
-  const searchParams = new URLSearchParams(
-    typeof window !== 'undefined' ? window.location.search : ''
-  );
-  const guildIdParam = searchParams.get('guild_id') || searchParams.get('guildId') || '';
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+  const guildIdParam = search.guild_id || search.guildId || '';
+  const tenantIdParam = search.tenant_id || search.tenantId || null;
+  const bootstrapSetupToken = search.setup_token || null;
+  const bootstrapConnectToken = search.connect_token || null;
 
   // -- State ----------------------------------------------------------------
   const [connectionsMap, setConnectionsMap] = useState<Map<string, Connection>>(() => new Map());
-  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [tenantId, setTenantId] = useState<string | null>(tenantIdParam);
   const [modalState, setModalState] = useState<ModalState>({ type: 'closed' });
   const [pageVisible, setPageVisible] = useState(false);
   const [statusText, setStatusText] = useState('');
@@ -162,12 +180,13 @@ function ConnectPage() {
   const cursorDotRef = useRef<HTMLDivElement>(null);
   const cursorOutlineRef = useRef<HTMLDivElement>(null);
   const guildIdRef = useRef(guildIdParam);
-  const tenantIdRef = useRef(tenantId);
+  const tenantIdRef = useRef(tenantIdParam);
   const connectionsMapRef = useRef(connectionsMap);
   const hasSetupSessionRef = useRef(false);
+  const bootstrappedTokenRef = useRef<string | null>(null);
 
   // Keep refs in sync
-  tenantIdRef.current = tenantId;
+  tenantIdRef.current = tenantIdParam ?? tenantId;
   connectionsMapRef.current = connectionsMap;
 
   // -- Modal helpers --------------------------------------------------------
@@ -286,44 +305,68 @@ function ConnectPage() {
     let cancelled = false;
 
     async function bootstrap() {
-      // Token exchange from URL hash
       const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      const setupToken = hash.get('s');
-      const connectToken = hash.get('token');
+      const legacySetupToken = hash.get('s');
+      const legacyConnectToken = hash.get('token');
 
-      if (setupToken || connectToken) {
+      if (
+        (legacySetupToken || legacyConnectToken) &&
+        !bootstrapSetupToken &&
+        !bootstrapConnectToken
+      ) {
+        const nextSearch: ConnectSearch = {
+          guild_id: guildIdParam || undefined,
+          guildId: search.guildId,
+          tenant_id: tenantIdParam ?? undefined,
+          tenantId: search.tenantId,
+          setup_token: legacySetupToken || undefined,
+          connect_token: legacyConnectToken || undefined,
+        };
+        navigate({
+          to: '/connect',
+          search: nextSearch,
+          hash: '',
+          replace: true,
+        });
+        return;
+      }
+
+      const bootstrapToken = bootstrapSetupToken || bootstrapConnectToken;
+      if (bootstrapToken && bootstrappedTokenRef.current !== bootstrapToken) {
+        bootstrappedTokenRef.current = bootstrapToken;
         try {
-          await fetch('/api/connect/bootstrap', {
+          const response = await fetch('/api/connect/bootstrap', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              setupToken: setupToken || undefined,
-              connectToken: connectToken || undefined,
+              setupToken: bootstrapSetupToken || undefined,
+              connectToken: bootstrapConnectToken || undefined,
             }),
           });
-          // On success, strip hash and reload
-          window.history.replaceState({}, '', window.location.pathname + window.location.search);
-          window.location.reload();
-          return;
+          if (!response.ok) {
+            redirectToExpiredLinkError();
+            return;
+          }
+
+          hasSetupSessionRef.current = true;
+          navigate({
+            to: '/connect',
+            search: {
+              guild_id: guildIdParam || undefined,
+              guildId: search.guildId,
+              tenant_id: tenantIdParam ?? undefined,
+              tenantId: search.tenantId,
+              setup_token: undefined,
+              connect_token: undefined,
+            },
+            hash: '',
+            replace: true,
+          });
         } catch {
           redirectToExpiredLinkError();
           return;
         }
-      }
-
-      // Determine if we have a setup session by trying the connections endpoint
-      // The original HTML injected __HAS_SETUP_SESSION__; in React we infer it
-      // by checking if the /api/connections endpoint succeeds.
-      try {
-        const testRes = await fetch('/api/connections', {
-          credentials: 'include',
-        });
-        if (testRes.ok) {
-          hasSetupSessionRef.current = true;
-        }
-      } catch {
-        // no setup session
       }
 
       if (!guildIdRef.current && !tenantIdRef.current && !hasSetupSessionRef.current) {
@@ -353,7 +396,16 @@ function ConnectPage() {
     return () => {
       cancelled = true;
     };
-  }, [ensureTenantAndStatus]);
+  }, [
+    bootstrapConnectToken,
+    bootstrapSetupToken,
+    ensureTenantAndStatus,
+    guildIdParam,
+    navigate,
+    search.guildId,
+    search.tenantId,
+    tenantIdParam,
+  ]);
 
   // -- Custom cursor --------------------------------------------------------
   useEffect(() => {

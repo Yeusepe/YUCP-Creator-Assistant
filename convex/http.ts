@@ -1234,6 +1234,6 @@ http.route({
 });
 
 // Better Auth routes must be registered last
-authComponent.registerRoutes(http, createAuth, { cors: true });
+authComponent.registerRoutes(http, createAuth, { cors: false });
 
 export default http;

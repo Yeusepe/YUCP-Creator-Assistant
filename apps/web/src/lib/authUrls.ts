@@ -7,7 +7,7 @@ const DEFAULT_AUTH_CALLBACK_PATH = '/sign-in';
 
 export function buildDiscordSignInStartUrl(returnTo: string): string {
   const safeReturnTo = getSafeRelativeRedirectTarget(returnTo) ?? DEFAULT_AUTH_CALLBACK_PATH;
-  return `/api/auth/sign-in/discord/start?returnTo=${encodeURIComponent(safeReturnTo)}`;
+  return `${DEFAULT_AUTH_CALLBACK_PATH}?redirectTo=${encodeURIComponent(safeReturnTo)}`;
 }
 
 export function buildSignInCallbackPath({

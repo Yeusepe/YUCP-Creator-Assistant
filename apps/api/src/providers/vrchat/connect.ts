@@ -3,7 +3,7 @@
  *
  * Handles the creator VRChat login flow (session-based, not OAuth):
  *   GET  /api/connect/vrchat/begin   — validates setup session, creates state token,
- *                                      redirects to /vrchat-verify?token=TOKEN&mode=connect
+ *                                      redirects to /setup/vrchat?token=TOKEN&mode=connect
  *   POST /api/connect/vrchat/session — validates token, calls VrchatApiClient.beginLogin(),
  *                                      handles 2FA, encrypts session, stores in Convex
  *
@@ -44,7 +44,7 @@ const SESSION_PURPOSE = 'vrchat-creator-session' as const;
  * Entry point for the creator VRChat connect flow.
  * Requires a valid bound setup session (same guard as all other connect flows).
  * Creates a short-lived state token, stores {authUserId} under it, and redirects
- * to vrchat-verify.html with mode=connect so the buyer login UI is reused.
+ * to the TanStack VRChat setup route with mode=connect.
  */
 async function handleVrchatConnectBegin(request: Request, ctx: ConnectContext): Promise<Response> {
   const binding = await ctx.requireBoundSetupSession(request);
@@ -76,9 +76,8 @@ async function handleVrchatConnectBegin(request: Request, ctx: ConnectContext): 
     CONNECT_TOKEN_TTL_MS
   );
 
-  // Reuse the buyer login UI; mode=connect switches its API endpoint.
-  // Forward guild_id/tenant_id so the verify page can redirect back to the right dashboard context.
-  const redirectUrl = new URL(`${ctx.config.frontendBaseUrl}/vrchat-verify`);
+  // The setup page handles the mode=connect variant and returns to the correct dashboard context.
+  const redirectUrl = new URL('/setup/vrchat', `${ctx.config.frontendBaseUrl.replace(/\/$/, '')}/`);
   redirectUrl.searchParams.set('token', token);
   redirectUrl.searchParams.set('mode', 'connect');
   if (guildId) redirectUrl.searchParams.set('guild_id', guildId);

@@ -35,10 +35,10 @@ export interface Verification {
   createdAt: Date;
 }
 
-// Binding module exports
-export * from './binding';
 export * from './authOrigins';
 export * from './authRedirects';
+// Binding module exports
+export * from './binding';
 // Crypto module exports
 export * from './crypto';
 // Entitlement module exports

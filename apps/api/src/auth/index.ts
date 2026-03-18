@@ -1,19 +1,7 @@
-/**
- * Auth module for the Bun API server.
- *
- * Auth runs on Convex. The browser talks directly to the Convex .site URL
- * for sign-in, callbacks, and session management. This module provides:
- *
- * - getSession: verifies sessions by calling Convex directly
- * - exchangeOTT: exchanges a one-time-token for a session (post-OAuth)
- *
- * No proxy is needed - the cross-domain plugin on Convex handles the
- * cookie gap between the Bun API server and Convex via custom headers
- * and one-time-tokens.
- */
-
 import { createHash, createHmac } from 'node:crypto';
 import { createLogger } from '@yucp/shared';
+import { ConvexHttpClient } from 'convex/browser';
+import { api } from '../../../../convex/_generated/api';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const INTERNAL_AUTH_TS_HEADER = 'x-yucp-internal-auth-ts';
@@ -44,31 +32,109 @@ export interface VrchatInternalResponse {
   betterAuthCookieHeader: string;
 }
 
-export interface BetterAuthEndpointResult<T> {
-  data: T | null;
-  response: Response;
-}
-
-type RequestHeadersInit = ConstructorParameters<typeof Headers>[0];
-
 export interface AuthConfig {
-  /** Base URL for the Bun API server (e.g. http://localhost:3001) */
   baseUrl: string;
-  /** Convex site URL (e.g. https://rare-squid-409.convex.site) */
   convexSiteUrl: string;
+  convexUrl: string;
 }
 
-/** Better Auth session shape (from get-session endpoint) */
 export interface SessionData {
-  user: { id: string; email?: string | null; name?: string | null; image?: string | null };
-  session: { id: string; expiresAt: number; token: string };
+  user: {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+    image?: string | null;
+  };
+  discordUserId?: string | null;
 }
 
-/**
- * Auth instance for the Bun API.
- * - getSession: checks session by forwarding cookies to Convex
- * - exchangeOTT: exchanges a one-time-token for a session token
- */
+type ViewerData = {
+  authUserId: string;
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+  discordUserId?: string | null;
+};
+
+function getConvexClient(url: string): ConvexHttpClient {
+  const convexUrl = url.startsWith('http')
+    ? url
+    : `https://${url.includes(':') ? url.split(':')[1] : url}.convex.cloud`;
+  return new ConvexHttpClient(convexUrl);
+}
+
+function splitSetCookieHeader(raw: string): string[] {
+  if (!raw) return [];
+
+  const cookies: string[] = [];
+  let start = 0;
+  let inExpires = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const slice = raw.slice(index, index + 8).toLowerCase();
+    if (slice === 'expires=') {
+      inExpires = true;
+      index += 7;
+      continue;
+    }
+
+    const char = raw[index];
+    if (inExpires && char === ';') {
+      inExpires = false;
+      continue;
+    }
+
+    if (!inExpires && char === ',' && raw[index + 1] === ' ') {
+      cookies.push(raw.slice(start, index).trim());
+      start = index + 2;
+    }
+  }
+
+  cookies.push(raw.slice(start).trim());
+  return cookies.filter(Boolean);
+}
+
+function getResponseSetCookies(headers: Headers): string[] {
+  const nextHeaders = headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+
+  const standardCookies =
+    typeof nextHeaders.getSetCookie === 'function'
+      ? nextHeaders.getSetCookie()
+      : splitSetCookieHeader(headers.get('set-cookie') ?? '');
+  const betterAuthRaw = headers.get('set-better-auth-cookie');
+  const betterAuthCookies = betterAuthRaw ? splitSetCookieHeader(betterAuthRaw) : [];
+
+  return [...new Set([...standardCookies, ...betterAuthCookies].filter(Boolean))];
+}
+
+function toCookieHeader(setCookies: string[]): string {
+  return setCookies
+    .map((cookie) => cookie.split(';', 1)[0]?.trim())
+    .filter((cookie): cookie is string => Boolean(cookie))
+    .join('; ');
+}
+
+function canonicalizeValue(value: unknown): unknown {
+  if (value === null) return null;
+  if (Array.isArray(value)) return value.map(canonicalizeValue);
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entryValue]) => entryValue !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entryValue]) => [key, canonicalizeValue(entryValue)])
+    );
+  }
+  return value;
+}
+
+function canonicalizeJson(value: unknown): string {
+  if (value === undefined) return '';
+  return JSON.stringify(canonicalizeValue(value));
+}
+
 export function createAuth(config: AuthConfig) {
   const convexAuthBase = `${config.convexSiteUrl.replace(/\/$/, '')}/api/auth`;
 
@@ -80,76 +146,26 @@ export function createAuth(config: AuthConfig) {
     return secret;
   }
 
-  function canonicalizeValue(value: unknown): unknown {
-    if (value === null) return null;
-    if (Array.isArray(value)) return value.map(canonicalizeValue);
-    if (typeof value === 'object') {
-      return Object.fromEntries(
-        Object.entries(value as Record<string, unknown>)
-          .filter(([, entryValue]) => entryValue !== undefined)
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([key, entryValue]) => [key, canonicalizeValue(entryValue)])
-      );
-    }
-    return value;
-  }
-
-  function canonicalizeJson(value: unknown): string {
-    if (value === undefined) return '';
-    return JSON.stringify(canonicalizeValue(value));
-  }
-
-  function splitSetCookieHeader(raw: string): string[] {
-    if (!raw) return [];
-
-    const cookies: string[] = [];
-    let start = 0;
-    let inExpires = false;
-
-    for (let index = 0; index < raw.length; index += 1) {
-      const slice = raw.slice(index, index + 8).toLowerCase();
-      if (slice === 'expires=') {
-        inExpires = true;
-        index += 7;
-        continue;
-      }
-
-      const char = raw[index];
-      if (inExpires && char === ';') {
-        inExpires = false;
-        continue;
-      }
-
-      if (!inExpires && char === ',' && raw[index + 1] === ' ') {
-        cookies.push(raw.slice(start, index).trim());
-        start = index + 2;
-      }
+  async function resolveViewer(authToken: string | null | undefined): Promise<ViewerData | null> {
+    if (!authToken) {
+      return null;
     }
 
-    cookies.push(raw.slice(start).trim());
-    return cookies.filter(Boolean);
+    try {
+      const convexClient = getConvexClient(config.convexUrl);
+      convexClient.setAuth(authToken);
+      return (await convexClient.query(api.authViewer.getViewer, {})) as ViewerData | null;
+    } catch (error) {
+      logger.warn('Failed to resolve viewer from Convex auth token', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
-  function getResponseSetCookies(headers: Headers): string[] {
-    const nextHeaders = headers as Headers & {
-      getSetCookie?: () => string[];
-    };
-
-    const standardCookies =
-      typeof nextHeaders.getSetCookie === 'function'
-        ? nextHeaders.getSetCookie()
-        : splitSetCookieHeader(headers.get('set-cookie') ?? '');
-    const betterAuthRaw = headers.get('set-better-auth-cookie');
-    const betterAuthCookies = betterAuthRaw ? splitSetCookieHeader(betterAuthRaw) : [];
-
-    return [...new Set([...standardCookies, ...betterAuthCookies].filter(Boolean))];
-  }
-
-  function toCookieHeader(setCookies: string[]): string {
-    return setCookies
-      .map((cookie) => cookie.split(';', 1)[0]?.trim())
-      .filter((cookie): cookie is string => Boolean(cookie))
-      .join('; ');
+  function getAuthToken(request: Request): string | null {
+    const authToken = request.headers.get('x-auth-token')?.trim();
+    return authToken || null;
   }
 
   function buildInternalHeaders(
@@ -216,264 +232,27 @@ export function createAuth(config: AuthConfig) {
     };
   }
 
-  function summarizeCookieNames(cookieHeader: string): string[] {
-    return cookieHeader
-      .split(';')
-      .map((part) => part.trim().split('=')[0])
-      .filter(Boolean)
-      .slice(0, 10);
-  }
-
-  async function parseEndpointResponse<T>(response: Response): Promise<T | null> {
-    const text = await response.text();
-    if (!text) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(text) as T;
-    } catch (error) {
-      logger.warn('Better Auth endpoint returned non-JSON response', {
-        status: response.status,
-        statusText: response.statusText,
-        bodyPreview: text.slice(0, 300),
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
   return {
-    async callEndpoint<T>(
-      path: string,
-      init: {
-        method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-        request?: Request;
-        query?: Record<string, string | number | boolean | null | undefined>;
-        body?: unknown;
-        headers?: RequestHeadersInit;
-      } = {}
-    ): Promise<BetterAuthEndpointResult<T>> {
-      const endpointPath = path.startsWith('/') ? path : `/${path}`;
-      const url = new URL(`${convexAuthBase}${endpointPath}`);
-
-      if (init.query) {
-        for (const [key, value] of Object.entries(init.query)) {
-          if (value === undefined || value === null) {
-            continue;
-          }
-          url.searchParams.set(key, String(value));
-        }
-      }
-
-      const headers = new Headers(init.headers);
-      headers.set('origin', config.baseUrl);
-
-      const cookieHeader = init.request?.headers.get('cookie') ?? '';
-      if (cookieHeader) {
-        headers.set('Better-Auth-Cookie', cookieHeader);
-        headers.set('cookie', cookieHeader);
-      }
-
-      let body: string | undefined;
-      if (init.body !== undefined) {
-        headers.set('content-type', 'application/json');
-        body = JSON.stringify(init.body);
-      }
-
-      const response = await fetch(url, {
-        method: init.method ?? (init.body === undefined ? 'GET' : 'POST'),
-        headers,
-        ...(body !== undefined ? { body } : {}),
-      });
-
-      const data = await parseEndpointResponse<T>(response);
-      return { response, data };
-    },
-
-    /** Get session by calling Convex get-session directly with the request cookies. */
     async getSession(request: Request): Promise<SessionData | null> {
-      const getSessionUrl = `${convexAuthBase}/get-session`;
-      try {
-        const cookie = request.headers.get('cookie') ?? '';
-        logger.debug('getSession: calling Convex', {
-          url: getSessionUrl,
-          cookieLength: cookie.length,
-          cookieNames: summarizeCookieNames(cookie),
-          requestOrigin: request.headers.get('origin'),
-          requestHost: request.headers.get('host'),
-        });
-
-        const res = await fetch(getSessionUrl, {
-          method: 'GET',
-          headers: {
-            'Better-Auth-Cookie': cookie,
-            'content-type': 'application/json',
-          },
-        });
-
-        const responseBody = await res.text().catch(() => '');
-
-        if (!res.ok) {
-          logger.warn('Better Auth get-session returned non-OK', {
-            url: getSessionUrl,
-            status: res.status,
-            statusText: res.statusText,
-            requestOrigin: request.headers.get('origin'),
-            requestHost: request.headers.get('host'),
-            hasCookieHeader: Boolean(cookie),
-            cookieLength: cookie.length,
-            cookieNames: summarizeCookieNames(cookie),
-            responseBodyPreview: responseBody.slice(0, 500),
-            setCookieHeader: res.headers.has('set-cookie') ? '[REDACTED]' : null,
-            setBetterAuthCookieHeader: res.headers.has('set-better-auth-cookie')
-              ? '[REDACTED]'
-              : null,
-          });
-          return null;
-        }
-
-        let json: SessionData | null = null;
-        try {
-          json = responseBody ? (JSON.parse(responseBody) as SessionData) : null;
-        } catch (parseErr) {
-          logger.warn('Better Auth get-session: response OK but body not valid JSON', {
-            url: getSessionUrl,
-            responseBodyPreview: responseBody.slice(0, 500),
-            parseError: parseErr instanceof Error ? parseErr.message : String(parseErr),
-          });
-          return null;
-        }
-
-        if (json) {
-          logger.debug('getSession: session found', {
-            userId: json.user?.id,
-            sessionId: `${json.session?.id?.slice(0, 8)}...`,
-          });
-        } else if (cookie.length > 0) {
-          logger.warn('Better Auth get-session returned empty session despite cookies', {
-            url: getSessionUrl,
-            requestOrigin: request.headers.get('origin'),
-            requestHost: request.headers.get('host'),
-            cookieLength: cookie.length,
-            cookieNames: summarizeCookieNames(cookie),
-            responseBodyRaw: responseBody.slice(0, 500),
-            responseBodyLength: responseBody.length,
-            setCookieHeader: res.headers.has('set-cookie') ? '[REDACTED]' : null,
-            setBetterAuthCookieHeader: res.headers.has('set-better-auth-cookie')
-              ? '[REDACTED]'
-              : null,
-          });
-        }
-        return json ?? null;
-      } catch (err) {
-        logger.error('Better Auth get-session failed', {
-          url: getSessionUrl,
-          message: err instanceof Error ? err.message : String(err),
-          requestOrigin: request.headers.get('origin'),
-          requestHost: request.headers.get('host'),
-        });
+      const viewer = await resolveViewer(getAuthToken(request));
+      if (!viewer) {
         return null;
       }
+
+      return {
+        user: {
+          id: viewer.authUserId,
+          email: viewer.email ?? null,
+          name: viewer.name ?? null,
+          image: viewer.image ?? null,
+        },
+        discordUserId: viewer.discordUserId ?? null,
+      };
     },
 
-    /**
-     * Exchange a one-time-token (OTT) for a session.
-     * Called after the OAuth callback redirects the user back with ?ott=<token>.
-     * Returns response headers containing Set-Cookie for the session.
-     */
-    async exchangeOTT(ott: string): Promise<{
-      session: SessionData | null;
-      setCookieHeaders: string[];
-    }> {
-      const url = `${convexAuthBase}/cross-domain/one-time-token/verify`;
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            origin: config.baseUrl,
-          },
-          body: JSON.stringify({ token: ott }),
-        });
-
-        const body = await res.text();
-
-        if (!res.ok) {
-          return { session: null, setCookieHeaders: [] };
-        }
-
-        const setCookieHeaders = getResponseSetCookies(res.headers);
-
-        let json: SessionData | null = null;
-        try {
-          json = JSON.parse(body) as SessionData;
-        } catch {
-          // Non-fatal: body was not valid JSON
-        }
-
-        return { session: json, setCookieHeaders };
-      } catch (_err) {
-        return { session: null, setCookieHeaders: [] };
-      }
-    },
-
-    /** Sign out by calling Convex directly through the cross-domain cookie bridge. */
-    async signOut(
-      request: Request
-    ): Promise<{ ok: boolean; status: number; setCookieHeaders: string[] }> {
-      const cookie = request.headers.get('cookie') ?? '';
-      if (!cookie) {
-        return { ok: true, status: 200, setCookieHeaders: [] };
-      }
-
-      try {
-        const res = await fetch(`${convexAuthBase}/sign-out`, {
-          method: 'POST',
-          headers: {
-            'Better-Auth-Cookie': cookie,
-            origin: config.baseUrl,
-          },
-        });
-
-        return {
-          ok: res.ok,
-          status: res.status,
-          setCookieHeaders: getResponseSetCookies(res.headers),
-        };
-      } catch {
-        return { ok: false, status: 0, setCookieHeaders: [] };
-      }
-    },
-
-    /**
-     * Get the linked Discord user ID from the current session.
-     * Calls Better Auth's list-accounts endpoint via the cross-domain pattern.
-     */
     async getDiscordUserId(request: Request): Promise<string | null> {
-      try {
-        const cookie = request.headers.get('cookie') ?? '';
-        const res = await fetch(`${convexAuthBase}/list-accounts`, {
-          method: 'GET',
-          headers: {
-            'Better-Auth-Cookie': cookie,
-            'content-type': 'application/json',
-          },
-        });
-
-        if (!res.ok) return null;
-
-        const accounts = (await res.json()) as Array<{
-          accountId: string;
-          providerId: string;
-          [key: string]: unknown;
-        }>;
-
-        const discordAccount = accounts?.find?.((a) => a.providerId === 'discord');
-        return discordAccount?.accountId ?? null;
-      } catch {
-        return null;
-      }
+      const viewer = await resolveViewer(getAuthToken(request));
+      return viewer?.discordUserId ?? null;
     },
 
     async persistVrchatSession(
@@ -530,11 +309,4 @@ export function createAuth(config: AuthConfig) {
 }
 
 export { createDiscordProvider, validateDiscordConfig } from './discord';
-// Re-export types and utilities
-export type { SessionInfo, SessionManager } from './session';
-export { createSessionManager } from './session';
-
-/**
- * Auth instance type
- */
 export type Auth = ReturnType<typeof createAuth>;

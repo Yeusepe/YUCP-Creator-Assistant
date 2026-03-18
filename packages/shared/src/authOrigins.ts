@@ -30,7 +30,9 @@ function isLoopbackHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
-function shouldTrustLocalBrowserOrigins(origins: ReadonlyArray<string | null | undefined>): boolean {
+function shouldTrustLocalBrowserOrigins(
+  origins: ReadonlyArray<string | null | undefined>
+): boolean {
   const normalizedOrigins = origins
     .map(normalizeOrigin)
     .filter((origin): origin is string => Boolean(origin));

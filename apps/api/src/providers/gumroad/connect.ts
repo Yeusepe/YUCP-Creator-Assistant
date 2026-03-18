@@ -38,8 +38,11 @@ async function gumroadBegin(request: Request, ctx: ConnectContext): Promise<Resp
   let guildId = url.searchParams.get('guildId');
 
   const setupBinding = await ctx.requireBoundSetupSession(request);
+  if (!setupBinding.ok && ctx.getSetupSessionTokenFromRequest(request)) {
+    return setupBinding.response;
+  }
   const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
-  const session = setupBinding.ok ? setupBinding.authSession : await ctx.auth.getSession(request);
+  const session = setupSession ? null : await ctx.auth.getSession(request);
   const authenticatedViaSetupToken = Boolean(setupSession);
   if (setupSession) {
     authUserId = authUserId || setupSession.authUserId;
@@ -48,11 +51,6 @@ async function gumroadBegin(request: Request, ctx: ConnectContext): Promise<Resp
 
   if (!session && !authenticatedViaSetupToken) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
-  }
-  if (!setupBinding.ok && setupSession === null) {
-    // A setup token header was present but failed validation — reject.
-    const hasToken = ctx.getSetupSessionTokenFromRequest(request);
-    if (hasToken) return setupBinding.response;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
