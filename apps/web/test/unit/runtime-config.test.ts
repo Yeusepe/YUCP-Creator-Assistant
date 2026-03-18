@@ -2,18 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { resolveBrowserAuthBaseUrl } from '@/lib/runtimeConfig';
 
 describe('resolveBrowserAuthBaseUrl', () => {
-  it('prefers SITE_URL over FRONTEND_URL and normalizes to origin', () => {
+  it('prefers the current SSR request origin over configured env origins', () => {
     expect(
       resolveBrowserAuthBaseUrl({
-        siteUrl: 'https://verify.creators.yucp.club/sign-in?redirectTo=%2Fdashboard',
-        frontendUrl: 'http://localhost:3000',
+        requestUrl: 'http://localhost:3000/sign-in?redirectTo=%2Fdashboard',
+        siteUrl: 'http://localhost:3001',
+        frontendUrl: 'http://localhost:3001',
       })
-    ).toBe('https://verify.creators.yucp.club');
+    ).toBe('http://localhost:3000');
   });
 
-  it('falls back to FRONTEND_URL when SITE_URL is missing or invalid', () => {
+  it('falls back to FRONTEND_URL when the request URL and SITE_URL are missing or invalid', () => {
     expect(
       resolveBrowserAuthBaseUrl({
+        requestUrl: 'not-a-url',
         siteUrl: 'not-a-url',
         frontendUrl: 'http://localhost:3001/dashboard',
       })
@@ -23,6 +25,7 @@ describe('resolveBrowserAuthBaseUrl', () => {
   it('uses the provided fallback when no configured origin is valid', () => {
     expect(
       resolveBrowserAuthBaseUrl({
+        requestUrl: undefined,
         siteUrl: undefined,
         frontendUrl: undefined,
         fallback: 'http://localhost:4321/path',

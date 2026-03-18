@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
@@ -8,6 +9,9 @@ import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { useRuntimeConfig } from '@/lib/runtimeConfig';
 
 export const Route = createFileRoute('/sign-in-redirect')({
+  validateSearch: (search: Record<string, unknown>) => ({
+    redirectTo: typeof search.redirectTo === 'string' ? search.redirectTo : undefined,
+  }),
   head: () => ({
     links: routeStylesheetLinks(routeStyleHrefs.signInRedirect),
   }),
@@ -19,12 +23,11 @@ type ViewState = 'loading' | 'error';
 function SignInRedirectPage() {
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [isVisible, setIsVisible] = useState(false);
+  const { redirectTo } = Route.useSearch();
   const { browserAuthBaseUrl } = useRuntimeConfig();
+  const postAuthTarget = normalizeAuthRedirectTarget(redirectTo);
 
-  const callbackUrl =
-    typeof window !== 'undefined'
-      ? buildAbsoluteCallbackUrl(window.location.pathname + window.location.search, browserAuthBaseUrl)
-      : buildAbsoluteCallbackUrl('/sign-in-redirect', browserAuthBaseUrl);
+  const callbackUrl = buildAbsoluteCallbackUrl(postAuthTarget, browserAuthBaseUrl);
   const signInUrl = buildDiscordSignInUrl(callbackUrl);
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),

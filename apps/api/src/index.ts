@@ -4,6 +4,11 @@
 
 import path from 'node:path';
 import { createLogger } from '@yucp/shared';
+import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
+import {
+  getSafeRelativeRedirectTarget,
+  normalizeAuthRedirectTarget,
+} from '@yucp/shared/authRedirects';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
 import {
@@ -12,6 +17,7 @@ import {
   getCookieValue,
   SETUP_SESSION_COOKIE,
 } from './lib/browserSessions';
+import { handleDiscordSignInBridge } from './lib/discordSignInBridge';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import { resolveSetupSession } from './lib/setupSession';
 import { detectTunnelUrl } from './lib/tunnel';
@@ -97,39 +103,13 @@ function redirectPreservingFragment(targetUrl: string): Response {
   });
 }
 
-function normalizeOrigin(value: string | undefined): string | null {
-  if (!value) return null;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
-
-// Source: https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html
-function getSafeRelativeRedirectTarget(value: string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-
-  if (!value.startsWith('/')) {
-    return null;
-  }
-
-  if (value.startsWith('//')) {
-    return null;
-  }
-
-  return value;
-}
-
 function getRelativeRequestTarget(url: URL): string {
   return `${url.pathname}${url.search}`;
 }
 
 function buildSignInRouteUrl(browserBase: string, redirectTo: string): string {
   const signInUrl = new URL('/sign-in', `${browserBase.replace(/\/$/, '')}/`);
-  signInUrl.searchParams.set('redirectTo', redirectTo);
+  signInUrl.searchParams.set('redirectTo', normalizeAuthRedirectTarget(redirectTo));
   return signInUrl.toString();
 }
 
@@ -244,18 +224,11 @@ function initializeAuth(webhookBaseUrl?: string) {
   resolvedApiBaseUrl = publicBaseUrl;
   resolvedFrontendOrigin = new URL(frontendUrl).origin;
   allowedCorsOrigins = new Set(
-    [
+    buildAllowedBrowserOrigins({
+      siteUrl,
       frontendUrl,
-      publicBaseUrl,
-      env.FRONTEND_URL,
-      // Allow localhost origins only outside of production to avoid broadening
-      // the cross-origin trust surface in deployed environments.
-      ...((env.NODE_ENV ?? 'development') !== 'production'
-        ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173']
-        : []),
-    ]
-      .map(normalizeOrigin)
-      .filter((origin): origin is string => Boolean(origin))
+      additionalOrigins: [publicBaseUrl],
+    })
   );
 
   const convexSiteUrl = env.CONVEX_SITE_URL ?? '';
@@ -580,120 +553,14 @@ async function routeRequest(request: Request): Promise<Response> {
   }
 
   if (pathname === '/api/auth/sign-in/discord') {
-    const callbackURL = url.searchParams.get('callbackURL');
-    if (!callbackURL) {
-      logger.warn('Discord sign-in bridge missing callbackURL', { pathname });
-      return new Response(JSON.stringify({ error: 'callbackURL is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Validate callbackURL: must be a parseable absolute URL whose origin is in our allowlist.
-    let callbackOrigin: string;
-    try {
-      const parsed = new URL(callbackURL);
-      callbackOrigin = parsed.origin;
-    } catch {
-      logger.warn('Discord sign-in bridge received malformed callbackURL');
-      return new Response(JSON.stringify({ error: 'Invalid callbackURL' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (!allowedCorsOrigins.has(callbackOrigin)) {
-      logger.warn('Discord sign-in bridge rejected callbackURL with disallowed origin', {
-        callbackOrigin,
-      });
-      return new Response(JSON.stringify({ error: 'callbackURL origin is not allowed' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
     const env = loadEnv();
-    const convexSiteUrl = env.CONVEX_SITE_URL ?? '';
-    if (!convexSiteUrl) {
-      logger.error('Discord sign-in bridge missing CONVEX_SITE_URL');
-      return new Response(JSON.stringify({ error: 'CONVEX_SITE_URL must be set' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    logger.info('Starting Discord sign-in bridge', {
-      callbackOrigin,
-      requestOrigin: url.origin,
+    return handleDiscordSignInBridge({
+      requestUrl: url,
+      callbackURL: url.searchParams.get('callbackURL'),
+      allowedBrowserOrigins: allowedCorsOrigins,
+      convexSiteUrl: env.CONVEX_SITE_URL ?? '',
+      logger,
     });
-
-    const authResponse = await fetch(
-      `${convexSiteUrl.replace(/\/$/, '')}/api/auth/sign-in/social`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          provider: 'discord',
-          callbackURL,
-        }),
-      }
-    );
-
-    const payloadText = await authResponse.text();
-    let payload: { url?: string; error?: { message?: string } } | null = null;
-    try {
-      payload = payloadText
-        ? (JSON.parse(payloadText) as { url?: string; error?: { message?: string } })
-        : null;
-    } catch {
-      logger.warn('Discord sign-in bridge received non-JSON response', {
-        status: authResponse.status,
-        statusText: authResponse.statusText,
-        bodyPreview: payloadText.slice(0, 300),
-      });
-    }
-    const redirectUrl = payload?.url;
-    if (!authResponse.ok || !redirectUrl) {
-      logger.error('Discord sign-in bridge failed', {
-        callbackOrigin,
-        status: authResponse.status,
-        statusText: authResponse.statusText,
-        responseError: payload?.error?.message,
-        responseBodyPreview: payloadText.slice(0, 300),
-      });
-      return new Response(
-        JSON.stringify({
-          error: payload?.error?.message ?? 'Failed to start Discord sign-in',
-        }),
-        {
-          status: 502,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
-    }
-
-    let discordRedirectUri: string | null = null;
-    let discordClientId: string | null = null;
-    let discordScope: string | null = null;
-    try {
-      const parsedRedirect = new URL(redirectUrl);
-      discordRedirectUri = parsedRedirect.searchParams.get('redirect_uri');
-      discordClientId = parsedRedirect.searchParams.get('client_id');
-      discordScope = parsedRedirect.searchParams.get('scope');
-    } catch {
-      // Ignore parse failures; keep the raw redirect URL preview below.
-    }
-
-    logger.info('Discord sign-in bridge redirecting', {
-      callbackOrigin,
-      redirectOrigin: new URL(redirectUrl).origin,
-      redirectUri: discordRedirectUri,
-      clientId: discordClientId,
-      scope: discordScope,
-    });
-
-    return Response.redirect(redirectUrl, 302);
   }
 
   if (
@@ -1522,8 +1389,7 @@ async function routeRequest(request: Request): Promise<Response> {
 
     const ott = url.searchParams.get('ott');
     const browserApiBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
-    const redirectTo =
-      getSafeRelativeRedirectTarget(url.searchParams.get('redirectTo')) ?? '/dashboard';
+    const redirectTo = normalizeAuthRedirectTarget(url.searchParams.get('redirectTo'));
 
     // Step 1: Exchange OTT for a session cookie.
     // The OTT arrives here as ?ott=<token> after BetterAuth's Discord OAuth callback
@@ -1634,7 +1500,7 @@ async function routeRequest(request: Request): Promise<Response> {
       const webSession = await auth.getSession(request);
       if (!webSession) {
         const browserBase = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
-        const callbackUrl = `${browserBase}${getRelativeRequestTarget(url)}`;
+        const callbackUrl = `${browserBase}${normalizeAuthRedirectTarget(getRelativeRequestTarget(url))}`;
         const signInUrl = `${resolvedApiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
         const redirectFilePath = `${import.meta.dir}/../public/sign-in-redirect.html`;
         let redirectHtml = await Bun.file(redirectFilePath).text();

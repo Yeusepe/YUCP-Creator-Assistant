@@ -83,7 +83,7 @@ describe('API server — route mounting', () => {
     }
   });
 
-  it('GET /dashboard without auth serves sign-in-redirect page that exchanges hash tokens before OAuth redirect', async () => {
+  it('GET /dashboard without auth serves sign-in-redirect without coupling auth to guild selection', async () => {
     // When an unauthenticated user visits /dashboard?guild_id=X (from bot /setup start),
     // the server must serve sign-in-redirect.html (not a 302) so that client-side JS
     // can exchange #token=... or #s=... hash-fragment tokens for cookies BEFORE the
@@ -97,8 +97,9 @@ describe('API server — route mounting', () => {
     expect(html).toContain('/api/connect/bootstrap');
     // It must contain the injected sign-in URL pointing at Discord OAuth
     expect(html).toContain('/api/auth/sign-in/discord');
-    // Callback URL must preserve the guild_id query param
-    expect(html).toContain('guild_id=test-guild-123');
+    // Auth should land on generic dashboard first. Guild onboarding is a separate flow.
+    expect(html).toContain('callbackURL=http%3A%2F%2Flocalhost%3A0%2Fdashboard');
+    expect(html).not.toContain('guild_id=test-guild-123');
   });
 
   it('GET /sign-in rejects open redirect targets from browser-rendered OAuth links', async () => {
@@ -129,6 +130,82 @@ describe('API server — route mounting', () => {
     expect(html).toContain('&lt;img src=x onerror=');
     expect(html).toContain('&quot;globalThis.__phase8Client=1&quot;');
     expect(html).not.toContain("const CONSENT_CODE   = 'abc");
+  });
+
+  it('GET /api/auth/sign-in/discord allows the local proxied frontend origin and redirects to Discord', async () => {
+    const authRequests: Array<{ url: string; body: { provider: string; callbackURL: string } }> =
+      [];
+    const bridgeServer = await startTestServer({
+      baseUrl: 'http://localhost:3101',
+      frontendUrl: 'http://localhost:3000',
+      authFetch: async (input, init) => {
+        authRequests.push({
+          url: input.toString(),
+          body: JSON.parse(String(init?.body)) as { provider: string; callbackURL: string },
+        });
+        return new Response(
+          JSON.stringify({
+            url: 'https://discord.com/api/oauth2/authorize?client_id=test-discord-client-id&redirect_uri=https%3A%2F%2Frare-squid-409.convex.site%2Fapi%2Fauth%2Fcallback%2Fdiscord&scope=identify+email',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      },
+    });
+
+    try {
+      const callbackURL = encodeURIComponent(
+        'http://localhost:3000/sign-in?redirectTo=%2Fdashboard'
+      );
+      const res = await bridgeServer.fetch(`/api/auth/sign-in/discord?callbackURL=${callbackURL}`, {
+        redirect: 'manual',
+      });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toContain('https://discord.com/api/oauth2/authorize');
+      expect(authRequests).toHaveLength(1);
+      expect(authRequests[0]).toEqual({
+        url: 'http://localhost:3210/api/auth/sign-in/social',
+        body: {
+          provider: 'discord',
+          callbackURL: 'http://localhost:3000/sign-in?redirectTo=%2Fdashboard',
+        },
+      });
+    } finally {
+      bridgeServer.stop();
+    }
+  });
+
+  it('GET /api/auth/sign-in/discord rejects callback origins outside the configured browser allowlist', async () => {
+    const authRequests: string[] = [];
+    const bridgeServer = await startTestServer({
+      baseUrl: 'http://localhost:3101',
+      frontendUrl: 'http://localhost:3000',
+      authFetch: async (input) => {
+        authRequests.push(input.toString());
+        return new Response(JSON.stringify({ url: 'https://discord.com/api/oauth2/authorize' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+    });
+
+    try {
+      const callbackURL = encodeURIComponent(
+        'https://evil.example/sign-in?redirectTo=%2Fdashboard'
+      );
+      const res = await bridgeServer.fetch(`/api/auth/sign-in/discord?callbackURL=${callbackURL}`);
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: 'callbackURL origin is not allowed',
+      });
+      expect(authRequests).toHaveLength(0);
+    } finally {
+      bridgeServer.stop();
+    }
   });
 
   // -------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
-const LOCAL_FALLBACK_SITE_URL = 'http://localhost:3001';
+const LOCAL_FALLBACK_SITE_URL = 'http://localhost:3000';
 
 export interface PublicRuntimeConfig {
   browserAuthBaseUrl: string;
@@ -25,39 +25,53 @@ function normalizeOrigin(value: string | null | undefined): string | null {
 }
 
 export function resolveBrowserAuthBaseUrl({
+  requestUrl,
   siteUrl,
   frontendUrl,
   fallback = LOCAL_FALLBACK_SITE_URL,
 }: Readonly<{
+  requestUrl?: string | URL | null;
   siteUrl?: string | null;
   frontendUrl?: string | null;
   fallback?: string;
 }>): string {
   return (
-    normalizeOrigin(siteUrl) ??
+    normalizeOrigin(requestUrl ? requestUrl.toString() : null) ??
     normalizeOrigin(frontendUrl) ??
+    normalizeOrigin(siteUrl) ??
     normalizeOrigin(fallback) ??
     LOCAL_FALLBACK_SITE_URL
   );
 }
 
-export function getPublicRuntimeConfig(): PublicRuntimeConfig {
-  if (import.meta.env.SSR) {
-    return {
-      browserAuthBaseUrl: resolveBrowserAuthBaseUrl({
-        siteUrl: process.env.SITE_URL,
-        frontendUrl: process.env.FRONTEND_URL,
-      }),
-    };
-  }
+export function createPublicRuntimeConfig({
+  requestUrl,
+  siteUrl,
+  frontendUrl,
+  fallback,
+}: Readonly<{
+  requestUrl?: string | URL | null;
+  siteUrl?: string | null;
+  frontendUrl?: string | null;
+  fallback?: string;
+}>): PublicRuntimeConfig {
+  return {
+    browserAuthBaseUrl: resolveBrowserAuthBaseUrl({
+      requestUrl,
+      siteUrl,
+      frontendUrl,
+      fallback,
+    }),
+  };
+}
 
+export function getPublicRuntimeConfig(): PublicRuntimeConfig {
   return (
-    window.__YUCP_PUBLIC_RUNTIME_CONFIG__ ?? {
-      browserAuthBaseUrl: resolveBrowserAuthBaseUrl({
-        frontendUrl: window.location.origin,
-        fallback: window.location.origin,
-      }),
-    }
+    window.__YUCP_PUBLIC_RUNTIME_CONFIG__ ??
+    createPublicRuntimeConfig({
+      requestUrl: window.location.href,
+      fallback: window.location.origin,
+    })
   );
 }
 

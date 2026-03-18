@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { buildDiscordSignInUrl } from '@/lib/authUrls';
+import { buildSignInUrlForRedirectTarget } from '@/lib/authUrls';
 import { useRuntimeConfig } from '@/lib/runtimeConfig';
 
 export function useAuth() {
@@ -7,9 +7,10 @@ export function useAuth() {
   const signInUrl = useMemo(() => {
     if (typeof window === 'undefined') return '#';
     const currentPath = window.location.pathname + window.location.search;
-    const callbackUrl = new URL('/sign-in-redirect', browserAuthBaseUrl);
-    callbackUrl.searchParams.set('redirectTo', currentPath);
-    return buildDiscordSignInUrl(callbackUrl.toString());
+    return buildSignInUrlForRedirectTarget({
+      browserAuthBaseUrl,
+      redirectTo: currentPath,
+    });
   }, [browserAuthBaseUrl]);
 
   const signOut = useCallback(async () => {

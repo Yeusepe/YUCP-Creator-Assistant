@@ -24,7 +24,14 @@ const queryClient = new QueryClient({
 });
 
 export const Route = createRootRoute({
-  loader: () => getPublicRuntimeConfig(),
+  loader: async () => {
+    if (import.meta.env.SSR) {
+      const { getPublicRuntimeConfigForRequest } = await import('@/lib/runtimeConfig.server');
+      return getPublicRuntimeConfigForRequest();
+    }
+
+    return getPublicRuntimeConfig();
+  },
   head: () => ({
     meta: [
       { charSet: 'utf-8' },

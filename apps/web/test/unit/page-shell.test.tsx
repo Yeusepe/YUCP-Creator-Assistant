@@ -50,10 +50,10 @@ describe('Page shell boot', () => {
     ).toBe('none');
   });
 
-  it('preserves redirectTo in the Discord sign-in callback URL', () => {
+  it('keeps dashboard auth independent from guild selection in the Discord callback URL', () => {
     const signInUrl = buildCurrentSignInUrl(
       'http://localhost:3000/sign-in?redirectTo=%2Fdashboard%3Fguild_id%3D123',
-      'http://localhost:3001'
+      'http://localhost:3000'
     );
     const { container } = render(<SignInPage signInUrl={signInUrl} />);
     const href = (container.querySelector('#discord-signin-btn') as HTMLAnchorElement | null)?.href;
@@ -66,7 +66,7 @@ describe('Page shell boot', () => {
     const discordUrl = new URL(href);
     expect(discordUrl.pathname).toBe('/api/auth/sign-in/discord');
     expect(discordUrl.searchParams.get('callbackURL')).toBe(
-      'http://localhost:3001/sign-in?redirectTo=%2Fdashboard%3Fguild_id%3D123'
+      'http://localhost:3000/sign-in?redirectTo=%2Fdashboard'
     );
   });
 });

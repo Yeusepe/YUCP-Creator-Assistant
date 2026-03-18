@@ -16,7 +16,10 @@
  */
 
 import path from 'node:path';
+import { buildAllowedBrowserOrigins, createLogger } from '@yucp/shared';
+import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import type { Auth } from './auth';
+import { type DiscordSignInFetch, handleDiscordSignInBridge } from './lib/discordSignInBridge';
 import {
   createVerificationRoutes,
   mountVerificationRouteHandlers,
@@ -50,23 +53,6 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-}
-
-// Source: https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html
-function getSafeRelativeRedirectTarget(value: string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-
-  if (!value.startsWith('/')) {
-    return null;
-  }
-
-  if (value.startsWith('//')) {
-    return null;
-  }
-
-  return value;
 }
 
 // Source: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/09-Testing_for_Clickjacking
@@ -137,6 +123,10 @@ export interface TestServerConfig {
   discordClientSecret?: string;
   /** Base URL reported to templates (defaults to http://localhost:<port>) */
   baseUrl?: string;
+  /** Frontend/browser URL used for auth callback generation (defaults to baseUrl). */
+  frontendUrl?: string;
+  /** Override the Better Auth bridge fetch used by /api/auth/sign-in/discord tests. */
+  authFetch?: DiscordSignInFetch;
   /**
    * Override the Auth implementation used by all routes.
    * When omitted, a stub that always returns null sessions is used (default
@@ -165,14 +155,24 @@ function createStubAuth(): Auth {
   } as unknown as Auth;
 }
 
+const testServerLogger = createLogger('error');
+
 export async function createServer(config: TestServerConfig): Promise<TestServer> {
   const baseUrl = config.baseUrl ?? `http://localhost:${config.port}`;
+  const frontendUrl = config.frontendUrl ?? baseUrl;
+  const allowedBrowserOrigins = new Set(
+    buildAllowedBrowserOrigins({
+      siteUrl: baseUrl,
+      frontendUrl,
+      additionalOrigins: [baseUrl],
+    })
+  );
 
   const stubAuth = config.auth ?? createStubAuth();
 
   const verificationConfig: VerificationConfig = {
     baseUrl,
-    frontendUrl: baseUrl,
+    frontendUrl,
     convexUrl: config.convexUrl,
     convexApiSecret: config.convexApiSecret,
     encryptionSecret: config.encryptionSecret,
@@ -184,7 +184,7 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
 
   const connectRoutes = createConnectRoutes(stubAuth, {
     apiBaseUrl: baseUrl,
-    frontendBaseUrl: baseUrl,
+    frontendBaseUrl: frontendUrl,
     convexSiteUrl: config.convexSiteUrl,
     convexUrl: config.convexUrl,
     convexApiSecret: config.convexApiSecret,
@@ -196,7 +196,7 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
   const collabRoutes = createCollabRoutes({
     auth: stubAuth,
     apiBaseUrl: baseUrl,
-    frontendBaseUrl: baseUrl,
+    frontendBaseUrl: frontendUrl,
     convexUrl: config.convexUrl,
     convexApiSecret: config.convexApiSecret,
     encryptionSecret: config.encryptionSecret,
@@ -218,7 +218,7 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
 
   const providerPlatformRoutes = createProviderPlatformRoutes(stubAuth, {
     apiBaseUrl: baseUrl,
-    frontendBaseUrl: baseUrl,
+    frontendBaseUrl: frontendUrl,
     convexUrl: config.convexUrl,
     convexApiSecret: config.convexApiSecret,
     encryptionSecret: config.encryptionSecret,
@@ -237,6 +237,17 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
 
     if (pathname === '/health') {
       return Response.json({ status: 'ok', timestamp: new Date().toISOString() });
+    }
+
+    if (pathname === '/api/auth/sign-in/discord') {
+      return handleDiscordSignInBridge({
+        requestUrl: url,
+        callbackURL: url.searchParams.get('callbackURL'),
+        allowedBrowserOrigins,
+        convexSiteUrl: config.convexSiteUrl,
+        logger: testServerLogger,
+        fetchImpl: config.authFetch,
+      });
     }
 
     if (pathname === '/tokens.css') {
@@ -398,9 +409,8 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     }
 
     if (pathname === '/sign-in') {
-      const redirectTo =
-        getSafeRelativeRedirectTarget(url.searchParams.get('redirectTo')) ?? '/dashboard';
-      const callbackUrl = new URL(`${browserApiBase}/sign-in`);
+      const redirectTo = normalizeAuthRedirectTarget(url.searchParams.get('redirectTo'));
+      const callbackUrl = new URL('/sign-in', `${frontendUrl.replace(/\/$/, '')}/`);
       callbackUrl.searchParams.set('redirectTo', redirectTo);
       const signInUrl = `${browserApiBase.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl.toString())}`;
       const filePath = `${import.meta.dir}/../public/sign-in.html`;
@@ -421,7 +431,7 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       // can be exchanged for cookies before the OAuth redirect.
       const webSession = await stubAuth.getSession(request);
       if (!webSession) {
-        const callbackUrl = `${browserApiBase}${pathname}${url.search}`;
+        const callbackUrl = `${frontendUrl.replace(/\/$/, '')}${normalizeAuthRedirectTarget(`${pathname}${url.search}`)}`;
         const signInUrl = `${browserApiBase.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
         const redirectFilePath = `${import.meta.dir}/../public/sign-in-redirect.html`;
         let redirectHtml = await Bun.file(redirectFilePath).text();
