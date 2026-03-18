@@ -416,6 +416,23 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     }
 
     if (pathname === '/dashboard' || pathname === '/dashboard.html') {
+      // Mirror the auth guard from index.ts: unauthenticated users get the
+      // sign-in-redirect page so hash-fragment tokens (#s=... / #token=...)
+      // can be exchanged for cookies before the OAuth redirect.
+      const webSession = await stubAuth.getSession(request);
+      if (!webSession) {
+        const callbackUrl = `${browserApiBase}${pathname}${url.search}`;
+        const signInUrl = `${browserApiBase.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+        const redirectFilePath = `${import.meta.dir}/../public/sign-in-redirect.html`;
+        let redirectHtml = await Bun.file(redirectFilePath).text();
+        redirectHtml = redirectHtml.replace('__SIGN_IN_URL__', JSON.stringify(signInUrl));
+        redirectHtml = redirectHtml.replace('__CALLBACK_URL__', JSON.stringify(callbackUrl));
+        return new Response(redirectHtml, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
+        });
+      }
+
       const filePath = `${import.meta.dir}/../public/dashboard.html`;
       let html = await Bun.file(filePath).text();
       const authUserId =

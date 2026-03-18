@@ -83,7 +83,23 @@ describe('API server — route mounting', () => {
     }
   });
 
-  it('GET /sign-in rejects open redirect targets from browser-rendered OAuth links', async () => {
+  it('GET /dashboard without auth serves sign-in-redirect page that exchanges hash tokens before OAuth redirect', async () => {
+    // When an unauthenticated user visits /dashboard?guild_id=X (from bot /setup start),
+    // the server must serve sign-in-redirect.html (not a 302) so that client-side JS
+    // can exchange #token=... or #s=... hash-fragment tokens for cookies BEFORE the
+    // OAuth redirect. Hash fragments are lost during 302 redirects.
+    const res = await server.fetch('/dashboard?guild_id=test-guild-123');
+    expect(res.status).toBe(200);
+    expectHtmlSecurityHeaders(res);
+    const html = await res.text();
+    // The sign-in-redirect.html page contains the bootstrap exchange logic
+    expect(html).toContain('exchangeBootstrapTokens');
+    expect(html).toContain('/api/connect/bootstrap');
+    // It must contain the injected sign-in URL pointing at Discord OAuth
+    expect(html).toContain('/api/auth/sign-in/discord');
+    // Callback URL must preserve the guild_id query param
+    expect(html).toContain('guild_id=test-guild-123');
+  });
     const res = await server.fetch('/sign-in?redirectTo=//evil.example/%2Fsteal');
     expect(res.status).toBe(200);
     const html = await res.text();

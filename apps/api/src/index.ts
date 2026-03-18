@@ -431,7 +431,7 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
   if (pathname.startsWith('/api/connect/')) {
-    if (isRateLimited(`connect:${clientAddress}`, 30, 60_000)) {
+    if (isRateLimited(`connect:${clientAddress}`, 120, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
