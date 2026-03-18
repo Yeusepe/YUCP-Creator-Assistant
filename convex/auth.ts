@@ -23,22 +23,13 @@ import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
 import authSchema from './betterAuth/schema';
+import { buildTrustedBrowserOrigins, normalizeOrigin } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
 
 const PUBLIC_API_AUDIENCE = 'yucp-public-api';
 const PUBLIC_API_KEY_PREFIX = 'ypsk_';
 const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
-let hasLoggedIgnoredBetterAuthUrl = false;
 let hasLoggedBetterAuthConfig = false;
-
-function normalizeOrigin(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
 
 function resolveConvexSiteUrl(): string {
   const explicit = process.env.CONVEX_SITE_URL?.replace(/\/$/, '');
@@ -52,38 +43,6 @@ function resolveConvexSiteUrl(): string {
   }
 
   throw new Error('CONVEX_SITE_URL is required');
-}
-
-const LOCAL_BROWSER_ORIGIN_PATTERNS = [
-  'http://localhost:*',
-  'http://127.0.0.1:*',
-  'https://localhost:*',
-  'https://127.0.0.1:*',
-];
-
-function buildTrustedBrowserOrigins({
-  siteUrl,
-  frontendUrl,
-  additionalOrigins = [],
-}: Readonly<{
-  siteUrl?: string | null;
-  frontendUrl?: string | null;
-  additionalOrigins?: ReadonlyArray<string | null | undefined>;
-}>): string[] {
-  const all = [siteUrl, frontendUrl, ...additionalOrigins];
-  const configured = all
-    .map((v) => normalizeOrigin(v))
-    .filter((o): o is string => Boolean(o));
-
-  const isLocal =
-    configured.length === 0 ||
-    configured.some((o) => {
-      const { hostname } = new URL(o);
-      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
-    });
-
-  const origins = isLocal ? [...configured, ...LOCAL_BROWSER_ORIGIN_PATTERNS] : configured;
-  return Array.from(new Set(origins));
 }
 
 export const authComponent = createClient<DataModel, typeof authSchema>(components.betterAuth, {
@@ -150,21 +109,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
     siteUrl: process.env.SITE_URL,
     frontendUrl: process.env.FRONTEND_URL ?? siteUrl,
   });
-
-  const legacyBetterAuthOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
-  const authOrigin = normalizeOrigin(convexSiteUrl);
-  if (
-    legacyBetterAuthOrigin &&
-    legacyBetterAuthOrigin !== authOrigin &&
-    !hasLoggedIgnoredBetterAuthUrl
-  ) {
-    hasLoggedIgnoredBetterAuthUrl = true;
-    // Downgrade to debug to avoid noisy WARN logs in runtime environments where
-    // CONVEX_SITE_URL is authoritative. This remains available for debugging.
-    console.debug(
-      `BETTER_AUTH_URL (${legacyBetterAuthOrigin}) is ignored; Better Auth runs on ${authOrigin}`
-    );
-  }
 
   if (!hasLoggedBetterAuthConfig) {
     hasLoggedBetterAuthConfig = true;
