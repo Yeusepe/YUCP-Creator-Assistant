@@ -1,7 +1,10 @@
 import { defineConfig, devices } from 'playwright/test';
 
 const browserAuthBaseUrl =
-  process.env.SITE_URL ?? process.env.FRONTEND_URL ?? 'http://localhost:3001';
+  process.env.TEST_BASE_URL ??
+  process.env.FRONTEND_URL ??
+  process.env.SITE_URL ??
+  'http://localhost:3000';
 
 export default defineConfig({
   testDir: './test/e2e',
@@ -26,8 +29,8 @@ export default defineConfig({
         command: 'npx vite dev',
         env: {
           ...process.env,
-          SITE_URL: browserAuthBaseUrl,
-          FRONTEND_URL: process.env.FRONTEND_URL ?? browserAuthBaseUrl,
+          FRONTEND_URL: browserAuthBaseUrl,
+          SITE_URL: process.env.SITE_URL ?? 'http://localhost:3001',
         },
         port: 3000,
         reuseExistingServer: !process.env.CI,

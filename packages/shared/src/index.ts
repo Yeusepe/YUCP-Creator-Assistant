@@ -37,6 +37,8 @@ export interface Verification {
 
 // Binding module exports
 export * from './binding';
+export * from './authOrigins';
+export * from './authRedirects';
 // Crypto module exports
 export * from './crypto';
 // Entitlement module exports

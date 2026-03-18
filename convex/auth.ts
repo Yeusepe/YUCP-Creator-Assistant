@@ -11,6 +11,7 @@
 
 import './polyfills';
 
+import { buildTrustedBrowserOrigins } from '@yucp/shared/authOrigins';
 import { oauthProvider } from '@better-auth/oauth-provider';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import { createClient } from '@convex-dev/better-auth';
@@ -91,9 +92,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
 
   const convexSiteUrl = resolveConvexSiteUrl();
   const siteUrl =
-    process.env.SITE_URL?.replace(/\/$/, '') ??
     process.env.FRONTEND_URL?.replace(/\/$/, '') ??
-    'http://localhost:3001';
+    process.env.SITE_URL?.replace(/\/$/, '') ??
+    'http://localhost:3000';
   const discordClientId = process.env.DISCORD_CLIENT_ID?.trim();
   const discordClientSecret = process.env.DISCORD_CLIENT_SECRET?.trim();
 
@@ -113,18 +114,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         }
       : {};
 
-  const localhostOrigins =
-    process.env.NODE_ENV !== 'production'
-      ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173']
-      : [];
-
-  const trustedOrigins = Array.from(
-    new Set(
-      [siteUrl, process.env.FRONTEND_URL, ...localhostOrigins]
-        .map(normalizeOrigin)
-        .filter((origin): origin is string => Boolean(origin))
-    )
-  );
+  const trustedOrigins = buildTrustedBrowserOrigins({
+    siteUrl: process.env.SITE_URL,
+    frontendUrl: process.env.FRONTEND_URL ?? siteUrl,
+  });
 
   const legacyBetterAuthOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
   const authOrigin = normalizeOrigin(convexSiteUrl);
