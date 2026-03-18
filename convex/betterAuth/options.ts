@@ -1,6 +1,7 @@
 import { oauthProvider } from '@better-auth/oauth-provider';
+import { apiKey } from '@better-auth/api-key';
 import type { BetterAuthOptions } from 'better-auth/minimal';
-import { apiKey, jwt } from 'better-auth/plugins';
+import { jwt } from 'better-auth/plugins';
 
 const PUBLIC_API_AUDIENCE = 'yucp-public-api';
 const PUBLIC_API_KEY_PREFIX = 'ypsk_';

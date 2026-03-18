@@ -466,6 +466,7 @@ function SidebarLogoArea() {
         </svg>
 
         {/* biome-ignore lint/a11y/noStaticElementInteractions: stops click from closing dropdown */}
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: click only stops propagation, no action */}
         <div
           className={`server-dropdown-menu${dropdownOpen ? ' is-open' : ''}`}
           id="server-dropdown-menu"

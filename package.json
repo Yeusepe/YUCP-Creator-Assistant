@@ -72,14 +72,16 @@
     "bun": ">=1.1"
   },
   "dependencies": {
-    "@better-auth/oauth-provider": "1.4.9",
-    "@convex-dev/better-auth": "^0.10.13",
+    "@better-auth/api-key": "1.5.5",
+    "@better-auth/core": "1.5.5",
+    "@better-auth/oauth-provider": "1.5.5",
+    "@convex-dev/better-auth": "^0.11.0",
     "@noble/ed25519": "^2.2.3",
     "@tempojs/client": "^0.0.12",
     "@tempojs/cloudflare-worker-router": "^0.0.12",
     "@tempojs/server": "^0.0.12",
     "bebop": "3.0.4",
-    "better-auth": "1.4.9",
+    "better-auth": "1.5.5",
     "convex": "^1.32.0",
     "dotenv": "^17.3.1"
   }

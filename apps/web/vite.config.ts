@@ -5,6 +5,12 @@ import { defineConfig } from 'vite';
 import tsConfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
+  // Expose CONVEX_URL to client code via import.meta.env.CONVEX_URL.
+  // This is a public URL (not a secret) so it's safe to embed in the client bundle.
+  // The value comes from Infisical bootstrap (process.env.CONVEX_URL).
+  define: {
+    'import.meta.env.CONVEX_URL': JSON.stringify(process.env.CONVEX_URL),
+  },
   server: {
     port: 3000,
     proxy: {

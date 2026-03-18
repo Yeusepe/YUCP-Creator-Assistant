@@ -4,9 +4,9 @@ import { ConvexReactClient } from 'convex/react';
 import { routeTree } from './routeTree.gen';
 
 export function getRouter() {
-  const convexUrl = (import.meta as unknown as { env: Record<string, string> }).env.VITE_CONVEX_URL;
+  const convexUrl = import.meta.env.CONVEX_URL as string | undefined;
   if (!convexUrl) {
-    throw new Error('VITE_CONVEX_URL is not set. Add it to your .env.local file.');
+    throw new Error('CONVEX_URL is not available. Ensure it is set in your Infisical environment.');
   }
 
   const convexClient = new ConvexReactClient(convexUrl);

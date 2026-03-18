@@ -16,7 +16,8 @@
     "test:perf": "npx playwright test --config playwright.config.ts test/performance/"
   },
   "dependencies": {
-    "@convex-dev/better-auth": "^0.10.13",
+    "@convex-dev/better-auth": "^0.11.0",
+    "@convex-dev/react-query": "^0.1.0",
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",
     "@tailwindcss/vite": "^4.2.1",
@@ -27,7 +28,9 @@
     "@yucp/shared": "workspace:*",
     "@tempojs/client": "^0.0.12",
     "@tempojs/common": "^0.0.12",
-    "better-auth": "1.4.9",
+    "@tanstack/react-router-with-query": "^1.120.0",
+    "@tanstack/react-router-ssr-query": "^1.120.0",
+    "better-auth": "1.5.5",
     "canvas-confetti": "^1.9.3",
     "convex": "^1.32.0",
     "react": "^19.1.1",

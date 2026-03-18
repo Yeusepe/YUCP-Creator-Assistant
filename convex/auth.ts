@@ -11,14 +11,14 @@
 
 import './polyfills';
 
-import { buildTrustedBrowserOrigins } from '@yucp/shared/authOrigins';
+import { apiKey } from '@better-auth/api-key';
 import { oauthProvider } from '@better-auth/oauth-provider';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import { createClient } from '@convex-dev/better-auth';
 import { convex, crossDomain } from '@convex-dev/better-auth/plugins';
 import type { BetterAuthOptions } from 'better-auth';
 import { betterAuth } from 'better-auth';
-import { apiKey, jwt } from 'better-auth/plugins';
+import { jwt } from 'better-auth/plugins';
 import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
@@ -31,7 +31,7 @@ const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 let hasLoggedIgnoredBetterAuthUrl = false;
 let hasLoggedBetterAuthConfig = false;
 
-function normalizeOrigin(value: string | undefined): string | null {
+function normalizeOrigin(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
     return new URL(value).origin;
@@ -52,6 +52,38 @@ function resolveConvexSiteUrl(): string {
   }
 
   throw new Error('CONVEX_SITE_URL is required');
+}
+
+const LOCAL_BROWSER_ORIGIN_PATTERNS = [
+  'http://localhost:*',
+  'http://127.0.0.1:*',
+  'https://localhost:*',
+  'https://127.0.0.1:*',
+];
+
+function buildTrustedBrowserOrigins({
+  siteUrl,
+  frontendUrl,
+  additionalOrigins = [],
+}: Readonly<{
+  siteUrl?: string | null;
+  frontendUrl?: string | null;
+  additionalOrigins?: ReadonlyArray<string | null | undefined>;
+}>): string[] {
+  const all = [siteUrl, frontendUrl, ...additionalOrigins];
+  const configured = all
+    .map((v) => normalizeOrigin(v))
+    .filter((o): o is string => Boolean(o));
+
+  const isLocal =
+    configured.length === 0 ||
+    configured.some((o) => {
+      const { hostname } = new URL(o);
+      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+    });
+
+  const origins = isLocal ? [...configured, ...LOCAL_BROWSER_ORIGIN_PATTERNS] : configured;
+  return Array.from(new Set(origins));
 }
 
 export const authComponent = createClient<DataModel, typeof authSchema>(components.betterAuth, {
@@ -145,7 +177,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
 
   return {
     secret: betterAuthSecret,
-    baseURL: convexSiteUrl,
+    baseURL: siteUrl,
     trustedOrigins,
     database: authComponent.adapter(ctx),
     socialProviders: discordConfig,
@@ -209,4 +241,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
   } satisfies BetterAuthOptions;
 };
 
-export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth(createAuthOptions(ctx));
+export const createAuth = (ctx: GenericCtx<DataModel>) => {
+  // Cast needed: better-auth 1.5.5 widened baseURL to BaseURLConfig (string | function),
+  // but @convex-dev/better-auth@0.11.2 registerRoutes expects string. We always pass a string.
+  return betterAuth(createAuthOptions(ctx)) as ReturnType<typeof betterAuth> & {
+    options: { baseURL?: string };
+  };
+};

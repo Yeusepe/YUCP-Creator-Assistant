@@ -242,6 +242,7 @@ export declare const components: {
               }
             | {
                 data: {
+                  configId?: null | string;
                   createdAt: number;
                   enabled?: null | boolean;
                   expiresAt?: null | number;
@@ -255,6 +256,7 @@ export declare const components: {
                   rateLimitEnabled?: null | boolean;
                   rateLimitMax?: null | number;
                   rateLimitTimeWindow?: null | number;
+                  referenceId?: null | string;
                   refillAmount?: null | number;
                   refillInterval?: null | number;
                   remaining?: null | number;
@@ -282,12 +284,14 @@ export declare const components: {
                   public?: null | boolean;
                   redirectUris: Array<string>;
                   referenceId?: null | string;
+                  requirePKCE?: null | boolean;
                   responseTypes?: null | Array<string>;
                   scopes?: null | Array<string>;
                   skipConsent?: null | boolean;
                   softwareId?: null | string;
                   softwareStatement?: null | string;
                   softwareVersion?: null | string;
+                  subjectType?: null | string;
                   tokenEndpointAuthMethod?: null | string;
                   tos?: null | string;
                   type?: null | string;
@@ -299,6 +303,7 @@ export declare const components: {
               }
             | {
                 data: {
+                  authTime?: null | number;
                   clientId: string;
                   createdAt?: null | number;
                   expiresAt?: null | number;
@@ -521,8 +526,10 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
+                    | "configId"
                     | "name"
                     | "start"
+                    | "referenceId"
                     | "prefix"
                     | "key"
                     | "userId"
@@ -573,6 +580,7 @@ export declare const components: {
                     | "disabled"
                     | "skipConsent"
                     | "enableEndSession"
+                    | "subjectType"
                     | "scopes"
                     | "userId"
                     | "createdAt"
@@ -593,6 +601,7 @@ export declare const components: {
                     | "responseTypes"
                     | "public"
                     | "type"
+                    | "requirePKCE"
                     | "referenceId"
                     | "metadata"
                     | "_id";
@@ -630,6 +639,7 @@ export declare const components: {
                     | "expiresAt"
                     | "createdAt"
                     | "revoked"
+                    | "authTime"
                     | "scopes"
                     | "_id";
                   operator?:
@@ -914,8 +924,10 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
+                    | "configId"
                     | "name"
                     | "start"
+                    | "referenceId"
                     | "prefix"
                     | "key"
                     | "userId"
@@ -966,6 +978,7 @@ export declare const components: {
                     | "disabled"
                     | "skipConsent"
                     | "enableEndSession"
+                    | "subjectType"
                     | "scopes"
                     | "userId"
                     | "createdAt"
@@ -986,6 +999,7 @@ export declare const components: {
                     | "responseTypes"
                     | "public"
                     | "type"
+                    | "requirePKCE"
                     | "referenceId"
                     | "metadata"
                     | "_id";
@@ -1023,6 +1037,7 @@ export declare const components: {
                     | "expiresAt"
                     | "createdAt"
                     | "revoked"
+                    | "authTime"
                     | "scopes"
                     | "_id";
                   operator?:
@@ -1145,6 +1160,7 @@ export declare const components: {
             maximumRowsRead?: number;
             numItems: number;
           };
+          select?: Array<string>;
           sortBy?: { direction: "asc" | "desc"; field: string };
           where?: Array<{
             connector?: "AND" | "OR";
@@ -1438,6 +1454,7 @@ export declare const components: {
             | {
                 model: "apikey";
                 update: {
+                  configId?: null | string;
                   createdAt?: number;
                   enabled?: null | boolean;
                   expiresAt?: null | number;
@@ -1451,6 +1468,7 @@ export declare const components: {
                   rateLimitEnabled?: null | boolean;
                   rateLimitMax?: null | number;
                   rateLimitTimeWindow?: null | number;
+                  referenceId?: null | string;
                   refillAmount?: null | number;
                   refillInterval?: null | number;
                   remaining?: null | number;
@@ -1462,8 +1480,10 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
+                    | "configId"
                     | "name"
                     | "start"
+                    | "referenceId"
                     | "prefix"
                     | "key"
                     | "userId"
@@ -1522,12 +1542,14 @@ export declare const components: {
                   public?: null | boolean;
                   redirectUris?: Array<string>;
                   referenceId?: null | string;
+                  requirePKCE?: null | boolean;
                   responseTypes?: null | Array<string>;
                   scopes?: null | Array<string>;
                   skipConsent?: null | boolean;
                   softwareId?: null | string;
                   softwareStatement?: null | string;
                   softwareVersion?: null | string;
+                  subjectType?: null | string;
                   tokenEndpointAuthMethod?: null | string;
                   tos?: null | string;
                   type?: null | string;
@@ -1543,6 +1565,7 @@ export declare const components: {
                     | "disabled"
                     | "skipConsent"
                     | "enableEndSession"
+                    | "subjectType"
                     | "scopes"
                     | "userId"
                     | "createdAt"
@@ -1563,6 +1586,7 @@ export declare const components: {
                     | "responseTypes"
                     | "public"
                     | "type"
+                    | "requirePKCE"
                     | "referenceId"
                     | "metadata"
                     | "_id";
@@ -1590,6 +1614,7 @@ export declare const components: {
             | {
                 model: "oauthRefreshToken";
                 update: {
+                  authTime?: null | number;
                   clientId?: string;
                   createdAt?: null | number;
                   expiresAt?: null | number;
@@ -1611,6 +1636,7 @@ export declare const components: {
                     | "expiresAt"
                     | "createdAt"
                     | "revoked"
+                    | "authTime"
                     | "scopes"
                     | "_id";
                   operator?:
@@ -1957,6 +1983,7 @@ export declare const components: {
             | {
                 model: "apikey";
                 update: {
+                  configId?: null | string;
                   createdAt?: number;
                   enabled?: null | boolean;
                   expiresAt?: null | number;
@@ -1970,6 +1997,7 @@ export declare const components: {
                   rateLimitEnabled?: null | boolean;
                   rateLimitMax?: null | number;
                   rateLimitTimeWindow?: null | number;
+                  referenceId?: null | string;
                   refillAmount?: null | number;
                   refillInterval?: null | number;
                   remaining?: null | number;
@@ -1981,8 +2009,10 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
+                    | "configId"
                     | "name"
                     | "start"
+                    | "referenceId"
                     | "prefix"
                     | "key"
                     | "userId"
@@ -2041,12 +2071,14 @@ export declare const components: {
                   public?: null | boolean;
                   redirectUris?: Array<string>;
                   referenceId?: null | string;
+                  requirePKCE?: null | boolean;
                   responseTypes?: null | Array<string>;
                   scopes?: null | Array<string>;
                   skipConsent?: null | boolean;
                   softwareId?: null | string;
                   softwareStatement?: null | string;
                   softwareVersion?: null | string;
+                  subjectType?: null | string;
                   tokenEndpointAuthMethod?: null | string;
                   tos?: null | string;
                   type?: null | string;
@@ -2062,6 +2094,7 @@ export declare const components: {
                     | "disabled"
                     | "skipConsent"
                     | "enableEndSession"
+                    | "subjectType"
                     | "scopes"
                     | "userId"
                     | "createdAt"
@@ -2082,6 +2115,7 @@ export declare const components: {
                     | "responseTypes"
                     | "public"
                     | "type"
+                    | "requirePKCE"
                     | "referenceId"
                     | "metadata"
                     | "_id";
@@ -2109,6 +2143,7 @@ export declare const components: {
             | {
                 model: "oauthRefreshToken";
                 update: {
+                  authTime?: null | number;
                   clientId?: string;
                   createdAt?: null | number;
                   expiresAt?: null | number;
@@ -2130,6 +2165,7 @@ export declare const components: {
                     | "expiresAt"
                     | "createdAt"
                     | "revoked"
+                    | "authTime"
                     | "scopes"
                     | "_id";
                   operator?:
