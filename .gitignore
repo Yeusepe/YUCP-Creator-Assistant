@@ -18,6 +18,17 @@ packages/private-rpc/schema/combined.bop
 coverage
 .cache
 .bun
+.tanstack
+.output
+.nitro
+.vercel
+/apps/web/build
+/apps/web/server/build
+/apps/web/public/build
+/apps/web/test-results
+/apps/web/playwright-report
+/apps/web/blob-report
+/apps/web/playwright/.cache
 convex/tsconfig.tsbuildinfo
 convex/tsconfig.tsbuildinfo
 apps/bot/test/e2e/.artifacts/

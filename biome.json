@@ -14,7 +14,8 @@
       "!**/public/**/*.js",
       "!**/public/**/*.css",
       "!**/frontend/*.css",
-      "!**/docs/**/*.html"
+      "!**/docs/**/*.html",
+      "!**/routeTree.gen.ts"
     ]
   },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },

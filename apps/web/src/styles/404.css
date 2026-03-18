@@ -1,0 +1,117 @@
+.not-found-page {
+  background: linear-gradient(180deg, #4a9dd9 0%, #3a8bc6 100%);
+  min-height: 100dvh;
+  color: var(--text-primary);
+  font-family: "DM Sans", sans-serif;
+  overflow-x: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem 1rem;
+  box-sizing: border-box;
+}
+@media (min-width: 640px) {
+  .not-found-page {
+    padding: 2rem 1.5rem;
+  }
+}
+@media (min-width: 1024px) {
+  .not-found-page {
+    padding: 3rem 2rem;
+  }
+}
+
+/* Blobs -- docs-inspired */
+.blobs-container {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.blob {
+  position: absolute;
+  width: 450px;
+  height: 450px;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.45;
+}
+.blob:nth-child(1) {
+  background: #ff75c3;
+  top: 5%;
+  left: 10%;
+}
+.blob:nth-child(2) {
+  background: #ffa647;
+  top: 10%;
+  right: 15%;
+}
+.blob:nth-child(3) {
+  background: #ffe83f;
+  bottom: 20%;
+  left: 20%;
+}
+.blob:nth-child(4) {
+  background: #9fff5b;
+  bottom: 15%;
+  right: 10%;
+}
+.blob:nth-child(5) {
+  background: #70e2ff;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.content-above-clouds {
+  position: relative;
+  z-index: 10;
+}
+
+h1 {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+/* 404 -- 3D Text3D canvas (drei + cloud texture) */
+#canvas-404-root {
+  width: 100%;
+  max-width: 800px;
+  height: 380px;
+  margin: 0 auto 1.5rem;
+  display: block;
+}
+
+.action-btn {
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  transition: all 0.2s ease;
+  color: #ffffff;
+}
+.action-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.fade-up {
+  animation: fadeUp 0.5s ease-out forwards;
+  opacity: 0;
+  transform: translateY(12px);
+}
+@keyframes fadeUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#page-content {
+  opacity: 0;
+  transition: opacity 0.3s ease 0.05s;
+}
+#page-content.is-visible {
+  opacity: 1;
+}
