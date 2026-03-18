@@ -33,6 +33,7 @@ import { Route as DashboardServerRulesRouteImport } from './routes/dashboard/ser
 import { Route as DashboardIntegrationsRouteImport } from './routes/dashboard/integrations'
 import { Route as DashboardCollaborationRouteImport } from './routes/dashboard/collaboration'
 import { Route as DashboardAuditLogsRouteImport } from './routes/dashboard/audit-logs'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const SignInRedirectRoute = SignInRedirectRouteImport.update({
   id: '/sign-in-redirect',
@@ -154,6 +155,11 @@ const DashboardAuditLogsRoute = DashboardAuditLogsRouteImport.update({
   path: '/audit-logs',
   getParentRoute: () => DashboardRoute,
 } as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -180,6 +186,7 @@ export interface FileRoutesByFullPath {
   '/verify/error': typeof VerifyErrorRoute
   '/verify/success': typeof VerifySuccessRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -205,6 +212,7 @@ export interface FileRoutesByTo {
   '/verify/error': typeof VerifyErrorRoute
   '/verify/success': typeof VerifySuccessRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -232,6 +240,7 @@ export interface FileRoutesById {
   '/verify/error': typeof VerifyErrorRoute
   '/verify/success': typeof VerifySuccessRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -260,6 +269,7 @@ export interface FileRouteTypes {
     | '/verify/error'
     | '/verify/success'
     | '/dashboard/'
+    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -285,6 +295,7 @@ export interface FileRouteTypes {
     | '/verify/error'
     | '/verify/success'
     | '/dashboard'
+    | '/api/auth/$'
   id:
     | '__root__'
     | '/'
@@ -311,6 +322,7 @@ export interface FileRouteTypes {
     | '/verify/error'
     | '/verify/success'
     | '/dashboard/'
+    | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -333,6 +345,7 @@ export interface RootRouteChildren {
   SetupVrchatRoute: typeof SetupVrchatRoute
   VerifyErrorRoute: typeof VerifyErrorRoute
   VerifySuccessRoute: typeof VerifySuccessRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -505,6 +518,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAuditLogsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -548,6 +568,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupVrchatRoute: SetupVrchatRoute,
   VerifyErrorRoute: VerifyErrorRoute,
   VerifySuccessRoute: VerifySuccessRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

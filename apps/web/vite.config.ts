@@ -11,6 +11,13 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        // Auth routes are handled by TanStack Start's /api/auth/$ catch-all,
+        // which proxies directly to Convex. Skip them here.
+        bypass: (req) => {
+          if (req.url?.startsWith('/api/auth')) {
+            return req.url;
+          }
+        },
       },
       '/Icons': {
         target: 'http://localhost:3001',
@@ -21,6 +28,9 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  ssr: {
+    noExternal: ['@convex-dev/better-auth'],
   },
   plugins: [
     tsConfigPaths(),

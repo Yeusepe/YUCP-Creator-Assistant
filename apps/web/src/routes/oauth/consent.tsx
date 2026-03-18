@@ -76,17 +76,12 @@ function OAuthConsentPage() {
     setDenyText(accepted ? 'Deny' : 'Denying\u2026');
 
     try {
-      const storedCookie = localStorage.getItem('better-auth_cookie') || '';
-
       // oauth_query must NOT include the leading "?"
       const oauthQuery = window.location.search.replace(/^\?/, '');
 
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (storedCookie) headers['Better-Auth-Cookie'] = storedCookie;
-
       const res = await fetch(consentAction, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accept: accepted,
           oauth_query: oauthQuery,

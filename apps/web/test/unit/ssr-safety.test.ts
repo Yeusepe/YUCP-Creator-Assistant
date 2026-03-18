@@ -8,10 +8,11 @@
  *
  * @vitest-environment node
  */
-import { createElement } from 'react';
-import { renderToString } from 'react-dom/server';
+
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 const ROUTES_DIR = join(__dirname, '../../src/routes');
@@ -105,7 +106,7 @@ describe('SSR Safety: static analysis for unguarded browser globals', () => {
       // Track brace-depth scopes that are "safe" (inside hooks, callbacks, or guarded functions)
       let hookDepth = 0; // inside useEffect/useCallback/useMemo etc
       let guardedFnDepth = 0; // inside a function with typeof window guard
-      let braceStack: string[] = []; // track nested braces for scope
+      const braceStack: string[] = []; // track nested braces for scope
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -121,20 +122,31 @@ describe('SSR Safety: static analysis for unguarded browser globals', () => {
           for (let j = 0; j < opens; j++) braceStack.push('hook');
         }
         // Detect event handler definitions
-        else if (/\bon(Click|Submit|Change|KeyDown|KeyUp|MouseMove|MouseEnter|MouseLeave|Focus|Blur|Resize)\s*[=:{(]/.test(trimmed)) {
+        else if (
+          /\bon(Click|Submit|Change|KeyDown|KeyUp|MouseMove|MouseEnter|MouseLeave|Focus|Blur|Resize)\s*[=:{(]/.test(
+            trimmed
+          )
+        ) {
           hookDepth++;
           for (let j = 0; j < opens; j++) braceStack.push('handler');
         }
         // Detect async function/arrow inside useEffect
         else if (hookDepth > 0 || guardedFnDepth > 0) {
-          for (let j = 0; j < opens; j++) braceStack.push(hookDepth > 0 ? 'hook-inner' : 'guarded-inner');
+          for (let j = 0; j < opens; j++)
+            braceStack.push(hookDepth > 0 ? 'hook-inner' : 'guarded-inner');
         }
         // Detect guarded helper functions (function foo() { if (typeof window === 'undefined') return ... })
-        else if (/^\s*(async\s+)?function\s+\w/.test(trimmed) || /^\s*(const|let)\s+\w+\s*=\s*(async\s+)?\(/.test(trimmed)) {
+        else if (
+          /^\s*(async\s+)?function\s+\w/.test(trimmed) ||
+          /^\s*(const|let)\s+\w+\s*=\s*(async\s+)?\(/.test(trimmed)
+        ) {
           // Check if next few lines contain a typeof window guard
           let hasGuard = false;
           for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-            if (/typeof\s+(window|document)\s*[!=]==?\s*['"]undefined['"]/.test(lines[j]) && /return/.test(lines[j])) {
+            if (
+              /typeof\s+(window|document)\s*[!=]==?\s*['"]undefined['"]/.test(lines[j]) &&
+              /return/.test(lines[j])
+            ) {
               hasGuard = true;
               break;
             }
@@ -166,7 +178,11 @@ describe('SSR Safety: static analysis for unguarded browser globals', () => {
         if (/^\s*(async\s+)?function\s+\w/.test(trimmed)) continue;
 
         // Only flag const/let/var declarations with unguarded browser globals
-        if (/^\s*(const|let|var)\s+\w.*\b(window|document)\.(location|inner|outer|localStorage|getElement|querySelector)/.test(line)) {
+        if (
+          /^\s*(const|let|var)\s+\w.*\b(window|document)\.(location|inner|outer|localStorage|getElement|querySelector)/.test(
+            line
+          )
+        ) {
           problems.push(`Line ${i + 1}: ${trimmed.substring(0, 120)}`);
         }
       }
@@ -180,4 +196,3 @@ describe('SSR Safety: static analysis for unguarded browser globals', () => {
     });
   }
 });
-

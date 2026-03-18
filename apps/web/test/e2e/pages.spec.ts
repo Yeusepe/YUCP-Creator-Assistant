@@ -23,10 +23,9 @@ test.describe('Page Rendering', () => {
     }
 
     const signInUrl = new URL(href, page.url());
-    expect(signInUrl.pathname).toBe('/api/auth/sign-in/discord');
-
-    const callbackUrl = signInUrl.searchParams.get('callbackURL');
-    expect(callbackUrl).toBe('http://localhost:3000/sign-in?redirectTo=%2Fdashboard');
+    expect(signInUrl.pathname).toBe('/api/auth/sign-in/discord/start');
+    expect(signInUrl.searchParams.get('callbackURL')).toBeNull();
+    expect(signInUrl.searchParams.get('returnTo')).toBe('/sign-in?redirectTo=%2Fdashboard');
   });
 
   test('sign-in-redirect page renders', async ({ page }) => {

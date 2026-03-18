@@ -1,37 +1,36 @@
 /// <reference types="vite/client" />
 
+import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
 import {
-  getPublicRuntimeConfig,
-  RuntimeConfigProvider,
-  serializePublicRuntimeConfig,
-  type PublicRuntimeConfig,
-} from '@/lib/runtimeConfig';
+  createRootRouteWithContext,
+  HeadContent,
+  Outlet,
+  Scripts,
+  useRouteContext,
+} from '@tanstack/react-router';
+import { createServerFn } from '@tanstack/react-start';
+import type { ConvexReactClient } from 'convex/react';
+import type { ReactNode } from 'react';
+import { authClient } from '@/lib/auth-client';
+import { getToken } from '@/lib/auth-server';
 
 import '@/styles/tokens.css';
 import '@/styles/loading.css';
 import '@/styles/globals.css';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5,
-      retry: 1,
-    },
-  },
+/**
+ * Server function to retrieve the auth token during SSR.
+ * Called in beforeLoad so the initial HTML render is authenticated.
+ */
+const getAuth = createServerFn({ method: 'GET' }).handler(async () => {
+  return await getToken();
 });
 
-export const Route = createRootRoute({
-  loader: async () => {
-    if (import.meta.env.SSR) {
-      const { getPublicRuntimeConfigForRequest } = await import('@/lib/runtimeConfig.server');
-      return getPublicRuntimeConfigForRequest();
-    }
-
-    return getPublicRuntimeConfig();
-  },
+export const Route = createRootRouteWithContext<{
+  queryClient: QueryClient;
+  convexClient: ConvexReactClient;
+}>()({
   head: () => ({
     meta: [
       { charSet: 'utf-8' },
@@ -57,36 +56,38 @@ export const Route = createRootRoute({
       },
     ],
   }),
+  beforeLoad: async ({ context }) => {
+    const token = await getAuth();
+    return {
+      isAuthenticated: !!token,
+      token,
+    };
+  },
   component: RootComponent,
 });
 
 function RootComponent() {
-  const runtimeConfig = Route.useLoaderData();
+  const context = useRouteContext({ from: Route.id });
   return (
-    <RootDocument runtimeConfig={runtimeConfig}>
-      <RuntimeConfigProvider value={runtimeConfig}>
-        <QueryClientProvider client={queryClient}>
+    <ConvexBetterAuthProvider
+      client={context.convexClient}
+      authClient={authClient}
+      initialToken={context.token}
+    >
+      <QueryClientProvider client={context.queryClient}>
+        <RootDocument>
           <Outlet />
-        </QueryClientProvider>
-      </RuntimeConfigProvider>
-    </RootDocument>
+        </RootDocument>
+      </QueryClientProvider>
+    </ConvexBetterAuthProvider>
   );
 }
 
-function RootDocument({
-  children,
-  runtimeConfig,
-}: Readonly<{ children: ReactNode; runtimeConfig: PublicRuntimeConfig }>) {
+function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
       <head>
         <HeadContent />
-        <script
-          id="public-runtime-config"
-          dangerouslySetInnerHTML={{
-            __html: `window.__YUCP_PUBLIC_RUNTIME_CONFIG__=${serializePublicRuntimeConfig(runtimeConfig)};`,
-          }}
-        />
       </head>
       <body>
         {children}

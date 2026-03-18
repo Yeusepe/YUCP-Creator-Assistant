@@ -4,9 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
-import { buildAbsoluteCallbackUrl, buildDiscordSignInUrl } from '@/lib/authUrls';
+import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
-import { useRuntimeConfig } from '@/lib/runtimeConfig';
 
 export const Route = createFileRoute('/sign-in-redirect')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -24,11 +23,7 @@ function SignInRedirectPage() {
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [isVisible, setIsVisible] = useState(false);
   const { redirectTo } = Route.useSearch();
-  const { browserAuthBaseUrl } = useRuntimeConfig();
   const postAuthTarget = normalizeAuthRedirectTarget(redirectTo);
-
-  const callbackUrl = buildAbsoluteCallbackUrl(postAuthTarget, browserAuthBaseUrl);
-  const signInUrl = buildDiscordSignInUrl(callbackUrl);
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),
     overlayFadeClass: 'is-hiding',
@@ -77,8 +72,23 @@ function SignInRedirectPage() {
 
   const startSignIn = useCallback(async () => {
     if (await exchangeBootstrapTokens()) return;
-    window.location.href = signInUrl;
-  }, [exchangeBootstrapTokens, signInUrl]);
+    await authClient.signIn.social({
+      provider: 'discord',
+      callbackURL: postAuthTarget,
+    });
+  }, [exchangeBootstrapTokens, postAuthTarget]);
+
+  const handleRetry = useCallback(async () => {
+    setViewState('loading');
+    try {
+      await authClient.signIn.social({
+        provider: 'discord',
+        callbackURL: postAuthTarget,
+      });
+    } catch {
+      showError();
+    }
+  }, [postAuthTarget, showError]);
 
   useEffect(() => {
     showPage();
@@ -131,13 +141,14 @@ function SignInRedirectPage() {
                 <p className="text-[rgba(255,255,255,0.8)] mb-6">
                   Something went wrong. Please try again.
                 </p>
-                <a
+                <button
                   id="retry-btn"
-                  href={callbackUrl}
+                  type="button"
                   className="brand-gradient-btn inline-block w-full sm:w-auto px-8 py-4 rounded-full text-[#1a6bff] font-bold uppercase tracking-wider no-underline text-center"
+                  onClick={handleRetry}
                 >
                   Try again
-                </a>
+                </button>
               </div>
             )}
           </div>

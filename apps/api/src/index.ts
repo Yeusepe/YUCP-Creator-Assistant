@@ -17,7 +17,7 @@ import {
   getCookieValue,
   SETUP_SESSION_COOKIE,
 } from './lib/browserSessions';
-import { handleDiscordSignInBridge } from './lib/discordSignInBridge';
+import { buildDiscordCallbackUrl, handleDiscordSignInBridge } from './lib/discordSignInBridge';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import { resolveSetupSession } from './lib/setupSession';
 import { detectTunnelUrl } from './lib/tunnel';
@@ -560,6 +560,51 @@ async function routeRequest(request: Request): Promise<Response> {
       allowedBrowserOrigins: allowedCorsOrigins,
       convexSiteUrl: env.CONVEX_SITE_URL ?? '',
       logger,
+    });
+  }
+
+  if (pathname === '/api/auth/sign-in/discord/start') {
+    const env = loadEnv();
+    const browserAuthBaseUrl = resolvedFrontendOrigin ?? resolvedApiBaseUrl;
+    return handleDiscordSignInBridge({
+      requestUrl: url,
+      callbackURL: buildDiscordCallbackUrl(browserAuthBaseUrl, url.searchParams.get('returnTo')),
+      allowedBrowserOrigins: allowedCorsOrigins,
+      convexSiteUrl: env.CONVEX_SITE_URL ?? '',
+      logger,
+    });
+  }
+
+  if (pathname === '/api/auth/exchange-ott' && request.method === 'POST') {
+    if (!auth) {
+      return Response.json({ error: 'Auth is not initialized' }, { status: 500 });
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    const token = body && typeof body === 'object' ? (body as { token?: unknown }).token : undefined;
+    if (typeof token !== 'string' || token.trim().length === 0) {
+      return Response.json({ error: 'token is required' }, { status: 400 });
+    }
+
+    const { session, setCookieHeaders } = await auth.exchangeOTT(token);
+    if (!session || setCookieHeaders.length === 0) {
+      return Response.json({ error: 'Invalid or expired one-time token' }, { status: 401 });
+    }
+
+    const headers = new Headers({ 'Content-Type': 'application/json' });
+    for (const cookie of setCookieHeaders) {
+      headers.append('Set-Cookie', cookie);
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers,
     });
   }
 

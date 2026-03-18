@@ -1,47 +1,36 @@
-import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
+import {
+  getSafeRelativeRedirectTarget,
+  normalizeAuthRedirectTarget,
+} from '@yucp/shared/authRedirects';
 
-export function buildDiscordSignInUrl(callbackUrl: string): string {
-  return `/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+const DEFAULT_AUTH_CALLBACK_PATH = '/sign-in';
+
+export function buildDiscordSignInStartUrl(returnTo: string): string {
+  const safeReturnTo = getSafeRelativeRedirectTarget(returnTo) ?? DEFAULT_AUTH_CALLBACK_PATH;
+  return `/api/auth/sign-in/discord/start?returnTo=${encodeURIComponent(safeReturnTo)}`;
 }
 
-export function buildSignInCallbackUrl({
-  browserAuthBaseUrl,
+export function buildSignInCallbackPath({
   redirectTo,
 }: Readonly<{
-  browserAuthBaseUrl: string;
   redirectTo?: string | null;
 }>): string {
-  const callbackUrl = new URL('/sign-in', browserAuthBaseUrl);
+  const callbackUrl = new URL(DEFAULT_AUTH_CALLBACK_PATH, 'https://auth.invalid');
   const safeRedirectTo = normalizeAuthRedirectTarget(redirectTo);
   callbackUrl.searchParams.set('redirectTo', safeRedirectTo);
-  return callbackUrl.toString();
+  return `${callbackUrl.pathname}${callbackUrl.search}`;
 }
 
 export function buildSignInUrlForRedirectTarget({
-  browserAuthBaseUrl,
   redirectTo,
 }: Readonly<{
-  browserAuthBaseUrl: string;
   redirectTo?: string | null;
 }>): string {
-  return buildDiscordSignInUrl(
-    buildSignInCallbackUrl({
-      browserAuthBaseUrl,
-      redirectTo,
-    })
-  );
+  return buildDiscordSignInStartUrl(buildSignInCallbackPath({ redirectTo }));
 }
 
-export function buildCurrentSignInUrl(currentHref: string, browserAuthBaseUrl: string): string {
+export function buildCurrentSignInUrl(currentHref: string): string {
   return buildSignInUrlForRedirectTarget({
-    browserAuthBaseUrl,
     redirectTo: new URL(currentHref).searchParams.get('redirectTo'),
   });
-}
-
-export function buildAbsoluteCallbackUrl(
-  pathAndSearch: string,
-  browserAuthBaseUrl: string
-): string {
-  return new URL(pathAndSearch, browserAuthBaseUrl).toString();
 }

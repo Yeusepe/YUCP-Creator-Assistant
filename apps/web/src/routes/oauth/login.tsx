@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { getSafeRelativeRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { buildAbsoluteCallbackUrl, buildDiscordSignInUrl } from '@/lib/authUrls';
+import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
-import { useRuntimeConfig } from '@/lib/runtimeConfig';
 
 export const Route = createFileRoute('/oauth/login')({
   head: () => ({
@@ -11,14 +11,11 @@ export const Route = createFileRoute('/oauth/login')({
   component: OAuthLoginPage,
 });
 
-const STORAGE_KEY = 'better-auth_cookie';
-
 type ViewState = 'loading' | 'error';
 
 function OAuthLoginPage() {
   const [viewState, setViewState] = useState<ViewState>('loading');
   const retryPathRef = useRef('/oauth/login');
-  const { browserAuthBaseUrl } = useRuntimeConfig();
 
   useEffect(() => {
     retryPathRef.current = window.location.pathname;
@@ -28,79 +25,31 @@ function OAuthLoginPage() {
     setViewState('error');
   }, []);
 
-  const checkSession = useCallback(async () => {
-    const storedCookie = localStorage.getItem(STORAGE_KEY) || '';
-    const headers: Record<string, string> = storedCookie
-      ? { 'Better-Auth-Cookie': storedCookie }
-      : {};
-    try {
-      const res = await fetch('/api/auth/get-session', {
-        credentials: 'include',
-        headers,
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.user ? data : null;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const exchangeOneTimeToken = useCallback(async () => {
-    const params = new URLSearchParams(window.location.search);
-    const ott = params.get('ott');
-    if (!ott) return false;
-
-    try {
-      const res = await fetch('/api/auth/cross-domain/one-time-token/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ token: ott }),
-      });
-      if (res.ok) {
-        const setCookie = res.headers.get('set-better-auth-cookie');
-        if (setCookie) {
-          localStorage.setItem(STORAGE_KEY, setCookie);
-        }
-      }
-    } catch (e) {
-      console.error('[oauth-login] OTT exchange failed:', e);
-    }
-
-    // Strip the ott token from the URL so it can't be replayed or leaked.
-    params.delete('ott');
-    const newSearch = params.toString();
-    window.history.replaceState(
-      {},
-      '',
-      window.location.pathname + (newSearch ? `?${newSearch}` : '')
-    );
-    return true;
-  }, []);
-
   const runOAuthLoginFlow = useCallback(async () => {
-    // Step 1, if returning from Discord OAuth, exchange OTT for session.
-    await exchangeOneTimeToken();
-
-    // Step 2, check whether we now have a session.
-    const sessionData = await checkSession();
-    if (sessionData?.user) {
-      // Signed in: redirect back to the consent page using the signed OAuth
-      // params that Better Auth placed on this page's query string.
+    // Check whether we already have a session via Better Auth
+    const session = await authClient.getSession();
+    if (session.data?.user) {
+      // Signed in: redirect back to the consent page
       const consentUrl = `/oauth/consent${window.location.search}`;
       window.location.replace(consentUrl);
       return;
     }
 
-    // Step 3, not signed in: send user to Discord with this page as callback
-    const callbackUrl = buildAbsoluteCallbackUrl(
-      window.location.pathname + window.location.search,
-      browserAuthBaseUrl
-    );
-    const signInUrl = buildDiscordSignInUrl(callbackUrl);
-    window.location.href = signInUrl;
-  }, [browserAuthBaseUrl, exchangeOneTimeToken, checkSession]);
+    // Not signed in: initiate Discord sign-in with this page as the callback
+    const returnTo =
+      getSafeRelativeRedirectTarget(window.location.pathname + window.location.search) ??
+      '/oauth/login';
+    await authClient.signIn.social({
+      provider: 'discord',
+      callbackURL: returnTo,
+    });
+  }, []);
+
+  useEffect(() => {
+    retryPathRef.current =
+      getSafeRelativeRedirectTarget(window.location.pathname + window.location.search) ??
+      '/oauth/login';
+  }, []);
 
   useEffect(() => {
     runOAuthLoginFlow().catch((err) => {

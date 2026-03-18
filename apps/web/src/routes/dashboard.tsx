@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute, Link, Outlet, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link, Outlet, redirect, useNavigate } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAuth } from '@/hooks/useAuth';
 import { ServerContextProvider } from '@/hooks/useServerContext';
 import { useTheme } from '@/hooks/useTheme';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import { fetchGuilds, type Guild } from '@/lib/server/dashboard';
 import { getServerIconUrl } from '@/lib/utils';
 
 interface DashboardSearch {
@@ -21,15 +22,18 @@ export const Route = createFileRoute('/dashboard')({
   head: () => ({
     links: routeStylesheetLinks(routeStyleHrefs.dashboard, routeStyleHrefs.dashboardComponents),
   }),
+  beforeLoad: ({ context, location }) => {
+    if (!context.isAuthenticated) {
+      throw redirect({
+        to: '/sign-in',
+        search: { redirectTo: location.href },
+      });
+    }
+  },
   component: DashboardLayout,
 });
 
-interface Guild {
-  id: string;
-  name: string;
-  icon: string | null;
-  tenantId?: string;
-}
+/* ------------------------------------------------------------------ */
 
 function DashboardLayout() {
   const { guild_id, tenant_id } = Route.useSearch();
@@ -321,13 +325,7 @@ function SidebarLogoArea() {
 
   const { data: guilds, isLoading } = useQuery<Guild[]>({
     queryKey: ['dashboard-guilds'],
-    queryFn: async () => {
-      const res = await fetch('/api/dashboard/guilds', {
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error('Failed to load guilds');
-      return res.json();
-    },
+    queryFn: () => fetchGuilds(),
   });
 
   const selectedGuild = useMemo(() => guilds?.find((g) => g.id === guild_id), [guilds, guild_id]);

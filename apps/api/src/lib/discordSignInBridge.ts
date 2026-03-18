@@ -1,9 +1,15 @@
 import type { Logger } from '@yucp/shared';
+import {
+  getSafeRelativeRedirectTarget,
+  normalizeAuthRedirectTarget,
+} from '@yucp/shared/authRedirects';
 
 export type DiscordSignInFetch = (
   input: RequestInfo | URL,
   init?: RequestInit
 ) => Promise<Response>;
+const DEFAULT_AUTH_CALLBACK_PATH = '/sign-in';
+const AUTH_CALLBACK_PAGES = new Set(['/sign-in', '/sign-in-redirect']);
 
 interface DiscordSignInBridgeOptions {
   requestUrl: URL;
@@ -12,6 +18,23 @@ interface DiscordSignInBridgeOptions {
   convexSiteUrl: string;
   logger: Logger;
   fetchImpl?: DiscordSignInFetch;
+}
+
+export function buildDiscordCallbackUrl(
+  browserAuthBaseUrl: string,
+  returnTo: string | null | undefined
+): string {
+  const safeReturnTo = getSafeRelativeRedirectTarget(returnTo) ?? DEFAULT_AUTH_CALLBACK_PATH;
+  const callbackUrl = new URL(safeReturnTo, `${browserAuthBaseUrl.replace(/\/$/, '')}/`);
+
+  if (AUTH_CALLBACK_PAGES.has(callbackUrl.pathname)) {
+    callbackUrl.searchParams.set(
+      'redirectTo',
+      normalizeAuthRedirectTarget(callbackUrl.searchParams.get('redirectTo'))
+    );
+  }
+
+  return callbackUrl.toString();
 }
 
 function jsonError(error: string, status: number): Response {

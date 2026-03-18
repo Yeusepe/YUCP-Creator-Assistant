@@ -1,22 +1,28 @@
-import { useCallback, useMemo } from 'react';
-import { buildSignInUrlForRedirectTarget } from '@/lib/authUrls';
-import { useRuntimeConfig } from '@/lib/runtimeConfig';
+import { useNavigate } from '@tanstack/react-router';
+import { useCallback } from 'react';
+import { authClient } from '@/lib/auth-client';
 
 export function useAuth() {
-  const { browserAuthBaseUrl } = useRuntimeConfig();
-  const signInUrl = useMemo(() => {
-    if (typeof window === 'undefined') return '#';
-    const currentPath = window.location.pathname + window.location.search;
-    return buildSignInUrlForRedirectTarget({
-      browserAuthBaseUrl,
-      redirectTo: currentPath,
-    });
-  }, [browserAuthBaseUrl]);
+  const navigate = useNavigate();
+  const session = authClient.useSession();
 
-  const signOut = useCallback(async () => {
-    await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'include' });
-    window.location.href = '/sign-in';
+  const signIn = useCallback(async (redirectTo?: string) => {
+    await authClient.signIn.social({
+      provider: 'discord',
+      callbackURL: redirectTo ?? '/dashboard',
+    });
   }, []);
 
-  return { signInUrl, signOut };
+  const signOut = useCallback(async () => {
+    await authClient.signOut();
+    navigate({ to: '/sign-in', search: { redirectTo: undefined }, replace: true });
+  }, [navigate]);
+
+  return {
+    session: session.data,
+    isPending: session.isPending,
+    isAuthenticated: !!session.data?.user,
+    signIn,
+    signOut,
+  };
 }
