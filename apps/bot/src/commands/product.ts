@@ -506,7 +506,7 @@ export async function handleProductTypeSelect(
               .setLabel(productLabel)
               .setValue(p.id)
               .setDescription(description);
-            if (isAdded) opt.setEmoji('✅');
+            if (isAdded) opt.setEmoji(Emoji.Checkmark);
             return opt;
           })
         );
@@ -520,7 +520,7 @@ export async function handleProductTypeSelect(
         ? '\n\nCollaborator products are shown with **[Name]** in the description.'
         : '';
       const addedNote = hasAlreadyAdded
-        ? '\n\n**✅** = already added to this server (re-adding maps additional roles).'
+        ? `\n\n**${E.Checkmark}** = already added to this server (re-adding maps additional roles).`
         : '';
       await interaction.editReply({
         content: `**Step 2 of 3:** Select a ${label} product from your store.${moreNote}${collabNote}${addedNote}`,

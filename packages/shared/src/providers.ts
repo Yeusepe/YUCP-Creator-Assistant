@@ -446,7 +446,7 @@ export const PROVIDER_REGISTRY = [
       label: 'VRChat Avatar ID or URL',
       description: 'VRChat Avatar ID (avtr_…) or vrchat.com/home/avatar/avtr_… URL',
       placeholder: 'avtr_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-      requiresConnection: false,
+      requiresConnection: true,
     },
   },
 ] as const satisfies readonly ProviderDescriptor[];
