@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Scan route files for Tailwind utility classes */
+@source "../routes";
+
+/* Shared resets matching the original HTML pages */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  font-family: "DM Sans", sans-serif;
+  overflow-x: hidden;
+  min-height: 100dvh;
+}
+
+h1,
+h2,
+h3,
+.display-text {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+/* Cloud background fade-in */
+.cloud-canvas-container {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 0.5s ease-in;
+  pointer-events: none;
+}
+
+.cloud-canvas-container.is-loaded {
+  opacity: 1;
+}

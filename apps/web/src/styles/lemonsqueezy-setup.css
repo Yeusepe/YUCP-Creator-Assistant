@@ -1,0 +1,747 @@
+/* Lemon Squeezy setup wizard - scoped under .lemonsqueezy-setup */
+
+.lemonsqueezy-setup {
+  --ls-yellow: #ffd234;
+  --ls-yellow-dim: rgba(255, 210, 52, 0.15);
+  --ls-yellow-border: rgba(255, 210, 52, 0.3);
+  --ls-green: #22c55e;
+  --text-primary: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-color);
+  font-family: "DM Sans", sans-serif;
+  color: #fff;
+}
+
+.lemonsqueezy-setup input,
+.lemonsqueezy-setup textarea,
+.lemonsqueezy-setup select {
+  font-size: 16px;
+}
+
+.lemonsqueezy-setup h1,
+.lemonsqueezy-setup h2,
+.lemonsqueezy-setup h3,
+.lemonsqueezy-setup .font-heading {
+  font-family: "Plus Jakarta Sans", sans-serif;
+}
+
+/* ─── Responsive hide mockup ─────────────────────────────────── */
+@media (max-width: 1023px) {
+  .lemonsqueezy-setup .step-content > .mockup-col {
+    display: none;
+  }
+
+  .lemonsqueezy-setup .step-content > .instructions-col {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 479px) {
+  .lemonsqueezy-setup .card-shell {
+    padding: 1.25rem;
+    border-radius: 1.5rem;
+  }
+}
+
+/* ─── Step transitions ───────────────────────────────────────── */
+.lemonsqueezy-setup .step-content {
+  display: none;
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+.lemonsqueezy-setup .step-content.active {
+  display: grid;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.lemonsqueezy-setup .step-content.step-exiting {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.lemonsqueezy-setup .steps-slot {
+  transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0 0.5rem;
+}
+
+.lemonsqueezy-setup .steps-transitioning .steps-slot {
+  overflow: hidden;
+}
+
+.lemonsqueezy-setup .steps-container.steps-transitioning {
+  overflow: hidden;
+}
+
+.lemonsqueezy-setup .steps-container {
+  flex-shrink: 0;
+  overflow: visible;
+  min-height: unset;
+}
+
+.lemonsqueezy-setup .step-content {
+  overflow: visible;
+}
+
+/* ─── Page content visibility ────────────────────────────────── */
+.lemonsqueezy-setup .page-content {
+  opacity: 0;
+  transition: opacity 0.3s ease 0.05s;
+}
+
+.lemonsqueezy-setup .page-content.is-visible {
+  opacity: 1;
+}
+
+/* ─── Copy button ────────────────────────────────────────────── */
+.lemonsqueezy-setup .copy-btn:active {
+  transform: scale(0.94);
+}
+
+.lemonsqueezy-setup .checkmark {
+  display: none;
+}
+
+.lemonsqueezy-setup .copied .copy-icon {
+  display: none;
+}
+
+.lemonsqueezy-setup .copied .checkmark {
+  display: block;
+}
+
+/* ─── Step dot ───────────────────────────────────────────────── */
+.lemonsqueezy-setup .step-dot {
+  height: 6px;
+  border-radius: 999px;
+  transition:
+    width 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.35s ease;
+}
+
+/* ─── API key input field ────────────────────────────────────── */
+.lemonsqueezy-setup .api-key-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 14px 16px;
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.lemonsqueezy-setup .api-key-input:focus {
+  border-color: var(--ls-yellow);
+  box-shadow: 0 0 0 3px rgba(255, 210, 52, 0.12);
+}
+
+.lemonsqueezy-setup .api-key-input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+}
+
+/* ─── Connect button ─────────────────────────────────────────── */
+.lemonsqueezy-setup .connect-btn {
+  width: 100%;
+  padding: 16px 24px;
+  border-radius: 12px;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lemonsqueezy-setup .connect-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+}
+
+.lemonsqueezy-setup .connect-btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.lemonsqueezy-setup .connect-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lemonsqueezy-setup .connect-btn.ready {
+  background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.1) rgba(0, 0, 0, 0.1) rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.lemonsqueezy-setup .connect-btn.success {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.1) rgba(0, 0, 0, 0.1) rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* ─── Mockup API highlight (subtle, matches Lemon Squeezy) ──────── */
+.lemonsqueezy-setup .mockup-shell .ls-api-highlight-zone {
+  position: relative;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+/* ─── LS Mockup styles ───────────────────────────────────────── */
+.lemonsqueezy-setup .mockup-shell {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.15),
+    0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  aspect-ratio: 16 / 10;
+  position: relative;
+  transition: transform 0.5s ease;
+  pointer-events: none;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.lemonsqueezy-setup .mockup-shell:hover {
+  transform: none;
+}
+
+/* Traffic lights */
+.lemonsqueezy-setup .traffic-lights {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 14px 18px 12px;
+  flex-shrink: 0;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.lemonsqueezy-setup .tl {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.lemonsqueezy-setup .tl-r {
+  background: #ff5f57;
+}
+
+.lemonsqueezy-setup .tl-y {
+  background: #febc2e;
+}
+
+.lemonsqueezy-setup .tl-g {
+  background: #28c840;
+}
+
+/* LS sidebar */
+.lemonsqueezy-setup .ls-sidebar {
+  width: 140px;
+  background: #ffffff;
+  border-right: 1px solid #e5e7eb;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 12px 16px;
+  flex-shrink: 0;
+}
+
+.lemonsqueezy-setup .ls-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  margin-bottom: 20px;
+}
+
+.lemonsqueezy-setup .ls-logo-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.lemonsqueezy-setup .ls-logo-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.lemonsqueezy-setup .ls-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #4b5563;
+  font-weight: 500;
+  cursor: default;
+  margin-bottom: 2px;
+}
+
+.lemonsqueezy-setup .ls-nav-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lemonsqueezy-setup .ls-nav-icon {
+  width: 14px;
+  height: 14px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.lemonsqueezy-setup .ls-nav-chevron {
+  width: 12px;
+  height: 12px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.lemonsqueezy-setup .ls-subnav {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid #f3f4f6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+}
+
+.lemonsqueezy-setup .ls-subnav-item {
+  font-size: 12px;
+  color: #6b7280;
+  padding: 4px 10px;
+  border-radius: 6px;
+  position: relative;
+}
+
+.lemonsqueezy-setup .ls-subnav-item.active {
+  background: #f3f4f6;
+  color: #7c3aed;
+  font-weight: 600;
+  padding-left: 18px;
+}
+
+.lemonsqueezy-setup .ls-subnav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #7c3aed;
+}
+
+/* LS main content */
+.lemonsqueezy-setup .ls-main {
+  flex: 1;
+  background: #ffffff;
+  padding: 36px 40px 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.lemonsqueezy-setup .ls-page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.lemonsqueezy-setup .ls-tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid #e5e7eb;
+  margin-top: 24px;
+  padding-bottom: 0;
+  overflow-x: hidden;
+}
+
+.lemonsqueezy-setup .ls-tab {
+  font-size: 13px;
+  color: #6b7280;
+  padding-bottom: 12px;
+  position: relative;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.lemonsqueezy-setup .ls-tab.active {
+  color: #111827;
+  font-weight: 600;
+}
+
+.lemonsqueezy-setup .ls-tab.active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #7c3aed;
+}
+
+.lemonsqueezy-setup .ls-banner {
+  margin-top: 24px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #ffedd5;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lemonsqueezy-setup .ls-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-top: 20px;
+  margin-bottom: 16px;
+}
+
+.lemonsqueezy-setup .ls-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.lemonsqueezy-setup .ls-section-desc {
+  font-size: 13px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+/* + button: circular, pops with color + grow animation */
+.lemonsqueezy-setup .ls-new-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 50%;
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  transition:
+    background 0.2s,
+    transform 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
+  cursor: pointer;
+  animation: ls-plus-pop 2.5s ease-in-out infinite;
+}
+
+.lemonsqueezy-setup .ls-new-btn:hover {
+  background: #e5e7eb;
+  color: #374151;
+  animation: none;
+  transform: scale(1.15);
+}
+
+@keyframes ls-plus-pop {
+  0%,
+  100% {
+    transform: scale(1);
+    background: #f3f4f6;
+    color: #6b7280;
+    border-color: #e5e7eb;
+    box-shadow: none;
+  }
+
+  50% {
+    transform: scale(1.25);
+    background: #7c3aed;
+    color: #fff;
+    border-color: rgba(124, 58, 237, 0.5);
+    box-shadow:
+      0 0 0 1px rgba(124, 58, 237, 0.3),
+      0 4px 12px rgba(124, 58, 237, 0.4);
+  }
+}
+
+.lemonsqueezy-setup .ls-keys-table {
+  border-top: 1px solid #f3f4f6;
+  flex: 1;
+  margin-top: 8px;
+}
+
+.lemonsqueezy-setup .ls-empty-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  font-size: 13px;
+  color: #9ca3af;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* LS modal */
+.lemonsqueezy-setup .ls-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.lemonsqueezy-setup .ls-modal {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  width: 320px;
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.lemonsqueezy-setup .ls-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.lemonsqueezy-setup .ls-modal-close {
+  color: #9ca3af;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.lemonsqueezy-setup .ls-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lemonsqueezy-setup .ls-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.lemonsqueezy-setup .ls-field-input {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: #111827;
+  width: 100%;
+  outline: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.lemonsqueezy-setup .ls-field-input.highlighted {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+}
+
+.lemonsqueezy-setup .ls-modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #f3f4f6;
+  background: #f9fafb;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.lemonsqueezy-setup .ls-btn-cancel {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  background: #ffffff;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+}
+
+.lemonsqueezy-setup .ls-btn-create {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  background: #7c3aed;
+  color: #ffffff;
+  border: 1px solid transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+}
+
+/* ─── Revealed key mockup ────────────────────────────────────── */
+.lemonsqueezy-setup .ls-revealed-key {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lemonsqueezy-setup .ls-key-text {
+  flex: 1;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lemonsqueezy-setup .ls-copy-chip {
+  background: #ffffff;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ─── Feature pills ──────────────────────────────────────────── */
+.lemonsqueezy-setup .feature-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.lemonsqueezy-setup .feature-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ls-green);
+  box-shadow: 0 0 6px var(--ls-green);
+}
+
+/* ─── Error state ────────────────────────────────────────────── */
+.lemonsqueezy-setup .error-box {
+  padding: 12px 14px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 10px;
+  font-size: 13px;
+  color: #fca5a5;
+}
+
+/* ─── Open Lemon Squeezy API button (CTA) ─────────────────────── */
+.lemonsqueezy-setup .ls-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  padding: 0.875rem 1.5rem;
+  border-radius: 14px;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  border: 1px solid rgba(255, 210, 52, 0.35);
+  background: rgba(255, 210, 52, 0.12);
+  color: #fff;
+  backdrop-filter: blur(12px);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  margin-top: 1.5rem;
+}
+
+.lemonsqueezy-setup .ls-open-btn:hover {
+  background: rgba(255, 210, 52, 0.22);
+  border-color: rgba(255, 210, 52, 0.5);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.lemonsqueezy-setup .ls-open-btn:active {
+  transform: translateY(0);
+}
+
+/* ─── Spinner inside button ──────────────────────────────────── */
+.lemonsqueezy-setup .btn-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(26, 20, 0, 0.3);
+  border-top-color: #1a1400;
+  border-radius: 50%;
+  animation: ls-spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes ls-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
