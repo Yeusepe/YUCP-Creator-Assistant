@@ -56,7 +56,7 @@ export const Route = createRootRouteWithContext<{
       },
     ],
   }),
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async () => {
     const token = await getAuth();
     return {
       isAuthenticated: !!token,

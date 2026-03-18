@@ -1,4 +1,3 @@
-import { createServerFn } from '@tanstack/react-start';
 import { getToken } from '../auth-server';
 
 /**
