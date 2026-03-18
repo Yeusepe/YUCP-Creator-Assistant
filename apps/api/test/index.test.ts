@@ -11,6 +11,7 @@
 // Source: https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import type { Auth } from '../src/auth';
 import { startTestServer, type TestServerHandle } from './helpers/testServer';
 
 function expectHtmlSecurityHeaders(response: Response) {
@@ -205,6 +206,94 @@ describe('API server — route mounting', () => {
       expect(authRequests).toHaveLength(0);
     } finally {
       bridgeServer.stop();
+    }
+  });
+
+  it('GET /api/auth/sign-in/discord/start computes a same-origin callback URL from a safe relative returnTo path', async () => {
+    const authRequests: Array<{ url: string; body: { provider: string; callbackURL: string } }> = [];
+    const bridgeServer = await startTestServer({
+      baseUrl: 'http://localhost:3101',
+      frontendUrl: 'http://localhost:3000',
+      authFetch: async (input, init) => {
+        authRequests.push({
+          url: input.toString(),
+          body: JSON.parse(String(init?.body)) as { provider: string; callbackURL: string },
+        });
+        return new Response(
+          JSON.stringify({
+            url: 'https://discord.com/api/oauth2/authorize?client_id=test-discord-client-id',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      },
+    });
+
+    try {
+      const returnTo = encodeURIComponent('/sign-in?redirectTo=%2Fdashboard%3Fguild_id%3D123');
+      const res = await bridgeServer.fetch(`/api/auth/sign-in/discord/start?returnTo=${returnTo}`, {
+        redirect: 'manual',
+      });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toContain('https://discord.com/api/oauth2/authorize');
+      expect(authRequests).toHaveLength(1);
+      expect(authRequests[0]).toEqual({
+        url: 'http://localhost:3210/api/auth/sign-in/social',
+        body: {
+          provider: 'discord',
+          callbackURL: 'http://localhost:3000/sign-in?redirectTo=%2Fdashboard',
+        },
+      });
+    } finally {
+      bridgeServer.stop();
+    }
+  });
+
+  it('POST /api/auth/exchange-ott sets browser cookies after a successful OTT exchange', async () => {
+    const authServer = await startTestServer({
+      auth: {
+        getSession: async () => null,
+        getDiscordUserId: async () => null,
+        signOut: async () => ({ ok: false, setCookieHeaders: [] as string[] }),
+        exchangeOTT: async () => ({
+          session: {
+            session: {
+              id: 'session_123',
+              token: 'token_123',
+              expiresAt: Date.now() + 60_000,
+            },
+            user: {
+              id: 'user_123',
+              email: 'test@example.com',
+              name: 'Test User',
+              image: null,
+            },
+          },
+          setCookieHeaders: [
+            'yucp_session_token=session_123; Path=/; HttpOnly; SameSite=Strict',
+            'yucp_csrf_token=csrf_123; Path=/; HttpOnly; SameSite=Strict',
+          ],
+        }),
+      } as unknown as Auth,
+    });
+
+    try {
+      const res = await authServer.fetch('/api/auth/exchange-ott', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: 'ott_123' }),
+      });
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ success: true });
+      const setCookie = res.headers.get('set-cookie') ?? '';
+      expect(setCookie).toContain('yucp_session_token=session_123');
+      expect(setCookie).toContain('yucp_csrf_token=csrf_123');
+    } finally {
+      authServer.stop();
     }
   });
 

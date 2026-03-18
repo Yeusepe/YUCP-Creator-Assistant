@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, type ReactNode, useContext } from 'react';
 
 const LOCAL_FALLBACK_SITE_URL = 'http://localhost:3000';
 
@@ -76,7 +76,9 @@ export function getPublicRuntimeConfig(): PublicRuntimeConfig {
 }
 
 export function serializePublicRuntimeConfig(config: PublicRuntimeConfig): string {
-  return JSON.stringify(config).replace(/</g, '\\u003c').replace(/<\/script/gi, '<\\/script');
+  return JSON.stringify(config)
+    .replace(/</g, '\\u003c')
+    .replace(/<\/script/gi, '<\\/script');
 }
 
 const RuntimeConfigContext = createContext<PublicRuntimeConfig | null>(null);

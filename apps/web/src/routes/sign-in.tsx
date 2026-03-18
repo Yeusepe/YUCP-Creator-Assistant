@@ -1,11 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
-import { buildSignInUrlForRedirectTarget } from '@/lib/authUrls';
+import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
-import { useRuntimeConfig } from '@/lib/runtimeConfig';
 
 export const Route = createFileRoute('/sign-in')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -22,18 +22,15 @@ type PageState = 'state-signin' | 'state-loading' | 'state-authenticated' | 'sta
 
 function SignInRouteComponent() {
   const { redirectTo } = Route.useSearch();
-  const { browserAuthBaseUrl } = useRuntimeConfig();
-  const signInUrl = buildSignInUrlForRedirectTarget({
-    browserAuthBaseUrl,
-    redirectTo,
-  });
-  return <SignInPage signInUrl={signInUrl} />;
+  return <SignInPage redirectTo={redirectTo} />;
 }
 
-export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
+export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null }>) {
   const [currentState, setCurrentState] = useState<PageState>('state-signin');
   const [isVisible, setIsVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState('Something went wrong. Please try again.');
+  const redirectTarget = normalizeAuthRedirectTarget(redirectTo);
+  const navigate = useNavigate();
 
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),
@@ -52,34 +49,63 @@ export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
     [showPage]
   );
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('ott')) {
-      const clean = new URL(window.location.href);
-      clean.searchParams.delete('ott');
-      history.replaceState(null, '', clean.toString());
-      showError('The sign-in link has expired or was already used. Please try again.');
-    } else {
-      setCurrentState('state-signin');
-      showPage();
+  const handleSignIn = useCallback(async () => {
+    setCurrentState('state-loading');
+    try {
+      await authClient.signIn.social({
+        provider: 'discord',
+        callbackURL: redirectTarget,
+      });
+    } catch {
+      showError('Failed to start sign-in. Please try again.');
     }
-  }, [showError, showPage]);
+  }, [redirectTarget, showError]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const checkSession = async () => {
+      try {
+        const session = await authClient.getSession();
+        if (!isCancelled && session.data?.user) {
+          setCurrentState('state-authenticated');
+          showPage();
+          window.setTimeout(() => {
+            if (!isCancelled) {
+              navigate({ to: redirectTarget, replace: true });
+            }
+          }, 150);
+          return;
+        }
+      } catch {
+        // Session check failed -- show sign-in button
+      }
+
+      if (!isCancelled) {
+        setCurrentState('state-signin');
+        showPage();
+      }
+    };
+
+    checkSession();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [redirectTarget, showPage, navigate]);
 
   return (
     <div className="sign-in-page">
       <PageLoadingOverlay />
 
-      {/* Cloud background (same as dashboard) */}
       <CloudBackground variant="default" />
 
-      {/* Main content */}
       <div id="page-content" className={isVisible ? 'visible' : ''}>
         <div className="logo-wrap">
           <img src="/Icons/MainLogo.png" alt="Creator Assistant" />
         </div>
 
         <div className="card">
-          {/* ── Sign-In State ────────────────────────────────────── */}
           {currentState === 'state-signin' && (
             <div id="state-signin" className="state active">
               <div className="brand-icon" aria-hidden="true">
@@ -103,7 +129,12 @@ export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
                 Sign in with Discord to access your dashboard and manage your server integrations.
               </p>
 
-              <a id="discord-signin-btn" href={signInUrl} className="discord-btn">
+              <button
+                id="discord-signin-btn"
+                type="button"
+                className="discord-btn"
+                onClick={handleSignIn}
+              >
                 <svg
                   width="20"
                   height="15"
@@ -118,7 +149,7 @@ export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
                   />
                 </svg>
                 Sign in with Discord&reg;
-              </a>
+              </button>
 
               <div className="security-note">
                 <svg
@@ -145,7 +176,6 @@ export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
             </div>
           )}
 
-          {/* ── OTT Exchange / Loading State ─────────────────────── */}
           {currentState === 'state-loading' && (
             <div id="state-loading" className="state active">
               <div className="inner-spinner">
@@ -160,7 +190,6 @@ export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
             </div>
           )}
 
-          {/* ── Authenticated State ───────────────────────────────── */}
           {currentState === 'state-authenticated' && (
             <div id="state-authenticated" className="state active">
               <div
@@ -187,7 +216,7 @@ export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
               <p className="card-sub" style={{ marginBottom: '1.5rem' }}>
                 Redirecting to your dashboard&hellip;
               </p>
-              <a id="dashboard-link" href="/dashboard" className="goto-btn">
+              <a id="dashboard-link" href={redirectTarget} className="goto-btn">
                 <svg
                   width="14"
                   height="14"
@@ -222,7 +251,6 @@ export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
             </div>
           )}
 
-          {/* ── Error State ───────────────────────────────────────── */}
           {currentState === 'state-error' && (
             <div id="state-error" className="state active">
               <div className="error-icon" aria-hidden="true">
@@ -261,7 +289,7 @@ export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
                 </svg>
                 <p id="error-detail">{errorMessage}</p>
               </div>
-              <a id="retry-btn" href={signInUrl} className="discord-btn" role="button">
+              <button id="retry-btn" type="button" className="discord-btn" onClick={handleSignIn}>
                 <svg
                   width="20"
                   height="15"
@@ -276,18 +304,16 @@ export function SignInPage({ signInUrl }: Readonly<{ signInUrl: string }>) {
                   />
                 </svg>
                 Try again
-              </a>
+              </button>
             </div>
           )}
         </div>
-        {/* .card */}
 
         <p className="outer-footer">
           Creator Assistant &middot; <a href="/legal/privacy-policy">Privacy</a> &middot;{' '}
           <a href="/legal/terms-of-service">Terms</a>
         </p>
       </div>
-      {/* #page-content */}
     </div>
   );
 }

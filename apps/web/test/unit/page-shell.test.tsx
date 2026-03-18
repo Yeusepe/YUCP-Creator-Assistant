@@ -10,16 +10,19 @@ vi.mock('@/components/three/CloudBackground', () => ({
 describe('Page shell boot', () => {
   let originalRequestAnimationFrame: typeof globalThis.requestAnimationFrame | undefined;
   let originalCancelAnimationFrame: typeof globalThis.cancelAnimationFrame | undefined;
+  let originalFetch: typeof globalThis.fetch | undefined;
 
   beforeEach(() => {
     vi.useFakeTimers();
     originalRequestAnimationFrame = globalThis.requestAnimationFrame;
     originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    originalFetch = globalThis.fetch;
     window.history.replaceState({}, '', 'http://localhost:3000/sign-in');
     globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
       setTimeout(() => callback(0), 0)) as typeof globalThis.requestAnimationFrame;
     globalThis.cancelAnimationFrame = ((handle: number) =>
       clearTimeout(handle)) as typeof globalThis.cancelAnimationFrame;
+    globalThis.fetch = vi.fn(async () => new Response('{}', { status: 401 })) as typeof fetch;
   });
 
   afterEach(() => {
@@ -35,14 +38,19 @@ describe('Page shell boot', () => {
     } else {
       delete (globalThis as Record<string, unknown>).cancelAnimationFrame;
     }
+    if (originalFetch) {
+      globalThis.fetch = originalFetch;
+    } else {
+      delete (globalThis as Record<string, unknown>).fetch;
+    }
   });
 
-  it('renders the original loading overlay scene and dismisses it after reveal', () => {
+  it('renders the original loading overlay scene and dismisses it after reveal', async () => {
     const { container } = render(<SignInPage signInUrl="/api/auth/sign-in/discord" />);
 
     expect(container.querySelector('#page-loading-overlay .plo-bag-scene')).toBeTruthy();
 
-    vi.runAllTimers();
+    await vi.runAllTimersAsync();
 
     expect(container.querySelector('#page-content')?.classList.contains('visible')).toBe(true);
     expect(
@@ -52,8 +60,7 @@ describe('Page shell boot', () => {
 
   it('keeps dashboard auth independent from guild selection in the Discord callback URL', () => {
     const signInUrl = buildCurrentSignInUrl(
-      'http://localhost:3000/sign-in?redirectTo=%2Fdashboard%3Fguild_id%3D123',
-      'http://localhost:3000'
+      'http://localhost:3000/sign-in?redirectTo=%2Fdashboard%3Fguild_id%3D123'
     );
     const { container } = render(<SignInPage signInUrl={signInUrl} />);
     const href = (container.querySelector('#discord-signin-btn') as HTMLAnchorElement | null)?.href;
@@ -64,9 +71,8 @@ describe('Page shell boot', () => {
     }
 
     const discordUrl = new URL(href);
-    expect(discordUrl.pathname).toBe('/api/auth/sign-in/discord');
-    expect(discordUrl.searchParams.get('callbackURL')).toBe(
-      'http://localhost:3000/sign-in?redirectTo=%2Fdashboard'
-    );
+    expect(discordUrl.pathname).toBe('/api/auth/sign-in/discord/start');
+    expect(discordUrl.searchParams.get('callbackURL')).toBeNull();
+    expect(discordUrl.searchParams.get('returnTo')).toBe('/sign-in?redirectTo=%2Fdashboard');
   });
 });

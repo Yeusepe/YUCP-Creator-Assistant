@@ -19,7 +19,11 @@ import path from 'node:path';
 import { buildAllowedBrowserOrigins, createLogger } from '@yucp/shared';
 import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import type { Auth } from './auth';
-import { type DiscordSignInFetch, handleDiscordSignInBridge } from './lib/discordSignInBridge';
+import {
+  buildDiscordCallbackUrl,
+  type DiscordSignInFetch,
+  handleDiscordSignInBridge,
+} from './lib/discordSignInBridge';
 import {
   createVerificationRoutes,
   mountVerificationRouteHandlers,
@@ -247,6 +251,46 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
         convexSiteUrl: config.convexSiteUrl,
         logger: testServerLogger,
         fetchImpl: config.authFetch,
+      });
+    }
+
+    if (pathname === '/api/auth/sign-in/discord/start') {
+      return handleDiscordSignInBridge({
+        requestUrl: url,
+        callbackURL: buildDiscordCallbackUrl(frontendUrl, url.searchParams.get('returnTo')),
+        allowedBrowserOrigins,
+        convexSiteUrl: config.convexSiteUrl,
+        logger: testServerLogger,
+        fetchImpl: config.authFetch,
+      });
+    }
+
+    if (pathname === '/api/auth/exchange-ott' && request.method === 'POST') {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+      }
+
+      const token = body && typeof body === 'object' ? (body as { token?: unknown }).token : undefined;
+      if (typeof token !== 'string' || token.trim().length === 0) {
+        return Response.json({ error: 'token is required' }, { status: 400 });
+      }
+
+      const { session, setCookieHeaders } = await stubAuth.exchangeOTT(token);
+      if (!session || setCookieHeaders.length === 0) {
+        return Response.json({ error: 'Invalid or expired one-time token' }, { status: 401 });
+      }
+
+      const headers = new Headers({ 'Content-Type': 'application/json' });
+      for (const cookie of setCookieHeaders) {
+        headers.append('Set-Cookie', cookie);
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers,
       });
     }
 
