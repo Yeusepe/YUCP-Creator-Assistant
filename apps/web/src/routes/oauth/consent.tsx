@@ -1,8 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useState } from 'react';
-import '@/styles/oauth-consent.css';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/oauth/consent')({
+  head: () => ({
+    links: routeStylesheetLinks(routeStyleHrefs.oauthConsent),
+  }),
   component: OAuthConsentPage,
 });
 

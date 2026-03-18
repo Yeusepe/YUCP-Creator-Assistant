@@ -1,6 +1,6 @@
 import { createFileRoute, useSearch } from '@tanstack/react-router';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import '@/styles/vrchat-verify.css';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 const SLIDE_IMAGES = [
   'https://dtuitjyhwcl5y.cloudfront.net/960324bdaa4dd770-1920w.jpg',
@@ -27,6 +27,7 @@ export const Route = createFileRoute('/setup/vrchat')({
   }),
   head: () => ({
     meta: [{ title: 'Verify with VRChat | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.vrchatVerify),
   }),
   component: VRChatVerifyPage,
 });

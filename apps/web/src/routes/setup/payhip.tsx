@@ -11,11 +11,12 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, apiClient } from '@/api/client';
-import '@/styles/payhip-setup.css';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/setup/payhip')({
   head: () => ({
     meta: [{ title: 'Connect Payhip | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.payhipSetup),
   }),
   component: PayhipSetupPage,
 });

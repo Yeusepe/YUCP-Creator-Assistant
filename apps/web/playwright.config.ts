@@ -1,4 +1,7 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices } from 'playwright/test';
+
+const browserAuthBaseUrl =
+  process.env.SITE_URL ?? process.env.FRONTEND_URL ?? 'http://localhost:3001';
 
 export default defineConfig({
   testDir: './test/e2e',
@@ -21,6 +24,11 @@ export default defineConfig({
     ? undefined
     : {
         command: 'npx vite dev',
+        env: {
+          ...process.env,
+          SITE_URL: browserAuthBaseUrl,
+          FRONTEND_URL: process.env.FRONTEND_URL ?? browserAuthBaseUrl,
+        },
         port: 3000,
         reuseExistingServer: !process.env.CI,
       },

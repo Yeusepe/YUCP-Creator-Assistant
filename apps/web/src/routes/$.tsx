@@ -1,11 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { CloudBackgroundLayer } from '@/components/three/CloudBackground';
-import '@/styles/404.css';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/$')({
   head: () => ({
     meta: [{ title: 'Page Not Found | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.notFound),
   }),
   component: NotFoundPage,
 });

@@ -3,6 +3,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
+import {
+  getPublicRuntimeConfig,
+  RuntimeConfigProvider,
+  serializePublicRuntimeConfig,
+  type PublicRuntimeConfig,
+} from '@/lib/runtimeConfig';
 
 import '@/styles/tokens.css';
 import '@/styles/loading.css';
@@ -18,6 +24,7 @@ const queryClient = new QueryClient({
 });
 
 export const Route = createRootRoute({
+  loader: () => getPublicRuntimeConfig(),
   head: () => ({
     meta: [
       { charSet: 'utf-8' },
@@ -47,20 +54,32 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  const runtimeConfig = Route.useLoaderData();
   return (
-    <RootDocument>
-      <QueryClientProvider client={queryClient}>
-        <Outlet />
-      </QueryClientProvider>
+    <RootDocument runtimeConfig={runtimeConfig}>
+      <RuntimeConfigProvider value={runtimeConfig}>
+        <QueryClientProvider client={queryClient}>
+          <Outlet />
+        </QueryClientProvider>
+      </RuntimeConfigProvider>
     </RootDocument>
   );
 }
 
-function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
+function RootDocument({
+  children,
+  runtimeConfig,
+}: Readonly<{ children: ReactNode; runtimeConfig: PublicRuntimeConfig }>) {
   return (
     <html lang="en">
       <head>
         <HeadContent />
+        <script
+          id="public-runtime-config"
+          dangerouslySetInnerHTML={{
+            __html: `window.__YUCP_PUBLIC_RUNTIME_CONFIG__=${serializePublicRuntimeConfig(runtimeConfig)};`,
+          }}
+        />
       </head>
       <body>
         {children}

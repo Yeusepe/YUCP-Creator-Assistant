@@ -1,10 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import '@/styles/legal.css';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/legal/terms-of-service')({
   head: () => ({
     meta: [{ title: 'Terms of Service | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.legal),
   }),
   component: TermsOfServicePage,
 });
@@ -18,18 +20,7 @@ function TermsOfServicePage() {
 
   return (
     <div className={`legal-page${isVisible ? ' is-visible' : ''}`}>
-      <div
-        id="bg-canvas-root"
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          zIndex: -20,
-          pointerEvents: 'none',
-        }}
-      />
+      <BackgroundCanvasRoot />
       <main className="max-w-3xl mx-auto px-4 sm:px-6 pb-10 sm:pb-16 md:pb-20">
         <header className="mb-10 sm:mb-16">
           <p className="text-[#0ea5e9] font-bold uppercase tracking-[0.3em] text-xs mb-8">

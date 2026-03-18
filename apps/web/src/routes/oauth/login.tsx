@@ -1,8 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import '@/styles/oauth-login.css';
+import { buildAbsoluteCallbackUrl, buildDiscordSignInUrl } from '@/lib/authUrls';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import { useRuntimeConfig } from '@/lib/runtimeConfig';
 
 export const Route = createFileRoute('/oauth/login')({
+  head: () => ({
+    links: routeStylesheetLinks(routeStyleHrefs.oauthLogin),
+  }),
   component: OAuthLoginPage,
 });
 
@@ -13,6 +18,7 @@ type ViewState = 'loading' | 'error';
 function OAuthLoginPage() {
   const [viewState, setViewState] = useState<ViewState>('loading');
   const retryPathRef = useRef('/oauth/login');
+  const { browserAuthBaseUrl } = useRuntimeConfig();
 
   useEffect(() => {
     retryPathRef.current = window.location.pathname;
@@ -88,10 +94,13 @@ function OAuthLoginPage() {
     }
 
     // Step 3, not signed in: send user to Discord with this page as callback
-    const callbackUrl = window.location.href;
-    const signInUrl = `/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+    const callbackUrl = buildAbsoluteCallbackUrl(
+      window.location.pathname + window.location.search,
+      browserAuthBaseUrl
+    );
+    const signInUrl = buildDiscordSignInUrl(callbackUrl);
     window.location.href = signInUrl;
-  }, [exchangeOneTimeToken, checkSession]);
+  }, [browserAuthBaseUrl, exchangeOneTimeToken, checkSession]);
 
   useEffect(() => {
     runOAuthLoginFlow().catch((err) => {
@@ -122,7 +131,7 @@ function OAuthLoginPage() {
           {viewState === 'error' && (
             <div id="error-state">
               <div className="error-icon">
-                <svg viewBox="0 0 24 24">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle cx="12" cy="12" r="10" />
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -131,7 +140,7 @@ function OAuthLoginPage() {
               <h1>Sign-in failed</h1>
               <p className="subtitle">Something went wrong during the authorization flow.</p>
               <div className="error-notice">
-                <svg viewBox="0 0 24 24">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle cx="12" cy="12" r="10" />
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -142,7 +151,7 @@ function OAuthLoginPage() {
                 </p>
               </div>
               <a id="retry-btn" href={retryPathRef.current} className="retry-btn">
-                <svg viewBox="0 0 24 24">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
                   <polyline points="23 4 23 10 17 10" />
                   <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                 </svg>

@@ -66,4 +66,20 @@ describe('Route architecture', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it('does not ship removed sticker placeholders or sticker classes in route markup', () => {
+    const offenders: string[] = [];
+    const stickerClassPattern = /className\s*=\s*["'`][^"'`]*\bsticker\b/;
+
+    for (const file of routeFiles) {
+      const rel = relative(ROUTES_DIR, file).split(sep).join('/');
+      const source = readFileSync(file, 'utf8');
+
+      if (source.includes('id="holo-') || stickerClassPattern.test(source)) {
+        offenders.push(rel);
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
 });

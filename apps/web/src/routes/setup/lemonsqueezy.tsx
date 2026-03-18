@@ -19,11 +19,13 @@ import {
   Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import '@/styles/lemonsqueezy-setup.css';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/setup/lemonsqueezy')({
   head: () => ({
     meta: [{ title: 'Connect Lemon Squeezy® | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.lemonsqueezySetup),
   }),
   component: LemonSqueezySetupPage,
 });
@@ -184,17 +186,7 @@ function LemonSqueezySetupPage() {
 
   return (
     <div className="lemonsqueezy-setup">
-      <div
-        id="bg-canvas-root"
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          zIndex: -20,
-          pointerEvents: 'none',
-        }}
-      />
+      <BackgroundCanvasRoot position="absolute" />
 
       <div
         className={`page-content fixed inset-0 flex flex-col items-center justify-center overflow-y-auto overflow-x-hidden${isVisible ? ' is-visible' : ''}`}

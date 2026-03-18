@@ -1,8 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import '@/styles/oauth-error.css';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/oauth/error')({
+  head: () => ({
+    links: routeStylesheetLinks(routeStyleHrefs.oauthError),
+  }),
   component: OAuthErrorPage,
 });
 

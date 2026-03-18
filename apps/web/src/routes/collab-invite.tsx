@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { copyToClipboard } from '@/lib/utils';
-
-import '@/styles/collab-invite.css';
 
 // ---------------------------------------------------------------------------
 // Provider UI configuration
@@ -613,18 +613,7 @@ function CollabInvitePage() {
         )}
 
         {/* Background canvas root */}
-        <div
-          id="bg-canvas-root"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            zIndex: -20,
-            pointerEvents: 'none',
-          }}
-        />
+        <BackgroundCanvasRoot />
 
         <div className="w-full max-w-lg relative z-10">
           {/* Logo */}
@@ -1973,6 +1962,7 @@ function CollabInvitePage() {
 export const Route = createFileRoute('/collab-invite')({
   head: () => ({
     meta: [{ title: 'Collaborator Invite | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.collabInvite),
   }),
   component: CollabInvitePage,
 });

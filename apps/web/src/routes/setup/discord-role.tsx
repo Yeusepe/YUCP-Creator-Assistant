@@ -1,10 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
-import '@/styles/discord-role-setup.css';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/setup/discord-role')({
   head: () => ({
     meta: [{ title: 'Discord® Role Setup | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.discordRoleSetup),
   }),
   component: DiscordRoleSetupPage,
 });

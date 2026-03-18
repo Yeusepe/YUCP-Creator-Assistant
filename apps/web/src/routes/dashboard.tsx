@@ -5,10 +5,8 @@ import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAuth } from '@/hooks/useAuth';
 import { ServerContextProvider } from '@/hooks/useServerContext';
 import { useTheme } from '@/hooks/useTheme';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { getServerIconUrl } from '@/lib/utils';
-
-import '@/styles/dashboard.css';
-import '@/styles/dashboard-components.css';
 
 interface DashboardSearch {
   guild_id?: string;
@@ -19,6 +17,9 @@ export const Route = createFileRoute('/dashboard')({
   validateSearch: (search: Record<string, unknown>): DashboardSearch => ({
     guild_id: (search.guild_id as string) || undefined,
     tenant_id: (search.tenant_id as string) || undefined,
+  }),
+  head: () => ({
+    links: routeStylesheetLinks(routeStyleHrefs.dashboard, routeStyleHrefs.dashboardComponents),
   }),
   component: DashboardLayout,
 });
@@ -570,23 +571,6 @@ function MainContent() {
 
   return (
     <main className="content-area">
-      {/* Holographic Stickers */}
-      <div
-        id="holo-world-0"
-        className="absolute top-10 right-20 w-28 opacity-70 sticker pointer-events-auto z-0 h-28 hidden sm:block"
-        style={{ animationDelay: '-1s' }}
-      />
-      <div
-        id="holo-gumorad-1"
-        className="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24 hidden sm:block"
-        style={{ animationDelay: '-4s' }}
-      />
-      <div
-        id="holo-checkmark-2"
-        className="absolute top-1/2 right-10 w-20 opacity-50 sticker pointer-events-auto z-0 h-20 hidden md:block"
-        style={{ animationDelay: '-2s' }}
-      />
-
       {/* Header */}
       <header className="content-area-header animate-in relative z-10">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">

@@ -17,11 +17,13 @@ import {
   Webhook,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import '@/styles/jinxxy-setup.css';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/setup/jinxxy')({
   head: () => ({
     meta: [{ title: 'Connect Jinxxy\u2122 | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.jinxxySetup),
   }),
   component: JinxxySetupPage,
 });
@@ -406,17 +408,7 @@ function JinxxySetupPage() {
         )}
 
         {/* Background canvas */}
-        <div
-          id="bg-canvas-root"
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            zIndex: -20,
-            pointerEvents: 'none',
-          }}
-        />
+        <BackgroundCanvasRoot position="absolute" />
 
         <main className="flex flex-1 items-center justify-center p-4 lg:p-8 relative w-full max-w-7xl mx-auto min-h-0 overflow-hidden">
           {/* Background animations */}

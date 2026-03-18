@@ -2,7 +2,8 @@ import { createFileRoute } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, apiClient } from '@/api/client';
-import '@/styles/connect.css';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 // ---------------------------------------------------------------------------
 // Route
@@ -16,6 +17,7 @@ export const Route = createFileRoute('/connect')({
         rel: 'stylesheet',
         href: 'https://db.onlinewebfonts.com/c/5cae74f63bd48d24d5abdddb3af09a50?family=Airbnb+Cereal+App+Black',
       },
+      ...routeStylesheetLinks(routeStyleHrefs.connect),
     ],
   }),
   component: ConnectPage,
@@ -628,40 +630,12 @@ function ConnectPage() {
         className={pageVisible ? 'is-visible' : ''}
         style={pageVisible ? undefined : { display: 'none' }}
       >
-        <div
-          id="bg-canvas-root"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            zIndex: -20,
-            pointerEvents: 'none',
-          }}
-        />
+        <BackgroundCanvasRoot />
 
         <div className="cursor-dot" ref={cursorDotRef} />
         <div className="cursor-dot-outline" ref={cursorOutlineRef} />
 
         <main className="flex-grow flex flex-col items-center justify-center px-4 py-8 relative min-h-screen">
-          {/* Playful Background Stickers */}
-          <div
-            id="holo-world-0"
-            className="absolute top-20 left-10 w-24 opacity-60 sticker pointer-events-auto h-24 hidden sm:block"
-            style={{ animationDelay: '-2s' }}
-          />
-          <div
-            id="holo-link-1"
-            className="absolute bottom-10 right-20 w-32 opacity-80 sticker pointer-events-auto h-32 hidden sm:block"
-            style={{ animationDelay: '-5s' }}
-          />
-          <div
-            id="holo-assistant-2"
-            className="absolute top-40 right-10 w-20 opacity-40 sticker pointer-events-auto z-0 h-20 hidden md:block"
-            style={{ animationDelay: '-1s' }}
-          />
-
           <div className="max-w-xl w-full connect-card glass-card rounded-[32px] p-5 sm:p-7 md:p-10 relative z-10 reveal text-white shadow-2xl">
             {/* Header section */}
             <div className="flex flex-col items-center text-center mb-8 relative">
@@ -678,13 +652,6 @@ function ConnectPage() {
                 <span className="bg-gradient-to-r from-[#0ea5e9] to-[#0ea5e9] bg-clip-text text-transparent filter drop-shadow-[0_0_15px_rgba(14,165,233,0.3)]">
                   Accounts
                 </span>
-                <div className="absolute -top-4 -right-14 hidden md:block w-14 h-14 transform rotate-12 drop-shadow-xl z-20">
-                  <img
-                    src="./Icons/Checkmark.png"
-                    className="w-full h-full object-contain sticker pointer-events-none"
-                    alt="Check"
-                  />
-                </div>
               </h1>
               <p
                 className="text-[rgba(255,255,255,0.85)] font-medium leading-relaxed max-w-sm mx-auto text-base mt-2"
@@ -705,7 +672,7 @@ function ConnectPage() {
               >
                 <div className="flex items-center gap-3 sm:gap-5">
                   <img
-                    className="w-10 h-10 sm:w-12 sm:h-12 sticker drop-shadow-lg"
+                    className="w-10 h-10 sm:w-12 sm:h-12 drop-shadow-lg"
                     src="Icons/Discord\u00AE.png"
                     alt="Discord\u00AE"
                   />
@@ -780,7 +747,7 @@ function ConnectPage() {
                   >
                     <div className="flex items-center gap-3 sm:gap-5">
                       <img
-                        className="w-10 h-10 sm:w-12 sm:h-12 sticker drop-shadow-lg"
+                        className="w-10 h-10 sm:w-12 sm:h-12 drop-shadow-lg"
                         src={platform.icon}
                         alt={platform.label}
                       />

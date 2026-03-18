@@ -1,8 +1,16 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
-import '@/styles/sign-in-redirect.css';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
+import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
+import { buildAbsoluteCallbackUrl, buildDiscordSignInUrl } from '@/lib/authUrls';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import { useRuntimeConfig } from '@/lib/runtimeConfig';
 
 export const Route = createFileRoute('/sign-in-redirect')({
+  head: () => ({
+    links: routeStylesheetLinks(routeStyleHrefs.signInRedirect),
+  }),
   component: SignInRedirectPage,
 });
 
@@ -10,10 +18,20 @@ type ViewState = 'loading' | 'error';
 
 function SignInRedirectPage() {
   const [viewState, setViewState] = useState<ViewState>('loading');
+  const [isVisible, setIsVisible] = useState(false);
+  const { browserAuthBaseUrl } = useRuntimeConfig();
 
   const callbackUrl =
-    typeof window !== 'undefined' ? window.location.href.split('#')[0] : '/sign-in-redirect';
-  const signInUrl = `/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+    typeof window !== 'undefined'
+      ? buildAbsoluteCallbackUrl(window.location.pathname + window.location.search, browserAuthBaseUrl)
+      : buildAbsoluteCallbackUrl('/sign-in-redirect', browserAuthBaseUrl);
+  const signInUrl = buildDiscordSignInUrl(callbackUrl);
+  const showPage = usePageLoadingTransition({
+    onReveal: () => setIsVisible(true),
+    overlayFadeClass: 'is-hiding',
+    overlayFadeDelayMs: 400,
+    overlayRemoveDelayMs: 650,
+  });
 
   const showError = useCallback(() => {
     setViewState('error');
@@ -60,46 +78,23 @@ function SignInRedirectPage() {
   }, [exchangeBootstrapTokens, signInUrl]);
 
   useEffect(() => {
+    showPage();
     startSignIn().catch((err) => {
       console.error('[sign-in] Exception:', err);
       showError();
     });
-  }, [startSignIn, showError]);
+  }, [showPage, startSignIn, showError]);
 
   return (
     <div className="sign-in-redirect-page">
-      {/* Full-page loading overlay (content injected by site.js) */}
-      <div id="page-loading-overlay"></div>
+      <PageLoadingOverlay />
 
       <div
         id="page-content"
-        className={viewState === 'loading' ? '' : 'is-visible'}
-        style={{ display: undefined }}
+        className={isVisible ? 'is-visible' : ''}
+        style={isVisible ? undefined : { display: 'none' }}
       >
-        <div
-          id="bg-canvas-root"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            zIndex: -20,
-            pointerEvents: 'none',
-          }}
-        ></div>
-        {/* Playful Background Stickers */}
-        <div
-          id="holo-world-0"
-          className="absolute top-32 right-1/4 w-32 opacity-80 sticker pointer-events-auto z-0 h-32 hidden sm:block"
-          style={{ animationDelay: '-1s' }}
-        ></div>
-        <div
-          id="holo-assistant-1"
-          className="absolute bottom-32 left-1/4 w-24 opacity-60 sticker pointer-events-auto z-0 h-24 hidden sm:block"
-          style={{ animationDelay: '-4s' }}
-        ></div>
-
+        <BackgroundCanvasRoot />
         <main className="text-center max-w-md w-full px-4 sm:px-6">
           <div className="connect-card rounded-[32px] p-8 sm:p-12">
             {viewState === 'loading' && (
@@ -120,6 +115,7 @@ function SignInRedirectPage() {
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
+                  aria-hidden="true"
                 >
                   <path
                     strokeLinecap="round"

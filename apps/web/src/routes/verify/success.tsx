@@ -1,10 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import '@/styles/verify-success.css';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/verify/success')({
   head: () => ({
     meta: [{ title: 'Verification Successful | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.verifySuccess),
   }),
   component: VerifySuccessPage,
 });
@@ -97,34 +99,12 @@ function VerifySuccessPage() {
 
   return (
     <div className="verify-success-page-wrapper">
-      <div
-        id="bg-canvas-root"
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          zIndex: -20,
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        id="holo-clapstars-0"
-        className="absolute top-20 right-20 w-32 opacity-80 sticker pointer-events-auto z-0 h-32 hidden sm:block"
-        style={{ animationDelay: '-2s' }}
-      />
-      <div
-        id="holo-world-1"
-        className="absolute bottom-20 left-10 w-24 opacity-60 sticker pointer-events-auto z-0 h-24 hidden sm:block"
-        style={{ animationDelay: '-5s' }}
-      />
-
+      <BackgroundCanvasRoot />
       <main
         className={`verify-success-page text-center max-w-2xl w-full px-4 sm:px-6 relative z-10${isVisible ? ' is-visible' : ''}`}
       >
         <div className="success-checkmark">
-          <svg viewBox="0 0 100 100">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
             <circle
               className="circle-path"
               cx="50"
@@ -179,14 +159,14 @@ function VerifySuccessPage() {
               </a>
             </>
           ) : (
-            <a
+            <button
               id="return-btn"
-              href="#"
+              type="button"
               onClick={handleClose}
               className="action-btn inline-block w-full sm:w-auto px-8 py-4 sm:px-12 sm:py-5 rounded-full text-lg sm:text-xl font-black uppercase tracking-widest no-underline mb-4"
             >
               Close
-            </a>
+            </button>
           )}
         </div>
         {safeReturnTo ? (

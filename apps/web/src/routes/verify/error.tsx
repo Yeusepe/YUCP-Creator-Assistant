@@ -1,10 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import '@/styles/verify-error.css';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/verify/error')({
   head: () => ({
     meta: [{ title: 'Verification Failed | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.verifyError),
   }),
   component: VerifyErrorPage,
 });
@@ -57,29 +59,7 @@ function VerifyErrorPage() {
 
   return (
     <div className="verify-error-page-wrapper">
-      <div
-        id="bg-canvas-root"
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          zIndex: -20,
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        id="holo-world-0"
-        className="absolute top-20 left-10 w-24 opacity-40 sticker pointer-events-auto z-0 grayscale h-24 hidden sm:block"
-        style={{ animationDelay: '-2s' }}
-      />
-      <div
-        id="holo-discord-1"
-        className="absolute bottom-40 right-10 w-20 opacity-40 sticker pointer-events-auto z-0 grayscale h-20 hidden sm:block"
-        style={{ animationDelay: '-5s' }}
-      />
-
+      <BackgroundCanvasRoot />
       <main
         className={`verify-error-page text-center max-w-2xl w-full px-4 sm:px-6 relative z-10${isVisible ? ' is-visible' : ''}`}
       >
@@ -89,6 +69,7 @@ function VerifyErrorPage() {
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -121,14 +102,14 @@ function VerifyErrorPage() {
               Return to Discord®
             </a>
           ) : (
-            <a
+            <button
               id="return-btn"
-              href="#"
+              type="button"
               onClick={handleGoBack}
               className="action-btn inline-block w-full sm:w-auto px-8 py-4 sm:px-12 sm:py-5 rounded-full text-lg sm:text-xl font-black uppercase tracking-widest no-underline"
             >
               Try Again
-            </a>
+            </button>
           )}
         </div>
       </main>

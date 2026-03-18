@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from 'playwright/test';
 
 /**
  * E2E tests to verify all routes render without crashes.
@@ -11,6 +11,24 @@ test.describe('Page Rendering', () => {
     await page.goto('/sign-in');
     await expect(page.locator('.card-title')).toContainText('Creator Assistant');
     await expect(page.locator('#discord-signin-btn')).toBeVisible();
+  });
+
+  test('sign-in page uses the configured canonical callback origin', async ({ page }) => {
+    await page.goto('/sign-in?redirectTo=%2Fdashboard%3Fguild_id%3D123');
+
+    const href = await page.locator('#discord-signin-btn').getAttribute('href');
+    expect(href).toBeTruthy();
+    if (!href) {
+      throw new Error('Expected #discord-signin-btn to expose a sign-in href.');
+    }
+
+    const signInUrl = new URL(href, page.url());
+    expect(signInUrl.pathname).toBe('/api/auth/sign-in/discord');
+
+    const callbackUrl = signInUrl.searchParams.get('callbackURL');
+    expect(callbackUrl).toBe(
+      'http://localhost:3001/sign-in?redirectTo=%2Fdashboard%3Fguild_id%3D123'
+    );
   });
 
   test('sign-in-redirect page renders', async ({ page }) => {
