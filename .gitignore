@@ -12,6 +12,7 @@ node_modules
 
 # Build & tooling
 dist
+packages/private-rpc/schema/combined.bop
 .convex
 .sisyphus
 coverage
