@@ -76,8 +76,16 @@ async function init() {
   } catch (err) {
     console.error('Initialization error:', err);
   } finally {
-    const overlay = document.getElementById('page-loading-overlay');
-    if (overlay) overlay.style.display = 'none';
+    // Remove skeleton placeholders
+    document.querySelectorAll('.skeleton-group').forEach(el => el.remove());
+
+    // Dismiss loading overlay (deferred from site.js)
+    if (typeof window.__dismissLoading === 'function') {
+      window.__dismissLoading();
+    } else {
+      const overlay = document.getElementById('page-loading-overlay');
+      if (overlay) overlay.style.display = 'none';
+    }
   }
 }
 
