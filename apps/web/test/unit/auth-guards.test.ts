@@ -101,11 +101,12 @@ describe('Auth guards: sign-in route', () => {
   });
 
   it('redirects AUTHENTICATED users away from sign-in', () => {
-    // The sign-in page should send already-authenticated users to the dashboard
-    const hasAuthRedirect =
-      (source.includes('isAuthenticated') || source.includes('context.token')) &&
-      source.includes('/dashboard');
-    expect(hasAuthRedirect).toBe(true);
+    // The sign-in page should send already-authenticated users away via redirect
+    const checksAuth =
+      source.includes('isAuthenticated') || source.includes('context.token');
+    const throwsRedirect = source.includes('throw redirect');
+    expect(checksAuth).toBe(true);
+    expect(throwsRedirect).toBe(true);
   });
 });
 

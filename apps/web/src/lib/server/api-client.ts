@@ -12,7 +12,7 @@ import { getToken } from '../auth-server';
  */
 
 function getApiBaseUrl(): string {
-  return process.env.API_BASE_URL ?? 'http://localhost:3001';
+  return process.env.API_BASE_URL || 'http://localhost:3001';
 }
 
 function getInternalSecret(): string {
