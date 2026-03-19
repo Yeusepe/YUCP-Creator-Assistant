@@ -3,10 +3,16 @@ import { useCallback, useEffect, useState } from 'react';
 const STORAGE_KEY = 'yucp_theme';
 
 export function useTheme() {
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem(STORAGE_KEY) === 'dark';
-  });
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const storedTheme = localStorage.getItem(STORAGE_KEY);
+    const nextIsDark =
+      storedTheme === null
+        ? document.documentElement.classList.contains('dark')
+        : storedTheme === 'dark';
+    setIsDark(nextIsDark);
+  }, []);
 
   useEffect(() => {
     if (isDark) {

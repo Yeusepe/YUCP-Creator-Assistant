@@ -89,6 +89,7 @@ Each service has its own machine identity with least-privilege access:
 |------------|-------------|----------|
 | `CONVEX_URL` | Convex deployment URL | Never (public-ish) |
 | `CONVEX_DEPLOY_KEY` | Convex deployment token | On compromise / 90 days |
+| `INTERNAL_RPC_SHARED_SECRET` | Shared bearer secret for web, API, and bot internal RPC/authenticated proxy calls. Required in production, optional in local dev because services share a built-in dev secret. | On compromise / 90 days |
 | `WEBHOOK_SIGNING_SECRET` | Webhook signature key | On compromise / 90 days |
 
 ## Environment Variable Mapping
@@ -114,6 +115,7 @@ EMAIL_FROM=/api/integrations/email/EMAIL_FROM
 
 # Infrastructure
 CONVEX_URL=/infra/convex/CONVEX_URL
+INTERNAL_RPC_SHARED_SECRET=/infra/signing/INTERNAL_RPC_SHARED_SECRET
 WEBHOOK_SIGNING_SECRET=/infra/signing/WEBHOOK_SIGNING_SECRET
 ```
 
@@ -127,6 +129,7 @@ DISCORD_CLIENT_ID=/bot/discord/DISCORD_CLIENT_ID
 
 # Infrastructure
 CONVEX_URL=/infra/convex/CONVEX_URL
+INTERNAL_RPC_SHARED_SECRET=/infra/signing/INTERNAL_RPC_SHARED_SECRET
 ```
 
 ## CLI Usage

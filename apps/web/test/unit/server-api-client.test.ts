@@ -44,10 +44,23 @@ describe('serverApiFetch', () => {
     vi.unstubAllEnvs();
   });
 
-  it('throws if INTERNAL_RPC_SHARED_SECRET is not set', async () => {
+  it('falls back to a local development secret when INTERNAL_RPC_SHARED_SECRET is not set', async () => {
     vi.stubEnv('INTERNAL_RPC_SHARED_SECRET', '');
-    // Need fresh import to pick up env change
+    vi.stubEnv('NODE_ENV', 'development');
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
     const { serverApiFetch } = await import('@/lib/server/api-client');
+
+    await serverApiFetch('/api/test');
+
+    const [, opts] = mockFetch.mock.calls[0];
+    expect((opts as RequestInit).headers).toHaveProperty('Authorization');
+  });
+
+  it('throws in production if INTERNAL_RPC_SHARED_SECRET is not set', async () => {
+    vi.stubEnv('INTERNAL_RPC_SHARED_SECRET', '');
+    vi.stubEnv('NODE_ENV', 'production');
+    const { serverApiFetch } = await import('@/lib/server/api-client');
+
     await expect(serverApiFetch('/api/test')).rejects.toThrow('INTERNAL_RPC_SHARED_SECRET');
   });
 

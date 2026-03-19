@@ -16,4 +16,4 @@ const files = readdirSync(schemaDir)
 
 const combined = files.map((f) => readFileSync(join(schemaDir, f), 'utf8').trim()).join('\n\n');
 
-writeFileSync(outputFile, combined + '\n');
+writeFileSync(outputFile, `${combined}\n`);

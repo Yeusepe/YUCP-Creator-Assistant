@@ -15,6 +15,10 @@ export interface Guild {
   tenantId?: string;
 }
 
+export interface DashboardViewer {
+  authUserId: string;
+}
+
 /**
  * Fetches the user's Discord guilds that have the bot installed.
  * Used by the dashboard sidebar to populate the guild picker.
@@ -29,3 +33,24 @@ export const fetchGuilds = createServerFn({ method: 'GET' }).handler(async (): P
     authToken: token,
   });
 });
+
+export const fetchDashboardViewer = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<DashboardViewer> => {
+    const token = await getToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')
+    ) as {
+      sub?: string;
+    };
+
+    if (!payload.sub) {
+      throw new Error('Invalid auth token');
+    }
+
+    return { authUserId: payload.sub };
+  }
+);

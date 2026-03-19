@@ -82,4 +82,35 @@ describe('Route architecture', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it('does not nest button elements inside other buttons', () => {
+    const offenders: string[] = [];
+
+    for (const file of routeFiles) {
+      const rel = relative(ROUTES_DIR, file).split(sep).join('/');
+      const source = readFileSync(file, 'utf8');
+      const buttonTagPattern = /<\/?button\b[^>]*>/g;
+      let depth = 0;
+
+      for (const match of source.matchAll(buttonTagPattern)) {
+        const token = match[0];
+
+        if (token.startsWith('</button')) {
+          depth = Math.max(0, depth - 1);
+          continue;
+        }
+
+        if (depth > 0) {
+          offenders.push(rel);
+          break;
+        }
+
+        if (!token.endsWith('/>')) {
+          depth += 1;
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
 });

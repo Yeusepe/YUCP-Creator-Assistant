@@ -129,7 +129,7 @@ describe('Auth guards: setup wizard routes use setup tokens', () => {
 describe('Auth configuration: auth client', () => {
   const source = readFileSync(join(__dirname, '../../src/lib/auth-client.ts'), 'utf8');
 
-  it('uses convexClient plugin for cross-domain auth', () => {
+  it('uses convexClient plugin for the Convex-backed Better Auth client', () => {
     expect(source).toContain('convexClient');
   });
 
@@ -168,6 +168,17 @@ describe('Auth configuration: root route SSR auth', () => {
 
   it('wraps app with ConvexBetterAuthProvider', () => {
     expect(source).toContain('ConvexBetterAuthProvider');
+  });
+
+  it('keeps HeadContent outside the Better Auth provider tree', () => {
+    const providerIndex = source.indexOf('<ConvexBetterAuthProvider');
+    const rootDocumentIndex = source.indexOf('<RootDocument>');
+    const headContentIndex = source.indexOf('<HeadContent />');
+
+    expect(providerIndex).toBeGreaterThan(-1);
+    expect(rootDocumentIndex).toBeGreaterThan(-1);
+    expect(headContentIndex).toBeGreaterThan(-1);
+    expect(rootDocumentIndex).toBeLessThan(providerIndex);
   });
 
   it('returns isAuthenticated in route context', () => {

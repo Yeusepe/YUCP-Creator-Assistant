@@ -221,7 +221,12 @@ describe('VrchatApiClient.getOwnershipFromSession — productId in ownedAvatarId
     const client = new VrchatApiClient();
     const result = await client.getOwnershipFromSession({ authToken: 'auth-token' });
 
-    expect(result!.ownedAvatarIds).toHaveLength(1);
-    expect(result!.ownedAvatarIds).toContain('avtr_ccc');
+    expect(result).not.toBeNull();
+    if (!result) {
+      throw new Error('Expected VRChat ownership result to be present.');
+    }
+
+    expect(result.ownedAvatarIds).toHaveLength(1);
+    expect(result.ownedAvatarIds).toContain('avtr_ccc');
   });
 });

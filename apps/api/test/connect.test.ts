@@ -51,21 +51,19 @@ describe('Connect routes — auth guards', () => {
 
   afterAll(() => server.stop());
 
-  it('GET /connect?guild_id=test serves page without internal error', async () => {
-    // HTML page route: served from public/connect.html (200) or 404 if file missing in test env.
-    // Either is acceptable — we only verify no unhandled 500 occurs.
-    await server.fetch('/api/connect/status');
-    let res: Response | null = null;
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      try {
-        res = await server.fetch('/connect?guild_id=test', { redirect: 'manual' });
-        break;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+  it('GET /connect?guild_id=test redirects browser traffic to the frontend route', async () => {
+    const frontendServer = await startTestServer({
+      baseUrl: 'http://localhost:3101',
+      frontendUrl: 'http://localhost:3000',
+    });
+
+    try {
+      const res = await frontendServer.fetch('/connect?guild_id=test', { redirect: 'manual' });
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/connect?guild_id=test');
+    } finally {
+      frontendServer.stop();
     }
-    if (!res) throw new Error('connect page request never succeeded');
-    expect(res.status).not.toBe(500);
   });
 
   it('GET /api/connect/status without auth returns 401', async () => {

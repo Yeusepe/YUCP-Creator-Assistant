@@ -13,6 +13,7 @@
 
 import { describe, expect, it, mock } from 'bun:test';
 import type { ConvexHttpClient } from 'convex/browser';
+import type { ChatInputCommandInteraction, StringSelectMenuInteraction } from 'discord.js';
 
 // Controls what listProviderProducts returns for ALL providers in a test.
 // Changed between tests before the call to handleAutosetupModeSelect.
@@ -94,8 +95,12 @@ function mockModeSelectInteraction(userId: string, mode: string) {
 
 async function startSession(userId: string): Promise<void> {
   const interaction = mockStartInteraction(userId);
-  // biome-ignore lint/suspicious/noExplicitAny: test helper
-  await handleAutosetupStart(interaction as any, MOCK_CONVEX, TEST_API_SECRET, BASE_CTX);
+  await handleAutosetupStart(
+    interaction as unknown as ChatInputCommandInteraction,
+    MOCK_CONVEX,
+    TEST_API_SECRET,
+    BASE_CTX
+  );
 }
 
 function lastReplyContent(editReply: ReturnType<typeof mock>): string {
@@ -115,9 +120,8 @@ describe('autosetup migrate flow', () => {
 
     await startSession('user_migrate_1');
     const interaction = mockModeSelectInteraction('user_migrate_1', 'migrate');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
     await handleAutosetupModeSelect(
-      interaction as any,
+      interaction as unknown as StringSelectMenuInteraction,
       MOCK_CONVEX,
       TEST_API_SECRET,
       BASE_CTX.authUserId
@@ -137,9 +141,8 @@ describe('autosetup migrate flow', () => {
 
     await startSession('user_migrate_2');
     const interaction = mockModeSelectInteraction('user_migrate_2', 'migrate');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
     await handleAutosetupModeSelect(
-      interaction as any,
+      interaction as unknown as StringSelectMenuInteraction,
       MOCK_CONVEX,
       TEST_API_SECRET,
       BASE_CTX.authUserId
@@ -157,9 +160,8 @@ describe('autosetup migrate flow', () => {
 
     await startSession('user_migrate_3');
     const interaction = mockModeSelectInteraction('user_migrate_3', 'migrate');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
     await handleAutosetupModeSelect(
-      interaction as any,
+      interaction as unknown as StringSelectMenuInteraction,
       MOCK_CONVEX,
       TEST_API_SECRET,
       BASE_CTX.authUserId
@@ -181,9 +183,8 @@ describe('autosetup roles flow', () => {
 
     await startSession('user_roles_1');
     const interaction = mockModeSelectInteraction('user_roles_1', 'roles_only');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
     await handleAutosetupModeSelect(
-      interaction as any,
+      interaction as unknown as StringSelectMenuInteraction,
       MOCK_CONVEX,
       TEST_API_SECRET,
       BASE_CTX.authUserId
@@ -201,9 +202,8 @@ describe('autosetup roles flow', () => {
 
     await startSession('user_roles_2');
     const interaction = mockModeSelectInteraction('user_roles_2', 'roles_only');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
     await handleAutosetupModeSelect(
-      interaction as any,
+      interaction as unknown as StringSelectMenuInteraction,
       MOCK_CONVEX,
       TEST_API_SECRET,
       BASE_CTX.authUserId

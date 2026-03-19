@@ -43,6 +43,7 @@ export * from './binding';
 export * from './crypto';
 // Entitlement module exports
 export * from './entitlement';
+export * from './internalRpcSecret';
 export {
   createLogger,
   createStructuredLogger,

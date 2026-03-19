@@ -6,10 +6,8 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
-    "build": "bun run build:site && bun run build:docs:index && bun run build:collab && tsc",
+    "build": "bun run build:docs:index && tsc",
     "build:docs:index": "vite build --config vite.docs-index.config.ts",
-    "build:site": "vite build --config vite.site.config.ts",
-    "build:collab": "vite build --config vite.collab.config.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",

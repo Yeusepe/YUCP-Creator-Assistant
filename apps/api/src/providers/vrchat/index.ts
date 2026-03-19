@@ -5,7 +5,7 @@
  *   GET /api/1/user/{userId}/listings — requires the creator to be connected
  *   Source: https://vrchat.community/reference/get-product-listings
  *
- * The creator connects via /api/connect/vrchat/begin → vrchat-verify.html?mode=connect.
+ * The creator connects via /api/connect/vrchat/begin → /setup/vrchat?mode=connect.
  * Their session is stored encrypted in provider_connections with credentialKey='vrchat_session'.
  */
 

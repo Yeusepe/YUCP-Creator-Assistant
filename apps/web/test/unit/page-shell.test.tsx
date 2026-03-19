@@ -1,10 +1,18 @@
 import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildCurrentSignInUrl } from '@/lib/authUrls';
+import { authClient } from '@/lib/auth-client';
 import { SignInPage } from '@/routes/sign-in';
 
 vi.mock('@/components/three/CloudBackground', () => ({
   CloudBackground: () => <div data-testid="cloud-background" />,
+}));
+
+vi.mock('@/lib/auth-client', () => ({
+  authClient: {
+    signIn: {
+      social: vi.fn(),
+    },
+  },
 }));
 
 describe('Page shell boot', () => {
@@ -14,6 +22,7 @@ describe('Page shell boot', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
     originalRequestAnimationFrame = globalThis.requestAnimationFrame;
     originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
     originalFetch = globalThis.fetch;
@@ -45,8 +54,8 @@ describe('Page shell boot', () => {
     }
   });
 
-  it('renders the original loading overlay scene and dismisses it after reveal', async () => {
-    const { container } = render(<SignInPage signInUrl="/api/auth/sign-in/discord" />);
+  it('renders the loading overlay scene and dismisses it after reveal', async () => {
+    const { container } = render(<SignInPage />);
 
     expect(container.querySelector('#page-loading-overlay .plo-bag-scene')).toBeTruthy();
 
@@ -58,21 +67,20 @@ describe('Page shell boot', () => {
     ).toBe('none');
   });
 
-  it('keeps dashboard auth independent from guild selection in the Discord callback URL', () => {
-    const signInUrl = buildCurrentSignInUrl(
-      'http://localhost:3000/sign-in?redirectTo=%2Fdashboard%3Fguild_id%3D123'
-    );
-    const { container } = render(<SignInPage signInUrl={signInUrl} />);
-    const href = (container.querySelector('#discord-signin-btn') as HTMLAnchorElement | null)?.href;
+  it('keeps dashboard auth independent from guild selection in the Discord callback URL', async () => {
+    const { container } = render(<SignInPage redirectTo="/dashboard?guild_id=123" />);
+    const signInButton = container.querySelector('#discord-signin-btn');
 
-    expect(href).toBeTruthy();
-    if (!href) {
-      throw new Error('Expected the Discord sign-in button to render an href.');
+    expect(signInButton).toBeTruthy();
+    if (!(signInButton instanceof HTMLButtonElement)) {
+      throw new Error('Expected the Discord sign-in button to render as a button.');
     }
 
-    const discordUrl = new URL(href);
-    expect(discordUrl.pathname).toBe('/api/auth/sign-in/discord/start');
-    expect(discordUrl.searchParams.get('callbackURL')).toBeNull();
-    expect(discordUrl.searchParams.get('returnTo')).toBe('/sign-in?redirectTo=%2Fdashboard');
+    signInButton.click();
+
+    expect(authClient.signIn.social).toHaveBeenCalledWith({
+      provider: 'discord',
+      callbackURL: '/dashboard',
+    });
   });
 });

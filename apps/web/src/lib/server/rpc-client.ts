@@ -6,6 +6,7 @@ import {
   SetupClient,
   VerificationClient,
 } from '@yucp/private-rpc';
+import { getInternalRpcSharedSecret } from '@yucp/shared';
 
 /**
  * Bebop RPC client for server-to-server calls from TanStack Start
@@ -38,10 +39,7 @@ function getRpcBaseUrl(): string {
 }
 
 async function initClients(): Promise<RpcClients> {
-  const sharedSecret = process.env.INTERNAL_RPC_SHARED_SECRET;
-  if (!sharedSecret) {
-    throw new Error('INTERNAL_RPC_SHARED_SECRET is not configured');
-  }
+  const sharedSecret = getInternalRpcSharedSecret(process.env);
 
   const credential = BearerCredential.create(new NoStorageStrategy(), 'web-rpc');
   await credential.storeCredential({ token: sharedSecret });

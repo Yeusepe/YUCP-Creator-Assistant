@@ -1,3 +1,4 @@
+import { getInternalRpcSharedSecret } from '@yucp/shared';
 import { getToken } from '../auth-server';
 
 const FORWARDED_COOKIE_NAMES = new Set([
@@ -12,11 +13,7 @@ function getApiBaseUrl(): string {
 }
 
 function getInternalSecret(): string {
-  const secret = process.env.INTERNAL_RPC_SHARED_SECRET;
-  if (!secret) {
-    throw new Error('INTERNAL_RPC_SHARED_SECRET is not configured');
-  }
-  return secret;
+  return getInternalRpcSharedSecret(process.env);
 }
 
 function copyHeaderIfPresent(source: Headers, target: Headers, headerName: string) {

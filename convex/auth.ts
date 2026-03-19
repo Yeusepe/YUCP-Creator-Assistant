@@ -124,6 +124,19 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
     database: authComponent.adapter(ctx),
     socialProviders: discordConfig,
     plugins: [
+      // oauthProvider depends on the standalone JWT plugin for OAuth/OIDC tokens,
+      // while convex() adds the /convex/* JWT endpoints used by the web app.
+      // Mount jwt() first so both surfaces stay registered.
+      jwt({
+        jwks: {
+          keyPairConfig: { alg: 'ES256' },
+        },
+        jwt: {
+          issuer: authBaseUrl,
+          audience: PUBLIC_API_AUDIENCE,
+        },
+        disableSettingJwtHeader: true,
+      }),
       convex({ authConfig }),
       apiKey({
         defaultPrefix: PUBLIC_API_KEY_PREFIX,
@@ -135,16 +148,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
             [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: ['verification:read', 'subjects:read'],
           },
         },
-      }),
-      jwt({
-        jwks: {
-          keyPairConfig: { alg: 'ES256' },
-        },
-        jwt: {
-          issuer: authBaseUrl,
-          audience: PUBLIC_API_AUDIENCE,
-        },
-        disableSettingJwtHeader: true,
       }),
       oauthProvider({
         loginPage: `${siteUrl.replace(/\/$/, '')}/oauth/login`,

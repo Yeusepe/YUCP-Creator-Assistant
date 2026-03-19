@@ -7,8 +7,8 @@
  *   POST /api/connect/vrchat/session — validates token, calls VrchatApiClient.beginLogin(),
  *                                      handles 2FA, encrypts session, stores in Convex
  *
- * Reuses vrchat-verify.html (the existing buyer login UI).
- * Separate cookie/path from the buyer flow — never touches vrchatPending.ts.
+ * Reuses the TanStack `/setup/vrchat` flow with `mode=connect`.
+ * Separate cookie/path from the buyer flow, and never touches vrchatPending.ts.
  */
 
 import { VrchatApiClient } from '@yucp/providers/vrchat';
@@ -97,7 +97,7 @@ interface SessionBody {
 }
 
 /**
- * Called by vrchat-verify.html (mode=connect) after the creator enters credentials.
+ * Called by the TanStack `/setup/vrchat` route (mode=connect) after the creator enters credentials.
  *
  * Flow:
  * 1. Validate connect token from body → get authUserId

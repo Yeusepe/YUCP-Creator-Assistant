@@ -13,16 +13,6 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    proxy: {
-      '/Icons': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/assets': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-    },
   },
   ssr: {
     noExternal: ['@convex-dev/better-auth'],

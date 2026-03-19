@@ -76,15 +76,15 @@ export const Route = createRootRouteWithContext<{
 function RootComponent() {
   const context = useRouteContext({ from: Route.id });
   return (
-    <ConvexBetterAuthProvider
-      client={context.convexQueryClient.convexClient}
-      authClient={authClient}
-      initialToken={context.token}
-    >
-      <RootDocument>
+    <RootDocument>
+      <ConvexBetterAuthProvider
+        client={context.convexQueryClient.convexClient}
+        authClient={authClient}
+        initialToken={context.token}
+      >
         <Outlet />
-      </RootDocument>
-    </ConvexBetterAuthProvider>
+      </ConvexBetterAuthProvider>
+    </RootDocument>
   );
 }
 

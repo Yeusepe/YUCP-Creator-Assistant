@@ -28,9 +28,3 @@ export function buildSignInUrlForRedirectTarget({
 }>): string {
   return buildDiscordSignInStartUrl(buildSignInCallbackPath({ redirectTo }));
 }
-
-export function buildCurrentSignInUrl(currentHref: string): string {
-  return buildSignInUrlForRedirectTarget({
-    redirectTo: new URL(currentHref).searchParams.get('redirectTo'),
-  });
-}

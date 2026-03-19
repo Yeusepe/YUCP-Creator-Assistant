@@ -405,70 +405,69 @@ function SidebarLogoArea() {
       <div className="sidebar-brand">
         <img src="/Icons/MainLogo.png" alt="Creator Assistant Logo" className="sidebar-logo-img" />
       </div>
-      <button
-        type="button"
-        className="sidebar-server-pill"
-        id="sidebar-server-selector"
-        onClick={toggleDropdown}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            toggleDropdown();
-          }
-        }}
-      >
-        <div className="sidebar-server-info">
-          <div className="sidebar-server-icon" id="sidebar-selected-icon">
-            {selectedGuild?.icon ? (
-              <img
-                src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
-                alt=""
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: '50%',
-                  objectFit: 'cover',
-                }}
-              />
-            ) : (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M6 9l6 6 6-6" />
-              </svg>
-            )}
-          </div>
-          <span className="sidebar-server-name text-white" id="sidebar-selected-name">
-            {selectedName}
-          </span>
-        </div>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="rgba(255,255,255,0.4)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="sidebar-server-chevron"
-          aria-hidden="true"
+      <div className="sidebar-server-selector">
+        <button
+          type="button"
+          className="sidebar-server-pill"
+          id="sidebar-server-selector"
+          onClick={toggleDropdown}
+          aria-haspopup="menu"
+          aria-expanded={dropdownOpen}
+          aria-controls="server-dropdown-menu"
         >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+          <div className="sidebar-server-info">
+            <div className="sidebar-server-icon" id="sidebar-selected-icon">
+              {selectedGuild?.icon ? (
+                <img
+                  src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
+                  alt=""
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                  }}
+                />
+              ) : (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              )}
+            </div>
+            <span className="sidebar-server-name text-white" id="sidebar-selected-name">
+              {selectedName}
+            </span>
+          </div>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="rgba(255,255,255,0.4)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="sidebar-server-chevron"
+            aria-hidden="true"
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
 
         {/* biome-ignore lint/a11y/noStaticElementInteractions: stops click from closing dropdown */}
         {/* biome-ignore lint/a11y/useKeyWithClickEvents: click only stops propagation, no action */}
         <div
-          className={`server-dropdown-menu${dropdownOpen ? ' is-open' : ''}`}
+          className={`server-dropdown-menu${dropdownOpen ? ' open' : ''}`}
           id="server-dropdown-menu"
           onClick={(e) => e.stopPropagation()}
         >
@@ -578,7 +577,7 @@ function SidebarLogoArea() {
             </button>
           </div>
         </div>
-      </button>
+      </div>
     </div>
   );
 }

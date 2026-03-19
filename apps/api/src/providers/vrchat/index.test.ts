@@ -53,7 +53,7 @@ describe('vrchatProvider.getCredential', () => {
   it('decrypts and returns the session JSON when connection has vrchatSessionEncrypted', async () => {
     // We need a real encrypted value — encrypt using the same HKDF purpose as the plugin
     // Import the encrypt function to produce a valid ciphertext
-    const { encrypt, decrypt } = await import('../../lib/encrypt');
+    const { encrypt } = await import('../../lib/encrypt');
     const sessionPayload = JSON.stringify({ authToken: 'auth-tok', twoFactorAuthToken: 'two-tok' });
     const encryptionSecret = 'test-encryption-secret-32-chars!!';
     // The plugin uses PURPOSES.credential = 'vrchat-creator-session'
@@ -65,8 +65,11 @@ describe('vrchatProvider.getCredential', () => {
     });
     const credential = await vrchatProvider.getCredential(ctx);
     expect(credential).not.toBeNull();
+    if (!credential) {
+      throw new Error('Expected VRChat credential to decrypt successfully.');
+    }
     // The returned credential should be the decrypted session JSON
-    const parsed = JSON.parse(credential!) as { authToken: string; twoFactorAuthToken: string };
+    const parsed = JSON.parse(credential) as { authToken: string; twoFactorAuthToken: string };
     expect(parsed.authToken).toBe('auth-tok');
     expect(parsed.twoFactorAuthToken).toBe('two-tok');
   });

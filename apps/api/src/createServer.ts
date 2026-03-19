@@ -16,9 +16,7 @@
  */
 
 import path from 'node:path';
-import { buildAllowedBrowserOrigins, createLogger } from '@yucp/shared';
 import type { Auth } from './auth';
-import { type DiscordSignInFetch } from './lib/discordSignInBridge';
 import {
   createVerificationRoutes,
   mountVerificationRouteHandlers,
@@ -69,8 +67,6 @@ export interface TestServerConfig {
   baseUrl?: string;
   /** Frontend/browser URL used for auth callback generation (defaults to baseUrl). */
   frontendUrl?: string;
-  /** Retained for compatibility with older tests; not used by the migrated server routes. */
-  authFetch?: DiscordSignInFetch;
   /**
    * Override the Auth implementation used by all routes.
    * When omitted, a stub that always returns null sessions is used (default
@@ -110,18 +106,9 @@ function redirectToFrontendRoute(
   return Response.redirect(target.toString(), 302);
 }
 
-const testServerLogger = createLogger('error');
-
 export async function createServer(config: TestServerConfig): Promise<TestServer> {
   const baseUrl = config.baseUrl ?? `http://localhost:${config.port}`;
   const frontendUrl = config.frontendUrl ?? baseUrl;
-  const allowedBrowserOrigins = new Set(
-    buildAllowedBrowserOrigins({
-      siteUrl: baseUrl,
-      frontendUrl,
-      additionalOrigins: [baseUrl],
-    })
-  );
 
   const stubAuth = config.auth ?? createStubAuth();
 
@@ -201,9 +188,7 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     if (
       pathname.startsWith('/assets/') ||
       pathname.startsWith('/Icons/') ||
-      pathname === '/loading.css' ||
-      pathname === '/dashboard.css' ||
-      pathname === '/dashboard-components.css'
+      pathname === '/loading.css'
     ) {
       const relativePublicPath = pathname.replace(/^\/+/, '');
       const candidatePath = path.resolve(PUBLIC_BASE_DIR, relativePublicPath);

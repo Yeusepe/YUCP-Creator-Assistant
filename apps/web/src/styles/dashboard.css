@@ -367,8 +367,11 @@ body:not(.state-server-selected) .server-only {
 
 /*  Server Selector Dropdown  */
 
-.sidebar-server-pill {
+.sidebar-server-selector {
   position: relative;
+}
+
+.sidebar-server-pill {
   cursor: pointer;
 }
 

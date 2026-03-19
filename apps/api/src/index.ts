@@ -3,7 +3,7 @@
 // This Bun server hosts the app pages, connect flows, and integration routes.
 
 import path from 'node:path';
-import { createLogger } from '@yucp/shared';
+import { createLogger, getInternalRpcSharedSecret } from '@yucp/shared';
 import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
@@ -131,9 +131,9 @@ function initializeAuth(webhookBaseUrl?: string) {
   const env = loadEnv();
   const convexUrl = getConfiguredConvexUrl(env);
   const encryptionSecret = getEncryptionSecret(env);
+  const internalRpcSharedSecret = getInternalRpcSharedSecret(env);
 
   getRequired('BETTER_AUTH_SECRET');
-  getRequired('INTERNAL_RPC_SHARED_SECRET');
   if ((env.NODE_ENV ?? 'development') === 'production') {
     getRequired('INTERNAL_SERVICE_AUTH_SECRET');
     getRequired('VRCHAT_PENDING_STATE_SECRET');
@@ -276,7 +276,7 @@ function initializeAuth(webhookBaseUrl?: string) {
       convexSiteUrl,
       convexUrl,
       encryptionSecret,
-      internalRpcSharedSecret: env.INTERNAL_RPC_SHARED_SECRET ?? '',
+      internalRpcSharedSecret,
       logLevel: env.LOG_LEVEL,
     },
   });
@@ -379,20 +379,6 @@ async function routeRequest(request: Request): Promise<Response> {
 
   if (pathname === '/loading.css') {
     const file = Bun.file(`${import.meta.dir}/../public/loading.css`);
-    return new Response(file, {
-      headers: { 'Content-Type': 'text/css; charset=utf-8' },
-    });
-  }
-
-  if (pathname === '/dashboard-components.css') {
-    const file = Bun.file(`${import.meta.dir}/../public/dashboard-components.css`);
-    return new Response(file, {
-      headers: { 'Content-Type': 'text/css; charset=utf-8' },
-    });
-  }
-
-  if (pathname === '/dashboard.css') {
-    const file = Bun.file(`${import.meta.dir}/../public/dashboard.css`);
     return new Response(file, {
       headers: { 'Content-Type': 'text/css; charset=utf-8' },
     });
