@@ -60,6 +60,14 @@ export interface DashboardPolicy {
   announcementsChannelId?: string;
 }
 
+export function normalizeDashboardIdentifier(value: string | null | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  return value.replace(/^"|"$/g, '');
+}
+
 export const DASHBOARD_SETTING_KEYS = [
   'allowMismatchedEmails',
   'autoVerifyOnJoin',
@@ -204,10 +212,10 @@ export async function listUserGuilds() {
   const data = await apiClient.get<{ guilds?: DashboardGuildResponse[] }>('/api/connect/user/guilds');
   return (data.guilds ?? []).map(
     (guild): Guild => ({
-      id: guild.guildId,
+      id: normalizeDashboardIdentifier(guild.guildId) ?? guild.guildId,
       name: guild.name,
       icon: guild.icon ?? null,
-      tenantId: guild.authUserId,
+      tenantId: normalizeDashboardIdentifier(guild.authUserId) ?? guild.authUserId,
     })
   );
 }
@@ -250,6 +258,12 @@ export async function listGuildChannels(guildId: string, authUserId?: string) {
     }
   );
   return data.channels ?? [];
+}
+
+export async function getConnectionStatus(authUserId: string) {
+  return apiClient.get<Record<string, boolean>>('/api/connect/status', {
+    params: { authUserId },
+  });
 }
 
 export async function uninstallGuild(guildId: string) {

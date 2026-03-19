@@ -3,6 +3,10 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
+import {
+  DashboardActionRowSkeleton,
+  DashboardListSkeleton,
+} from '@/components/dashboard/DashboardSkeletons';
 import type {
   CollabAsCollaboratorSummary,
   CollabConnectionSummary,
@@ -221,10 +225,8 @@ function MyCollaboratorsSection({
         Allow members to verify licenses from other creators&apos; stores.
       </p>
 
-      <div className="skeleton-group" aria-hidden="true">
-        <div className="skeleton-block skeleton-card" />
-        <div className="skeleton-block skeleton-card" />
-      </div>
+      <DashboardActionRowSkeleton count={1} widths={[132]} />
+      <DashboardListSkeleton rows={2} />
 
       <DashboardBodyPortal>
         <div className={`inline-panel${invitePanelOpen ? ' open' : ''}`} id="invite-panel">
@@ -586,13 +588,10 @@ function MyCollaboratorsSection({
                   <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                 </svg>
               </div>
-              <p className="text-sm font-semibold" style={{ fontFamily: "'DM Sans',sans-serif" }}>
+              <p className="empty-state-title">
                 No collaborators yet.
               </p>
-              <p
-                className="text-xs mt-2 max-w-xs mx-auto"
-                style={{ fontFamily: "'DM Sans',sans-serif" }}
-              >
+              <p className="empty-state-copy">
                 Invite a creator to share license verification.
               </p>
               <button
@@ -618,18 +617,7 @@ function MyCollaboratorsSection({
             </div>
           ) : null}
         </>
-      ) : (
-        <div id="collab-loading" className="text-center py-8">
-          <div
-            className="inline-block w-5 h-5 border-2 rounded-full"
-            style={{
-              borderColor: '#e2e8f0',
-              borderTopColor: '#0ea5e9',
-              animation: 'page-loading-spin 0.8s linear infinite',
-            }}
-          />
-        </div>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -685,9 +673,7 @@ function StoresICollaborateWithSection({
         Stores where you&apos;ve been granted creator access to verify licenses.
       </p>
 
-      <div className="skeleton-group" aria-hidden="true">
-        <div className="skeleton-block skeleton-card" />
-      </div>
+      <DashboardListSkeleton rows={1} showAction={false} />
 
       {!isLoading ? (
         <>
@@ -733,30 +719,16 @@ function StoresICollaborateWithSection({
                   <polyline points="9 22 9 12 15 12 15 22" />
                 </svg>
               </div>
-              <p className="text-sm font-semibold" style={{ fontFamily: "'DM Sans',sans-serif" }}>
+              <p className="empty-state-title">
                 Not collaborating yet.
               </p>
-              <p
-                className="text-xs mt-2 max-w-xs mx-auto"
-                style={{ fontFamily: "'DM Sans',sans-serif" }}
-              >
+              <p className="empty-state-copy">
                 Accept an invite from another creator to appear here.
               </p>
             </div>
           ) : null}
         </>
-      ) : (
-        <div id="collab-as-collaborator-loading" className="text-center py-8">
-          <div
-            className="inline-block w-5 h-5 border-2 rounded-full"
-            style={{
-              borderColor: '#e2e8f0',
-              borderTopColor: '#0ea5e9',
-              animation: 'page-loading-spin 0.8s linear infinite',
-            }}
-          />
-        </div>
-      )}
+      ) : null}
     </section>
   );
 }

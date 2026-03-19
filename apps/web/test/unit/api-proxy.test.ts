@@ -47,4 +47,29 @@ describe('proxyApiRequest', () => {
       'yucp.session_token=session-cookie; yucp.session_data=cached-session; yucp_setup_session=setup-cookie'
     );
   });
+
+  it('converts upstream fetch resets into a controlled 502 response instead of throwing', async () => {
+    mockFetch.mockRejectedValueOnce(
+      Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('read ECONNRESET'), {
+          code: 'ECONNRESET',
+          syscall: 'read',
+        }),
+      })
+    );
+
+    const { proxyApiRequest } = await import('@/lib/server/api-proxy');
+
+    const response = await proxyApiRequest({
+      url: 'http://localhost:3000/api/connect/user/accounts',
+      method: 'GET',
+      headers: new Headers(),
+    } as Request);
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Upstream API request failed',
+      code: 'ECONNRESET',
+    });
+  });
 });

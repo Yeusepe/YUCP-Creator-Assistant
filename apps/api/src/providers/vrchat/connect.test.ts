@@ -16,10 +16,35 @@ process.env.BETTER_AUTH_SECRET ??= 'test-better-auth-secret-for-pending!!';
 // ── Module mock: replace getStateStore() with our test store ──────────────────
 // Must be declared before the connect module is imported so the mock takes effect.
 let activeStore = new InMemoryStateStore();
+const mutationCalls: Array<[string, unknown]> = [];
+const encryptedCalls: Array<{ value: string; purpose: string }> = [];
 
 mock.module('../../lib/stateStore', () => ({
   getStateStore: () => activeStore,
   InMemoryStateStore,
+}));
+
+mock.module('../../lib/convex', () => ({
+  getConvexClientFromUrl: () => ({
+    mutation: mock(async (path: string, args: unknown) => {
+      mutationCalls.push([path, args]);
+      return null;
+    }),
+  }),
+}));
+
+mock.module('../../lib/encrypt', () => ({
+  encrypt: mock(async (value: string, _secret: string, purpose: string) => {
+    encryptedCalls.push({ value, purpose });
+    return `enc:${purpose}:${Buffer.from(value).toString('base64url')}`;
+  }),
+  decrypt: mock(async (value: string, _secret: string, purpose: string) => {
+    const prefix = `enc:${purpose}:`;
+    if (!value.startsWith(prefix)) {
+      throw new Error('Invalid ciphertext');
+    }
+    return Buffer.from(value.slice(prefix.length), 'base64url').toString();
+  }),
 }));
 
 // Imported AFTER mock.module so the module sees the mock
@@ -29,6 +54,8 @@ const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   activeStore = new InMemoryStateStore();
+  mutationCalls.length = 0;
+  encryptedCalls.length = 0;
 });
 
 afterEach(() => {
@@ -275,5 +302,138 @@ describe('VRChat connect — POST /session', () => {
     // Must match the canonical shape that vrchat-verify.html checks: twoFactorRequired + types
     expect(body.twoFactorRequired).toBe(true);
     expect(body.types).toEqual(['emailOtp']);
+  });
+
+  it('stores the encrypted creator session when VRChat login succeeds without 2FA', async () => {
+    await activeStore.set(
+      'vrchat_connect:valid-token',
+      JSON.stringify({ authUserId: 'auth_user_123' }),
+      10 * 60 * 1000
+    );
+
+    const fetchMock = mock(async (url: string) => {
+      if (url.endsWith('/auth/user')) {
+        const responseHeaders = new Headers();
+        responseHeaders.append('set-cookie', 'auth=auth-tok; Path=/; HttpOnly');
+        responseHeaders.append('set-cookie', 'twoFactorAuth=2fa-tok; Path=/; HttpOnly');
+        return new Response(
+          JSON.stringify({ id: 'usr_123', username: 'user', displayName: 'User Display' }),
+          {
+            status: 200,
+            headers: responseHeaders,
+          }
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const ctx = makeContext();
+    const request = new Request('https://api.example.com/api/connect/vrchat/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'valid-token', username: 'user', password: 'pass' }),
+    });
+    const response = await sessionRoute.handler(request, ctx as unknown as ConnectContext);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true });
+    expect(encryptedCalls).toEqual([
+      {
+        value: JSON.stringify({ authToken: 'auth-tok', twoFactorAuthToken: '2fa-tok' }),
+        purpose: 'vrchat-creator-session',
+      },
+    ]);
+    expect(mutationCalls).toHaveLength(1);
+    expect(mutationCalls[0]?.[1]).toMatchObject({
+      authUserId: 'auth_user_123',
+      providerKey: 'vrchat',
+      authMode: 'session',
+      credentials: [
+        {
+          credentialKey: 'vrchat_session',
+          kind: 'api_token',
+          encryptedValue:
+            'enc:vrchat-creator-session:eyJhdXRoVG9rZW4iOiJhdXRoLXRvayIsInR3b0ZhY3RvckF1dGhUb2tlbiI6IjJmYS10b2sifQ',
+        },
+      ],
+    });
+    expect(await activeStore.get('vrchat_connect:valid-token')).toBeNull();
+  });
+
+  it('completes 2FA and stores the creator session', async () => {
+    await activeStore.set(
+      'vrchat_connect:valid-token',
+      JSON.stringify({ authUserId: 'auth_user_123' }),
+      10 * 60 * 1000
+    );
+
+    const fetchMock = mock(async (url: string) => {
+      if (url.endsWith('/auth/user')) {
+        const responseHeaders = new Headers();
+        const authHeader = (fetchMock.mock.calls.at(-1)?.[1] as RequestInit | undefined)?.headers;
+        const requestHeaders = new Headers(authHeader);
+        const cookie = requestHeaders.get('cookie');
+        if (cookie?.includes('twoFactorAuth=2fa-tok')) {
+          return new Response(
+            JSON.stringify({ id: 'usr_123', username: 'user', displayName: 'User Display' }),
+            { status: 200 }
+          );
+        }
+
+        responseHeaders.append('set-cookie', 'auth=auth-tok; Path=/; HttpOnly');
+        return new Response(JSON.stringify({ requiresTwoFactorAuth: ['emailOtp'] }), {
+          status: 200,
+          headers: responseHeaders,
+        });
+      }
+
+      if (url.endsWith('/auth/twofactorauth/emailotp/verify')) {
+        const responseHeaders = new Headers();
+        responseHeaders.append('set-cookie', 'twoFactorAuth=2fa-tok; Path=/; HttpOnly');
+        return new Response(JSON.stringify({ verified: true }), {
+          status: 200,
+          headers: responseHeaders,
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const ctx = makeContext();
+    const firstRequest = new Request('https://api.example.com/api/connect/vrchat/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'valid-token', username: 'user', password: 'pass' }),
+    });
+    const firstResponse = await sessionRoute.handler(firstRequest, ctx as unknown as ConnectContext);
+    expect(firstResponse.status).toBe(200);
+    const firstBody = (await firstResponse.json()) as { twoFactorRequired?: boolean; types?: string[] };
+    expect(firstBody).toEqual({ twoFactorRequired: true, types: ['emailOtp'] });
+
+    const pendingCookie = firstResponse.headers.get('set-cookie');
+    expect(pendingCookie).toContain('yucp_vrchat_connect_pending=');
+
+    const secondRequest = new Request('https://api.example.com/api/connect/vrchat/session', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: pendingCookie ?? '',
+      },
+      body: JSON.stringify({ token: 'valid-token', twoFactorCode: '123456' }),
+    });
+    const secondResponse = await sessionRoute.handler(secondRequest, ctx as unknown as ConnectContext);
+
+    expect(secondResponse.status).toBe(200);
+    expect(await secondResponse.json()).toEqual({ success: true });
+    expect(encryptedCalls.at(-1)).toEqual({
+      value: JSON.stringify({ authToken: 'auth-tok', twoFactorAuthToken: '2fa-tok' }),
+      purpose: 'vrchat-creator-session',
+    });
+    expect(mutationCalls).toHaveLength(1);
+    expect(secondResponse.headers.get('set-cookie')).toContain('Max-Age=0');
+    expect(await activeStore.get('vrchat_connect:valid-token')).toBeNull();
   });
 });

@@ -2,6 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
+import {
+  DashboardActionRowSkeleton,
+  DashboardGridSkeleton,
+  DashboardListSkeleton,
+  DashboardSettingsSkeleton,
+} from '@/components/dashboard/DashboardSkeletons';
 import { useHasMounted } from '@/hooks/useHasMounted';
 import { useServerContext } from '@/hooks/useServerContext';
 import type {
@@ -14,6 +20,7 @@ import type {
 import {
   buildProviderConnectUrl,
   disconnectUserAccount,
+  getConnectionStatus,
   getDashboardSettings,
   getProviderIconPath,
   listDashboardProviders,
@@ -211,8 +218,9 @@ function PersonalSetupPanel() {
       className={`section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1 personal-only${
         !isLoading ? ' skeleton-loaded' : ''
       }`}
+      style={{ marginBottom: '24px' }}
     >
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3" style={{ gap: '12px', marginBottom: '24px' }}>
         <div
           className="w-8 h-8 rounded-xl flex items-center justify-center"
           style={{ background: 'rgba(14, 165, 233, 0.15)' }}
@@ -238,19 +246,15 @@ function PersonalSetupPanel() {
           Participating Servers
         </h2>
       </div>
-      <p className="text-sm text-white/70 mb-4" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      <p
+        className="text-sm text-white/70"
+        style={{ fontFamily: "'DM Sans', sans-serif", margin: '0 0 16px' }}
+      >
         These are the servers you collaborate on. Use the dropdown in the sidebar to configure
         specific server settings.
       </p>
 
-      <div
-        className="skeleton-group"
-        aria-hidden="true"
-        style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}
-      >
-        <div className="skeleton-block skeleton-card" />
-        <div className="skeleton-block skeleton-card" />
-      </div>
+      <DashboardGridSkeleton cards={2} />
 
       {!isLoading ? (
         <div
@@ -429,7 +433,7 @@ function ConnectedPlatformsPanel() {
         !isLoading ? ' skeleton-loaded' : ''
       }`}
     >
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3" style={{ gap: '12px', marginBottom: '24px' }}>
         <div
           className="w-8 h-8 rounded-xl flex items-center justify-center"
           style={{ background: 'rgba(255,235,59,0.15)' }}
@@ -439,14 +443,12 @@ function ConnectedPlatformsPanel() {
         <h2 className="text-lg font-black">Connected Platforms</h2>
       </div>
 
-      <div className="skeleton-group" aria-hidden="true">
-        <div className="skeleton-block skeleton-card" />
-        <div className="skeleton-block skeleton-card" />
-        <div className="skeleton-block skeleton-card" />
-      </div>
+      <DashboardActionRowSkeleton count={3} widths={[164, 184, 168]} />
+      <DashboardListSkeleton rows={3} />
 
       {!isLoading ? (
         <>
+          <div aria-hidden="true" style={{ marginBottom: '16px' }} />
           <div
             id="add-account-buttons"
             style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}
@@ -646,17 +648,17 @@ function ServerConfigPanel() {
   const [disconnectStep, setDisconnectStep] = useState(0);
   const timeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  const { data: providers = [] } = useQuery(
+  const { data: providers = [], isLoading: providersLoading } = useQuery(
     dashboardQueryOptions<DashboardProvider[]>({
       queryKey: ['dashboard-providers'],
       queryFn: listDashboardProviders,
     })
   );
-  const { data: accounts = [] } = useQuery(
-    dashboardQueryOptions<UserAccountConnection[]>({
-      queryKey: ['dashboard-user-accounts', viewer?.authUserId],
-      queryFn: listUserAccounts,
-      enabled: Boolean(viewer?.authUserId),
+  const { data: statusByProvider = {}, isLoading: connectionStatusLoading } = useQuery(
+    dashboardQueryOptions<Record<string, boolean>>({
+      queryKey: ['dashboard-connection-status', authUserId],
+      queryFn: () => getConnectionStatus(requireAuthUserId(authUserId)),
+      enabled: Boolean(authUserId && guildId),
     })
   );
   const settingsQuery = useQuery(
@@ -691,9 +693,8 @@ function ServerConfigPanel() {
   );
 
   const linkedProviders = useMemo(() => {
-    const keys = new Set(accounts.map((account) => account.provider));
-    return providers.filter((provider) => keys.has(provider.key) && provider.key !== 'discord');
-  }, [accounts, providers]);
+    return providers.filter((provider) => provider.key !== 'discord' && statusByProvider[provider.key]);
+  }, [providers, statusByProvider]);
 
   const setSaveState = useCallback((key: string, state: SaveIndicatorState) => {
     setSaveStates((current) => ({ ...current, [key]: state }));
@@ -780,7 +781,11 @@ function ServerConfigPanel() {
     [saveSettingMutation]
   );
 
-  const isLoading = settingsQuery.isLoading || channelsQuery.isLoading;
+  const isLoading =
+    providersLoading ||
+    connectionStatusLoading ||
+    settingsQuery.isLoading ||
+    channelsQuery.isLoading;
 
   return (
     <div
@@ -796,47 +801,46 @@ function ServerConfigPanel() {
       <div className="settings-subsection" id="server-store-integrations-section">
         <div className="settings-subsection-title">Store Integrations</div>
         <div className="settings-subsection-body">
-          <div id="dynamic-server-provider-tiles">
-            {linkedProviders.map((provider) => (
-              <article
-                key={provider.key}
-                className="svr-cfg-tile"
-                id={`server-tile-${provider.key}`}
-              >
-                <div className="svr-cfg-tile-head">
-                  <div className="svr-cfg-tile-icon">
-                    {provider.icon ? (
-                      <img
-                        src={getProviderIconPath(provider) ?? ''}
-                        alt={provider.label ?? provider.key}
-                        style={{ borderRadius: '4px' }}
-                      />
-                    ) : null}
+          {!isLoading ? (
+            <div id="dynamic-server-provider-tiles">
+              {linkedProviders.map((provider) => (
+                <article
+                  key={provider.key}
+                  className="svr-cfg-tile"
+                  id={`server-tile-${provider.key}`}
+                >
+                  <div className="svr-cfg-tile-head">
+                    <div className="svr-cfg-tile-icon">
+                      {provider.icon ? (
+                        <img
+                          src={getProviderIconPath(provider) ?? ''}
+                          alt={provider.label ?? provider.key}
+                          style={{ borderRadius: '4px' }}
+                        />
+                      ) : null}
+                    </div>
+                    <div className="svr-cfg-tile-text">
+                      <span className="svr-cfg-tile-label">
+                        Enable {provider.label ?? provider.key} for this Server
+                      </span>
+                      <span className="svr-cfg-tile-hint">
+                        {provider.serverTileHint ??
+                          'Allow users to verify purchases in this Discord server.'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="svr-cfg-tile-text">
-                    <span className="svr-cfg-tile-label">
-                      Enable {provider.label ?? provider.key} for this Server
-                    </span>
-                    <span className="svr-cfg-tile-hint">
-                      {provider.serverTileHint ??
-                        'Allow users to verify purchases in this Discord server.'}
-                    </span>
+                  <div className="svr-cfg-tile-ctrl">
+                    <div
+                      id={`toggle-serverEnable${provider.key[0]?.toUpperCase() ?? ''}${provider.key.slice(1)}`}
+                      className="svr-cfg-switch active"
+                      aria-hidden="true"
+                    />
                   </div>
-                </div>
-                <div className="svr-cfg-tile-ctrl">
-                  <div
-                    id={`toggle-serverEnable${provider.key[0]?.toUpperCase() ?? ''}${provider.key.slice(1)}`}
-                    className="svr-cfg-switch active"
-                    aria-hidden="true"
-                  />
-                </div>
-              </article>
-            ))}
-          </div>
-          <div className="skeleton-group" aria-hidden="true">
-            <div className="skeleton-block skeleton-card" />
-            <div className="skeleton-block skeleton-card" />
-          </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+          <DashboardSettingsSkeleton rows={2} />
           {!isLoading && linkedProviders.length === 0 ? (
             <div
               id="server-integrations-empty"
@@ -852,136 +856,142 @@ function ServerConfigPanel() {
       <div className="settings-subsection">
         <div className="settings-subsection-title">General</div>
         <div className="settings-subsection-body">
-          {SWITCH_SETTING_CONFIG.map((setting) => (
-            <article key={setting.key} className="svr-cfg-tile">
-              <div className="svr-cfg-tile-head">
-                <div className="svr-cfg-tile-icon">
-                  <img src={setting.icon} alt="" />
+          <DashboardSettingsSkeleton rows={SWITCH_SETTING_CONFIG.length + SELECT_SETTING_CONFIG.length + 2} />
+
+          {!isLoading ? (
+            <>
+              {SWITCH_SETTING_CONFIG.map((setting) => (
+                <article key={setting.key} className="svr-cfg-tile">
+                  <div className="svr-cfg-tile-head">
+                    <div className="svr-cfg-tile-icon">
+                      <img src={setting.icon} alt="" />
+                    </div>
+                    <div className="svr-cfg-tile-text">
+                      <span className="svr-cfg-tile-label">{setting.label}</span>
+                      <span className="svr-cfg-tile-hint">{setting.hint}</span>
+                    </div>
+                  </div>
+                  <div className="svr-cfg-tile-ctrl">
+                    <div
+                      id={`toggle-${setting.key}`}
+                      className={`svr-cfg-switch${policyDraft[setting.key] ? ' active' : ''}${
+                        saveSettingMutation.isPending &&
+                        saveSettingMutation.variables?.key === setting.key
+                          ? ' saving'
+                          : ''
+                      }`}
+                      role="switch"
+                      tabIndex={0}
+                      aria-checked={policyDraft[setting.key]}
+                      aria-label={setting.label}
+                      onClick={() => onBooleanSettingChange(setting.key)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onBooleanSettingChange(setting.key);
+                        }
+                      }}
+                    />
+                    <SaveIndicator settingKey={setting.key} state={saveStates[setting.key] ?? 'idle'} />
+                  </div>
+                </article>
+              ))}
+
+              {SELECT_SETTING_CONFIG.map((setting) => (
+                <article key={setting.key} className="svr-cfg-tile">
+                  <div className="svr-cfg-tile-head">
+                    <div className="svr-cfg-tile-icon">
+                      <img src={setting.icon} alt="" />
+                    </div>
+                    <div className="svr-cfg-tile-text">
+                      <span className="svr-cfg-tile-label">{setting.label}</span>
+                      <span className="svr-cfg-tile-hint">{setting.hint}</span>
+                    </div>
+                  </div>
+                  <div className="svr-cfg-tile-ctrl">
+                    <select
+                      id={`select-${setting.key}`}
+                      className="svr-cfg-pick"
+                      value={policyDraft[setting.key]}
+                      onChange={(event) => onSelectSettingChange(setting.key, event.target.value)}
+                    >
+                      {setting.options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <SaveIndicator settingKey={setting.key} state={saveStates[setting.key] ?? 'idle'} />
+                  </div>
+                </article>
+              ))}
+
+              <article className="svr-cfg-tile">
+                <div className="svr-cfg-tile-head">
+                  <div className="svr-cfg-tile-icon">
+                    <img src="/Icons/Library.png" alt="" />
+                  </div>
+                  <div className="svr-cfg-tile-text">
+                    <span className="svr-cfg-tile-label">Logs Channel</span>
+                    <span className="svr-cfg-tile-hint">
+                      Channel where verification activity logs are posted.
+                    </span>
+                  </div>
                 </div>
-                <div className="svr-cfg-tile-text">
-                  <span className="svr-cfg-tile-label">{setting.label}</span>
-                  <span className="svr-cfg-tile-hint">{setting.hint}</span>
+                <div className="svr-cfg-tile-ctrl">
+                  <select
+                    id="select-logChannelId"
+                    className="svr-cfg-pick"
+                    value={policyDraft.logChannelId}
+                    onChange={(event) => onSelectSettingChange('logChannelId', event.target.value)}
+                  >
+                    <option value="">— None —</option>
+                    {channelsQuery.data?.map((channel) => (
+                      <option key={channel.id} value={channel.id}>
+                        #{channel.name}
+                      </option>
+                    ))}
+                  </select>
+                  <SaveIndicator settingKey="logChannelId" state={saveStates.logChannelId ?? 'idle'} />
                 </div>
-              </div>
-              <div className="svr-cfg-tile-ctrl">
-                <div
-                  id={`toggle-${setting.key}`}
-                  className={`svr-cfg-switch${policyDraft[setting.key] ? ' active' : ''}${
-                    saveSettingMutation.isPending &&
-                    saveSettingMutation.variables?.key === setting.key
-                      ? ' saving'
-                      : ''
-                  }`}
-                  role="switch"
-                  tabIndex={0}
-                  aria-checked={policyDraft[setting.key]}
-                  aria-label={setting.label}
-                  onClick={() => onBooleanSettingChange(setting.key)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      onBooleanSettingChange(setting.key);
+              </article>
+
+              <article className="svr-cfg-tile">
+                <div className="svr-cfg-tile-head">
+                  <div className="svr-cfg-tile-icon">
+                    <img src="/Icons/World.png" alt="" />
+                  </div>
+                  <div className="svr-cfg-tile-text">
+                    <span className="svr-cfg-tile-label">Announcements Channel</span>
+                    <span className="svr-cfg-tile-hint">
+                      Channel where bot updates and announcements are posted.
+                    </span>
+                  </div>
+                </div>
+                <div className="svr-cfg-tile-ctrl">
+                  <select
+                    id="select-announcementsChannelId"
+                    className="svr-cfg-pick"
+                    value={policyDraft.announcementsChannelId}
+                    onChange={(event) =>
+                      onSelectSettingChange('announcementsChannelId', event.target.value)
                     }
-                  }}
-                />
-                <SaveIndicator settingKey={setting.key} state={saveStates[setting.key] ?? 'idle'} />
-              </div>
-            </article>
-          ))}
-
-          {SELECT_SETTING_CONFIG.map((setting) => (
-            <article key={setting.key} className="svr-cfg-tile">
-              <div className="svr-cfg-tile-head">
-                <div className="svr-cfg-tile-icon">
-                  <img src={setting.icon} alt="" />
+                  >
+                    <option value="">— None —</option>
+                    {channelsQuery.data?.map((channel) => (
+                      <option key={channel.id} value={channel.id}>
+                        #{channel.name}
+                      </option>
+                    ))}
+                  </select>
+                  <SaveIndicator
+                    settingKey="announcementsChannelId"
+                    state={saveStates.announcementsChannelId ?? 'idle'}
+                  />
                 </div>
-                <div className="svr-cfg-tile-text">
-                  <span className="svr-cfg-tile-label">{setting.label}</span>
-                  <span className="svr-cfg-tile-hint">{setting.hint}</span>
-                </div>
-              </div>
-              <div className="svr-cfg-tile-ctrl">
-                <select
-                  id={`select-${setting.key}`}
-                  className="svr-cfg-pick"
-                  value={policyDraft[setting.key]}
-                  onChange={(event) => onSelectSettingChange(setting.key, event.target.value)}
-                >
-                  {setting.options.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <SaveIndicator settingKey={setting.key} state={saveStates[setting.key] ?? 'idle'} />
-              </div>
-            </article>
-          ))}
-
-          <article className="svr-cfg-tile">
-            <div className="svr-cfg-tile-head">
-              <div className="svr-cfg-tile-icon">
-                <img src="/Icons/Library.png" alt="" />
-              </div>
-              <div className="svr-cfg-tile-text">
-                <span className="svr-cfg-tile-label">Logs Channel</span>
-                <span className="svr-cfg-tile-hint">
-                  Channel where verification activity logs are posted.
-                </span>
-              </div>
-            </div>
-            <div className="svr-cfg-tile-ctrl">
-              <select
-                id="select-logChannelId"
-                className="svr-cfg-pick"
-                value={policyDraft.logChannelId}
-                onChange={(event) => onSelectSettingChange('logChannelId', event.target.value)}
-              >
-                <option value="">— None —</option>
-                {channelsQuery.data?.map((channel) => (
-                  <option key={channel.id} value={channel.id}>
-                    #{channel.name}
-                  </option>
-                ))}
-              </select>
-              <SaveIndicator settingKey="logChannelId" state={saveStates.logChannelId ?? 'idle'} />
-            </div>
-          </article>
-
-          <article className="svr-cfg-tile">
-            <div className="svr-cfg-tile-head">
-              <div className="svr-cfg-tile-icon">
-                <img src="/Icons/World.png" alt="" />
-              </div>
-              <div className="svr-cfg-tile-text">
-                <span className="svr-cfg-tile-label">Announcements Channel</span>
-                <span className="svr-cfg-tile-hint">
-                  Channel where bot updates and announcements are posted.
-                </span>
-              </div>
-            </div>
-            <div className="svr-cfg-tile-ctrl">
-              <select
-                id="select-announcementsChannelId"
-                className="svr-cfg-pick"
-                value={policyDraft.announcementsChannelId}
-                onChange={(event) =>
-                  onSelectSettingChange('announcementsChannelId', event.target.value)
-                }
-              >
-                <option value="">— None —</option>
-                {channelsQuery.data?.map((channel) => (
-                  <option key={channel.id} value={channel.id}>
-                    #{channel.name}
-                  </option>
-                ))}
-              </select>
-              <SaveIndicator
-                settingKey="announcementsChannelId"
-                state={saveStates.announcementsChannelId ?? 'idle'}
-              />
-            </div>
-          </article>
+              </article>
+            </>
+          ) : null}
         </div>
       </div>
 

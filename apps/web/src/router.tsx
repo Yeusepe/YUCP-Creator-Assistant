@@ -33,6 +33,31 @@ export function getRouter() {
     routeTree,
     scrollRestoration: true,
     defaultPreload: 'intent',
+    parseSearch: (search) => {
+      const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+      return Object.fromEntries(params.entries());
+    },
+    stringifySearch: (search) => {
+      const params = new URLSearchParams();
+
+      for (const [key, value] of Object.entries(search)) {
+        if (value === undefined || value === null || value === '') {
+          continue;
+        }
+
+        if (Array.isArray(value)) {
+          for (const entry of value) {
+            params.append(key, String(entry));
+          }
+          continue;
+        }
+
+        params.set(key, String(value));
+      }
+
+      const serialized = params.toString();
+      return serialized ? `?${serialized}` : '';
+    },
     context: { queryClient, convexQueryClient },
     Wrap: ({ children }) => (
       <ConvexProvider client={convexQueryClient.convexClient}>{children}</ConvexProvider>

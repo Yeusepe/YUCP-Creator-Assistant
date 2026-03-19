@@ -13,6 +13,10 @@ const dashboardComponentsCss = readFileSync(
 );
 
 const dashboardCss = readFileSync(resolve(__dirname, '../../src/styles/dashboard.css'), 'utf8');
+const cloudBackgroundSource = readFileSync(
+  resolve(__dirname, '../../src/components/three/CloudBackground.tsx'),
+  'utf8'
+);
 
 describe('dashboard UI contracts', () => {
   it('uses shared dashboard query options for the guild picker and resolves empty server state text', () => {
@@ -42,6 +46,14 @@ describe('dashboard UI contracts', () => {
     );
   });
 
+  it('defines explicit dashboard card padding instead of relying on utility spacing classes', () => {
+    expect(dashboardCss).toContain('.section-card,');
+    expect(dashboardCss).toContain('.intg-card {');
+    expect(dashboardCss).toContain('padding: 16px;');
+    expect(dashboardCss).toContain('padding: 20px;');
+    expect(dashboardCss).toContain('padding: 28px;');
+  });
+
   it('keeps the server switcher full width and above the backdrop', () => {
     expect(dashboardCss).toContain('.sidebar-server-selector');
     expect(dashboardCss).toContain('width: 100%;');
@@ -51,11 +63,47 @@ describe('dashboard UI contracts', () => {
     expect(dashboardRouteSource).toContain('server-selector-portal');
   });
 
+  it('uses the home icon for the personal dashboard selector trigger and no longer renders blob backgrounds', () => {
+    expect(dashboardRouteSource).toContain('<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />');
+    expect(dashboardRouteSource).not.toContain('<BlobBackground />');
+    expect(dashboardRouteSource).not.toContain('function BlobBackground()');
+  });
+
+  it('uses solid light and dark dashboard fallback backgrounds instead of the old blob gradient', () => {
+    expect(dashboardCss).toContain('background: #afcde5;');
+    expect(dashboardCss).toContain('.dark .dashboard-page');
+    expect(dashboardCss).toContain('background: #24405c;');
+    expect(dashboardCss).not.toContain('background: linear-gradient(180deg, #4a9dd9 0%, #3a8bc6 100%);');
+  });
+
+  it('defines simple dashboard skeleton primitives instead of the old generic faux-card treatment', () => {
+    expect(dashboardCss).toContain('.skeleton-line');
+    expect(dashboardCss).toContain('.skeleton-circle');
+    expect(dashboardCss).toContain('.skeleton-pill');
+    expect(dashboardCss).toContain('.skeleton-row-card');
+    expect(dashboardCss).toContain('.skeleton-switch');
+    expect(dashboardCss).not.toContain('.skeleton-card');
+  });
+
   it('keeps invite-link copy affordances and dark-mode integrations overrides in the shared css', () => {
     expect(dashboardComponentsCss).toContain('.invite-url-row');
     expect(dashboardComponentsCss).toContain('.invite-url-copy-btn');
     expect(dashboardComponentsCss).toContain('.dark .intg-card');
     expect(dashboardComponentsCss).toContain('.dark .intg-card .oauth-app-card');
     expect(dashboardComponentsCss).toContain('.dark .intg-card .api-key-row');
+  });
+
+  it('defines centered empty-state copy styles without relying on utility classes', () => {
+    expect(dashboardComponentsCss).toContain('.empty-state-copy');
+    expect(dashboardComponentsCss).toContain('max-width: 280px;');
+    expect(dashboardComponentsCss).toContain('margin: 8px auto 0;');
+    expect(dashboardComponentsCss).toContain('text-align: center;');
+  });
+
+  it('fades cloud layers in after they become ready', () => {
+    expect(cloudBackgroundSource).toContain('requestAnimationFrame');
+    expect(cloudBackgroundSource).toContain('cloud-layer-fade');
+    expect(dashboardCss).toContain('.cloud-layer-fade');
+    expect(dashboardCss).toContain('transition: opacity 0.6s ease;');
   });
 });

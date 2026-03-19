@@ -67,12 +67,32 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
-  const response = await fetch(targetUrl, {
-    method: request.method,
-    headers,
-    body: hasBody ? await request.arrayBuffer() : undefined,
-    redirect: 'manual',
-  });
+  let response: Response;
+  try {
+    response = await fetch(targetUrl, {
+      method: request.method,
+      headers,
+      body: hasBody ? await request.arrayBuffer() : undefined,
+      redirect: 'manual',
+    });
+  } catch (error) {
+    const cause =
+      error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
+    const code =
+      cause && 'code' in cause && typeof cause.code === 'string'
+        ? cause.code
+        : error instanceof Error && 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : 'UPSTREAM_FETCH_FAILED';
+
+    return Response.json(
+      {
+        error: 'Upstream API request failed',
+        code,
+      },
+      { status: 502 }
+    );
+  }
 
   return new Response(response.body, {
     status: response.status,

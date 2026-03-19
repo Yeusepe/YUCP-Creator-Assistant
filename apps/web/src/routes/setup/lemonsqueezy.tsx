@@ -77,7 +77,7 @@ function LemonSqueezySetupPage() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
 
   const stepsSlotRef = useRef<HTMLDivElement>(null);
   const stepsContainerRef = useRef<HTMLDivElement>(null);
@@ -186,11 +186,11 @@ function LemonSqueezySetupPage() {
 
   return (
     <div className="lemonsqueezy-setup">
-      <BackgroundCanvasRoot position="absolute" />
-
       <div
         className={`page-content fixed inset-0 flex flex-col items-center justify-center overflow-y-auto overflow-x-hidden${isVisible ? ' is-visible' : ''}`}
       >
+        <BackgroundCanvasRoot position="absolute" />
+
         {/* Back button */}
         {dashboardUrl && (
           <a
