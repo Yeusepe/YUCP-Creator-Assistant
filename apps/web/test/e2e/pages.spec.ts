@@ -132,10 +132,14 @@ test.describe('No JavaScript Errors', () => {
         }
       });
 
-      await page.goto(route);
-      await page.waitForLoadState('networkidle');
+      await page.goto(route, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => document.readyState === 'complete');
+      await page.waitForTimeout(1500);
 
-      expect(runtimeIssues).toEqual([]);
+      expect(
+        runtimeIssues,
+        runtimeIssues.join('\n') || `Unexpected runtime issues on ${route}`
+      ).toEqual([]);
     });
   }
 });

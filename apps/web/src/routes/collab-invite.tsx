@@ -1975,7 +1975,12 @@ function CollabInvitePage() {
 export const Route = createFileRoute('/collab-invite')({
   validateSearch: (search: Record<string, unknown>) => ({
     auth: typeof search.auth === 'string' ? search.auth : undefined,
-    t: typeof search.t === 'string' ? search.t : undefined,
+    t:
+      typeof search.t === 'string'
+        ? search.t
+        : typeof search.token === 'string'
+          ? search.token
+          : undefined,
   }),
   head: () => ({
     meta: [{ title: 'Collaborator Invite | Creator Assistant' }],

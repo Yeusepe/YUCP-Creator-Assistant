@@ -19,6 +19,13 @@ export interface DashboardViewer {
   authUserId: string;
 }
 
+interface GuildResponse {
+  authUserId: string;
+  guildId: string;
+  name: string;
+  icon: string | null;
+}
+
 /**
  * Fetches the user's Discord guilds that have the bot installed.
  * Used by the dashboard sidebar to populate the guild picker.
@@ -29,9 +36,15 @@ export const fetchGuilds = createServerFn({ method: 'GET' }).handler(async (): P
     throw new Error('Not authenticated');
   }
 
-  return serverApiFetch<Guild[]>('/api/dashboard/guilds', {
+  const response = await serverApiFetch<{ guilds?: GuildResponse[] }>('/api/connect/user/guilds', {
     authToken: token,
   });
+  return (response.guilds ?? []).map((guild) => ({
+    id: guild.guildId,
+    name: guild.name,
+    icon: guild.icon ?? null,
+    tenantId: guild.authUserId,
+  }));
 });
 
 export const fetchDashboardViewer = createServerFn({ method: 'GET' }).handler(

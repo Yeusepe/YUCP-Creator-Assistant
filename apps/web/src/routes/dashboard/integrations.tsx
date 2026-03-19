@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useState } from 'react';
+import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
+import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import type {
   CreatedOAuthApp,
   CreatedPublicApiKey,
@@ -18,6 +20,7 @@ import {
   rotatePublicApiKey,
   updateOAuthApp,
 } from '@/lib/dashboard';
+import { dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
 import { type DashboardViewer, fetchDashboardViewer } from '@/lib/server/dashboard';
 import { copyToClipboard } from '@/lib/utils';
 
@@ -39,6 +42,33 @@ const OAUTH_SCOPE_OPTIONS = [
 ] as const;
 
 function DashboardIntegrations() {
+  const viewerQuery = useQuery(
+    dashboardQueryOptions<DashboardViewer>({
+      queryKey: ['dashboard-viewer'],
+      queryFn: () => fetchDashboardViewer(),
+    })
+  );
+  const authUserId = viewerQuery.data?.authUserId;
+
+  if (!viewerQuery.isLoading && !authUserId) {
+    return (
+      <div
+        id="tab-panel-integrations"
+        className="dashboard-tab-panel is-active"
+        role="tabpanel"
+        aria-labelledby="tab-btn-integrations"
+      >
+        <div className="bento-grid integrations-grid">
+          <DashboardAuthRequiredState
+            id="dashboard-integrations-auth-required"
+            title="Sign in to manage developer integrations"
+            description="Your dashboard session expired or could not be verified. Sign in again to manage OAuth apps and API keys."
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       id="tab-panel-integrations"
@@ -47,14 +77,20 @@ function DashboardIntegrations() {
       aria-labelledby="tab-btn-integrations"
     >
       <div className="bento-grid integrations-grid">
-        <OAuthAppsSection />
-        <ApiKeysSection />
+        <OAuthAppsSection authUserId={authUserId} viewerLoading={viewerQuery.isLoading} />
+        <ApiKeysSection authUserId={authUserId} viewerLoading={viewerQuery.isLoading} />
       </div>
     </div>
   );
 }
 
-function OAuthAppsSection() {
+function OAuthAppsSection({
+  authUserId,
+  viewerLoading,
+}: {
+  authUserId: string | undefined;
+  viewerLoading: boolean;
+}) {
   const queryClient = useQueryClient();
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [appName, setAppName] = useState('');
@@ -66,17 +102,13 @@ function OAuthAppsSection() {
   const [editingScopes, setEditingScopes] = useState<string[]>([]);
   const [revealedSecret, setRevealedSecret] = useState<CreatedOAuthApp | null>(null);
 
-  const { data: viewer } = useQuery<DashboardViewer>({
-    queryKey: ['dashboard-viewer'],
-    queryFn: () => fetchDashboardViewer(),
-  });
-  const authUserId = viewer?.authUserId;
-
-  const oauthAppsQuery = useQuery<OAuthAppSummary[]>({
-    queryKey: ['dashboard-oauth-apps', authUserId],
-    queryFn: () => listOAuthApps(requireAuthUserId(authUserId)),
-    enabled: Boolean(authUserId),
-  });
+  const oauthAppsQuery = useQuery(
+    dashboardQueryOptions<OAuthAppSummary[]>({
+      queryKey: ['dashboard-oauth-apps', authUserId],
+      queryFn: () => listOAuthApps(requireAuthUserId(authUserId)),
+      enabled: Boolean(authUserId),
+    })
+  );
 
   const resetCreateForm = useCallback(() => {
     setAppName('');
@@ -144,7 +176,7 @@ function OAuthAppsSection() {
     setEditingScopes(app.scopes);
   }, []);
 
-  const isLoading = oauthAppsQuery.isLoading || !authUserId;
+  const isLoading = viewerLoading || oauthAppsQuery.isLoading;
   const apps = oauthAppsQuery.data ?? [];
 
   return (
@@ -154,22 +186,24 @@ function OAuthAppsSection() {
     >
       <div className="intg-header">
         <div className="intg-title-row">
-          <div className="intg-icon">
-            <svg
-              aria-hidden="true"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="11" width="18" height="11" rx="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-          </div>
+          {!isLoading ? (
+            <div className="intg-icon">
+              <svg
+                aria-hidden="true"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </div>
+          ) : null}
           <h2 className="intg-title">OAuth Applications</h2>
         </div>
         <button
@@ -193,7 +227,7 @@ function OAuthAppsSection() {
           Add app
         </button>
       </div>
-      <p className="intg-desc">
+      <p className="intg-desc" style={isLoading ? { paddingLeft: 0 } : undefined}>
         Register apps that use the OAuth 2.0 flow to access user verification data on their behalf.
       </p>
 
@@ -431,24 +465,26 @@ function OAuthAppsSection() {
   );
 }
 
-function ApiKeysSection() {
+function ApiKeysSection({
+  authUserId,
+  viewerLoading,
+}: {
+  authUserId: string | undefined;
+  viewerLoading: boolean;
+}) {
   const queryClient = useQueryClient();
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [keyName, setKeyName] = useState('');
   const [scopes, setScopes] = useState<string[]>(['verification:read', 'subjects:read']);
   const [revealedKey, setRevealedKey] = useState<CreatedPublicApiKey | null>(null);
 
-  const { data: viewer } = useQuery<DashboardViewer>({
-    queryKey: ['dashboard-viewer'],
-    queryFn: () => fetchDashboardViewer(),
-  });
-  const authUserId = viewer?.authUserId;
-
-  const apiKeysQuery = useQuery<PublicApiKeySummary[]>({
-    queryKey: ['dashboard-api-keys', authUserId],
-    queryFn: () => listPublicApiKeys(requireAuthUserId(authUserId)),
-    enabled: Boolean(authUserId),
-  });
+  const apiKeysQuery = useQuery(
+    dashboardQueryOptions<PublicApiKeySummary[]>({
+      queryKey: ['dashboard-api-keys', authUserId],
+      queryFn: () => listPublicApiKeys(requireAuthUserId(authUserId)),
+      enabled: Boolean(authUserId),
+    })
+  );
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -481,7 +517,7 @@ function ApiKeysSection() {
     },
   });
 
-  const isLoading = apiKeysQuery.isLoading || !authUserId;
+  const isLoading = viewerLoading || apiKeysQuery.isLoading;
   const keys = apiKeysQuery.data ?? [];
 
   return (
@@ -491,21 +527,23 @@ function ApiKeysSection() {
     >
       <div className="intg-header">
         <div className="intg-title-row">
-          <div className="intg-icon">
-            <svg
-              aria-hidden="true"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-            </svg>
-          </div>
+          {!isLoading ? (
+            <div className="intg-icon">
+              <svg
+                aria-hidden="true"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+              </svg>
+            </div>
+          ) : null}
           <h2 className="intg-title">API Keys</h2>
         </div>
         <button
@@ -529,7 +567,7 @@ function ApiKeysSection() {
           Add key
         </button>
       </div>
-      <p className="intg-desc">
+      <p className="intg-desc" style={isLoading ? { paddingLeft: 0 } : undefined}>
         Call the verification API from your integrations. Pass as <code>x-api-key</code> header.
       </p>
 
@@ -733,60 +771,62 @@ function InlineOAuthAppForm({
   onSubmit: () => void;
 }) {
   return (
-    <div className={`inline-panel${open ? ' open' : ''}`} id="create-oauth-app-panel">
-      <button
-        type="button"
-        aria-label="Close OAuth app panel"
-        onClick={onClose}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          border: 'none',
-          background: 'transparent',
-          padding: 0,
-        }}
-      />
-      <div className="inline-panel-inner" style={{ position: 'relative', zIndex: 1 }}>
-        <div className="inline-panel-body">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '16px',
-            }}
-          >
-            <p className="inline-panel-title" style={{ margin: 0 }}>
-              {title}
-            </p>
-            <button type="button" onClick={onClose} className="panel-close-btn">
-              &times;
-            </button>
-          </div>
-          <InlineOAuthAppFields
-            name={name}
-            redirectUris={redirectUris}
-            selectedScopes={selectedScopes}
-            onNameChange={onNameChange}
-            onRedirectUrisChange={onRedirectUrisChange}
-            onScopeToggle={onScopeToggle}
-          />
-          <div className="inline-btn-row">
-            <button
-              className="btn-primary"
-              type="button"
-              id="create-oauth-app-submit"
-              onClick={onSubmit}
+    <DashboardBodyPortal>
+      <div className={`inline-panel${open ? ' open' : ''}`} id="create-oauth-app-panel">
+        <button
+          type="button"
+          aria-label="Close OAuth app panel"
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            border: 'none',
+            background: 'transparent',
+            padding: 0,
+          }}
+        />
+        <div className="inline-panel-inner" style={{ position: 'relative', zIndex: 1 }}>
+          <div className="inline-panel-body">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '16px',
+              }}
             >
-              {submitLabel}
-            </button>
-            <button className="btn-ghost" type="button" onClick={onClose}>
-              Cancel
-            </button>
+              <p className="inline-panel-title" style={{ margin: 0 }}>
+                {title}
+              </p>
+              <button type="button" onClick={onClose} className="panel-close-btn">
+                &times;
+              </button>
+            </div>
+            <InlineOAuthAppFields
+              name={name}
+              redirectUris={redirectUris}
+              selectedScopes={selectedScopes}
+              onNameChange={onNameChange}
+              onRedirectUrisChange={onRedirectUrisChange}
+              onScopeToggle={onScopeToggle}
+            />
+            <div className="inline-btn-row">
+              <button
+                className="btn-primary"
+                type="button"
+                id="create-oauth-app-submit"
+                onClick={onSubmit}
+              >
+                {submitLabel}
+              </button>
+              <button className="btn-ghost" type="button" onClick={onClose}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </DashboardBodyPortal>
   );
 }
 
@@ -887,93 +927,95 @@ function InlineApiKeyForm({
   onSubmit: () => void;
 }) {
   return (
-    <div className={`inline-panel${open ? ' open' : ''}`} id="create-api-key-panel">
-      <button
-        type="button"
-        aria-label="Close API key panel"
-        onClick={onClose}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          border: 'none',
-          background: 'transparent',
-          padding: 0,
-        }}
-      />
-      <div className="inline-panel-inner" style={{ position: 'relative', zIndex: 1 }}>
-        <div className="inline-panel-body">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '16px',
-            }}
-          >
-            <p className="inline-panel-title" style={{ margin: 0 }}>
-              New API key
-            </p>
-            <button type="button" onClick={onClose} className="panel-close-btn">
-              &times;
-            </button>
-          </div>
-          <div className="modal-field">
-            <label className="modal-label" htmlFor="api-key-name">
-              Key name
-            </label>
-            <span className="modal-helper">e.g. Production bot, Staging integration</span>
-            <input
-              type="text"
-              id="api-key-name"
-              className="modal-input"
-              placeholder="e.g. Production bot"
-              maxLength={64}
-              autoComplete="off"
-              value={name}
-              onChange={(event) => onNameChange(event.target.value)}
-            />
-          </div>
-          <div className="modal-field" style={{ marginBottom: 0 }}>
-            <div className="modal-label">Permissions</div>
-            <div className="scope-toggles">
-              {OAUTH_SCOPE_OPTIONS.map((scope) => (
-                <label key={scope.key} className="scope-toggle">
-                  <input
-                    type="checkbox"
-                    checked={scopes.includes(scope.key)}
-                    onChange={() => onScopeToggle(scope.key)}
-                  />
-                  <div className="scope-toggle-card">
-                    <div className="scope-toggle-check">
-                      <svg aria-hidden="true" viewBox="0 0 12 12">
-                        <polyline points="2 6 5 9 10 3" />
-                      </svg>
-                    </div>
-                    <div className="scope-toggle-text">
-                      <div className="scope-toggle-name">{scope.name}</div>
-                      <div className="scope-toggle-desc">{scope.description}</div>
-                    </div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div className="inline-btn-row">
-            <button
-              className="btn-primary"
-              type="button"
-              id="create-api-key-submit"
-              onClick={onSubmit}
+    <DashboardBodyPortal>
+      <div className={`inline-panel${open ? ' open' : ''}`} id="create-api-key-panel">
+        <button
+          type="button"
+          aria-label="Close API key panel"
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            border: 'none',
+            background: 'transparent',
+            padding: 0,
+          }}
+        />
+        <div className="inline-panel-inner" style={{ position: 'relative', zIndex: 1 }}>
+          <div className="inline-panel-body">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '16px',
+              }}
             >
-              {submitLabel}
-            </button>
-            <button className="btn-ghost" type="button" onClick={onClose}>
-              Cancel
-            </button>
+              <p className="inline-panel-title" style={{ margin: 0 }}>
+                New API key
+              </p>
+              <button type="button" onClick={onClose} className="panel-close-btn">
+                &times;
+              </button>
+            </div>
+            <div className="modal-field">
+              <label className="modal-label" htmlFor="api-key-name">
+                Key name
+              </label>
+              <span className="modal-helper">e.g. Production bot, Staging integration</span>
+              <input
+                type="text"
+                id="api-key-name"
+                className="modal-input"
+                placeholder="e.g. Production bot"
+                maxLength={64}
+                autoComplete="off"
+                value={name}
+                onChange={(event) => onNameChange(event.target.value)}
+              />
+            </div>
+            <div className="modal-field" style={{ marginBottom: 0 }}>
+              <div className="modal-label">Permissions</div>
+              <div className="scope-toggles">
+                {OAUTH_SCOPE_OPTIONS.map((scope) => (
+                  <label key={scope.key} className="scope-toggle">
+                    <input
+                      type="checkbox"
+                      checked={scopes.includes(scope.key)}
+                      onChange={() => onScopeToggle(scope.key)}
+                    />
+                    <div className="scope-toggle-card">
+                      <div className="scope-toggle-check">
+                        <svg aria-hidden="true" viewBox="0 0 12 12">
+                          <polyline points="2 6 5 9 10 3" />
+                        </svg>
+                      </div>
+                      <div className="scope-toggle-text">
+                        <div className="scope-toggle-name">{scope.name}</div>
+                        <div className="scope-toggle-desc">{scope.description}</div>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="inline-btn-row">
+              <button
+                className="btn-primary"
+                type="button"
+                id="create-api-key-submit"
+                onClick={onSubmit}
+              >
+                {submitLabel}
+              </button>
+              <button className="btn-ghost" type="button" onClick={onClose}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </DashboardBodyPortal>
   );
 }
 

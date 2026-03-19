@@ -21,6 +21,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import { withSetupAuthUserId } from '@/lib/setupAuth';
 
 export const Route = createFileRoute('/setup/lemonsqueezy')({
   head: () => ({
@@ -136,8 +137,7 @@ function LemonSqueezySetupPage() {
     setIsConnecting(true);
 
     try {
-      const body: Record<string, string> = { apiKey: key };
-      if (tenantId) body.tenantId = tenantId;
+      const body = withSetupAuthUserId({ apiKey: key }, tenantId);
       const res = await apiFetch(`${apiBase}/api/connect/lemonsqueezy-finish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

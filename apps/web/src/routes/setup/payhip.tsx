@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, apiClient } from '@/api/client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
 
 export const Route = createFileRoute('/setup/payhip')({
   head: () => ({
@@ -199,11 +200,10 @@ function PayhipSetupPage() {
   const startPolling = useCallback(() => {
     if (pollRef.current) return;
     const tenantId = getTenantId();
-    const params = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
     pollRef.current = setInterval(async () => {
       try {
         const data = await apiClient.get<TestWebhookResponse>(
-          `/api/connect/payhip/test-webhook${params}`
+          buildSetupAuthQuery('/api/connect/payhip/test-webhook', tenantId)
         );
         if (data.received) {
           if (pollRef.current) clearInterval(pollRef.current);
@@ -271,8 +271,7 @@ function PayhipSetupPage() {
     setIsSavingApiKey(true);
     try {
       const tenantId = getTenantId();
-      const body: Record<string, string> = { apiKey: trimmed };
-      if (tenantId) body.tenantId = tenantId;
+      const body = withSetupAuthUserId({ apiKey: trimmed }, tenantId);
       const data = await apiClient.post<FinishResponse>('/api/connect/payhip-finish', body);
       setWebhookUrl(data.webhookUrl ?? '');
       return true;
@@ -295,11 +294,10 @@ function PayhipSetupPage() {
     const tenantId = getTenantId();
     const toSave = products.filter((p) => p.permalink.trim() && p.secretKey.trim());
     for (const item of toSave) {
-      const body: Record<string, string> = {
+      const body = withSetupAuthUserId({
         permalink: item.permalink.trim(),
         productSecretKey: item.secretKey.trim(),
-      };
-      if (tenantId) body.tenantId = tenantId;
+      }, tenantId);
       try {
         await apiClient.post('/api/connect/payhip/product-key', body);
       } catch (err) {

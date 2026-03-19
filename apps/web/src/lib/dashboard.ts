@@ -1,4 +1,5 @@
 import { apiClient } from '@/api/client';
+import type { Guild } from '@/lib/server/dashboard';
 
 export interface DashboardViewer {
   authUserId: string;
@@ -34,6 +35,13 @@ export interface DashboardGuildChannel {
   id: string;
   name: string;
   type: number;
+}
+
+interface DashboardGuildResponse {
+  authUserId: string;
+  guildId: string;
+  icon: string | null;
+  name: string;
 }
 
 export type VerificationScope = 'account' | 'license';
@@ -190,6 +198,18 @@ export async function listUserAccounts() {
     '/api/connect/user/accounts'
   );
   return data.connections ?? [];
+}
+
+export async function listUserGuilds() {
+  const data = await apiClient.get<{ guilds?: DashboardGuildResponse[] }>('/api/connect/user/guilds');
+  return (data.guilds ?? []).map(
+    (guild): Guild => ({
+      id: guild.guildId,
+      name: guild.name,
+      icon: guild.icon ?? null,
+      tenantId: guild.authUserId,
+    })
+  );
 }
 
 export async function disconnectUserAccount(connectionId: string) {

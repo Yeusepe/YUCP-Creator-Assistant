@@ -369,6 +369,8 @@ body:not(.state-server-selected) .server-only {
 
 .sidebar-server-selector {
   position: relative;
+  width: 100%;
+  z-index: 100003;
 }
 
 .sidebar-server-pill {
@@ -1697,6 +1699,8 @@ img.collab-avatar {
 }
 
 .sidebar-logo-area {
+  position: relative;
+  z-index: 100003;
   padding: 22px 16px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
@@ -1733,11 +1737,15 @@ img.collab-avatar {
 .sidebar-server-pill {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  width: 100%;
   padding: 7px 10px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+  z-index: 100003;
 }
 
 .sidebar-server-icon {

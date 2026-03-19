@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
+import { useHasMounted } from '@/hooks/useHasMounted';
 import { useServerContext } from '@/hooks/useServerContext';
 import type {
   DashboardGuildChannel,
@@ -17,13 +19,14 @@ import {
   listDashboardProviders,
   listGuildChannels,
   listUserAccounts,
+  listUserGuilds,
   uninstallGuild,
   updateDashboardSetting,
 } from '@/lib/dashboard';
+import { dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
 import {
   type DashboardViewer,
   fetchDashboardViewer,
-  fetchGuilds,
   type Guild,
 } from '@/lib/server/dashboard';
 import { getServerIconUrl } from '@/lib/utils';
@@ -176,15 +179,23 @@ function DashboardIndex() {
 }
 
 function PersonalSetupPanel() {
+  const hasMounted = useHasMounted();
   const navigate = useNavigate();
-  const { data: viewer } = useQuery<DashboardViewer>({
-    queryKey: ['dashboard-viewer'],
-    queryFn: () => fetchDashboardViewer(),
-  });
-  const { data: guilds = [], isLoading } = useQuery<Guild[]>({
-    queryKey: ['dashboard-guilds'],
-    queryFn: () => fetchGuilds(),
-  });
+  const { data: viewer } = useQuery(
+    dashboardQueryOptions<DashboardViewer>({
+      queryKey: ['dashboard-viewer'],
+      queryFn: () => fetchDashboardViewer(),
+    })
+  );
+  const guildsQuery = useQuery(
+    dashboardQueryOptions<Guild[]>({
+      queryKey: ['dashboard-guilds'],
+      queryFn: listUserGuilds,
+      enabled: hasMounted,
+    })
+  );
+  const guilds = guildsQuery.data ?? [];
+  const isLoading = !hasMounted || guildsQuery.isLoading;
 
   const openInstallFlow = useCallback(() => {
     if (!viewer?.authUserId || typeof window === 'undefined') {
@@ -200,7 +211,6 @@ function PersonalSetupPanel() {
       className={`section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1 personal-only${
         !isLoading ? ' skeleton-loaded' : ''
       }`}
-      style={{ marginBottom: '24px' }}
     >
       <div className="flex items-center gap-3 mb-6">
         <div
@@ -350,23 +360,29 @@ function PersonalSetupPanel() {
 
 function ConnectedPlatformsPanel() {
   const { guildId, tenantId } = useServerContext();
-  const { data: viewer } = useQuery<DashboardViewer>({
-    queryKey: ['dashboard-viewer'],
-    queryFn: () => fetchDashboardViewer(),
-  });
+  const { data: viewer } = useQuery(
+    dashboardQueryOptions<DashboardViewer>({
+      queryKey: ['dashboard-viewer'],
+      queryFn: () => fetchDashboardViewer(),
+    })
+  );
   const authUserId = tenantId ?? viewer?.authUserId;
   const queryClient = useQueryClient();
   const [pendingProviderDisconnect, setPendingProviderDisconnect] = useState<string | null>(null);
 
-  const { data: providers = [], isLoading: providersLoading } = useQuery<DashboardProvider[]>({
-    queryKey: ['dashboard-providers'],
-    queryFn: listDashboardProviders,
-  });
-  const { data: accounts = [], isLoading: accountsLoading } = useQuery<UserAccountConnection[]>({
-    queryKey: ['dashboard-user-accounts', viewer?.authUserId],
-    queryFn: listUserAccounts,
-    enabled: Boolean(viewer?.authUserId),
-  });
+  const { data: providers = [], isLoading: providersLoading } = useQuery(
+    dashboardQueryOptions<DashboardProvider[]>({
+      queryKey: ['dashboard-providers'],
+      queryFn: listDashboardProviders,
+    })
+  );
+  const { data: accounts = [], isLoading: accountsLoading } = useQuery(
+    dashboardQueryOptions<UserAccountConnection[]>({
+      queryKey: ['dashboard-user-accounts', viewer?.authUserId],
+      queryFn: listUserAccounts,
+      enabled: Boolean(viewer?.authUserId),
+    })
+  );
 
   const disconnectMutation = useMutation({
     mutationFn: disconnectUserAccount,
@@ -389,6 +405,10 @@ function ConnectedPlatformsPanel() {
   const platformProviders = useMemo(
     () => providers.filter((provider) => provider.key !== 'discord' && provider.connectPath),
     [providers]
+  );
+  const unlinkedPlatformProviders = useMemo(
+    () => platformProviders.filter((provider) => !accountsByProvider.has(provider.key)),
+    [accountsByProvider, platformProviders]
   );
 
   const providerHref = useCallback(
@@ -428,41 +448,10 @@ function ConnectedPlatformsPanel() {
       {!isLoading ? (
         <>
           <div
-            id="user-accounts-list"
-            className="grid grid-cols-1 md:grid-cols-3 gap-4"
-            style={{ marginBottom: '16px' }}
-          >
-            {accounts.length === 0 ? (
-              <div
-                style={{
-                  color: 'rgba(255,255,255,0.5)',
-                  fontSize: '14px',
-                  fontFamily: "'DM Sans',sans-serif",
-                  padding: '16px 0',
-                }}
-              >
-                No store accounts linked yet. Use the buttons below to connect.
-              </div>
-            ) : (
-              accounts.map((account) => (
-                <ConnectedAccountCard
-                  key={account.id}
-                  account={account}
-                  provider={providers.find((provider) => provider.key === account.provider)}
-                  isPending={
-                    disconnectMutation.isPending && disconnectMutation.variables === account.id
-                  }
-                  onDisconnect={() => disconnectMutation.mutate(account.id)}
-                />
-              ))
-            )}
-          </div>
-
-          <div
             id="add-account-buttons"
             style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}
           >
-            {platformProviders.map((provider) => {
+            {unlinkedPlatformProviders.map((provider) => {
               const href = providerHref(provider);
               return (
                 <button
@@ -553,59 +542,6 @@ function ConnectedPlatformsPanel() {
   );
 }
 
-function ConnectedAccountCard({
-  account,
-  provider,
-  isPending,
-  onDisconnect,
-}: {
-  account: UserAccountConnection;
-  provider: DashboardProvider | undefined;
-  isPending: boolean;
-  onDisconnect: () => void;
-}) {
-  const label = provider?.label ?? account.provider;
-  const iconPath = getProviderIconPath(provider ?? {});
-  const iconBg = provider?.iconBg ?? '#333333';
-
-  return (
-    <div className="platform-card connected" style={{ position: 'relative' }}>
-      <div className="flex items-start justify-between">
-        <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden"
-          style={{ background: iconBg, flexShrink: 0 }}
-        >
-          {iconPath ? <img src={iconPath} className="w-6 h-6 object-contain" alt={label} /> : null}
-        </div>
-        <span className="status-pill connected">Connected</span>
-      </div>
-      <div>
-        <h3 className="font-bold text-base mb-0.5">{label}</h3>
-        <p className="text-xs text-white/60" style={{ fontFamily: "'DM Sans',sans-serif" }}>
-          {account.label}
-        </p>
-      </div>
-      <button
-        className="card-action-btn disconnect"
-        type="button"
-        disabled={isPending}
-        onClick={() => {
-          if (
-            !window.confirm(
-              `Disconnect this ${label} account? This removes syncing for all servers.`
-            )
-          ) {
-            return;
-          }
-          onDisconnect();
-        }}
-      >
-        {isPending ? 'Disconnecting…' : 'Disconnect'}
-      </button>
-    </div>
-  );
-}
-
 function ProviderStatusCard({
   provider,
   account,
@@ -662,32 +598,34 @@ function ProviderStatusCard({
       >
         {isConnected ? 'Disconnect' : 'Link Account'}
       </button>
-      <div
-        className={`inline-confirm${isDisconnectOpen ? ' open' : ''}`}
-        id={`${provider.key}-disconnect-confirm`}
-      >
-        <div>
-          <div className="inline-confirm-body">
-            <span className="inline-confirm-label">
-              Disconnect <strong>{label}</strong>? This removes all syncing.
-            </span>
-            <div className="inline-confirm-btns">
-              <button className="inline-cancel-btn" type="button" onClick={onCloseDisconnect}>
-                Cancel
-              </button>
-              <button
-                className="inline-danger-btn"
-                id={`${provider.key}-confirm-btn`}
-                type="button"
-                disabled={isDisconnectPending}
-                onClick={onConfirmDisconnect}
-              >
-                {isDisconnectPending ? 'Disconnecting…' : 'Disconnect'}
-              </button>
+      <DashboardBodyPortal>
+        <div
+          className={`inline-confirm${isDisconnectOpen ? ' open' : ''}`}
+          id={`${provider.key}-disconnect-confirm`}
+        >
+          <div>
+            <div className="inline-confirm-body">
+              <span className="inline-confirm-label">
+                Disconnect <strong>{label}</strong>? This removes all syncing.
+              </span>
+              <div className="inline-confirm-btns">
+                <button className="inline-cancel-btn" type="button" onClick={onCloseDisconnect}>
+                  Cancel
+                </button>
+                <button
+                  className="inline-danger-btn"
+                  id={`${provider.key}-confirm-btn`}
+                  type="button"
+                  disabled={isDisconnectPending}
+                  onClick={onConfirmDisconnect}
+                >
+                  {isDisconnectPending ? 'Disconnecting…' : 'Disconnect'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </DashboardBodyPortal>
     </div>
   );
 }
@@ -696,35 +634,45 @@ function ServerConfigPanel() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { guildId, tenantId } = useServerContext();
-  const { data: viewer } = useQuery<DashboardViewer>({
-    queryKey: ['dashboard-viewer'],
-    queryFn: () => fetchDashboardViewer(),
-  });
+  const { data: viewer } = useQuery(
+    dashboardQueryOptions<DashboardViewer>({
+      queryKey: ['dashboard-viewer'],
+      queryFn: () => fetchDashboardViewer(),
+    })
+  );
   const authUserId = tenantId ?? viewer?.authUserId;
   const [policyDraft, setPolicyDraft] = useState<NormalizedPolicy>(DEFAULT_POLICY);
   const [saveStates, setSaveStates] = useState<Record<string, SaveIndicatorState>>({});
   const [disconnectStep, setDisconnectStep] = useState(0);
   const timeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  const { data: providers = [] } = useQuery<DashboardProvider[]>({
-    queryKey: ['dashboard-providers'],
-    queryFn: listDashboardProviders,
-  });
-  const { data: accounts = [] } = useQuery<UserAccountConnection[]>({
-    queryKey: ['dashboard-user-accounts', viewer?.authUserId],
-    queryFn: listUserAccounts,
-    enabled: Boolean(viewer?.authUserId),
-  });
-  const settingsQuery = useQuery<DashboardPolicy>({
-    queryKey: ['dashboard-settings', authUserId],
-    queryFn: () => getDashboardSettings(requireAuthUserId(authUserId)),
-    enabled: Boolean(authUserId && guildId),
-  });
-  const channelsQuery = useQuery<DashboardGuildChannel[]>({
-    queryKey: ['dashboard-guild-channels', guildId, authUserId],
-    queryFn: () => listGuildChannels(requireGuildId(guildId), authUserId),
-    enabled: Boolean(guildId && authUserId),
-  });
+  const { data: providers = [] } = useQuery(
+    dashboardQueryOptions<DashboardProvider[]>({
+      queryKey: ['dashboard-providers'],
+      queryFn: listDashboardProviders,
+    })
+  );
+  const { data: accounts = [] } = useQuery(
+    dashboardQueryOptions<UserAccountConnection[]>({
+      queryKey: ['dashboard-user-accounts', viewer?.authUserId],
+      queryFn: listUserAccounts,
+      enabled: Boolean(viewer?.authUserId),
+    })
+  );
+  const settingsQuery = useQuery(
+    dashboardQueryOptions<DashboardPolicy>({
+      queryKey: ['dashboard-settings', authUserId],
+      queryFn: () => getDashboardSettings(requireAuthUserId(authUserId)),
+      enabled: Boolean(authUserId && guildId),
+    })
+  );
+  const channelsQuery = useQuery(
+    dashboardQueryOptions<DashboardGuildChannel[]>({
+      queryKey: ['dashboard-guild-channels', guildId, authUserId],
+      queryFn: () => listGuildChannels(requireGuildId(guildId), authUserId),
+      enabled: Boolean(guildId && authUserId),
+    })
+  );
 
   useEffect(() => {
     if (!settingsQuery.data) {

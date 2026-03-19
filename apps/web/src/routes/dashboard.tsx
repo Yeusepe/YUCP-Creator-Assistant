@@ -1,12 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAuth } from '@/hooks/useAuth';
+import { useHasMounted } from '@/hooks/useHasMounted';
 import { ServerContextProvider } from '@/hooks/useServerContext';
 import { useTheme } from '@/hooks/useTheme';
-import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
-import { fetchGuilds, type Guild } from '@/lib/server/dashboard';
+import { listUserGuilds } from '@/lib/dashboard';
+import { dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
+import { type Guild } from '@/lib/server/dashboard';
+import '@/styles/dashboard.css';
+import '@/styles/dashboard-components.css';
 import { getServerIconUrl } from '@/lib/utils';
 
 interface DashboardSearch {
@@ -18,9 +23,6 @@ export const Route = createFileRoute('/dashboard')({
   validateSearch: (search: Record<string, unknown>): DashboardSearch => ({
     guild_id: (search.guild_id as string) || undefined,
     tenant_id: (search.tenant_id as string) || undefined,
-  }),
-  head: () => ({
-    links: routeStylesheetLinks(routeStyleHrefs.dashboard, routeStyleHrefs.dashboardComponents),
   }),
   beforeLoad: ({ context, location }) => {
     if (!context.isAuthenticated) {
@@ -322,17 +324,27 @@ function Sidebar() {
 /* ------------------------------------------------------------------ */
 
 function SidebarLogoArea() {
+  const hasMounted = useHasMounted();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const selectorButtonRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const { guild_id } = Route.useSearch();
   const { signOut } = useAuth();
+  const [selectorRect, setSelectorRect] = useState<{ top: number; left: number; width: number } | null>(
+    null
+  );
 
-  const { data: guilds, isLoading } = useQuery<Guild[]>({
-    queryKey: ['dashboard-guilds'],
-    queryFn: () => fetchGuilds(),
-  });
+  const guildsQuery = useQuery(
+    dashboardQueryOptions<Guild[]>({
+      queryKey: ['dashboard-guilds'],
+      queryFn: listUserGuilds,
+      enabled: hasMounted,
+    })
+  );
+  const guilds = guildsQuery.data ?? [];
+  const isGuildsLoading = !hasMounted || guildsQuery.isLoading;
 
   const selectedGuild = useMemo(() => guilds?.find((g) => g.id === guild_id), [guilds, guild_id]);
 
@@ -352,6 +364,19 @@ function SidebarLogoArea() {
       return next;
     });
     setSearchQuery('');
+  }, []);
+
+  const syncSelectorRect = useCallback(() => {
+    const rect = selectorButtonRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    setSelectorRect({
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+    });
   }, []);
 
   const selectGuild = useCallback(
@@ -398,80 +423,71 @@ function SidebarLogoArea() {
     }
   }, [dropdownOpen]);
 
+  useEffect(() => {
+    if (!dropdownOpen) {
+      return;
+    }
+
+    syncSelectorRect();
+
+    const handler = () => syncSelectorRect();
+    window.addEventListener('resize', handler);
+    window.addEventListener('scroll', handler, true);
+
+    return () => {
+      window.removeEventListener('resize', handler);
+      window.removeEventListener('scroll', handler, true);
+    };
+  }, [dropdownOpen, syncSelectorRect]);
+
   const selectedName = selectedGuild?.name ?? 'Personal Dashboard';
+  const selectorPortalStyle = selectorRect
+    ? ({
+        '--selector-top': `${selectorRect.top}px`,
+        '--selector-left': `${selectorRect.left}px`,
+        '--selector-width': `${selectorRect.width}px`,
+      } as CSSProperties)
+    : undefined;
 
-  return (
-    <div className="sidebar-logo-area">
-      <div className="sidebar-brand">
-        <img src="/Icons/MainLogo.png" alt="Creator Assistant Logo" className="sidebar-logo-img" />
-      </div>
-      <div className="sidebar-server-selector">
-        <button
-          type="button"
-          className="sidebar-server-pill"
-          id="sidebar-server-selector"
-          onClick={toggleDropdown}
-          aria-haspopup="menu"
-          aria-expanded={dropdownOpen}
-          aria-controls="server-dropdown-menu"
-        >
-          <div className="sidebar-server-info">
-            <div className="sidebar-server-icon" id="sidebar-selected-icon">
-              {selectedGuild?.icon ? (
-                <img
-                  src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
-                  alt=""
-                  style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: '50%',
-                    objectFit: 'cover',
-                  }}
-                />
-              ) : (
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              )}
-            </div>
-            <span className="sidebar-server-name text-white" id="sidebar-selected-name">
-              {selectedName}
-            </span>
-          </div>
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="rgba(255,255,255,0.4)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="sidebar-server-chevron"
-            aria-hidden="true"
-          >
-            <path d="M6 9l6 6 6-6" />
-          </svg>
-        </button>
-
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: stops click from closing dropdown */}
-        {/* biome-ignore lint/a11y/useKeyWithClickEvents: click only stops propagation, no action */}
-        <div
-          className={`server-dropdown-menu${dropdownOpen ? ' open' : ''}`}
-          id="server-dropdown-menu"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="server-dropdown-search">
+  const renderSelectorTrigger = (
+    id: string,
+    options?: {
+      ref?: typeof selectorButtonRef;
+      hidden?: boolean;
+    }
+  ) => (
+    <button
+      ref={options?.ref}
+      type="button"
+      className="sidebar-server-pill"
+      id={id}
+      onClick={toggleDropdown}
+      aria-haspopup="menu"
+      aria-expanded={dropdownOpen}
+      aria-controls="server-dropdown-menu"
+      style={
+        options?.hidden
+          ? {
+              visibility: 'hidden',
+              pointerEvents: 'none',
+            }
+          : undefined
+      }
+    >
+      <div className="sidebar-server-info">
+        <div className="sidebar-server-icon" id="sidebar-selected-icon">
+          {selectedGuild?.icon ? (
+            <img
+              src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
+              alt=""
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: '50%',
+                objectFit: 'cover',
+              }}
+            />
+          ) : (
             <svg
               width="14"
               height="14"
@@ -483,100 +499,166 @@ function SidebarLogoArea() {
               strokeLinejoin="round"
               aria-hidden="true"
             >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <path d="M6 9l6 6 6-6" />
             </svg>
-            <input
-              ref={searchInputRef}
-              type="text"
-              id="server-search-input"
-              placeholder="Search servers..."
-              autoComplete="off"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <div className="server-dropdown-list" id="server-dropdown-list">
-            {isLoading ? (
-              <div className="server-dropdown-loading">Loading servers...</div>
-            ) : filteredGuilds.length === 0 ? (
-              <div className="server-dropdown-loading">No servers found</div>
-            ) : (
-              filteredGuilds.map((guild) => (
-                <button
-                  key={guild.id}
-                  type="button"
-                  className={`server-dropdown-item${guild.id === guild_id ? ' is-selected' : ''}`}
-                  onClick={() => selectGuild(guild)}
-                >
-                  <div className="server-dropdown-item-icon">
-                    {guild.icon ? (
-                      <img src={getServerIconUrl(guild.id, guild.icon) ?? ''} alt="" />
-                    ) : (
-                      <span>{guild.name.charAt(0)}</span>
-                    )}
-                  </div>
-                  <span className="server-dropdown-item-name">{guild.name}</span>
-                </button>
-              ))
-            )}
-          </div>
-          <div className="server-dropdown-footer">
-            <button
-              type="button"
-              className="server-dropdown-action-btn"
-              id="btn-personal-dashboard"
-              onClick={goPersonal}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <polyline points="9 22 9 12 15 12 15 22" />
-              </svg>
-              Personal Dashboard
-            </button>
-            <div
-              style={{
-                height: '1px',
-                background: 'rgba(0,0,0,0.1)',
-                margin: '2px 4px',
-              }}
-            />
-            <button
-              type="button"
-              className="server-dropdown-action-btn"
-              id="btn-sign-out"
-              style={{ color: 'rgba(239,68,68,0.85)' }}
-              onClick={signOut}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-              Sign Out
-            </button>
-          </div>
+          )}
         </div>
+        <span className="sidebar-server-name text-white" id="sidebar-selected-name">
+          {selectedName}
+        </span>
+      </div>
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="rgba(255,255,255,0.4)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="sidebar-server-chevron"
+        aria-hidden="true"
+      >
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    </button>
+  );
+
+  const renderDropdownMenu = () => (
+    <div
+      className={`server-dropdown-menu${dropdownOpen ? ' open' : ''}`}
+      id="server-dropdown-menu"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="server-dropdown-search">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          ref={searchInputRef}
+          type="text"
+          id="server-search-input"
+          placeholder="Search servers..."
+          autoComplete="off"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+      </div>
+      <div className="server-dropdown-list" id="server-dropdown-list">
+        {isGuildsLoading ? (
+          <div className="server-dropdown-loading">Loading servers...</div>
+        ) : filteredGuilds.length === 0 ? (
+          <div className="server-dropdown-empty">
+            {searchQuery ? 'No servers found' : 'No servers configured yet'}
+          </div>
+        ) : (
+          filteredGuilds.map((guild) => (
+            <button
+              key={guild.id}
+              type="button"
+              className={`server-dropdown-item${guild.id === guild_id ? ' is-selected' : ''}`}
+              onClick={() => selectGuild(guild)}
+            >
+              <div className="server-dropdown-item-icon">
+                {guild.icon ? (
+                  <img src={getServerIconUrl(guild.id, guild.icon) ?? ''} alt="" />
+                ) : (
+                  <span>{guild.name.charAt(0)}</span>
+                )}
+              </div>
+              <span className="server-dropdown-item-name">{guild.name}</span>
+            </button>
+          ))
+        )}
+      </div>
+      <div className="server-dropdown-footer">
+        <button
+          type="button"
+          className="server-dropdown-action-btn"
+          id="btn-personal-dashboard"
+          onClick={goPersonal}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            <polyline points="9 22 9 12 15 12 15 22" />
+          </svg>
+          Personal Dashboard
+        </button>
+        <div
+          style={{
+            height: '1px',
+            background: 'rgba(0,0,0,0.1)',
+            margin: '2px 4px',
+          }}
+        />
+        <button
+          type="button"
+          className="server-dropdown-action-btn"
+          id="btn-sign-out"
+          style={{ color: 'rgba(239,68,68,0.85)' }}
+          onClick={signOut}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="sidebar-logo-area">
+      <div className="sidebar-brand">
+        <img src="/Icons/MainLogo.png" alt="Creator Assistant Logo" className="sidebar-logo-img" />
+      </div>
+      <div className="sidebar-server-selector">
+        {renderSelectorTrigger('sidebar-server-selector', {
+          ref: selectorButtonRef,
+          hidden: dropdownOpen,
+        })}
+        {dropdownOpen && selectorPortalStyle && typeof document !== 'undefined'
+          ? createPortal(
+              <div className="server-selector-portal" style={selectorPortalStyle}>
+                {renderSelectorTrigger('sidebar-server-selector-portal')}
+                {renderDropdownMenu()}
+              </div>,
+              document.body
+            )
+          : null}
       </div>
     </div>
   );

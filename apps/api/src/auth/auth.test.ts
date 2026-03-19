@@ -179,6 +179,66 @@ describe('Auth Configuration', () => {
       expect(session).toBeNull();
     });
 
+    it('getSession resolves Better Auth sessions from forwarded cookies when no viewer token exists', async () => {
+      const originalInternalSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-secret';
+      const originalFetch = globalThis.fetch;
+      let forwardedCookieHeader = '';
+
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        forwardedCookieHeader = new Headers(init?.headers).get('cookie') ?? '';
+        return new Response(
+          JSON.stringify({
+            session: { id: 'session_123' },
+            user: {
+              id: 'auth_user_123',
+              email: 'creator@example.com',
+              name: 'Creator',
+              image: null,
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }) as typeof fetch;
+
+      try {
+        const config: AuthConfig = {
+          baseUrl: 'http://localhost:3001',
+          convexSiteUrl: 'https://test-123.convex.site',
+          convexUrl: 'https://test-123.convex.site',
+        };
+        const auth = createAuth(config);
+        const req = new Request('http://localhost:3001/connect', {
+          headers: {
+            cookie: 'yucp.session_token=session-cookie',
+          },
+        });
+
+        const session = await auth.getSession(req);
+
+        expect(forwardedCookieHeader).toContain('yucp.session_token=session-cookie');
+        expect(session).toEqual({
+          user: {
+            id: 'auth_user_123',
+            email: 'creator@example.com',
+            name: 'Creator',
+            image: null,
+          },
+          discordUserId: null,
+        });
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (originalInternalSecret === undefined) {
+          delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+        } else {
+          process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalSecret;
+        }
+      }
+    });
+
     it('getDiscordUserId returns null when no viewer token is present', async () => {
       const config: AuthConfig = {
         baseUrl: 'http://localhost:3001',
@@ -189,6 +249,140 @@ describe('Auth Configuration', () => {
       const req = new Request('http://localhost:3001/connect');
       const discordUserId = await auth.getDiscordUserId(req);
       expect(discordUserId).toBeNull();
+    });
+
+    it('lists OAuth clients through the Better Auth session cookie fallback', async () => {
+      const originalInternalSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-secret';
+      const originalFetch = globalThis.fetch;
+      let requestUrl = '';
+      let forwardedCookieHeader = '';
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        requestUrl = String(input);
+        forwardedCookieHeader = new Headers(init?.headers).get('cookie') ?? '';
+        return new Response(
+          JSON.stringify([
+            {
+              client_id: 'client_123',
+              client_name: 'My App',
+              redirect_uris: ['https://example.com/callback'],
+              scope: 'verification:read subjects:read',
+            },
+          ]),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }) as typeof fetch;
+
+      try {
+        const config: AuthConfig = {
+          baseUrl: 'http://localhost:3001',
+          convexSiteUrl: 'https://test-123.convex.site',
+          convexUrl: 'https://test-123.convex.site',
+        };
+        const auth = createAuth(config);
+        const req = new Request('http://localhost:3001/connect', {
+          headers: {
+            cookie: 'yucp.session_token=session-cookie',
+          },
+        });
+
+        const clients = await auth.listOAuthClients(req);
+
+        expect(requestUrl).toContain('/api/auth/oauth2/get-clients');
+        expect(forwardedCookieHeader).toContain('yucp.session_token=session-cookie');
+        expect(clients).toEqual([
+          {
+            client_id: 'client_123',
+            client_name: 'My App',
+            redirect_uris: ['https://example.com/callback'],
+            scope: 'verification:read subjects:read',
+          },
+        ]);
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (originalInternalSecret === undefined) {
+          delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+        } else {
+          process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalSecret;
+        }
+      }
+    });
+
+    it('lists API keys through the Better Auth session cookie fallback', async () => {
+      const originalInternalSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-secret';
+      const originalFetch = globalThis.fetch;
+      let requestUrl = '';
+      let forwardedCookieHeader = '';
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        requestUrl = String(input);
+        forwardedCookieHeader = new Headers(init?.headers).get('cookie') ?? '';
+        return new Response(
+          JSON.stringify({
+            apiKeys: [
+              {
+                id: 'key_123',
+                userId: 'auth_user_123',
+                name: 'Prod key',
+                start: 'ypsk_live_abc',
+                prefix: 'ypsk_',
+                enabled: true,
+                permissions: { publicApi: ['verification:read'] },
+                metadata: { kind: 'public-api', authUserId: 'auth_user_123' },
+                createdAt: 123,
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }) as typeof fetch;
+
+      try {
+        const config: AuthConfig = {
+          baseUrl: 'http://localhost:3001',
+          convexSiteUrl: 'https://test-123.convex.site',
+          convexUrl: 'https://test-123.convex.site',
+        };
+        const auth = createAuth(config);
+        const req = new Request('http://localhost:3001/connect', {
+          headers: {
+            cookie: 'yucp.session_token=session-cookie',
+          },
+        });
+
+        const result = await auth.listApiKeys(req);
+
+        expect(requestUrl).toContain('/api/auth/api-key/list');
+        expect(forwardedCookieHeader).toContain('yucp.session_token=session-cookie');
+        expect(result.apiKeys).toEqual([
+          {
+            id: 'key_123',
+            userId: 'auth_user_123',
+            name: 'Prod key',
+            start: 'ypsk_live_abc',
+            prefix: 'ypsk_',
+            enabled: true,
+            permissions: { publicApi: ['verification:read'] },
+            metadata: { kind: 'public-api', authUserId: 'auth_user_123' },
+            createdAt: 123,
+          },
+        ]);
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (originalInternalSecret === undefined) {
+          delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+        } else {
+          process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalSecret;
+        }
+      }
     });
 
     it('persistVrchatSession signs internal requests and preserves response cookies', async () => {

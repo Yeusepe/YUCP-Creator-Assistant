@@ -48,6 +48,43 @@ export interface SessionData {
   discordUserId?: string | null;
 }
 
+interface BetterAuthSessionResponse {
+  session?: unknown;
+  user?: {
+    id?: unknown;
+    email?: unknown;
+    name?: unknown;
+    image?: unknown;
+  } | null;
+}
+
+interface BetterAuthOAuthClientResponse {
+  client_id?: string;
+  client_name?: string | null;
+  redirect_uris?: string[] | null;
+  scope?: string;
+  client_id_issued_at?: number | null;
+  token_endpoint_auth_method?: 'client_secret_basic' | 'client_secret_post' | 'none' | null;
+  grant_types?: string[] | null;
+  response_types?: string[] | null;
+  disabled?: boolean | null;
+}
+
+interface BetterAuthApiKeyResponse {
+  id: string;
+  userId: string;
+  name: string | null;
+  start: string | null;
+  prefix: string | null;
+  enabled: boolean;
+  permissions?: Record<string, string[]> | null;
+  metadata?: unknown;
+  lastRequest?: unknown;
+  expiresAt?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
 type ViewerData = {
   authUserId: string;
   name?: string | null;
@@ -168,6 +205,16 @@ export function createAuth(config: AuthConfig) {
     return authToken || null;
   }
 
+  function getBetterAuthCookieHeader(request: Request): string | null {
+    const explicitCookieHeader = request.headers.get('better-auth-cookie')?.trim();
+    if (explicitCookieHeader) {
+      return explicitCookieHeader;
+    }
+
+    const cookieHeader = request.headers.get('cookie')?.trim();
+    return cookieHeader || null;
+  }
+
   function buildInternalHeaders(
     method: string,
     path: string,
@@ -232,27 +279,127 @@ export function createAuth(config: AuthConfig) {
     };
   }
 
-  return {
-    async getSession(request: Request): Promise<SessionData | null> {
-      const viewer = await resolveViewer(getAuthToken(request));
-      if (!viewer) {
+  async function resolveSessionFromBetterAuthCookie(request: Request): Promise<SessionData | null> {
+    const cookieHeader = getBetterAuthCookieHeader(request);
+    if (!cookieHeader) {
+      return null;
+    }
+
+    try {
+      const { response } = await callInternalAuth('/get-session', {
+        method: 'GET',
+        cookieHeader,
+      });
+
+      if (!response.ok) {
+        logger.warn('Better Auth cookie session lookup failed', {
+          status: response.status,
+        });
+        return null;
+      }
+
+      const payload = (await response.json()) as BetterAuthSessionResponse | null;
+      const user = payload?.user;
+      if (!user || typeof user.id !== 'string' || !user.id.trim()) {
         return null;
       }
 
       return {
         user: {
-          id: viewer.authUserId,
-          email: viewer.email ?? null,
-          name: viewer.name ?? null,
-          image: viewer.image ?? null,
+          id: user.id,
+          email: typeof user.email === 'string' ? user.email : null,
+          name: typeof user.name === 'string' ? user.name : null,
+          image: typeof user.image === 'string' ? user.image : null,
         },
-        discordUserId: viewer.discordUserId ?? null,
+        discordUserId: null,
       };
+    } catch (error) {
+      logger.warn('Failed to resolve Better Auth session from cookies', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  async function getBetterAuthJson<T>(request: Request, path: string): Promise<T | null> {
+    const cookieHeader = getBetterAuthCookieHeader(request);
+    if (!cookieHeader) {
+      return null;
+    }
+
+    try {
+      const { response } = await callInternalAuth(path, {
+        method: 'GET',
+        cookieHeader,
+      });
+
+      if (!response.ok) {
+        logger.warn('Better Auth endpoint lookup failed', {
+          path,
+          status: response.status,
+        });
+        return null;
+      }
+
+      return (await response.json()) as T;
+    } catch (error) {
+      logger.warn('Failed to read Better Auth endpoint', {
+        path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  return {
+    async getSession(request: Request): Promise<SessionData | null> {
+      const viewer = await resolveViewer(getAuthToken(request));
+      if (viewer) {
+        return {
+          user: {
+            id: viewer.authUserId,
+            email: viewer.email ?? null,
+            name: viewer.name ?? null,
+            image: viewer.image ?? null,
+          },
+          discordUserId: viewer.discordUserId ?? null,
+        };
+      }
+
+      return resolveSessionFromBetterAuthCookie(request);
     },
 
     async getDiscordUserId(request: Request): Promise<string | null> {
       const viewer = await resolveViewer(getAuthToken(request));
       return viewer?.discordUserId ?? null;
+    },
+
+    async listOAuthClients(request: Request): Promise<BetterAuthOAuthClientResponse[]> {
+      const data = await getBetterAuthJson<BetterAuthOAuthClientResponse[] | null>(
+        request,
+        '/oauth2/get-clients'
+      );
+      return Array.isArray(data) ? data : [];
+    },
+
+    async listApiKeys(request: Request): Promise<{
+      apiKeys: BetterAuthApiKeyResponse[];
+      total?: number;
+      limit?: number;
+      offset?: number;
+    }> {
+      const data = await getBetterAuthJson<{
+        apiKeys?: BetterAuthApiKeyResponse[];
+        total?: number;
+        limit?: number;
+        offset?: number;
+      } | null>(request, '/api-key/list');
+      return {
+        apiKeys: Array.isArray(data?.apiKeys) ? data.apiKeys : [],
+        total: data?.total,
+        limit: data?.limit,
+        offset: data?.offset,
+      };
     },
 
     async persistVrchatSession(

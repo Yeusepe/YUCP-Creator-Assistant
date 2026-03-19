@@ -19,6 +19,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
 
 export const Route = createFileRoute('/setup/jinxxy')({
   head: () => ({
@@ -161,9 +162,7 @@ function JinxxySetupPage() {
         const configUrl =
           hasSetupSessionParam || !tenantId
             ? `${API_BASE}/api/connect/jinxxy/webhook-config`
-            : API_BASE +
-              '/api/connect/jinxxy/webhook-config?tenantId=' +
-              encodeURIComponent(tenantId);
+            : API_BASE + buildSetupAuthQuery('/api/connect/jinxxy/webhook-config', tenantId);
         const res = await apiFetch(configUrl);
         const data = await res.json();
         if (cancelled) return;
@@ -208,9 +207,7 @@ function JinxxySetupPage() {
         const testUrl =
           hasSetupSessionParam || !tenantId
             ? `${API_BASE}/api/connect/jinxxy/test-webhook`
-            : API_BASE +
-              '/api/connect/jinxxy/test-webhook?tenantId=' +
-              encodeURIComponent(tenantId);
+            : API_BASE + buildSetupAuthQuery('/api/connect/jinxxy/test-webhook', tenantId);
         const res = await apiFetch(testUrl);
         const data = await res.json();
         if (data.received) {
@@ -280,9 +277,7 @@ function JinxxySetupPage() {
       try {
         const configUrl = hasSetupSessionParam
           ? `${API_BASE}/api/connect/jinxxy/webhook-config`
-          : API_BASE +
-            '/api/connect/jinxxy/webhook-config?tenantId=' +
-            encodeURIComponent(tenantId);
+          : API_BASE + buildSetupAuthQuery('/api/connect/jinxxy/webhook-config', tenantId);
         const res = await apiFetch(configUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -338,8 +333,8 @@ function JinxxySetupPage() {
     setIsFinishing(true);
 
     try {
-      const body: Record<string, string> = { apiKey: trimmedKey };
-      if (tenantId) body.tenantId = tenantId;
+      const body: { apiKey: string; authUserId?: string; webhookSecret?: string } =
+        withSetupAuthUserId({ apiKey: trimmedKey }, tenantId);
       if (
         signingSecret &&
         signingSecret.length >= SIGNING_SECRET_MIN &&
@@ -395,6 +390,7 @@ function JinxxySetupPage() {
               width="16"
               height="16"
               viewBox="0 0 24 24"
+              aria-hidden="true"
               fill="none"
               stroke="currentColor"
               strokeWidth="2"

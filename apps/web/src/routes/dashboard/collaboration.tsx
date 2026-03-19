@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
+import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
+import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import type {
   CollabAsCollaboratorSummary,
   CollabConnectionSummary,
@@ -16,6 +18,7 @@ import {
   removeCollabConnection,
   revokeCollabInvite,
 } from '@/lib/dashboard';
+import { dashboardPollingQueryOptions, dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
 import { type DashboardViewer, fetchDashboardViewer } from '@/lib/server/dashboard';
 import { copyToClipboard } from '@/lib/utils';
 
@@ -24,6 +27,33 @@ export const Route = createFileRoute('/dashboard/collaboration')({
 });
 
 function DashboardCollaboration() {
+  const viewerQuery = useQuery(
+    dashboardQueryOptions<DashboardViewer>({
+      queryKey: ['dashboard-viewer'],
+      queryFn: () => fetchDashboardViewer(),
+    })
+  );
+  const authUserId = viewerQuery.data?.authUserId;
+
+  if (!viewerQuery.isLoading && !authUserId) {
+    return (
+      <div
+        id="tab-panel-collaboration"
+        className="dashboard-tab-panel is-active"
+        role="tabpanel"
+        aria-labelledby="tab-btn-collaboration"
+      >
+        <div className="bento-grid">
+          <DashboardAuthRequiredState
+            id="dashboard-collaboration-auth-required"
+            title="Sign in to manage collaboration"
+            description="Your dashboard session expired or could not be verified. Sign in again to manage collaboration invites and connected creators."
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       id="tab-panel-collaboration"
@@ -32,14 +62,23 @@ function DashboardCollaboration() {
       aria-labelledby="tab-btn-collaboration"
     >
       <div className="bento-grid">
-        <MyCollaboratorsSection />
-        <StoresICollaborateWithSection />
+        <MyCollaboratorsSection authUserId={authUserId} viewerLoading={viewerQuery.isLoading} />
+        <StoresICollaborateWithSection
+          authUserId={authUserId}
+          viewerLoading={viewerQuery.isLoading}
+        />
       </div>
     </div>
   );
 }
 
-function MyCollaboratorsSection() {
+function MyCollaboratorsSection({
+  authUserId,
+  viewerLoading,
+}: {
+  authUserId: string | undefined;
+  viewerLoading: boolean;
+}) {
   const queryClient = useQueryClient();
   const [invitePanelOpen, setInvitePanelOpen] = useState(false);
   const [inviteStep, setInviteStep] = useState<'select' | 'url'>('select');
@@ -48,28 +87,29 @@ function MyCollaboratorsSection() {
     null
   );
 
-  const { data: viewer } = useQuery<DashboardViewer>({
-    queryKey: ['dashboard-viewer'],
-    queryFn: () => fetchDashboardViewer(),
-  });
-  const authUserId = viewer?.authUserId;
-
-  const providersQuery = useQuery<CollabProviderSummary[]>({
-    queryKey: ['dashboard-collab-providers'],
-    queryFn: listCollabProviders,
-  });
-  const invitesQuery = useQuery<PendingCollabInvite[]>({
-    queryKey: ['dashboard-collab-invites', authUserId],
-    queryFn: () => listCollabInvites(requireAuthUserId(authUserId)),
-    enabled: Boolean(authUserId),
-    refetchInterval: 15000,
-  });
-  const connectionsQuery = useQuery<CollabConnectionSummary[]>({
-    queryKey: ['dashboard-collab-connections', authUserId],
-    queryFn: () => listCollabConnections(requireAuthUserId(authUserId)),
-    enabled: Boolean(authUserId),
-    refetchInterval: 15000,
-  });
+  const providersQuery = useQuery(
+    dashboardQueryOptions<CollabProviderSummary[]>({
+      queryKey: ['dashboard-collab-providers'],
+      queryFn: listCollabProviders,
+      enabled: Boolean(authUserId),
+    })
+  );
+  const invitesQuery = useQuery(
+    dashboardPollingQueryOptions<PendingCollabInvite[]>({
+      queryKey: ['dashboard-collab-invites', authUserId],
+      queryFn: () => listCollabInvites(requireAuthUserId(authUserId)),
+      enabled: Boolean(authUserId),
+      refetchInterval: 15000,
+    })
+  );
+  const connectionsQuery = useQuery(
+    dashboardPollingQueryOptions<CollabConnectionSummary[]>({
+      queryKey: ['dashboard-collab-connections', authUserId],
+      queryFn: () => listCollabConnections(requireAuthUserId(authUserId)),
+      enabled: Boolean(authUserId),
+      refetchInterval: 15000,
+    })
+  );
 
   const providers = providersQuery.data ?? [];
   const invites = invitesQuery.data ?? [];
@@ -127,7 +167,10 @@ function MyCollaboratorsSection() {
     : '';
 
   const isLoading =
-    !authUserId || providersQuery.isLoading || invitesQuery.isLoading || connectionsQuery.isLoading;
+    viewerLoading ||
+    providersQuery.isLoading ||
+    invitesQuery.isLoading ||
+    connectionsQuery.isLoading;
 
   return (
     <section
@@ -136,24 +179,26 @@ function MyCollaboratorsSection() {
     >
       <div className="intg-header">
         <div className="intg-title-row">
-          <div className="intg-icon">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-            </svg>
-          </div>
+          {!isLoading ? (
+            <div className="intg-icon">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
+          ) : null}
           <h2 className="intg-title">My Collaborators</h2>
         </div>
         <button id="invite-btn" className="intg-add-btn" type="button" onClick={openInvitePanel}>
@@ -172,7 +217,7 @@ function MyCollaboratorsSection() {
           Invite a Creator
         </button>
       </div>
-      <p className="intg-desc">
+      <p className="intg-desc" style={isLoading ? { paddingLeft: 0 } : undefined}>
         Allow members to verify licenses from other creators&apos; stores.
       </p>
 
@@ -181,24 +226,25 @@ function MyCollaboratorsSection() {
         <div className="skeleton-block skeleton-card" />
       </div>
 
-      <div className={`inline-panel${invitePanelOpen ? ' open' : ''}`} id="invite-panel">
-        <button
-          type="button"
-          aria-label="Close invite panel"
-          onClick={closeInvitePanel}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            border: 'none',
-            background: 'transparent',
-            padding: 0,
-          }}
-        />
-        <div
-          className="inline-panel-inner"
-          style={{ maxWidth: '500px', position: 'relative', zIndex: 1 }}
-        >
-          <div className="inline-panel-body" style={{ padding: '32px', textAlign: 'center' }}>
+      <DashboardBodyPortal>
+        <div className={`inline-panel${invitePanelOpen ? ' open' : ''}`} id="invite-panel">
+          <button
+            type="button"
+            aria-label="Close invite panel"
+            onClick={closeInvitePanel}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              border: 'none',
+              background: 'transparent',
+              padding: 0,
+            }}
+          />
+          <div
+            className="inline-panel-inner"
+            style={{ maxWidth: '500px', position: 'relative', zIndex: 1 }}
+          >
+            <div className="inline-panel-body" style={{ padding: '32px', textAlign: 'center' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '-24px' }}>
               <button
                 type="button"
@@ -306,8 +352,32 @@ function MyCollaboratorsSection() {
               id="invite-step-url"
               style={{ display: inviteStep === 'url' ? undefined : 'none' }}
             >
-              <div className="invite-url-box" id="invite-url-display">
-                {generatedInvite?.url}
+              <div className="invite-url-row">
+                <div className="invite-url-box" id="invite-url-display" style={{ marginBottom: 0 }}>
+                  {generatedInvite?.url}
+                </div>
+                <button
+                  type="button"
+                  className="invite-url-copy-btn"
+                  aria-label="Copy link"
+                  title="Copy link"
+                  onClick={() => generatedInvite && void copyToClipboard(generatedInvite.url)}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    aria-hidden="true"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </button>
               </div>
               <div
                 id="invite-expiry"
@@ -382,9 +452,10 @@ function MyCollaboratorsSection() {
                 Copy Invite Link
               </button>
             </div>
+            </div>
           </div>
         </div>
-      </div>
+      </DashboardBodyPortal>
 
       {!isLoading ? (
         <>
@@ -563,22 +634,24 @@ function MyCollaboratorsSection() {
   );
 }
 
-function StoresICollaborateWithSection() {
-  const { data: viewer } = useQuery<DashboardViewer>({
-    queryKey: ['dashboard-viewer'],
-    queryFn: () => fetchDashboardViewer(),
-  });
-  const authUserId = viewer?.authUserId;
-
-  const storesQuery = useQuery<CollabAsCollaboratorSummary[]>({
-    queryKey: ['dashboard-collab-as-collaborator', authUserId],
-    queryFn: () => listCollabConnectionsAsCollaborator(requireAuthUserId(authUserId)),
-    enabled: Boolean(authUserId),
-    refetchInterval: 15000,
-  });
+function StoresICollaborateWithSection({
+  authUserId,
+  viewerLoading,
+}: {
+  authUserId: string | undefined;
+  viewerLoading: boolean;
+}) {
+  const storesQuery = useQuery(
+    dashboardPollingQueryOptions<CollabAsCollaboratorSummary[]>({
+      queryKey: ['dashboard-collab-as-collaborator', authUserId],
+      queryFn: () => listCollabConnectionsAsCollaborator(requireAuthUserId(authUserId)),
+      enabled: Boolean(authUserId),
+      refetchInterval: 15000,
+    })
+  );
 
   const stores = storesQuery.data ?? [];
-  const isLoading = !authUserId || storesQuery.isLoading;
+  const isLoading = viewerLoading || storesQuery.isLoading;
 
   return (
     <section
@@ -587,26 +660,28 @@ function StoresICollaborateWithSection() {
     >
       <div className="intg-header">
         <div className="intg-title-row">
-          <div className="intg-icon">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>
-          </div>
+          {!isLoading ? (
+            <div className="intg-icon">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <polyline points="9 22 9 12 15 12 15 22" />
+              </svg>
+            </div>
+          ) : null}
           <h2 className="intg-title">Stores I Collaborate With</h2>
         </div>
       </div>
-      <p className="intg-desc">
+      <p className="intg-desc" style={isLoading ? { paddingLeft: 0 } : undefined}>
         Stores where you&apos;ve been granted creator access to verify licenses.
       </p>
 

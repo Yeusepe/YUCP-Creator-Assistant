@@ -1344,11 +1344,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const data = (await convex.query(
-        api.betterAuthApiKeys.listApiKeys,
-        {}
-      )) as BetterAuthApiKey[];
+      const { apiKeys: data } = await auth.listApiKeys(request);
 
       const keys = data
         .filter((key) => {
@@ -1511,10 +1507,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         apiSecret: config.convexApiSecret,
         authUserId,
       })) as OAuthAppMappingRecord[];
-      const clients = (await convex.query(
-        api.oauthClients.listOAuthClients,
-        {}
-      )) as BetterAuthOAuthClient[];
+      const clients =
+        mappings.length === 0
+          ? []
+          : ((await auth.listOAuthClients(request)) as BetterAuthOAuthClient[]);
 
       const clientMap = new Map(clients.map((client) => [client.client_id, client] as const));
 

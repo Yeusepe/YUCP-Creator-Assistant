@@ -2,10 +2,14 @@ import { getInternalRpcSharedSecret } from '@yucp/shared';
 import { getToken } from '../auth-server';
 
 const FORWARDED_COOKIE_NAMES = new Set([
+  'yucp.session_token',
+  'yucp.session_data',
   'yucp_setup_session',
   'yucp_connect_token',
   'yucp_collab_session',
   'yucp_discord_role_setup',
+  '__Secure-yucp.session_token',
+  '__Secure-yucp.session_data',
 ]);
 
 function getApiBaseUrl(): string {

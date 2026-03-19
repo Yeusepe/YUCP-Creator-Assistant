@@ -2,7 +2,7 @@
 // Fetches secrets from Infisical when INFISICAL_PROJECT_ID + machine identity are set
 
 import type { EnvConfig } from '@yucp/shared';
-import { createLogger } from '@yucp/shared';
+import { createLogger, resolveConvexSiteUrl as resolveSharedConvexSiteUrl } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -81,17 +81,7 @@ function normalizeUrl(value: string | undefined): string | undefined {
 export function resolveConvexSiteUrl(
   env: Record<string, string | undefined> = process.env
 ): string | undefined {
-  const explicit = normalizeUrl(env.CONVEX_SITE_URL);
-  if (explicit) {
-    return explicit;
-  }
-
-  const convexUrl = normalizeUrl(env.CONVEX_URL);
-  if (!convexUrl) {
-    return undefined;
-  }
-
-  return convexUrl.replace('.convex.cloud', '.convex.site');
+  return resolveSharedConvexSiteUrl(env);
 }
 
 export function resolveSiteUrl(

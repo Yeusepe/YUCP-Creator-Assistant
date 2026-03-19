@@ -1,10 +1,12 @@
+import path from 'node:path';
 import { defineConfig, devices } from 'playwright/test';
 
-const browserAuthBaseUrl =
-  process.env.TEST_BASE_URL ??
-  process.env.FRONTEND_URL ??
-  process.env.SITE_URL ??
-  'http://localhost:3000';
+const defaultBaseUrl = 'http://localhost:3100';
+const baseURL =
+  process.env.TEST_BASE_URL ?? process.env.FRONTEND_URL ?? process.env.SITE_URL ?? defaultBaseUrl;
+const baseUrl = new URL(baseURL);
+const webServerPort = Number(baseUrl.port || (baseUrl.protocol === 'https:' ? '443' : '80'));
+const repoRoot = path.resolve(import.meta.dirname, '..', '..');
 
 export default defineConfig({
   testDir: './test/e2e',
@@ -14,7 +16,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: process.env.TEST_BASE_URL || 'http://localhost:3000',
+    baseURL,
     trace: 'on-first-retry',
   },
   projects: [
@@ -26,13 +28,14 @@ export default defineConfig({
   webServer: process.env.TEST_BASE_URL
     ? undefined
     : {
-        command: 'npx vite dev',
+        command: `bun run dev:web:infisical -- --port ${webServerPort} --strictPort`,
+        cwd: repoRoot,
         env: {
           ...process.env,
-          FRONTEND_URL: browserAuthBaseUrl,
-          SITE_URL: process.env.SITE_URL ?? 'http://localhost:3001',
+          FRONTEND_URL: baseURL,
+          SITE_URL: baseURL,
         },
-        port: 3000,
-        reuseExistingServer: !process.env.CI,
+        port: webServerPort,
+        reuseExistingServer: false,
       },
 });
