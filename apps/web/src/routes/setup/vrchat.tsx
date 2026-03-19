@@ -68,7 +68,7 @@ function VRChatVerifyPage() {
     sessionStorage.removeItem(PENDING_TYPES_KEY);
 
     if (isConnectMode) {
-      const dashboardUrl = new URL('/', window.location.origin);
+      const dashboardUrl = new URL('/dashboard', window.location.origin);
       dashboardUrl.searchParams.set('vrchat', 'connected');
       if (guild_id) dashboardUrl.searchParams.set('guild_id', guild_id);
       if (tenant_id) dashboardUrl.searchParams.set('tenant_id', tenant_id);

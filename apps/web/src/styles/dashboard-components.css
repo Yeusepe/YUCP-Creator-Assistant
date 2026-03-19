@@ -1904,6 +1904,23 @@
   filter: drop-shadow(0 4px 12px rgba(255, 255, 255, 0.1));
 }
 
+.empty-state-title {
+  margin: 0;
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.empty-state-copy {
+  max-width: 280px;
+  margin: 8px auto 0;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .panel-close-btn {
   width: 28px;
   height: 28px;

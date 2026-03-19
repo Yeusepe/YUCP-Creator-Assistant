@@ -3,6 +3,10 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
+import {
+  DashboardActionRowSkeleton,
+  DashboardListSkeleton,
+} from '@/components/dashboard/DashboardSkeletons';
 import type {
   CreatedOAuthApp,
   CreatedPublicApiKey,
@@ -231,10 +235,8 @@ function OAuthAppsSection({
         Register apps that use the OAuth 2.0 flow to access user verification data on their behalf.
       </p>
 
-      <div className="skeleton-group" aria-hidden="true">
-        <div className="skeleton-block skeleton-card" />
-        <div className="skeleton-block skeleton-card" />
-      </div>
+      <DashboardActionRowSkeleton count={1} widths={[112]} />
+      <DashboardListSkeleton rows={2} />
 
       <InlineOAuthAppForm
         open={createPanelOpen}
@@ -417,13 +419,10 @@ function OAuthAppsSection({
                   <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                 </svg>
               </div>
-              <p className="text-sm font-semibold" style={{ fontFamily: "'DM Sans',sans-serif" }}>
+              <p className="empty-state-title">
                 No OAuth apps yet
               </p>
-              <p
-                className="text-xs mt-2 max-w-xs mx-auto"
-                style={{ fontFamily: "'DM Sans',sans-serif" }}
-              >
+              <p className="empty-state-copy">
                 Use OAuth when a third-party app needs to access verification data on behalf of your
                 users.
               </p>
@@ -449,18 +448,7 @@ function OAuthAppsSection({
             </div>
           ) : null}
         </>
-      ) : (
-        <div id="oauth-apps-loading" className="text-center py-8">
-          <div
-            className="inline-block w-5 h-5 border-2 rounded-full"
-            style={{
-              borderColor: '#e2e8f0',
-              borderTopColor: '#0ea5e9',
-              animation: 'page-loading-spin 0.8s linear infinite',
-            }}
-          />
-        </div>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -571,10 +559,8 @@ function ApiKeysSection({
         Call the verification API from your integrations. Pass as <code>x-api-key</code> header.
       </p>
 
-      <div className="skeleton-group" aria-hidden="true">
-        <div className="skeleton-block skeleton-card" />
-        <div className="skeleton-block skeleton-card" />
-      </div>
+      <DashboardActionRowSkeleton count={1} widths={[112]} />
+      <DashboardListSkeleton rows={2} />
 
       <InlineApiKeyForm
         open={createPanelOpen}
@@ -697,13 +683,10 @@ function ApiKeysSection({
                   <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
                 </svg>
               </div>
-              <p className="text-sm font-semibold" style={{ fontFamily: "'DM Sans',sans-serif" }}>
+              <p className="empty-state-title">
                 No API keys yet
               </p>
-              <p
-                className="text-xs mt-2 max-w-xs mx-auto"
-                style={{ fontFamily: "'DM Sans',sans-serif" }}
-              >
+              <p className="empty-state-copy">
                 API keys let you call the verification API from scripts, bots, or integrations. Pass
                 the key in the <code>x-api-key</code> header.
               </p>
@@ -729,18 +712,7 @@ function ApiKeysSection({
             </div>
           ) : null}
         </>
-      ) : (
-        <div id="api-keys-loading" className="text-center py-8">
-          <div
-            className="inline-block w-5 h-5 border-2 rounded-full"
-            style={{
-              borderColor: '#e2e8f0',
-              borderTopColor: '#0ea5e9',
-              animation: 'page-loading-spin 0.8s linear infinite',
-            }}
-          />
-        </div>
-      )}
+      ) : null}
     </section>
   );
 }

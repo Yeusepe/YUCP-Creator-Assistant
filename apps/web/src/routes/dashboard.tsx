@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useHasMounted } from '@/hooks/useHasMounted';
 import { ServerContextProvider } from '@/hooks/useServerContext';
 import { useTheme } from '@/hooks/useTheme';
-import { listUserGuilds } from '@/lib/dashboard';
+import { listUserGuilds, normalizeDashboardIdentifier } from '@/lib/dashboard';
 import { dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
 import { type Guild } from '@/lib/server/dashboard';
 import '@/styles/dashboard.css';
@@ -21,8 +21,8 @@ interface DashboardSearch {
 
 export const Route = createFileRoute('/dashboard')({
   validateSearch: (search: Record<string, unknown>): DashboardSearch => ({
-    guild_id: (search.guild_id as string) || undefined,
-    tenant_id: (search.tenant_id as string) || undefined,
+    guild_id: normalizeDashboardIdentifier(search.guild_id as string | undefined),
+    tenant_id: normalizeDashboardIdentifier(search.tenant_id as string | undefined),
   }),
   beforeLoad: ({ context, location }) => {
     if (!context.isAuthenticated) {
@@ -57,7 +57,6 @@ function DashboardLayout() {
         <div className="app-shell">
           <SidebarOverlay />
           <ServerDropdownBackdrop />
-          <BlobBackground />
           <CloudBackground variant="default" />
           <Sidebar />
           <MainContent />
@@ -89,22 +88,6 @@ function SidebarOverlay() {
 function ServerDropdownBackdrop() {
   return (
     <div id="server-dropdown-backdrop" className="server-dropdown-backdrop" aria-hidden="true" />
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Blob Background                                                    */
-/* ------------------------------------------------------------------ */
-
-function BlobBackground() {
-  return (
-    <div className="blobs-container">
-      <div className="blob" />
-      <div className="blob" />
-      <div className="blob" />
-      <div className="blob" />
-      <div className="blob" />
-    </div>
   );
 }
 
@@ -475,10 +458,10 @@ function SidebarLogoArea() {
       }
     >
       <div className="sidebar-server-info">
-        <div className="sidebar-server-icon" id="sidebar-selected-icon">
-          {selectedGuild?.icon ? (
-            <img
-              src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
+         <div className="sidebar-server-icon" id="sidebar-selected-icon">
+           {selectedGuild?.icon ? (
+             <img
+               src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
               alt=""
               style={{
                 width: 14,
@@ -487,6 +470,10 @@ function SidebarLogoArea() {
                 objectFit: 'cover',
               }}
             />
+          ) : selectedGuild ? (
+            <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1 }}>
+              {selectedGuild.name.charAt(0).toUpperCase()}
+            </span>
           ) : (
             <svg
               width="14"
@@ -499,7 +486,8 @@ function SidebarLogoArea() {
               strokeLinejoin="round"
               aria-hidden="true"
             >
-              <path d="M6 9l6 6 6-6" />
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
             </svg>
           )}
         </div>

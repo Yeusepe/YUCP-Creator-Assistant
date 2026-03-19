@@ -31,19 +31,38 @@ function useDeferredReady() {
   return ready;
 }
 
+function useDeferredFade() {
+  const ready = useDeferredReady();
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!ready) {
+      setVisible(false);
+      return;
+    }
+
+    const frameId = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(frameId);
+  }, [ready]);
+
+  return { ready, visible };
+}
+
 /**
  * Background sky canvas (z-index: 0, opaque).
  * Renders into the bg-canvas-root div that pages provide.
  */
 export function CloudBackgroundLayer() {
-  const ready = useDeferredReady();
+  const { ready, visible } = useDeferredFade();
   if (!ready) return null;
   return (
-    <ErrorBoundary>
-      <Suspense fallback={null}>
-        <BackgroundApp />
-      </Suspense>
-    </ErrorBoundary>
+    <div className={`cloud-layer-fade${visible ? ' is-visible' : ''}`}>
+      <ErrorBoundary>
+        <Suspense fallback={null}>
+          <BackgroundApp />
+        </Suspense>
+      </ErrorBoundary>
+    </div>
   );
 }
 
@@ -51,14 +70,16 @@ export function CloudBackgroundLayer() {
  * Foreground clouds canvas (z-index: 1, transparent, pointer-events: none).
  */
 export function CloudForegroundLayer() {
-  const ready = useDeferredReady();
+  const { ready, visible } = useDeferredFade();
   if (!ready) return null;
   return (
-    <ErrorBoundary>
-      <Suspense fallback={null}>
-        <ForegroundApp />
-      </Suspense>
-    </ErrorBoundary>
+    <div className={`cloud-layer-fade${visible ? ' is-visible' : ''}`}>
+      <ErrorBoundary>
+        <Suspense fallback={null}>
+          <ForegroundApp />
+        </Suspense>
+      </ErrorBoundary>
+    </div>
   );
 }
 
@@ -66,14 +87,16 @@ export function CloudForegroundLayer() {
  * 404 3D text canvas (z-index: 2, transparent).
  */
 export function Cloud404Layer() {
-  const ready = useDeferredReady();
+  const { ready, visible } = useDeferredFade();
   if (!ready) return null;
   return (
-    <ErrorBoundary>
-      <Suspense fallback={null}>
-        <Cloud404App />
-      </Suspense>
-    </ErrorBoundary>
+    <div className={`cloud-layer-fade${visible ? ' is-visible' : ''}`}>
+      <ErrorBoundary>
+        <Suspense fallback={null}>
+          <Cloud404App />
+        </Suspense>
+      </ErrorBoundary>
+    </div>
   );
 }
 

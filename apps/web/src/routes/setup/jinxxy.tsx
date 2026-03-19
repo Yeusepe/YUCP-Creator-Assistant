@@ -61,7 +61,7 @@ function JinxxySetupPage() {
   const [isFinishing, setIsFinishing] = useState(false);
   const [finishSuccess, setFinishSuccess] = useState(false);
   const [isSavingSecret, setIsSavingSecret] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
   const [testMockText, setTestMockText] = useState('Listening for test event...');
   const [testMockColor, setTestMockColor] = useState('text-[#0ea5e9]');
 
@@ -376,7 +376,6 @@ function JinxxySetupPage() {
     <div className="jinxxy-setup fixed inset-0 flex flex-col items-center justify-center overflow-hidden">
       <div
         className={`page-content fixed inset-0 flex flex-col items-center justify-center overflow-hidden${isVisible ? ' is-visible' : ''}`}
-        style={!isVisible ? { opacity: 0 } : undefined}
       >
         {/* Back to Dashboard */}
         {dashboardUrl && (

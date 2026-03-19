@@ -37,6 +37,7 @@ describe('dashboard parity wiring', () => {
     expect(helperSource).toContain('/api/providers');
     expect(helperSource).toContain('/api/connect/user/guilds');
     expect(helperSource).toContain('/api/connect/user/accounts');
+    expect(helperSource).toContain('/api/connect/status');
     expect(helperSource).toContain('/api/connect/settings');
     expect(helperSource).toContain('/api/connect/guild/channels');
     expect(helperSource).toContain('/api/install/uninstall/');
@@ -51,6 +52,19 @@ describe('dashboard parity wiring', () => {
     expect(layoutSource).toContain('queryFn: listUserGuilds');
   });
 
+  it('derives server provider tiles from tenant connection status instead of the viewer account list', () => {
+    const source = readRouteSource('index.tsx');
+    const serverConfigPanelSource =
+      source.match(/function ServerConfigPanel\(\)[\s\S]*?\}, \[providers, statusByProvider\]\);/)?.[0] ?? '';
+
+    expect(serverConfigPanelSource).toContain("queryKey: ['dashboard-connection-status', authUserId]");
+    expect(serverConfigPanelSource).toContain(
+      'queryFn: () => getConnectionStatus(requireAuthUserId(authUserId))'
+    );
+    expect(serverConfigPanelSource).toContain('statusByProvider[provider.key]');
+    expect(serverConfigPanelSource).not.toContain("queryKey: ['dashboard-user-accounts', viewer?.authUserId]");
+  });
+
   it('keeps connected platform rendering aligned with provider status cards instead of duplicate account strips', () => {
     const source = readRouteSource('index.tsx');
 
@@ -60,7 +74,25 @@ describe('dashboard parity wiring', () => {
     );
     expect(source).toContain('{unlinkedPlatformProviders.map((provider) => {');
     expect(source).not.toContain('id="user-accounts-list"');
-    expect(source).not.toContain("style={{ marginBottom: '24px' }}");
+    expect(source).toContain("style={{ marginBottom: '24px' }}");
+    expect(source).toContain("style={{ gap: '12px', marginBottom: '24px' }}");
+    expect(source).toContain("style={{ fontFamily: \"'DM Sans', sans-serif\", margin: '0 0 16px' }}");
+  });
+
+  it('uses simple section-specific skeleton components instead of generic card placeholders', () => {
+    const indexSource = readRouteSource('index.tsx');
+    const integrationsSource = readRouteSource('integrations.tsx');
+    const collaborationSource = readRouteSource('collaboration.tsx');
+
+    expect(indexSource).toContain('DashboardGridSkeleton');
+    expect(indexSource).toContain('DashboardActionRowSkeleton');
+    expect(indexSource).toContain('DashboardSettingsSkeleton');
+    expect(integrationsSource).toContain('DashboardActionRowSkeleton');
+    expect(integrationsSource).toContain('DashboardListSkeleton');
+    expect(collaborationSource).toContain('DashboardListSkeleton');
+    expect(indexSource).not.toContain('className="skeleton-block skeleton-card"');
+    expect(integrationsSource).not.toContain('className="skeleton-block skeleton-card"');
+    expect(collaborationSource).not.toContain('className="skeleton-block skeleton-card"');
   });
 
   it('waits for the resolved dashboard viewer before querying user-scoped account data', () => {
@@ -71,7 +103,7 @@ describe('dashboard parity wiring', () => {
         /queryKey:\s*\['dashboard-user-accounts'[^\]]*\][\s\S]*?queryFn:\s*listUserAccounts,[\s\S]*?enabled:\s*Boolean\(viewer\?\.authUserId\)/g
       ) ?? [];
 
-    expect(guardedAccountQueries).toHaveLength(2);
+    expect(guardedAccountQueries).toHaveLength(1);
   });
 
   it('wires developer integrations to OAuth app and API key CRUD flows', () => {
@@ -84,6 +116,11 @@ describe('dashboard parity wiring', () => {
     expect(source).toContain('id="oauth-secret-reveal"');
     expect(source).toContain('className="oauth-app-card"');
     expect(source).toContain('editingAppId === app._id');
+    expect(source).not.toContain('id="oauth-apps-loading"');
+    expect(source).not.toContain('id="api-keys-loading"');
+    expect(source).not.toContain('page-loading-spin');
+    expect(source).toContain('className="empty-state-copy"');
+    expect(source).not.toContain('className="text-xs mt-2 max-w-xs mx-auto"');
   });
 
   it('wires collaboration to provider, invite, and connection APIs', () => {
@@ -98,6 +135,11 @@ describe('dashboard parity wiring', () => {
     expect(helperSource).toContain('/api/collab/invites');
     expect(helperSource).toContain('/api/collab/connections');
     expect(helperSource).toContain('/api/collab/connections/as-collaborator');
+    expect(source).not.toContain('id="collab-loading"');
+    expect(source).not.toContain('id="collab-as-collaborator-loading"');
+    expect(source).not.toContain('page-loading-spin');
+    expect(source).toContain('className="empty-state-copy"');
+    expect(source).not.toContain('className="text-xs mt-2 max-w-xs mx-auto"');
   });
 
   it('keeps the inline invite-link copy control from the original collaboration panel', () => {
