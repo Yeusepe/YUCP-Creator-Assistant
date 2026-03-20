@@ -140,7 +140,7 @@ function MyCollaboratorsSection({
   const revokeInviteMutation = useMutation({
     mutationFn: (inviteId: string) => revokeCollabInvite(requireAuthUserId(authUserId), inviteId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['dashboard-collab-invites', authUserId] });
+      await queryClient.refetchQueries({ queryKey: ['dashboard-collab-invites', authUserId] });
     },
   });
 
@@ -148,17 +148,31 @@ function MyCollaboratorsSection({
     mutationFn: (connectionId: string) =>
       removeCollabConnection(requireAuthUserId(authUserId), connectionId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
+      await queryClient.refetchQueries({
         queryKey: ['dashboard-collab-connections', authUserId],
       });
     },
   });
 
   const openInvitePanel = () => {
+    const defaultProvider = selectedProvider || providers[0]?.key || '';
+    const providerKey = defaultProvider;
+    setSelectedProvider(providerKey);
     setInvitePanelOpen(true);
-    setInviteStep('select');
-    setSelectedProvider(providers[0]?.key ?? '');
-    setGeneratedInvite(null);
+
+    // If there's an existing pending invite for this provider, show it instead of
+    // resetting — prevents auto-revoking still-valid invites when re-opening the panel.
+    const existingInvite = invites.find((i) => i.providerKey === providerKey);
+    if (existingInvite) {
+      setGeneratedInvite({
+        url: `${window.location.origin}/collab-invite?id=${encodeURIComponent(existingInvite.id)}`,
+        expiresAt: existingInvite.expiresAt,
+      });
+      setInviteStep('url');
+    } else {
+      setInviteStep('select');
+      setGeneratedInvite(null);
+    }
   };
 
   const closeInvitePanel = () => {
@@ -330,7 +344,21 @@ function MyCollaboratorsSection({
                   id="invite-provider-select"
                   className="invite-provider-pick"
                   value={selectedProvider}
-                  onChange={(event) => setSelectedProvider(event.target.value)}
+                  onChange={(event) => {
+                    const key = event.target.value;
+                    setSelectedProvider(key);
+                    const existing = invites.find((i) => i.providerKey === key);
+                    if (existing) {
+                      setGeneratedInvite({
+                        url: `${window.location.origin}/collab-invite?id=${encodeURIComponent(existing.id)}`,
+                        expiresAt: existing.expiresAt,
+                      });
+                      setInviteStep('url');
+                    } else {
+                      setGeneratedInvite(null);
+                      setInviteStep('select');
+                    }
+                  }}
                 >
                   {providers.map((provider) => (
                     <option key={provider.key} value={provider.key}>
@@ -460,7 +488,7 @@ function MyCollaboratorsSection({
       </DashboardBodyPortal>
 
       {!isLoading ? (
-        <>
+        <div className="skeleton-content">
           <div
             id="collab-invites-section"
             className={invites.length > 0 ? '' : 'hidden'}
@@ -616,7 +644,7 @@ function MyCollaboratorsSection({
               </button>
             </div>
           ) : null}
-        </>
+        </div>
       ) : null}
     </section>
   );
@@ -676,7 +704,7 @@ function StoresICollaborateWithSection({
       <DashboardListSkeleton rows={1} showAction={false} />
 
       {!isLoading ? (
-        <>
+        <div className="skeleton-content">
           <div id="collab-as-collaborator-list">
             {stores.map((store) => (
               <div key={store.id} className="collab-row">
@@ -727,7 +755,7 @@ function StoresICollaborateWithSection({
               </p>
             </div>
           ) : null}
-        </>
+        </div>
       ) : null}
     </section>
   );

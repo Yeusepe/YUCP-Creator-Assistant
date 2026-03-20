@@ -14,6 +14,9 @@ export interface LocalEnv {
   // Discord
   DISCORD_BOT_TOKEN?: string;
   DISCORD_GUILD_ID?: string;
+  // Heartbeat
+  HEARTBEAT_URL?: string;
+  HEARTBEAT_INTERVAL_MINUTES?: string;
   // Convex (role sync)
   CONVEX_URL?: string;
   CONVEX_API_SECRET?: string;
@@ -39,6 +42,8 @@ function loadFromEnv(): LocalEnv {
     INFISICAL_ENV: process.env.INFISICAL_ENV,
     DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN,
     DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
+    HEARTBEAT_URL: process.env.HEARTBEAT_URL,
+    HEARTBEAT_INTERVAL_MINUTES: process.env.HEARTBEAT_INTERVAL_MINUTES,
     CONVEX_URL: process.env.CONVEX_URL ?? process.env.CONVEX_DEPLOYMENT_URL,
     CONVEX_API_SECRET: process.env.CONVEX_API_SECRET,
     CONVEX_DEPLOYMENT: process.env.CONVEX_DEPLOYMENT,

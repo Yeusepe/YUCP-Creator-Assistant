@@ -1,11 +1,12 @@
 :root {
   --legal-accent: #0ea5e9;
-  --bg-color: #0a3d9e;
 }
 
 main {
   color: #ffffff;
-  padding-top: 4rem;
+  position: relative;
+  z-index: 2;
+  padding-top: 6rem;
   padding-bottom: 4rem;
 }
 
@@ -138,6 +139,17 @@ header p {
   color: #ffffff;
 }
 
+/* Glass card behind header content so logo/title are readable on the sky */
+header {
+  background: rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 2.5rem 2rem;
+  text-align: center;
+}
+
 @media (max-width: 639px) {
   .legal-card.rounded-2xl {
     padding: 1.25rem;
@@ -145,7 +157,9 @@ header p {
 }
 
 .legal-page {
-  background: var(--bg-color);
+  --bg-color: #0a3d9e;
+  position: relative;
+  z-index: 2;
   color: #ffffff;
   font-family: "DM Sans", sans-serif;
   scroll-behavior: smooth;

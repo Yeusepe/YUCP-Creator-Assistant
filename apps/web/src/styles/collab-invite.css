@@ -4,7 +4,7 @@
 }
 
 .collab-invite-page {
-  background-color: var(--bg-color);
+  position: relative;
   font-family: "DM Sans", sans-serif;
   color: var(--text-primary);
   overflow-x: hidden;
@@ -113,6 +113,10 @@ h3,
 
 .input-field::placeholder {
   color: rgba(255, 255, 255, 0.3);
+}
+
+.input-field-error {
+  border-color: #f87171 !important;
 }
 
 .warning-box {
@@ -236,6 +240,8 @@ h3,
 }
 
 #page-content {
+  position: relative;
+  z-index: 2;
   opacity: 0;
   transition: opacity 0.3s ease 0.05s;
 }

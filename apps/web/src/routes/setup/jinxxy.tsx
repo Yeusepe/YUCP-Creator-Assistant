@@ -149,7 +149,9 @@ function JinxxySetupPage() {
       if (active) observer.observe(active);
     }
     return () => observer.disconnect();
-  }, [updateStepsHeight]);
+  // currentStep triggers re-observation of the newly active step element
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateStepsHeight, currentStep]);
 
   // Fetch webhook config on step 3
   useEffect(() => {
