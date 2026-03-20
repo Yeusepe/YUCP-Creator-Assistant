@@ -103,6 +103,7 @@
       "dependencies": {
         "@convex-dev/better-auth": "^0.11.0",
         "@convex-dev/react-query": "^0.1.0",
+        "@infisical/sdk": "^4.0.6",
         "@react-three/drei": "^10.7.6",
         "@react-three/fiber": "^9.4.0",
         "@tailwindcss/vite": "^4.2.1",
