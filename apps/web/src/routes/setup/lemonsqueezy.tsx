@@ -209,6 +209,7 @@ function LemonSqueezySetupPage() {
           <svg
             className="absolute top-1/4 right-20 w-32 h-32 opacity-10 pointer-events-none"
             viewBox="0 0 100 100"
+            aria-hidden="true"
           >
             <rect
               x="0"
@@ -594,6 +595,7 @@ function LemonSqueezySetupPage() {
 
                         <div className="space-y-3">
                           <label
+                            htmlFor="lemon-squeezy-api-key"
                             className="block text-xs font-bold uppercase tracking-widest"
                             style={{
                               color: 'rgba(255,255,255,0.4)',
@@ -603,6 +605,7 @@ function LemonSqueezySetupPage() {
                           </label>
                           <div style={{ position: 'relative' }}>
                             <input
+                              id="lemon-squeezy-api-key"
                               type={showKey ? 'text' : 'password'}
                               autoComplete="off"
                               spellCheck={false}
@@ -631,7 +634,15 @@ function LemonSqueezySetupPage() {
                                 (e.currentTarget as HTMLButtonElement).style.color =
                                   'rgba(255,255,255,0.7)';
                               }}
+                              onFocus={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.color =
+                                  'rgba(255,255,255,0.7)';
+                              }}
                               onMouseOut={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.color =
+                                  'rgba(255,255,255,0.3)';
+                              }}
+                              onBlur={(e) => {
                                 (e.currentTarget as HTMLButtonElement).style.color =
                                   'rgba(255,255,255,0.3)';
                               }}
@@ -681,6 +692,7 @@ function LemonSqueezySetupPage() {
                               strokeWidth="2.5"
                               strokeLinecap="round"
                               strokeLinejoin="round"
+                              aria-hidden="true"
                             >
                               <polyline points="20 6 9 17 4 12" />
                             </svg>
@@ -731,7 +743,18 @@ function LemonSqueezySetupPage() {
                       'rgba(255,255,255,0.05)';
                   }
                 }}
+                onFocus={(e) => {
+                  if (currentStep > 1) {
+                    (e.currentTarget as HTMLButtonElement).style.color = 'white';
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      'rgba(255,255,255,0.05)';
+                  }
+                }}
                 onMouseOut={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.5)';
+                  (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                }}
+                onBlur={(e) => {
                   (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.5)';
                   (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
                 }}

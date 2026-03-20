@@ -86,7 +86,7 @@ function getDashboardUrl(): string {
 
 function MockCheckSvg() {
   return (
-    <svg width="7" height="7" viewBox="0 0 10 10" fill="none">
+    <svg width="7" height="7" viewBox="0 0 10 10" fill="none" aria-hidden="true">
       <path
         d="M2 5l2.5 2.5L8 3"
         stroke="white"
@@ -109,6 +109,7 @@ function CustomerSvg() {
       strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <circle cx="12" cy="8" r="4" />
       <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
@@ -127,6 +128,7 @@ function CreatorBotSvg() {
       strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <rect x="3" y="7" width="18" height="13" rx="3" />
       <path d="M9 7V5a3 3 0 016 0v2" />
@@ -138,7 +140,7 @@ function CreatorBotSvg() {
 
 function DiscordSvg() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="#5865f2">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="#5865f2" aria-hidden="true">
       <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.001.022.01.043.027.056a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z" />
     </svg>
   );
@@ -439,6 +441,7 @@ function PayhipSetupPage() {
         <svg
           className="absolute top-1/4 right-20 w-32 h-32 opacity-10 pointer-events-none"
           viewBox="0 0 100 100"
+          aria-hidden="true"
         >
           <rect x="0" y="0" width="100" height="100" fill="none" stroke="#ffffff" strokeWidth="1" />
           <line x1="0" y1="0" x2="100" y2="100" stroke="#ffffff" strokeWidth="1" />
@@ -556,10 +559,14 @@ function PayhipSetupPage() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30">
+                      <label
+                        htmlFor="payhip-api-key"
+                        className="block text-[10px] font-bold uppercase tracking-widest text-white/30"
+                      >
                         Payhip API Key
                       </label>
                       <input
+                        id="payhip-api-key"
                         type="password"
                         autoComplete="off"
                         placeholder="Paste your Payhip API key"
@@ -679,12 +686,18 @@ function PayhipSetupPage() {
                     ) : (
                       <div className="space-y-4">
                         <div className="space-y-2">
-                          <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30">
+                          <label
+                            htmlFor="payhip-webhook-url"
+                            className="block text-[10px] font-bold uppercase tracking-widest text-white/30"
+                          >
                             Your Webhook URL
                           </label>
                           <div className="flex items-center gap-2">
-                            <div className="code-block flex-1">{webhookUrl}</div>
+                            <div id="payhip-webhook-url" className="code-block flex-1">
+                              {webhookUrl}
+                            </div>
                             <button
+                              type="button"
                               className={`copy-btn flex-shrink-0 w-9 h-9 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.09] flex items-center justify-center transition-colors${copied.webhook ? ' copied' : ''}`}
                               title="Copy"
                               onClick={(e) =>
@@ -961,6 +974,7 @@ function PayhipSetupPage() {
                       {products.map((product) => (
                         <div key={product.id} className="product-card product-row">
                           <button
+                            type="button"
                             className="remove-product-btn"
                             title="Remove"
                             onClick={() => removeProduct(product.id)}
@@ -973,14 +987,21 @@ function PayhipSetupPage() {
                               stroke="currentColor"
                               strokeWidth="2.5"
                               strokeLinecap="round"
+                              aria-hidden="true"
                             >
                               <path d="M18 6L6 18M6 6l12 12" />
                             </svg>
                           </button>
                           <div className="product-card-fields">
                             <div>
-                              <label className="product-card-label">Permalink</label>
+                              <label
+                                htmlFor={`product-permalink-${product.id}`}
+                                className="product-card-label"
+                              >
+                                Permalink
+                              </label>
                               <input
+                                id={`product-permalink-${product.id}`}
                                 type="text"
                                 className="api-key-input product-permalink"
                                 placeholder="e.g. RGsF"
@@ -996,8 +1017,14 @@ function PayhipSetupPage() {
                               />
                             </div>
                             <div>
-                              <label className="product-card-label">Secret Key</label>
+                              <label
+                                htmlFor={`product-secret-key-${product.id}`}
+                                className="product-card-label"
+                              >
+                                Secret Key
+                              </label>
                               <input
+                                id={`product-secret-key-${product.id}`}
                                 type="password"
                                 className="api-key-input product-secret-key"
                                 placeholder="From product edit page"
@@ -1013,6 +1040,7 @@ function PayhipSetupPage() {
                     </div>
 
                     <button
+                      type="button"
                       className="flex items-center gap-2 text-sm text-[#3b82f6] hover:text-blue-300 transition-colors font-semibold w-full justify-center py-2.5 border border-dashed border-[#3b82f6]/25 rounded-xl hover:border-[#3b82f6]/50 hover:bg-[#3b82f6]/5"
                       onClick={addProduct}
                     >
@@ -1042,6 +1070,7 @@ function PayhipSetupPage() {
               style={{ paddingTop: '20px', marginTop: '20px' }}
             >
               <button
+                type="button"
                 className="px-6 py-3 rounded-xl font-bold text-white/50 hover:text-white hover:bg-white/[0.05] disabled:opacity-25 disabled:pointer-events-none transition-colors flex items-center justify-center gap-2 min-h-[44px]"
                 disabled={currentStep === 1}
                 onClick={goPrev}
@@ -1051,6 +1080,7 @@ function PayhipSetupPage() {
 
               {currentStep < TOTAL_STEPS ? (
                 <button
+                  type="button"
                   className="px-8 py-3 rounded-xl bg-[#3b82f6] text-white font-bold shadow-lg shadow-[#3b82f6]/20 hover:bg-[#2563eb] hover:scale-[1.02] disabled:opacity-40 disabled:pointer-events-none transition-all flex items-center justify-center gap-2 group min-h-[44px]"
                   disabled={isSavingApiKey}
                   onClick={goNext}
@@ -1066,6 +1096,7 @@ function PayhipSetupPage() {
                 </button>
               ) : (
                 <button
+                  type="button"
                   className={`w-full sm:w-auto px-8 py-3 backdrop-blur-md text-white rounded-xl font-bold shadow-lg hover:scale-[1.02] transition-transform flex items-center justify-center gap-2 group min-h-[44px] ${
                     isFinishing ? 'bg-green-600' : 'bg-white/[0.07]'
                   }`}

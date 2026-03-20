@@ -22,7 +22,7 @@ const SCOPE_INFO: Record<string, ScopeInfo> = {
     desc: 'Check if a user is verified on your server',
     badge: 'Read',
     icon: (
-      <svg viewBox="0 0 24 24">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
         <polyline points="9 12 11 14 15 10" />
       </svg>
@@ -33,7 +33,7 @@ const SCOPE_INFO: Record<string, ScopeInfo> = {
     desc: 'Access verified users and their purchase records',
     badge: 'Read',
     icon: (
-      <svg viewBox="0 0 24 24">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="8" r="4" />
         <path d="M6 20v-2a6 6 0 0 1 12 0v2" />
       </svg>
@@ -44,7 +44,7 @@ const SCOPE_INFO: Record<string, ScopeInfo> = {
     desc: 'Request a YUCP code-signing certificate for your developer key',
     badge: 'Sign',
     icon: (
-      <svg viewBox="0 0 24 24">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
         <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
       </svg>
@@ -53,7 +53,7 @@ const SCOPE_INFO: Record<string, ScopeInfo> = {
 };
 
 const DEFAULT_SCOPE_ICON = (
-  <svg viewBox="0 0 24 24">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
     <circle cx="12" cy="12" r="3" />
     <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
   </svg>
@@ -120,7 +120,7 @@ function OAuthConsentPage() {
           {/* App connector */}
           <div className="app-connector">
             <div className="app-icon client">
-              <svg viewBox="0 0 24 24">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
                 <rect x="2" y="3" width="20" height="14" rx="2" />
                 <path d="M8 21h8M12 17v4" />
               </svg>
@@ -163,7 +163,7 @@ function OAuthConsentPage() {
           </ul>
 
           <div className="security-notice">
-            <svg viewBox="0 0 24 24">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
             <p>

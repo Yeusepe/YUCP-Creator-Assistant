@@ -196,8 +196,9 @@ h3,
   color: rgba(255, 255, 255, 0.3);
 }
 
-.input-field-error {
-  border-color: #f87171 !important;
+.input-field.input-field-error,
+.input-field.input-field-error:focus {
+  border-color: #f87171;
 }
 
 .warning-box {

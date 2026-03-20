@@ -467,9 +467,9 @@ function SidebarLogoArea() {
               src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
               alt=""
               style={{
-                width: 14,
-                height: 14,
-                borderRadius: '4px',
+                width: '100%',
+                height: '100%',
+                borderRadius: '6px',
                 objectFit: 'cover',
               }}
             />

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '@/api/client';
 
 vi.mock('@tanstack/react-router', () => {
   return {
@@ -236,5 +237,24 @@ describe('dashboard server settings', () => {
     await waitFor(() =>
       expect(dashboardApi.getDashboardSettings).toHaveBeenCalledWith('tenant-123')
     );
+  });
+
+  it('shows an inline server-config error state when settings cannot be loaded', async () => {
+    const Component = DashboardIndexRoute.options.component;
+    if (!Component) {
+      throw new Error('Dashboard index route component is not defined');
+    }
+
+    vi.mocked(dashboardApi.getDashboardSettings).mockRejectedValue(
+      new ApiError(500, { error: 'Failed to get settings' })
+    );
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(screen.getByText(/could not load server configuration/i)).toBeInTheDocument()
+    );
+
+    expect(screen.queryByText('Allow Mismatched Emails')).not.toBeInTheDocument();
   });
 });

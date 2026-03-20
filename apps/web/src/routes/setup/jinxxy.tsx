@@ -140,6 +140,7 @@ function JinxxySetupPage() {
     }
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: currentStep triggers re-observation of the newly active step element
   useEffect(() => {
     updateStepsHeight();
     const observer = new ResizeObserver(() => updateStepsHeight());
@@ -149,8 +150,6 @@ function JinxxySetupPage() {
       if (active) observer.observe(active);
     }
     return () => observer.disconnect();
-    // currentStep triggers re-observation of the newly active step element
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateStepsHeight, currentStep]);
 
   // Fetch webhook config on step 3
@@ -412,6 +411,7 @@ function JinxxySetupPage() {
           <div className="absolute top-10 left-10 w-64 h-64 border border-[#ffffff]/5 rounded-full pointer-events-none animate-[spin_60s_linear_infinite]" />
           <div className="absolute bottom-10 right-10 w-96 h-96 border border-[#0ea5e9]/5 rounded-full pointer-events-none animate-[spin_80s_linear_infinite_reverse]" />
           <svg
+            aria-hidden="true"
             className="absolute top-1/4 right-20 w-32 h-32 opacity-10 pointer-events-none"
             viewBox="0 0 100 100"
           >
@@ -654,12 +654,12 @@ function JinxxySetupPage() {
                       <div className="space-y-4 pt-2">
                         {/* Callback URL field */}
                         <div className="group">
-                          <label className="block text-xs font-bold uppercase tracking-wider text-[rgba(255,255,255,0.8)] mb-1.5 flex items-center gap-2">
+                          <div className="block text-xs font-bold uppercase tracking-wider text-[rgba(255,255,255,0.8)] mb-1.5 flex items-center gap-2">
                             Callback URL
                             <span className="text-[9px] bg-white/10 text-[#ffffff] px-1.5 py-0.5 rounded">
                               Required
                             </span>
-                          </label>
+                          </div>
                           <div className="webhook-field-ring flex items-center gap-2 bg-white/5 p-1 pl-3 rounded-xl border-smooth-transition shadow-sm">
                             <code className="flex-1 text-sm font-mono text-[#ffffff] truncate select-all">
                               {callbackUrl}
@@ -677,7 +677,10 @@ function JinxxySetupPage() {
 
                         {/* Signing Secret field */}
                         <div className="group">
-                          <label className="block text-xs font-bold uppercase tracking-wider text-[rgba(255,255,255,0.8)] mb-1.5 flex items-center gap-2">
+                          <label
+                            htmlFor="signing-secret"
+                            className="block text-xs font-bold uppercase tracking-wider text-[rgba(255,255,255,0.8)] mb-1.5 flex items-center gap-2"
+                          >
                             Signing Secret
                             <span className="text-[9px] bg-white/10 text-[#ffffff] px-1.5 py-0.5 rounded">
                               Choose your own
@@ -685,6 +688,7 @@ function JinxxySetupPage() {
                           </label>
                           <div className="webhook-field-ring flex items-center gap-2 bg-white/5 p-1 pl-3 rounded-xl border-smooth-transition shadow-sm">
                             <input
+                              id="signing-secret"
                               type="password"
                               autoComplete="off"
                               maxLength={40}
@@ -961,10 +965,14 @@ function JinxxySetupPage() {
                     </p>
 
                     <div className="space-y-3 mb-4">
-                      <label className="block text-xs font-bold uppercase tracking-wider text-[rgba(255,255,255,0.8)] mb-1">
+                      <label
+                        htmlFor="jinxxy-api-key"
+                        className="block text-xs font-bold uppercase tracking-wider text-[rgba(255,255,255,0.8)] mb-1"
+                      >
                         Jinxxy&#8482; API Key
                       </label>
                       <input
+                        id="jinxxy-api-key"
                         type="password"
                         autoComplete="off"
                         placeholder="Paste your Jinxxy™ API key"

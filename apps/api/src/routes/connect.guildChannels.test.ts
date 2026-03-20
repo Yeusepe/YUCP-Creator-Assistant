@@ -7,6 +7,7 @@
  */
 
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+import type { Auth } from '../auth';
 import { createAuth } from '../auth';
 import { createSetupSession } from '../lib/setupSession';
 import type { ConnectConfig } from './connect';
@@ -15,6 +16,11 @@ let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 
 mock.module('../lib/convex', () => ({
+  getConvexApiSecret: () => 'test-convex-secret',
+  getConvexClient: () => ({
+    query: (...args: unknown[]) => queryImpl(...args),
+    mutation: (...args: unknown[]) => mutationImpl(...args),
+  }),
   getConvexClientFromUrl: () => ({
     query: (...args: unknown[]) => queryImpl(...args),
     mutation: (...args: unknown[]) => mutationImpl(...args),
@@ -112,6 +118,48 @@ describe('GET /api/connect/settings (setup-session path)', () => {
     const body = (await res.json()) as { policy: { allowMismatchedEmails: boolean } };
     expect(body.policy.allowMismatchedEmails).toBe(true);
   });
+
+  it('returns a controlled error when tenant ownership resolution fails in the web-session path', async () => {
+    queryImpl = async (_reference: unknown, args: unknown) => {
+      const record = args as { authUserId?: string };
+      if (record.authUserId === 'tenant-123') {
+        throw new Error('convex offline');
+      }
+      return null;
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-123',
+        },
+      }),
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/settings?authUserId=tenant-123');
+
+    const res = await isolatedRoutes.getSettingsHandler(req);
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/tenant ownership/i);
+  });
+
+  it('returns a controlled error when session resolution fails in the web-session path', async () => {
+    const fakeAuth = {
+      getSession: async () => {
+        throw new Error('session store offline');
+      },
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/settings?authUserId=tenant-456');
+
+    const res = await isolatedRoutes.getSettingsHandler(req);
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/session/i);
+  });
 });
 
 describe('DELETE /api/connections (disconnect) - setup-session path', () => {
@@ -141,6 +189,39 @@ describe('DELETE /api/connections (disconnect) - setup-session path', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);
+  });
+});
+
+describe('GET /api/connect/guild/channels (web-session path)', () => {
+  it('allows a tenant-owned guild when authUserId differs from the session user id', async () => {
+    queryImpl = async (_reference: unknown, args: unknown) => {
+      const record = args as { authUserId?: string; discordGuildId?: string };
+      if (record.authUserId === 'tenant-123') {
+        return { authUserId: 'session-user-123' };
+      }
+      if (record.discordGuildId === 'guild-123') {
+        return { authUserId: 'tenant-123' };
+      }
+      return null;
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-123',
+        },
+      }),
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request(
+      'http://localhost:3001/api/connect/guild/channels?guildId=guild-123&authUserId=tenant-123'
+    );
+
+    const res = await isolatedRoutes.getGuildChannels(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { channels: unknown[] };
+    expect(body.channels).toEqual([]);
   });
 });
 

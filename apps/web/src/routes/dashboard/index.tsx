@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import {
@@ -11,6 +12,7 @@ import {
   DashboardListSkeleton,
   DashboardSettingsSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { DashboardPanelErrorState } from '@/components/dashboard/PanelErrorState';
 import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
@@ -654,6 +656,40 @@ const SETTING_LABELS: Record<string, string> = {
   logChannelId: 'Log channel',
   announcementsChannelId: 'Announcements channel',
 };
+
+function getDashboardPanelErrorDetails(error: unknown) {
+  if (!error || isDashboardAuthError(error)) {
+    return null;
+  }
+
+  if (error instanceof ApiError) {
+    const description =
+      typeof error.body === 'object' &&
+      error.body !== null &&
+      'error' in error.body &&
+      typeof error.body.error === 'string'
+        ? error.body.error
+        : error.message;
+
+    return {
+      description,
+      requestId: error.requestId,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      description: error.message,
+      requestId: undefined,
+    };
+  }
+
+  return {
+    description: 'An unexpected error occurred while loading dashboard data.',
+    requestId: undefined,
+  };
+}
+
 function ServerConfigPanel() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -890,6 +926,13 @@ function ServerConfigPanel() {
     [saveSettingMutation]
   );
 
+  const serverConfigError =
+    getDashboardPanelErrorDetails(providersQuery.error) ??
+    getDashboardPanelErrorDetails(connectionStatusQuery.error) ??
+    getDashboardPanelErrorDetails(accountsQuery.error) ??
+    getDashboardPanelErrorDetails(settingsQuery.error) ??
+    getDashboardPanelErrorDetails(channelsQuery.error);
+
   if (
     isDashboardAuthError(providersQuery.error) ||
     isDashboardAuthError(connectionStatusQuery.error) ||
@@ -905,6 +948,37 @@ function ServerConfigPanel() {
         title="Sign in to manage server configuration"
         description="Your dashboard session expired while loading server configuration. Sign in again to keep managing settings and channels."
       />
+    );
+  }
+
+  if (serverConfigError) {
+    return (
+      <div
+        id="server-settings-card"
+        className="svr-cfg bento-col-12 animate-in animate-in-delay-3 server-only"
+      >
+        <div className="svr-cfg-bar">
+          <h2 className="svr-cfg-title">Server Config</h2>
+        </div>
+        <div className="settings-subsection">
+          <div className="settings-subsection-title">General</div>
+          <DashboardPanelErrorState
+            id="dashboard-server-config-error"
+            title="Could not load server configuration"
+            description={serverConfigError.description}
+            requestId={serverConfigError.requestId}
+            onRetry={() =>
+              Promise.all([
+                providersQuery.refetch(),
+                connectionStatusQuery.refetch(),
+                accountsQuery.refetch(),
+                settingsQuery.refetch(),
+                channelsQuery.refetch(),
+              ])
+            }
+          />
+        </div>
+      </div>
     );
   }
 

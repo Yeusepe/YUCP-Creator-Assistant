@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react';
+
 type DashboardActionRowSkeletonProps = {
   count?: number;
   widths?: number[];
@@ -32,13 +34,17 @@ export function DashboardActionRowSkeleton({
   count = 3,
   widths = [132, 156, 144],
 }: DashboardActionRowSkeletonProps) {
+  const items = Array.from({ length: count }, (_, i) => ({
+    id: `action-pill-${i}`,
+    width: widths[i] ?? widths[widths.length - 1] ?? 144,
+  }));
   return (
     <div className="skeleton-action-row" aria-hidden="true">
-      {Array.from({ length: count }, (_, index) => (
+      {items.map((item) => (
         <SkeletonBlock
-          key={`${index}-${widths[index] ?? widths[widths.length - 1] ?? 144}`}
+          key={item.id}
           className="skeleton-block skeleton-pill"
-          style={{ width: `${widths[index] ?? widths[widths.length - 1] ?? 144}px` }}
+          style={{ width: `${item.width}px` }}
         />
       ))}
     </div>
@@ -49,6 +55,7 @@ export function DashboardGridSkeleton({ cards = 2 }: { cards?: number }) {
   return (
     <div className="skeleton-grid" aria-hidden="true">
       {Array.from({ length: cards }, (_, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders never reorder
         <DashboardRowSkeleton key={index} />
       ))}
     </div>
@@ -59,6 +66,7 @@ export function DashboardListSkeleton({ rows = 2, showAction = true }: Dashboard
   return (
     <div className="skeleton-stack" aria-hidden="true">
       {Array.from({ length: rows }, (_, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders never reorder
         <DashboardRowSkeleton key={index} showAction={showAction} />
       ))}
     </div>
@@ -70,6 +78,7 @@ export function DashboardSettingsSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <div className="skeleton-stack" aria-hidden="true">
       {Array.from({ length: rows }, (_, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders never reorder
         <div key={index} className="skeleton-row-card" style={{ minHeight: '56px' }}>
           <SkeletonBlock className="skeleton-block skeleton-circle" />
           <div className="skeleton-copy" style={{ flex: 1 }}>
@@ -94,6 +103,7 @@ export function DashboardIntegrationsSkeleton({ cards = 3 }: { cards?: number })
   return (
     <div className="skeleton-grid skeleton-intg-grid" aria-hidden="true">
       {Array.from({ length: cards }, (_, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders never reorder
         <div key={index} className="skeleton-row-card skeleton-intg-card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%' }}>
             <SkeletonBlock
@@ -117,5 +127,3 @@ export function DashboardIntegrationsSkeleton({ cards = 3 }: { cards?: number })
     </div>
   );
 }
-
-import type { CSSProperties } from 'react';

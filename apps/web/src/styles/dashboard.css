@@ -460,7 +460,164 @@ body:not(.state-server-selected) .server-only {
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* Light-mode overrides: intg cards are always in content-area which is light */
+.content-area .intg-provider-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.content-area .intg-provider-card:hover {
+  border-color: #cbd5e1;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+.content-area .intg-provider-name {
+  color: #0f172a;
+}
+
+.content-area .intg-provider-hint {
+  color: #64748b;
+}
+
+.content-area .intg-provider-enable-label {
+  color: #475569;
+}
+
+.content-area .intg-provider-card-footer {
+  border-top-color: #e2e8f0;
+}
+
+.content-area .intg-provider-card-empty {
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.content-area .intg-provider-card-empty-icon {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.3);
+}
+
+.content-area .intg-provider-card-empty p {
+  color: #64748b;
+}
+
+.content-area .intg-provider-card-empty strong {
+  color: #0f172a;
+}
+
+.content-area .intg-manage-btn {
+  color: #475569;
+  background: rgba(0, 0, 0, 0.04);
+  border-color: #e2e8f0;
+}
+
+.content-area .intg-manage-btn:hover {
+  color: #0f172a;
+  background: rgba(0, 0, 0, 0.08);
+  border-color: #cbd5e1;
+}
+
+.content-area .intg-status-badge.active {
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.content-area .intg-status-badge.degraded {
+  color: #d97706;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.content-area .intg-status-badge.disconnected {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
 /* Dark mode adjustments for intg provider grid */
+.dark .content-area .intg-provider-card {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: none;
+}
+
+.dark .content-area .intg-provider-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.dark .content-area .intg-provider-name {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.dark .content-area .intg-provider-hint {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.dark .content-area .intg-provider-enable-label {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dark .content-area .intg-provider-card-footer {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+.dark .content-area .intg-provider-card-empty {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dark .content-area .intg-provider-card-empty-icon {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.dark .content-area .intg-provider-card-empty p {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.dark .content-area .intg-provider-card-empty strong {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dark .content-area .intg-manage-btn {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dark .content-area .intg-manage-btn:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark .content-area .intg-status-badge.active {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(74, 222, 128, 0.25);
+}
+
+.dark .content-area .intg-status-badge.degraded {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.25);
+}
+
+.dark .content-area .intg-status-badge.disconnected {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
 .dark .intg-provider-card {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.12);
@@ -472,6 +629,13 @@ body:not(.state-server-selected) .server-only {
 
 .settings-subsection-body .svr-cfg-tile {
   margin-bottom: 0;
+}
+
+/* Skeleton-content wrapper inside settings rows must flex so gap applies */
+.settings-subsection-body .skeleton-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 #dynamic-server-provider-tiles {
@@ -1940,7 +2104,7 @@ img.collab-avatar {
 /* Liquid glass sidebar no curved corners; goes under content (lower z) */
 
 .sidebar {
-  z-index: 50;
+  z-index: 100;
   width: 100%;
   max-width: 260px;
   flex-shrink: 0;
@@ -1956,7 +2120,6 @@ img.collab-avatar {
   top: 0;
   left: 0;
   height: 100vh;
-  z-index: 100;
   transform: translateX(-100%);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -2452,6 +2615,7 @@ img.collab-avatar {
   display: block;
   flex: 1 1 auto;
   min-height: 0;
+  padding-bottom: 48px;
 }
 
 .integrations-grid {

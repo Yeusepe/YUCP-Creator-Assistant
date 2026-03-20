@@ -623,6 +623,7 @@ function CollabInvitePage() {
             style={{ textDecoration: 'none' }}
           >
             <svg
+              aria-hidden="true"
               xmlns="http://www.w3.org/2000/svg"
               width="16"
               height="16"
@@ -742,10 +743,18 @@ function CollabInvitePage() {
               </p>
 
               <div className="space-y-3 mb-6">
-                <button className="btn-primary w-full" onClick={() => setReuseKey(true)}>
+                <button
+                  type="button"
+                  className="btn-primary w-full"
+                  onClick={() => setReuseKey(true)}
+                >
                   Reuse my previous API key
                 </button>
-                <button className="btn-secondary w-full" onClick={() => setReuseKey(false)}>
+                <button
+                  type="button"
+                  className="btn-secondary w-full"
+                  onClick={() => setReuseKey(false)}
+                >
                   Enter a new key
                 </button>
               </div>
@@ -767,7 +776,8 @@ function CollabInvitePage() {
 
               <div className="space-y-3 mb-6">
                 {providerUI.supportsAccountLinking && (
-                  <div
+                  <button
+                    type="button"
                     className={`card-option${selectedType === 'account' ? ' selected' : ''}`}
                     onClick={() => selectType('account')}
                   >
@@ -807,10 +817,11 @@ function CollabInvitePage() {
                         </p>
                       </div>
                     </div>
-                  </div>
+                  </button>
                 )}
 
-                <div
+                <button
+                  type="button"
                   className={`card-option${selectedType === 'api' ? ' selected' : ''}`}
                   onClick={() => selectType('api')}
                 >
@@ -838,10 +849,11 @@ function CollabInvitePage() {
                       </p>
                     </div>
                   </div>
-                </div>
+                </button>
               </div>
 
               <button
+                type="button"
                 className="btn-primary w-full"
                 disabled={btnTypeDisabled}
                 onClick={continueFromType}
@@ -880,6 +892,7 @@ function CollabInvitePage() {
               <div className="flex gap-1.5 mb-6">
                 {wizDots.map((dot, i) => (
                   <div
+                    // biome-ignore lint/suspicious/noArrayIndexKey: static decorative dots
                     key={i}
                     className="rounded-full transition-all duration-300"
                     style={{
@@ -1034,7 +1047,7 @@ function CollabInvitePage() {
                     <strong style={{ color: 'white' }}>Management</strong> section, click{' '}
                     <strong style={{ color: 'white' }}>Webhooks</strong>.
                   </p>
-                  <button className="btn-primary w-full" onClick={handleWizNext}>
+                  <button type="button" className="btn-primary w-full" onClick={handleWizNext}>
                     I'm on the Webhooks page
                   </button>
                 </div>
@@ -1165,6 +1178,7 @@ function CollabInvitePage() {
                   <div className="space-y-3 mb-5">
                     <div>
                       <label
+                        htmlFor="callback-url-display"
                         className="block text-xs font-bold mb-1.5"
                         style={{
                           color: 'rgba(255,255,255,0.45)',
@@ -1175,8 +1189,11 @@ function CollabInvitePage() {
                         Callback URL
                       </label>
                       <div className="flex gap-2">
-                        <div className="code-block flex-1 text-xs">{webhookCallbackUrl}</div>
+                        <div id="callback-url-display" className="code-block flex-1 text-xs">
+                          {webhookCallbackUrl}
+                        </div>
                         <button
+                          type="button"
                           className="copy-btn"
                           style={copyBtnColor ? { color: copyBtnColor } : undefined}
                           onClick={() => handleCopyText(webhookCallbackUrl)}
@@ -1187,6 +1204,7 @@ function CollabInvitePage() {
                     </div>
                     <div>
                       <label
+                        htmlFor="signing-secret-input"
                         className="block text-xs font-bold mb-1.5"
                         style={{
                           color: 'rgba(255,255,255,0.45)',
@@ -1197,6 +1215,7 @@ function CollabInvitePage() {
                         Signing Secret
                       </label>
                       <input
+                        id="signing-secret-input"
                         type="password"
                         className={`input-field${signingSecretError ? ' input-field-error' : ''}`}
                         autoComplete="off"
@@ -1227,13 +1246,14 @@ function CollabInvitePage() {
                   </div>
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       className="btn-secondary"
                       onClick={handleWizBack}
                       style={{ flex: '0 0 80px' }}
                     >
                       Back
                     </button>
-                    <button className="btn-primary flex-1" onClick={handleWizNext}>
+                    <button type="button" className="btn-primary flex-1" onClick={handleWizNext}>
                       Values pasted - Next
                     </button>
                   </div>
@@ -1296,7 +1316,7 @@ function CollabInvitePage() {
                             flexShrink: 0,
                           }}
                         >
-                          <svg width="8" height="6" viewBox="0 0 8 6">
+                          <svg aria-hidden="true" width="8" height="6" viewBox="0 0 8 6">
                             <polyline
                               points="1,3 3,5 7,1"
                               stroke="white"
@@ -1444,13 +1464,14 @@ function CollabInvitePage() {
                   </div>
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       className="btn-secondary"
                       onClick={handleWizBack}
                       style={{ flex: '0 0 80px' }}
                     >
                       Back
                     </button>
-                    <button className="btn-primary flex-1" onClick={handleWizNext}>
+                    <button type="button" className="btn-primary flex-1" onClick={handleWizNext}>
                       Saved - Next
                     </button>
                   </div>
@@ -1547,6 +1568,7 @@ function CollabInvitePage() {
                   </p>
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       className="btn-secondary"
                       onClick={handleWizBack}
                       style={{ flex: '0 0 80px' }}
@@ -1554,6 +1576,7 @@ function CollabInvitePage() {
                       Back
                     </button>
                     <button
+                      type="button"
                       className="btn-primary flex-1"
                       disabled={wizTestNextDisabled}
                       onClick={handleWizNext}
@@ -1752,6 +1775,7 @@ function CollabInvitePage() {
                   {accountError && <div className="warning-box mb-3">{accountError}</div>}
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       className="btn-secondary"
                       onClick={handleWizBack}
                       style={{ flex: '0 0 80px' }}
@@ -1759,6 +1783,7 @@ function CollabInvitePage() {
                       Back
                     </button>
                     <button
+                      type="button"
                       className="btn-primary flex-1"
                       disabled={accountSubmitting}
                       onClick={submitAccountLinking}
@@ -1914,6 +1939,7 @@ function CollabInvitePage() {
                   fontSize: '14px',
                   lineHeight: '1.7',
                 }}
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: trusted provider instructions from plugin registry
                 dangerouslySetInnerHTML={{
                   __html: providerUI.apiFormInstructions,
                 }}
@@ -1932,6 +1958,7 @@ function CollabInvitePage() {
 
               {apiFormError && <div className="warning-box mb-3">{apiFormError}</div>}
               <button
+                type="button"
                 className="btn-primary w-full"
                 disabled={apiSubmitting}
                 onClick={submitApiLinking}

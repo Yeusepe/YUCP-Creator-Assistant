@@ -540,7 +540,20 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   > {
     // Check authentication first — unauthenticated requests always get 401,
     // regardless of whether authUserId was supplied.
-    const session = await auth.getSession(request);
+    let session: Awaited<ReturnType<Auth['getSession']>>;
+    try {
+      session = await auth.getSession(request);
+    } catch (error) {
+      logger.error('Session resolution failed', {
+        authUserId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        response: Response.json({ error: 'Failed to resolve session' }, { status: 503 }),
+      };
+    }
+
     if (!session) {
       return {
         ok: false,
@@ -555,7 +568,21 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       };
     }
 
-    const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, authUserId);
+    let tenantOwned: boolean;
+    try {
+      tenantOwned = await isTenantOwnedBySessionUser(session.user.id, authUserId);
+    } catch (error) {
+      logger.error('Tenant ownership resolution failed', {
+        sessionUserId: session.user.id,
+        authUserId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        response: Response.json({ error: 'Failed to resolve tenant ownership' }, { status: 503 }),
+      };
+    }
+
     if (!tenantOwned) {
       return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
     }
@@ -1215,38 +1242,44 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   async function getGuildChannels(request: Request): Promise<Response> {
     // Prefer setup session (bot-initiated flow); fall back to Better Auth web session.
     let guildId: string | null = null;
+    let authorizedAuthUserId: string | null = null;
 
     const tentativeSetupSession = await resolveSetupSessionFromRequest(request);
     if (tentativeSetupSession) {
       const bound = await requireBoundSetupSession(request);
       if (!bound.ok) return bound.response;
       guildId = bound.setupSession.guildId;
+      authorizedAuthUserId = bound.setupSession.authUserId;
     } else {
-      // Web session path: Better Auth session + guildId query param + guild ownership check
-      const authSession = await auth.getSession(request);
-      if (!authSession) {
-        return Response.json({ error: 'Authentication required' }, { status: 401 });
-      }
       const url = new URL(request.url);
+      const requestedAuthUserId = url.searchParams.get('authUserId') ?? undefined;
+      const ownerCheck = await requireOwnerSessionForTenant(request, requestedAuthUserId);
+      if (!ownerCheck.ok) {
+        return ownerCheck.response;
+      }
+      authorizedAuthUserId = requestedAuthUserId!;
       guildId = url.searchParams.get('guildId') ?? url.searchParams.get('guild_id');
       if (!guildId) {
         return Response.json({ error: 'guildId is required' }, { status: 400 });
       }
-      // Verify the authenticated user owns this guild
+
+      // Verify the requested tenant owns this guild
       try {
         const convex = getConvexClientFromUrl(config.convexUrl);
         const guildLink = await convex.query(api.guildLinks.getGuildLinkForUninstall, {
           apiSecret: config.convexApiSecret,
           discordGuildId: guildId,
         });
-        if (!guildLink || guildLink.authUserId !== authSession.user.id) {
+        if (!guildLink || guildLink.authUserId !== authorizedAuthUserId) {
           return Response.json({ error: 'Forbidden' }, { status: 403 });
         }
       } catch (err) {
         logger.error('Guild ownership check failed', {
+          guildId,
+          authUserId: authorizedAuthUserId,
           error: err instanceof Error ? err.message : String(err),
         });
-        return Response.json({ channels: [] });
+        return Response.json({ error: 'Failed to resolve guild ownership' }, { status: 503 });
       }
     }
 
