@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { copyToClipboard } from '@/lib/utils';
 
@@ -117,8 +117,9 @@ function CollabInvitePage() {
   const [accountSubmitting, setAccountSubmitting] = useState(false);
   const [apiSubmitting, setApiSubmitting] = useState(false);
   const [webhookCallbackUrl, setWebhookCallbackUrl] = useState('Loading...');
-  const [copyBtnText, setCopyBtnText] = useState('Copy');
+  const [signingSecretError, setSigningSecretError] = useState('');
   const [copyBtnColor, setCopyBtnColor] = useState('');
+  const [copyBtnText, setCopyBtnText] = useState('Copy');
   const [pageVisible, setPageVisible] = useState(false);
 
   const testWebhookIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -214,14 +215,24 @@ function CollabInvitePage() {
   }, [saveWebhookSecret, signingSecret, testWebhookPollingStarted]);
 
   const handleWizNext = useCallback(() => {
+    // Validate signing secret inline on step 2 before attempting server save
+    if (wizStepRef.current === 2) {
+      if (!signingSecret || signingSecret.length < 16) {
+        setSigningSecretError('Create a signing secret with at least 16 characters.');
+        return;
+      }
+      setSigningSecretError('');
+    }
     advanceWizard().catch((error) => {
       const message = error instanceof Error ? error.message : 'Could not continue right now.';
-      showError('Webhook Setup Incomplete', message);
+      // Surface save failures inline rather than navigating away from the wizard
+      setSigningSecretError(message);
     });
-  }, [advanceWizard, showError]);
+  }, [advanceWizard, signingSecret]);
 
   const handleWizBack = useCallback(() => {
     setWizStep((prev) => (prev <= 1 ? prev : prev - 1));
+    setSigningSecretError('');
   }, []);
 
   // ---- Discord auth ----
@@ -600,6 +611,9 @@ function CollabInvitePage() {
 
   return (
     <div className="collab-invite-page flex flex-col items-center justify-center min-h-screen p-4 py-8">
+      {/* Cloud background rendered independently so it doesn't fade with page-content */}
+      <CloudBackground variant="default" />
+
       <div id="page-content" className={pageVisible ? 'is-visible' : ''}>
         {/* Back to dashboard button */}
         {backToDashboardUrl && (
@@ -624,9 +638,6 @@ function CollabInvitePage() {
             Back to Dashboard
           </a>
         )}
-
-        {/* Background canvas root */}
-        <BackgroundCanvasRoot />
 
         <div className="w-full max-w-lg relative z-10">
           {/* Logo */}
@@ -1196,22 +1207,34 @@ function CollabInvitePage() {
                       </label>
                       <input
                         type="password"
-                        className="input-field"
+                        className={`input-field${signingSecretError ? ' input-field-error' : ''}`}
                         autoComplete="off"
                         placeholder="Create a long secret, then paste the same value into Jinxxy&trade;"
                         value={signingSecret}
-                        onChange={(e) => setSigningSecret(e.target.value)}
-                      />
-                      <p
-                        className="mt-2 text-xs"
-                        style={{
-                          color: 'rgba(255,255,255,0.55)',
-                          lineHeight: '1.5',
+                        onChange={(e) => {
+                          setSigningSecret(e.target.value);
+                          if (signingSecretError) setSigningSecretError('');
                         }}
-                      >
-                        Use at least 16 characters. the Assistant stores it encrypted after you
-                        continue.
-                      </p>
+                      />
+                      {signingSecretError ? (
+                        <p
+                          className="mt-2 text-xs"
+                          style={{ color: '#f87171', lineHeight: '1.5' }}
+                        >
+                          {signingSecretError}
+                        </p>
+                      ) : (
+                        <p
+                          className="mt-2 text-xs"
+                          style={{
+                            color: 'rgba(255,255,255,0.55)',
+                            lineHeight: '1.5',
+                          }}
+                        >
+                          Use at least 16 characters. The Assistant stores it encrypted after you
+                          continue.
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">

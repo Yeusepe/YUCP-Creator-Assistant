@@ -259,7 +259,7 @@ function PersonalSetupPanel() {
       {!isLoading ? (
         <div
           id="participating-servers-list"
-          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"
+          className="skeleton-content grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"
         >
           {guilds.length === 0 ? (
             <div
@@ -447,7 +447,7 @@ function ConnectedPlatformsPanel() {
       <DashboardListSkeleton rows={3} />
 
       {!isLoading ? (
-        <>
+        <div className="skeleton-content">
           <div aria-hidden="true" style={{ marginBottom: '16px' }} />
           <div
             id="add-account-buttons"
@@ -538,7 +538,7 @@ function ConnectedPlatformsPanel() {
               })}
             </div>
           </div>
-        </>
+        </div>
       ) : null}
     </section>
   );
@@ -802,7 +802,7 @@ function ServerConfigPanel() {
         <div className="settings-subsection-title">Store Integrations</div>
         <div className="settings-subsection-body">
           {!isLoading ? (
-            <div id="dynamic-server-provider-tiles">
+            <div id="dynamic-server-provider-tiles" className="skeleton-content">
               {linkedProviders.map((provider) => (
                 <article
                   key={provider.key}
@@ -859,7 +859,7 @@ function ServerConfigPanel() {
           <DashboardSettingsSkeleton rows={SWITCH_SETTING_CONFIG.length + SELECT_SETTING_CONFIG.length + 2} />
 
           {!isLoading ? (
-            <>
+            <div className="skeleton-content">
               {SWITCH_SETTING_CONFIG.map((setting) => (
                 <article key={setting.key} className="svr-cfg-tile">
                   <div className="svr-cfg-tile-head">
@@ -990,7 +990,7 @@ function ServerConfigPanel() {
                   />
                 </div>
               </article>
-            </>
+            </div>
           ) : null}
         </div>
       </div>

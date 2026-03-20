@@ -266,7 +266,7 @@ function OAuthAppsSection({
       ) : null}
 
       {!isLoading ? (
-        <>
+        <div className="skeleton-content">
           <div id="oauth-apps-list">
             {apps.map((app) => (
               <div key={app._id} className="oauth-app-card" style={glassCardStyle}>
@@ -447,7 +447,7 @@ function OAuthAppsSection({
               </button>
             </div>
           ) : null}
-        </>
+        </div>
       ) : null}
     </section>
   );
@@ -587,7 +587,7 @@ function ApiKeysSection({
       ) : null}
 
       {!isLoading ? (
-        <>
+        <div className="skeleton-content">
           <div id="api-keys-list" style={{ display: 'grid', gap: '12px' }}>
             {keys.map((key) => (
               <div key={key._id} className="api-key-row" style={glassRowStyle}>
@@ -711,7 +711,7 @@ function ApiKeysSection({
               </button>
             </div>
           ) : null}
-        </>
+        </div>
       ) : null}
     </section>
   );

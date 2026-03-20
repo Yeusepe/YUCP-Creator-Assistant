@@ -464,17 +464,6 @@ function LemonSqueezySetupPage() {
                           create the API key we need.
                         </p>
 
-                        <div className="flex flex-wrap gap-2">
-                          <div className="feature-pill">
-                            <div className="feature-pill-dot" />
-                            Webhooks created automatically
-                          </div>
-                          <div className="feature-pill">
-                            <div className="feature-pill-dot" />
-                            Encrypted &amp; stored securely
-                          </div>
-                        </div>
-
                         <a
                           href="https://app.lemonsqueezy.com/settings/api"
                           target="_blank"

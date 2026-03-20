@@ -1534,11 +1534,41 @@ img.collab-avatar {
   }
 }
 
-/* Remove skeletons when data is loaded */
+/* Skeleton elements: set up for smooth transition */
+.skeleton-action-row,
+.skeleton-grid,
+.skeleton-stack {
+  overflow: hidden;
+  /* Transition opacity, then instantly collapse height/margin after fade */
+  transition: opacity 0.15s ease;
+}
+
+/* When data is loaded: fade out, then collapse layout after fade */
 .skeleton-loaded .skeleton-action-row,
 .skeleton-loaded .skeleton-grid,
 .skeleton-loaded .skeleton-stack {
-  display: none;
+  opacity: 0;
+  pointer-events: none;
+  height: 0;
+  margin: 0;
+  /* height/margin collapse is instant but delayed until after the opacity fade */
+  transition: opacity 0.15s ease, height 0s linear 0.15s, margin 0s linear 0.15s;
+}
+
+/* Content section mounts when loading finishes — fade in from slight offset */
+.skeleton-content {
+  animation: skeleton-content-fadein 0.2s ease both;
+}
+
+@keyframes skeleton-content-fadein {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .dark .skeleton-block {
