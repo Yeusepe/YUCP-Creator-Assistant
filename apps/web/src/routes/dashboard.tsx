@@ -47,7 +47,10 @@ export const Route = createFileRoute('/dashboard')({
 
 function DashboardLayout() {
   const { guild_id, tenant_id } = Route.useSearch();
-  const isPersonalDashboard = !guild_id;
+  const { selectedGuild } = useDashboardShell();
+  const resolvedGuildId = selectedGuild?.id ?? guild_id;
+  const resolvedTenantId = selectedGuild?.tenantId ?? tenant_id;
+  const isPersonalDashboard = !resolvedGuildId;
 
   // Toggle body class for CSS personal/server visibility
   useEffect(() => {
@@ -60,7 +63,7 @@ function DashboardLayout() {
   }, [isPersonalDashboard]);
 
   return (
-    <ServerContextProvider guildId={guild_id} tenantId={tenant_id}>
+    <ServerContextProvider guildId={resolvedGuildId} tenantId={resolvedTenantId}>
       <DashboardSessionProvider>
         <div className="dashboard-page">
           <div className="app-shell">
@@ -466,7 +469,7 @@ function SidebarLogoArea() {
               style={{
                 width: 14,
                 height: 14,
-                borderRadius: '50%',
+                borderRadius: '4px',
                 objectFit: 'cover',
               }}
             />

@@ -12,9 +12,9 @@ import {
   DashboardSettingsSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
+import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
-import { useServerContext } from '@/hooks/useServerContext';
 import type {
   DashboardGuildChannel,
   DashboardPolicy,
@@ -353,10 +353,10 @@ function PersonalSetupPanel() {
 }
 
 function ConnectedPlatformsPanel() {
-  const { guildId, tenantId } = useServerContext();
-  const { viewer } = useDashboardShell();
+  const { activeGuildId, activeTenantId } = useActiveDashboardContext();
   const { canRunPanelQueries, markSessionExpired, status } = useDashboardSession();
-  const authUserId = tenantId ?? viewer?.authUserId;
+  const authUserId = activeTenantId;
+  const guildId = activeGuildId;
   const [pendingProviderDisconnect, setPendingProviderDisconnect] = useState<string | null>(null);
 
   const providersQuery = useQuery(
@@ -658,10 +658,10 @@ function ServerConfigPanel() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const { guildId, tenantId } = useServerContext();
-  const { viewer } = useDashboardShell();
+  const { activeGuildId, activeTenantId } = useActiveDashboardContext();
   const { canRunPanelQueries, markSessionExpired, status } = useDashboardSession();
-  const authUserId = tenantId ?? viewer?.authUserId;
+  const authUserId = activeTenantId;
+  const guildId = activeGuildId;
   const [policyDraft, setPolicyDraft] = useState<NormalizedPolicy>(DEFAULT_POLICY);
   const [saveStates, setSaveStates] = useState<Record<string, SaveIndicatorState>>({});
   const [disconnectStep, setDisconnectStep] = useState(0);

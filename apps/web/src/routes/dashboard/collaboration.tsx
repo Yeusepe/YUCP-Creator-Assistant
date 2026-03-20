@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+﻿import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
@@ -550,13 +550,21 @@ function MyCollaboratorsSection({
                   </button>
                   <button
                     type="button"
-                    className="collab-remove-btn"
+                    className={`collab-remove-btn${revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id ? ' btn-loading' : ''}`}
                     disabled={
                       revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id
                     }
                     onClick={() => revokeInviteMutation.mutate(invite.id)}
                   >
-                    Revoke
+                    {revokeInviteMutation.isPending &&
+                    revokeInviteMutation.variables === invite.id ? (
+                      <>
+                        <span className="btn-loading-spinner" aria-hidden="true" />
+                        Revoking...
+                      </>
+                    ) : (
+                      'Revoke'
+                    )}
                   </button>
                 </div>
               ))}
@@ -600,7 +608,7 @@ function MyCollaboratorsSection({
                 </div>
                 <button
                   type="button"
-                  className="collab-remove-btn"
+                  className={`collab-remove-btn${removeConnectionMutation.isPending && removeConnectionMutation.variables === connection.id ? ' btn-loading' : ''}`}
                   disabled={
                     removeConnectionMutation.isPending &&
                     removeConnectionMutation.variables === connection.id
@@ -616,7 +624,15 @@ function MyCollaboratorsSection({
                     removeConnectionMutation.mutate(connection.id);
                   }}
                 >
-                  Remove
+                  {removeConnectionMutation.isPending &&
+                  removeConnectionMutation.variables === connection.id ? (
+                    <>
+                      <span className="btn-loading-spinner" aria-hidden="true" />
+                      Removing...
+                    </>
+                  ) : (
+                    'Remove'
+                  )}
                 </button>
               </div>
             ))}
