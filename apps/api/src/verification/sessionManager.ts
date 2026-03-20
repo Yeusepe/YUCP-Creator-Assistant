@@ -1851,6 +1851,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
     const betterAuth = createAuth({
       baseUrl: config.baseUrl,
       convexSiteUrl,
+      convexUrl: config.convexUrl,
     });
     const client = new VrchatApiClient();
     const tokenSuffix = token.slice(-8);
@@ -2252,6 +2253,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
         convexSiteUrl: config.convexUrl
           ? config.convexUrl.replace('.convex.cloud', '.convex.site')
           : '',
+        convexUrl: config.convexUrl,
       });
       const authUserId = body.authUserId as string;
       const subjectId = body.subjectId as Id<'subjects'>;

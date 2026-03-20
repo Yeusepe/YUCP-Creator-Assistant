@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import { mutation } from './_generated/server';
+import { mutation, query } from './_generated/server';
 import { createAuth } from './auth';
 import { requireApiSecret } from './lib/apiAuth';
 
@@ -102,6 +102,36 @@ const SerializedApiKey = v.object({
 });
 
 interface BetterAuthServerApi {
+  listApiKeys(): Promise<
+    Array<{
+      id: string;
+      userId: string;
+      name: string | null;
+      start: string | null;
+      prefix: string | null;
+      enabled: boolean;
+      permissions?: Record<string, string[]> | null;
+      metadata?: unknown;
+      lastRequest?: unknown;
+      expiresAt?: unknown;
+      createdAt?: unknown;
+      updatedAt?: unknown;
+    }>
+  >;
+  getApiKey(args: { query: { id: string } }): Promise<{
+    id: string;
+    userId: string;
+    name: string | null;
+    start: string | null;
+    prefix: string | null;
+    enabled: boolean;
+    permissions?: Record<string, string[]> | null;
+    metadata?: unknown;
+    lastRequest?: unknown;
+    expiresAt?: unknown;
+    createdAt?: unknown;
+    updatedAt?: unknown;
+  } | null>;
   createApiKey(args: {
     body: {
       userId: string;
@@ -152,7 +182,60 @@ interface BetterAuthServerApi {
       updatedAt?: unknown;
     } | null;
   }>;
+  updateApiKey(args: {
+    body: {
+      keyId: string;
+      enabled?: boolean;
+    };
+  }): Promise<{
+    id: string;
+    userId: string;
+    name: string | null;
+    start: string | null;
+    prefix: string | null;
+    enabled: boolean;
+    permissions?: Record<string, string[]> | null;
+    metadata?: unknown;
+    lastRequest?: unknown;
+    expiresAt?: unknown;
+    createdAt?: unknown;
+    updatedAt?: unknown;
+  }>;
 }
+
+export const listApiKeys = query({
+  args: {},
+  returns: v.array(SerializedApiKey),
+  handler: async (ctx) => {
+    const auth = createAuth(ctx);
+    const api = auth.api as unknown as BetterAuthServerApi;
+    const result = await api.listApiKeys();
+    return result.map((record) => {
+      const serialized = serializeApiKeyRecord(record);
+      if (!serialized) {
+        throw new Error('Better Auth returned an empty API key record');
+      }
+      return serialized;
+    });
+  },
+});
+
+export const getApiKey = query({
+  args: {
+    keyId: v.string(),
+  },
+  returns: v.union(SerializedApiKey, v.null()),
+  handler: async (ctx, args) => {
+    const auth = createAuth(ctx);
+    const api = auth.api as unknown as BetterAuthServerApi;
+    const result = await api.getApiKey({
+      query: {
+        id: args.keyId,
+      },
+    });
+    return serializeApiKeyRecord(result);
+  },
+});
 
 export const createApiKey = mutation({
   args: {
@@ -241,5 +324,28 @@ export const verifyApiKey = mutation({
         : null,
       key: serializeApiKeyRecord(result.key),
     };
+  },
+});
+
+export const updateApiKey = mutation({
+  args: {
+    keyId: v.string(),
+    enabled: v.optional(v.boolean()),
+  },
+  returns: SerializedApiKey,
+  handler: async (ctx, args) => {
+    const auth = createAuth(ctx);
+    const api = auth.api as unknown as BetterAuthServerApi;
+    const updated = await api.updateApiKey({
+      body: {
+        keyId: args.keyId,
+        ...(args.enabled !== undefined ? { enabled: args.enabled } : {}),
+      },
+    });
+    const serialized = serializeApiKeyRecord(updated);
+    if (!serialized) {
+      throw new Error('Better Auth returned an empty API key record');
+    }
+    return serialized;
   },
 });

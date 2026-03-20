@@ -5,17 +5,15 @@
  */
 
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const schemaDir = resolve(import.meta.dir, '../schema');
 const outputFile = resolve(schemaDir, 'combined.bop');
 
 const files = readdirSync(schemaDir)
-  .filter(f => f.endsWith('.bop') && f !== 'combined.bop')
+  .filter((f) => f.endsWith('.bop') && f !== 'combined.bop')
   .sort();
 
-const combined = files
-  .map(f => readFileSync(join(schemaDir, f), 'utf8').trim())
-  .join('\n\n');
+const combined = files.map((f) => readFileSync(join(schemaDir, f), 'utf8').trim()).join('\n\n');
 
-writeFileSync(outputFile, combined + '\n');
+writeFileSync(outputFile, `${combined}\n`);

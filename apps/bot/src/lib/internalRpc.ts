@@ -12,6 +12,7 @@ import {
   VerificationClient,
   type VerificationResultResponse,
 } from '@yucp/private-rpc';
+import { getInternalRpcSharedSecret } from '@yucp/shared';
 import { getApiUrls } from './apiUrls';
 
 const INTERNAL_RPC_PATH = '/__internal/tempo';
@@ -39,10 +40,7 @@ function getRpcBaseUrl(): string {
 }
 
 async function createClients(): Promise<PrivateRpcClients> {
-  const sharedSecret = process.env.INTERNAL_RPC_SHARED_SECRET;
-  if (!sharedSecret) {
-    throw new Error('INTERNAL_RPC_SHARED_SECRET is not configured for the bot service');
-  }
+  const sharedSecret = getInternalRpcSharedSecret(process.env);
 
   const credential = BearerCredential.create(new NoStorageStrategy(), 'internal-rpc');
   await credential.storeCredential({ token: sharedSecret });

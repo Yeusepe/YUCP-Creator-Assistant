@@ -6,9 +6,8 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
-    "build": "bun run build:site && bun run build:collab && tsc",
-    "build:site": "vite build --config vite.site.config.ts",
-    "build:collab": "vite build --config vite.collab.config.ts",
+    "build": "bun run build:docs:index && tsc",
+    "build:docs:index": "vite build --config vite.docs-index.config.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
@@ -18,7 +17,7 @@
     "test:e2e:list": "npx playwright test --config playwright.config.ts --list"
   },
   "dependencies": {
-    "@convex-dev/better-auth": "^0.10.13",
+    "@convex-dev/better-auth": "^0.11.0",
     "@infisical/sdk": "^4.0.6",
     "@react-email/components": "^0.0.30",
     "@react-three/drei": "^10.7.6",
@@ -29,7 +28,7 @@
     "@yucp/providers": "workspace:*",
     "@yucp/shared": "workspace:*",
     "bebop": "3.0.4",
-    "better-auth": "1.4.9",
+    "better-auth": "1.5.5",
     "canvas-confetti": "^1.9.3",
     "convex": "^1.32.0",
     "facehash": "^0.1.0",

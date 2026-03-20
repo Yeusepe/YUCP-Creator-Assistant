@@ -30,6 +30,7 @@ const testConfig: InstallConfig = {
 const auth = createAuth({
   baseUrl: testConfig.baseUrl,
   convexSiteUrl: testConfig.convexUrl,
+  convexUrl: testConfig.convexUrl,
 });
 
 const routes = createInstallRoutes(auth, testConfig);

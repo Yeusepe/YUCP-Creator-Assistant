@@ -154,7 +154,7 @@ const WEBHOOK_EVENT_TYPES = [
 ] as const;
 
 function generateSigningSecret(): string {
-  return 'whsec_' + crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+  return `whsec_${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`;
 }
 
 /** Strips encrypted secret from a subscription object before returning to API caller. */

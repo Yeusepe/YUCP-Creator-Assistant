@@ -139,13 +139,10 @@ const TEST_ENCRYPTION_SECRET = 'test-encryption-secret-32-chars!!';
 function makeWebSessionAuth(userId: string): Auth {
   const session: SessionData = {
     user: { id: userId, email: 'test@example.com', name: 'Test User' },
-    session: { id: 'sess-123', expiresAt: Date.now() + 3_600_000, token: 'tok-123' },
   };
   return {
     getSession: async () => session,
     getDiscordUserId: async () => null,
-    exchangeOTT: async () => ({ session: null, setCookieHeaders: [] as string[] }),
-    signOut: async () => ({ ok: false, setCookieHeaders: [] as string[] }),
   } as unknown as Auth;
 }
 
@@ -228,7 +225,6 @@ describe('Collab routes — validation', () => {
 
 describe('Collab routes — security: setup session user isolation', () => {
   it('Setup session (user-A) + web session (user-B) → 403 (prevents session confusion)', async () => {
-    // This test is RED until requireOwnerAuth adds the cross-check.
     const token = await createSetupSession(
       'user-A',
       'guild-iso-1',
@@ -236,11 +232,30 @@ describe('Collab routes — security: setup session user isolation', () => {
       TEST_ENCRYPTION_SECRET
     );
     const server = await startTestServer({ auth: makeWebSessionAuth('user-B') });
+    const originalFetch = globalThis.fetch;
     try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith(server.url)) {
+          return originalFetch(input, init);
+        }
+        if (url.includes('/api/query')) {
+          return new Response(
+            JSON.stringify({ status: 'success', value: { authUserId: 'user-A' } }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            }
+          );
+        }
+        return originalFetch(input, init);
+      }) as typeof fetch;
+
       const res = await server.fetch('/api/collab/invite', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
         body: JSON.stringify({
+          authUserId: 'user-A',
           guildName: 'Server A',
           guildId: 'guild-iso-1',
           providerKey: 'jinxxy',
@@ -250,6 +265,7 @@ describe('Collab routes — security: setup session user isolation', () => {
       expect(res.status).toBe(403);
       expect(body).toHaveProperty('error');
     } finally {
+      globalThis.fetch = originalFetch;
       server.stop();
     }
   });

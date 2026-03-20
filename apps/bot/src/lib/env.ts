@@ -1,7 +1,7 @@
 // Environment loader with Infisical integration for local development
 // This module loads environment variables from .env files and optionally from Infisical
 
-import { createLogger } from '@yucp/shared';
+import { createLogger, getInternalRpcSharedSecret } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -14,6 +14,9 @@ export interface LocalEnv {
   // Discord
   DISCORD_BOT_TOKEN?: string;
   DISCORD_GUILD_ID?: string;
+  // Heartbeat
+  HEARTBEAT_URL?: string;
+  HEARTBEAT_INTERVAL_MINUTES?: string;
   // Convex (role sync)
   CONVEX_URL?: string;
   CONVEX_API_SECRET?: string;
@@ -39,6 +42,8 @@ function loadFromEnv(): LocalEnv {
     INFISICAL_ENV: process.env.INFISICAL_ENV,
     DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN,
     DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
+    HEARTBEAT_URL: process.env.HEARTBEAT_URL,
+    HEARTBEAT_INTERVAL_MINUTES: process.env.HEARTBEAT_INTERVAL_MINUTES,
     CONVEX_URL: process.env.CONVEX_URL ?? process.env.CONVEX_DEPLOYMENT_URL,
     CONVEX_API_SECRET: process.env.CONVEX_API_SECRET,
     CONVEX_DEPLOYMENT: process.env.CONVEX_DEPLOYMENT,
@@ -55,16 +60,13 @@ function loadFromEnv(): LocalEnv {
 
 /** Validate required bot env vars. Throws if any are missing. */
 export function validateBotEnv(env: LocalEnv): void {
-  const required = [
-    'DISCORD_BOT_TOKEN',
-    'CONVEX_URL',
-    'CONVEX_API_SECRET',
-    'INTERNAL_RPC_SHARED_SECRET',
-  ] as const;
+  const required = ['DISCORD_BOT_TOKEN', 'CONVEX_URL', 'CONVEX_API_SECRET'] as const;
   const missing = required.filter((k) => !env[k]);
   if (missing.length > 0) {
     throw new Error(`Missing required env vars: ${missing.join(', ')}`);
   }
+
+  getInternalRpcSharedSecret(env);
 }
 
 let infisicalLoaded = false;

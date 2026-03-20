@@ -1,0 +1,172 @@
+:root {
+  --legal-accent: #0ea5e9;
+}
+
+main {
+  color: #ffffff;
+  position: relative;
+  z-index: 2;
+  padding-top: 6rem;
+  padding-bottom: 4rem;
+}
+
+main * {
+  color: inherit;
+}
+
+main a {
+  color: var(--legal-accent);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  transition: opacity 0.2s;
+}
+
+h1,
+h2,
+h3,
+h4,
+.display-text {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #ffffff;
+}
+
+.legal-card {
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: all 0.3s ease;
+}
+
+.section-tag {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 20px;
+}
+
+.legal-card .section-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.legal-card .section-header .section-tag {
+  flex-shrink: 0;
+}
+
+.legal-card .section-header h2 {
+  margin: 0;
+  padding: 0;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--bg-color);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+/* Content Typography Formatting */
+.legal-card h2,
+.legal-card h3 {
+  color: #ffffff;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-weight: 800;
+}
+
+.legal-card h2 {
+  font-size: 1.875rem;
+  margin-bottom: 1.5rem;
+  margin-top: 2.5rem;
+}
+
+.legal-card h3 {
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+  margin-top: 1.5rem;
+}
+
+.legal-card p {
+  margin-bottom: 1rem;
+  color: #ffffff;
+}
+
+.legal-card ul {
+  list-style-type: none;
+  padding-left: 1.5rem;
+}
+
+.legal-card ul li {
+  position: relative;
+  margin-bottom: 0.75rem;
+  color: #ffffff;
+}
+
+.legal-card ul li::before {
+  content: "•";
+  position: absolute;
+  left: -1.5rem;
+  color: var(--legal-accent);
+  font-weight: bold;
+}
+
+main a:hover {
+  opacity: 0.8;
+}
+
+.legal-card h4 {
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+  color: #ffffff;
+}
+
+header h1,
+header p {
+  color: #ffffff;
+}
+
+/* Glass card behind header content so logo/title are readable on the sky */
+header {
+  background: rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 2.5rem 2rem;
+  text-align: center;
+}
+
+@media (max-width: 639px) {
+  .legal-card.rounded-2xl {
+    padding: 1.25rem;
+  }
+}
+
+.legal-page {
+  --bg-color: #0a3d9e;
+  position: relative;
+  z-index: 2;
+  color: #ffffff;
+  font-family: "DM Sans", sans-serif;
+  scroll-behavior: smooth;
+  opacity: 0;
+  transition: opacity 0.3s ease 0.05s;
+}
+
+.legal-page.is-visible {
+  opacity: 1;
+}

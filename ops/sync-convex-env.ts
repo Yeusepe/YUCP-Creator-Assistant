@@ -12,6 +12,7 @@ import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
 
 const CONVEX_ENV_VARS = [
   'BETTER_AUTH_SECRET',
+  'ENCRYPTION_SECRET',
   'INTERNAL_SERVICE_AUTH_SECRET',
   'VRCHAT_PROVIDER_SESSION_SECRET',
   'BETTER_AUTH_URL',
@@ -23,6 +24,8 @@ const CONVEX_ENV_VARS = [
   'YUCP_ROOT_PRIVATE_KEY',
   'YUCP_KEY_ID',
 ] as const;
+
+const DEV_ENV_OVERRIDE_KEYS = new Set<typeof CONVEX_ENV_VARS[number]>(['FRONTEND_URL']);
 
 const isProd = process.argv.includes('--prod');
 
@@ -86,7 +89,9 @@ async function main() {
   const changes: { name: string; value: string }[] = [];
   for (const name of CONVEX_ENV_VARS) {
     const envKey = name === 'BACKFILL_API_URL' && isProd ? 'BACKFILL_API_URL_PROD' : name;
-    const value = secrets[envKey] ?? process.env[envKey];
+    const localOverride =
+      !isProd && DEV_ENV_OVERRIDE_KEYS.has(name) ? process.env[envKey] : undefined;
+    const value = localOverride ?? secrets[envKey] ?? process.env[envKey];
     if (value) changes.push({ name, value });
   }
 

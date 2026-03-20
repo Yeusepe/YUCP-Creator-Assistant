@@ -6,7 +6,6 @@
  * PII field type has its own encryption context.
  *
  * Encryption secret: ENCRYPTION_SECRET (Convex dashboard env var).
- * Falls back to BETTER_AUTH_SECRET in non-production environments only.
  */
 
 import { encryptForPurpose } from './vrchat/crypto';
@@ -15,7 +14,7 @@ import { PII_PURPOSES } from './credentialKeys';
 export type PiiPurpose = (typeof PII_PURPOSES)[keyof typeof PII_PURPOSES];
 
 function getEncryptionSecret(): string {
-  const secret = process.env.ENCRYPTION_SECRET ?? process.env.BETTER_AUTH_SECRET;
+  const secret = process.env.ENCRYPTION_SECRET;
   if (!secret) {
     throw new Error('ENCRYPTION_SECRET is required for PII field encryption');
   }

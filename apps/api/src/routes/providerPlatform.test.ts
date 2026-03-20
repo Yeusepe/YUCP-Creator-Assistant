@@ -596,5 +596,17 @@ describe('provider platform routes', () => {
         }
       }
     });
+
+    it('routes VRChat dashboard connects to the setup page in connect mode', async () => {
+      const response = await routes.handleRequest(
+        new Request('http://localhost:3001/api/providers', { method: 'GET' })
+      );
+      const body = (await response?.json()) as Array<Record<string, unknown>>;
+      const vrchat = body.find((provider) => provider.key === 'vrchat');
+
+      expect(vrchat).toBeDefined();
+      expect(vrchat?.connectPath).toBe('/setup/vrchat?mode=connect');
+      expect(vrchat?.connectParamStyle).toBe('snakeCase');
+    });
   });
 });

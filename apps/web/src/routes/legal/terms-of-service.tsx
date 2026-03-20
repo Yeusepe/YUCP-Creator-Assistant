@@ -1,0 +1,1317 @@
+import { createFileRoute } from '@tanstack/react-router';
+import { useEffect, useState } from 'react';
+import { CloudBackground } from '@/components/three/CloudBackground';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+
+export const Route = createFileRoute('/legal/terms-of-service')({
+  head: () => ({
+    meta: [{ title: 'Terms of Service | Creator Assistant' }],
+    links: routeStylesheetLinks(routeStyleHrefs.legal),
+  }),
+  component: TermsOfServicePage,
+});
+
+function TermsOfServicePage() {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    setIsVisible(true);
+  }, []);
+
+  return (
+    <div className={`legal-page${isVisible ? ' is-visible' : ''}`}>
+      <CloudBackground variant="default" />
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 pb-10 sm:pb-16 md:pb-20">
+        <header className="mb-10 sm:mb-16">
+          <p className="text-[#0ea5e9] font-bold uppercase tracking-[0.3em] text-xs mb-8">
+            Legal &amp; Compliance
+          </p>
+          <div className="flex flex-col items-center gap-8 mb-8">
+            <img
+              src="/Icons/MainLogo.png"
+              alt="Creator Assistant logo"
+              className="h-12 sm:h-14 md:h-16 object-contain max-w-full w-auto flex-shrink-0"
+            />
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl text-center">Terms of Service</h1>
+          </div>
+          <p className="text-base sm:text-xl opacity-70 leading-relaxed font-medium">
+            <strong>Effective date:</strong> March 4, 2026 &nbsp;|&nbsp;{' '}
+            <strong>Last updated:</strong> March 6, 2026
+          </p>
+        </header>
+
+        <div className="space-y-6 custom-scrollbar">
+          <div id="intro" className="legal-card rounded-2xl p-5 sm:p-8">
+            <p className="leading-relaxed mb-4">
+              These Terms of Service (the &quot;Terms&quot;) govern access to and use of the Creator
+              Assistant services, including our websites, setup pages, dashboards, APIs, webhook
+              endpoints, Discord® bot (slash commands, verification flows, Liened Downloads,
+              collaborator sharing), Unity® runtime integration, and any related software, features,
+              and content that link to these Terms (collectively, the &quot;Service&quot;). The
+              Service is operated by <strong>Creator Assistant</strong> (&quot;we&quot;,
+              &quot;us&quot;, or &quot;our&quot;).
+            </p>
+            <p className="leading-relaxed">
+              By accessing, installing, connecting, configuring, or using the Service, you agree to
+              these Terms. If you do not agree, you must not use the Service.
+            </p>
+            <p
+              className="leading-relaxed mt-4 p-4 rounded-xl"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.1)',
+              }}
+            >
+              <strong>Third-Party Disclaimer:</strong> Gumroad®; Discord®; VRChat®; Unity®; Jinxxy™;
+              PostHog®; and other product or company names mentioned herein are trademarks or
+              registered trademarks of their respective owners. Creator Assistant is not connected
+              with, endorsed by, sponsored by, collaborating with, or otherwise associated with any
+              of these companies. All such marks are used solely for identification and reference
+              purposes.
+            </p>
+          </div>
+
+          {/* Section 1 */}
+          <div id="section-01" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">
+                Section 01
+              </span>
+              <h2 className="text-2xl">Scope and Structure</h2>
+            </div>
+            <p>These Terms apply to all users of the Service, including:</p>
+            <ul>
+              <li>
+                creators, sellers, studios, moderators, and community operators who install or
+                configure the Service (including Liened Downloads, collaborator sharing, and Unity®
+                integration)
+              </li>
+              <li>
+                Discord® server owners, administrators, and staff members who manage settings,
+                roles, verification flows, and liened downloads
+              </li>
+              <li>
+                collaborators who share their Jinxxy™ store or API key with another creator's Server
+              </li>
+              <li>
+                end users who connect accounts, submit verification information (including license
+                keys), or receive entitlements, Discord® roles, or access to Liened Download
+                archives
+              </li>
+              <li>
+                developers or operators who access our APIs, setup pages, or webhook endpoints
+              </li>
+            </ul>
+            <p>
+              Additional terms, policies, feature specific rules, or order terms may apply to
+              certain features. If there is a conflict, the more specific terms control for that
+              feature.
+            </p>
+          </div>
+
+          {/* Section 2 */}
+          <div id="section-02" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 02</span>
+              <h2 className="text-2xl">Definitions</h2>
+            </div>
+            <p>For these Terms:</p>
+            <ul>
+              <li>
+                <strong>&quot;Admin&quot;</strong> means a person authorized to configure the
+                Service for a Creator or a Discord® server.
+              </li>
+              <li>
+                <strong>&quot;Connected Provider&quot;</strong> means a third party platform or
+                service connected to the Service: Discord®, Gumroad®, or Jinxxy™.
+              </li>
+              <li>
+                <strong>&quot;Connected Provider Data&quot;</strong> means data received from or
+                sent to a Connected Provider, including account identifiers, product references,
+                order or sale references, webhook events, profile metadata, license information,
+                role information, or entitlement related data.
+              </li>
+              <li>
+                <strong>&quot;Content&quot;</strong> means text, images, metadata, settings, product
+                mappings, links, messages, files, and other materials submitted to or made available
+                through the Service.
+              </li>
+              <li>
+                <strong>&quot;Creator&quot;</strong> means a person or entity using the Service to
+                manage product verification, role assignment, entitlements, or community access.
+              </li>
+              <li>
+                <strong>&quot;Discord® Data&quot;</strong> means Discord® user IDs, guild or server
+                IDs, role IDs, channel IDs, profile information, and related metadata used by the
+                Service.
+              </li>
+              <li>
+                <strong>&quot;Entitlement&quot;</strong> means a verification outcome, product
+                recognition, license recognition, purchase recognition, access right, or role grant
+                produced by or through the Service.
+              </li>
+              <li>
+                <strong>&quot;Event Logs&quot;</strong> means operational, audit, security, sync,
+                and troubleshooting records generated in connection with the Service.
+              </li>
+              <li>
+                <strong>&quot;Provider Credentials&quot;</strong> means access tokens, refresh
+                tokens, API keys, webhook secrets, or similar credentials used to connect a
+                Connected Provider.
+              </li>
+              <li>
+                <strong>&quot;Purchase Data&quot;</strong> means order data, sale records, line
+                items, product IDs, provider order IDs, provider customer identifiers, payment
+                state, refund state, dispute state, purchase timestamps, and related fields.
+              </li>
+              <li>
+                <strong>&quot;Server&quot;</strong> means a Discord® server or guild.
+              </li>
+              <li>
+                <strong>&quot;Liened Downloads&quot;</strong> means the feature that routes
+                qualifying attachments from source channels into role-gated archive channels.
+                Archived files remain in Discord® (archive channel); the Service does not store file
+                contents externally. The feature supports backfill and autofix of existing messages.
+              </li>
+              <li>
+                <strong>&quot;Download Route&quot;</strong> means a Creator-configured mapping from
+                a source channel to an archive channel, including required roles, role logic (all or
+                any), and allowed file extensions.
+              </li>
+              <li>
+                <strong>&quot;Download Artifact&quot;</strong> means a record of a file archived for
+                Liened Downloads, including source and archive message references and file metadata.
+              </li>
+              <li>
+                <strong>&quot;Collaborator&quot;</strong> means a creator who shares their Jinxxy™
+                store or API key with another creator's server for verification, via an invite flow.
+              </li>
+              <li>
+                <strong>&quot;Collaborator Invite&quot;</strong> means a single-use token (with
+                limited validity) used to invite a Collaborator to share their Jinxxy™ credentials
+                with a Creator's tenant.
+              </li>
+              <li>
+                <strong>&quot;Manual License&quot;</strong> means a Creator-generated license key
+                validated by the Service; keys are stored only as cryptographic hashes, never in
+                plaintext.
+              </li>
+              <li>
+                <strong>&quot;License Claim&quot;</strong> means a canonical record that associates
+                a license (by provider and license key hash) with a Subject. The Service enforces
+                uniqueness and reuse constraints; transfer or re-claim may require admin mediation,
+                cooldown, or explicit release per Creator policy.
+              </li>
+              <li>
+                <strong>&quot;Provider Customer&quot;</strong> means a remembered purchaser record
+                used for matching and auto-discovery of supported products; may include hashed
+                identifiers and display hints.
+              </li>
+              <li>
+                <strong>&quot;Purchase Fact&quot;</strong> means canonical purchase data derived
+                from provider webhooks or API responses.
+              </li>
+              <li>
+                <strong>&quot;Tenant&quot;</strong> means a Creator organization or workspace linked
+                to one or more Servers.
+              </li>
+              <li>
+                <strong>&quot;Subject&quot;</strong> means the Service's internal canonical identity
+                for a user, which may be linked to one or more external accounts.
+              </li>
+              <li>
+                <strong>&quot;Binding&quot;</strong> means a link between a Subject and an external
+                account (e.g., ownership, verification, or manual override).
+              </li>
+              <li>
+                <strong>&quot;Unity® Installation&quot;</strong> means a device or client that has
+                integrated with the Service for runtime assertion (license validation) in Unity®
+                applications.
+              </li>
+              <li>
+                <strong>&quot;User&quot;</strong> means any person or entity who accesses or uses
+                the Service.
+              </li>
+              <li>
+                <strong>&quot;Verification Data&quot;</strong> means data used to complete a
+                verification flow, including linked accounts, provider identifiers, license keys or
+                hashes, product references, OAuth state data, verification session records, and
+                related metadata.
+              </li>
+            </ul>
+          </div>
+
+          {/* Section 3 */}
+          <div id="section-03" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#00e676]/10 text-[#00e676]">Section 03</span>
+              <h2 className="text-2xl">Eligibility</h2>
+            </div>
+            <p>
+              You must be at least 13 years old to use the Service and old enough to legally consent
+              in your jurisdiction. If you are under the age of majority where you live, you may use
+              the Service only with permission from a parent or legal guardian.
+            </p>
+            <p>
+              You must also satisfy the eligibility rules of each Connected Provider you use. If
+              Discord®, Gumroad®, or Jinxxy™ suspends or restricts your account, your ability to use
+              related parts of the Service may be limited or terminated.
+            </p>
+          </div>
+
+          {/* Section 4 */}
+          <div id="section-04" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 04</span>
+              <h2 className="text-2xl">The Service</h2>
+            </div>
+            <p>
+              The Service is designed to help Creators and communities manage verification, linked
+              accounts, entitlements, Discord® role access, liened downloads, and Unity® runtime
+              validation. Depending on the feature set enabled by a Creator, the Service may:
+            </p>
+            <ul>
+              <li>
+                install and operate a Discord® bot in one or more Servers via OAuth (bot and
+                applications.commands scopes)
+              </li>
+              <li>
+                provide a setup wizard (/creator-admin setup start or restart) and Connect flow for
+                Gumroad® OAuth, Jinxxy™, and Discord® account linking
+              </li>
+              <li>
+                expose slash commands: /creator (status, verify, refresh) and /creator-admin (setup,
+                product, downloads, settings, moderation, collab, stats, analytics, spawn-verify)
+              </li>
+              <li>
+                let Creators connect Gumroad® or Jinxxy™ and store Provider Credentials in encrypted
+                form
+              </li>
+              <li>
+                receive and process provider webhooks (sale, refund, payment, product events) from
+                Gumroad®, Jinxxy™, and Collaborator Jinxxy™ webhooks
+              </li>
+              <li>perform historical sync or backfill of sales or orders for connected products</li>
+              <li>
+                maintain a product catalog with products from Gumroad®, Jinxxy™, Discord® role
+                (cross-server), and manual sources
+              </li>
+              <li>
+                create or update subject records, external accounts, bindings, entitlements, and
+                provider customer records
+              </li>
+              <li>
+                match purchases to users through account identifiers, hashed email matching,
+                license-key verification (Gumroad®/Jinxxy™ API or manual licenses), or
+                auto-discovery for remembered purchasers
+              </li>
+              <li>project, grant, update, suspend, revoke, or remove Entitlements</li>
+              <li>
+                assign, sync, or remove Discord® roles based on verification results, role rules, or
+                Creator configuration; optionally auto-verify on guild member join
+              </li>
+              <li>
+                support cross-server verification (user must have a required role in an approved
+                source Server)
+              </li>
+              <li>
+                operate Liened Downloads: route qualifying attachments from source channels into
+                role-gated archive channels; support backfill and autofix; gate access by required
+                roles (all or any)
+              </li>
+              <li>
+                support Collaborator sharing: Creators may invite other Creators via single-use
+                invite links; Collaborators may share API key only or full account (API key plus
+                webhook); Collaborator webhooks route to the owner tenant
+              </li>
+              <li>
+                issue Unity® runtime assertions (JWTs) for license validation in Unity® applications
+                (when enabled)
+              </li>
+              <li>
+                support manual licenses (Creator-generated keys stored as hashes), suspicious
+                account marking (quarantine, notify, revoke), and moderation actions (unverify)
+              </li>
+              <li>generate analytics, operational metrics, audit events, and Event Logs</li>
+            </ul>
+            <p>The exact features available may vary by Creator, Server, provider, and product.</p>
+          </div>
+
+          {/* Section 5 */}
+          <div id="section-05" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">
+                Section 05
+              </span>
+              <h2 className="text-2xl">Accounts, Installation, and Authority</h2>
+            </div>
+            <h4>5.1 Discord® account and installation authority</h4>
+            <p>
+              To use Discord® bot features, you must have a valid Discord® account and sufficient
+              authority to install, configure, or manage the bot in the relevant Server.
+            </p>
+            <p>By installing or configuring the bot, you represent and warrant that:</p>
+            <ul>
+              <li>
+                you have the authority to act for the applicable Server, Creator, or organization
+              </li>
+              <li>
+                you are authorized to manage roles, channels, settings, and integrations in that
+                Server
+              </li>
+              <li>
+                you have the right to submit all information and instructions you provide to the
+                Service
+              </li>
+            </ul>
+            <h4>5.2 Connected Provider authority</h4>
+            <p>If you connect Gumroad® or Jinxxy™, you represent and warrant that:</p>
+            <ul>
+              <li>
+                you are the lawful owner of that provider account or are authorized to connect it on
+                behalf of its owner
+              </li>
+              <li>
+                you have permission to grant the Service access to the provider data needed for the
+                selected features
+              </li>
+              <li>
+                the Provider Credentials and configuration you supply are accurate and current
+              </li>
+            </ul>
+            <h4>5.3 Creator responsibility for community notices</h4>
+            <p>
+              Creators and Admins are responsible for giving their community any notices required by
+              law or platform policy regarding verification flows, linked accounts, role assignment,
+              data handling, moderation decisions, and external services used in their Server.
+            </p>
+          </div>
+
+          {/* Section 6 */}
+          <div id="section-06" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 06</span>
+              <h2 className="text-2xl">Connected Providers and Data Sync</h2>
+            </div>
+            <h4>6.1 Provider connections</h4>
+            <p>
+              The Service integrates with Connected Providers: Discord®, Gumroad®, and Jinxxy™. By
+              connecting a provider, you instruct us to communicate with that provider as needed to:
+            </p>
+            <ul>
+              <li>authenticate the connection</li>
+              <li>store and maintain connection status</li>
+              <li>retrieve account or profile information</li>
+              <li>
+                retrieve, import, sync, or backfill product, purchase, order, sale, or license data
+              </li>
+              <li>receive and process webhooks or similar provider notifications</li>
+              <li>
+                verify purchases, licenses, product ownership, account status, or role eligibility
+              </li>
+              <li>maintain, refresh, or disconnect the provider connection</li>
+            </ul>
+            <h4>6.2 Gumroad® and Jinxxy™ commerce sync</h4>
+            <p>
+              If a Creator connects Gumroad® or Jinxxy™, the Service may ingest or process
+              information such as:
+            </p>
+            <ul>
+              <li>provider user IDs and connected account metadata</li>
+              <li>product IDs and product mappings</li>
+              <li>sale or order identifiers</li>
+              <li>order item identifiers</li>
+              <li>license identifiers where applicable</li>
+              <li>purchase timestamps</li>
+              <li>payment, refund, or dispute status</li>
+              <li>customer email addresses or normalized or hashed forms of email addresses</li>
+              <li>webhook payloads and historical purchase records</li>
+            </ul>
+            <p>
+              The Service may also perform a historical sync or backfill of sales or orders for
+              connected products where that feature is enabled.
+            </p>
+            <h4>6.3 Webhooks and provider events</h4>
+            <p>
+              The Service receives webhooks from Gumroad® (per-tenant), Jinxxy™ (per-tenant), and
+              Collaborator Jinxxy™ (per owner-tenant and invite). Webhook payloads are verified
+              using HMAC-SHA256 signatures where a secret is configured; Gumroad® may fall back to
+              API verification when no secret is set. Provider events are stored with metadata such
+              as provider, event type, raw payload, signature validation state, tenant or creator
+              association, processing status, error state, and timestamps. Events are deduplicated
+              and processed into Purchase Facts and Entitlements.
+            </p>
+            <h4>6.4 Revocation and refund truth source</h4>
+            <p>
+              Webhooks are the primary channel for revocation and refund updates. The Service treats
+              provider webhooks (sale, refund, dispute events) as the source of truth for
+              Entitlement and role changes. Provider API status checks are used only when necessary
+              (e.g., dispute or refund claims, missing webhooks, or reconciliation). Such lookups
+              are cached and rate limited to avoid excessive provider API usage.
+            </p>
+            <h4>6.5 No control over third party providers</h4>
+            <p>
+              Connected Providers are independent third parties. We do not control their APIs,
+              uptime, product identifiers, event quality, webhook delivery, rate limits, account
+              restrictions, or data accuracy. Providers may change or discontinue features at any
+              time. We are not responsible for losses caused by third party provider actions,
+              omissions, delays, outages, policy changes, or API changes.
+            </p>
+          </div>
+
+          {/* Section 7 */}
+          <div id="section-07" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#00e676]/10 text-[#00e676]">Section 07</span>
+              <h2 className="text-2xl">Verification, Linking, and Entitlements</h2>
+            </div>
+            <h4>7.1 Verification methods</h4>
+            <p>
+              The Service supports verification methods including: Gumroad® OAuth (account linking;
+              one linked account may verify all products), Jinxxy™ account linking or API-key
+              verification, Discord® role based verification (cross-server; user must have a
+              required role in an approved source Server), and manual license keys
+              (Creator-generated keys entered by the user; validated against hashed records).
+              Verification may be triggered by: provider webhooks (sale, refund, purchase events),
+              user actions (/creator verify, /creator refresh, Connect flows), or guild member join
+              (when auto-verify on join is enabled). OAuth flows use PKCE and short-lived session
+              tokens.
+            </p>
+            <h4>7.2 Linked identities and subject records</h4>
+            <p>
+              To operate the Service, we may create records that associate one or more external
+              accounts with a single internal subject, profile, or verification record. This may
+              include Discord® accounts, provider accounts, email based matching, or Creator
+              configured license records.
+            </p>
+            <h4>7.3 Entitlement projection</h4>
+            <p>
+              The Service transforms verification or purchase information into Entitlements. An
+              Entitlement may represent a verified product, a verified purchase, a verified license,
+              a Discord® role grant, access to Liened Download archives, or a Unity® runtime
+              assertion.
+            </p>
+            <h4>7.4 Role assignment and removal</h4>
+            <p>
+              If enabled by a Creator, the Service may assign, sync, maintain, or remove Discord®
+              roles based on active Entitlements, provider events, configuration changes,
+              revocations, refunds, disputes, security flags, or moderation actions (e.g.,
+              unverify). Role rules map products to Discord® roles per guild; Creators may configure
+              priority, remove-on-revoke, and cross-server source guild and required role.
+            </p>
+            <h4>7.5 Cross server verification</h4>
+            <p>
+              If enabled by a Creator, the Service may consider a User's role or status in another
+              approved Server as part of a verification or role decision. Cross-server verification
+              is distinct from store-based verification (Gumroad®, Jinxxy™, manual). The Service
+              issues a signed verification stamp from our backend with a bounded validity window,
+              audience and guild binding rules, and does not treat Discord® roles as a long-term
+              source of truth. Creators configure allowed source guilds and required roles.
+            </p>
+            <h4>7.6 Errors and reversals</h4>
+            <p>
+              Verification and Entitlement decisions may change over time. A prior success does not
+              guarantee permanent access. We or the Creator may correct errors, remove access after
+              refunds or disputes, revoke mistaken grants, quarantine suspicious accounts, or update
+              a decision following new provider data.
+            </p>
+            <h4>7.7 License claim and reuse prevention</h4>
+            <p>
+              The Service maintains canonical License Claim records keyed by provider and license
+              key hash, with datastore constraints that prevent or strongly bound reuse. A license
+              may be associated with only one Subject per product and tenant unless Creator policy
+              permits transfer or re-claim (admin mediated, cooldown, or explicit release). Attempts
+              to use the same license key across many accounts or guilds may be classified as
+              suspicious and trigger review, quarantine, or revocation.
+            </p>
+            <h4>7.8 No guarantee of access or timing</h4>
+            <p>
+              We do not guarantee that any verification, sync, backfill, role assignment, or
+              Entitlement update will be instantaneous, continuous, successful, or error free.
+            </p>
+          </div>
+
+          {/* Section 8 */}
+          <div id="section-08" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 08</span>
+              <h2 className="text-2xl">Data We Process and Store for Service Operation</h2>
+            </div>
+            <p>To operate the Service, we may process and store information such as:</p>
+            <ul>
+              <li>Discord® account, guild, channel, role, and interaction metadata</li>
+              <li>Creator and Admin setup data, tenant policy configuration, and guild links</li>
+              <li>Connected Provider account identifiers and profile metadata</li>
+              <li>
+                Provider Credentials (OAuth tokens, API keys, webhook secrets), stored in encrypted
+                form
+              </li>
+              <li>
+                verification sessions, OAuth state values, PKCE verifier hashes, setup session
+                tokens (short-lived), Collaborator invite tokens (hashed), and temporary state data
+              </li>
+              <li>
+                purchase facts, order, sale, refund, dispute, product, and license related records
+              </li>
+              <li>
+                normalized or hashed email addresses, provider customer records (hashed identifiers,
+                display hints, confidence), and catalog product links for product resolution
+              </li>
+              <li>
+                internal subject, external account, binding, license claim, role rule, guild link,
+                product catalog, purchase fact, provider customer, entitlement, provider connection,
+                download route, download artifact, Unity® installation, runtime assertion,
+                collaborator invite, and collaborator connection records
+              </li>
+              <li>
+                webhook payloads, webhook event records (with signature status), webhook processing
+                records, and outbox job records (role sync, revocation, notifications)
+              </li>
+              <li>
+                audit events, event logs, error logs, security review logs, and fraud or suspicious
+                activity flags
+              </li>
+              <li>
+                IP addresses, user agent strings, timestamps, correlation IDs, and related
+                operational metadata
+              </li>
+              <li>session cookies, authentication records, and account connection status</li>
+              <li>
+                analytics and telemetry events relating to command usage, verification flows,
+                product activity, suspicious activity review, and Service performance
+              </li>
+            </ul>
+            <p>
+              Some data may be stored temporarily in in memory systems, key value stores, caches, or
+              job queues for setup flows, OAuth flows, webhook processing, retry handling, or rate
+              limiting.
+            </p>
+          </div>
+
+          {/* Section 9 */}
+          <div id="section-09" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">
+                Section 09
+              </span>
+              <h2 className="text-2xl">Security, Credentials, and Sensitive Inputs</h2>
+            </div>
+            <h4>9.1 Security measures</h4>
+            <p>
+              We use reasonable technical and organizational measures designed to protect the
+              Service and the data we process. These measures may include: encryption for stored
+              Provider Credentials (OAuth tokens, API keys, webhook secrets); hashing (e.g.,
+              SHA-256) for license keys, invite tokens, and email identifiers, with plaintext never
+              stored where hashing is used; display hints (e.g., email prefixes) for UI only where
+              full values are not needed; session protections, PKCE for OAuth, state validation,
+              expiration controls for setup and verification sessions, and access restrictions.
+            </p>
+            <h4>9.2 Abuse controls and rate limiting</h4>
+            <p>
+              We apply abuse controls to protect the Service and Connected Providers. These may
+              include: per-IP and per-account throttles for verification attempts; per-guild
+              throttles for role sync operations; replay protection for verification sessions
+              (nonce, state, TTL); and step-up actions for repeated failures (e.g., captcha,
+              cooldown, or manual review). Rate limiting applies to verification, connect, and
+              collaborator flows. Provider API lookups are cached and rate limited.
+            </p>
+            <h4>9.3 No absolute security guarantee</h4>
+            <p>
+              No system is perfectly secure. You acknowledge that the Service may still be subject
+              to unauthorized access, outages, provider compromise, configuration errors, credential
+              misuse, malicious actors, or unforeseen failures.
+            </p>
+            <h4>9.4 Your obligations</h4>
+            <p>
+              You are responsible for keeping your own accounts, servers, devices, and provider
+              credentials secure. You must promptly rotate or revoke credentials if you suspect
+              compromise.
+            </p>
+            <h4>9.5 Secrets and license data</h4>
+            <p>
+              Do not submit secrets, keys, or sensitive data in public channels. If the Service
+              accepts license keys or similar values, you are responsible for entering them in the
+              intended private flow.
+            </p>
+          </div>
+
+          {/* Section 10 */}
+          <div id="section-10" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 10</span>
+              <h2 className="text-2xl">Creator and Admin Responsibilities</h2>
+            </div>
+            <p>If you are a Creator or Admin, you are solely responsible for:</p>
+            <ul>
+              <li>deciding whether to use the Service in a Server or product community</li>
+              <li>choosing what products, licenses, providers, or roles to connect</li>
+              <li>
+                configuring role rules, product mappings, download routes (source channel, archive
+                channel, required roles, role logic, allowed extensions), cross-server source
+                guilds, tenant policy (e.g., verification scope, revocation behavior, suspicious
+                account behavior), and verification policies correctly
+              </li>
+              <li>
+                ensuring that your product listings, license terms, refund practices, support
+                practices, and access policies are lawful and clearly communicated
+              </li>
+              <li>
+                ensuring that you have a lawful basis and any required notices or consents for
+                personal data you ask the Service to process on your behalf
+              </li>
+              <li>
+                ensuring that bot permissions, role hierarchy, and Server settings are configured
+                correctly
+              </li>
+              <li>
+                reviewing suspicious activity, duplicates, disputes, false positives, false
+                negatives, and other edge cases as needed
+              </li>
+              <li>
+                managing Collaborator invites and connections, and ensuring Collaborators understand
+                what data they share
+              </li>
+              <li>
+                using moderation tools (mark suspicious, clear suspicious, unverify) appropriately
+                and in compliance with your community rules
+              </li>
+            </ul>
+            <p>
+              You understand that a misconfiguration by a Creator or Admin can lead to mistaken role
+              grants, missed role grants, revoked access, duplicate verification outcomes, or
+              inconsistent verification results.
+            </p>
+          </div>
+
+          {/* Section 11 */}
+          <div id="section-11" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#00e676]/10 text-[#00e676]">Section 11</span>
+              <h2 className="text-2xl">End User Responsibilities</h2>
+            </div>
+            <p>If you are an end user verifying a purchase or account, you are responsible for:</p>
+            <ul>
+              <li>using your own accounts and truthful information</li>
+              <li>
+                not impersonating another person or attempting to verify purchases you are not
+                entitled to use
+              </li>
+              <li>keeping your provider accounts and license information secure</li>
+              <li>
+                understanding that a Creator's own product, refund, moderation, and community rules
+                may separately apply to you
+              </li>
+            </ul>
+            <p>
+              Your transaction for a product may be with the Creator, Gumroad®, or Jinxxy™, not with
+              us. Except where expressly stated, we are not the merchant of record, seller,
+              reseller, licensor, or payment processor for Creator products.
+            </p>
+          </div>
+
+          {/* Section 12 */}
+          <div id="section-12" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 12</span>
+              <h2 className="text-2xl">Acceptable Use</h2>
+            </div>
+            <p>You may not, and may not assist or permit others to:</p>
+            <ul>
+              <li>use the Service in violation of law, platform rules, or third party rights</li>
+              <li>
+                use the Service to commit fraud, deception, chargeback abuse, license key reuse or
+                sharing in violation of Creator policy, or unauthorized access
+              </li>
+              <li>
+                attempt to bypass verification requirements, role rules, account linking controls,
+                Liened Download access controls, or security checks
+              </li>
+              <li>
+                upload, transmit, or distribute malware, malicious code, phishing content, or
+                harmful automation
+              </li>
+              <li>
+                interfere with or abuse webhooks, APIs, rate limits, retries, job queues, or
+                provider connections
+              </li>
+              <li>
+                scrape or harvest personal data through the Service without a lawful basis and
+                authorization
+              </li>
+              <li>
+                use the Service to stalk, harass, dox, intimidate, or discriminate against others
+              </li>
+              <li>
+                use the Service to make access decisions in a way that violates law or protected
+                rights
+              </li>
+              <li>
+                probe, scan, reverse engineer, or test the Service for vulnerabilities without our
+                written authorization, except where non waivable law permits a narrower right
+              </li>
+              <li>
+                use the Service in a way that burdens or disrupts our infrastructure or a Connected
+                Provider
+              </li>
+            </ul>
+            <p>
+              We may investigate violations and take appropriate action, including suspension,
+              revocation, or reporting.
+            </p>
+          </div>
+
+          {/* Section 13 */}
+          <div id="section-13" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">
+                Section 13
+              </span>
+              <h2 className="text-2xl">Content and Intellectual Property</h2>
+            </div>
+            <h4>13.1 Your Content</h4>
+            <p>
+              You retain ownership of your Content, subject to the rights you grant in these Terms.
+            </p>
+            <h4>13.2 License to us</h4>
+            <p>
+              You grant us a worldwide, non exclusive, royalty free license to host, store,
+              reproduce, adapt, process, transmit, display, and use your Content only as necessary
+              to operate, secure, maintain, improve, troubleshoot, and provide the Service and to
+              comply with law.
+            </p>
+            <h4>13.3 Feedback</h4>
+            <p>
+              If you provide suggestions, feedback, ideas, or recommendations, you grant us the
+              right to use them without restriction or compensation.
+            </p>
+            <h4>13.4 Our rights</h4>
+            <p>
+              The Service, including our software, code, design, names, branding, interfaces,
+              documentation, and related materials, is owned by us or our licensors and is protected
+              by intellectual property laws.
+            </p>
+          </div>
+
+          {/* Section 14 */}
+          <div id="section-14" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 14</span>
+              <h2 className="text-2xl">Privacy and Data Handling</h2>
+            </div>
+            <p>
+              Our Privacy Policy explains how we collect, use, disclose, retain, and otherwise
+              process personal information. The Privacy Policy is incorporated into these Terms by
+              reference.
+            </p>
+            <p>
+              <strong>Privacy Policy:</strong>{' '}
+              <a href="/legal/privacy-policy">/legal/privacy-policy</a>
+            </p>
+            <p>
+              If you are a Creator or Admin, you acknowledge that your own privacy notices may also
+              be required for your end users depending on your jurisdiction, your product, and how
+              you configure the Service.
+            </p>
+          </div>
+
+          {/* Section 15 */}
+          <div id="section-15" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#00e676]/10 text-[#00e676]">Section 15</span>
+              <h2 className="text-2xl">Analytics, Logging, and Monitoring</h2>
+            </div>
+            <p>
+              We may collect or generate analytics, telemetry, and Event Logs to operate and improve
+              the Service, monitor feature usage, measure verification performance, detect abuse,
+              diagnose failures, support users, and enforce these Terms.
+            </p>
+            <p>
+              This may include administrative actions, command usage, setup events, verification
+              started or completed events, verification failures, product activity, suspicious
+              activity signals, and role sync outcomes.
+            </p>
+          </div>
+
+          {/* Section 16 */}
+          <div id="section-16" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 16</span>
+              <h2 className="text-2xl">Suspension, Security Review, and Enforcement</h2>
+            </div>
+            <p>
+              We may limit, suspend, quarantine, revoke, or terminate access to the Service or any
+              portion of it if we reasonably believe that:
+            </p>
+            <ul>
+              <li>you violated these Terms or applicable law</li>
+              <li>your use presents a security, fraud, abuse, or operational risk</li>
+              <li>a Connected Provider requires us to do so</li>
+              <li>
+                a refund, dispute, revocation, or provider event justifies an Entitlement or role
+                change
+              </li>
+              <li>
+                your configuration or conduct exposes us, other users, or a Connected Provider to
+                harm or liability
+              </li>
+            </ul>
+            <p>
+              We may take these actions with or without prior notice where reasonably necessary.
+            </p>
+          </div>
+
+          {/* Section 17 */}
+          <div id="section-17" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">
+                Section 17
+              </span>
+              <h2 className="text-2xl">Service Availability, Beta Features, and Changes</h2>
+            </div>
+            <p>
+              The Service is offered on an evolving basis. We may modify, add, suspend, or remove
+              features at any time. Some features may be identified as alpha, beta, preview,
+              experimental, or early access. Such features may be incomplete, unstable, or changed
+              without notice.
+            </p>
+            <p>
+              We do not guarantee that the Service or any feature will remain available or
+              compatible with any specific platform, provider API, browser, server setup, or
+              Discord® permission model.
+            </p>
+            <h4>17.1 Support</h4>
+            <p>
+              We provide support through documentation, Discord®, and email (contact@yucp.club). We
+              do not commit to specific response times or service level agreements unless expressly
+              agreed in a separate written agreement for paid plans. Support is provided on a
+              best-effort basis.
+            </p>
+          </div>
+
+          {/* Section 18 */}
+          <div id="section-18" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 18</span>
+              <h2 className="text-2xl">Fees, Billing, and Paid Features</h2>
+            </div>
+            <p>
+              Some parts of the Service may be free, while others may require payment now or in the
+              future. If paid features apply, we will disclose the relevant pricing, billing terms,
+              and feature scope at the point of purchase or in a separate written agreement.
+            </p>
+            <p>Unless expressly stated otherwise:</p>
+            <ul>
+              <li>fees are non refundable except as required by law or expressly stated by us</li>
+              <li>taxes are your responsibility</li>
+              <li>
+                failure to pay may result in downgrade, suspension, or termination of paid features
+              </li>
+              <li>
+                paid plans renew automatically at the end of each billing period (monthly or
+                annually, as applicable) unless you cancel before the renewal date
+              </li>
+              <li>
+                cancellation takes effect at the end of the current billing period; you retain
+                access until then
+              </li>
+              <li>
+                trial periods, if offered, convert to paid subscriptions at the end of the trial
+                unless you cancel
+              </li>
+              <li>
+                we may change prices with at least 30 days' notice; continued use after the change
+                constitutes acceptance
+              </li>
+            </ul>
+          </div>
+
+          {/* Section 19 */}
+          <div id="section-19" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#00e676]/10 text-[#00e676]">Section 19</span>
+              <h2 className="text-2xl">Third Party Services</h2>
+            </div>
+            <p>
+              Your use of Connected Providers and other third party services is governed by their
+              own terms and policies. This includes Discord®, Gumroad®, Jinxxy™, Unity®, analytics
+              providers, cloud providers, hosting providers, and any marketplace or identity service
+              connected to the Service.
+            </p>
+            <p>
+              We are not responsible for third party services or third party content, including
+              their:
+            </p>
+            <ul>
+              <li>policies and legal terms</li>
+              <li>outages and downtime</li>
+              <li>API or platform changes</li>
+              <li>payment processing</li>
+              <li>product availability</li>
+              <li>moderation actions</li>
+              <li>account suspensions</li>
+              <li>privacy or security practices</li>
+            </ul>
+            <p>
+              References to third party names, brands, or logos are for identification only and do
+              not imply endorsement, partnership, or affiliation unless we expressly state
+              otherwise.
+            </p>
+          </div>
+
+          {/* Section 20 */}
+          <div id="section-20" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 20</span>
+              <h2 className="text-2xl">Disclaimers</h2>
+            </div>
+            <p className="uppercase font-semibold text-sm">
+              To the maximum extent permitted by law, the Service is provided &quot;as is&quot; and
+              &quot;as available&quot;. We disclaim all warranties, whether express, implied,
+              statutory, or otherwise, including implied warranties of merchantability, fitness for
+              a particular purpose, title, quiet enjoyment, and non infringement.
+            </p>
+            <p>We do not warrant that:</p>
+            <ul>
+              <li>the Service will be uninterrupted, timely, secure, or error free</li>
+              <li>provider data will be accurate, complete, or current</li>
+              <li>verification outcomes will always be correct</li>
+              <li>role sync or Entitlements will always function as intended</li>
+              <li>security measures will prevent every unauthorized act or incident</li>
+            </ul>
+          </div>
+
+          {/* Section 21 */}
+          <div id="section-21" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">
+                Section 21
+              </span>
+              <h2 className="text-2xl">Limitation of Liability</h2>
+            </div>
+            <p className="uppercase font-semibold text-sm">
+              To the maximum extent permitted by law, we will not be liable for any indirect,
+              incidental, special, consequential, exemplary, or punitive damages, or for any loss of
+              profits, revenue, data, goodwill, business opportunity, or business interruption,
+              arising out of or relating to the Service, even if we were advised of the possibility
+              of such damages.
+            </p>
+            <p className="uppercase font-semibold text-sm mt-4">
+              To the maximum extent permitted by law, our total liability for all claims arising out
+              of or relating to the Service will not exceed the greater of:
+            </p>
+            <ul>
+              <li>
+                the amount you paid us for the Service in the three months before the event giving
+                rise to the claim, or
+              </li>
+              <li>USD $100</li>
+            </ul>
+            <p>
+              Some jurisdictions do not allow certain limitations. In those jurisdictions, some
+              parts of this section may not apply.
+            </p>
+          </div>
+
+          {/* Section 22 */}
+          <div id="section-22" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 22</span>
+              <h2 className="text-2xl">Indemnification</h2>
+            </div>
+            <p>
+              You agree to defend, indemnify, and hold harmless us and our affiliates, licensors,
+              service providers, officers, directors, employees, contractors, and agents from and
+              against any claims, losses, liabilities, damages, judgments, settlements, costs, and
+              expenses, including reasonable legal fees, arising out of or related to:
+            </p>
+            <ul>
+              <li>your use of the Service</li>
+              <li>your Content</li>
+              <li>your products, listings, customer interactions, or community rules</li>
+              <li>your Server configuration or provider connections</li>
+              <li>your violation of these Terms, applicable law, or third party rights</li>
+            </ul>
+          </div>
+
+          {/* Section 23 */}
+          <div id="section-23" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#00e676]/10 text-[#00e676]">Section 23</span>
+              <h2 className="text-2xl">Termination</h2>
+            </div>
+            <p>You may stop using the Service at any time.</p>
+            <p>
+              We may suspend or terminate your access or any part of the Service at any time as
+              described in these Terms. Upon termination, your right to use the Service ends
+              immediately.
+            </p>
+            <p>
+              Termination does not affect any rights or obligations that by their nature should
+              survive, including sections relating to intellectual property, disclaimers,
+              limitations of liability, indemnification, dispute resolution, and accrued payment
+              obligations.
+            </p>
+          </div>
+
+          {/* Section 24 */}
+          <div id="section-24" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 24</span>
+              <h2 className="text-2xl">Data Retention and Export After Termination</h2>
+            </div>
+            <p>
+              Following disconnection, suspension, or termination, we may retain certain data for
+              legitimate business and legal purposes, including security, fraud prevention, audit,
+              dispute handling, legal compliance, enforcement, backup integrity, and recordkeeping.
+            </p>
+            <p>
+              We may also delete or de identify data in accordance with our retention practices and
+              applicable law.
+            </p>
+            <p>
+              Creators may request an export of their configuration data (role rules, product
+              mappings, download routes, tenant settings) before or shortly after termination,
+              subject to our then-current export capabilities and retention schedule. Contact{' '}
+              <strong>contact@yucp.club</strong> to request an export. We do not guarantee export of
+              audit logs, webhook payloads, or other operational data.
+            </p>
+          </div>
+
+          {/* Section 25 */}
+          <div id="section-25" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">
+                Section 25
+              </span>
+              <h2 className="text-2xl">Export, Sanctions, and Restricted Use</h2>
+            </div>
+            <p>
+              You may not use the Service if prohibited by applicable export control, sanctions, or
+              trade laws. You represent and warrant that you are not located in, organized in, or
+              ordinarily resident in a jurisdiction subject to applicable restrictions that would
+              make your use unlawful.
+            </p>
+          </div>
+
+          {/* Section 26 */}
+          <div id="section-26" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 26</span>
+              <h2 className="text-2xl">Copyright Complaints</h2>
+            </div>
+            <p>
+              If you believe that content made available through the Service infringes your
+              copyright, please send a DMCA-compliant notice to our designated agent:
+            </p>
+            <p>
+              <strong>Creator Assistant</strong>
+              <br />
+              Copyright Agent: Yeusepe
+              <br />
+              Email: yeusepe@yucp.club
+            </p>
+            <p>
+              Please include: (1) identification of the copyrighted work claimed to have been
+              infringed; (2) identification of the allegedly infringing material and its location;
+              (3) your contact information; (4) a statement that you have a good-faith belief the
+              use is not authorized; (5) a statement under penalty of perjury that the information
+              is accurate and you are authorized to act; and (6) your physical or electronic
+              signature. We may file designated agent information with the U.S. Copyright Office
+              where applicable.
+            </p>
+          </div>
+
+          {/* Section 27 */}
+          <div id="section-27" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#00e676]/10 text-[#00e676]">Section 27</span>
+              <h2 className="text-2xl">Governing Law and Dispute Resolution</h2>
+            </div>
+            <h4>27.1 Governing law</h4>
+            <p>
+              These Terms are governed by the laws of <strong>Colombia</strong>, with venue in{' '}
+              <strong>Bogot&#225;</strong>, excluding conflict of law rules.
+            </p>
+            <h4>27.2 Venue</h4>
+            <p>
+              Except where applicable law requires otherwise, disputes arising out of or relating to
+              these Terms or the Service will be resolved exclusively in the courts located in{' '}
+              <strong>Bogot&#225;, Colombia</strong>.
+            </p>
+            <h4>27.3 Informal resolution</h4>
+            <p>
+              Before initiating formal legal proceedings, you agree to contact us at{' '}
+              <strong>contact@yucp.club</strong> and attempt to resolve the dispute informally for
+              at least 30 days. We will do the same before bringing a claim against you. This
+              informal resolution process does not apply to claims for injunctive relief or
+              intellectual property infringement.
+            </p>
+          </div>
+
+          {/* Section 28 */}
+          <div id="section-28" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 28</span>
+              <h2 className="text-2xl">Changes to These Terms</h2>
+            </div>
+            <p>
+              We may update these Terms from time to time. If we make a material change, we may
+              provide notice through the Service, by email, through a setup page, in a dashboard, or
+              by other reasonable means. The updated Terms will become effective on the stated
+              effective date.
+            </p>
+            <p>
+              Your continued use of the Service after the effective date of updated Terms means you
+              accept the revised Terms.
+            </p>
+          </div>
+
+          {/* Section 29 */}
+          <div id="section-29" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-white/10/5 backdrop-blur-md/10 text-[#ffffff]">
+                Section 29
+              </span>
+              <h2 className="text-2xl">Miscellaneous</h2>
+            </div>
+            <ul>
+              <li>
+                <strong>Entire agreement.</strong> These Terms and any incorporated policies or
+                feature specific terms are the entire agreement between you and us regarding the
+                Service.
+              </li>
+              <li>
+                <strong>Severability.</strong> If any provision is held unenforceable, the remaining
+                provisions remain in effect.
+              </li>
+              <li>
+                <strong>Waiver.</strong> A failure to enforce any provision is not a waiver.
+              </li>
+              <li>
+                <strong>Assignment.</strong> You may not assign these Terms without our prior
+                written consent. We may assign these Terms in connection with a merger, acquisition,
+                financing, reorganization, or sale of assets.
+              </li>
+              <li>
+                <strong>No third party beneficiaries.</strong> These Terms do not create third party
+                beneficiary rights except where expressly stated.
+              </li>
+              <li>
+                <strong>Contact.</strong> Questions may be sent to{' '}
+                <strong>contact@yucp.club</strong>.
+              </li>
+            </ul>
+          </div>
+
+          {/* Appendix A */}
+          <div
+            id="appendix-a"
+            className="legal-card rounded-2xl p-5 sm:p-8 border-l-4 border-[#0ea5e9]"
+          >
+            <div className="section-header">
+              <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Appendix A</span>
+              <h2 className="text-2xl">Creator Specific Terms</h2>
+            </div>
+            <p>
+              If you use the Service as a Creator or Admin, the following additional terms apply:
+            </p>
+            <ol className="list-decimal pl-6 space-y-2 mt-4">
+              <li>
+                You are solely responsible for your products, support promises, pricing, refunds,
+                delivery terms, and customer communications.
+              </li>
+              <li>
+                You must not represent the Service as providing legal compliance, tax advice,
+                payment processing, or guaranteed fraud prevention.
+              </li>
+              <li>
+                You must review your own local law obligations, including privacy notices, consumer
+                law, and moderation or community management obligations.
+              </li>
+              <li>
+                If you ask the Service to process provider data, linked accounts, purchase matching,
+                role gating, Liened Downloads, or Unity® assertions for your community, you instruct
+                us to do so on your behalf for Service operation.
+              </li>
+              <li>
+                You must promptly disconnect provider accounts and rotate credentials you no longer
+                authorize.
+              </li>
+              <li>
+                You remain responsible for reviewing role mappings, access grants, download route
+                configuration (source channel, archive channel, required roles, role logic, allowed
+                extensions), cross-server settings, tenant policy, and provider sync results in your
+                own Server.
+              </li>
+              <li>
+                If you invite Collaborators to share their Jinxxy™ store or API key, you are
+                responsible for the relationship and any data shared through that connection.
+                Collaborator invites are single-use and time-limited; Collaborators may share API
+                key only or full account (API key plus webhook). Collaborator webhooks route to your
+                tenant.
+              </li>
+              <li>
+                If you use Unity® runtime assertions, you are responsible for how your Unity®
+                application uses them and for any device-binding or installation limits you
+                configure.
+              </li>
+              <li>
+                If you use manual licenses, you are responsible for generating and distributing
+                keys; the Service stores only hashed values and validates against them. License
+                Claims enforce reuse constraints; you may configure transfer or re-claim rules
+                (admin mediated, cooldown, or explicit release).
+              </li>
+              <li>
+                If you use moderation features (mark suspicious, unverify), you are responsible for
+                applying them fairly and in accordance with your community rules. Suspicious account
+                behavior (quarantine, notify, revoke) is configurable per tenant.
+              </li>
+            </ol>
+          </div>
+
+          {/* Appendix B */}
+          <div
+            id="appendix-b"
+            className="legal-card rounded-2xl p-5 sm:p-8 border-l-4 border-[#00e676]"
+          >
+            <div className="section-header">
+              <span className="section-tag bg-[#00e676]/10 text-[#00e676]">Appendix B</span>
+              <h2 className="text-2xl">End User Verification Terms</h2>
+            </div>
+            <p>
+              If you use the Service only to verify a purchase, link an account, access Liened
+              Download archives, or use Unity® runtime assertions:
+            </p>
+            <ol className="list-decimal pl-6 space-y-2 mt-4">
+              <li>
+                You authorize the Service to receive the minimum provider data needed to complete
+                the selected verification flow (e.g., Discord® OAuth, Gumroad® OAuth, Jinxxy™
+                linking, or license key submission).
+              </li>
+              <li>
+                You understand that verification may be triggered by your actions (/creator verify,
+                /creator refresh, Connect flows), provider webhooks, or guild member join (when
+                auto-verify is enabled).
+              </li>
+              <li>
+                You understand that a Creator may configure the Service to grant or remove roles,
+                download access, or Unity® assertions based on provider events, refunds, disputes,
+                account changes, cross server status, or moderation actions (e.g., unverify).
+              </li>
+              <li>
+                You understand that successful verification does not transfer ownership of any
+                product or license beyond the rights granted by the Creator or the underlying
+                seller.
+              </li>
+              <li>
+                If you believe a verification result is wrong, your remedy may involve the Creator,
+                the underlying commerce platform (Gumroad® or Jinxxy™), or both, depending on the
+                issue.
+              </li>
+            </ol>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

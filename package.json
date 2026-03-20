@@ -8,7 +8,9 @@
   ],
   "overrides": {
     "bebop": "3.0.4",
-    "fast-xml-parser": ">=5.5.6",
+    "fast-xml-parser": ">=5.5.7",
+    "h3": "2.0.1-rc.17",
+    "kysely": ">=0.28.12",
     "prismjs": ">=1.30.0",
     "undici": ">=6.23.0",
     "@smithy/config-resolver": ">=4.4.0"
@@ -28,23 +30,27 @@
     "test:ci": "bun run test:fast:ci",
     "test:fast:ci": "bun run --filter '@yucp/api' test:ci && bun run --filter '@yucp/policy' test:ci && bun run --filter '@yucp/providers' test:ci && bun run --filter '@yucp/shared' test:ci",
     "test:api:e2e": "bun run --filter '@yucp/api' test:e2e",
-      "test:bot:e2e": "bun run --filter '@yucp/bot' test:e2e",
+    "test:bot:e2e": "bun run --filter '@yucp/bot' test:e2e",
     "test:bot:e2e:ci": "bun run --filter '@yucp/bot' test:e2e:ci",
     "capture:discord-storage": "tsx ops/capture-discord-storage-state.ts",
+    "build:docs:index": "bun run --filter @yucp/api build:docs:index",
     "build": "bun run --filter '*' build",
-    "dev": "concurrently -n convex,api,bot,tunnel -c blue,magenta,green,cyan \"npx convex dev\" \"bun run dev:api\" \"bun run dev:bot\" \"tailscale funnel 3001\"",
-    "dev:infisical": "bun run sync:convex:env && concurrently -n convex,api,bot,tunnel -c blue,magenta,green,cyan \"npx convex dev\" \"bun run dev:api:infisical\" \"bun run dev:bot:infisical\" \"tailscale funnel 3001\"",
+    "dev": "concurrently -n convex,api,bot,web,tunnel -c blue,magenta,green,yellow,cyan \"npx convex dev\" \"bun run dev:api\" \"bun run dev:bot\" \"bun run dev:web\" \"tailscale funnel 3001\"",
+    "dev:infisical": "cross-env FRONTEND_URL=http://localhost:3000 bun run sync:convex:env && cross-env FRONTEND_URL=http://localhost:3000 concurrently -n convex,api,bot,web,tunnel -c blue,magenta,green,yellow,cyan \"npx convex dev\" \"bun run dev:api:infisical\" \"bun run dev:bot:infisical\" \"bun run dev:web:infisical\" \"tailscale funnel 3001\"",
     "sync:convex:env": "bun run --env-file=.env.infisical ops/sync-convex-env.ts",
     "sync:convex:env:prod": "bun run --env-file=.env.infisical ops/sync-convex-env.ts --prod",
-    "dev:api": "bun run --watch apps/api/src/index.ts",
+    "dev:api": "cross-env FRONTEND_URL=http://localhost:3000 bun run --watch apps/api/src/index.ts",
     "dev:api:infisical": "bun run --env-file=.env.infisical dev:api",
     "dev:bot": "bun run --watch apps/bot/src/index.ts",
     "dev:bot:infisical": "bun run --env-file=.env.infisical dev:bot",
+    "dev:web": "bun run --filter @yucp/web dev",
+    "dev:web:infisical": "bun run --env-file=.env.infisical --filter @yucp/web dev",
     "convex:dev": "npx convex dev",
     "convex:deploy": "npx convex deploy",
     "start:api:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/api start",
     "start:bot:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/bot start",
-    "start:all": "concurrently -k \"bun run start:api:infisical\" \"bun run start:bot:infisical\""
+    "start:web": "bun run --filter @yucp/web preview",
+    "start:all": "concurrently -k \"bun run start:api:infisical\" \"bun run start:bot:infisical\" \"bun run start:web\""
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.5",
@@ -69,15 +75,21 @@
     "bun": ">=1.1"
   },
   "dependencies": {
-    "@better-auth/oauth-provider": "1.4.9",
-    "@convex-dev/better-auth": "^0.10.13",
+    "@better-auth/api-key": "1.5.5",
+    "@better-auth/core": "1.5.5",
+    "@better-auth/oauth-provider": "1.5.5",
+    "@convex-dev/better-auth": "^0.11.0",
+    "h3-v2": "npm:h3@2.0.1-rc.17",
     "@noble/ed25519": "^2.2.3",
     "@tempojs/client": "^0.0.12",
     "@tempojs/cloudflare-worker-router": "^0.0.12",
     "@tempojs/server": "^0.0.12",
     "bebop": "3.0.4",
-    "better-auth": "1.4.9",
+    "better-auth": "1.5.5",
     "convex": "^1.32.0",
     "dotenv": "^17.3.1"
+  },
+  "patchedDependencies": {
+    "@tanstack/start-server-core@1.167.1": "patches/@tanstack%2Fstart-server-core@1.167.1.patch"
   }
 }

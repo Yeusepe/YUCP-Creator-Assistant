@@ -53,7 +53,7 @@ describe('vrchatProvider.getCredential', () => {
   it('decrypts and returns the session JSON when connection has vrchatSessionEncrypted', async () => {
     // We need a real encrypted value — encrypt using the same HKDF purpose as the plugin
     // Import the encrypt function to produce a valid ciphertext
-    const { encrypt, decrypt } = await import('../../lib/encrypt');
+    const { encrypt } = await import('../../lib/encrypt');
     const sessionPayload = JSON.stringify({ authToken: 'auth-tok', twoFactorAuthToken: 'two-tok' });
     const encryptionSecret = 'test-encryption-secret-32-chars!!';
     // The plugin uses PURPOSES.credential = 'vrchat-creator-session'
@@ -65,8 +65,11 @@ describe('vrchatProvider.getCredential', () => {
     });
     const credential = await vrchatProvider.getCredential(ctx);
     expect(credential).not.toBeNull();
+    if (!credential) {
+      throw new Error('Expected VRChat credential to decrypt successfully.');
+    }
     // The returned credential should be the decrypted session JSON
-    const parsed = JSON.parse(credential!) as { authToken: string; twoFactorAuthToken: string };
+    const parsed = JSON.parse(credential) as { authToken: string; twoFactorAuthToken: string };
     expect(parsed.authToken).toBe('auth-tok');
     expect(parsed.twoFactorAuthToken).toBe('two-tok');
   });
@@ -88,13 +91,28 @@ describe('vrchatProvider.fetchProducts', () => {
 
     // Mock fetch to return listings from the VRChat API
     const originalFetch = globalThis.fetch;
-    const fetchMock = mock(async (url: string) => {
-      if (url.endsWith('/auth/user')) {
+    const fetchMock = mock(async (url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      if (url.includes('/config')) {
+        expect(headers.get('cookie')).toBeNull();
+        expect(url).not.toContain('apiKey=');
+        return new Response(JSON.stringify({ clientApiKey: 'test-key' }), {
+          status: 200,
+        });
+      }
+
+      // All authenticated requests must carry apiKey as URL query param
+      expect(url).toContain('apiKey=test-key');
+      expect(headers.get('clientApiKey')).toBeNull();
+
+      if (url.includes('/auth/user')) {
+        expect(headers.get('cookie')).toContain('auth=auth-tok');
         return new Response(JSON.stringify({ id: 'usr_creator', displayName: 'Creator' }), {
           status: 200,
         });
       }
       if (url.includes('/user/usr_creator/listings')) {
+        expect(headers.get('cookie')).toContain('auth=auth-tok');
         return new Response(
           JSON.stringify([
             {
@@ -137,9 +155,15 @@ describe('vrchatProvider.fetchProducts', () => {
 
     // Mock fetch to return 401 (session expired)
     const originalFetch = globalThis.fetch;
-    const fetchMock = mock(
-      async () => new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
-    );
+    const fetchMock = mock(async (url: string) => {
+      if (url.includes('/config')) {
+        return new Response(JSON.stringify({ clientApiKey: 'test-key' }), {
+          status: 200,
+        });
+      }
+
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     try {

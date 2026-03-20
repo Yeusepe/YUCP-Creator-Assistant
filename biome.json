@@ -14,7 +14,10 @@
       "!**/public/**/*.js",
       "!**/public/**/*.css",
       "!**/frontend/*.css",
-      "!**/docs/**/*.html"
+      "!**/docs/**/*.html",
+      "!**/routeTree.gen.ts",
+      "!**/playwright-report",
+      "!**/test-results"
     ]
   },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
@@ -36,6 +39,11 @@
     "indentWidth": 2,
     "lineWidth": 100,
     "formatWithErrors": false
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
   },
   "javascript": {
     "formatter": {

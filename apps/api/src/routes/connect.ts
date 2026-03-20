@@ -24,6 +24,7 @@ import {
 import { getConvexApiSecret, getConvexClient, getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { encrypt } from '../lib/encrypt';
+import { createLegacyFrontendMovedResponse } from '../lib/legacyFrontend';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
@@ -58,24 +59,6 @@ const DEFAULT_OAUTH_APP_SCOPES = ['verification:read'];
 const DISCORD_ROLE_SETUP_PREFIX = 'discord_role_setup:';
 const DISCORD_ROLE_OAUTH_STATE_PREFIX = 'discord_role_oauth:';
 const DISCORD_ROLE_SETUP_TTL_MS = 30 * 60 * 1000; // 30 minutes
-
-// Source: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/09-Testing_for_Clickjacking
-// Source: https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html
-const HTML_SECURITY_HEADERS: Record<string, string> = {
-  'Content-Security-Policy':
-    "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline'; " +
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://db.onlinewebfonts.com; " +
-    "img-src 'self' data: blob: https:; " +
-    "font-src 'self' data: https://fonts.gstatic.com https://db.onlinewebfonts.com https://r2cdn.perplexity.ai; " +
-    "connect-src 'self' https: wss:; " +
-    "worker-src 'self'; " +
-    "child-src 'self'; " +
-    "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
-  'Referrer-Policy': 'no-referrer',
-  'X-Content-Type-Options': 'nosniff',
-  'X-Frame-Options': 'DENY',
-};
 
 interface DiscordRoleSetupSession {
   authUserId: string;
@@ -373,18 +356,6 @@ function generateSecureRandom(length: number): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Source: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html
-function escapeForSingleQuotedJsString(value: string): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/\r/g, '\\r')
-    .replace(/\n/g, '\\n')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029')
-    .replace(/<\/script/gi, '<\\/script');
-}
-
 function toCookieAge(ms: number): number {
   return Math.max(1, Math.ceil(ms / 1000));
 }
@@ -486,13 +457,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     return resolveSetupSessionFromRequest(request);
   }
 
-  async function requireBoundSetupSession(request: Request): Promise<
-    | {
-        ok: true;
-        setupSession: { authUserId: string; guildId: string; discordUserId: string };
-        authSession: NonNullable<Awaited<ReturnType<typeof auth.getSession>>>;
-        authDiscordUserId: string;
-      }
+  async function requireBoundSetupSession(
+    request: Request
+  ): Promise<
+    | { ok: true; setupSession: { authUserId: string; guildId: string; discordUserId: string } }
     | { ok: false; response: Response }
   > {
     const setupSession = await resolveSetupSessionFromRequest(request);
@@ -503,50 +471,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       };
     }
 
-    const authSession = await auth.getSession(request);
-    if (!authSession) {
-      return {
-        ok: false,
-        response: Response.json({ error: 'Authentication required' }, { status: 401 }),
-      };
-    }
-
-    const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
-    if (!authDiscordUserId) {
-      return {
-        ok: false,
-        response: Response.json({ error: 'Discord account required' }, { status: 401 }),
-      };
-    }
-
-    if (authDiscordUserId !== setupSession.discordUserId) {
-      logger.warn('Setup session Discord identity mismatch', {
-        expectedDiscordUserId: setupSession.discordUserId,
-        actualDiscordUserId: authDiscordUserId,
-        guildId: setupSession.guildId,
-        authUserId: setupSession.authUserId,
-      });
-      return {
-        ok: false,
-        response: Response.json(
-          { error: 'This setup link belongs to a different Discord account' },
-          { status: 403 }
-        ),
-      };
-    }
-
-    return { ok: true, setupSession, authSession, authDiscordUserId };
-  }
-
-  function buildFrontendCallbackUrl(pathname: string, authUserId: string, guildId: string): string {
-    const callbackUrl = new URL(`${config.frontendBaseUrl.replace(/\/$/, '')}${pathname}`);
-    if (authUserId) callbackUrl.searchParams.set('tenant_id', authUserId);
-    if (guildId) callbackUrl.searchParams.set('guild_id', guildId);
-    return callbackUrl.toString();
-  }
-
-  function buildDiscordSignInUrl(callbackUrl: string): string {
-    return `${config.apiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
+    return { ok: true, setupSession };
   }
 
   async function getDashboardSessionStatus(request: Request): Promise<Response> {
@@ -555,63 +480,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ hasSetupSession: false, authenticated: false });
     }
 
-    const callbackUrl = buildFrontendCallbackUrl(
-      '/dashboard',
-      setupSession.authUserId,
-      setupSession.guildId
-    );
-    const signInUrl = buildDiscordSignInUrl(callbackUrl);
-    const authSession = await auth.getSession(request);
-    if (!authSession) {
-      return Response.json(
-        {
-          hasSetupSession: true,
-          authenticated: false,
-          authUserId: setupSession.authUserId,
-          guildId: setupSession.guildId,
-          signInUrl,
-          callbackUrl,
-          error: 'Authentication required',
-        },
-        { status: 401 }
-      );
-    }
-
-    const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
-    if (!authDiscordUserId) {
-      return Response.json(
-        {
-          hasSetupSession: true,
-          authenticated: false,
-          authUserId: setupSession.authUserId,
-          guildId: setupSession.guildId,
-          signInUrl,
-          callbackUrl,
-          error: 'Discord account required',
-        },
-        { status: 401 }
-      );
-    }
-
-    if (authDiscordUserId !== setupSession.discordUserId) {
-      return Response.json(
-        {
-          hasSetupSession: true,
-          authenticated: false,
-          authUserId: setupSession.authUserId,
-          guildId: setupSession.guildId,
-          error: 'This setup link belongs to a different Discord account',
-        },
-        { status: 403 }
-      );
-    }
-
     return Response.json({
       hasSetupSession: true,
       authenticated: true,
       guildId: setupSession.guildId,
-      discordUserId: authDiscordUserId,
-      authUserId: authSession.user.id,
+      discordUserId: setupSession.discordUserId,
+      authUserId: setupSession.authUserId,
     });
   }
 
@@ -667,7 +541,20 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   > {
     // Check authentication first — unauthenticated requests always get 401,
     // regardless of whether authUserId was supplied.
-    const session = await auth.getSession(request);
+    let session: Awaited<ReturnType<Auth['getSession']>>;
+    try {
+      session = await auth.getSession(request);
+    } catch (error) {
+      logger.error('Session resolution failed', {
+        authUserId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        response: Response.json({ error: 'Failed to resolve session' }, { status: 503 }),
+      };
+    }
+
     if (!session) {
       return {
         ok: false,
@@ -682,7 +569,21 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       };
     }
 
-    const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, authUserId);
+    let tenantOwned: boolean;
+    try {
+      tenantOwned = await isTenantOwnedBySessionUser(session.user.id, authUserId);
+    } catch (error) {
+      logger.error('Tenant ownership resolution failed', {
+        sessionUserId: session.user.id,
+        authUserId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        response: Response.json({ error: 'Failed to resolve tenant ownership' }, { status: 503 }),
+      };
+    }
+
     if (!tenantOwned) {
       return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
     }
@@ -783,118 +684,19 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   /**
    * GET /connect
-   * Serves the connect page. Supports fragment bootstrap handled by the browser.
+   * Legacy Bun page entrypoint. The TanStack web app owns the connect UI.
    */
   async function serveConnectPage(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const requestHost = url.host;
     const frontendUrl = new URL(config.frontendBaseUrl);
-    const apiUrl = new URL(config.apiBaseUrl);
-    if (frontendUrl.host !== apiUrl.host && requestHost === apiUrl.host) {
-      const redirectUrl = new URL(url);
-      redirectUrl.protocol = frontendUrl.protocol;
-      redirectUrl.host = frontendUrl.host;
-      const targetUrl = redirectUrl.toString();
-      // Use client-side redirect to preserve the URL fragment (#token= or #s=).
-      // Fragments are never sent to the server, so a 302 would drop them.
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Redirecting...</title></head><body><p>Redirecting...</p><script>window.location.replace(${JSON.stringify(targetUrl)} + window.location.hash);</script></body></html>`;
-      return new Response(html, {
-        status: 200,
-        headers: { 'Content-Type': 'text/html; charset=utf-8', ...HTML_SECURITY_HEADERS },
-      });
-    }
-    const legacyGuildId = url.searchParams.get('guild_id');
-    const legacyAuthUserId = url.searchParams.get('tenant_id');
-    const ott = url.searchParams.get('ott');
+    const redirectUrl = new URL('/connect', `${config.frontendBaseUrl.replace(/\/$/, '')}/`);
+    redirectUrl.search = url.search;
 
-    // Resolve setup token if present
-    let resolvedGuildId = legacyGuildId ?? '';
-    let resolvedAuthUserId = legacyAuthUserId ?? '';
-    let hasSetupSession = false;
-
-    const setupSession = await resolveSetupSessionFromRequest(request);
-    if (setupSession) {
-      resolvedGuildId = setupSession.guildId;
-      resolvedAuthUserId = setupSession.authUserId;
-      hasSetupSession = true;
+    if (redirectUrl.origin === url.origin && redirectUrl.pathname === url.pathname) {
+      return createLegacyFrontendMovedResponse();
     }
 
-    // Step 1: If we have a one-time-token (from OAuth callback), exchange it for a session.
-    if (ott) {
-      const { session, setCookieHeaders } = await auth.exchangeOTT(ott);
-      if (session && setCookieHeaders.length > 0) {
-        const redirectUrl = new URL(url);
-        redirectUrl.searchParams.delete('ott');
-        const headers = new Headers({ Location: redirectUrl.toString() });
-        for (const cookie of setCookieHeaders) {
-          headers.append('Set-Cookie', cookie);
-        }
-        return new Response(null, { status: 302, headers });
-      }
-      logger.warn('OTT exchange failed, showing sign-in page', { guildId: resolvedGuildId });
-    }
-
-    // Step 2: Check for existing session and bind any setup session to the signed-in Discord account.
-    const session = await auth.getSession(request);
-    if (hasSetupSession && session) {
-      const authDiscordUserId = await getAuthenticatedDiscordUserId(request);
-      if (!authDiscordUserId || authDiscordUserId !== setupSession?.discordUserId) {
-        return new Response('This setup link belongs to a different Discord account.', {
-          status: 403,
-        });
-      }
-    }
-
-    if (!session) {
-      // Build callback URL preserving the setup token
-      const callbackParams = `guild_id=${encodeURIComponent(resolvedGuildId)}${resolvedAuthUserId ? `&tenant_id=${encodeURIComponent(resolvedAuthUserId)}` : ''}`;
-      const callbackUrl = `${config.frontendBaseUrl}/connect?${callbackParams}`;
-      const filePath = `${import.meta.dir}/../../public/sign-in-redirect.html`;
-      let html = await Bun.file(filePath).text();
-      // The Bun app keeps a lightweight sign-in bridge for static pages, but auth itself runs
-      // on Convex and the callback still lands on the frontend callbackURL below.
-      const signInUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/api/auth/sign-in/discord?callbackURL=${encodeURIComponent(callbackUrl)}`;
-      logger.info('Serving connect sign-in redirect', {
-        requestUrl: request.url,
-        guildId: resolvedGuildId || undefined,
-        authUserId: resolvedAuthUserId || undefined,
-        hasSetupToken: hasSetupSession,
-        frontendBaseUrl: config.frontendBaseUrl,
-        apiBaseUrl: config.apiBaseUrl,
-        authBaseUrl: `${config.convexSiteUrl.replace(/\/$/, '')}/api/auth`,
-        callbackUrl,
-        callbackProtocol: new URL(callbackUrl).protocol,
-      });
-      html = html.replace('__SIGN_IN_URL__', JSON.stringify(signInUrl));
-      html = html.replace('__CALLBACK_URL__', JSON.stringify(callbackUrl));
-      return new Response(html, {
-        status: 200,
-        headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
-      });
-    }
-
-    // Use the frontend origin for browser-initiated API calls so auth cookies
-    // set during OTT exchange remain same-origin and are actually sent.
-    const apiBase = config.frontendBaseUrl;
-
-    const filePath = `${import.meta.dir}/../../public/connect.html`;
-    const file = Bun.file(filePath);
-    let html = await file.text();
-    const templateValues: Record<string, string> = {
-      __GUILD_ID__: resolvedGuildId,
-      __TOKEN__: '',
-      __API_BASE__: apiBase,
-      __SETUP_TOKEN__: '',
-      __HAS_SETUP_SESSION__: hasSetupSession ? 'true' : 'false',
-      __TENANT_ID__: resolvedAuthUserId,
-    };
-    for (const [placeholder, rawValue] of Object.entries(templateValues)) {
-      html = html.replaceAll(placeholder, escapeForSingleQuotedJsString(rawValue));
-    }
-
-    return new Response(html, {
-      headers: { 'Content-Type': 'text/html', ...HTML_SECURITY_HEADERS },
-    });
+    return Response.redirect(redirectUrl.toString(), 302);
   }
 
   /**
@@ -1441,38 +1243,44 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   async function getGuildChannels(request: Request): Promise<Response> {
     // Prefer setup session (bot-initiated flow); fall back to Better Auth web session.
     let guildId: string | null = null;
+    let authorizedAuthUserId: string | null = null;
 
     const tentativeSetupSession = await resolveSetupSessionFromRequest(request);
     if (tentativeSetupSession) {
       const bound = await requireBoundSetupSession(request);
       if (!bound.ok) return bound.response;
       guildId = bound.setupSession.guildId;
+      authorizedAuthUserId = bound.setupSession.authUserId;
     } else {
-      // Web session path: Better Auth session + guildId query param + guild ownership check
-      const authSession = await auth.getSession(request);
-      if (!authSession) {
-        return Response.json({ error: 'Authentication required' }, { status: 401 });
-      }
       const url = new URL(request.url);
+      const requestedAuthUserId = url.searchParams.get('authUserId') ?? undefined;
+      const ownerCheck = await requireOwnerSessionForTenant(request, requestedAuthUserId);
+      if (!ownerCheck.ok) {
+        return ownerCheck.response;
+      }
+      authorizedAuthUserId = requestedAuthUserId!;
       guildId = url.searchParams.get('guildId') ?? url.searchParams.get('guild_id');
       if (!guildId) {
         return Response.json({ error: 'guildId is required' }, { status: 400 });
       }
-      // Verify the authenticated user owns this guild
+
+      // Verify the requested tenant owns this guild
       try {
         const convex = getConvexClientFromUrl(config.convexUrl);
         const guildLink = await convex.query(api.guildLinks.getGuildLinkForUninstall, {
           apiSecret: config.convexApiSecret,
           discordGuildId: guildId,
         });
-        if (!guildLink || guildLink.authUserId !== authSession.user.id) {
+        if (!guildLink || guildLink.authUserId !== authorizedAuthUserId) {
           return Response.json({ error: 'Forbidden' }, { status: 403 });
         }
       } catch (err) {
         logger.error('Guild ownership check failed', {
+          guildId,
+          authUserId: authorizedAuthUserId,
           error: err instanceof Error ? err.message : String(err),
         });
-        return Response.json({ channels: [] });
+        return Response.json({ error: 'Failed to resolve guild ownership' }, { status: 503 });
       }
     }
 
@@ -1570,18 +1378,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const { response, data } = await auth.callEndpoint<BetterAuthApiKey[]>('/api-key/list', {
-        request,
-      });
+      const { apiKeys: data } = await auth.listApiKeys(request);
 
-      if (!response.ok) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(data, 'Failed to list API keys') },
-          { status: response.status || 500 }
-        );
-      }
-
-      const keys = (Array.isArray(data) ? data : [])
+      const keys = data
         .filter((key) => {
           const metadata = parsePublicApiKeyMetadata(key.metadata);
           return (
@@ -1701,38 +1500,24 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const existing = await auth.callEndpoint<BetterAuthApiKey>('/api-key/get', {
-        request,
-        query: { id: keyId },
-      });
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const existing = (await convex.query(api.betterAuthApiKeys.getApiKey, {
+        keyId,
+      })) as BetterAuthApiKey | null;
 
-      if (!existing.response.ok || !existing.data) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(existing.data, 'API key not found') },
-          { status: existing.response.status === 200 ? 404 : existing.response.status || 404 }
-        );
+      if (!existing) {
+        return Response.json({ error: 'API key not found' }, { status: 404 });
       }
 
-      const metadata = parsePublicApiKeyMetadata(existing.data.metadata);
+      const metadata = parsePublicApiKeyMetadata(existing.metadata);
       if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.authUserId !== authUserId) {
         return Response.json({ error: 'API key not found' }, { status: 404 });
       }
 
-      const result = await auth.callEndpoint<BetterAuthApiKey>('/api-key/update', {
-        request,
-        method: 'POST',
-        body: {
-          keyId,
-          enabled: false,
-        },
+      await convex.mutation(api.betterAuthApiKeys.updateApiKey, {
+        keyId,
+        enabled: false,
       });
-
-      if (!result.response.ok) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(result.data, 'Failed to revoke API key') },
-          { status: result.response.status || 500 }
-        );
-      }
 
       return Response.json({ success: true });
     } catch (err) {
@@ -1756,23 +1541,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         apiSecret: config.convexApiSecret,
         authUserId,
       })) as OAuthAppMappingRecord[];
-      const { response, data } = await auth.callEndpoint<BetterAuthOAuthClient[] | null>(
-        '/oauth2/get-clients',
-        {
-          request,
-        }
-      );
+      const clients =
+        mappings.length === 0
+          ? []
+          : ((await auth.listOAuthClients(request)) as BetterAuthOAuthClient[]);
 
-      if (!response.ok) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(data, 'Failed to list OAuth apps') },
-          { status: response.status || 500 }
-        );
-      }
-
-      const clientMap = new Map(
-        (Array.isArray(data) ? data : []).map((client) => [client.client_id, client] as const)
-      );
+      const clientMap = new Map(clients.map((client) => [client.client_id, client] as const));
 
       const apps = mappings
         .map((mapping) => {
@@ -1840,41 +1614,27 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     try {
       const redirectUris = normalizeRedirectUris(body.redirectUris);
       const scopes = normalizeOAuthScopes(body.scopes);
-      const createdClient = await auth.callEndpoint<BetterAuthOAuthClient>(
-        '/oauth2/create-client',
-        {
-          request,
-          method: 'POST',
-          body: {
-            client_name: name,
-            redirect_uris: redirectUris,
-            scope: scopes.join(' '),
-            grant_types: ['authorization_code', 'refresh_token'],
-            response_types: ['code'],
-            token_endpoint_auth_method: 'client_secret_post',
-            type: 'web',
-          },
-        }
-      );
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const createdClient = (await convex.mutation(api.oauthClients.createOAuthClient, {
+        client_name: name,
+        redirect_uris: redirectUris,
+        scope: scopes.join(' '),
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'client_secret_post',
+        type: 'web',
+      })) as BetterAuthOAuthClient;
 
-      if (
-        !createdClient.response.ok ||
-        !createdClient.data?.client_id ||
-        !createdClient.data.client_secret
-      ) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(createdClient.data, 'Failed to create OAuth app') },
-          { status: createdClient.response.status || 500 }
-        );
+      if (!createdClient.client_id || !createdClient.client_secret) {
+        return Response.json({ error: 'Failed to create OAuth app' }, { status: 500 });
       }
 
-      const convex = getConvexClientFromUrl(config.convexUrl);
       try {
         const result = await convex.mutation(api.oauthApps.createOAuthAppMapping, {
           apiSecret: config.convexApiSecret,
           authUserId,
           name,
-          clientId: createdClient.data.client_id,
+          clientId: createdClient.client_id,
           redirectUris,
           scopes,
           createdByAuthUserId: required.session.user.id,
@@ -1882,19 +1642,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
         return Response.json({
           appId: result._id,
-          clientId: createdClient.data.client_id,
-          clientSecret: createdClient.data.client_secret,
+          clientId: createdClient.client_id,
+          clientSecret: createdClient.client_secret,
           name: result.name,
           redirectUris: result.redirectUris,
           scopes: result.scopes,
         });
       } catch (mappingError) {
-        await auth.callEndpoint('/oauth2/delete-client', {
-          request,
-          method: 'POST',
-          body: {
-            client_id: createdClient.data.client_id,
-          },
+        await convex.mutation(api.oauthClients.deleteOAuthClient, {
+          clientId: createdClient.client_id,
         });
         throw mappingError;
       }
@@ -1935,26 +1691,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.json({ error: 'OAuth app not found' }, { status: 404 });
       }
 
-      const result = await auth.callEndpoint<BetterAuthOAuthClient>(
-        '/oauth2/client/rotate-secret',
-        {
-          request,
-          method: 'POST',
-          body: {
-            client_id: mapping.clientId,
-          },
-        }
-      );
+      const result = (await convex.mutation(api.oauthClients.rotateOAuthClientSecret, {
+        clientId: mapping.clientId,
+      })) as BetterAuthOAuthClient;
 
-      if (!result.response.ok || !result.data?.client_secret) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(result.data, 'Failed to regenerate secret') },
-          { status: result.response.status || 500 }
-        );
+      if (!result.client_secret) {
+        return Response.json({ error: 'Failed to regenerate secret' }, { status: 500 });
       }
 
       return Response.json({
-        clientSecret: result.data.client_secret,
+        clientSecret: result.client_secret,
       });
     } catch (err) {
       logger.error('Regenerate OAuth app secret failed', {
@@ -2013,25 +1759,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.json({ error: 'No updates provided' }, { status: 400 });
       }
 
-      const result = await auth.callEndpoint<BetterAuthOAuthClient>('/oauth2/update-client', {
-        request,
-        method: 'POST',
-        body: {
-          client_id: mapping.clientId,
-          update: {
-            ...(nextName !== undefined ? { client_name: nextName } : {}),
-            ...(nextRedirectUris !== undefined ? { redirect_uris: nextRedirectUris } : {}),
-            ...(nextScopes !== undefined ? { scope: nextScopes.join(' ') } : {}),
-          },
+      await convex.mutation(api.oauthClients.updateOAuthClient, {
+        clientId: mapping.clientId,
+        update: {
+          ...(nextName !== undefined ? { client_name: nextName } : {}),
+          ...(nextRedirectUris !== undefined ? { redirect_uris: nextRedirectUris } : {}),
+          ...(nextScopes !== undefined ? { scope: nextScopes.join(' ') } : {}),
         },
       });
-
-      if (!result.response.ok) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(result.data, 'Failed to update OAuth app') },
-          { status: result.response.status || 500 }
-        );
-      }
 
       await convex.mutation(api.oauthApps.updateOAuthAppMapping, {
         apiSecret: config.convexApiSecret,
@@ -2080,20 +1815,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.json({ error: 'OAuth app not found' }, { status: 404 });
       }
 
-      const result = await auth.callEndpoint('/oauth2/delete-client', {
-        request,
-        method: 'POST',
-        body: {
-          client_id: mapping.clientId,
-        },
+      await convex.mutation(api.oauthClients.deleteOAuthClient, {
+        clientId: mapping.clientId,
       });
-
-      if (!result.response.ok) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(result.data, 'Failed to delete OAuth app') },
-          { status: result.response.status || 500 }
-        );
-      }
 
       await convex.mutation(api.oauthApps.deleteOAuthAppMapping, {
         apiSecret: config.convexApiSecret,
@@ -2136,34 +1860,31 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const existing = await auth.callEndpoint<BetterAuthApiKey>('/api-key/get', {
-        request,
-        query: { id: keyId },
-      });
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const existing = (await convex.query(api.betterAuthApiKeys.getApiKey, {
+        keyId,
+      })) as BetterAuthApiKey | null;
 
-      if (!existing.response.ok || !existing.data) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(existing.data, 'API key not found') },
-          { status: existing.response.status === 200 ? 404 : existing.response.status || 404 }
-        );
+      if (!existing) {
+        return Response.json({ error: 'API key not found' }, { status: 404 });
       }
 
-      const metadata = parsePublicApiKeyMetadata(existing.data.metadata);
+      const metadata = parsePublicApiKeyMetadata(existing.metadata);
       if (metadata?.kind !== PUBLIC_API_KEY_METADATA_KIND || metadata.authUserId !== authUserId) {
         return Response.json({ error: 'API key not found' }, { status: 404 });
       }
 
       const scopes =
         body.scopes === undefined
-          ? getPublicApiKeyScopes(existing.data.permissions)
+          ? getPublicApiKeyScopes(existing.permissions)
           : normalizePublicApiScopes(body.scopes);
-      const nextName = body.name?.trim() || existing.data.name || 'Rotated key';
+      const nextName = body.name?.trim() || existing.name || 'Rotated key';
       const resolvedExpiresAt =
         body.expiresAt === null
           ? null
           : typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
             ? body.expiresAt
-            : toTimestamp(existing.data.expiresAt);
+            : toTimestamp(existing.expiresAt);
       const created = await createManagedPublicApiKey(config, required.session.user.id, {
         name: nextName,
         scopes,
@@ -2186,21 +1907,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         );
       }
 
-      const disabled = await auth.callEndpoint<BetterAuthApiKey>('/api-key/update', {
-        request,
-        method: 'POST',
-        body: {
-          keyId,
-          enabled: false,
-        },
+      await convex.mutation(api.betterAuthApiKeys.updateApiKey, {
+        keyId,
+        enabled: false,
       });
-
-      if (!disabled.response.ok) {
-        return Response.json(
-          { error: getBetterAuthErrorMessage(disabled.data, 'Failed to revoke previous API key') },
-          { status: disabled.response.status || 500 }
-        );
-      }
 
       return Response.json({
         keyId: created.data.id,
@@ -2306,13 +2016,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     if (error) {
       return Response.redirect(
-        `${config.frontendBaseUrl}/discord-role-setup?error=${encodeURIComponent(error)}`,
+        `${config.frontendBaseUrl}/setup/discord-role?error=${encodeURIComponent(error)}`,
         302
       );
     }
     if (!code || !state) {
       return Response.redirect(
-        `${config.frontendBaseUrl}/discord-role-setup?error=missing_parameters`,
+        `${config.frontendBaseUrl}/setup/discord-role?error=missing_parameters`,
         302
       );
     }
@@ -2321,7 +2031,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const setupToken = await store.get(`${DISCORD_ROLE_OAUTH_STATE_PREFIX}${state}`);
     if (!setupToken) {
       return Response.redirect(
-        `${config.frontendBaseUrl}/discord-role-setup?error=invalid_state`,
+        `${config.frontendBaseUrl}/setup/discord-role?error=invalid_state`,
         302
       );
     }
@@ -2330,7 +2040,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const raw = await store.get(`${DISCORD_ROLE_SETUP_PREFIX}${setupToken}`);
     if (!raw) {
       return Response.redirect(
-        `${config.frontendBaseUrl}/discord-role-setup?error=session_expired`,
+        `${config.frontendBaseUrl}/setup/discord-role?error=session_expired`,
         302
       );
     }
@@ -2351,7 +2061,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!tokenRes.ok) {
         logger.error('Discord role OAuth token exchange failed', { status: tokenRes.status });
         return Response.redirect(
-          `${config.frontendBaseUrl}/discord-role-setup?error=token_exchange_failed`,
+          `${config.frontendBaseUrl}/setup/discord-role?error=token_exchange_failed`,
           302
         );
       }
@@ -2359,7 +2069,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const tokens = (await tokenRes.json()) as { access_token?: string };
       if (!tokens.access_token) {
         return Response.redirect(
-          `${config.frontendBaseUrl}/discord-role-setup?error=no_token`,
+          `${config.frontendBaseUrl}/setup/discord-role?error=no_token`,
           302
         );
       }
@@ -2373,7 +2083,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!userRes.ok) {
         logger.error('Discord role OAuth user fetch failed', { status: userRes.status });
         return Response.redirect(
-          `${config.frontendBaseUrl}/discord-role-setup?error=guilds_fetch_failed`,
+          `${config.frontendBaseUrl}/setup/discord-role?error=guilds_fetch_failed`,
           302
         );
       }
@@ -2386,7 +2096,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       if (!guildsRes.ok) {
         return Response.redirect(
-          `${config.frontendBaseUrl}/discord-role-setup?error=guilds_fetch_failed`,
+          `${config.frontendBaseUrl}/setup/discord-role?error=guilds_fetch_failed`,
           302
         );
       }
@@ -2408,7 +2118,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           authUserId: session.authUserId,
         });
         return Response.redirect(
-          `${config.frontendBaseUrl}/discord-role-setup?error=account_mismatch`,
+          `${config.frontendBaseUrl}/setup/discord-role?error=account_mismatch`,
           302
         );
       }
@@ -2419,13 +2129,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         DISCORD_ROLE_SETUP_TTL_MS
       );
 
-      return Response.redirect(`${config.frontendBaseUrl}/discord-role-setup`, 302);
+      return Response.redirect(`${config.frontendBaseUrl}/setup/discord-role`, 302);
     } catch (err) {
       logger.error('Discord role OAuth callback failed', {
         error: err instanceof Error ? err.message : String(err),
       });
       return Response.redirect(
-        `${config.frontendBaseUrl}/discord-role-setup?error=internal_error`,
+        `${config.frontendBaseUrl}/setup/discord-role?error=internal_error`,
         302
       );
     }
@@ -2729,7 +2439,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const setupBinding = await requireBoundSetupSession(request);
     const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
-    const authSession = setupBinding.ok ? setupBinding.authSession : await auth.getSession(request);
+    if (!setupBinding.ok && getSetupSessionTokenFromRequest(request)) {
+      return setupBinding.response;
+    }
+    const authSession = setupSession ? null : await auth.getSession(request);
     if (!authSession && !setupSession) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }

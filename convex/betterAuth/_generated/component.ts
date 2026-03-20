@@ -91,6 +91,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               }
             | {
                 data: {
+                  configId?: null | string;
                   createdAt: number;
                   enabled?: null | boolean;
                   expiresAt?: null | number;
@@ -104,6 +105,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   rateLimitEnabled?: null | boolean;
                   rateLimitMax?: null | number;
                   rateLimitTimeWindow?: null | number;
+                  referenceId?: null | string;
                   refillAmount?: null | number;
                   refillInterval?: null | number;
                   remaining?: null | number;
@@ -131,12 +133,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   public?: null | boolean;
                   redirectUris: Array<string>;
                   referenceId?: null | string;
+                  requirePKCE?: null | boolean;
                   responseTypes?: null | Array<string>;
                   scopes?: null | Array<string>;
                   skipConsent?: null | boolean;
                   softwareId?: null | string;
                   softwareStatement?: null | string;
                   softwareVersion?: null | string;
+                  subjectType?: null | string;
                   tokenEndpointAuthMethod?: null | string;
                   tos?: null | string;
                   type?: null | string;
@@ -148,6 +152,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               }
             | {
                 data: {
+                  authTime?: null | number;
                   clientId: string;
                   createdAt?: null | number;
                   expiresAt?: null | number;
@@ -371,8 +376,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
+                    | "configId"
                     | "name"
                     | "start"
+                    | "referenceId"
                     | "prefix"
                     | "key"
                     | "userId"
@@ -423,6 +430,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "disabled"
                     | "skipConsent"
                     | "enableEndSession"
+                    | "subjectType"
                     | "scopes"
                     | "userId"
                     | "createdAt"
@@ -443,6 +451,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "responseTypes"
                     | "public"
                     | "type"
+                    | "requirePKCE"
                     | "referenceId"
                     | "metadata"
                     | "_id";
@@ -480,6 +489,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "createdAt"
                     | "revoked"
+                    | "authTime"
                     | "scopes"
                     | "_id";
                   operator?:
@@ -765,8 +775,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
+                    | "configId"
                     | "name"
                     | "start"
+                    | "referenceId"
                     | "prefix"
                     | "key"
                     | "userId"
@@ -817,6 +829,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "disabled"
                     | "skipConsent"
                     | "enableEndSession"
+                    | "subjectType"
                     | "scopes"
                     | "userId"
                     | "createdAt"
@@ -837,6 +850,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "responseTypes"
                     | "public"
                     | "type"
+                    | "requirePKCE"
                     | "referenceId"
                     | "metadata"
                     | "_id";
@@ -874,6 +888,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "createdAt"
                     | "revoked"
+                    | "authTime"
                     | "scopes"
                     | "_id";
                   operator?:
@@ -997,6 +1012,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             maximumRowsRead?: number;
             numItems: number;
           };
+          select?: Array<string>;
           sortBy?: { direction: "asc" | "desc"; field: string };
           where?: Array<{
             connector?: "AND" | "OR";
@@ -1292,6 +1308,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "apikey";
                 update: {
+                  configId?: null | string;
                   createdAt?: number;
                   enabled?: null | boolean;
                   expiresAt?: null | number;
@@ -1305,6 +1322,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   rateLimitEnabled?: null | boolean;
                   rateLimitMax?: null | number;
                   rateLimitTimeWindow?: null | number;
+                  referenceId?: null | string;
                   refillAmount?: null | number;
                   refillInterval?: null | number;
                   remaining?: null | number;
@@ -1316,8 +1334,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
+                    | "configId"
                     | "name"
                     | "start"
+                    | "referenceId"
                     | "prefix"
                     | "key"
                     | "userId"
@@ -1376,12 +1396,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   public?: null | boolean;
                   redirectUris?: Array<string>;
                   referenceId?: null | string;
+                  requirePKCE?: null | boolean;
                   responseTypes?: null | Array<string>;
                   scopes?: null | Array<string>;
                   skipConsent?: null | boolean;
                   softwareId?: null | string;
                   softwareStatement?: null | string;
                   softwareVersion?: null | string;
+                  subjectType?: null | string;
                   tokenEndpointAuthMethod?: null | string;
                   tos?: null | string;
                   type?: null | string;
@@ -1397,6 +1419,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "disabled"
                     | "skipConsent"
                     | "enableEndSession"
+                    | "subjectType"
                     | "scopes"
                     | "userId"
                     | "createdAt"
@@ -1417,6 +1440,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "responseTypes"
                     | "public"
                     | "type"
+                    | "requirePKCE"
                     | "referenceId"
                     | "metadata"
                     | "_id";
@@ -1444,6 +1468,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "oauthRefreshToken";
                 update: {
+                  authTime?: null | number;
                   clientId?: string;
                   createdAt?: null | number;
                   expiresAt?: null | number;
@@ -1465,6 +1490,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "createdAt"
                     | "revoked"
+                    | "authTime"
                     | "scopes"
                     | "_id";
                   operator?:
@@ -1812,6 +1838,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "apikey";
                 update: {
+                  configId?: null | string;
                   createdAt?: number;
                   enabled?: null | boolean;
                   expiresAt?: null | number;
@@ -1825,6 +1852,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   rateLimitEnabled?: null | boolean;
                   rateLimitMax?: null | number;
                   rateLimitTimeWindow?: null | number;
+                  referenceId?: null | string;
                   refillAmount?: null | number;
                   refillInterval?: null | number;
                   remaining?: null | number;
@@ -1836,8 +1864,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
+                    | "configId"
                     | "name"
                     | "start"
+                    | "referenceId"
                     | "prefix"
                     | "key"
                     | "userId"
@@ -1896,12 +1926,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   public?: null | boolean;
                   redirectUris?: Array<string>;
                   referenceId?: null | string;
+                  requirePKCE?: null | boolean;
                   responseTypes?: null | Array<string>;
                   scopes?: null | Array<string>;
                   skipConsent?: null | boolean;
                   softwareId?: null | string;
                   softwareStatement?: null | string;
                   softwareVersion?: null | string;
+                  subjectType?: null | string;
                   tokenEndpointAuthMethod?: null | string;
                   tos?: null | string;
                   type?: null | string;
@@ -1917,6 +1949,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "disabled"
                     | "skipConsent"
                     | "enableEndSession"
+                    | "subjectType"
                     | "scopes"
                     | "userId"
                     | "createdAt"
@@ -1937,6 +1970,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "responseTypes"
                     | "public"
                     | "type"
+                    | "requirePKCE"
                     | "referenceId"
                     | "metadata"
                     | "_id";
@@ -1964,6 +1998,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "oauthRefreshToken";
                 update: {
+                  authTime?: null | number;
                   clientId?: string;
                   createdAt?: null | number;
                   expiresAt?: null | number;
@@ -1985,6 +2020,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "createdAt"
                     | "revoked"
+                    | "authTime"
                     | "scopes"
                     | "_id";
                   operator?:

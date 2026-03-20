@@ -142,7 +142,7 @@ const jinxxyProvider: ProviderPlugin = {
     connectedColor: '#7b3be6',
     confettiColors: ['#9146FF', '#7b3be6', '#b980ff', '#ffffff'],
     description: 'Marketplace',
-    dashboardConnectPath: '/jinxxy-setup',
+    dashboardConnectPath: '/setup/jinxxy',
     dashboardConnectParamStyle: 'snakeCase',
     dashboardIconBg: '#9146FF',
     dashboardQuickStartBg: 'rgba(145,70,255,0.1)',

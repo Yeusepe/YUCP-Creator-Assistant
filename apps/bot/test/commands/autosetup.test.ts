@@ -13,6 +13,7 @@
 
 import { describe, expect, it, mock } from 'bun:test';
 import type { ConvexHttpClient } from 'convex/browser';
+import type { ChatInputCommandInteraction, StringSelectMenuInteraction } from 'discord.js';
 
 // Controls what listProviderProducts returns for ALL providers in a test.
 // Changed between tests before the call to handleAutosetupModeSelect.
@@ -40,8 +41,8 @@ mock.module('../../src/lib/apiUrls', () => ({
   getApiUrls: mock(() => ({ apiPublic: null, apiInternal: null })),
 }));
 
-import { handleAutosetupModeSelect, handleAutosetupStart } from '../../src/commands/autosetup';
 import type { Id } from '../../../../convex/_generated/dataModel';
+import { handleAutosetupModeSelect, handleAutosetupStart } from '../../src/commands/autosetup';
 
 const TEST_API_SECRET = 'test-api-secret';
 const GUILD_LINK_ID = 'guild_link_autosetup_test' as Id<'guild_links'>;
@@ -94,8 +95,12 @@ function mockModeSelectInteraction(userId: string, mode: string) {
 
 async function startSession(userId: string): Promise<void> {
   const interaction = mockStartInteraction(userId);
-  // biome-ignore lint/suspicious/noExplicitAny: test helper
-  await handleAutosetupStart(interaction as any, MOCK_CONVEX, TEST_API_SECRET, BASE_CTX);
+  await handleAutosetupStart(
+    interaction as unknown as ChatInputCommandInteraction,
+    MOCK_CONVEX,
+    TEST_API_SECRET,
+    BASE_CTX
+  );
 }
 
 function lastReplyContent(editReply: ReturnType<typeof mock>): string {
@@ -115,8 +120,12 @@ describe('autosetup migrate flow', () => {
 
     await startSession('user_migrate_1');
     const interaction = mockModeSelectInteraction('user_migrate_1', 'migrate');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
-    await handleAutosetupModeSelect(interaction as any, MOCK_CONVEX, TEST_API_SECRET, BASE_CTX.authUserId);
+    await handleAutosetupModeSelect(
+      interaction as unknown as StringSelectMenuInteraction,
+      MOCK_CONVEX,
+      TEST_API_SECRET,
+      BASE_CTX.authUserId
+    );
 
     const content = lastReplyContent(interaction.editReply as ReturnType<typeof mock>);
     expect(content).toContain('No products found');
@@ -132,8 +141,12 @@ describe('autosetup migrate flow', () => {
 
     await startSession('user_migrate_2');
     const interaction = mockModeSelectInteraction('user_migrate_2', 'migrate');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
-    await handleAutosetupModeSelect(interaction as any, MOCK_CONVEX, TEST_API_SECRET, BASE_CTX.authUserId);
+    await handleAutosetupModeSelect(
+      interaction as unknown as StringSelectMenuInteraction,
+      MOCK_CONVEX,
+      TEST_API_SECRET,
+      BASE_CTX.authUserId
+    );
 
     const content = lastReplyContent(interaction.editReply as ReturnType<typeof mock>);
     expect(content).toContain('No products found');
@@ -147,8 +160,12 @@ describe('autosetup migrate flow', () => {
 
     await startSession('user_migrate_3');
     const interaction = mockModeSelectInteraction('user_migrate_3', 'migrate');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
-    await handleAutosetupModeSelect(interaction as any, MOCK_CONVEX, TEST_API_SECRET, BASE_CTX.authUserId);
+    await handleAutosetupModeSelect(
+      interaction as unknown as StringSelectMenuInteraction,
+      MOCK_CONVEX,
+      TEST_API_SECRET,
+      BASE_CTX.authUserId
+    );
 
     const content = JSON.stringify((interaction.editReply as ReturnType<typeof mock>).mock.calls);
     expect(content).not.toContain('No products found');
@@ -166,8 +183,12 @@ describe('autosetup roles flow', () => {
 
     await startSession('user_roles_1');
     const interaction = mockModeSelectInteraction('user_roles_1', 'roles_only');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
-    await handleAutosetupModeSelect(interaction as any, MOCK_CONVEX, TEST_API_SECRET, BASE_CTX.authUserId);
+    await handleAutosetupModeSelect(
+      interaction as unknown as StringSelectMenuInteraction,
+      MOCK_CONVEX,
+      TEST_API_SECRET,
+      BASE_CTX.authUserId
+    );
 
     const content = lastReplyContent(interaction.editReply as ReturnType<typeof mock>);
     expect(content).toContain('No products found');
@@ -181,8 +202,12 @@ describe('autosetup roles flow', () => {
 
     await startSession('user_roles_2');
     const interaction = mockModeSelectInteraction('user_roles_2', 'roles_only');
-    // biome-ignore lint/suspicious/noExplicitAny: test helper
-    await handleAutosetupModeSelect(interaction as any, MOCK_CONVEX, TEST_API_SECRET, BASE_CTX.authUserId);
+    await handleAutosetupModeSelect(
+      interaction as unknown as StringSelectMenuInteraction,
+      MOCK_CONVEX,
+      TEST_API_SECRET,
+      BASE_CTX.authUserId
+    );
 
     const content = lastReplyContent(interaction.editReply as ReturnType<typeof mock>);
     expect(content).toContain('No products found');

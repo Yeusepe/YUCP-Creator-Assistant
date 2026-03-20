@@ -136,12 +136,9 @@ export function createCollabRoutes(config: CollabConfig) {
   }
 
   /**
-   * Resolves the owner authUserId from either a setup session or a Better Auth
-   * web session. Returns null and a Response when auth fails.
-   *
-   * - Setup session path: setup token present → also require Better Auth session.
-   * - Web session path: no setup token → require Better Auth session + authUserId +
-   *   ownership verification.
+   * Owner-facing collaborator APIs accept either a forwarded Better Auth dashboard
+   * session or a short-lived setup-session token minted by internal RPC.
+   * When both are present they must resolve to the same owner.
    */
   async function requireOwnerAuth(
     request: Request,
@@ -150,31 +147,35 @@ export function createCollabRoutes(config: CollabConfig) {
     { ok: true; authUserId: string; displayName: string } | { ok: false; response: Response }
   > {
     const setupSession = await resolveSetupToken(request, config.encryptionSecret);
+    const webSession = await config.auth.getSession(request);
+
     if (setupSession) {
-      const webSession = await config.auth.getSession(request);
-      if (!webSession) {
+      if (authUserIdHint && authUserIdHint !== setupSession.authUserId) {
+        return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
+      }
+
+      if (webSession) {
+        const sessionOwnsSetupTenant =
+          webSession.user.id === setupSession.authUserId ||
+          (await isTenantOwnedBySessionUser(webSession.user.id, setupSession.authUserId));
+        if (!sessionOwnsSetupTenant) {
+          return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
+        }
+
         return {
-          ok: false,
-          response: Response.json({ error: 'Authentication required' }, { status: 401 }),
+          ok: true,
+          authUserId: setupSession.authUserId,
+          displayName: webSession.user.name ?? '',
         };
       }
-      // Cross-check: the web session must belong to the same user as the setup token.
-      // Prevents user B from using user A's stolen setup token with B's own web session.
-      if (webSession.user.id !== setupSession.authUserId) {
-        return {
-          ok: false,
-          response: Response.json({ error: 'Forbidden' }, { status: 403 }),
-        };
-      }
+
       return {
         ok: true,
         authUserId: setupSession.authUserId,
-        displayName: webSession.user.name ?? '',
+        displayName: '',
       };
     }
 
-    // Web session path
-    const webSession = await config.auth.getSession(request);
     if (!webSession) {
       return {
         ok: false,

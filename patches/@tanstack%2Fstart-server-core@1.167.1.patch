@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+index 4c6dccd67e7c795552b0bf89bba79e2032fc8c34..bd5d775f8455e5fc1b759db422d61e1531eec6ae 100644
+--- a/package.json
++++ b/package.json
+@@ -63,7 +63,7 @@
+     "node": ">=22.12.0"
+   },
+   "dependencies": {
+-    "h3-v2": "npm:h3@2.0.1-rc.16",
++    "h3-v2": "npm:h3@2.0.1-rc.17",
+     "seroval": "^1.4.2",
+     "tiny-invariant": "^1.3.3",
+     "@tanstack/history": "1.161.6",

@@ -1,0 +1,212 @@
+/* Liquid Glass Toast Notification System */
+
+.toast-viewport {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+}
+
+.toast {
+  position: relative;
+  pointer-events: all;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(8, 12, 24, 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  will-change: transform, opacity;
+  transform: translateX(0);
+  opacity: 1;
+  transition:
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.35s ease;
+}
+
+/* Colored bottom accent line */
+.toast::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 16px;
+  right: 16px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--toast-accent, rgba(255, 255, 255, 0.2));
+  opacity: 0.7;
+}
+
+/* Enter animation */
+.toast-enter {
+  transform: translateX(110%);
+  opacity: 0;
+}
+
+/* Exit animation */
+.toast-exit {
+  transform: translateX(110%);
+  opacity: 0;
+  transition:
+    transform 0.28s cubic-bezier(0.55, 0, 1, 0.45),
+    opacity 0.28s ease;
+}
+
+/* Type variants */
+.toast.toast-success {
+  --toast-accent: #4ade80;
+  border-color: rgba(74, 222, 128, 0.18);
+}
+
+.toast.toast-error {
+  --toast-accent: #f87171;
+  border-color: rgba(248, 113, 113, 0.18);
+}
+
+.toast.toast-warning {
+  --toast-accent: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.18);
+}
+
+.toast.toast-info {
+  --toast-accent: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.18);
+}
+
+/* Icon */
+.toast-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+}
+
+.toast-success .toast-icon {
+  color: #4ade80;
+}
+.toast-error .toast-icon {
+  color: #f87171;
+}
+.toast-warning .toast-icon {
+  color: #fbbf24;
+}
+.toast-info .toast-icon {
+  color: #38bdf8;
+}
+
+/* Content */
+.toast-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-title {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+.toast-description {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* Inline action button inside the toast */
+.toast-action {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 12px;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.toast-action:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Dismiss button */
+.toast-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  padding: 0;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+  margin-top: 1px;
+}
+
+.toast-close:hover {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Progress bar */
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 0 999px 999px 0;
+  background: var(--toast-accent, rgba(255, 255, 255, 0.3));
+  opacity: 0.5;
+  transform-origin: left;
+  animation: toast-progress-shrink linear forwards;
+}
+
+@keyframes toast-progress-shrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .toast-viewport {
+    top: auto;
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+  }
+}

@@ -3,7 +3,6 @@ import { LemonSqueezyApiClient } from '@yucp/providers';
 import { createLogger, getProviderDescriptor, timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
-import { getCookieValue, SETUP_SESSION_COOKIE } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt, encrypt } from '../lib/encrypt';
 import {
@@ -15,8 +14,6 @@ import { ALL_PROVIDERS } from '../providers/index';
 import { PURPOSES as LEMONSQUEEZY } from '../providers/lemonsqueezy';
 
 const PROVIDER_PLATFORM_CREDENTIAL_PURPOSE = 'provider-platform-credential' as const;
-
-import { resolveSetupSession } from '../lib/setupSession';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
@@ -223,15 +220,6 @@ async function isTenantOwnedBySessionUser(
   return !!profile && profile.authUserId === sessionUserId;
 }
 
-async function resolveSetupSessionFromRequest(request: Request, encryptionSecret: string) {
-  const authHeader = request.headers.get('authorization');
-  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  const cookieToken = getCookieValue(request, SETUP_SESSION_COOKIE);
-  const token = bearerToken ?? cookieToken;
-  if (!token) return null;
-  return resolveSetupSession(token, encryptionSecret);
-}
-
 async function requireTenantAccess(
   auth: Auth,
   convex: ConvexClient,
@@ -239,28 +227,6 @@ async function requireTenantAccess(
   request: Request,
   authUserId: string
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
-  const setupSession = await resolveSetupSessionFromRequest(request, config.encryptionSecret);
-  if (setupSession) {
-    const session = await auth.getSession(request);
-    const authDiscordUserId = await auth.getDiscordUserId(request);
-    if (!session || !authDiscordUserId) {
-      return {
-        ok: false,
-        response: jsonResponse({ error: 'Authentication required' }, newRequestId(), 401),
-      };
-    }
-    if (
-      authDiscordUserId !== setupSession.discordUserId ||
-      setupSession.authUserId !== authUserId
-    ) {
-      return {
-        ok: false,
-        response: jsonResponse({ error: 'Forbidden' }, newRequestId(), 403),
-      };
-    }
-    return { ok: true };
-  }
-
   const session = await auth.getSession(request);
   if (!session) {
     return {

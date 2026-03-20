@@ -25,6 +25,10 @@ const VRCHAT_USER_AGENT = 'YUCP Creator Assistant/0.1.0 (https://yucp.app)';
 const AUTH_COOKIE = 'auth';
 const TWO_FACTOR_AUTH_COOKIE = 'twoFactorAuth';
 
+interface VrchatApiConfig {
+  clientApiKey?: string;
+}
+
 function buildBasicAuth(username: string, password: string): string {
   const encoded = Buffer.from(
     `${encodeURIComponent(username)}:${encodeURIComponent(password)}`,
@@ -84,6 +88,15 @@ function buildCookieHeader(tokens: VrchatSessionTokens): string {
     pairs.push(`${TWO_FACTOR_AUTH_COOKIE}=${tokens.twoFactorAuthToken}`);
   }
   return pairs.join('; ');
+}
+
+function extractClientApiKey(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object') {
+    return undefined;
+  }
+
+  const clientApiKey = (data as { clientApiKey?: unknown }).clientApiKey;
+  return typeof clientApiKey === 'string' && clientApiKey.length > 0 ? clientApiKey : undefined;
 }
 
 function isTwoFactorRequired(data: unknown): data is RequiresTwoFactorAuth {
@@ -187,7 +200,50 @@ export function extractVrchatAvatarId(urlOrId: string): string | null {
  * VRChat API Client - direct HTTP login, 2FA, and licensed avatar retrieval.
  */
 export class VrchatApiClient {
+  private apiConfigPromise?: Promise<VrchatApiConfig>;
+
+  private async getApiConfig(): Promise<VrchatApiConfig> {
+    if (!this.apiConfigPromise) {
+      this.apiConfigPromise = request('/config', { method: 'GET' }).then(({ data }) => ({
+        clientApiKey: extractClientApiKey(data),
+      }));
+    }
+
+    return this.apiConfigPromise;
+  }
+
+  /**
+   * Makes an authenticated VRChat API request.
+   * Automatically appends ?apiKey=<clientApiKey> as a URL query parameter on every call
+   * except /config itself (which is how we get the key in the first place).
+   *
+   * Per VRChat spec (APIConfig.yaml): clientApiKey is "apiKey to be used for all other requests".
+   * Community SDK implementations (vrchatapi-python, vrchatapi-js) all send it as ?apiKey=<value>.
+   * Sending it as a header does not work — VRChat returns 401.
+   *
+   * Source: https://github.com/vrchatapi/specification/blob/main/openapi/components/schemas/APIConfig.yaml
+   */
+  private async apiRequest(
+    path: string,
+    init: RequestInit = {}
+  ): Promise<{ response: Response; data: unknown }> {
+    const { clientApiKey } = await this.getApiConfig();
+    if (clientApiKey) {
+      const separator = path.includes('?') ? '&' : '?';
+      return request(`${path}${separator}apiKey=${encodeURIComponent(clientApiKey)}`, init);
+    }
+    return request(path, init);
+  }
+
+  private buildRequestHeaders(headersInit?: HeadersInit): Headers {
+    return new Headers(headersInit);
+  }
+
   async beginLogin(username: string, password: string): Promise<VrchatBeginLoginResult> {
+    // Per VRChat OpenAPI spec, /auth/user has parameters: [] and security: [{authHeader: []}]
+    // meaning it uses HTTP Basic auth only — no ?apiKey= query parameter.
+    // Adding ?apiKey= to this endpoint causes VRChat to return 401 (Missing Credentials).
+    // Use request() directly to match the same contract as the working VrchatWebClient.
     const { response, data } = await request('/auth/user', {
       method: 'GET',
       headers: {
@@ -203,6 +259,10 @@ export class VrchatApiClient {
         ? sanitizeTwoFactorMethods(data.requiresTwoFactorAuth)
         : [],
       isCurrentUser: isCurrentUser(data),
+      redirected: response.redirected,
+      // Log full body on non-200 to surface VRChat's exact error message for diagnosis.
+      // Safe to log: 401 responses never contain credentials.
+      errorBody: response.status !== 200 ? JSON.stringify(data) : undefined,
     });
 
     const authToken = extractCookieValue(response.headers, AUTH_COOKIE);
@@ -258,12 +318,13 @@ export class VrchatApiClient {
     let session: VrchatSessionTokens | null = null;
 
     for (const method of allowedMethods) {
-      const { response, data } = await request(verificationPathForType(method), {
+      const headers = this.buildRequestHeaders({
+        'content-type': 'application/json',
+        cookie: `${AUTH_COOKIE}=${pending.authToken}`,
+      });
+      const { response, data } = await this.apiRequest(verificationPathForType(method), {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          cookie: `${AUTH_COOKIE}=${pending.authToken}`,
-        },
+        headers,
         body: JSON.stringify({ code }),
       });
 
@@ -323,11 +384,12 @@ export class VrchatApiClient {
     authToken: string,
     twoFactorAuthToken?: string
   ): Promise<VrchatCurrentUser | null> {
-    const { response, data } = await request('/auth/user', {
+    const headers = this.buildRequestHeaders({
+      cookie: buildCookieHeader({ authToken, twoFactorAuthToken }),
+    });
+    const { response, data } = await this.apiRequest('/auth/user', {
       method: 'GET',
-      headers: {
-        cookie: buildCookieHeader({ authToken, twoFactorAuthToken }),
-      },
+      headers,
     });
 
     if (!isCurrentUser(data)) {
@@ -356,11 +418,12 @@ export class VrchatApiClient {
       offset: String(Math.max(0, offset)),
     });
 
-    const { data } = await request(`/avatars/licensed?${query.toString()}`, {
+    const headers = this.buildRequestHeaders({
+      cookie: buildCookieHeader(session),
+    });
+    const { data } = await this.apiRequest(`/avatars/licensed?${query.toString()}`, {
       method: 'GET',
-      headers: {
-        cookie: buildCookieHeader(session),
-      },
+      headers,
     });
 
     if (!Array.isArray(data)) {
@@ -441,10 +504,16 @@ export class VrchatApiClient {
       throw new VrchatSessionExpiredError();
     }
 
-    const { response, data } = await request(`/user/${encodeURIComponent(user.id)}/listings`, {
-      method: 'GET',
-      headers: { cookie: buildCookieHeader(session) },
+    const headers = this.buildRequestHeaders({
+      cookie: buildCookieHeader(session),
     });
+    const { response, data } = await this.apiRequest(
+      `/user/${encodeURIComponent(user.id)}/listings`,
+      {
+        method: 'GET',
+        headers,
+      }
+    );
 
     if (response.status === 401) {
       throw new VrchatSessionExpiredError();
@@ -470,9 +539,12 @@ export class VrchatApiClient {
     session: VrchatSessionTokens,
     avatarId: string
   ): Promise<{ id: string; name: string } | null> {
-    const { response, data } = await request(`/avatars/${encodeURIComponent(avatarId)}`, {
+    const headers = this.buildRequestHeaders({
+      cookie: buildCookieHeader(session),
+    });
+    const { response, data } = await this.apiRequest(`/avatars/${encodeURIComponent(avatarId)}`, {
       method: 'GET',
-      headers: { cookie: buildCookieHeader(session) },
+      headers,
     });
 
     if (!response.ok || !data || typeof data !== 'object') return null;

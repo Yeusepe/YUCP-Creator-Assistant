@@ -35,12 +35,16 @@ export interface Verification {
   createdAt: Date;
 }
 
+export * from './authOrigins';
+export * from './authRedirects';
 // Binding module exports
 export * from './binding';
+export * from './convexSiteUrl';
 // Crypto module exports
 export * from './crypto';
 // Entitlement module exports
 export * from './entitlement';
+export * from './internalRpcSecret';
 export {
   createLogger,
   createStructuredLogger,

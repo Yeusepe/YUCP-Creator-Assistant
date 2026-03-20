@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "moduleResolution": "Bundler",
+    "module": "ESNext",
+    "target": "ES2022",
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "../../convex/_generated/**/*",
+    "../../convex/schema.ts",
+    "../../convex/adminNotifications.ts",
+    "../../convex/dashboardViews.ts",
+    "../../convex/auth.ts",
+    "../../convex/lib/apiAuth.ts"
+  ],
+  "exclude": ["node_modules", "dist", "test"]
+}

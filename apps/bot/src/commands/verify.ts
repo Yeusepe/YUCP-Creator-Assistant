@@ -32,6 +32,7 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { E, Emoji } from '../lib/emojis';
 import { completeLicenseVerification, disconnectVerification } from '../lib/internalRpc';
+import { sendDashboardNotification } from '../lib/notifications';
 import { track } from '../lib/posthog';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { buildBotVerificationErrorMessage } from '../lib/verificationSupport';
@@ -1119,6 +1120,19 @@ export async function handleLicenseModalSubmit(
     track(interaction.user.id, 'verification_completed', { authUserId, provider: result.provider });
 
     const guildId = interaction.guildId;
+    if (guildId) {
+      const connectedProviderLabel = result.provider
+        ? providerLabel(result.provider)
+        : 'store account';
+      sendDashboardNotification({
+        authUserId,
+        guildId,
+        type: 'success',
+        title: 'Verification completed',
+        message: `${interaction.user.username} verified via ${connectedProviderLabel}.`,
+      });
+    }
+
     if (guildId && apiBaseUrl) {
       const panelToken =
         getActiveVerifyPanel(interaction.user.id, guildId)?.panelToken ?? createVerifyPanelToken();

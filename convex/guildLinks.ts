@@ -171,29 +171,23 @@ export const getUserGuilds = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const profiles = await ctx.db
+    const profile = await ctx.db
       .query('creator_profiles')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+
+    const links = await ctx.db
+      .query('guild_links')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
 
-    const guilds = [];
-    for (const profile of profiles) {
-      const links = await ctx.db
-        .query('guild_links')
-        .withIndex('by_auth_user', (q) => q.eq('authUserId', profile.authUserId))
-        .filter((q) => q.eq(q.field('status'), 'active'))
-        .collect();
-
-      for (const link of links) {
-        guilds.push({
-          authUserId: profile.authUserId,
-          guildId: link.discordGuildId,
-          name: link.discordGuildName || profile.name,
-          icon: link.discordGuildIcon ?? null,
-        });
-      }
-    }
-    return guilds;
+    return links.map((link) => ({
+      authUserId: args.authUserId,
+      guildId: link.discordGuildId,
+      name: link.discordGuildName || profile?.name || 'Creator Server',
+      icon: link.discordGuildIcon ?? null,
+    }));
   },
 });
 

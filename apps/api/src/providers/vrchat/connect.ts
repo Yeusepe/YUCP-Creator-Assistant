@@ -3,12 +3,12 @@
  *
  * Handles the creator VRChat login flow (session-based, not OAuth):
  *   GET  /api/connect/vrchat/begin   — validates setup session, creates state token,
- *                                      redirects to /vrchat-verify?token=TOKEN&mode=connect
+ *                                      redirects to /setup/vrchat?token=TOKEN&mode=connect
  *   POST /api/connect/vrchat/session — validates token, calls VrchatApiClient.beginLogin(),
  *                                      handles 2FA, encrypts session, stores in Convex
  *
- * Reuses vrchat-verify.html (the existing buyer login UI).
- * Separate cookie/path from the buyer flow — never touches vrchatPending.ts.
+ * Reuses the TanStack `/setup/vrchat` flow with `mode=connect`.
+ * Separate cookie/path from the buyer flow, and never touches vrchatPending.ts.
  */
 
 import { VrchatApiClient } from '@yucp/providers/vrchat';
@@ -44,7 +44,7 @@ const SESSION_PURPOSE = 'vrchat-creator-session' as const;
  * Entry point for the creator VRChat connect flow.
  * Requires a valid bound setup session (same guard as all other connect flows).
  * Creates a short-lived state token, stores {authUserId} under it, and redirects
- * to vrchat-verify.html with mode=connect so the buyer login UI is reused.
+ * to the TanStack VRChat setup route with mode=connect.
  */
 async function handleVrchatConnectBegin(request: Request, ctx: ConnectContext): Promise<Response> {
   const binding = await ctx.requireBoundSetupSession(request);
@@ -76,9 +76,8 @@ async function handleVrchatConnectBegin(request: Request, ctx: ConnectContext): 
     CONNECT_TOKEN_TTL_MS
   );
 
-  // Reuse the buyer login UI; mode=connect switches its API endpoint.
-  // Forward guild_id/tenant_id so the verify page can redirect back to the right dashboard context.
-  const redirectUrl = new URL(`${ctx.config.frontendBaseUrl}/vrchat-verify`);
+  // The setup page handles the mode=connect variant and returns to the correct dashboard context.
+  const redirectUrl = new URL('/setup/vrchat', `${ctx.config.frontendBaseUrl.replace(/\/$/, '')}/`);
   redirectUrl.searchParams.set('token', token);
   redirectUrl.searchParams.set('mode', 'connect');
   if (guildId) redirectUrl.searchParams.set('guild_id', guildId);
@@ -98,7 +97,7 @@ interface SessionBody {
 }
 
 /**
- * Called by vrchat-verify.html (mode=connect) after the creator enters credentials.
+ * Called by the TanStack `/setup/vrchat` route (mode=connect) after the creator enters credentials.
  *
  * Flow:
  * 1. Validate connect token from body → get authUserId
@@ -121,16 +120,15 @@ async function handleVrchatConnectSession(
   }
 
   const { token, username, password, twoFactorCode } = body;
-  if (!token) {
-    return Response.json({ error: 'token is required' }, { status: 400 });
-  }
 
   // Resolve authUserId from the connect token (or from the pending 2FA state on retry)
   let authUserId: string | null = null;
-  const tokenRaw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
-  if (tokenRaw) {
-    const parsed = JSON.parse(tokenRaw) as { authUserId?: string };
-    authUserId = parsed.authUserId ?? null;
+  if (token) {
+    const tokenRaw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
+    if (tokenRaw) {
+      const parsed = JSON.parse(tokenRaw) as { authUserId?: string };
+      authUserId = parsed.authUserId ?? null;
+    }
   }
 
   if (!authUserId) {
@@ -142,7 +140,12 @@ async function handleVrchatConnectSession(
   }
 
   if (!authUserId) {
-    return Response.json({ error: 'Connect token expired or invalid' }, { status: 400 });
+    const authSession = await ctx.auth.getSession(request);
+    authUserId = authSession?.user?.id ?? null;
+  }
+
+  if (!authUserId) {
+    return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
   const client = new VrchatApiClient();
@@ -152,7 +155,15 @@ async function handleVrchatConnectSession(
     if (twoFactorCode) {
       const pending = await readConnectPendingState(store, request);
       if (!pending) {
-        return Response.json({ error: 'Two-factor session expired' }, { status: 400 });
+        return Response.json(
+          {
+            success: false,
+            error: 'Two-factor session expired',
+            needsCredentials: true,
+            sessionExpired: true,
+          },
+          { status: 200 }
+        );
       }
       const { user, session } = await client.completePendingLogin(
         pending.state.pendingState,
@@ -164,7 +175,9 @@ async function handleVrchatConnectSession(
       });
       await finishConnect(authUserId, session.authToken, session.twoFactorAuthToken, ctx);
       await clearConnectPendingState(store, request, responseHeaders);
-      await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
+      if (token) {
+        await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
+      }
       return Response.json({ success: true }, { headers: responseHeaders });
     }
 
@@ -200,7 +213,9 @@ async function handleVrchatConnectSession(
       result.session.twoFactorAuthToken,
       ctx
     );
-    await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
+    if (token) {
+      await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
+    }
     return Response.json({ success: true }, { headers: responseHeaders });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -209,8 +224,12 @@ async function handleVrchatConnectSession(
     if (message.includes('missing auth cookie') || message.includes('Verification failed')) {
       appendClearedConnectPendingCookie(responseHeaders, request);
       return Response.json(
-        { error: 'Invalid VRChat credentials' },
-        { status: 401, headers: responseHeaders }
+        {
+          success: false,
+          error: 'Invalid VRChat credentials',
+          needsCredentials: true,
+        },
+        { status: 200, headers: responseHeaders }
       );
     }
 

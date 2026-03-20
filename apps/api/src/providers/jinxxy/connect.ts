@@ -89,6 +89,16 @@ async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promi
       const tokenBytes = new Uint8Array(32);
       crypto.getRandomValues(tokenBytes);
       callbackRouteToken = Array.from(tokenBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      // Persist the new token immediately so that the subsequent POST reuses
+      // the same token rather than generating a new one. Without this, GET and
+      // POST each produce independent tokens, causing the webhook handler to
+      // look up the wrong state store key during test delivery.
+      const callbackUrlForToken = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${callbackRouteToken}`;
+      await getStateStore().set(
+        `${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`,
+        JSON.stringify({ callbackUrl: callbackUrlForToken, routeToken: callbackRouteToken }),
+        JINXXY_PENDING_WEBHOOK_TTL_MS
+      );
     }
 
     const callbackUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${callbackRouteToken}`;
@@ -220,9 +230,10 @@ async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Respo
 
   const setupBinding = await ctx.requireBoundSetupSession(request);
   const setupSession = setupBinding.ok ? setupBinding.setupSession : null;
-  const authSession = setupBinding.ok
-    ? setupBinding.authSession
-    : await ctx.auth.getSession(request);
+  if (!setupBinding.ok && ctx.getSetupSessionTokenFromRequest(request)) {
+    return setupBinding.response;
+  }
+  const authSession = setupSession ? null : await ctx.auth.getSession(request);
   if (!authSession && !setupSession) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }

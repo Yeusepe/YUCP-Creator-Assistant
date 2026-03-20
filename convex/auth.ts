@@ -1,43 +1,33 @@
 /**
- * Better Auth configuration for YUCP Creator Assistant
- * Runs on Convex with Discord OAuth and cross-domain support.
+ * Better Auth configuration for YUCP Creator Assistant.
  *
- * The cross-domain plugin is required because the Bun API server (localhost:3001)
- * is on a different domain than Convex (.convex.site). It handles:
- * - Custom cookie headers (Set-Better-Auth-Cookie / Better-Auth-Cookie)
- * - One-time-token (OTT) pattern for OAuth callbacks
- * - State verification via database instead of cookies
+ * Convex owns browser auth, JWT issuance, API keys, and OAuth clients. The web
+ * app proxies `/api/auth/*` to Convex, so this configuration intentionally
+ * stays on the same-origin model and does not enable cross-domain auth
+ * transport.
  */
 
 import './polyfills';
 
+import { apiKey } from '@better-auth/api-key';
 import { oauthProvider } from '@better-auth/oauth-provider';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import { createClient } from '@convex-dev/better-auth';
-import { convex, crossDomain } from '@convex-dev/better-auth/plugins';
+import { convex } from '@convex-dev/better-auth/plugins';
 import type { BetterAuthOptions } from 'better-auth';
 import { betterAuth } from 'better-auth';
-import { apiKey, jwt } from 'better-auth/plugins';
+import { jwt } from 'better-auth/plugins';
 import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
 import authSchema from './betterAuth/schema';
+import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
 
 const PUBLIC_API_AUDIENCE = 'yucp-public-api';
 const PUBLIC_API_KEY_PREFIX = 'ypsk_';
 const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
-let hasLoggedIgnoredBetterAuthUrl = false;
 let hasLoggedBetterAuthConfig = false;
-
-function normalizeOrigin(value: string | undefined): string | null {
-  if (!value) return null;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
 
 function resolveConvexSiteUrl(): string {
   const explicit = process.env.CONVEX_SITE_URL?.replace(/\/$/, '');
@@ -91,9 +81,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
 
   const convexSiteUrl = resolveConvexSiteUrl();
   const siteUrl =
-    process.env.SITE_URL?.replace(/\/$/, '') ??
     process.env.FRONTEND_URL?.replace(/\/$/, '') ??
-    'http://localhost:3001';
+    process.env.SITE_URL?.replace(/\/$/, '') ??
+    'http://localhost:3000';
   const discordClientId = process.env.DISCORD_CLIENT_ID?.trim();
   const discordClientSecret = process.env.DISCORD_CLIENT_SECRET?.trim();
 
@@ -113,33 +103,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         }
       : {};
 
-  const localhostOrigins =
-    process.env.NODE_ENV !== 'production'
-      ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173']
-      : [];
-
-  const trustedOrigins = Array.from(
-    new Set(
-      [siteUrl, process.env.FRONTEND_URL, ...localhostOrigins]
-        .map(normalizeOrigin)
-        .filter((origin): origin is string => Boolean(origin))
-    )
-  );
-
-  const legacyBetterAuthOrigin = normalizeOrigin(process.env.BETTER_AUTH_URL);
-  const authOrigin = normalizeOrigin(convexSiteUrl);
-  if (
-    legacyBetterAuthOrigin &&
-    legacyBetterAuthOrigin !== authOrigin &&
-    !hasLoggedIgnoredBetterAuthUrl
-  ) {
-    hasLoggedIgnoredBetterAuthUrl = true;
-    // Downgrade to debug to avoid noisy WARN logs in runtime environments where
-    // CONVEX_SITE_URL is authoritative. This remains available for debugging.
-    console.debug(
-      `BETTER_AUTH_URL (${legacyBetterAuthOrigin}) is ignored; Better Auth runs on ${authOrigin}`
-    );
-  }
+  const trustedOrigins = buildTrustedBrowserOrigins({
+    siteUrl,
+    frontendUrl: process.env.FRONTEND_URL ?? siteUrl,
+  });
 
   if (!hasLoggedBetterAuthConfig) {
     hasLoggedBetterAuthConfig = true;
@@ -152,12 +119,24 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
 
   return {
     secret: betterAuthSecret,
-    baseURL: convexSiteUrl,
+    baseURL: siteUrl,
     trustedOrigins,
     database: authComponent.adapter(ctx),
     socialProviders: discordConfig,
     plugins: [
-      crossDomain({ siteUrl }),
+      // oauthProvider depends on the standalone JWT plugin for OAuth/OIDC tokens,
+      // while convex() adds the /convex/* JWT endpoints used by the web app.
+      // Mount jwt() first so both surfaces stay registered.
+      jwt({
+        jwks: {
+          keyPairConfig: { alg: 'ES256' },
+        },
+        jwt: {
+          issuer: authBaseUrl,
+          audience: PUBLIC_API_AUDIENCE,
+        },
+        disableSettingJwtHeader: true,
+      }),
       convex({ authConfig }),
       apiKey({
         defaultPrefix: PUBLIC_API_KEY_PREFIX,
@@ -169,16 +148,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
             [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: ['verification:read', 'subjects:read'],
           },
         },
-      }),
-      jwt({
-        jwks: {
-          keyPairConfig: { alg: 'ES256' },
-        },
-        jwt: {
-          issuer: authBaseUrl,
-          audience: PUBLIC_API_AUDIENCE,
-        },
-        disableSettingJwtHeader: true,
       }),
       oauthProvider({
         loginPage: `${siteUrl.replace(/\/$/, '')}/oauth/login`,
@@ -205,6 +174,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
     session: {
       expiresIn: 60 * 60 * 24 * 7, // 7 days
       updateAge: 60 * 60 * 24, // 1 day
+      storeSessionInDatabase: true,
       cookieCache: {
         enabled: true,
         maxAge: 5 * 60, // 5 minutes
@@ -216,4 +186,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
   } satisfies BetterAuthOptions;
 };
 
-export const createAuth = (ctx: GenericCtx<DataModel>) => betterAuth(createAuthOptions(ctx));
+export const createAuth = (ctx: GenericCtx<DataModel>) => {
+  // Cast needed: better-auth 1.5.5 widened baseURL to BaseURLConfig (string | function),
+  // but @convex-dev/better-auth@0.11.2 registerRoutes expects string. We always pass a string.
+  return betterAuth(createAuthOptions(ctx)) as ReturnType<typeof betterAuth> & {
+    options: { baseURL?: string };
+  };
+};

@@ -141,7 +141,7 @@ const lemonSqueezyProvider: ProviderPlugin = {
     connectedColor: '#e6b600',
     confettiColors: ['#ffd35a', '#e6b600', '#fff0a0', '#ffffff'],
     description: 'Marketplace',
-    dashboardConnectPath: '/lemonsqueezy-setup',
+    dashboardConnectPath: '/setup/lemonsqueezy',
     dashboardConnectParamStyle: 'snakeCase',
     dashboardIconBg: '#f7b84b',
     dashboardQuickStartBg: 'rgba(247,184,75,0.12)',

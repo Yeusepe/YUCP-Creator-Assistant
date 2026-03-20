@@ -32,6 +32,7 @@ function createConnectSecurityRoutes() {
     createAuth({
       baseUrl: TEST_CONNECT_CONFIG.apiBaseUrl,
       convexSiteUrl: TEST_CONNECT_CONFIG.convexSiteUrl,
+      convexUrl: TEST_CONNECT_CONFIG.convexUrl,
     }),
     TEST_CONNECT_CONFIG
   );
@@ -50,11 +51,19 @@ describe('Connect routes — auth guards', () => {
 
   afterAll(() => server.stop());
 
-  it('GET /connect?guild_id=test serves page without internal error', async () => {
-    // HTML page route: served from public/connect.html (200) or 404 if file missing in test env.
-    // Either is acceptable — we only verify no unhandled 500 occurs.
-    const res = await server.fetch('/connect?guild_id=test');
-    expect(res.status).not.toBe(500);
+  it('GET /connect?guild_id=test redirects browser traffic to the frontend route', async () => {
+    const frontendServer = await startTestServer({
+      baseUrl: 'http://localhost:3101',
+      frontendUrl: 'http://localhost:3000',
+    });
+
+    try {
+      const res = await frontendServer.fetch('/connect?guild_id=test', { redirect: 'manual' });
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/connect?guild_id=test');
+    } finally {
+      frontendServer.stop();
+    }
   });
 
   it('GET /api/connect/status without auth returns 401', async () => {
@@ -285,7 +294,7 @@ describe('Connect routes — OAuth state boundaries', () => {
       const firstRes = await routes.discordRoleOAuthCallback(new Request(callbackUrl));
       expect(firstRes.status).toBe(302);
       expect(firstRes.headers.get('location')).toBe(
-        `${TEST_CONNECT_CONFIG.frontendBaseUrl}/discord-role-setup`
+        `${TEST_CONNECT_CONFIG.frontendBaseUrl}/setup/discord-role`
       );
 
       const redirectUri = new URLSearchParams(tokenExchangeBody).get('redirect_uri');
@@ -301,7 +310,7 @@ describe('Connect routes — OAuth state boundaries', () => {
       const replayRes = await routes.discordRoleOAuthCallback(new Request(callbackUrl));
       expect(replayRes.status).toBe(302);
       expect(replayRes.headers.get('location')).toBe(
-        `${TEST_CONNECT_CONFIG.frontendBaseUrl}/discord-role-setup?error=invalid_state`
+        `${TEST_CONNECT_CONFIG.frontendBaseUrl}/setup/discord-role?error=invalid_state`
       );
       expect(oauthFetchCalls).toBe(3);
     } finally {
@@ -321,7 +330,7 @@ describe('Connect routes — OAuth state boundaries', () => {
     expect(res.status).toBe(302);
     const location = res.headers.get('location');
     expect(location).toBe(
-      `${TEST_CONNECT_CONFIG.frontendBaseUrl}/discord-role-setup?error=${encodeURIComponent('https://evil.example/phish')}`
+      `${TEST_CONNECT_CONFIG.frontendBaseUrl}/setup/discord-role?error=${encodeURIComponent('https://evil.example/phish')}`
     );
     expect(new URL(location as string).origin).toBe(
       new URL(TEST_CONNECT_CONFIG.frontendBaseUrl).origin

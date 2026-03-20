@@ -71,8 +71,10 @@ export const tables = {
     expiresAt: v.optional(v.union(v.null(), v.number())),
   }),
   apikey: defineTable({
+    configId: v.optional(v.union(v.null(), v.string())),
     name: v.optional(v.union(v.null(), v.string())),
     start: v.optional(v.union(v.null(), v.string())),
+    referenceId: v.optional(v.union(v.null(), v.string())),
     prefix: v.optional(v.union(v.null(), v.string())),
     key: v.string(),
     userId: v.string(),
@@ -98,6 +100,7 @@ export const tables = {
     disabled: v.optional(v.union(v.null(), v.boolean())),
     skipConsent: v.optional(v.union(v.null(), v.boolean())),
     enableEndSession: v.optional(v.union(v.null(), v.boolean())),
+    subjectType: v.optional(v.union(v.null(), v.string())),
     scopes: v.optional(v.union(v.null(), v.array(v.string()))),
     userId: v.optional(v.union(v.null(), v.string())),
     createdAt: v.optional(v.union(v.null(), v.number())),
@@ -118,6 +121,7 @@ export const tables = {
     responseTypes: v.optional(v.union(v.null(), v.array(v.string()))),
     public: v.optional(v.union(v.null(), v.boolean())),
     type: v.optional(v.union(v.null(), v.string())),
+    requirePKCE: v.optional(v.union(v.null(), v.boolean())),
     referenceId: v.optional(v.union(v.null(), v.string())),
     metadata: v.optional(v.union(v.null(), v.string())),
   })
@@ -132,6 +136,7 @@ export const tables = {
     expiresAt: v.optional(v.union(v.null(), v.number())),
     createdAt: v.optional(v.union(v.null(), v.number())),
     revoked: v.optional(v.union(v.null(), v.number())),
+    authTime: v.optional(v.union(v.null(), v.number())),
     scopes: v.array(v.string()),
   })
     .index('clientId', ['clientId'])

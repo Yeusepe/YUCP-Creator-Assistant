@@ -1,0 +1,762 @@
+/* ─── Payhip Setup Wizard ─────────────────────────────── */
+/* All rules scoped under .payhip-setup to avoid global conflicts */
+
+/* ─── Theme tokens ─────────────────────────────────── */
+.payhip-setup {
+  --ph: #3b82f6;
+  --ph-dim: rgba(59, 130, 246, 0.1);
+  --ph-border: rgba(59, 130, 246, 0.26);
+  --ph-glow: rgba(59, 130, 246, 0.35);
+}
+
+.payhip-setup *,
+.payhip-setup *::before,
+.payhip-setup *::after {
+  box-sizing: border-box;
+}
+
+.payhip-setup input,
+.payhip-setup textarea,
+.payhip-setup select {
+  font-size: 16px;
+}
+.payhip-setup h1,
+.payhip-setup h2,
+.payhip-setup h3 {
+  font-family: "Plus Jakarta Sans", sans-serif;
+}
+
+/* ─── Responsive ────────────────────────────────────── */
+@media (max-width: 1023px) {
+  .payhip-setup .step-content > .mockup-col {
+    display: none;
+  }
+  .payhip-setup .step-content > .instructions-col {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 479px) {
+  .payhip-setup .card-shell {
+    padding: 1.25rem;
+    border-radius: 1.5rem;
+  }
+}
+
+/* ─── Step transitions ──────────────────────────────── */
+.payhip-setup .step-content {
+  display: none;
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+.payhip-setup .step-content.active {
+  display: grid;
+  opacity: 1;
+  transform: translateY(0);
+}
+.payhip-setup .step-content.step-exiting {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+.payhip-setup .steps-slot {
+  transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0 2px;
+}
+.payhip-setup .steps-container.steps-transitioning {
+  overflow: hidden;
+}
+
+.payhip-setup .page-content {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.payhip-setup .page-content.is-visible {
+  opacity: 1;
+}
+
+/* ─── Keyframes ─────────────────────────────────────── */
+@keyframes signal-flow {
+  0% {
+    left: -10px;
+    opacity: 0;
+  }
+  7% {
+    opacity: 1;
+  }
+  93% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% + 10px);
+    opacity: 0;
+  }
+}
+@keyframes node-ping {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--ph-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+@keyframes ripple-out {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+@keyframes highlight-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(59, 130, 246, 0.2),
+      0 0 10px rgba(59, 130, 246, 0.07);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(59, 130, 246, 0.38),
+      0 0 18px rgba(59, 130, 246, 0.12);
+  }
+}
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes ph-save-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+/* ─── Copy btn ──────────────────────────────────────── */
+.payhip-setup .copy-btn:active {
+  transform: scale(0.94);
+}
+.payhip-setup .checkmark {
+  display: none;
+}
+.payhip-setup .copied .copy-icon {
+  display: none;
+}
+.payhip-setup .copied .checkmark {
+  display: block;
+}
+
+/* ─── Step dots ─────────────────────────────────────── */
+.payhip-setup .step-dot {
+  height: 5px;
+  border-radius: 999px;
+  transition:
+    width 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.35s ease;
+}
+
+/* ─── Form inputs ───────────────────────────────────── */
+.payhip-setup .api-key-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.11);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  outline: none;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.payhip-setup .api-key-input:focus {
+  border-color: var(--ph);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+.payhip-setup .api-key-input::placeholder {
+  color: rgba(255, 255, 255, 0.22);
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  letter-spacing: normal;
+}
+
+/* ─── Code block ────────────────────────────────────── */
+.payhip-setup .code-block {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  border-radius: 10px;
+  padding: 10px 13px;
+  color: #93c5fd;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════════════════
+   LIGHT MODE MOCKUP BROWSER
+═══════════════════════════════════════════════════════ */
+.payhip-setup .mockup-shell {
+  aspect-ratio: 16 / 10;
+  background: #f3f4f6;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  overflow: hidden;
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.13),
+    0 1px 0 rgba(255, 255, 255, 0.55) inset;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+  user-select: none;
+  transition: transform 0.45s ease;
+}
+.payhip-setup .mockup-shell:hover {
+  transform: scale(1.01);
+}
+
+/* Traffic lights bar */
+.payhip-setup .traffic-lights {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 10px 14px 9px;
+  flex-shrink: 0;
+  background: #e8eaed;
+  border-bottom: 1px solid #d1d5db;
+}
+.payhip-setup .tl {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.payhip-setup .tl-r {
+  background: #ff5f57;
+}
+.payhip-setup .tl-y {
+  background: #febc2e;
+}
+.payhip-setup .tl-g {
+  background: #28c840;
+}
+.payhip-setup .mock-urlbar {
+  flex: 1;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: #6b7280;
+  font-family: "JetBrains Mono", monospace;
+  overflow: hidden;
+  padding: 0 8px;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+/* ─── Payhip app shell (no sidebar) ─────────────────── */
+.payhip-setup .ph-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Top navigation bar */
+.payhip-setup .ph-topnav {
+  display: flex;
+  align-items: stretch;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0 14px;
+  height: 30px;
+  flex-shrink: 0;
+}
+.payhip-setup .ph-logo {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-weight: 800;
+  font-size: 11px;
+  color: var(--ph);
+  margin-right: 12px;
+  letter-spacing: -0.3px;
+  display: flex;
+  align-items: center;
+}
+.payhip-setup .ph-nav-item {
+  font-size: 8.5px;
+  color: #6b7280;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.payhip-setup .ph-nav-item.active {
+  color: var(--ph);
+  border-bottom-color: var(--ph);
+  font-weight: 700;
+}
+
+/* Main content area */
+.payhip-setup .ph-main {
+  flex: 1;
+  background: #f3f4f6;
+  padding: 12px 14px 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.payhip-setup .ph-page-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #111827;
+  font-family: "Plus Jakarta Sans", sans-serif;
+}
+
+/* Tabs */
+.payhip-setup .ph-tabs {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+}
+.payhip-setup .ph-tab {
+  font-size: 8.5px;
+  color: #6b7280;
+  padding: 5px 10px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font-weight: 500;
+}
+.payhip-setup .ph-tab.active {
+  color: var(--ph);
+  border-bottom-color: var(--ph);
+  font-weight: 700;
+}
+
+/* White card */
+.payhip-setup .ph-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.payhip-setup .ph-card.highlighted {
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.07);
+}
+.payhip-setup .ph-card.dimmed {
+  opacity: 0.28;
+}
+
+.payhip-setup .ph-field-label {
+  font-size: 7px;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+/* Input row */
+.payhip-setup .ph-input-row {
+  background: #f9fafb;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 5px;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+}
+.payhip-setup .ph-input-row.active {
+  border-color: var(--ph);
+  animation: highlight-pulse 2.5s ease-in-out infinite;
+}
+.payhip-setup .ph-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ph);
+  box-shadow: 0 0 5px var(--ph-glow);
+  flex-shrink: 0;
+}
+.payhip-setup .ph-key-text {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  color: #374151;
+  flex: 1;
+  letter-spacing: 1.5px;
+}
+.payhip-setup .ph-copy-chip {
+  background: var(--ph);
+  color: #fff;
+  font-size: 6.5px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* Callout arrow */
+.payhip-setup .ph-callout {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translate(calc(100% + 4px), -50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.payhip-setup .ph-callout-line {
+  width: 14px;
+  height: 1px;
+  background: var(--ph);
+}
+.payhip-setup .ph-callout-tag {
+  background: var(--ph);
+  color: #fff;
+  font-size: 6px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* Skeleton */
+.payhip-setup .ph-sk {
+  height: 5px;
+  background: #e5e7eb;
+  border-radius: 3px;
+}
+
+/* Webhook mockup */
+.payhip-setup .ph-event-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.payhip-setup .ph-event-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  background: rgba(59, 130, 246, 0.07);
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  border-radius: 4px;
+  font-size: 8px;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+.payhip-setup .ph-checkmark-box {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--ph);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.payhip-setup .ph-save-btn {
+  align-self: flex-end;
+  background: var(--ph);
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 4px;
+  position: relative;
+}
+.payhip-setup .ph-save-btn::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(59, 130, 246, 0.4);
+  animation: ph-save-glow 2.2s ease-in-out infinite;
+}
+
+/* Product edit mockup */
+.payhip-setup .ph-product-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.payhip-setup .ph-product-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(59, 130, 246, 0.08));
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  flex-shrink: 0;
+}
+.payhip-setup .ph-product-name {
+  font-size: 9px;
+  font-weight: 700;
+  color: #111827;
+}
+.payhip-setup .ph-adv-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 7.5px;
+  color: #6b7280;
+  font-weight: 600;
+}
+.payhip-setup .ph-adv-chevron {
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  flex-shrink: 0;
+}
+.payhip-setup .ph-lic-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 8px;
+  color: #374151;
+  font-weight: 500;
+}
+
+/* ═══════════════════════════════════════════════════════
+   STEP 3: SIGNAL FLOW (dark panel inside light shell)
+═══════════════════════════════════════════════════════ */
+.payhip-setup .flow-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 20px;
+  padding: 14px 18px;
+  background: #0e0f12;
+}
+.payhip-setup .flow-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.payhip-setup .flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.payhip-setup .flow-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #111316;
+  border: 1.5px solid #272830;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: visible;
+  transition:
+    border-color 0.4s,
+    background 0.4s;
+}
+.payhip-setup .flow-icon.is-waiting {
+  border-color: var(--ph);
+  background: rgba(59, 130, 246, 0.07);
+  animation: node-ping 2.6s ease-in-out infinite;
+}
+.payhip-setup .flow-icon.is-success {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+.payhip-setup .flow-ripple {
+  position: absolute;
+  inset: -6px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(59, 130, 246, 0.28);
+  animation: ripple-out 2.6s ease-out infinite;
+  pointer-events: none;
+}
+.payhip-setup .flow-ripple-2 {
+  position: absolute;
+  inset: -6px;
+  border-radius: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.14);
+  animation: ripple-out 2.6s ease-out infinite 0.85s;
+  pointer-events: none;
+}
+.payhip-setup .flow-label {
+  font-size: 7px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #383840;
+  white-space: nowrap;
+  transition: color 0.4s;
+}
+.payhip-setup .flow-node-waiting .flow-label {
+  color: #93c5fd;
+}
+.payhip-setup .flow-node-success .flow-label {
+  color: #86efac;
+}
+.payhip-setup .flow-edge {
+  flex: 1;
+  height: 1.5px;
+  background: linear-gradient(to right, #1e1e26, #181820);
+  position: relative;
+  overflow: visible;
+  margin-bottom: 13px;
+}
+.payhip-setup .flow-edge::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  border-left: 5px solid #24242c;
+}
+.payhip-setup .flow-sig {
+  position: absolute;
+  top: 50%;
+  left: -10px;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ph);
+  box-shadow:
+    0 0 8px var(--ph-glow),
+    0 0 14px rgba(59, 130, 246, 0.2);
+  animation: signal-flow 3.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.payhip-setup .flow-sig.d1 {
+  animation-delay: 1.13s;
+}
+.payhip-setup .flow-sig.d2 {
+  animation-delay: 2.27s;
+}
+
+/* ═══════════════════════════════════════════════════════
+   STEP 4: PRODUCT CARDS (FORM)
+═══════════════════════════════════════════════════════ */
+.payhip-setup .product-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  padding: 16px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+  animation: fade-in-up 0.25s ease both;
+}
+.payhip-setup .product-card:focus-within {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.06);
+}
+.payhip-setup .product-card-fields {
+  display: flex;
+  gap: 12px;
+}
+.payhip-setup .product-card-fields > div {
+  flex: 1;
+  min-width: 0;
+}
+.payhip-setup .product-card-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 6px;
+}
+.payhip-setup .remove-product-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  padding: 0;
+}
+.payhip-setup .remove-product-btn:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* ─── Instruction cards ─────────────────────────────── */
+.payhip-setup .inst-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+.payhip-setup .inst-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.payhip-setup .inst-row + .inst-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+.payhip-setup .inst-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--ph-dim);
+  border: 1px solid var(--ph-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 800;
+  color: var(--ph);
+  flex-shrink: 0;
+  margin-top: 1px;
+}

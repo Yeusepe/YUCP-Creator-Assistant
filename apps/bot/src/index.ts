@@ -8,6 +8,7 @@ import { registerCommands } from './commands';
 import { handleGuildMemberAdd } from './handlers/guildMemberAdd';
 import { handleInteraction } from './handlers/interactions';
 import { loadEnvAsync, validateBotEnv } from './lib/env';
+import { startHeartbeat } from './services/heartbeat';
 import {
   getLienedDownloadsInvitePermissions,
   LienedDownloadsService,
@@ -235,8 +236,23 @@ async function main() {
 
   await roleSyncService.start();
 
+  const stopHeartbeat = startHeartbeat(
+    env.HEARTBEAT_URL,
+    parseFloat(process.env.HEARTBEAT_INTERVAL_MINUTES ?? '5')
+  );
+
   const shutdown = () => {
     logger.info('Shutting down...');
+    try {
+      if (typeof stopHeartbeat === 'function') {
+        stopHeartbeat();
+      }
+    } catch (err) {
+      logger.warn('Error stopping heartbeat', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     roleSyncService.stop();
     client.destroy();
     process.exit(0);
