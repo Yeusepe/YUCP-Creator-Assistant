@@ -166,6 +166,7 @@ function RootErrorComponent({ error }: { error: Error }) {
           </pre>
           <iframe
             src="https://status.yucp.club/embed/events/live?theme=dark&incidents=1&maintenance=1&tags=creator-assistant-api%2Ccreator-assistant-dashboard%2Ccreator-assistant-backend%2Ccreator-assistant-state%2Ccreator-assistant-discord-bot"
+            title="Creator Assistant status"
             width="100%"
             height="300"
             frameBorder="0"

@@ -1,5 +1,3 @@
-import { getToken } from '@/lib/auth-server';
-
 export interface WebDiagnosticsEnv {
   NODE_ENV?: string;
   CONVEX_URL?: string;
@@ -19,7 +17,7 @@ export interface ServerAuthClientLike {
 export interface LoadRootAuthStateOptions {
   convexQueryClient: ServerAuthClientLike;
   location?: LocationLike | null;
-  getAuthToken?: () => Promise<string | null | undefined>;
+  getAuthToken: () => Promise<string | null | undefined>;
   env?: WebDiagnosticsEnv;
 }
 
@@ -53,10 +51,7 @@ function compactRecord(input: Record<string, unknown>): Record<string, unknown> 
 function redactSensitiveText(value: string): string {
   return value
     .replace(/\b(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]')
-    .replace(
-      /([?&](?:token|session|password|secret|apiKey|key)=)[^&\s]+/gi,
-      '$1[REDACTED]'
-    )
+    .replace(/([?&](?:token|session|password|secret|apiKey|key)=)[^&\s]+/gi, '$1[REDACTED]')
     .replace(
       /(["'](?:token|session|password|secret|apiKey|key)["']\s*:\s*["'])[^"']+(["'])/gi,
       '$1[REDACTED]$2'
@@ -121,7 +116,7 @@ export function logWebError(
 export async function loadRootAuthState({
   convexQueryClient,
   location,
-  getAuthToken = getToken,
+  getAuthToken,
   env = getDefaultEnv(),
 }: LoadRootAuthStateOptions): Promise<RootAuthState> {
   try {

@@ -138,6 +138,10 @@ describe('web diagnostics', () => {
 });
 
 describe('web diagnostics integration', () => {
+  const diagnosticsSource = readFileSync(
+    join(__dirname, '../../src/lib/webDiagnostics.ts'),
+    'utf8'
+  );
   const rootSource = readFileSync(join(__dirname, '../../src/routes/__root.tsx'), 'utf8');
   const routerSource = readFileSync(join(__dirname, '../../src/router.tsx'), 'utf8');
   const signInSource = readFileSync(join(__dirname, '../../src/routes/sign-in.tsx'), 'utf8');
@@ -145,10 +149,17 @@ describe('web diagnostics integration', () => {
     join(__dirname, '../../src/routes/sign-in-redirect.tsx'),
     'utf8'
   );
-  const oauthLoginSource = readFileSync(join(__dirname, '../../src/routes/oauth/login.tsx'), 'utf8');
+  const oauthLoginSource = readFileSync(
+    join(__dirname, '../../src/routes/oauth/login.tsx'),
+    'utf8'
+  );
 
   it('uses the auth bootstrap helper in the root route', () => {
     expect(rootSource).toContain('loadRootAuthState');
+  });
+
+  it('keeps the shared diagnostics module free of server-only auth imports', () => {
+    expect(diagnosticsSource).not.toContain(`@/lib/auth-server`);
   });
 
   it('uses the root render logger in the root error boundary', () => {
