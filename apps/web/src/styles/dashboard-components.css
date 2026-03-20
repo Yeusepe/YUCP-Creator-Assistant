@@ -704,7 +704,6 @@
 .server-dropdown-item.active {
   background: rgba(14, 165, 233, 0.1);
   color: #0284c7;
-  box-shadow: inset 2px 0 0 #0ea5e9;
 }
 
 .server-dropdown-item img {

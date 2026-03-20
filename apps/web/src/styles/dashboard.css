@@ -75,6 +75,7 @@ body:not(.state-server-selected) .server-only {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
+  padding-bottom: 64px;
 }
 
 .bento-grid > * {
@@ -2029,28 +2030,30 @@ img.collab-avatar {
 .skeleton-grid,
 .skeleton-stack {
   overflow: hidden;
-  /* Transition opacity, then instantly collapse height/margin after fade */
-  transition: opacity 0.15s ease;
+  max-height: 600px;
+  transition:
+    opacity 0.2s ease,
+    max-height 0.35s ease-in-out,
+    margin 0.3s ease;
 }
 
-/* When data is loaded: fade out, then collapse layout after fade */
+/* When data is loaded: fade out and smoothly collapse */
 .skeleton-loaded .skeleton-action-row,
 .skeleton-loaded .skeleton-grid,
 .skeleton-loaded .skeleton-stack {
   opacity: 0;
   pointer-events: none;
-  height: 0;
+  max-height: 0;
   margin: 0;
-  /* height/margin collapse is instant but delayed until after the opacity fade */
   transition:
-    opacity 0.15s ease,
-    height 0s linear 0.15s,
-    margin 0s linear 0.15s;
+    opacity 0.2s ease,
+    max-height 0.35s ease-in-out,
+    margin 0.3s ease;
 }
 
-/* Content section mounts when loading finishes — fade in from slight offset */
+/* Content section mounts when loading finishes — fade in slightly delayed for smooth hand-off */
 .skeleton-content {
-  animation: skeleton-content-fadein 0.2s ease both;
+  animation: skeleton-content-fadein 0.25s ease 0.1s both;
 }
 
 @keyframes skeleton-content-fadein {
@@ -2615,7 +2618,6 @@ img.collab-avatar {
   display: block;
   flex: 1 1 auto;
   min-height: 0;
-  padding-bottom: 48px;
 }
 
 .integrations-grid {
@@ -3198,7 +3200,6 @@ img.collab-avatar {
 .dark #server-dropdown-menu .server-dropdown-item.active {
   background: rgba(14, 165, 233, 0.18);
   color: #38bdf8;
-  box-shadow: inset 2px 0 0 #0ea5e9;
 }
 
 .dark .dropdown-menu,
