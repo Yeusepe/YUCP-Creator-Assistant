@@ -12,8 +12,8 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: path.resolve(__dirname, 'frontend/docs/index.tsx'),
-      external: ['react', 'react-dom/client', 'three', '@react-three/fiber', '@react-three/drei'],
       output: {
+        inlineDynamicImports: true,
         entryFileNames: 'index.js',
         chunkFileNames: 'index.js',
         assetFileNames: (assetInfo) => {

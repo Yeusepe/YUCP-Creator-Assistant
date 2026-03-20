@@ -1,8 +1,22 @@
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact from '@vitejs/plugin-react';
+import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
 import { defineConfig } from 'vite';
 import tsConfigPaths from 'vite-tsconfig-paths';
+
+function buildViteAllowedHosts(): string[] {
+  return Array.from(
+    new Set(
+      buildAllowedBrowserOrigins({
+        siteUrl: process.env.SITE_URL,
+        frontendUrl: process.env.FRONTEND_URL,
+      }).map((origin) => new URL(origin).hostname)
+    )
+  );
+}
+
+const allowedHosts = buildViteAllowedHosts();
 
 export default defineConfig({
   // Expose CONVEX_URL to client code via import.meta.env.CONVEX_URL.
@@ -15,9 +29,11 @@ export default defineConfig({
     'import.meta.env.VITE_BUILD_ID': JSON.stringify(process.env.BUILD_ID ?? 'dev'),
   },
   server: {
+    allowedHosts,
     port: 3000,
   },
   preview: {
+    allowedHosts,
     port: process.env.PORT ? parseInt(process.env.PORT, 10) : 3000,
     host: '0.0.0.0',
   },
