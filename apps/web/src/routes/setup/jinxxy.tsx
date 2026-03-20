@@ -18,13 +18,12 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
-import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
+import '@/styles/jinxxy-setup.css';
 
 export const Route = createFileRoute('/setup/jinxxy')({
   head: () => ({
     meta: [{ title: 'Connect Jinxxy\u2122 | Creator Assistant' }],
-    links: routeStylesheetLinks(routeStyleHrefs.jinxxySetup),
   }),
   component: JinxxySetupPage,
 });

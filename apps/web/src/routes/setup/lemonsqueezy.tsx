@@ -20,13 +20,12 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
-import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { withSetupAuthUserId } from '@/lib/setupAuth';
+import '@/styles/lemonsqueezy-setup.css';
 
 export const Route = createFileRoute('/setup/lemonsqueezy')({
   head: () => ({
     meta: [{ title: 'Connect Lemon Squeezy® | Creator Assistant' }],
-    links: routeStylesheetLinks(routeStyleHrefs.lemonsqueezySetup),
   }),
   component: LemonSqueezySetupPage,
 });

@@ -120,16 +120,15 @@ async function handleVrchatConnectSession(
   }
 
   const { token, username, password, twoFactorCode } = body;
-  if (!token) {
-    return Response.json({ error: 'token is required' }, { status: 400 });
-  }
 
   // Resolve authUserId from the connect token (or from the pending 2FA state on retry)
   let authUserId: string | null = null;
-  const tokenRaw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
-  if (tokenRaw) {
-    const parsed = JSON.parse(tokenRaw) as { authUserId?: string };
-    authUserId = parsed.authUserId ?? null;
+  if (token) {
+    const tokenRaw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
+    if (tokenRaw) {
+      const parsed = JSON.parse(tokenRaw) as { authUserId?: string };
+      authUserId = parsed.authUserId ?? null;
+    }
   }
 
   if (!authUserId) {
@@ -141,7 +140,12 @@ async function handleVrchatConnectSession(
   }
 
   if (!authUserId) {
-    return Response.json({ error: 'Connect token expired or invalid' }, { status: 400 });
+    const authSession = await ctx.auth.getSession(request);
+    authUserId = authSession?.user?.id ?? null;
+  }
+
+  if (!authUserId) {
+    return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
   const client = new VrchatApiClient();
@@ -151,7 +155,15 @@ async function handleVrchatConnectSession(
     if (twoFactorCode) {
       const pending = await readConnectPendingState(store, request);
       if (!pending) {
-        return Response.json({ error: 'Two-factor session expired' }, { status: 400 });
+        return Response.json(
+          {
+            success: false,
+            error: 'Two-factor session expired',
+            needsCredentials: true,
+            sessionExpired: true,
+          },
+          { status: 200 }
+        );
       }
       const { user, session } = await client.completePendingLogin(
         pending.state.pendingState,
@@ -163,7 +175,9 @@ async function handleVrchatConnectSession(
       });
       await finishConnect(authUserId, session.authToken, session.twoFactorAuthToken, ctx);
       await clearConnectPendingState(store, request, responseHeaders);
-      await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
+      if (token) {
+        await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
+      }
       return Response.json({ success: true }, { headers: responseHeaders });
     }
 
@@ -199,7 +213,9 @@ async function handleVrchatConnectSession(
       result.session.twoFactorAuthToken,
       ctx
     );
-    await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
+    if (token) {
+      await store.delete(`${CONNECT_TOKEN_PREFIX}${token}`);
+    }
     return Response.json({ success: true }, { headers: responseHeaders });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -208,8 +224,12 @@ async function handleVrchatConnectSession(
     if (message.includes('missing auth cookie') || message.includes('Verification failed')) {
       appendClearedConnectPendingCookie(responseHeaders, request);
       return Response.json(
-        { error: 'Invalid VRChat credentials' },
-        { status: 401, headers: responseHeaders }
+        {
+          success: false,
+          error: 'Invalid VRChat credentials',
+          needsCredentials: true,
+        },
+        { status: 200, headers: responseHeaders }
       );
     }
 

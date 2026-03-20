@@ -37,5 +37,9 @@ export const routeStyleHrefs = {
 } as const;
 
 export function routeStylesheetLinks(...hrefs: Array<string | undefined>) {
-  return hrefs.filter(Boolean).map((href) => ({ rel: 'stylesheet' as const, href }));
+  return hrefs.filter(Boolean).map((href) => ({
+    rel: 'stylesheet' as const,
+    href,
+    suppressHydrationWarning: true as const,
+  }));
 }

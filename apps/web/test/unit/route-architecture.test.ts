@@ -23,10 +23,23 @@ const routeFiles = collectRouteFiles(ROUTES_DIR);
 
 describe('Route architecture', () => {
   it('does not globally import page-specific stylesheets from route modules', () => {
+    // Routes that intentionally use side-effect CSS imports instead of head-linked route styles.
+    // This pattern was adopted for these routes to fix stylesheet hydration mismatches in dev.
+    // See: test/unit/setup-shell-visibility-contracts.test.ts
+    const SIDE_EFFECT_CSS_ALLOWED = new Set([
+      'dashboard.tsx',
+      'setup/jinxxy.tsx',
+      'setup/lemonsqueezy.tsx',
+      'setup/payhip.tsx',
+      'setup/vrchat.tsx',
+    ]);
+
     const offenders: string[] = [];
 
     for (const file of routeFiles) {
       const rel = relative(ROUTES_DIR, file).split(sep).join('/');
+      if (SIDE_EFFECT_CSS_ALLOWED.has(rel)) continue;
+
       const source = readFileSync(file, 'utf8');
 
       const matches = source.match(/import\s+['"]@\/styles\/([^'"]+\.css)(?!\?url)['"];?/g) ?? [];

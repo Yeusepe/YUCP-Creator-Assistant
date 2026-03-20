@@ -71,6 +71,15 @@
   overflow: hidden;
 }
 
+.payhip-setup .page-content {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.payhip-setup .page-content.is-visible {
+  opacity: 1;
+}
+
 /* ─── Keyframes ─────────────────────────────────────── */
 @keyframes signal-flow {
   0% {

@@ -190,7 +190,12 @@ export function buildProviderConnectUrl(
           guildId,
         });
 
-  return `${provider.connectPath}?${params.toString()}`;
+  const connectUrl = new URL(provider.connectPath, 'http://dashboard.local');
+  for (const [key, value] of params.entries()) {
+    connectUrl.searchParams.set(key, value);
+  }
+
+  return `${connectUrl.pathname}${connectUrl.search}`;
 }
 
 export function getProviderIconPath(provider: { icon?: string | null }) {
@@ -209,7 +214,9 @@ export async function listUserAccounts() {
 }
 
 export async function listUserGuilds() {
-  const data = await apiClient.get<{ guilds?: DashboardGuildResponse[] }>('/api/connect/user/guilds');
+  const data = await apiClient.get<{ guilds?: DashboardGuildResponse[] }>(
+    '/api/connect/user/guilds'
+  );
   return (data.guilds ?? []).map(
     (guild): Guild => ({
       id: normalizeDashboardIdentifier(guild.guildId) ?? guild.guildId,

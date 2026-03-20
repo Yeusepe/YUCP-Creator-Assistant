@@ -91,13 +91,28 @@ describe('vrchatProvider.fetchProducts', () => {
 
     // Mock fetch to return listings from the VRChat API
     const originalFetch = globalThis.fetch;
-    const fetchMock = mock(async (url: string) => {
-      if (url.endsWith('/auth/user')) {
+    const fetchMock = mock(async (url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      if (url.includes('/config')) {
+        expect(headers.get('cookie')).toBeNull();
+        expect(url).not.toContain('apiKey=');
+        return new Response(JSON.stringify({ clientApiKey: 'test-key' }), {
+          status: 200,
+        });
+      }
+
+      // All authenticated requests must carry apiKey as URL query param
+      expect(url).toContain('apiKey=test-key');
+      expect(headers.get('clientApiKey')).toBeNull();
+
+      if (url.includes('/auth/user')) {
+        expect(headers.get('cookie')).toContain('auth=auth-tok');
         return new Response(JSON.stringify({ id: 'usr_creator', displayName: 'Creator' }), {
           status: 200,
         });
       }
       if (url.includes('/user/usr_creator/listings')) {
+        expect(headers.get('cookie')).toContain('auth=auth-tok');
         return new Response(
           JSON.stringify([
             {
@@ -140,9 +155,15 @@ describe('vrchatProvider.fetchProducts', () => {
 
     // Mock fetch to return 401 (session expired)
     const originalFetch = globalThis.fetch;
-    const fetchMock = mock(
-      async () => new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
-    );
+    const fetchMock = mock(async (url: string) => {
+      if (url.includes('/config')) {
+        return new Response(JSON.stringify({ clientApiKey: 'test-key' }), {
+          status: 200,
+        });
+      }
+
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     try {
@@ -155,3 +176,4 @@ describe('vrchatProvider.fetchProducts', () => {
     }
   });
 });
+

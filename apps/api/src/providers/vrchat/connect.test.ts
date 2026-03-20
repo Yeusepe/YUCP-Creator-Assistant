@@ -224,7 +224,7 @@ describe('VRChat connect — POST /session', () => {
     sessionRoute = found;
   });
 
-  it('returns 400 when token is missing from request body', async () => {
+  it('returns 401 when token is missing and no authenticated dashboard session exists', async () => {
     const ctx = makeContext();
     const request = new Request('https://api.example.com/api/connect/vrchat/session', {
       method: 'POST',
@@ -232,10 +232,10 @@ describe('VRChat connect — POST /session', () => {
       body: JSON.stringify({ username: 'user', password: 'pass' }),
     });
     const response = await sessionRoute.handler(request, ctx as unknown as ConnectContext);
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(401);
   });
 
-  it('returns 400 when the connect token does not exist in the state store', async () => {
+  it('returns 401 when the connect token does not exist and no authenticated dashboard session exists', async () => {
     const ctx = makeContext();
     const request = new Request('https://api.example.com/api/connect/vrchat/session', {
       method: 'POST',
@@ -243,10 +243,58 @@ describe('VRChat connect — POST /session', () => {
       body: JSON.stringify({ token: 'nonexistent-token', username: 'user', password: 'pass' }),
     });
     const response = await sessionRoute.handler(request, ctx as unknown as ConnectContext);
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(401);
   });
 
-  it('returns 401 when VRChat login fails (bad credentials)', async () => {
+  it('allows authenticated dashboard connects without a begin token', async () => {
+    const fetchMock = mock(async (url: string) => {
+      if (url.endsWith('/config')) {
+        const responseHeaders = new Headers();
+        responseHeaders.append('set-cookie', 'cf_clearance=config-cookie; Path=/; HttpOnly');
+        return new Response(JSON.stringify({ clientApiKey: 'test-key' }), {
+          status: 200,
+          headers: responseHeaders,
+        });
+      }
+
+      if (url.includes('/auth/user')) {
+        const responseHeaders = new Headers();
+        responseHeaders.append('set-cookie', 'auth=auth-tok; Path=/; HttpOnly');
+        responseHeaders.append('set-cookie', 'twoFactorAuth=2fa-tok; Path=/; HttpOnly');
+        return new Response(
+          JSON.stringify({ id: 'usr_123', username: 'user', displayName: 'User Display' }),
+          {
+            status: 200,
+            headers: responseHeaders,
+          }
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const ctx = makeContext();
+    ctx.auth.getSession.mockImplementation(
+      async () => ({ user: { id: 'dashboard_user_456' } }) as never
+    );
+
+    const request = new Request('https://api.example.com/api/connect/vrchat/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'user', password: 'pass' }),
+    });
+    const response = await sessionRoute.handler(request, ctx as unknown as ConnectContext);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true });
+    expect(mutationCalls[0]?.[1]).toMatchObject({
+      authUserId: 'dashboard_user_456',
+      providerKey: 'vrchat',
+    });
+  });
+
+  it('returns a handled form error when VRChat login fails (bad credentials)', async () => {
     await activeStore.set(
       'vrchat_connect:valid-token',
       JSON.stringify({ authUserId: 'auth_user_123' }),
@@ -254,10 +302,24 @@ describe('VRChat connect — POST /session', () => {
     );
 
     // Mock VRChat API: login attempt returns 401 — no auth cookie
-    const fetchMock = mock(
-      async () =>
-        new Response(JSON.stringify({ error: { message: 'Invalid credentials' } }), { status: 401 })
-    );
+    const fetchMock = mock(async (url: string) => {
+      if (url.endsWith('/config')) {
+        const responseHeaders = new Headers();
+        responseHeaders.append('set-cookie', 'cf_clearance=config-cookie; Path=/; HttpOnly');
+        return new Response(JSON.stringify({ clientApiKey: 'test-key' }), {
+          status: 200,
+          headers: responseHeaders,
+        });
+      }
+
+      if (url.includes('/auth/user')) {
+        return new Response(JSON.stringify({ error: { message: 'Invalid credentials' } }), {
+          status: 401,
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const ctx = makeContext();
@@ -267,7 +329,12 @@ describe('VRChat connect — POST /session', () => {
       body: JSON.stringify({ token: 'valid-token', username: 'bad-user', password: 'bad-pass' }),
     });
     const response = await sessionRoute.handler(request, ctx as unknown as ConnectContext);
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: 'Invalid VRChat credentials',
+      needsCredentials: true,
+    });
   });
 
   it('returns 200 with needsTwoFactor when VRChat requires 2FA', async () => {
@@ -278,7 +345,16 @@ describe('VRChat connect — POST /session', () => {
     );
 
     const fetchMock = mock(async (url: string) => {
-      if (url.endsWith('/auth/user')) {
+      if (url.endsWith('/config')) {
+        const responseHeaders = new Headers();
+        responseHeaders.append('set-cookie', 'cf_clearance=config-cookie; Path=/; HttpOnly');
+        return new Response(JSON.stringify({ clientApiKey: 'test-key' }), {
+          status: 200,
+          headers: responseHeaders,
+        });
+      }
+
+      if (url.includes('/auth/user')) {
         const responseHeaders = new Headers();
         responseHeaders.set('set-cookie', 'auth=auth-tok; Path=/; HttpOnly');
         return new Response(JSON.stringify({ requiresTwoFactorAuth: ['emailOtp'] }), {
@@ -312,7 +388,16 @@ describe('VRChat connect — POST /session', () => {
     );
 
     const fetchMock = mock(async (url: string) => {
-      if (url.endsWith('/auth/user')) {
+      if (url.endsWith('/config')) {
+        const responseHeaders = new Headers();
+        responseHeaders.append('set-cookie', 'cf_clearance=config-cookie; Path=/; HttpOnly');
+        return new Response(JSON.stringify({ clientApiKey: 'test-key' }), {
+          status: 200,
+          headers: responseHeaders,
+        });
+      }
+
+      if (url.includes('/auth/user')) {
         const responseHeaders = new Headers();
         responseHeaders.append('set-cookie', 'auth=auth-tok; Path=/; HttpOnly');
         responseHeaders.append('set-cookie', 'twoFactorAuth=2fa-tok; Path=/; HttpOnly');
@@ -369,11 +454,19 @@ describe('VRChat connect — POST /session', () => {
       10 * 60 * 1000
     );
 
-    const fetchMock = mock(async (url: string) => {
-      if (url.endsWith('/auth/user')) {
+    const fetchMock = mock(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/config')) {
         const responseHeaders = new Headers();
-        const authHeader = (fetchMock.mock.calls.at(-1)?.[1] as RequestInit | undefined)?.headers;
-        const requestHeaders = new Headers(authHeader);
+        responseHeaders.append('set-cookie', 'cf_clearance=config-cookie; Path=/; HttpOnly');
+        return new Response(JSON.stringify({ clientApiKey: 'test-key' }), {
+          status: 200,
+          headers: responseHeaders,
+        });
+      }
+
+      if (url.includes('/auth/user')) {
+        const responseHeaders = new Headers();
+        const requestHeaders = new Headers(init?.headers);
         const cookie = requestHeaders.get('cookie');
         if (cookie?.includes('twoFactorAuth=2fa-tok')) {
           return new Response(
@@ -389,7 +482,7 @@ describe('VRChat connect — POST /session', () => {
         });
       }
 
-      if (url.endsWith('/auth/twofactorauth/emailotp/verify')) {
+      if (url.includes('/auth/twofactorauth/emailotp/verify')) {
         const responseHeaders = new Headers();
         responseHeaders.append('set-cookie', 'twoFactorAuth=2fa-tok; Path=/; HttpOnly');
         return new Response(JSON.stringify({ verified: true }), {
@@ -408,9 +501,15 @@ describe('VRChat connect — POST /session', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: 'valid-token', username: 'user', password: 'pass' }),
     });
-    const firstResponse = await sessionRoute.handler(firstRequest, ctx as unknown as ConnectContext);
+    const firstResponse = await sessionRoute.handler(
+      firstRequest,
+      ctx as unknown as ConnectContext
+    );
     expect(firstResponse.status).toBe(200);
-    const firstBody = (await firstResponse.json()) as { twoFactorRequired?: boolean; types?: string[] };
+    const firstBody = (await firstResponse.json()) as {
+      twoFactorRequired?: boolean;
+      types?: string[];
+    };
     expect(firstBody).toEqual({ twoFactorRequired: true, types: ['emailOtp'] });
 
     const pendingCookie = firstResponse.headers.get('set-cookie');
@@ -424,7 +523,10 @@ describe('VRChat connect — POST /session', () => {
       },
       body: JSON.stringify({ token: 'valid-token', twoFactorCode: '123456' }),
     });
-    const secondResponse = await sessionRoute.handler(secondRequest, ctx as unknown as ConnectContext);
+    const secondResponse = await sessionRoute.handler(
+      secondRequest,
+      ctx as unknown as ConnectContext
+    );
 
     expect(secondResponse.status).toBe(200);
     expect(await secondResponse.json()).toEqual({ success: true });
@@ -437,3 +539,4 @@ describe('VRChat connect — POST /session', () => {
     expect(await activeStore.get('vrchat_connect:valid-token')).toBeNull();
   });
 });
+

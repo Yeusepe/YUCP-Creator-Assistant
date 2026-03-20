@@ -6,6 +6,10 @@ const dashboardRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/dashboard.tsx'),
   'utf8'
 );
+const dashboardIndexRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/dashboard/index.tsx'),
+  'utf8'
+);
 
 const dashboardComponentsCss = readFileSync(
   resolve(__dirname, '../../src/styles/dashboard-components.css'),
@@ -64,7 +68,9 @@ describe('dashboard UI contracts', () => {
   });
 
   it('uses the home icon for the personal dashboard selector trigger and no longer renders blob backgrounds', () => {
-    expect(dashboardRouteSource).toContain('<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />');
+    expect(dashboardRouteSource).toContain(
+      '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />'
+    );
     expect(dashboardRouteSource).not.toContain('<BlobBackground />');
     expect(dashboardRouteSource).not.toContain('function BlobBackground()');
   });
@@ -73,7 +79,14 @@ describe('dashboard UI contracts', () => {
     expect(dashboardCss).toContain('background: #afcde5;');
     expect(dashboardCss).toContain('.dark .dashboard-page');
     expect(dashboardCss).toContain('background: #24405c;');
-    expect(dashboardCss).not.toContain('background: linear-gradient(180deg, #4a9dd9 0%, #3a8bc6 100%);');
+    expect(dashboardCss).not.toContain(
+      'background: linear-gradient(180deg, #4a9dd9 0%, #3a8bc6 100%);'
+    );
+  });
+
+  it('keeps dashboard provider connect buttons on frontend setup routes instead of hardcoded raw API begin links', () => {
+    expect(dashboardIndexRouteSource).toContain('buildProviderConnectUrl(provider,');
+    expect(dashboardIndexRouteSource).not.toContain('/api/connect/vrchat/begin');
   });
 
   it('defines simple dashboard skeleton primitives instead of the old generic faux-card treatment', () => {

@@ -11,13 +11,13 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, apiClient } from '@/api/client';
-import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
+import '@/styles/payhip-setup.css';
 
 export const Route = createFileRoute('/setup/payhip')({
   head: () => ({
     meta: [{ title: 'Connect Payhip | Creator Assistant' }],
-    links: routeStylesheetLinks(routeStyleHrefs.payhipSetup),
   }),
   component: PayhipSetupPage,
 });
@@ -159,7 +159,7 @@ function PayhipSetupPage() {
   const [isFinishing, setIsFinishing] = useState(false);
   const [copied, setCopied] = useState<Record<string, boolean>>({});
   const [isSavingApiKey, setIsSavingApiKey] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stepsSlotRef = useRef<HTMLDivElement>(null);
@@ -167,13 +167,8 @@ function PayhipSetupPage() {
 
   /* ── Bootstrap on mount ──────────────────────────────── */
   useEffect(() => {
-    bootstrapSetupSession()
-      .then((handled) => {
-        if (!handled) setIsVisible(true);
-      })
-      .catch(() => {
-        setIsVisible(true);
-      });
+    setIsVisible(true);
+    bootstrapSetupSession().catch(() => {});
   }, []);
 
   /* ── Update steps-slot height on step change ─────────── */
@@ -409,8 +404,6 @@ function PayhipSetupPage() {
   };
 
   /* ── Render ──────────────────────────────────────────── */
-  if (!isVisible) return null;
-
   const tenantId = getTenantId();
   const _guildId = getGuildId();
   const showBackBtn = !!tenantId;
@@ -420,30 +413,35 @@ function PayhipSetupPage() {
       className="payhip-setup fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
       style={{ fontFamily: "'DM Sans', sans-serif", color: '#fff' }}
     >
-      {/* Back to dashboard */}
-      {showBackBtn && (
-        <a
-          href={getDashboardUrl()}
-          className="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
-          style={{ textDecoration: 'none' }}
-        >
-          <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
-          Dashboard
-        </a>
-      )}
-
-      {/* Ambient ring decorations */}
-      <div className="absolute top-10 left-10 w-64 h-64 border border-[#ffffff]/5 rounded-full pointer-events-none animate-[spin_60s_linear_infinite]" />
-      <div className="absolute bottom-10 right-10 w-96 h-96 border border-[#0ea5e9]/5 rounded-full pointer-events-none animate-[spin_80s_linear_infinite_reverse]" />
-      <svg
-        className="absolute top-1/4 right-20 w-32 h-32 opacity-10 pointer-events-none"
-        viewBox="0 0 100 100"
+      <div
+        className={`page-content fixed inset-0 flex flex-col items-center justify-center overflow-hidden${isVisible ? ' is-visible' : ''}`}
       >
-        <rect x="0" y="0" width="100" height="100" fill="none" stroke="#ffffff" strokeWidth="1" />
-        <line x1="0" y1="0" x2="100" y2="100" stroke="#ffffff" strokeWidth="1" />
-      </svg>
+        <BackgroundCanvasRoot position="absolute" />
 
-      <main className="flex flex-1 items-center justify-center p-4 lg:p-8 relative w-full max-w-7xl mx-auto min-h-0 overflow-hidden">
+        {/* Back to dashboard */}
+        {showBackBtn && (
+          <a
+            href={getDashboardUrl()}
+            className="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
+            style={{ textDecoration: 'none' }}
+          >
+            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
+            Dashboard
+          </a>
+        )}
+
+        {/* Ambient ring decorations */}
+        <div className="absolute top-10 left-10 w-64 h-64 border border-[#ffffff]/5 rounded-full pointer-events-none animate-[spin_60s_linear_infinite]" />
+        <div className="absolute bottom-10 right-10 w-96 h-96 border border-[#0ea5e9]/5 rounded-full pointer-events-none animate-[spin_80s_linear_infinite_reverse]" />
+        <svg
+          className="absolute top-1/4 right-20 w-32 h-32 opacity-10 pointer-events-none"
+          viewBox="0 0 100 100"
+        >
+          <rect x="0" y="0" width="100" height="100" fill="none" stroke="#ffffff" strokeWidth="1" />
+          <line x1="0" y1="0" x2="100" y2="100" stroke="#ffffff" strokeWidth="1" />
+        </svg>
+
+        <main className="flex flex-1 items-center justify-center p-4 lg:p-8 relative w-full max-w-7xl mx-auto min-h-0 overflow-hidden">
         <div className="card-shell w-full max-w-6xl max-h-[calc(100%-2rem)] bg-black/25 backdrop-blur-xl rounded-[40px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] p-5 sm:p-8 md:p-12 relative overflow-hidden flex flex-col z-10">
           {/* ── Header ──────────────────────────────────── */}
           <div className="flex flex-wrap justify-between items-end gap-4 mb-6 md:mb-8 pb-5 border-b border-white/[0.06] flex-shrink-0">
@@ -1078,7 +1076,8 @@ function PayhipSetupPage() {
             )}
           </div>
         </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

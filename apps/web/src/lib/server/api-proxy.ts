@@ -8,6 +8,7 @@ const FORWARDED_COOKIE_NAMES = new Set([
   'yucp_connect_token',
   'yucp_collab_session',
   'yucp_discord_role_setup',
+  'yucp_vrchat_connect_pending',
   '__Secure-yucp.session_token',
   '__Secure-yucp.session_data',
 ]);

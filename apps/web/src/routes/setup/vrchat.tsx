@@ -1,6 +1,6 @@
 import { createFileRoute, useSearch } from '@tanstack/react-router';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import '@/styles/vrchat-verify.css';
 
 const SLIDE_IMAGES = [
   'https://dtuitjyhwcl5y.cloudfront.net/960324bdaa4dd770-1920w.jpg',
@@ -27,7 +27,6 @@ export const Route = createFileRoute('/setup/vrchat')({
   }),
   head: () => ({
     meta: [{ title: 'Verify with VRChat | Creator Assistant' }],
-    links: routeStylesheetLinks(routeStyleHrefs.vrchatVerify),
   }),
   component: VRChatVerifyPage,
 });
@@ -53,6 +52,7 @@ function VRChatVerifyPage() {
   const getSessionEndpoint = useCallback(() => {
     return isConnectMode ? '/api/connect/vrchat/session' : '/api/verification/vrchat-verify';
   }, [isConnectMode]);
+  const allowsTokenlessConnect = isConnectMode;
 
   const enableLiveRegions = useCallback(() => {
     if (liveRegionsEnabled.current) return;
@@ -121,9 +121,9 @@ function VRChatVerifyPage() {
   // Show no-token view when token is missing
   useEffect(() => {
     if (!token) {
-      setViewState('no-token');
+      setViewState(allowsTokenlessConnect ? 'form' : 'no-token');
     }
-  }, [token]);
+  }, [token, allowsTokenlessConnect]);
 
   // Auto-verify on mount (verify mode only)
   useEffect(() => {
@@ -218,7 +218,7 @@ function VRChatVerifyPage() {
     e.preventDefault();
     clearError();
 
-    if (!token) {
+    if (!token && !allowsTokenlessConnect) {
       setError(
         isConnectMode
           ? 'Invalid or expired link. Please use the Connect VRChat button in the dashboard.'
@@ -227,7 +227,10 @@ function VRChatVerifyPage() {
       return;
     }
 
-    const requestBody: Record<string, string> = { token };
+    const requestBody: Record<string, string> = {};
+    if (token) {
+      requestBody.token = token;
+    }
 
     if (viewState === 'two-factor') {
       if (!twoFactorCode.trim()) {

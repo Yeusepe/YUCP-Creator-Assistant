@@ -7,6 +7,7 @@ describe('routeStylesheetLinks', () => {
       {
         rel: 'stylesheet',
         href: '/assets/dashboard.css',
+        suppressHydrationWarning: true,
       },
     ]);
   });

@@ -468,13 +468,13 @@ function ConnectedPlatformsPanel() {
                     justifyContent: 'center',
                     gap: '8px',
                   }}
-                  onClick={() => {
-                    if (!href || typeof window === 'undefined') {
-                      return;
-                    }
-                    window.location.assign(href);
-                  }}
-                >
+                   onClick={() => {
+                     if (!href || typeof window === 'undefined') {
+                       return;
+                     }
+                     window.location.assign(href);
+                   }}
+                 >
                   {provider.icon ? (
                     <img
                       src={getProviderIconPath(provider) ?? ''}
@@ -527,13 +527,13 @@ function ConnectedPlatformsPanel() {
                     }}
                     onOpenDisconnect={() => setPendingProviderDisconnect(provider.key)}
                     onConnect={() => {
-                      const href = providerHref(provider);
-                      if (href && typeof window !== 'undefined') {
-                        window.location.assign(href);
-                      }
-                    }}
-                    provider={provider}
-                  />
+                       const href = providerHref(provider);
+                       if (href && typeof window !== 'undefined') {
+                         window.location.assign(href);
+                       }
+                     }}
+                     provider={provider}
+                   />
                 );
               })}
             </div>
