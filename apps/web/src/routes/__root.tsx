@@ -14,10 +14,12 @@ import { createServerFn } from '@tanstack/react-start';
 import type { ReactNode } from 'react';
 import { authClient } from '@/lib/auth-client';
 import { getToken } from '@/lib/auth-server';
+import { ToastProvider } from '@/components/ui/Toast';
 
 import '@/styles/tokens.css';
 import '@/styles/loading.css';
 import '@/styles/globals.css';
+import '@/styles/toast.css';
 
 /**
  * Server function to retrieve the auth token during SSR.
@@ -82,7 +84,9 @@ function RootComponent() {
         authClient={authClient}
         initialToken={context.token}
       >
-        <Outlet />
+        <ToastProvider>
+          <Outlet />
+        </ToastProvider>
       </ConvexBetterAuthProvider>
     </RootDocument>
   );

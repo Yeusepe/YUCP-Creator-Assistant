@@ -605,6 +605,12 @@ async function routeRequest(request: Request): Promise<Response> {
     return handleBackfillProduct(request);
   }
 
+  // Internal notify route (called by Discord bot to push dashboard toasts)
+  if (pathname === '/api/internal/notify') {
+    const { handleInternalNotify } = await import('./routes/notify');
+    return handleInternalNotify(request);
+  }
+
   // Provider products route — generic handler for all providers (/api/:provider/products)
   const productsMatch = pathname.match(/^\/api\/([^/]+)\/products$/);
   if (productsMatch && request.method === 'POST') {

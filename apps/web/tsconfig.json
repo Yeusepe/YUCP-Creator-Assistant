@@ -17,6 +17,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "../../convex/_generated/**/*", "../../convex/schema.ts", "../../convex/adminNotifications.ts", "../../convex/auth.ts", "../../convex/lib/apiAuth.ts"],
   "exclude": ["node_modules", "dist", "test"]
 }

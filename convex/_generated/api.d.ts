@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as adminNotifications from "../adminNotifications.js";
 import type * as audit_events from "../audit_events.js";
 import type * as auth from "../auth.js";
 import type * as authViewer from "../authViewer.js";
@@ -83,6 +84,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adminNotifications: typeof adminNotifications;
   audit_events: typeof audit_events;
   auth: typeof auth;
   authViewer: typeof authViewer;

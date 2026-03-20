@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery as useConvexQuery, useMutation as useConvexMutation } from 'convex/react';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import {
   DashboardActionRowSkeleton,
@@ -8,6 +9,7 @@ import {
   DashboardListSkeleton,
   DashboardSettingsSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { useToast } from '@/components/ui/Toast';
 import { useHasMounted } from '@/hooks/useHasMounted';
 import { useServerContext } from '@/hooks/useServerContext';
 import type {
@@ -37,6 +39,8 @@ import {
   type Guild,
 } from '@/lib/server/dashboard';
 import { getServerIconUrl } from '@/lib/utils';
+import { api } from '../../../../../convex/_generated/api';
+import type { Id } from '../../../../../convex/_generated/dataModel';
 
 export const Route = createFileRoute('/dashboard/')({
   component: DashboardIndex,
@@ -635,6 +639,7 @@ function ProviderStatusCard({
 function ServerConfigPanel() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { guildId, tenantId } = useServerContext();
   const { data: viewer } = useQuery(
     dashboardQueryOptions<DashboardViewer>({
@@ -647,6 +652,38 @@ function ServerConfigPanel() {
   const [saveStates, setSaveStates] = useState<Record<string, SaveIndicatorState>>({});
   const [disconnectStep, setDisconnectStep] = useState(0);
   const timeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Live Convex subscription for bot-to-dashboard notifications
+  const adminNotifications = useConvexQuery(api.adminNotifications.listUnseen) ?? [];
+  const markSeenMutation = useConvexMutation(api.adminNotifications.markSeen);
+  const seenNotificationIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const unseen = adminNotifications.filter(
+      (n: { _id: Id<'admin_notifications'>; type: string; title: string; message?: string }) =>
+        !seenNotificationIds.current.has(n._id)
+    );
+    if (unseen.length === 0) return;
+
+    const ids = unseen.map(
+      (n: { _id: Id<'admin_notifications'> }) => n._id
+    );
+    for (const id of ids) {
+      seenNotificationIds.current.add(id);
+    }
+
+    for (const n of unseen as Array<{ _id: Id<'admin_notifications'>; type: 'success' | 'error' | 'warning' | 'info'; title: string; message?: string }>) {
+      const opts = n.message ? { description: n.message } : undefined;
+      if (n.type === 'success') toast.success(n.title, opts);
+      else if (n.type === 'error') toast.error(n.title, opts);
+      else if (n.type === 'warning') toast.warning(n.title, opts);
+      else toast.info(n.title, opts);
+    }
+
+    markSeenMutation({ ids }).catch(() => {
+      // best-effort — notifications will expire via cron anyway
+    });
+  }, [adminNotifications, toast, markSeenMutation]);
 
   const { data: providers = [], isLoading: providersLoading } = useQuery(
     dashboardQueryOptions<DashboardProvider[]>({
@@ -661,6 +698,22 @@ function ServerConfigPanel() {
       enabled: Boolean(authUserId && guildId),
     })
   );
+  const { data: accounts = [] } = useQuery(
+    dashboardQueryOptions<UserAccountConnection[]>({
+      queryKey: ['dashboard-user-accounts', authUserId],
+      queryFn: listUserAccounts,
+      enabled: Boolean(authUserId),
+    })
+  );
+  const accountsByProvider = useMemo(() => {
+    const map = new Map<string, UserAccountConnection>();
+    for (const account of accounts) {
+      if (!map.has(account.provider)) {
+        map.set(account.provider, account);
+      }
+    }
+    return map;
+  }, [accounts]);
   const settingsQuery = useQuery(
     dashboardQueryOptions<DashboardPolicy>({
       queryKey: ['dashboard-settings', authUserId],
@@ -731,6 +784,10 @@ function ServerConfigPanel() {
         setPolicyDraft(toNormalizedPolicy(settingsQuery.data));
       }
       setSaveState(variables.key, 'error');
+      toast.error('Could not save setting', {
+        description: 'Check your connection and try again.',
+        duration: 5000,
+      });
     },
   });
 
@@ -738,8 +795,16 @@ function ServerConfigPanel() {
     mutationFn: () => uninstallGuild(requireGuildId(guildId)),
     onSuccess: async () => {
       setDisconnectStep(0);
+      toast.success('Server disconnected successfully');
       await queryClient.invalidateQueries({ queryKey: ['dashboard-guilds'] });
       navigate({ to: '/dashboard', search: {} });
+    },
+    onError: () => {
+      setDisconnectStep(0);
+      toast.error('Could not disconnect server', {
+        description: 'Please try again or contact support.',
+        duration: 6000,
+      });
     },
   });
 
@@ -800,54 +865,93 @@ function ServerConfigPanel() {
 
       <div className="settings-subsection" id="server-store-integrations-section">
         <div className="settings-subsection-title">Store Integrations</div>
-        <div className="settings-subsection-body">
+        <div>
+          <DashboardSettingsSkeleton rows={2} />
           {!isLoading ? (
-            <div id="dynamic-server-provider-tiles" className="skeleton-content">
-              {linkedProviders.map((provider) => (
-                <article
-                  key={provider.key}
-                  className="svr-cfg-tile"
-                  id={`server-tile-${provider.key}`}
-                >
-                  <div className="svr-cfg-tile-head">
-                    <div className="svr-cfg-tile-icon">
-                      {provider.icon ? (
-                        <img
-                          src={getProviderIconPath(provider) ?? ''}
-                          alt={provider.label ?? provider.key}
-                          style={{ borderRadius: '4px' }}
+            <div className="intg-provider-grid skeleton-content">
+              {linkedProviders.map((provider) => {
+                const account = accountsByProvider.get(provider.key);
+                const statusValue = account?.status ?? 'active';
+                const badgeClass =
+                  statusValue === 'degraded'
+                    ? 'degraded'
+                    : statusValue === 'disconnected'
+                      ? 'disconnected'
+                      : 'active';
+                const badgeLabel =
+                  statusValue === 'degraded'
+                    ? 'Degraded'
+                    : statusValue === 'disconnected'
+                      ? 'Disconnected'
+                      : 'Active';
+                const iconPath = getProviderIconPath(provider);
+                const manageHref = buildProviderConnectUrl(provider, { authUserId, guildId });
+                return (
+                  <article
+                    key={provider.key}
+                    className="intg-provider-card"
+                    id={`server-tile-${provider.key}`}
+                    style={
+                      provider.iconBg
+                        ? ({ '--provider-accent': `${provider.iconBg}33`, '--provider-icon-bg': provider.iconBg } as React.CSSProperties)
+                        : undefined
+                    }
+                  >
+                    <div className="intg-provider-card-header">
+                      <div className="intg-provider-logo-wrap">
+                        <div className="intg-provider-logo-halo" />
+                        <div className="intg-provider-logo">
+                          {iconPath ? (
+                            <img src={iconPath} alt={provider.label ?? provider.key} />
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="intg-provider-meta">
+                        <h3 className="intg-provider-name">{provider.label ?? provider.key}</h3>
+                        <span className={`intg-status-badge ${badgeClass}`}>{badgeLabel}</span>
+                      </div>
+                    </div>
+                    <p className="intg-provider-hint">
+                      {provider.serverTileHint ??
+                        'Allow users to verify purchases in this Discord server.'}
+                    </p>
+                    <div className="intg-provider-card-footer">
+                      <div className="flex items-center gap-2">
+                        <div
+                          id={`toggle-serverEnable${provider.key[0]?.toUpperCase() ?? ''}${provider.key.slice(1)}`}
+                          className="svr-cfg-switch active"
+                          aria-hidden="true"
                         />
+                        <span className="intg-provider-enable-label">Enabled</span>
+                      </div>
+                      {manageHref ? (
+                        <a
+                          href={manageHref}
+                          className="intg-manage-btn"
+                        >
+                          Manage
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                          </svg>
+                        </a>
                       ) : null}
                     </div>
-                    <div className="svr-cfg-tile-text">
-                      <span className="svr-cfg-tile-label">
-                        Enable {provider.label ?? provider.key} for this Server
-                      </span>
-                      <span className="svr-cfg-tile-hint">
-                        {provider.serverTileHint ??
-                          'Allow users to verify purchases in this Discord server.'}
-                      </span>
-                    </div>
+                  </article>
+                );
+              })}
+              {linkedProviders.length === 0 ? (
+                <div id="server-integrations-empty" className="intg-provider-card-empty">
+                  <div className="intg-provider-card-empty-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                    </svg>
                   </div>
-                  <div className="svr-cfg-tile-ctrl">
-                    <div
-                      id={`toggle-serverEnable${provider.key[0]?.toUpperCase() ?? ''}${provider.key.slice(1)}`}
-                      className="svr-cfg-switch active"
-                      aria-hidden="true"
-                    />
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
-          <DashboardSettingsSkeleton rows={2} />
-          {!isLoading && linkedProviders.length === 0 ? (
-            <div
-              id="server-integrations-empty"
-              className="p-4 bg-white/5 border border-white/10 rounded-xl text-center text-sm text-[rgba(255,255,255,0.6)]"
-            >
-              No store accounts linked. Add a store account in the{' '}
-              <strong>Connected Platforms</strong> section above.
+                  <p>
+                    No stores connected yet. Add a store account in{' '}
+                    <strong>Connected Platforms</strong> above.
+                  </p>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -995,7 +1099,7 @@ function ServerConfigPanel() {
         </div>
       </div>
 
-      <div className="settings-subsection" style={{ marginTop: '16px' }}>
+      <div className="settings-subsection danger-zone">
         <div className="settings-subsection-title" style={{ color: '#ef4444' }}>
           Danger Zone
         </div>
