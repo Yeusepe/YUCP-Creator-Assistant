@@ -8,12 +8,24 @@
 
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { Auth } from '../auth';
-import { createAuth } from '../auth';
-import { createSetupSession } from '../lib/setupSession';
 import type { ConnectConfig } from './connect';
 
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
+
+const apiMock = {
+  creatorProfiles: {
+    getCreatorProfile: 'creatorProfiles.getCreatorProfile',
+  },
+  guildLinks: {
+    getGuildLinkForUninstall: 'guildLinks.getGuildLinkForUninstall',
+  },
+  providerConnections: {
+    getConnectionForDisconnect: 'providerConnections.getConnectionForDisconnect',
+    disconnectConnection: 'providerConnections.disconnectConnection',
+    updateTenantSetting: 'providerConnections.updateTenantSetting',
+  },
+} as const;
 
 /**
  * Shared in-memory state store that both createSetupSession (imported at top-level)
@@ -21,6 +33,10 @@ let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
  * mock.module causing the stateStore singleton to diverge across module instances.
  */
 const testStore = new Map<string, { value: string; expiresAt?: number }>();
+
+mock.module('../../../../convex/_generated/api', () => ({
+  api: apiMock,
+}));
 
 mock.module('../lib/stateStore', () => ({
   getStateStore: () => ({
@@ -55,6 +71,7 @@ mock.module('../lib/convex', () => ({
   }),
 }));
 
+const { createSetupSession } = await import('../lib/setupSession');
 const { createConnectRoutes } = await import('./connect');
 
 const ENCRYPTION_SECRET = 'test-encryption-secret-32chars!!';
@@ -71,11 +88,10 @@ const testConfig: ConnectConfig = {
   encryptionSecret: ENCRYPTION_SECRET,
 };
 
-const auth = createAuth({
-  baseUrl: testConfig.apiBaseUrl,
-  convexSiteUrl: testConfig.convexSiteUrl,
-  convexUrl: testConfig.convexUrl,
-});
+const auth = {
+  getSession: async () => null,
+  getDiscordUserId: async () => null,
+} as unknown as Auth;
 
 const routes = createConnectRoutes(auth, testConfig);
 
