@@ -685,7 +685,7 @@ function JinxxySetupPage() {
                               type="password"
                               autoComplete="off"
                               maxLength={40}
-                              placeholder="16-40 characters, paste the same value into Jinxxy\u2122"
+                              placeholder="16-40 characters, paste the same value into Jinxxy™"
                               value={signingSecret}
                               onChange={(e) => setSigningSecret(e.target.value)}
                               className="flex-1 min-w-0 px-2 py-2.5 rounded-lg border-0 bg-transparent focus:ring-0 outline-none transition-colors text-[#ffffff] placeholder:text-white/40"
@@ -964,7 +964,7 @@ function JinxxySetupPage() {
                       <input
                         type="password"
                         autoComplete="off"
-                        placeholder="Paste your Jinxxy\u2122 API key"
+                        placeholder="Paste your Jinxxy™ API key"
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
                         className="w-full px-4 py-3 rounded-xl border-2 border-white/20 focus:border-[#0ea5e9] focus:ring-0 outline-none transition-colors text-[#ffffff]"

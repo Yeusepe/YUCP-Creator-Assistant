@@ -114,9 +114,17 @@ describe('dashboard UI contracts', () => {
   });
 
   it('fades cloud layers in after they become ready', () => {
+    const globalsCss = readFileSync(
+      resolve(__dirname, '../../src/styles/globals.css'),
+      'utf8'
+    );
     expect(cloudBackgroundSource).toContain('requestAnimationFrame');
     expect(cloudBackgroundSource).toContain('cloud-layer-fade');
-    expect(dashboardCss).toContain('.cloud-layer-fade');
-    expect(dashboardCss).toContain('transition: opacity 0.6s ease;');
+    // cloud-layer-fade must live in globals.css so it applies on every page,
+    // not just dashboard (sign-in, legal, collab-invite all use CloudBackground)
+    expect(globalsCss).toContain('.cloud-layer-fade');
+    expect(globalsCss).toContain('transition: opacity 0.6s ease;');
+    // dashboard.css must NOT redefine it (globals.css is the single source of truth)
+    expect(dashboardCss).not.toContain('.cloud-layer-fade');
   });
 });

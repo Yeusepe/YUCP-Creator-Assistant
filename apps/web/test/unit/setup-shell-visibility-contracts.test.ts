@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+const globalsCss = readFileSync(resolve(__dirname, '../../src/styles/globals.css'), 'utf8');
+
 const jinxxySetupSource = readFileSync(
   resolve(__dirname, '../../src/routes/setup/jinxxy.tsx'),
   'utf8'
@@ -12,6 +14,31 @@ const lemonSqueezySetupSource = readFileSync(
 );
 const payhipSetupSource = readFileSync(resolve(__dirname, '../../src/routes/setup/payhip.tsx'), 'utf8');
 const vrchatSetupSource = readFileSync(resolve(__dirname, '../../src/routes/setup/vrchat.tsx'), 'utf8');
+
+describe('globals.css cascade layer contract', () => {
+  it('wraps the CSS reset in @layer base so Tailwind utilities can override it', () => {
+    // The *, *::before, *::after { padding: 0 } reset must be inside @layer base.
+    // If it is unlayered (outside any @layer), it wins over ALL Tailwind @layer utilities
+    // regardless of specificity, making every padding/margin utility class silently ignored.
+    const layerBaseIdx = globalsCss.indexOf('@layer base {');
+    const resetIdx = globalsCss.indexOf('padding: 0;');
+    const layerBaseCloseIdx = globalsCss.indexOf('\n}', layerBaseIdx);
+    expect(layerBaseIdx, '@layer base block is missing from globals.css').toBeGreaterThan(-1);
+    expect(resetIdx, 'padding: 0 reset is missing from globals.css').toBeGreaterThan(-1);
+    expect(resetIdx, 'padding: 0 must be inside @layer base, not unlayered').toBeGreaterThan(layerBaseIdx);
+    expect(resetIdx, 'padding: 0 must be inside @layer base, not after it').toBeLessThan(layerBaseCloseIdx);
+  });
+
+  it('defines cloud-layer-fade globally so all pages get the cloud fade-in transition', () => {
+    // CloudBackgroundLayer uses cloud-layer-fade on every page that has clouds
+    // (sign-in, legal, collab-invite, dashboard, setup pages).
+    // If this CSS only exists in dashboard.css, clouds flash in on all other pages.
+    expect(globalsCss).toContain('.cloud-layer-fade {');
+    expect(globalsCss).toContain('.cloud-layer-fade.is-visible {');
+    expect(globalsCss).toContain('transition: opacity 0.6s ease;');
+  });
+});
+
 
 describe('setup shell visibility contracts', () => {
   it('loads setup route styles through side-effect imports instead of head-linked route CSS', () => {

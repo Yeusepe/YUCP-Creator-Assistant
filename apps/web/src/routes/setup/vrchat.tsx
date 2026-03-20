@@ -417,7 +417,7 @@ function VRChatVerifyPage() {
                     id="username"
                     name="username"
                     required
-                    placeholder="Your VRChat\u00AE username"
+                    placeholder="Your VRChat® username"
                     autoComplete="username"
                     aria-invalid={!is2FA && !!error}
                     aria-describedby="error-msg"
@@ -438,7 +438,7 @@ function VRChatVerifyPage() {
                     id="password"
                     name="password"
                     required
-                    placeholder="Your VRChat\u00AE password"
+                    placeholder="Your VRChat® password"
                     autoComplete="current-password"
                     aria-invalid={!is2FA && !!error}
                     aria-describedby="error-msg"
