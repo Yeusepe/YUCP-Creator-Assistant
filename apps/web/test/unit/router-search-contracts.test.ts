@@ -3,7 +3,10 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const routerSource = readFileSync(resolve(__dirname, '../../src/router.tsx'), 'utf8');
-const dashboardRouteSource = readFileSync(resolve(__dirname, '../../src/routes/dashboard.tsx'), 'utf8');
+const dashboardRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/dashboard.tsx'),
+  'utf8'
+);
 
 describe('router search contracts', () => {
   it('serializes dashboard search params as plain strings instead of JSON-quoted values', () => {

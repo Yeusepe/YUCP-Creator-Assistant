@@ -77,8 +77,7 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
       redirect: 'manual',
     });
   } catch (error) {
-    const cause =
-      error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
+    const cause = error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
     const code =
       cause && 'code' in cause && typeof cause.code === 'string'
         ? cause.code

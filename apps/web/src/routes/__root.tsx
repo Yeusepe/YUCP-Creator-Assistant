@@ -11,10 +11,12 @@ import {
   useRouteContext,
 } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect } from 'react';
+import { ToastProvider } from '@/components/ui/Toast';
 import { authClient } from '@/lib/auth-client';
 import { getToken } from '@/lib/auth-server';
-import { ToastProvider } from '@/components/ui/Toast';
+import { installChunkErrorRecovery } from '@/lib/chunkErrorRecovery';
+import { useVersionPoller } from '@/lib/versionPoller';
 
 import '@/styles/tokens.css';
 import '@/styles/loading.css';
@@ -85,11 +87,23 @@ function RootComponent() {
         initialToken={context.token}
       >
         <ToastProvider>
+          <AppEffects />
           <Outlet />
         </ToastProvider>
       </ConvexBetterAuthProvider>
     </RootDocument>
   );
+}
+
+/** Mounts global client-side effects that require React context. */
+function AppEffects() {
+  useEffect(() => {
+    installChunkErrorRecovery();
+  }, []);
+
+  useVersionPoller();
+
+  return null;
 }
 
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {

@@ -17,6 +17,14 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*", "../../convex/_generated/**/*", "../../convex/schema.ts", "../../convex/adminNotifications.ts", "../../convex/auth.ts", "../../convex/lib/apiAuth.ts"],
+  "include": [
+    "src/**/*",
+    "../../convex/_generated/**/*",
+    "../../convex/schema.ts",
+    "../../convex/adminNotifications.ts",
+    "../../convex/dashboardViews.ts",
+    "../../convex/auth.ts",
+    "../../convex/lib/apiAuth.ts"
+  ],
   "exclude": ["node_modules", "dist", "test"]
 }

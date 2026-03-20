@@ -8,12 +8,12 @@ import { registerCommands } from './commands';
 import { handleGuildMemberAdd } from './handlers/guildMemberAdd';
 import { handleInteraction } from './handlers/interactions';
 import { loadEnvAsync, validateBotEnv } from './lib/env';
+import { startHeartbeat } from './services/heartbeat';
 import {
   getLienedDownloadsInvitePermissions,
   LienedDownloadsService,
 } from './services/lienedDownloads';
 import { RoleSyncService } from './services/roleSync';
-import { startHeartbeat } from './services/heartbeat';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -236,7 +236,10 @@ async function main() {
 
   await roleSyncService.start();
 
-  const stopHeartbeat = startHeartbeat(env.HEARTBEAT_URL, parseFloat(process.env.HEARTBEAT_INTERVAL_MINUTES ?? '5'));
+  const stopHeartbeat = startHeartbeat(
+    env.HEARTBEAT_URL,
+    parseFloat(process.env.HEARTBEAT_INTERVAL_MINUTES ?? '5')
+  );
 
   const shutdown = () => {
     logger.info('Shutting down...');
@@ -245,7 +248,9 @@ async function main() {
         stopHeartbeat();
       }
     } catch (err) {
-      logger.warn('Error stopping heartbeat', { message: err instanceof Error ? err.message : String(err) });
+      logger.warn('Error stopping heartbeat', {
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
 
     roleSyncService.stop();

@@ -1121,7 +1121,9 @@ export async function handleLicenseModalSubmit(
 
     const guildId = interaction.guildId;
     if (guildId) {
-      const connectedProviderLabel = result.provider ? providerLabel(result.provider) : 'store account';
+      const connectedProviderLabel = result.provider
+        ? providerLabel(result.provider)
+        : 'store account';
       sendDashboardNotification({
         authUserId,
         guildId,

@@ -39,7 +39,9 @@ export function startHeartbeat(url?: string, intervalMinutes = 5): (() => void) 
         clearTimeout(timeout);
       }
     } catch (err) {
-      logger.warn('Heartbeat ping failed', { message: err instanceof Error ? err.message : String(err) });
+      logger.warn('Heartbeat ping failed', {
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

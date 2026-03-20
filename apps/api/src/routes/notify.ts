@@ -60,17 +60,23 @@ export async function handleInternalNotify(request: Request): Promise<Response> 
   const { authUserId, guildId, type, title, message } = body;
 
   if (!authUserId || !guildId || !type || !title) {
-    return new Response(JSON.stringify({ error: 'Missing required fields: authUserId, guildId, type, title' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({ error: 'Missing required fields: authUserId, guildId, type, title' }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
   }
 
   if (!VALID_TYPES.has(type)) {
-    return new Response(JSON.stringify({ error: 'Invalid type. Must be success|error|warning|info' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({ error: 'Invalid type. Must be success|error|warning|info' }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
   }
 
   const convexUrl = env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT ?? '';

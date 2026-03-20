@@ -315,9 +315,11 @@ function SidebarLogoArea() {
   const navigate = useNavigate();
   const { guild_id } = Route.useSearch();
   const { signOut } = useAuth();
-  const [selectorRect, setSelectorRect] = useState<{ top: number; left: number; width: number } | null>(
-    null
-  );
+  const [selectorRect, setSelectorRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
 
   const guildsQuery = useQuery(
     dashboardQueryOptions<Guild[]>({
@@ -458,10 +460,10 @@ function SidebarLogoArea() {
       }
     >
       <div className="sidebar-server-info">
-         <div className="sidebar-server-icon" id="sidebar-selected-icon">
-           {selectedGuild?.icon ? (
-             <img
-               src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
+        <div className="sidebar-server-icon" id="sidebar-selected-icon">
+          {selectedGuild?.icon ? (
+            <img
+              src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
               alt=""
               style={{
                 width: 14,

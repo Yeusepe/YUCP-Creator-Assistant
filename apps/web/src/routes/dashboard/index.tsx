@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery as useConvexQuery, useMutation as useConvexMutation } from 'convex/react';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import {
   DashboardActionRowSkeleton,
   DashboardGridSkeleton,
+  DashboardIntegrationsSkeleton,
   DashboardListSkeleton,
   DashboardSettingsSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
@@ -22,22 +23,16 @@ import type {
 import {
   buildProviderConnectUrl,
   disconnectUserAccount,
-  getConnectionStatus,
   getDashboardSettings,
   getProviderIconPath,
   listDashboardProviders,
   listGuildChannels,
-  listUserAccounts,
   listUserGuilds,
   uninstallGuild,
   updateDashboardSetting,
 } from '@/lib/dashboard';
-import { dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
-import {
-  type DashboardViewer,
-  fetchDashboardViewer,
-  type Guild,
-} from '@/lib/server/dashboard';
+import { dashboardFreshQueryOptions, dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
+import { type DashboardViewer, fetchDashboardViewer, type Guild } from '@/lib/server/dashboard';
 import { getServerIconUrl } from '@/lib/utils';
 import { api } from '../../../../../convex/_generated/api';
 import type { Id } from '../../../../../convex/_generated/dataModel';
@@ -384,19 +379,15 @@ function ConnectedPlatformsPanel() {
       queryFn: listDashboardProviders,
     })
   );
-  const { data: accounts = [], isLoading: accountsLoading } = useQuery(
-    dashboardQueryOptions<UserAccountConnection[]>({
-      queryKey: ['dashboard-user-accounts', viewer?.authUserId],
-      queryFn: listUserAccounts,
-      enabled: Boolean(viewer?.authUserId),
-    })
-  );
+  const accountsRaw = useConvexQuery(api.dashboardViews.listMyConnections);
+  const accounts: UserAccountConnection[] = (accountsRaw ?? []) as UserAccountConnection[];
+  const accountsLoading = accountsRaw === undefined;
 
   const disconnectMutation = useMutation({
     mutationFn: disconnectUserAccount,
     onSuccess: async () => {
       setPendingProviderDisconnect(null);
-      await queryClient.invalidateQueries({ queryKey: ['dashboard-user-accounts'] });
+      // Convex auto-refreshes accountsRaw reactively
     },
   });
 
@@ -472,13 +463,13 @@ function ConnectedPlatformsPanel() {
                     justifyContent: 'center',
                     gap: '8px',
                   }}
-                   onClick={() => {
-                     if (!href || typeof window === 'undefined') {
-                       return;
-                     }
-                     window.location.assign(href);
-                   }}
-                 >
+                  onClick={() => {
+                    if (!href || typeof window === 'undefined') {
+                      return;
+                    }
+                    window.location.assign(href);
+                  }}
+                >
                   {provider.icon ? (
                     <img
                       src={getProviderIconPath(provider) ?? ''}
@@ -531,13 +522,13 @@ function ConnectedPlatformsPanel() {
                     }}
                     onOpenDisconnect={() => setPendingProviderDisconnect(provider.key)}
                     onConnect={() => {
-                       const href = providerHref(provider);
-                       if (href && typeof window !== 'undefined') {
-                         window.location.assign(href);
-                       }
-                     }}
-                     provider={provider}
-                   />
+                      const href = providerHref(provider);
+                      if (href && typeof window !== 'undefined') {
+                        window.location.assign(href);
+                      }
+                    }}
+                    provider={provider}
+                  />
                 );
               })}
             </div>
@@ -636,6 +627,17 @@ function ProviderStatusCard({
   );
 }
 
+const SETTING_LABELS: Record<string, string> = {
+  allowMismatchedEmails: 'Allow mismatched emails',
+  autoVerifyOnJoin: 'Auto-verify on join',
+  shareVerificationWithServers: 'Share verification across servers',
+  enableDiscordRoleFromOtherServers: 'Enable roles from other servers',
+  verificationScope: 'Verification scope',
+  duplicateVerificationBehavior: 'Duplicate verification behavior',
+  suspiciousAccountBehavior: 'Suspicious account behavior',
+  logChannelId: 'Log channel',
+  announcementsChannelId: 'Announcements channel',
+};
 function ServerConfigPanel() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -665,14 +667,17 @@ function ServerConfigPanel() {
     );
     if (unseen.length === 0) return;
 
-    const ids = unseen.map(
-      (n: { _id: Id<'admin_notifications'> }) => n._id
-    );
+    const ids = unseen.map((n: { _id: Id<'admin_notifications'> }) => n._id);
     for (const id of ids) {
       seenNotificationIds.current.add(id);
     }
 
-    for (const n of unseen as Array<{ _id: Id<'admin_notifications'>; type: 'success' | 'error' | 'warning' | 'info'; title: string; message?: string }>) {
+    for (const n of unseen as Array<{
+      _id: Id<'admin_notifications'>;
+      type: 'success' | 'error' | 'warning' | 'info';
+      title: string;
+      message?: string;
+    }>) {
       const opts = n.message ? { description: n.message } : undefined;
       if (n.type === 'success') toast.success(n.title, opts);
       else if (n.type === 'error') toast.error(n.title, opts);
@@ -691,20 +696,12 @@ function ServerConfigPanel() {
       queryFn: listDashboardProviders,
     })
   );
-  const { data: statusByProvider = {}, isLoading: connectionStatusLoading } = useQuery(
-    dashboardQueryOptions<Record<string, boolean>>({
-      queryKey: ['dashboard-connection-status', authUserId],
-      queryFn: () => getConnectionStatus(requireAuthUserId(authUserId)),
-      enabled: Boolean(authUserId && guildId),
-    })
-  );
-  const { data: accounts = [] } = useQuery(
-    dashboardQueryOptions<UserAccountConnection[]>({
-      queryKey: ['dashboard-user-accounts', authUserId],
-      queryFn: listUserAccounts,
-      enabled: Boolean(authUserId),
-    })
-  );
+  // Convex reactive queries — update in real-time when provider_connections changes
+  const statusByProviderRaw = useConvexQuery(api.dashboardViews.getMyConnectionStatus);
+  const statusByProvider: Record<string, boolean> = statusByProviderRaw ?? {};
+  const connectionStatusLoading = statusByProviderRaw === undefined;
+  const accountsRaw2 = useConvexQuery(api.dashboardViews.listMyConnections);
+  const accounts = (accountsRaw2 ?? []) as UserAccountConnection[];
   const accountsByProvider = useMemo(() => {
     const map = new Map<string, UserAccountConnection>();
     for (const account of accounts) {
@@ -715,7 +712,7 @@ function ServerConfigPanel() {
     return map;
   }, [accounts]);
   const settingsQuery = useQuery(
-    dashboardQueryOptions<DashboardPolicy>({
+    dashboardFreshQueryOptions<DashboardPolicy>({
       queryKey: ['dashboard-settings', authUserId],
       queryFn: () => getDashboardSettings(requireAuthUserId(authUserId)),
       enabled: Boolean(authUserId && guildId),
@@ -746,7 +743,9 @@ function ServerConfigPanel() {
   );
 
   const linkedProviders = useMemo(() => {
-    return providers.filter((provider) => provider.key !== 'discord' && statusByProvider[provider.key]);
+    return providers.filter(
+      (provider) => provider.key !== 'discord' && statusByProvider[provider.key]
+    );
   }, [providers, statusByProvider]);
 
   const setSaveState = useCallback((key: string, state: SaveIndicatorState) => {
@@ -784,7 +783,7 @@ function ServerConfigPanel() {
         setPolicyDraft(toNormalizedPolicy(settingsQuery.data));
       }
       setSaveState(variables.key, 'error');
-      toast.error('Could not save setting', {
+      toast.error(`Could not save "${SETTING_LABELS[variables.key] ?? variables.key}"`, {
         description: 'Check your connection and try again.',
         duration: 5000,
       });
@@ -859,6 +858,7 @@ function ServerConfigPanel() {
         !isLoading ? ' skeleton-loaded' : ''
       }`}
     >
+      {saveSettingMutation.isPending && <div className="dashboard-sync-bar" aria-hidden="true" />}
       <div className="svr-cfg-bar">
         <h2 className="svr-cfg-title">Server Config</h2>
       </div>
@@ -866,7 +866,7 @@ function ServerConfigPanel() {
       <div className="settings-subsection" id="server-store-integrations-section">
         <div className="settings-subsection-title">Store Integrations</div>
         <div>
-          <DashboardSettingsSkeleton rows={2} />
+          <DashboardIntegrationsSkeleton cards={3} />
           {!isLoading ? (
             <div className="intg-provider-grid skeleton-content">
               {linkedProviders.map((provider) => {
@@ -893,7 +893,10 @@ function ServerConfigPanel() {
                     id={`server-tile-${provider.key}`}
                     style={
                       provider.iconBg
-                        ? ({ '--provider-accent': `${provider.iconBg}33`, '--provider-icon-bg': provider.iconBg } as React.CSSProperties)
+                        ? ({
+                            '--provider-accent': `${provider.iconBg}33`,
+                            '--provider-icon-bg': provider.iconBg,
+                          } as React.CSSProperties)
                         : undefined
                     }
                   >
@@ -925,12 +928,19 @@ function ServerConfigPanel() {
                         <span className="intg-provider-enable-label">Enabled</span>
                       </div>
                       {manageHref ? (
-                        <a
-                          href={manageHref}
-                          className="intg-manage-btn"
-                        >
+                        <a href={manageHref} className="intg-manage-btn">
                           Manage
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
                             <path d="M5 12h14M12 5l7 7-7 7" />
                           </svg>
                         </a>
@@ -942,7 +952,17 @@ function ServerConfigPanel() {
               {linkedProviders.length === 0 ? (
                 <div id="server-integrations-empty" className="intg-provider-card-empty">
                   <div className="intg-provider-card-empty-icon">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
                       <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                     </svg>
                   </div>
@@ -960,7 +980,9 @@ function ServerConfigPanel() {
       <div className="settings-subsection">
         <div className="settings-subsection-title">General</div>
         <div className="settings-subsection-body">
-          <DashboardSettingsSkeleton rows={SWITCH_SETTING_CONFIG.length + SELECT_SETTING_CONFIG.length + 2} />
+          <DashboardSettingsSkeleton
+            rows={SWITCH_SETTING_CONFIG.length + SELECT_SETTING_CONFIG.length + 2}
+          />
 
           {!isLoading ? (
             <div className="skeleton-content">
@@ -988,15 +1010,24 @@ function ServerConfigPanel() {
                       tabIndex={0}
                       aria-checked={policyDraft[setting.key]}
                       aria-label={setting.label}
-                      onClick={() => onBooleanSettingChange(setting.key)}
+                      aria-disabled={saveSettingMutation.isPending}
+                      onClick={() => {
+                        if (!saveSettingMutation.isPending) onBooleanSettingChange(setting.key);
+                      }}
                       onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
+                        if (
+                          !saveSettingMutation.isPending &&
+                          (event.key === 'Enter' || event.key === ' ')
+                        ) {
                           event.preventDefault();
                           onBooleanSettingChange(setting.key);
                         }
                       }}
                     />
-                    <SaveIndicator settingKey={setting.key} state={saveStates[setting.key] ?? 'idle'} />
+                    <SaveIndicator
+                      settingKey={setting.key}
+                      state={saveStates[setting.key] ?? 'idle'}
+                    />
                   </div>
                 </article>
               ))}
@@ -1017,6 +1048,7 @@ function ServerConfigPanel() {
                       id={`select-${setting.key}`}
                       className="svr-cfg-pick"
                       value={policyDraft[setting.key]}
+                      disabled={saveSettingMutation.isPending}
                       onChange={(event) => onSelectSettingChange(setting.key, event.target.value)}
                     >
                       {setting.options.map((option) => (
@@ -1025,7 +1057,10 @@ function ServerConfigPanel() {
                         </option>
                       ))}
                     </select>
-                    <SaveIndicator settingKey={setting.key} state={saveStates[setting.key] ?? 'idle'} />
+                    <SaveIndicator
+                      settingKey={setting.key}
+                      state={saveStates[setting.key] ?? 'idle'}
+                    />
                   </div>
                 </article>
               ))}
@@ -1056,7 +1091,10 @@ function ServerConfigPanel() {
                       </option>
                     ))}
                   </select>
-                  <SaveIndicator settingKey="logChannelId" state={saveStates.logChannelId ?? 'idle'} />
+                  <SaveIndicator
+                    settingKey="logChannelId"
+                    state={saveStates.logChannelId ?? 'idle'}
+                  />
                 </div>
               </article>
 

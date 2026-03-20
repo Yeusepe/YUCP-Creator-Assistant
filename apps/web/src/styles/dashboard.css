@@ -225,7 +225,7 @@ body:not(.state-server-selected) .server-only {
 .intg-provider-card {
   position: relative;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -1824,7 +1824,10 @@ img.collab-avatar {
   height: 0;
   margin: 0;
   /* height/margin collapse is instant but delayed until after the opacity fade */
-  transition: opacity 0.15s ease, height 0s linear 0.15s, margin 0s linear 0.15s;
+  transition:
+    opacity 0.15s ease,
+    height 0s linear 0.15s,
+    margin 0s linear 0.15s;
 }
 
 /* Content section mounts when loading finishes — fade in from slight offset */
@@ -3015,4 +3018,69 @@ img.collab-avatar {
 #oauth-apps-list,
 #api-keys-list {
   overflow: visible;
+}
+
+/* ─── Global in-flight sync indicator (Linear-style) ─── */
+
+.svr-cfg {
+  position: relative;
+}
+
+.dashboard-sync-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(99, 102, 241, 0.9) 50%, transparent 100%);
+  animation: sync-slide 1.5s ease-in-out infinite;
+  z-index: 10;
+  overflow: hidden;
+}
+
+@keyframes sync-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Disabled state for select controls during mutation */
+
+.svr-cfg-pick:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Skeleton cross-fade transition */
+
+.skeleton-content {
+  animation: skeleton-fade-in 250ms ease forwards;
+}
+
+@keyframes skeleton-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ─── Integration card skeleton grid ─── */
+
+.skeleton-intg-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.skeleton-intg-card {
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 16px;
+  min-height: 100px;
+  border-radius: 16px;
 }

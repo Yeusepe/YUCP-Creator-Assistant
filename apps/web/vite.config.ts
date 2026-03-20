@@ -10,6 +10,9 @@ export default defineConfig({
   // The value comes from Infisical bootstrap (process.env.CONVEX_URL).
   define: {
     'import.meta.env.CONVEX_URL': JSON.stringify(process.env.CONVEX_URL),
+    // Injected at build time for version skew detection (see versionPoller.ts).
+    // In CI/CD, set BUILD_ID to the git SHA or pipeline run ID.
+    'import.meta.env.VITE_BUILD_ID': JSON.stringify(process.env.BUILD_ID ?? 'dev'),
   },
   server: {
     port: 3000,

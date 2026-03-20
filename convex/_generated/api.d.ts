@@ -19,6 +19,7 @@ import type * as collaboratorInvites from "../collaboratorInvites.js";
 import type * as creatorEvents from "../creatorEvents.js";
 import type * as creatorProfiles from "../creatorProfiles.js";
 import type * as crons from "../crons.js";
+import type * as dashboardViews from "../dashboardViews.js";
 import type * as downloads from "../downloads.js";
 import type * as entitlements from "../entitlements.js";
 import type * as guildLinks from "../guildLinks.js";
@@ -95,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   creatorEvents: typeof creatorEvents;
   creatorProfiles: typeof creatorProfiles;
   crons: typeof crons;
+  dashboardViews: typeof dashboardViews;
   downloads: typeof downloads;
   entitlements: typeof entitlements;
   guildLinks: typeof guildLinks;

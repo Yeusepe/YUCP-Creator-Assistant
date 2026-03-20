@@ -23,6 +23,7 @@ import { createCollabRoutes } from './routes/collab';
 import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
 import { createSuiteRoutes } from './routes/suite';
+import { createVersionRouteHandler } from './routes/version';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -369,6 +370,10 @@ async function routeRequest(request: Request): Promise<Response> {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Version endpoint — used by the web dashboard for version skew detection
+  const versionResponse = createVersionRouteHandler()(request);
+  if (versionResponse) return versionResponse;
 
   if (pathname === '/tokens.css') {
     const file = Bun.file(`${import.meta.dir}/../public/tokens.css`);

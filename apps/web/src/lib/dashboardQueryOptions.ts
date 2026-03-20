@@ -33,6 +33,24 @@ export function dashboardQueryOptions<
   } satisfies UseQueryOptions<TQueryFnData, Error, TData, TQueryKey>;
 }
 
+/**
+ * Like dashboardQueryOptions but with staleTime:0 and refetchOnWindowFocus:true.
+ * Use for data that should always be fresh when the user returns to the tab.
+ */
+export function dashboardFreshQueryOptions<
+  TQueryFnData,
+  TData = TQueryFnData,
+  TQueryKey extends QueryKey = QueryKey,
+>(options: DashboardQueryInput<TQueryFnData, TData, TQueryKey>) {
+  return {
+    ...options,
+    staleTime: 0,
+    retry: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  } satisfies UseQueryOptions<TQueryFnData, Error, TData, TQueryKey>;
+}
+
 export function dashboardPollingQueryOptions<
   TQueryFnData,
   TData = TQueryFnData,

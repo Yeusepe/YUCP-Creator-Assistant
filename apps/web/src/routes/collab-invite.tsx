@@ -724,11 +724,7 @@ function CollabInvitePage() {
                 </ul>
               </div>
 
-              <button
-                type="button"
-                className="btn-discord w-full"
-                onClick={beginDiscordAuth}
-              >
+              <button type="button" className="btn-discord w-full" onClick={beginDiscordAuth}>
                 <img src="/Icons/Discord.png" width="20" height="20" alt="" />
                 Continue with Discord&reg;
               </button>
@@ -1212,10 +1208,7 @@ function CollabInvitePage() {
                         }}
                       />
                       {signingSecretError ? (
-                        <p
-                          className="mt-2 text-xs"
-                          style={{ color: '#f87171', lineHeight: '1.5' }}
-                        >
+                        <p className="mt-2 text-xs" style={{ color: '#f87171', lineHeight: '1.5' }}>
                           {signingSecretError}
                         </p>
                       ) : (

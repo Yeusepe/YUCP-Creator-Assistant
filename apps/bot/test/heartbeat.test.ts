@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { startHeartbeat } from '../../src/services/heartbeat';
+import { startHeartbeat } from '../src/services/heartbeat';
 
 describe('heartbeat service', () => {
   it('is disabled when no URL is provided', () => {
@@ -22,7 +22,7 @@ describe('heartbeat service', () => {
     });
 
     const origFetch = globalThis.fetch;
-    // @ts-ignore - override global fetch for test
+    // @ts-expect-error - override global fetch for test
     globalThis.fetch = fetchMock as any;
 
     const stop = startHeartbeat('https://example.test/heartbeat', 0.001); // ~60ms interval

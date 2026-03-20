@@ -12,8 +12,14 @@ const lemonSqueezySetupSource = readFileSync(
   resolve(__dirname, '../../src/routes/setup/lemonsqueezy.tsx'),
   'utf8'
 );
-const payhipSetupSource = readFileSync(resolve(__dirname, '../../src/routes/setup/payhip.tsx'), 'utf8');
-const vrchatSetupSource = readFileSync(resolve(__dirname, '../../src/routes/setup/vrchat.tsx'), 'utf8');
+const payhipSetupSource = readFileSync(
+  resolve(__dirname, '../../src/routes/setup/payhip.tsx'),
+  'utf8'
+);
+const vrchatSetupSource = readFileSync(
+  resolve(__dirname, '../../src/routes/setup/vrchat.tsx'),
+  'utf8'
+);
 
 describe('globals.css cascade layer contract', () => {
   it('wraps the CSS reset in @layer base so Tailwind utilities can override it', () => {
@@ -25,8 +31,12 @@ describe('globals.css cascade layer contract', () => {
     const layerBaseCloseIdx = globalsCss.indexOf('\n}', layerBaseIdx);
     expect(layerBaseIdx, '@layer base block is missing from globals.css').toBeGreaterThan(-1);
     expect(resetIdx, 'padding: 0 reset is missing from globals.css').toBeGreaterThan(-1);
-    expect(resetIdx, 'padding: 0 must be inside @layer base, not unlayered').toBeGreaterThan(layerBaseIdx);
-    expect(resetIdx, 'padding: 0 must be inside @layer base, not after it').toBeLessThan(layerBaseCloseIdx);
+    expect(resetIdx, 'padding: 0 must be inside @layer base, not unlayered').toBeGreaterThan(
+      layerBaseIdx
+    );
+    expect(resetIdx, 'padding: 0 must be inside @layer base, not after it').toBeLessThan(
+      layerBaseCloseIdx
+    );
   });
 
   it('defines cloud-layer-fade globally so all pages get the cloud fade-in transition', () => {
@@ -38,7 +48,6 @@ describe('globals.css cascade layer contract', () => {
     expect(globalsCss).toContain('transition: opacity 0.6s ease;');
   });
 });
-
 
 describe('setup shell visibility contracts', () => {
   it('loads setup route styles through side-effect imports instead of head-linked route CSS', () => {
@@ -54,7 +63,7 @@ describe('setup shell visibility contracts', () => {
 
   it('does not server-render the Jinxxy setup shell hidden by default', () => {
     expect(jinxxySetupSource).toContain('const [isVisible, setIsVisible] = useState(true);');
-    expect(jinxxySetupSource).not.toContain("style={!isVisible ? { opacity: 0 } : undefined}");
+    expect(jinxxySetupSource).not.toContain('style={!isVisible ? { opacity: 0 } : undefined}');
   });
 
   it('does not server-render the Lemon Squeezy setup shell hidden by default', () => {
@@ -63,14 +72,18 @@ describe('setup shell visibility contracts', () => {
 
   it('renders the Lemon Squeezy background canvas inside the page-content shell', () => {
     const pageContentIndex = lemonSqueezySetupSource.indexOf('className={`page-content');
-    const canvasIndex = lemonSqueezySetupSource.indexOf('<BackgroundCanvasRoot position="absolute" />');
+    const canvasIndex = lemonSqueezySetupSource.indexOf(
+      '<BackgroundCanvasRoot position="absolute" />'
+    );
     expect(pageContentIndex).toBeGreaterThan(-1);
     expect(canvasIndex).toBeGreaterThan(pageContentIndex);
   });
 
   it('renders the Payhip setup shell through a visible page-content wrapper', () => {
     expect(payhipSetupSource).toContain('const [isVisible, setIsVisible] = useState(true);');
-    expect(payhipSetupSource).toContain('className={`page-content fixed inset-0 flex flex-col items-center justify-center overflow-hidden');
+    expect(payhipSetupSource).toContain(
+      'className={`page-content fixed inset-0 flex flex-col items-center justify-center overflow-hidden'
+    );
     expect(payhipSetupSource).toContain('<BackgroundCanvasRoot position="absolute" />');
     expect(payhipSetupSource).not.toContain('if (!isVisible) return null;');
   });

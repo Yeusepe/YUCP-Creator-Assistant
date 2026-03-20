@@ -41,13 +41,17 @@ describe('dashboard parity wiring', () => {
     expect(helperSource).toContain('/api/connect/settings');
     expect(helperSource).toContain('/api/connect/guild/channels');
     expect(helperSource).toContain('/api/install/uninstall/');
-    expect(serverHelperSource).toContain("/api/connect/user/guilds");
+    expect(serverHelperSource).toContain('/api/connect/user/guilds');
     expect(serverHelperSource).not.toContain('/api/dashboard/guilds');
     expect(serverHelperSource).toContain('id: guild.guildId');
     expect(serverHelperSource).toContain('tenantId: guild.authUserId');
     expect(guildLinksSource).toContain(".query('guild_links')");
-    expect(guildLinksSource).toContain(".withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))");
-    expect(guildLinksSource).not.toContain(".query('creator_profiles')\n      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))\n      .collect()");
+    expect(guildLinksSource).toContain(
+      ".withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))"
+    );
+    expect(guildLinksSource).not.toContain(
+      ".query('creator_profiles')\n      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))\n      .collect()"
+    );
     expect(source).toContain('queryFn: listUserGuilds');
     expect(layoutSource).toContain('queryFn: listUserGuilds');
   });
@@ -55,14 +59,20 @@ describe('dashboard parity wiring', () => {
   it('derives server provider tiles from tenant connection status instead of the viewer account list', () => {
     const source = readRouteSource('index.tsx');
     const serverConfigPanelSource =
-      source.match(/function ServerConfigPanel\(\)[\s\S]*?\}, \[providers, statusByProvider\]\);/)?.[0] ?? '';
+      source.match(
+        /function ServerConfigPanel\(\)[\s\S]*?\}, \[providers, statusByProvider\]\);/
+      )?.[0] ?? '';
 
-    expect(serverConfigPanelSource).toContain("queryKey: ['dashboard-connection-status', authUserId]");
+    expect(serverConfigPanelSource).toContain(
+      "queryKey: ['dashboard-connection-status', authUserId]"
+    );
     expect(serverConfigPanelSource).toContain(
       'queryFn: () => getConnectionStatus(requireAuthUserId(authUserId))'
     );
     expect(serverConfigPanelSource).toContain('statusByProvider[provider.key]');
-    expect(serverConfigPanelSource).not.toContain("queryKey: ['dashboard-user-accounts', viewer?.authUserId]");
+    expect(serverConfigPanelSource).not.toContain(
+      "queryKey: ['dashboard-user-accounts', viewer?.authUserId]"
+    );
   });
 
   it('keeps connected platform rendering aligned with provider status cards instead of duplicate account strips', () => {
@@ -70,13 +80,15 @@ describe('dashboard parity wiring', () => {
 
     expect(source).toContain('const unlinkedPlatformProviders = useMemo(');
     expect(source).toContain(
-      "() => platformProviders.filter((provider) => !accountsByProvider.has(provider.key))"
+      '() => platformProviders.filter((provider) => !accountsByProvider.has(provider.key))'
     );
     expect(source).toContain('{unlinkedPlatformProviders.map((provider) => {');
     expect(source).not.toContain('id="user-accounts-list"');
     expect(source).toContain("style={{ marginBottom: '24px' }}");
     expect(source).toContain("style={{ gap: '12px', marginBottom: '24px' }}");
-    expect(source).toContain("style={{ fontFamily: \"'DM Sans', sans-serif\", margin: '0 0 16px' }}");
+    expect(source).toContain(
+      "style={{ fontFamily: \"'DM Sans', sans-serif\", margin: '0 0 16px' }}"
+    );
   });
 
   it('uses simple section-specific skeleton components instead of generic card placeholders', () => {

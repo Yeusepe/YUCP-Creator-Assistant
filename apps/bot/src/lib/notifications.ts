@@ -6,8 +6,7 @@
  * so bot commands always complete regardless of notification status.
  */
 
-import { createLogger } from '@yucp/shared';
-import { getInternalRpcSharedSecret } from '@yucp/shared';
+import { createLogger, getInternalRpcSharedSecret } from '@yucp/shared';
 import { getApiUrls } from './apiUrls';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');

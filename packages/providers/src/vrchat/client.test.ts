@@ -74,10 +74,10 @@ describe('VrchatApiClient.beginLogin', () => {
         expect(url).not.toContain('apiKey=');
         const responseHeaders = new Headers();
         responseHeaders.append('set-cookie', 'auth=auth-token-2fa; Path=/; HttpOnly');
-        return new Response(
-          JSON.stringify({ requiresTwoFactorAuth: ['totp', 'emailOtp'] }),
-          { status: 200, headers: responseHeaders }
-        );
+        return new Response(JSON.stringify({ requiresTwoFactorAuth: ['totp', 'emailOtp'] }), {
+          status: 200,
+          headers: responseHeaders,
+        });
       }
       throw new Error(`Unexpected URL: ${url}`);
     });

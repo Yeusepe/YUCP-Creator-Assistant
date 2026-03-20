@@ -52,7 +52,9 @@ describe('dashboard inline panels', () => {
 
     const { container } = render(<Component />, { wrapper: createWrapper() });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /add app/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /add app/i })).toBeInTheDocument()
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /^add app$/i }));
 

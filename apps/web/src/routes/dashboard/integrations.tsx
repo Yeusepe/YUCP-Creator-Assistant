@@ -419,9 +419,7 @@ function OAuthAppsSection({
                   <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                 </svg>
               </div>
-              <p className="empty-state-title">
-                No OAuth apps yet
-              </p>
+              <p className="empty-state-title">No OAuth apps yet</p>
               <p className="empty-state-copy">
                 Use OAuth when a third-party app needs to access verification data on behalf of your
                 users.
@@ -683,9 +681,7 @@ function ApiKeysSection({
                   <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
                 </svg>
               </div>
-              <p className="empty-state-title">
-                No API keys yet
-              </p>
+              <p className="empty-state-title">No API keys yet</p>
               <p className="empty-state-copy">
                 API keys let you call the verification API from scripts, bots, or integrations. Pass
                 the key in the <code>x-api-key</code> header.
