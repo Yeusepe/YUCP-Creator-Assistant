@@ -662,64 +662,28 @@ function CollabInvitePage() {
 
           {/* Stage 1: Consent */}
           {activeStage === 'stage-consent' && (
-            <div className="fade-in">
+            <div className="ci-card fade-in">
               <h1 className="text-2xl font-heading font-bold mb-2 text-center">{consentTitle}</h1>
               <p className="text-center mb-6" style={{ color: 'var(--text-secondary)' }}>
                 {consentExpiry}
               </p>
 
-              <div
-                className="rounded-xl p-6 mb-6"
-                style={{
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                }}
-              >
-                <h3 className="font-heading font-semibold mb-3">What this grants access to:</h3>
-                <ul className="space-y-2" style={{ color: 'var(--text-secondary)' }}>
-                  <li className="flex gap-2 items-start">
-                    <img
-                      src="/Icons/Checkmark.png"
-                      width="16"
-                      height="16"
-                      alt=""
-                      style={{
-                        marginTop: '2px',
-                        flexShrink: 0,
-                        opacity: 0.8,
-                      }}
-                    />
+              <div className="ci-access-list">
+                <h3>What this grants access to:</h3>
+                <ul>
+                  <li>
+                    <img src="/Icons/Checkmark.png" width="16" height="16" alt="" />
                     <span>{providerUI.consentDescription}</span>
                   </li>
-                  <li className="flex gap-2 items-start">
-                    <img
-                      src="/Icons/Checkmark.png"
-                      width="16"
-                      height="16"
-                      alt=""
-                      style={{
-                        marginTop: '2px',
-                        flexShrink: 0,
-                        opacity: 0.8,
-                      }}
-                    />
+                  <li>
+                    <img src="/Icons/Checkmark.png" width="16" height="16" alt="" />
                     <span>
                       The Assistant will only check if a license key is valid. No personal data is
                       stored beyond your Discord&reg; ID
                     </span>
                   </li>
-                  <li className="flex gap-2 items-start">
-                    <img
-                      src="/Icons/Checkmark.png"
-                      width="16"
-                      height="16"
-                      alt=""
-                      style={{
-                        marginTop: '2px',
-                        flexShrink: 0,
-                        opacity: 0.8,
-                      }}
-                    />
+                  <li>
+                    <img src="/Icons/Checkmark.png" width="16" height="16" alt="" />
                     <span>You can revoke access at any time by contacting the server owner</span>
                   </li>
                 </ul>
@@ -734,15 +698,15 @@ function CollabInvitePage() {
 
           {/* Stage 2: Returning user */}
           {activeStage === 'stage-returning' && (
-            <div className="fade-in">
-              <h2 className="text-xl font-heading font-bold mb-2 text-center">Welcome back!</h2>
-              <p className="text-center mb-6" style={{ color: 'var(--text-secondary)' }}>
+            <div className="ci-card fade-in" style={{ textAlign: 'center' }}>
+              <h2 className="text-xl font-heading font-bold mb-2">Welcome back!</h2>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
                 We noticed you've connected with Creator Assistant before.
                 <br />
                 Would you like to reuse your previous API key?
               </p>
 
-              <div className="space-y-3 mb-6">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <button
                   type="button"
                   className="btn-primary w-full"
@@ -763,7 +727,7 @@ function CollabInvitePage() {
 
           {/* Stage 3: Type selection */}
           {activeStage === 'stage-type' && (
-            <div className="fade-in">
+            <div className="ci-card fade-in">
               <h2 className="text-xl font-heading font-bold mb-1 text-center">
                 Choose how to connect
               </h2>
@@ -865,7 +829,7 @@ function CollabInvitePage() {
 
           {/* Stage 4a: Account Linking Wizard */}
           {activeStage === 'stage-account-wizard' && (
-            <div className="fade-in">
+            <div className="ci-card fade-in">
               {/* Header: title + step counter */}
               <div className="flex justify-between items-center mb-4">
                 <div className="flex items-center gap-2">
@@ -1798,7 +1762,7 @@ function CollabInvitePage() {
 
           {/* Stage 4b: API Linking Form */}
           {activeStage === 'stage-api-form' && (
-            <div className="fade-in">
+            <div className="ci-card fade-in">
               {/* Visual mockup: API Keys page */}
               <div
                 className="rounded-xl overflow-hidden mb-5"
@@ -1970,7 +1934,7 @@ function CollabInvitePage() {
 
           {/* Stage 5: Success */}
           {activeStage === 'stage-success' && (
-            <div className="fade-in text-center">
+            <div className="ci-card fade-in text-center">
               <div className="check-circle">
                 <img src="/Icons/Checkmark.png" width="28" height="28" alt="" />
               </div>
@@ -1986,14 +1950,8 @@ function CollabInvitePage() {
 
           {/* Error screen */}
           {activeStage === 'stage-error' && (
-            <div className="fade-in text-center">
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4"
-                style={{
-                  background: 'rgba(240,71,71,0.15)',
-                  border: '2px solid rgba(240,71,71,0.5)',
-                }}
-              >
+            <div className="ci-card fade-in text-center">
+              <div className="ci-error-circle">
                 <img src="/Icons/X.png" width="28" height="28" alt="" />
               </div>
               <h2 className="text-xl font-heading font-bold mb-3">{errorTitle}</h2>

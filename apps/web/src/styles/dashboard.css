@@ -1276,9 +1276,9 @@ body:not(.state-server-selected) .server-only {
 }
 
 .collab-remove-btn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(248, 113, 113, 0.4);
-  color: #f87171;
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
 }
 
 .collab-remove-btn:disabled {
@@ -1292,9 +1292,9 @@ body:not(.state-server-selected) .server-only {
 }
 
 .dark .collab-remove-btn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(248, 113, 113, 0.45);
-  color: #f87171;
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
 }
 
 /* ── Collab Section Headers (theme-aware dividers) ─────────────────── */
@@ -1939,15 +1939,15 @@ img.collab-avatar {
 }
 
 .collab-copy-btn:hover {
-  background: rgba(14, 165, 233, 0.08);
-  border-color: rgba(14, 165, 233, 0.35);
-  color: #0284c7;
+  background: #0ea5e9;
+  border-color: #0ea5e9;
+  color: #ffffff;
 }
 
 .collab-copy-btn.copied {
-  background: rgba(34, 197, 94, 0.1);
-  border-color: rgba(34, 197, 94, 0.4);
-  color: #16a34a;
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #ffffff;
 }
 
 .dark .collab-copy-btn {
@@ -1956,15 +1956,15 @@ img.collab-avatar {
 }
 
 .dark .collab-copy-btn:hover {
-  background: rgba(14, 165, 233, 0.14);
-  border-color: rgba(14, 165, 233, 0.4);
-  color: #38bdf8;
+  background: #0ea5e9;
+  border-color: #0ea5e9;
+  color: #ffffff;
 }
 
 .dark .collab-copy-btn.copied {
-  background: rgba(34, 197, 94, 0.14);
-  border-color: rgba(34, 197, 94, 0.4);
-  color: #4ade80;
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #ffffff;
 }
 
 /*  Animations */
@@ -2490,7 +2490,7 @@ img.collab-avatar {
   width: 3px;
   height: 16px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #60a5fa, #818cf8);
+  background: #ffffff;
 }
 
 .sidebar-nav-icon {

@@ -467,8 +467,7 @@ function MyCollaboratorsSection({
                     type="button"
                     className={`collab-remove-btn${revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id ? ' btn-loading' : ''}`}
                     disabled={
-                      revokeInviteMutation.isPending &&
-                      revokeInviteMutation.variables === invite.id
+                      revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id
                     }
                     onClick={() => revokeInviteMutation.mutate(invite.id)}
                   >

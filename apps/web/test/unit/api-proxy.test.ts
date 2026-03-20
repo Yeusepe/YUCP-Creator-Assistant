@@ -40,8 +40,10 @@ describe('proxyApiRequest', () => {
       }),
     } as Request);
 
-    const [, init] = mockFetch.mock.calls[0]!;
-    const headers = new Headers((init as RequestInit).headers);
+    const call = mockFetch.mock.calls[0];
+    expect(call).toBeDefined();
+    const [, init] = call as [string, RequestInit];
+    const headers = new Headers(init.headers);
 
     expect(headers.get('Cookie')).toBe(
       'yucp.session_token=session-cookie; yucp.session_data=cached-session; yucp_setup_session=setup-cookie'
@@ -70,8 +72,10 @@ describe('proxyApiRequest', () => {
       arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
     } as unknown as Request);
 
-    const [, init] = mockFetch.mock.calls[0]!;
-    const headers = new Headers((init as RequestInit).headers);
+    const call = mockFetch.mock.calls[0];
+    expect(call).toBeDefined();
+    const [, init] = call as [string, RequestInit];
+    const headers = new Headers(init.headers);
 
     const cookieHeader = headers.get('Cookie');
     // The 2FA pending cookie must reach the API server — without it, readConnectPendingState

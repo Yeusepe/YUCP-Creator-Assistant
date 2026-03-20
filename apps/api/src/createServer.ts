@@ -17,6 +17,7 @@
 
 import path from 'node:path';
 import type { Auth } from './auth';
+import { createLegacyFrontendMovedResponse, isLegacyFrontendAsset } from './lib/legacyFrontend';
 import {
   createVerificationRoutes,
   mountVerificationRouteHandlers,
@@ -190,6 +191,10 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       pathname.startsWith('/Icons/') ||
       pathname === '/loading.css'
     ) {
+      if (pathname.startsWith('/assets/') && isLegacyFrontendAsset(pathname)) {
+        return new Response('Not found', { status: 404 });
+      }
+
       const relativePublicPath = pathname.replace(/^\/+/, '');
       const candidatePath = path.resolve(PUBLIC_BASE_DIR, relativePublicPath);
       if (
@@ -280,11 +285,13 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
                                       : null;
 
     if (legacyFrontendRoute) {
-      const response = redirectToFrontendRoute(url, frontendUrl, legacyFrontendRoute);
-      if (response) {
-        return response;
+      if (config.frontendUrl) {
+        const response = redirectToFrontendRoute(url, config.frontendUrl, legacyFrontendRoute);
+        if (response) {
+          return response;
+        }
       }
-      return new Response('This UI route has moved to the TanStack web app.', { status: 404 });
+      return createLegacyFrontendMovedResponse();
     }
 
     // Connect routes

@@ -2,8 +2,6 @@ import { createLogger } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
-let intervalHandle: ReturnType<typeof setInterval> | undefined;
-
 /**
  * Start a periodic heartbeat ping to the given URL.
  * Returns a stop function (or undefined when URL not provided).
@@ -47,15 +45,14 @@ export function startHeartbeat(url?: string, intervalMinutes = 5): (() => void) 
 
   // Run immediately and then schedule
   void ping();
-  intervalHandle = setInterval(() => {
+  const intervalHandle = setInterval(() => {
     void ping();
   }, intervalMs);
 
   logger.info('Heartbeat started', { intervalMinutes, url: redactUrl(url) });
 
   return () => {
-    if (intervalHandle) clearInterval(intervalHandle);
-    intervalHandle = undefined;
+    clearInterval(intervalHandle);
     logger.info('Heartbeat stopped');
   };
 }

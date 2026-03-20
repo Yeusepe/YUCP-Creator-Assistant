@@ -1,81 +1,90 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { type KeyboardEvent, useCallback, useEffect, useId, useRef, useState } from 'react';
 
 export interface SelectOption {
-  value: string
-  label: string
+  value: string;
+  label: string;
 }
 
 export interface SelectProps {
-  id?: string
-  value: string
-  options: ReadonlyArray<SelectOption>
-  onChange: (value: string) => void
-  disabled?: boolean
-  className?: string
+  id?: string;
+  value: string;
+  options: ReadonlyArray<SelectOption>;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  className?: string;
 }
 
 export function Select({ id, value, options, onChange, disabled, className }: SelectProps) {
-  const [open, setOpen] = useState(false)
-  const wrapperRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const generatedId = useId();
 
-  const selectedOption = options.find((o) => o.value === value) ?? null
+  const selectedOption = options.find((o) => o.value === value) ?? null;
+  const listboxId = `${id ?? generatedId}-listbox`;
 
-  const close = useCallback(() => setOpen(false), [])
+  const close = useCallback(() => setOpen(false), []);
 
   const toggle = useCallback(() => {
-    if (!disabled) setOpen((prev) => !prev)
-  }, [disabled])
+    if (!disabled) setOpen((prev) => !prev);
+  }, [disabled]);
 
   useEffect(() => {
-    if (!open) return
+    if (!open) return;
     const handler = (e: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        close()
+        close();
       }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open, close])
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, close]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {
-      if (disabled) return
+      if (disabled) return;
       if (e.key === 'Escape') {
-        close()
-        return
+        close();
+        return;
       }
       if (e.key === 'Enter' || e.key === ' ') {
-        if (!open) setOpen(true)
-        return
+        if (!open) setOpen(true);
+        return;
       }
-      if (!open) return
-      const idx = options.findIndex((o) => o.value === value)
+      if (!open) return;
+      const idx = options.findIndex((o) => o.value === value);
       if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        const next = options[(idx + 1) % options.length]
-        if (next) onChange(next.value)
+        e.preventDefault();
+        const next = options[(idx + 1) % options.length];
+        if (next) onChange(next.value);
       } else if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        const prev = options[(idx - 1 + options.length) % options.length]
-        if (prev) onChange(prev.value)
+        e.preventDefault();
+        const prev = options[(idx - 1 + options.length) % options.length];
+        if (prev) onChange(prev.value);
       }
     },
-    [disabled, open, options, value, onChange, close],
-  )
+    [disabled, open, options, value, onChange, close]
+  );
 
-  const wrapperClass = ['ui-select-wrapper', open ? 'open' : '', disabled ? 'disabled' : '', className]
+  const wrapperClass = [
+    'ui-select-wrapper',
+    open ? 'open' : '',
+    disabled ? 'disabled' : '',
+    className,
+  ]
     .filter(Boolean)
-    .join(' ')
+    .join(' ');
 
   return (
-    <div ref={wrapperRef} className={wrapperClass} id={id} onKeyDown={handleKeyDown}>
+    <div ref={wrapperRef} className={wrapperClass} id={id}>
       <button
         type="button"
         className="ui-select-trigger"
         onClick={toggle}
+        onKeyDown={handleKeyDown}
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={listboxId}
       >
         <span className="ui-select-value">{selectedOption ? selectedOption.label : ''}</span>
         <svg
@@ -95,9 +104,9 @@ export function Select({ id, value, options, onChange, disabled, className }: Se
         </svg>
       </button>
 
-      <div className="ui-select-menu" role="listbox">
+      <div className="ui-select-menu" role="listbox" id={listboxId} aria-hidden={!open}>
         {options.map((opt) => {
-          const isSelected = opt.value === value
+          const isSelected = opt.value === value;
           return (
             <button
               key={opt.value}
@@ -106,8 +115,8 @@ export function Select({ id, value, options, onChange, disabled, className }: Se
               aria-selected={isSelected}
               className={`ui-select-option${isSelected ? ' selected' : ''}`}
               onClick={() => {
-                onChange(opt.value)
-                close()
+                onChange(opt.value);
+                close();
               }}
             >
               <span className="ui-select-option-indicator" aria-hidden="true">
@@ -117,6 +126,7 @@ export function Select({ id, value, options, onChange, disabled, className }: Se
                     viewBox="0 0 24 24"
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
                   >
                     <path
                       d="M20 6L9 17l-5-5"
@@ -130,9 +140,9 @@ export function Select({ id, value, options, onChange, disabled, className }: Se
               </span>
               {opt.label}
             </button>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }

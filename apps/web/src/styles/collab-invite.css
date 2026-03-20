@@ -331,3 +331,86 @@ h3,
 #page-content.is-visible {
   opacity: 1;
 }
+
+/* ── Stage card ──────────────────────────────────────────────────── */
+.ci-card {
+  background: rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 28px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  padding: 28px;
+}
+
+@media (min-width: 640px) {
+  .ci-card {
+    padding: 36px;
+  }
+}
+
+/* ── Stage header ────────────────────────────────────────────────── */
+.ci-stage-icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  background: rgba(88, 101, 242, 0.15);
+  border: 1.5px solid rgba(88, 101, 242, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.25rem;
+}
+
+/* ── Access list (consent screen) ───────────────────────────────── */
+.ci-access-list {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.ci-access-list h3 {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  margin-bottom: 0.875rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.ci-access-list ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.ci-access-list li {
+  display: flex;
+  gap: 0.625rem;
+  align-items: flex-start;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.ci-access-list li img {
+  margin-top: 2px;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+/* ── Error circle ────────────────────────────────────────────────── */
+.ci-error-circle {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  background: rgba(240, 71, 71, 0.15);
+  border: 2px solid rgba(240, 71, 71, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1rem;
+}

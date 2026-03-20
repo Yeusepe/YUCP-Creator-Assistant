@@ -136,8 +136,9 @@ export function createCollabRoutes(config: CollabConfig) {
   }
 
   /**
-   * Owner-facing collaborator APIs are dashboard operations.
-   * They require the forwarded viewer token from the TanStack web app.
+   * Owner-facing collaborator APIs accept either a forwarded Better Auth dashboard
+   * session or a short-lived setup-session token minted by internal RPC.
+   * When both are present they must resolve to the same owner.
    */
   async function requireOwnerAuth(
     request: Request,
@@ -145,7 +146,36 @@ export function createCollabRoutes(config: CollabConfig) {
   ): Promise<
     { ok: true; authUserId: string; displayName: string } | { ok: false; response: Response }
   > {
+    const setupSession = await resolveSetupToken(request, config.encryptionSecret);
     const webSession = await config.auth.getSession(request);
+
+    if (setupSession) {
+      if (authUserIdHint && authUserIdHint !== setupSession.authUserId) {
+        return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
+      }
+
+      if (webSession) {
+        const sessionOwnsSetupTenant =
+          webSession.user.id === setupSession.authUserId ||
+          (await isTenantOwnedBySessionUser(webSession.user.id, setupSession.authUserId));
+        if (!sessionOwnsSetupTenant) {
+          return { ok: false, response: Response.json({ error: 'Forbidden' }, { status: 403 }) };
+        }
+
+        return {
+          ok: true,
+          authUserId: setupSession.authUserId,
+          displayName: webSession.user.name ?? '',
+        };
+      }
+
+      return {
+        ok: true,
+        authUserId: setupSession.authUserId,
+        displayName: '',
+      };
+    }
+
     if (!webSession) {
       return {
         ok: false,
