@@ -3,30 +3,33 @@
 /* Scan route files for Tailwind utility classes */
 @source "../routes";
 
-/* Shared resets matching the original HTML pages */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+@layer base {
+  /* Shared resets matching the original HTML pages.
+   * Must be in @layer base so @layer utilities (Tailwind) can override them. */
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 
-body {
-  background-color: var(--bg-color);
-  color: var(--text-primary);
-  font-family: "DM Sans", sans-serif;
-  overflow-x: hidden;
-  min-height: 100dvh;
-}
+  body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: "DM Sans", sans-serif;
+    overflow-x: hidden;
+    min-height: 100dvh;
+  }
 
-h1,
-h2,
-h3,
-.display-text {
-  font-family: "Plus Jakarta Sans", sans-serif;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  h1,
+  h2,
+  h3,
+  .display-text {
+    font-family: "Plus Jakarta Sans", sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+  }
 }
 
 /* Cloud background fade-in */
