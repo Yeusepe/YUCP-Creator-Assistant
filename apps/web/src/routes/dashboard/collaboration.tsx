@@ -7,6 +7,7 @@ import {
   DashboardActionRowSkeleton,
   DashboardListSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { Select } from '@/components/ui/Select';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import type {
@@ -83,11 +84,11 @@ function MyCollaboratorsSection({
   const queryClient = useQueryClient();
   const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
   const [invitePanelOpen, setInvitePanelOpen] = useState(false);
-  const [inviteStep, setInviteStep] = useState<'select' | 'url'>('select');
   const [selectedProvider, setSelectedProvider] = useState('');
   const [generatedInvite, setGeneratedInvite] = useState<{ url: string; expiresAt: number } | null>(
     null
   );
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
 
   const providersQuery = useQuery(
     dashboardPanelQueryOptions<CollabProviderSummary[]>({
@@ -142,7 +143,6 @@ function MyCollaboratorsSection({
       createCollabInvite(requireAuthUserId(authUserId), { providerKey: selectedProvider }),
     onSuccess: async (result) => {
       setGeneratedInvite({ url: result.inviteUrl, expiresAt: result.expiresAt });
-      setInviteStep('url');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['dashboard-collab-invites', authUserId] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard-collab-connections', authUserId] }),
@@ -153,6 +153,7 @@ function MyCollaboratorsSection({
   const revokeInviteMutation = useMutation({
     mutationFn: (inviteId: string) => revokeCollabInvite(requireAuthUserId(authUserId), inviteId),
     onSuccess: async () => {
+      setGeneratedInvite(null);
       await queryClient.refetchQueries({ queryKey: ['dashboard-collab-invites', authUserId] });
     },
   });
@@ -167,35 +168,46 @@ function MyCollaboratorsSection({
     },
   });
 
+  const handleProviderChange = (key: string) => {
+    setSelectedProvider(key);
+    const existing = invites.find((i) => i.providerKey === key);
+    if (existing) {
+      setGeneratedInvite({
+        url: `${window.location.origin}/collab-invite?id=${encodeURIComponent(existing.id)}`,
+        expiresAt: existing.expiresAt,
+      });
+    } else {
+      setGeneratedInvite(null);
+    }
+  };
+
   const openInvitePanel = () => {
-    const defaultProvider = selectedProvider || providers[0]?.key || '';
-    const providerKey = defaultProvider;
+    const providerKey = selectedProvider || providers[0]?.key || '';
     setSelectedProvider(providerKey);
     setInvitePanelOpen(true);
 
-    // If there's an existing pending invite for this provider, show it instead of
-    // resetting — prevents auto-revoking still-valid invites when re-opening the panel.
     const existingInvite = invites.find((i) => i.providerKey === providerKey);
     if (existingInvite) {
       setGeneratedInvite({
         url: `${window.location.origin}/collab-invite?id=${encodeURIComponent(existingInvite.id)}`,
         expiresAt: existingInvite.expiresAt,
       });
-      setInviteStep('url');
     } else {
-      setInviteStep('select');
       setGeneratedInvite(null);
     }
   };
 
   const closeInvitePanel = () => {
     setInvitePanelOpen(false);
-    setInviteStep('select');
   };
 
-  const messageTemplate = generatedInvite
-    ? `Hey, here's the Creator Assistant collaboration link for ${providerMap.get(selectedProvider) ?? selectedProvider}: ${generatedInvite.url}`
-    : '';
+  const handleCopyInviteLink = (url: string, inviteId: string) => {
+    void copyToClipboard(url);
+    setCopiedInviteId(inviteId);
+    setTimeout(() => setCopiedInviteId(null), 1500);
+  };
+
+  const currentInviteId = invites.find((i) => i.providerKey === selectedProvider)?.id;
 
   if (hasAuthError) {
     return (
@@ -280,10 +292,10 @@ function MyCollaboratorsSection({
           />
           <div
             className="inline-panel-inner"
-            style={{ maxWidth: '500px', position: 'relative', zIndex: 1 }}
+            style={{ maxWidth: '440px', position: 'relative', zIndex: 1 }}
           >
-            <div className="inline-panel-body" style={{ padding: '32px', textAlign: 'center' }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '-24px' }}>
+            <div className="inline-panel-body">
+              <div className="invite-modal-close-row">
                 <button
                   type="button"
                   onClick={closeInvitePanel}
@@ -293,221 +305,123 @@ function MyCollaboratorsSection({
                   &times;
                 </button>
               </div>
-              <div
-                className="intg-icon"
-                style={{
-                  margin: '0 auto 16px',
-                  width: '48px',
-                  height: '48px',
-                  background: 'rgba(14, 165, 233, 0.15)',
-                  color: '#0ea5e9',
-                  border: '1px solid rgba(14, 165, 233, 0.3)',
-                }}
-              >
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  aria-hidden="true"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                </svg>
-              </div>
-              <h3
-                style={{
-                  fontSize: '22px',
-                  fontWeight: 800,
-                  fontFamily: "'Plus Jakarta Sans', sans-serif",
-                  color: '#fff',
-                  margin: '0 0 8px',
-                }}
-              >
-                Invite a Creator
-              </h3>
-              <p
-                id="invite-panel-desc"
-                style={{
-                  fontSize: '14px',
-                  color: 'rgba(255,255,255,0.7)',
-                  margin: '0 0 24px',
-                  lineHeight: 1.5,
-                }}
-              >
-                Share this link with a trusted creator to allow them to link their stores and
-                products to your server.
-              </p>
 
-              <div
-                id="invite-step-select"
-                style={{ display: inviteStep === 'select' ? undefined : 'none' }}
-              >
-                <div style={{ textAlign: 'left', marginBottom: '16px' }}>
-                  <label
-                    htmlFor="invite-provider-select"
-                    style={{
-                      display: 'block',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      color: 'rgba(255,255,255,0.5)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      marginBottom: '8px',
-                    }}
+              <div className="invite-modal-header">
+                <div className="intg-icon">
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
-                    Store Platform
-                  </label>
-                  <select
-                    id="invite-provider-select"
-                    className="invite-provider-pick"
-                    value={selectedProvider}
-                    onChange={(event) => {
-                      const key = event.target.value;
-                      setSelectedProvider(key);
-                      const existing = invites.find((i) => i.providerKey === key);
-                      if (existing) {
-                        setGeneratedInvite({
-                          url: `${window.location.origin}/collab-invite?id=${encodeURIComponent(existing.id)}`,
-                          expiresAt: existing.expiresAt,
-                        });
-                        setInviteStep('url');
-                      } else {
-                        setGeneratedInvite(null);
-                        setInviteStep('select');
-                      }
-                    }}
-                  >
-                    {providers.map((provider) => (
-                      <option key={provider.key} value={provider.key}>
-                        {provider.label}
-                      </option>
-                    ))}
-                  </select>
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
                 </div>
+                <h3 className="inline-panel-title">Invite a Creator</h3>
+                <p className="inline-panel-desc">
+                  Share this link with a trusted creator to allow them to link their stores and
+                  products to your server.
+                </p>
+              </div>
+
+              <div className="modal-field">
+                <label className="modal-label" htmlFor="invite-provider-select">
+                  Store Platform
+                </label>
+                <Select
+                  id="invite-provider-select"
+                  value={selectedProvider}
+                  onChange={handleProviderChange}
+                  options={providers.map((p) => ({ value: p.key, label: p.label }))}
+                />
+              </div>
+
+              {generatedInvite ? (
+                <div className="invite-url-section">
+                  <div className="invite-url-row">
+                    <div className="invite-url-box" id="invite-url-display">
+                      {generatedInvite.url}
+                    </div>
+                    <button
+                      type="button"
+                      className="invite-url-copy-btn"
+                      aria-label="Copy link"
+                      title="Copy link"
+                      onClick={() => void copyToClipboard(generatedInvite.url)}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        fill="none"
+                        aria-hidden="true"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="9" y="9" width="13" height="13" rx="2" />
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="invite-expiry-pill" id="invite-expiry">
+                    Expires {formatRelativeDate(generatedInvite.expiresAt)}
+                  </div>
+                  <div className="invite-modal-actions">
+                    <button
+                      className="btn-primary"
+                      type="button"
+                      onClick={() => void copyToClipboard(generatedInvite.url)}
+                    >
+                      Copy Invite Link
+                    </button>
+                    {currentInviteId ? (
+                      <button
+                        type="button"
+                        className={`collab-remove-btn${revokeInviteMutation.isPending ? ' btn-loading' : ''}`}
+                        style={{ marginLeft: 0, width: '100%', justifyContent: 'center' }}
+                        disabled={revokeInviteMutation.isPending}
+                        onClick={() =>
+                          currentInviteId && revokeInviteMutation.mutate(currentInviteId)
+                        }
+                      >
+                        {revokeInviteMutation.isPending ? (
+                          <>
+                            <span className="btn-loading-spinner" aria-hidden="true" />
+                            Revoking...
+                          </>
+                        ) : (
+                          'Revoke Invite'
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
                 <button
                   id="btn-generate-invite"
                   type="button"
+                  className="btn-primary invite-generate-btn"
                   disabled={!selectedProvider || generateInviteMutation.isPending}
                   onClick={() => generateInviteMutation.mutate()}
-                  style={primaryFullWidthButtonStyle}
                 >
-                  {generateInviteMutation.isPending ? 'Generating…' : 'Generate Invite Link'}
+                  {generateInviteMutation.isPending ? (
+                    <>
+                      <span className="btn-loading-spinner" aria-hidden="true" />
+                      Generating...
+                    </>
+                  ) : (
+                    'Generate Invite Link'
+                  )}
                 </button>
-              </div>
-
-              <div
-                id="invite-step-url"
-                style={{ display: inviteStep === 'url' ? undefined : 'none' }}
-              >
-                <div className="invite-url-row">
-                  <div
-                    className="invite-url-box"
-                    id="invite-url-display"
-                    style={{ marginBottom: 0 }}
-                  >
-                    {generatedInvite?.url}
-                  </div>
-                  <button
-                    type="button"
-                    className="invite-url-copy-btn"
-                    aria-label="Copy link"
-                    title="Copy link"
-                    onClick={() => generatedInvite && void copyToClipboard(generatedInvite.url)}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="16"
-                      height="16"
-                      fill="none"
-                      aria-hidden="true"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="9" y="9" width="13" height="13" rx="2" />
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                    </svg>
-                  </button>
-                </div>
-                <div
-                  id="invite-expiry"
-                  style={{
-                    marginTop: '10px',
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    color: '#38bdf8',
-                    marginBottom: '16px',
-                  }}
-                >
-                  Expires {generatedInvite ? formatRelativeDate(generatedInvite.expiresAt) : ''}
-                </div>
-
-                <div
-                  style={{
-                    textAlign: 'left',
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    marginBottom: '20px',
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'block',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      color: 'rgba(255,255,255,0.5)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      marginBottom: '8px',
-                    }}
-                  >
-                    Message Template
-                  </div>
-                  <textarea
-                    id="invite-message-template"
-                    readOnly
-                    value={messageTemplate}
-                    style={{
-                      width: '100%',
-                      height: '80px',
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'rgba(255,255,255,0.9)',
-                      fontSize: '14px',
-                      fontFamily: "'DM Sans', sans-serif",
-                      resize: 'none',
-                      outline: 'none',
-                      lineHeight: 1.5,
-                    }}
-                  />
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-                    <button
-                      type="button"
-                      style={copyTemplateButtonStyle}
-                      onClick={() => void copyToClipboard(messageTemplate)}
-                    >
-                      Copy template
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  className="btn-primary"
-                  type="button"
-                  onClick={() => generatedInvite && void copyToClipboard(generatedInvite.url)}
-                  style={primaryFullWidthButtonStyle}
-                >
-                  Copy Invite Link
-                </button>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -539,20 +453,22 @@ function MyCollaboratorsSection({
                   </div>
                   <button
                     type="button"
-                    className="btn-ghost"
+                    className={`collab-copy-btn${copiedInviteId === invite.id ? ' copied' : ''}`}
                     onClick={() =>
-                      void copyToClipboard(
-                        `${window.location.origin}/collab-invite?id=${encodeURIComponent(invite.id)}`
+                      handleCopyInviteLink(
+                        `${window.location.origin}/collab-invite?id=${encodeURIComponent(invite.id)}`,
+                        invite.id
                       )
                     }
                   >
-                    Copy link
+                    {copiedInviteId === invite.id ? 'Copied!' : 'Copy link'}
                   </button>
                   <button
                     type="button"
                     className={`collab-remove-btn${revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id ? ' btn-loading' : ''}`}
                     disabled={
-                      revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id
+                      revokeInviteMutation.isPending &&
+                      revokeInviteMutation.variables === invite.id
                     }
                     onClick={() => revokeInviteMutation.mutate(invite.id)}
                   >
@@ -593,16 +509,9 @@ function MyCollaboratorsSection({
                   <div className="collab-name">
                     {connection.collaboratorDisplayName ?? connection.source}
                   </div>
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--text-secondary)',
-                      fontFamily: "'DM Sans',sans-serif",
-                      marginTop: '2px',
-                    }}
-                  >
-                    {providerMap.get(connection.provider) ?? connection.provider} ·{' '}
-                    {connection.linkType} ·{' '}
+                  <div className="collab-row-meta">
+                    {providerMap.get(connection.provider) ?? connection.provider} &middot;{' '}
+                    {connection.linkType} &middot;{' '}
                     {connection.webhookConfigured ? 'Webhook ready' : 'Webhook pending'}
                   </div>
                 </div>
@@ -768,15 +677,8 @@ function StoresICollaborateWithSection({
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="collab-name">{store.ownerDisplayName ?? 'Creator Store'}</div>
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--text-secondary)',
-                      fontFamily: "'DM Sans',sans-serif",
-                      marginTop: '2px',
-                    }}
-                  >
-                    {store.provider} · {store.linkType} · Connected{' '}
+                  <div className="collab-row-meta">
+                    {store.provider} &middot; {store.linkType} &middot; Connected{' '}
                     {formatRelativeDate(store.createdAt)}
                   </div>
                 </div>
@@ -838,31 +740,3 @@ function requireAuthUserId(authUserId: string | undefined) {
 
   return authUserId;
 }
-
-const primaryFullWidthButtonStyle = {
-  width: '100%',
-  padding: '12px 24px',
-  background: '#0ea5e9',
-  color: '#fff',
-  border: 'none',
-  borderRadius: '12px',
-  fontSize: '15px',
-  fontWeight: 700,
-  cursor: 'pointer',
-  fontFamily: "'DM Sans', sans-serif",
-} satisfies React.CSSProperties;
-
-const copyTemplateButtonStyle = {
-  background: 'none',
-  border: 'none',
-  color: '#0ea5e9',
-  fontSize: '13px',
-  fontWeight: 700,
-  cursor: 'pointer',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '6px',
-  padding: '4px 8px',
-  borderRadius: '6px',
-  transition: 'background 0.15s',
-} satisfies React.CSSProperties;

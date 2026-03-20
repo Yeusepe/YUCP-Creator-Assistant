@@ -85,7 +85,7 @@ describe('dashboard inline panels', () => {
     const { container } = render(<Component />, { wrapper: createWrapper() });
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /add app/i })).toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: /add app/i }).length).toBeGreaterThan(0)
     );
 
     fireEvent.click(screen.getByRole('button', { name: /^add app$/i }));
@@ -115,5 +115,22 @@ describe('dashboard inline panels', () => {
 
     const portalChild = screen.getByTestId('portal-child');
     expect(portalChild.parentElement).toBe(portalHost);
+  });
+
+  it('unmounts integrations skeletons once the cards have loaded', async () => {
+    const Component = IntegrationsRoute.options.component;
+    if (!Component) {
+      throw new Error('Integrations route component is not defined');
+    }
+
+    const portalHost = document.createElement('div');
+    portalHost.id = 'portal-root';
+    document.body.appendChild(portalHost);
+
+    const { container } = render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(container.querySelector('.skeleton-action-row, .skeleton-stack')).toBeNull()
+    );
   });
 });

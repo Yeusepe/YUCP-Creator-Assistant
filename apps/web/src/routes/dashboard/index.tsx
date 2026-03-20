@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
+import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
 import {
   DashboardActionRowSkeleton,
   DashboardGridSkeleton,
@@ -13,8 +14,8 @@ import {
   DashboardSettingsSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
 import { DashboardPanelErrorState } from '@/components/dashboard/PanelErrorState';
-import { useToast } from '@/components/ui/Toast';
 import { Select } from '@/components/ui/Select';
+import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
@@ -208,9 +209,7 @@ function PersonalSetupPanel() {
   return (
     <section
       id="collab-servers-section"
-      className={`section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1 personal-only${
-        !isLoading ? ' skeleton-loaded' : ''
-      }`}
+      className="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1 personal-only"
       style={{ marginBottom: '24px' }}
     >
       <div className="flex items-center gap-3" style={{ gap: '12px', marginBottom: '24px' }}>
@@ -247,110 +246,108 @@ function PersonalSetupPanel() {
         specific server settings.
       </p>
 
-      <DashboardGridSkeleton cards={2} />
-
-      {!isLoading ? (
-        <div
-          id="participating-servers-list"
-          className="skeleton-content grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"
-        >
-          {guilds.length === 0 ? (
-            <div
-              className="bento-col-12 empty-state platform-card flex items-center justify-center text-center"
-              style={{ margin: 0 }}
-            >
-              <div>
-                <div
-                  className="intg-icon"
-                  style={{
-                    margin: '0 auto 16px',
-                    width: '40px',
-                    height: '40px',
-                    background: 'rgba(14,165,233,0.1)',
-                    color: '#0ea5e9',
-                  }}
-                >
-                  <svg
-                    aria-hidden="true"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M5 12h14M12 5l7 7-7 7" />
-                  </svg>
-                </div>
-                <p
-                  className="participating-server-name font-bold mb-2"
-                  style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: '16px' }}
-                >
-                  No participating servers
-                </p>
-                <p
-                  className="participating-server-hint max-w-sm mx-auto mb-6"
-                  style={{
-                    fontFamily: "'DM Sans',sans-serif",
-                    fontSize: '13px',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  You aren&apos;t managing any servers yet. Install the Assistant to your server to
-                  connect your storefront data.
-                </p>
-                <button className="btn-primary" type="button" onClick={openInstallFlow}>
-                  Add Assistant to Server
-                </button>
-              </div>
-            </div>
-          ) : (
-            guilds.map((guild) => (
-              <button
-                key={guild.id}
-                type="button"
-                className="platform-card connected flex items-center gap-3 cursor-pointer hover:bg-white/5 transition-colors"
-                style={{ padding: '12px 16px', textAlign: 'left' }}
-                onClick={() =>
-                  navigate({
-                    to: '/dashboard',
-                    search: {
-                      guild_id: guild.id,
-                      ...(guild.tenantId ? { tenant_id: guild.tenantId } : {}),
-                    },
-                  })
-                }
+      <DashboardSkeletonSwap
+        isLoading={isLoading}
+        skeleton={<DashboardGridSkeleton cards={2} />}
+        contentId="participating-servers-list"
+        contentClassName="skeleton-content grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"
+      >
+        {guilds.length === 0 ? (
+          <div
+            className="bento-col-12 empty-state platform-card flex items-center justify-center text-center"
+            style={{ margin: 0 }}
+          >
+            <div>
+              <div
+                className="intg-icon"
+                style={{
+                  margin: '0 auto 16px',
+                  width: '40px',
+                  height: '40px',
+                  background: 'rgba(14,165,233,0.1)',
+                  color: '#0ea5e9',
+                }}
               >
-                {guild.icon ? (
-                  <img
-                    src={getServerIconUrl(guild.id, guild.icon) ?? ''}
-                    className="w-10 h-10 rounded-full object-cover"
-                    alt=""
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center font-bold text-white/70">
-                    {guild.name
-                      .split(' ')
-                      .map((part) => part.charAt(0))
-                      .join('')
-                      .slice(0, 2)
-                      .toUpperCase() || '?'}
-                  </div>
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="participating-server-name font-bold text-base truncate">
-                    {guild.name || 'Unnamed'}
-                  </div>
-                  <div className="participating-server-hint text-xs">Manage Settings →</div>
-                </div>
+                <svg
+                  aria-hidden="true"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
+              </div>
+              <p
+                className="participating-server-name font-bold mb-2"
+                style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: '16px' }}
+              >
+                No participating servers
+              </p>
+              <p
+                className="participating-server-hint max-w-sm mx-auto mb-6"
+                style={{
+                  fontFamily: "'DM Sans',sans-serif",
+                  fontSize: '13px',
+                  lineHeight: 1.5,
+                }}
+              >
+                You aren&apos;t managing any servers yet. Install the Assistant to your server to
+                connect your storefront data.
+              </p>
+              <button className="btn-primary" type="button" onClick={openInstallFlow}>
+                Add Assistant to Server
               </button>
-            ))
-          )}
-        </div>
-      ) : null}
+            </div>
+          </div>
+        ) : (
+          guilds.map((guild) => (
+            <button
+              key={guild.id}
+              type="button"
+              className="platform-card connected flex items-center gap-3 cursor-pointer hover:bg-white/5 transition-colors"
+              style={{ padding: '12px 16px', textAlign: 'left' }}
+              onClick={() =>
+                navigate({
+                  to: '/dashboard',
+                  search: {
+                    guild_id: guild.id,
+                    ...(guild.tenantId ? { tenant_id: guild.tenantId } : {}),
+                  },
+                })
+              }
+            >
+              {guild.icon ? (
+                <img
+                  src={getServerIconUrl(guild.id, guild.icon) ?? ''}
+                  className="w-10 h-10 rounded-full object-cover"
+                  alt=""
+                  loading="lazy"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center font-bold text-white/70">
+                  {guild.name
+                    .split(' ')
+                    .map((part) => part.charAt(0))
+                    .join('')
+                    .slice(0, 2)
+                    .toUpperCase() || '?'}
+                </div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="participating-server-name font-bold text-base truncate">
+                  {guild.name || 'Unnamed'}
+                </div>
+                <div className="participating-server-hint text-xs">Manage Settings →</div>
+              </div>
+            </button>
+          ))
+        )}
+      </DashboardSkeletonSwap>
     </section>
   );
 }
@@ -443,9 +440,7 @@ function ConnectedPlatformsPanel() {
   return (
     <section
       id="connected-platforms-section"
-      className={`section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-2 personal-only${
-        !isLoading ? ' skeleton-loaded' : ''
-      }`}
+      className="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-2 personal-only"
     >
       <div className="flex items-center gap-3" style={{ gap: '12px', marginBottom: '24px' }}>
         <div
@@ -457,103 +452,107 @@ function ConnectedPlatformsPanel() {
         <h2 className="text-lg font-black">Connected Platforms</h2>
       </div>
 
-      <DashboardActionRowSkeleton count={3} widths={[164, 184, 168]} />
-      <DashboardListSkeleton rows={3} />
+      <DashboardSkeletonSwap
+        isLoading={isLoading}
+        skeleton={
+          <>
+            <DashboardActionRowSkeleton count={3} widths={[164, 184, 168]} />
+            <DashboardListSkeleton rows={3} />
+          </>
+        }
+        contentClassName="skeleton-content"
+      >
+        <div aria-hidden="true" style={{ marginBottom: '16px' }} />
+        <div
+          id="add-account-buttons"
+          style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}
+        >
+          {unlinkedPlatformProviders.map((provider) => {
+            const href = providerHref(provider);
+            return (
+              <button
+                key={provider.key}
+                type="button"
+                className="card-action-btn link"
+                style={{
+                  flex: 1,
+                  minWidth: '160px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                }}
+                onClick={() => {
+                  if (!href || typeof window === 'undefined') {
+                    return;
+                  }
+                  window.location.assign(href);
+                }}
+              >
+                {provider.icon ? (
+                  <img
+                    src={getProviderIconPath(provider) ?? ''}
+                    style={{ width: '16px', borderRadius: '3px' }}
+                    alt=""
+                  />
+                ) : null}
+                Add {provider.label ?? provider.key} Account
+              </button>
+            );
+          })}
+        </div>
 
-      {!isLoading ? (
-        <div className="skeleton-content">
-          <div aria-hidden="true" style={{ marginBottom: '16px' }} />
-          <div
-            id="add-account-buttons"
-            style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}
-          >
-            {unlinkedPlatformProviders.map((provider) => {
-              const href = providerHref(provider);
+        <div
+          className="grid grid-cols-1 md:grid-cols-3 gap-4"
+          id="platforms-grid"
+          style={{ display: 'grid' }}
+        >
+          <div className="platform-card connected">
+            <div className="flex items-start justify-between">
+              <div className="w-10 h-10 bg-[#5865F2] rounded-xl flex items-center justify-center overflow-hidden">
+                <img src="/Icons/Discord.png" className="w-6 h-6 object-contain" alt="Discord®" />
+              </div>
+              <span className="status-pill connected">Connected</span>
+            </div>
+            <div>
+              <h3 className="font-bold text-base mb-0.5">Discord&reg;</h3>
+              <p className="text-xs text-white/60" style={{ fontFamily: "'DM Sans',sans-serif" }}>
+                Bot access active
+              </p>
+            </div>
+          </div>
+
+          <div id="dynamic-platform-cards" className="contents">
+            {platformProviders.map((provider) => {
+              const account = accountsByProvider.get(provider.key);
               return (
-                <button
+                <ProviderStatusCard
                   key={provider.key}
-                  type="button"
-                  className="card-action-btn link"
-                  style={{
-                    flex: 1,
-                    minWidth: '160px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                  }}
-                  onClick={() => {
-                    if (!href || typeof window === 'undefined') {
-                      return;
+                  account={account}
+                  isDisconnectOpen={pendingProviderDisconnect === provider.key}
+                  isDisconnectPending={
+                    disconnectMutation.isPending && disconnectMutation.variables === account?.id
+                  }
+                  onCloseDisconnect={() => setPendingProviderDisconnect(null)}
+                  onConfirmDisconnect={() => {
+                    if (account) {
+                      disconnectMutation.mutate(account.id);
                     }
-                    window.location.assign(href);
                   }}
-                >
-                  {provider.icon ? (
-                    <img
-                      src={getProviderIconPath(provider) ?? ''}
-                      style={{ width: '16px', borderRadius: '3px' }}
-                      alt=""
-                    />
-                  ) : null}
-                  Add {provider.label ?? provider.key} Account
-                </button>
+                  onOpenDisconnect={() => setPendingProviderDisconnect(provider.key)}
+                  onConnect={() => {
+                    const href = providerHref(provider);
+                    if (href && typeof window !== 'undefined') {
+                      window.location.assign(href);
+                    }
+                  }}
+                  provider={provider}
+                />
               );
             })}
           </div>
-
-          <div
-            className="grid grid-cols-1 md:grid-cols-3 gap-4"
-            id="platforms-grid"
-            style={{ display: 'grid' }}
-          >
-            <div className="platform-card connected">
-              <div className="flex items-start justify-between">
-                <div className="w-10 h-10 bg-[#5865F2] rounded-xl flex items-center justify-center overflow-hidden">
-                  <img src="/Icons/Discord.png" className="w-6 h-6 object-contain" alt="Discord®" />
-                </div>
-                <span className="status-pill connected">Connected</span>
-              </div>
-              <div>
-                <h3 className="font-bold text-base mb-0.5">Discord&reg;</h3>
-                <p className="text-xs text-white/60" style={{ fontFamily: "'DM Sans',sans-serif" }}>
-                  Bot access active
-                </p>
-              </div>
-            </div>
-
-            <div id="dynamic-platform-cards" className="contents">
-              {platformProviders.map((provider) => {
-                const account = accountsByProvider.get(provider.key);
-                return (
-                  <ProviderStatusCard
-                    key={provider.key}
-                    account={account}
-                    isDisconnectOpen={pendingProviderDisconnect === provider.key}
-                    isDisconnectPending={
-                      disconnectMutation.isPending && disconnectMutation.variables === account?.id
-                    }
-                    onCloseDisconnect={() => setPendingProviderDisconnect(null)}
-                    onConfirmDisconnect={() => {
-                      if (account) {
-                        disconnectMutation.mutate(account.id);
-                      }
-                    }}
-                    onOpenDisconnect={() => setPendingProviderDisconnect(provider.key)}
-                    onConnect={() => {
-                      const href = providerHref(provider);
-                      if (href && typeof window !== 'undefined') {
-                        window.location.assign(href);
-                      }
-                    }}
-                    provider={provider}
-                  />
-                );
-              })}
-            </div>
-          </div>
         </div>
-      ) : null}
+      </DashboardSkeletonSwap>
     </section>
   );
 }
@@ -994,9 +993,7 @@ function ServerConfigPanel() {
   return (
     <div
       id="server-settings-card"
-      className={`svr-cfg bento-col-12 animate-in animate-in-delay-3 server-only${
-        !isLoading ? ' skeleton-loaded' : ''
-      }`}
+      className="svr-cfg bento-col-12 animate-in animate-in-delay-3 server-only"
     >
       {saveSettingMutation.isPending && <div className="dashboard-sync-bar" aria-hidden="true" />}
       <div className="svr-cfg-bar">
@@ -1006,266 +1003,267 @@ function ServerConfigPanel() {
       <div className="settings-subsection" id="server-store-integrations-section">
         <div className="settings-subsection-title">Store Integrations</div>
         <div>
-          <DashboardIntegrationsSkeleton cards={3} />
-          {!isLoading ? (
-            <div className="intg-provider-grid skeleton-content">
-              {linkedProviders.map((provider) => {
-                const account = accountsByProvider.get(provider.key);
-                const statusValue = account?.status ?? 'active';
-                const badgeClass =
-                  statusValue === 'degraded'
-                    ? 'degraded'
-                    : statusValue === 'disconnected'
-                      ? 'disconnected'
-                      : 'active';
-                const badgeLabel =
-                  statusValue === 'degraded'
-                    ? 'Degraded'
-                    : statusValue === 'disconnected'
-                      ? 'Disconnected'
-                      : 'Active';
-                const iconPath = getProviderIconPath(provider);
-                const manageHref = buildProviderConnectUrl(provider, { authUserId, guildId });
-                return (
-                  <article
-                    key={provider.key}
-                    className="intg-provider-card"
-                    id={`server-tile-${provider.key}`}
-                    style={
-                      provider.iconBg
-                        ? ({
-                            '--provider-accent': `${provider.iconBg}33`,
-                            '--provider-icon-bg': provider.iconBg,
-                          } as React.CSSProperties)
-                        : undefined
-                    }
-                  >
-                    <div className="intg-provider-card-header">
-                      <div className="intg-provider-logo-wrap">
-                        <div className="intg-provider-logo-halo" />
-                        <div className="intg-provider-logo">
-                          {iconPath ? (
-                            <img src={iconPath} alt={provider.label ?? provider.key} />
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="intg-provider-meta">
-                        <h3 className="intg-provider-name">{provider.label ?? provider.key}</h3>
-                        <span className={`intg-status-badge ${badgeClass}`}>{badgeLabel}</span>
+          <DashboardSkeletonSwap
+            isLoading={isLoading}
+            skeleton={<DashboardIntegrationsSkeleton cards={3} />}
+            contentClassName="intg-provider-grid skeleton-content"
+          >
+            {linkedProviders.map((provider) => {
+              const account = accountsByProvider.get(provider.key);
+              const statusValue = account?.status ?? 'active';
+              const badgeClass =
+                statusValue === 'degraded'
+                  ? 'degraded'
+                  : statusValue === 'disconnected'
+                    ? 'disconnected'
+                    : 'active';
+              const badgeLabel =
+                statusValue === 'degraded'
+                  ? 'Degraded'
+                  : statusValue === 'disconnected'
+                    ? 'Disconnected'
+                    : 'Active';
+              const iconPath = getProviderIconPath(provider);
+              const manageHref = buildProviderConnectUrl(provider, { authUserId, guildId });
+              return (
+                <article
+                  key={provider.key}
+                  className="intg-provider-card"
+                  id={`server-tile-${provider.key}`}
+                  style={
+                    provider.iconBg
+                      ? ({
+                          '--provider-accent': `${provider.iconBg}33`,
+                          '--provider-icon-bg': provider.iconBg,
+                        } as React.CSSProperties)
+                      : undefined
+                  }
+                >
+                  <div className="intg-provider-card-header">
+                    <div className="intg-provider-logo-wrap">
+                      <div className="intg-provider-logo-halo" />
+                      <div className="intg-provider-logo">
+                        {iconPath ? (
+                          <img src={iconPath} alt={provider.label ?? provider.key} />
+                        ) : null}
                       </div>
                     </div>
-                    <p className="intg-provider-hint">
-                      {provider.serverTileHint ??
-                        'Allow users to verify purchases in this Discord server.'}
-                    </p>
-                    <div className="intg-provider-card-footer">
-                      <div className="flex items-center gap-2">
-                        <div
-                          id={`toggle-serverEnable${provider.key[0]?.toUpperCase() ?? ''}${provider.key.slice(1)}`}
-                          className="svr-cfg-switch active"
-                          aria-hidden="true"
-                        />
-                        <span className="intg-provider-enable-label">Enabled</span>
-                      </div>
-                      {manageHref ? (
-                        <a href={manageHref} className="intg-manage-btn">
-                          Manage
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M5 12h14M12 5l7 7-7 7" />
-                          </svg>
-                        </a>
-                      ) : null}
+                    <div className="intg-provider-meta">
+                      <h3 className="intg-provider-name">{provider.label ?? provider.key}</h3>
+                      <span className={`intg-status-badge ${badgeClass}`}>{badgeLabel}</span>
                     </div>
-                  </article>
-                );
-              })}
-              {linkedProviders.length === 0 ? (
-                <div id="server-integrations-empty" className="intg-provider-card-empty">
-                  <div className="intg-provider-card-empty-icon">
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                    </svg>
                   </div>
-                  <p>
-                    No stores connected yet. Add a store account in{' '}
-                    <strong>Connected Platforms</strong> above.
+                  <p className="intg-provider-hint">
+                    {provider.serverTileHint ??
+                      'Allow users to verify purchases in this Discord server.'}
                   </p>
+                  <div className="intg-provider-card-footer">
+                    <div className="flex items-center gap-2">
+                      <div
+                        id={`toggle-serverEnable${provider.key[0]?.toUpperCase() ?? ''}${provider.key.slice(1)}`}
+                        className="svr-cfg-switch active"
+                        aria-hidden="true"
+                      />
+                      <span className="intg-provider-enable-label">Enabled</span>
+                    </div>
+                    {manageHref ? (
+                      <a href={manageHref} className="intg-manage-btn">
+                        Manage
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg>
+                      </a>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+            {linkedProviders.length === 0 ? (
+              <div id="server-integrations-empty" className="intg-provider-card-empty">
+                <div className="intg-provider-card-empty-icon">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                  </svg>
                 </div>
-              ) : null}
-            </div>
-          ) : null}
+                <p>
+                  No stores connected yet. Add a store account in{' '}
+                  <strong>Connected Platforms</strong> above.
+                </p>
+              </div>
+            ) : null}
+          </DashboardSkeletonSwap>
         </div>
       </div>
 
       <div className="settings-subsection">
         <div className="settings-subsection-title">General</div>
         <div className="settings-subsection-body">
-          <DashboardSettingsSkeleton
-            rows={SWITCH_SETTING_CONFIG.length + SELECT_SETTING_CONFIG.length + 2}
-          />
-
-          {!isLoading ? (
-            <div className="skeleton-content">
-              {SWITCH_SETTING_CONFIG.map((setting) => (
-                <article key={setting.key} className="svr-cfg-tile">
-                  <div className="svr-cfg-tile-head">
-                    <div className="svr-cfg-tile-icon">
-                      <img src={setting.icon} alt="" />
-                    </div>
-                    <div className="svr-cfg-tile-text">
-                      <span className="svr-cfg-tile-label">{setting.label}</span>
-                      <span className="svr-cfg-tile-hint">{setting.hint}</span>
-                    </div>
-                  </div>
-                  <div className="svr-cfg-tile-ctrl">
-                    <div
-                      id={`toggle-${setting.key}`}
-                      className={`svr-cfg-switch${policyDraft[setting.key] ? ' active' : ''}${
-                        saveSettingMutation.isPending &&
-                        saveSettingMutation.variables?.key === setting.key
-                          ? ' saving'
-                          : ''
-                      }`}
-                      role="switch"
-                      tabIndex={0}
-                      aria-checked={policyDraft[setting.key]}
-                      aria-label={setting.label}
-                      aria-disabled={saveSettingMutation.isPending}
-                      onClick={() => {
-                        if (!saveSettingMutation.isPending) onBooleanSettingChange(setting.key);
-                      }}
-                      onKeyDown={(event) => {
-                        if (
-                          !saveSettingMutation.isPending &&
-                          (event.key === 'Enter' || event.key === ' ')
-                        ) {
-                          event.preventDefault();
-                          onBooleanSettingChange(setting.key);
-                        }
-                      }}
-                    />
-                    <SaveIndicator
-                      settingKey={setting.key}
-                      state={saveStates[setting.key] ?? 'idle'}
-                    />
-                  </div>
-                </article>
-              ))}
-
-              {SELECT_SETTING_CONFIG.map((setting) => (
-                <article key={setting.key} className="svr-cfg-tile">
-                  <div className="svr-cfg-tile-head">
-                    <div className="svr-cfg-tile-icon">
-                      <img src={setting.icon} alt="" />
-                    </div>
-                    <div className="svr-cfg-tile-text">
-                      <span className="svr-cfg-tile-label">{setting.label}</span>
-                      <span className="svr-cfg-tile-hint">{setting.hint}</span>
-                    </div>
-                  </div>
-                  <div className="svr-cfg-tile-ctrl">
-                    <Select
-                      id={`select-${setting.key}`}
-                      value={policyDraft[setting.key] as string}
-                      options={setting.options}
-                      disabled={saveSettingMutation.isPending}
-                      onChange={(val) => onSelectSettingChange(setting.key, val)}
-                    />
-                    <SaveIndicator
-                      settingKey={setting.key}
-                      state={saveStates[setting.key] ?? 'idle'}
-                    />
-                  </div>
-                </article>
-              ))}
-
-              <article className="svr-cfg-tile">
+          <DashboardSkeletonSwap
+            isLoading={isLoading}
+            skeleton={
+              <DashboardSettingsSkeleton
+                rows={SWITCH_SETTING_CONFIG.length + SELECT_SETTING_CONFIG.length + 2}
+              />
+            }
+            contentClassName="skeleton-content"
+          >
+            {SWITCH_SETTING_CONFIG.map((setting) => (
+              <article key={setting.key} className="svr-cfg-tile">
                 <div className="svr-cfg-tile-head">
                   <div className="svr-cfg-tile-icon">
-                    <img src="/Icons/Library.png" alt="" />
+                    <img src={setting.icon} alt="" />
                   </div>
                   <div className="svr-cfg-tile-text">
-                    <span className="svr-cfg-tile-label">Logs Channel</span>
-                    <span className="svr-cfg-tile-hint">
-                      Channel where verification activity logs are posted.
-                    </span>
+                    <span className="svr-cfg-tile-label">{setting.label}</span>
+                    <span className="svr-cfg-tile-hint">{setting.hint}</span>
+                  </div>
+                </div>
+                <div className="svr-cfg-tile-ctrl">
+                  <div
+                    id={`toggle-${setting.key}`}
+                    className={`svr-cfg-switch${policyDraft[setting.key] ? ' active' : ''}${
+                      saveSettingMutation.isPending &&
+                      saveSettingMutation.variables?.key === setting.key
+                        ? ' saving'
+                        : ''
+                    }`}
+                    role="switch"
+                    tabIndex={0}
+                    aria-checked={policyDraft[setting.key]}
+                    aria-label={setting.label}
+                    aria-disabled={saveSettingMutation.isPending}
+                    onClick={() => {
+                      if (!saveSettingMutation.isPending) onBooleanSettingChange(setting.key);
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        !saveSettingMutation.isPending &&
+                        (event.key === 'Enter' || event.key === ' ')
+                      ) {
+                        event.preventDefault();
+                        onBooleanSettingChange(setting.key);
+                      }
+                    }}
+                  />
+                  <SaveIndicator
+                    settingKey={setting.key}
+                    state={saveStates[setting.key] ?? 'idle'}
+                  />
+                </div>
+              </article>
+            ))}
+
+            {SELECT_SETTING_CONFIG.map((setting) => (
+              <article key={setting.key} className="svr-cfg-tile">
+                <div className="svr-cfg-tile-head">
+                  <div className="svr-cfg-tile-icon">
+                    <img src={setting.icon} alt="" />
+                  </div>
+                  <div className="svr-cfg-tile-text">
+                    <span className="svr-cfg-tile-label">{setting.label}</span>
+                    <span className="svr-cfg-tile-hint">{setting.hint}</span>
                   </div>
                 </div>
                 <div className="svr-cfg-tile-ctrl">
                   <Select
-                    id="select-logChannelId"
-                    value={policyDraft.logChannelId}
-                    options={[
-                      { value: '', label: '— None —' },
-                      ...(channelsQuery.data?.map((ch) => ({
-                        value: ch.id,
-                        label: `#${ch.name}`,
-                      })) ?? []),
-                    ]}
-                    onChange={(val) => onSelectSettingChange('logChannelId', val)}
+                    id={`select-${setting.key}`}
+                    value={policyDraft[setting.key] as string}
+                    options={setting.options}
+                    disabled={saveSettingMutation.isPending}
+                    onChange={(val) => onSelectSettingChange(setting.key, val)}
                   />
                   <SaveIndicator
-                    settingKey="logChannelId"
-                    state={saveStates.logChannelId ?? 'idle'}
+                    settingKey={setting.key}
+                    state={saveStates[setting.key] ?? 'idle'}
                   />
                 </div>
               </article>
+            ))}
 
-              <article className="svr-cfg-tile">
-                <div className="svr-cfg-tile-head">
-                  <div className="svr-cfg-tile-icon">
-                    <img src="/Icons/World.png" alt="" />
-                  </div>
-                  <div className="svr-cfg-tile-text">
-                    <span className="svr-cfg-tile-label">Announcements Channel</span>
-                    <span className="svr-cfg-tile-hint">
-                      Channel where bot updates and announcements are posted.
-                    </span>
-                  </div>
+            <article className="svr-cfg-tile">
+              <div className="svr-cfg-tile-head">
+                <div className="svr-cfg-tile-icon">
+                  <img src="/Icons/Library.png" alt="" />
                 </div>
-                <div className="svr-cfg-tile-ctrl">
-                  <Select
-                    id="select-announcementsChannelId"
-                    value={policyDraft.announcementsChannelId}
-                    options={[
-                      { value: '', label: '— None —' },
-                      ...(channelsQuery.data?.map((ch) => ({
-                        value: ch.id,
-                        label: `#${ch.name}`,
-                      })) ?? []),
-                    ]}
-                    onChange={(val) =>
-                      onSelectSettingChange('announcementsChannelId', val)
-                    }
-                  />
-                  <SaveIndicator
-                    settingKey="announcementsChannelId"
-                    state={saveStates.announcementsChannelId ?? 'idle'}
-                  />
+                <div className="svr-cfg-tile-text">
+                  <span className="svr-cfg-tile-label">Logs Channel</span>
+                  <span className="svr-cfg-tile-hint">
+                    Channel where verification activity logs are posted.
+                  </span>
                 </div>
-              </article>
-            </div>
-          ) : null}
+              </div>
+              <div className="svr-cfg-tile-ctrl">
+                <Select
+                  id="select-logChannelId"
+                  value={policyDraft.logChannelId}
+                  options={[
+                    { value: '', label: '— None —' },
+                    ...(channelsQuery.data?.map((ch) => ({
+                      value: ch.id,
+                      label: `#${ch.name}`,
+                    })) ?? []),
+                  ]}
+                  onChange={(val) => onSelectSettingChange('logChannelId', val)}
+                />
+                <SaveIndicator
+                  settingKey="logChannelId"
+                  state={saveStates.logChannelId ?? 'idle'}
+                />
+              </div>
+            </article>
+
+            <article className="svr-cfg-tile">
+              <div className="svr-cfg-tile-head">
+                <div className="svr-cfg-tile-icon">
+                  <img src="/Icons/World.png" alt="" />
+                </div>
+                <div className="svr-cfg-tile-text">
+                  <span className="svr-cfg-tile-label">Announcements Channel</span>
+                  <span className="svr-cfg-tile-hint">
+                    Channel where bot updates and announcements are posted.
+                  </span>
+                </div>
+              </div>
+              <div className="svr-cfg-tile-ctrl">
+                <Select
+                  id="select-announcementsChannelId"
+                  value={policyDraft.announcementsChannelId}
+                  options={[
+                    { value: '', label: '— None —' },
+                    ...(channelsQuery.data?.map((ch) => ({
+                      value: ch.id,
+                      label: `#${ch.name}`,
+                    })) ?? []),
+                  ]}
+                  onChange={(val) => onSelectSettingChange('announcementsChannelId', val)}
+                />
+                <SaveIndicator
+                  settingKey="announcementsChannelId"
+                  state={saveStates.announcementsChannelId ?? 'idle'}
+                />
+              </div>
+            </article>
+          </DashboardSkeletonSwap>
         </div>
       </div>
 

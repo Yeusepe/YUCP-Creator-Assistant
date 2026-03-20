@@ -1,10 +1,17 @@
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authClient } from '@/lib/auth-client';
 import { SignInPage } from '@/routes/sign-in';
 
+const cloudBackgroundReady = vi.hoisted(() => ({
+  callback: undefined as undefined | (() => void),
+}));
+
 vi.mock('@/components/three/CloudBackground', () => ({
-  CloudBackground: () => <div data-testid="cloud-background" />,
+  CloudBackground: ({ onReady }: { onReady?: () => void }) => {
+    cloudBackgroundReady.callback = onReady;
+    return <div data-testid="cloud-background" />;
+  },
 }));
 
 vi.mock('@/lib/auth-client', () => ({
@@ -23,6 +30,7 @@ describe('Page shell boot', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    cloudBackgroundReady.callback = undefined;
     originalRequestAnimationFrame = globalThis.requestAnimationFrame;
     originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
     originalFetch = globalThis.fetch;
@@ -59,12 +67,32 @@ describe('Page shell boot', () => {
 
     expect(container.querySelector('#page-loading-overlay .plo-bag-scene')).toBeTruthy();
 
+    act(() => {
+      cloudBackgroundReady.callback?.();
+    });
+
     await vi.runAllTimersAsync();
 
     expect(container.querySelector('#page-content')?.classList.contains('visible')).toBe(true);
+  });
+
+  it('keeps the loading overlay mounted until the cloud background signals readiness', async () => {
+    const { container } = render(<SignInPage />);
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(container.querySelector('#page-content')?.classList.contains('visible')).toBe(false);
     expect(
       (container.querySelector('#page-loading-overlay') as HTMLDivElement | null)?.style.display
-    ).toBe('none');
+    ).not.toBe('none');
+
+    act(() => {
+      cloudBackgroundReady.callback?.();
+    });
+
+    await vi.runAllTimersAsync();
+
+    expect(container.querySelector('#page-content')?.classList.contains('visible')).toBe(true);
   });
 
   it('keeps dashboard auth independent from guild selection in the Discord callback URL', async () => {

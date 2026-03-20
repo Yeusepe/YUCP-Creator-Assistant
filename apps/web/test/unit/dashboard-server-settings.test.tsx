@@ -257,4 +257,19 @@ describe('dashboard server settings', () => {
 
     expect(screen.queryByText('Allow Mismatched Emails')).not.toBeInTheDocument();
   });
+
+  it('unmounts dashboard setup skeletons once the loaded content is rendered', async () => {
+    const Component = DashboardIndexRoute.options.component;
+    if (!Component) {
+      throw new Error('Dashboard index route component is not defined');
+    }
+
+    const { container } = render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Allow Mismatched Emails')).toBeInTheDocument());
+
+    expect(
+      container.querySelector('.skeleton-action-row, .skeleton-grid, .skeleton-stack')
+    ).toBeNull();
+  });
 });

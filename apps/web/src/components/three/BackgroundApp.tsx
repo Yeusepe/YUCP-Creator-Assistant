@@ -1,5 +1,6 @@
 import { Clouds, Sky as SkyImpl } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
+import { useEffect } from 'react';
 import * as THREE from 'three';
 import cloudTextureUrl from '@/assets/cloud.png';
 import { MovingCloud } from './MovingCloud';
@@ -77,9 +78,27 @@ function BackgroundSky() {
   );
 }
 
-export default function BackgroundApp() {
+function BackgroundReadySignal({ onReady }: { onReady?: () => void }) {
+  useEffect(() => {
+    if (!onReady) return;
+    const frameId = requestAnimationFrame(() => onReady());
+    return () => cancelAnimationFrame(frameId);
+  }, [onReady]);
+
+  return null;
+}
+
+export default function BackgroundApp({ onReady }: { onReady?: () => void }) {
   return (
-    <Canvas camera={{ position: [0, -5, 15], fov: 60 }} gl={{ alpha: false }}>
+    <Canvas
+      camera={{ position: [0, -5, 15], fov: 60 }}
+      gl={{ alpha: true }}
+      onCreated={({ gl }) => {
+        gl.setClearColor(0x000000, 0);
+      }}
+      style={{ background: 'transparent' }}
+    >
+      <BackgroundReadySignal onReady={onReady} />
       <BackgroundSky />
       <ambientLight intensity={Math.PI / 1.5} />
       <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />

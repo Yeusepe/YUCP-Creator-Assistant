@@ -1,11 +1,13 @@
 import { CloudBackgroundLayer } from '@/components/three/CloudBackground';
 
 type BackgroundCanvasRootProps = {
+  onReady?: () => void;
   zIndex?: number;
   position?: 'fixed' | 'absolute';
 };
 
 export function BackgroundCanvasRoot({
+  onReady,
   zIndex = -20,
   position = 'fixed',
 }: BackgroundCanvasRootProps) {
@@ -34,7 +36,7 @@ export function BackgroundCanvasRoot({
         pointerEvents: 'none',
       }}
     >
-      <CloudBackgroundLayer />
+      <CloudBackgroundLayer onReady={onReady} />
     </div>
   );
 }

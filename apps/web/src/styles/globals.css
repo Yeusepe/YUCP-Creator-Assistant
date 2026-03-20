@@ -33,7 +33,24 @@
 }
 
 /* Cloud background layer fade-in (used by CloudBackgroundLayer / CloudForegroundLayer) */
+.cloud-layer-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.cloud-background-surface {
+  position: absolute;
+  inset: 0;
+  background: #7da4c9;
+}
+
+.dark .cloud-background-surface {
+  background: #658db6;
+}
+
 .cloud-layer-fade {
+  position: relative;
   width: 100%;
   height: 100%;
   opacity: 0;

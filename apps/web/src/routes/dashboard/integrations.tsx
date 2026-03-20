@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
+import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
 import {
   DashboardActionRowSkeleton,
   DashboardListSkeleton,
@@ -201,7 +202,7 @@ function OAuthAppsSection({
 
   return (
     <section
-      className={`intg-card bento-col-6 animate-in animate-in-delay-5${!isLoading ? ' skeleton-loaded' : ''}`}
+      className="intg-card bento-col-6 animate-in animate-in-delay-5"
       id="oauth-apps-section"
     >
       <div className="intg-header">
@@ -251,9 +252,6 @@ function OAuthAppsSection({
         Register apps that use the OAuth 2.0 flow to access user verification data on their behalf.
       </p>
 
-      <DashboardActionRowSkeleton count={1} widths={[112]} />
-      <DashboardListSkeleton rows={2} />
-
       <InlineOAuthAppForm
         open={createPanelOpen}
         title="Register OAuth app"
@@ -281,188 +279,191 @@ function OAuthAppsSection({
         />
       ) : null}
 
-      {!isLoading ? (
-        <div className="skeleton-content">
-          <div id="oauth-apps-list">
-            {apps.map((app) => (
-              <div key={app._id} className="oauth-app-card" style={glassCardStyle}>
-                <div className="flex items-start justify-between gap-3">
-                  <div style={{ minWidth: 0 }}>
-                    <div className="font-bold text-base text-white">{app.name}</div>
+      <DashboardSkeletonSwap
+        isLoading={isLoading}
+        skeleton={
+          <>
+            <DashboardActionRowSkeleton count={1} widths={[112]} />
+            <DashboardListSkeleton rows={2} />
+          </>
+        }
+        contentClassName="skeleton-content"
+      >
+        <div id="oauth-apps-list">
+          {apps.map((app) => (
+            <div key={app._id} className="oauth-app-card" style={glassCardStyle}>
+              <div className="flex items-start justify-between gap-3">
+                <div style={{ minWidth: 0 }}>
+                  <div className="font-bold text-base text-white">{app.name}</div>
+                  <div
+                    style={{
+                      fontFamily: "'DM Mono',monospace",
+                      fontSize: '12px',
+                      color: 'rgba(255,255,255,0.55)',
+                      marginTop: '4px',
+                      wordBreak: 'break-all',
+                    }}
+                  >
+                    {app.clientId}
+                  </div>
+                </div>
+                <span className={`status-pill ${app.disabled ? 'disconnected' : 'connected'}`}>
+                  {app.disabled ? 'Disabled' : 'Active'}
+                </span>
+              </div>
+
+              <div style={{ marginTop: '14px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {app.scopes.map((scope) => (
+                  <span key={scope} className="oauth-scope-pill">
+                    {scope}
+                  </span>
+                ))}
+              </div>
+
+              <div style={{ marginTop: '14px' }}>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: 'rgba(255,255,255,0.55)',
+                    fontWeight: 700,
+                    marginBottom: '8px',
+                  }}
+                >
+                  Redirect URIs
+                </div>
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {app.redirectUris.map((uri) => (
                     <div
+                      key={uri}
                       style={{
                         fontFamily: "'DM Mono',monospace",
-                        fontSize: '12px',
-                        color: 'rgba(255,255,255,0.55)',
-                        marginTop: '4px',
+                        fontSize: '11px',
+                        color: 'rgba(255,255,255,0.72)',
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: '10px',
+                        padding: '8px 10px',
                         wordBreak: 'break-all',
                       }}
                     >
-                      {app.clientId}
+                      {uri}
                     </div>
-                  </div>
-                  <span className={`status-pill ${app.disabled ? 'disconnected' : 'connected'}`}>
-                    {app.disabled ? 'Disabled' : 'Active'}
-                  </span>
-                </div>
-
-                <div style={{ marginTop: '14px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {app.scopes.map((scope) => (
-                    <span key={scope} className="oauth-scope-pill">
-                      {scope}
-                    </span>
                   ))}
                 </div>
+              </div>
 
-                <div style={{ marginTop: '14px' }}>
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      color: 'rgba(255,255,255,0.55)',
-                      fontWeight: 700,
-                      marginBottom: '8px',
-                    }}
-                  >
-                    Redirect URIs
-                  </div>
-                  <div style={{ display: 'grid', gap: '6px' }}>
-                    {app.redirectUris.map((uri) => (
-                      <div
-                        key={uri}
-                        style={{
-                          fontFamily: "'DM Mono',monospace",
-                          fontSize: '11px',
-                          color: 'rgba(255,255,255,0.72)',
-                          background: 'rgba(255,255,255,0.04)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          borderRadius: '10px',
-                          padding: '8px 10px',
-                          wordBreak: 'break-all',
-                        }}
-                      >
-                        {uri}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="inline-btn-row" style={{ marginTop: '16px' }}>
-                  <button className="btn-ghost" type="button" onClick={() => openEditPanel(app)}>
-                    Edit
-                  </button>
-                  <button
-                    className="btn-ghost"
-                    type="button"
-                    disabled={
-                      regenerateMutation.isPending && regenerateMutation.variables?._id === app._id
+              <div className="inline-btn-row" style={{ marginTop: '16px' }}>
+                <button className="btn-ghost" type="button" onClick={() => openEditPanel(app)}>
+                  Edit
+                </button>
+                <button
+                  className="btn-ghost"
+                  type="button"
+                  disabled={
+                    regenerateMutation.isPending && regenerateMutation.variables?._id === app._id
+                  }
+                  onClick={() => regenerateMutation.mutate(app)}
+                >
+                  {regenerateMutation.isPending && regenerateMutation.variables?._id === app._id
+                    ? 'Regenerating…'
+                    : 'Regenerate Secret'}
+                </button>
+                <button
+                  className="btn-ghost"
+                  type="button"
+                  style={{ color: '#f87171' }}
+                  disabled={deleteMutation.isPending && deleteMutation.variables === app._id}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        `Delete OAuth app "${app.name}"? Existing integrations will stop working.`
+                      )
+                    ) {
+                      return;
                     }
-                    onClick={() => regenerateMutation.mutate(app)}
-                  >
-                    {regenerateMutation.isPending && regenerateMutation.variables?._id === app._id
-                      ? 'Regenerating…'
-                      : 'Regenerate Secret'}
-                  </button>
-                  <button
-                    className="btn-ghost"
-                    type="button"
-                    style={{ color: '#f87171' }}
-                    disabled={deleteMutation.isPending && deleteMutation.variables === app._id}
-                    onClick={() => {
-                      if (
-                        !window.confirm(
-                          `Delete OAuth app "${app.name}"? Existing integrations will stop working.`
-                        )
-                      ) {
-                        return;
-                      }
-                      deleteMutation.mutate(app._id);
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
+                    deleteMutation.mutate(app._id);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
 
-                {editingAppId === app._id ? (
-                  <div className="oauth-edit-body">
-                    <InlineOAuthAppFields
-                      name={editingName}
-                      redirectUris={editingRedirectUris}
-                      selectedScopes={editingScopes}
-                      onNameChange={setEditingName}
-                      onRedirectUrisChange={setEditingRedirectUris}
-                      onScopeToggle={(scope) =>
-                        setEditingScopes((current) => toggleScope(current, scope))
-                      }
-                    />
-                    <div className="inline-btn-row">
-                      <button
-                        className="btn-primary"
-                        type="button"
-                        disabled={updateMutation.isPending}
-                        onClick={() => updateMutation.mutate(app._id)}
-                      >
-                        {updateMutation.isPending ? 'Saving…' : 'Save changes'}
-                      </button>
-                      <button
-                        className="btn-ghost"
-                        type="button"
-                        onClick={() => setEditingAppId(null)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
+              {editingAppId === app._id ? (
+                <div className="oauth-edit-body">
+                  <InlineOAuthAppFields
+                    name={editingName}
+                    redirectUris={editingRedirectUris}
+                    selectedScopes={editingScopes}
+                    onNameChange={setEditingName}
+                    onRedirectUrisChange={setEditingRedirectUris}
+                    onScopeToggle={(scope) =>
+                      setEditingScopes((current) => toggleScope(current, scope))
+                    }
+                  />
+                  <div className="inline-btn-row">
+                    <button
+                      className="btn-primary"
+                      type="button"
+                      disabled={updateMutation.isPending}
+                      onClick={() => updateMutation.mutate(app._id)}
+                    >
+                      {updateMutation.isPending ? 'Saving…' : 'Save changes'}
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      type="button"
+                      onClick={() => setEditingAppId(null)}
+                    >
+                      Cancel
+                    </button>
                   </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-
-          {apps.length === 0 ? (
-            <div id="oauth-apps-empty" className="empty-state">
-              <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
-                <svg
-                  aria-hidden="true"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="3" y="11" width="18" height="11" rx="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-              </div>
-              <p className="empty-state-title">No OAuth apps yet</p>
-              <p className="empty-state-copy">
-                Use OAuth when a third-party app needs to access verification data on behalf of your
-                users.
-              </p>
-              <button
-                className="intg-add-btn"
-                type="button"
-                onClick={() => setCreatePanelOpen(true)}
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                Add your first app
-              </button>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          ))}
         </div>
-      ) : null}
+
+        {apps.length === 0 ? (
+          <div id="oauth-apps-empty" className="empty-state">
+            <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
+              <svg
+                aria-hidden="true"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </div>
+            <p className="empty-state-title">No OAuth apps yet</p>
+            <p className="empty-state-copy">
+              Use OAuth when a third-party app needs to access verification data on behalf of your
+              users.
+            </p>
+            <button className="intg-add-btn" type="button" onClick={() => setCreatePanelOpen(true)}>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Add your first app
+            </button>
+          </div>
+        ) : null}
+      </DashboardSkeletonSwap>
     </section>
   );
 }
@@ -542,10 +543,7 @@ function ApiKeysSection({
   const keys = apiKeysQuery.data ?? [];
 
   return (
-    <section
-      className={`intg-card bento-col-6 animate-in animate-in-delay-5${!isLoading ? ' skeleton-loaded' : ''}`}
-      id="api-keys-section"
-    >
+    <section className="intg-card bento-col-6 animate-in animate-in-delay-5" id="api-keys-section">
       <div className="intg-header">
         <div className="intg-title-row">
           {!isLoading ? (
@@ -592,9 +590,6 @@ function ApiKeysSection({
         Call the verification API from your integrations. Pass as <code>x-api-key</code> header.
       </p>
 
-      <DashboardActionRowSkeleton count={1} widths={[112]} />
-      <DashboardListSkeleton rows={2} />
-
       <InlineApiKeyForm
         open={createPanelOpen}
         name={keyName}
@@ -619,131 +614,134 @@ function ApiKeysSection({
         />
       ) : null}
 
-      {!isLoading ? (
-        <div className="skeleton-content">
-          <div id="api-keys-list" style={{ display: 'grid', gap: '12px' }}>
-            {keys.map((key) => (
-              <div key={key._id} className="api-key-row" style={glassRowStyle}>
-                <div className="api-key-info">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="font-bold text-base text-white">{key.name}</div>
-                    <span
-                      className={`status-pill ${key.status === 'active' ? 'connected' : 'disconnected'}`}
-                    >
-                      {key.status}
+      <DashboardSkeletonSwap
+        isLoading={isLoading}
+        skeleton={
+          <>
+            <DashboardActionRowSkeleton count={1} widths={[112]} />
+            <DashboardListSkeleton rows={2} />
+          </>
+        }
+        contentClassName="skeleton-content"
+      >
+        <div id="api-keys-list" style={{ display: 'grid', gap: '12px' }}>
+          {keys.map((key) => (
+            <div key={key._id} className="api-key-row" style={glassRowStyle}>
+              <div className="api-key-info">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="font-bold text-base text-white">{key.name}</div>
+                  <span
+                    className={`status-pill ${key.status === 'active' ? 'connected' : 'disconnected'}`}
+                  >
+                    {key.status}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontFamily: "'DM Mono',monospace",
+                    fontSize: '12px',
+                    color: 'rgba(255,255,255,0.58)',
+                    marginTop: '4px',
+                  }}
+                >
+                  {key.prefix}••••••••••••
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+                  {key.scopes.map((scope) => (
+                    <span key={scope} className="api-key-scope-badge">
+                      {scope}
                     </span>
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: "'DM Mono',monospace",
-                      fontSize: '12px',
-                      color: 'rgba(255,255,255,0.58)',
-                      marginTop: '4px',
-                    }}
-                  >
-                    {key.prefix}••••••••••••
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
-                    {key.scopes.map((scope) => (
-                      <span key={scope} className="api-key-scope-badge">
-                        {scope}
-                      </span>
-                    ))}
-                  </div>
-                  <div
-                    style={{
-                      marginTop: '10px',
-                      fontSize: '12px',
-                      color: 'rgba(255,255,255,0.55)',
-                      fontFamily: "'DM Sans',sans-serif",
-                    }}
-                  >
-                    {key.lastUsedAt ? `Last used ${formatDateTime(key.lastUsedAt)}` : 'Never used'}
-                  </div>
+                  ))}
                 </div>
-                <div className="inline-btn-row" style={{ marginLeft: 'auto' }}>
-                  <button
-                    className="btn-ghost"
-                    type="button"
-                    disabled={
-                      key.status !== 'active' ||
-                      (rotateMutation.isPending && rotateMutation.variables?._id === key._id)
-                    }
-                    onClick={() => rotateMutation.mutate(key)}
-                  >
-                    {rotateMutation.isPending && rotateMutation.variables?._id === key._id
-                      ? 'Rotating…'
-                      : 'Rotate'}
-                  </button>
-                  <button
-                    className="btn-ghost"
-                    type="button"
-                    style={{ color: '#f87171' }}
-                    disabled={
-                      key.status !== 'active' ||
-                      (revokeMutation.isPending && revokeMutation.variables === key._id)
-                    }
-                    onClick={() => {
-                      if (!window.confirm(`Revoke API key "${key.name}"? This cannot be undone.`)) {
-                        return;
-                      }
-                      revokeMutation.mutate(key._id);
-                    }}
-                  >
-                    {revokeMutation.isPending && revokeMutation.variables === key._id
-                      ? 'Revoking…'
-                      : 'Revoke'}
-                  </button>
+                <div
+                  style={{
+                    marginTop: '10px',
+                    fontSize: '12px',
+                    color: 'rgba(255,255,255,0.55)',
+                    fontFamily: "'DM Sans',sans-serif",
+                  }}
+                >
+                  {key.lastUsedAt ? `Last used ${formatDateTime(key.lastUsedAt)}` : 'Never used'}
                 </div>
               </div>
-            ))}
-          </div>
-
-          {keys.length === 0 ? (
-            <div id="api-keys-empty" className="empty-state">
-              <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
-                <svg
-                  aria-hidden="true"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+              <div className="inline-btn-row" style={{ marginLeft: 'auto' }}>
+                <button
+                  className="btn-ghost"
+                  type="button"
+                  disabled={
+                    key.status !== 'active' ||
+                    (rotateMutation.isPending && rotateMutation.variables?._id === key._id)
+                  }
+                  onClick={() => rotateMutation.mutate(key)}
                 >
-                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-                </svg>
+                  {rotateMutation.isPending && rotateMutation.variables?._id === key._id
+                    ? 'Rotating…'
+                    : 'Rotate'}
+                </button>
+                <button
+                  className="btn-ghost"
+                  type="button"
+                  style={{ color: '#f87171' }}
+                  disabled={
+                    key.status !== 'active' ||
+                    (revokeMutation.isPending && revokeMutation.variables === key._id)
+                  }
+                  onClick={() => {
+                    if (!window.confirm(`Revoke API key "${key.name}"? This cannot be undone.`)) {
+                      return;
+                    }
+                    revokeMutation.mutate(key._id);
+                  }}
+                >
+                  {revokeMutation.isPending && revokeMutation.variables === key._id
+                    ? 'Revoking…'
+                    : 'Revoke'}
+                </button>
               </div>
-              <p className="empty-state-title">No API keys yet</p>
-              <p className="empty-state-copy">
-                API keys let you call the verification API from scripts, bots, or integrations. Pass
-                the key in the <code>x-api-key</code> header.
-              </p>
-              <button
-                className="intg-add-btn"
-                type="button"
-                onClick={() => setCreatePanelOpen(true)}
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                Add your first key
-              </button>
             </div>
-          ) : null}
+          ))}
         </div>
-      ) : null}
+
+        {keys.length === 0 ? (
+          <div id="api-keys-empty" className="empty-state">
+            <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
+              <svg
+                aria-hidden="true"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+              </svg>
+            </div>
+            <p className="empty-state-title">No API keys yet</p>
+            <p className="empty-state-copy">
+              API keys let you call the verification API from scripts, bots, or integrations. Pass
+              the key in the <code>x-api-key</code> header.
+            </p>
+            <button className="intg-add-btn" type="button" onClick={() => setCreatePanelOpen(true)}>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Add your first key
+            </button>
+          </div>
+        ) : null}
+      </DashboardSkeletonSwap>
     </section>
   );
 }

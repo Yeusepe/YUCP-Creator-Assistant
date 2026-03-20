@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
+import { usePageRevealGate } from '@/hooks/usePageRevealGate';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
@@ -44,6 +45,7 @@ export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null
     overlayFadeDelayMs: 350,
     overlayRemoveDelayMs: 650,
   });
+  const handleBackgroundReady = usePageRevealGate({ reveal: showPage });
 
   const showError = useCallback(
     (msg?: string) => {
@@ -70,14 +72,13 @@ export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null
     // Authenticated users are redirected server-side in beforeLoad.
     // If we reach here, user is not authenticated. Show sign-in form.
     setCurrentState('state-signin');
-    showPage();
-  }, [showPage]);
+  }, []);
 
   return (
     <div className="sign-in-page">
       <PageLoadingOverlay />
 
-      <CloudBackground variant="default" />
+      <CloudBackground onReady={handleBackgroundReady} variant="default" />
 
       <div id="page-content" className={isVisible ? 'visible' : ''}>
         <div className="logo-wrap">

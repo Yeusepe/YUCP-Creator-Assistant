@@ -1,4 +1,13 @@
-import { Component, lazy, type ReactNode, Suspense, useEffect, useState } from 'react';
+import {
+  Component,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 const BackgroundApp = lazy(() => import('./BackgroundApp'));
 const ForegroundApp = lazy(() => import('./ForegroundApp'));
@@ -48,20 +57,51 @@ function useDeferredFade() {
   return { ready, visible };
 }
 
+function CloudBackgroundSurface() {
+  return <div aria-hidden="true" className="cloud-background-surface" />;
+}
+
+function useOneShotCallback(callback?: () => void) {
+  const calledRef = useRef(false);
+
+  return useCallback(() => {
+    if (!callback || calledRef.current) return;
+    calledRef.current = true;
+    callback();
+  }, [callback]);
+}
+
 /**
  * Background sky canvas (z-index: 0, opaque).
  * Renders into the bg-canvas-root div that pages provide.
  */
-export function CloudBackgroundLayer() {
+export function CloudBackgroundLayer({ onReady }: { onReady?: () => void }) {
   const { ready, visible } = useDeferredFade();
-  if (!ready) return null;
+  const [sceneReady, setSceneReady] = useState(false);
+  const reportReady = useOneShotCallback(onReady);
+
+  useEffect(() => {
+    if (ready) return;
+    setSceneReady(false);
+  }, [ready]);
+
+  useEffect(() => {
+    if (!sceneReady || !visible) return;
+    reportReady();
+  }, [reportReady, sceneReady, visible]);
+
   return (
-    <div className={`cloud-layer-fade${visible ? ' is-visible' : ''}`}>
-      <ErrorBoundary>
-        <Suspense fallback={null}>
-          <BackgroundApp />
-        </Suspense>
-      </ErrorBoundary>
+    <div className="cloud-layer-shell">
+      <CloudBackgroundSurface />
+      {ready ? (
+        <div className={`cloud-layer-fade${visible ? ' is-visible' : ''}`}>
+          <ErrorBoundary>
+            <Suspense fallback={null}>
+              <BackgroundApp onReady={() => setSceneReady(true)} />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -105,14 +145,20 @@ export function Cloud404Layer() {
  * For pages that need bg + fg: <CloudBackground variant="default" />
  * For 404 page: <CloudBackground variant="404" />
  */
-export function CloudBackground({ variant = 'default' }: { variant?: 'default' | '404' }) {
+export function CloudBackground({
+  onReady,
+  variant = 'default',
+}: {
+  onReady?: () => void;
+  variant?: 'default' | '404';
+}) {
   return (
     <>
       <div
         id="bg-canvas-root"
         style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}
       >
-        <CloudBackgroundLayer />
+        <CloudBackgroundLayer onReady={onReady} />
       </div>
       {variant === '404' ? (
         <div id="canvas-404-root" style={{ position: 'relative', zIndex: 2 }}>
