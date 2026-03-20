@@ -14,7 +14,8 @@ export function startHeartbeat(url?: string, intervalMinutes = 5): (() => void) 
     return undefined;
   }
 
-  const intervalMs = Math.max(1, Math.floor(Number(intervalMinutes) || 5)) * 60 * 1000;
+  const intervalMinutesNumber = Number(intervalMinutes) || 5;
+  const intervalMs = Math.max(1000, Math.round(intervalMinutesNumber * 60 * 1000));
   const timeoutMs = 10_000;
 
   async function ping() {

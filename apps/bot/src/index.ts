@@ -236,7 +236,7 @@ async function main() {
 
   await roleSyncService.start();
 
-  const stopHeartbeat = startHeartbeat(env.HEARTBEAT_URL, Number.parseInt(process.env.HEARTBEAT_INTERVAL_MINUTES ?? '5', 10));
+  const stopHeartbeat = startHeartbeat(env.HEARTBEAT_URL, parseFloat(process.env.HEARTBEAT_INTERVAL_MINUTES ?? '5'));
 
   const shutdown = () => {
     logger.info('Shutting down...');
