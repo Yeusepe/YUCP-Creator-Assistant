@@ -725,14 +725,9 @@ function CollabInvitePage() {
               </div>
 
               <button
-                className="btn-primary w-full"
+                type="button"
+                className="btn-discord w-full"
                 onClick={beginDiscordAuth}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '10px',
-                }}
               >
                 <img src="/Icons/Discord.png" width="20" height="20" alt="" />
                 Continue with Discord&reg;

@@ -23,4 +23,11 @@ crons.interval(
   internal.webhookDeliveryCron.processWebhookDeliveriesCron
 );
 
+// Purge expired admin notifications every minute
+crons.interval(
+  'cleanup expired admin notifications',
+  { minutes: 1 },
+  internal.adminNotifications.cleanupExpired
+);
+
 export default crons;

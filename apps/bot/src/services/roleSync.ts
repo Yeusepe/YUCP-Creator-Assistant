@@ -15,6 +15,7 @@ import { createStructuredLogger, type StructuredLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import { Client, GuildMember, RESTJSONErrorCodes } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import { sendDashboardNotification } from '../lib/notifications';
 
 type BotConvexClient = {
   // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
@@ -362,6 +363,18 @@ export class RoleSyncService {
           rolesAdded: result.rolesAdded,
           rolesRemoved: result.rolesRemoved,
         });
+
+        // Notify the creator dashboard (fire-and-forget)
+        if (job.jobType === 'role_sync' && result.rolesAdded.length > 0 && result.guildId) {
+          const roleCount = result.rolesAdded.length;
+          sendDashboardNotification({
+            authUserId: job.authUserId,
+            guildId: result.guildId,
+            type: 'info',
+            title: 'Roles synced',
+            message: `${roleCount} role${roleCount !== 1 ? 's' : ''} assigned${result.discordUserId ? ` to <@${result.discordUserId}>` : ''}.`,
+          });
+        }
       } else {
         // Handle failure with retry
         await this.handleJobFailure(job, result.error ?? 'Unknown error');

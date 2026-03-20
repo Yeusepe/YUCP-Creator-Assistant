@@ -175,11 +175,27 @@ body:not(.state-server-selected) .server-only {
 }
 
 .settings-subsection {
-  margin-bottom: 32px;
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+  padding-bottom: 32px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
 }
 
 .settings-subsection:last-child {
-  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-subsection + .settings-subsection {
+  padding-top: 32px;
+}
+
+.settings-subsection.danger-zone {
+  padding-top: 40px;
+}
+
+.dark .settings-subsection {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 
 .settings-subsection-title {
@@ -196,6 +212,262 @@ body:not(.state-server-selected) .server-only {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+/* ── Store Integrations provider card grid ───────────────────────────────── */
+
+.intg-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.intg-provider-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition:
+    transform 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+  overflow: hidden;
+}
+
+.intg-provider-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    var(--provider-accent, rgba(14, 165, 233, 0.15)) 0%,
+    transparent 70%
+  );
+}
+
+.intg-provider-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.intg-provider-card:hover::before {
+  opacity: 1;
+}
+
+.intg-provider-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+  z-index: 1;
+}
+
+.intg-provider-logo-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+}
+
+.intg-provider-logo-halo {
+  position: absolute;
+  inset: -4px;
+  border-radius: 14px;
+  background: var(--provider-accent, rgba(14, 165, 233, 0.18));
+  opacity: 0.5;
+  filter: blur(6px);
+  transition: opacity 0.25s ease;
+}
+
+.intg-provider-card:hover .intg-provider-logo-halo {
+  opacity: 0.9;
+}
+
+.intg-provider-logo {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--provider-icon-bg, rgba(255, 255, 255, 0.08));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.intg-provider-logo img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.intg-provider-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.intg-provider-name {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.intg-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  padding: 3px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.01em;
+}
+
+.intg-status-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.intg-status-badge.active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.25);
+}
+
+.intg-status-badge.degraded {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+.intg-status-badge.disconnected {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.intg-provider-hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.5;
+  position: relative;
+  z-index: 1;
+  flex: 1;
+}
+
+.intg-provider-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: auto;
+}
+
+.intg-provider-enable-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: "DM Sans", sans-serif;
+}
+
+.intg-manage-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.intg-manage-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.intg-provider-card-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 24px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  text-align: center;
+}
+
+.intg-provider-card-empty-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.intg-provider-card-empty p {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+  margin: 0;
+  max-width: 260px;
+  line-height: 1.5;
+}
+
+.intg-provider-card-empty strong {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Dark mode adjustments for intg provider grid */
+.dark .intg-provider-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark .intg-provider-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .settings-subsection-body .svr-cfg-tile {

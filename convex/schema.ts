@@ -1395,6 +1395,37 @@ const collaborator_connections = defineTable({
   .index('by_owner_provider', ['ownerAuthUserId', 'provider'])
   .index('by_collaborator_discord', ['collaboratorDiscordUserId']);
 
+/**
+ * Admin Notifications - Short-lived real-time dashboard toasts
+ * Created by the Discord bot to surface events to the creator dashboard.
+ * Auto-expires after 60 seconds; cleaned up by cron.
+ */
+const admin_notifications = defineTable({
+  /** Creator scope (Better Auth user ID) */
+  authUserId: v.string(),
+  /** Discord guild where the event happened */
+  guildId: v.string(),
+  /** Toast type — maps directly to useToast() variants */
+  type: v.union(
+    v.literal('success'),
+    v.literal('error'),
+    v.literal('warning'),
+    v.literal('info')
+  ),
+  /** Short headline */
+  title: v.string(),
+  /** Optional body text */
+  message: v.optional(v.string()),
+  /** Unix ms when this notification should be considered expired */
+  expiresAt: v.number(),
+  /** Unix ms when the dashboard marked this seen (null = unseen) */
+  seenAt: v.optional(v.number()),
+  createdAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_unseen', ['authUserId', 'seenAt'])
+  .index('by_expires', ['expiresAt']);
+
 // ============================================================================
 // SCHEMA EXPORT
 // ============================================================================
@@ -1675,4 +1706,7 @@ export default defineSchema({
 
   // HTTP rate limiting for unauthenticated public endpoints
   http_rate_limits,
+
+  // Admin notifications — short-lived bot-to-dashboard events
+  admin_notifications,
 });
