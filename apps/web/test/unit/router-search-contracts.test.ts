@@ -13,6 +13,7 @@ describe('router search contracts', () => {
     expect(routerSource).toContain('parseSearch: (search)');
     expect(routerSource).toContain('stringifySearch: (search)');
     expect(routerSource).toContain('new URLSearchParams(');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: checking for literal template syntax in source
     expect(routerSource).toContain("return serialized ? `?${serialized}` : '';");
   });
 

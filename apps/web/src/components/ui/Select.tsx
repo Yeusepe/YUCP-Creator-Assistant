@@ -40,7 +40,7 @@ export function Select({ id, value, options, onChange, disabled, className }: Se
   }, [open, close]);
 
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLDivElement>) => {
+    (e: KeyboardEvent<HTMLButtonElement>) => {
       if (disabled) return;
       if (e.key === 'Escape') {
         close();
