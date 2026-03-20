@@ -14,6 +14,7 @@ import {
 } from '@/components/dashboard/DashboardSkeletons';
 import { DashboardPanelErrorState } from '@/components/dashboard/PanelErrorState';
 import { useToast } from '@/components/ui/Toast';
+import { Select } from '@/components/ui/Select';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
@@ -1183,19 +1184,13 @@ function ServerConfigPanel() {
                     </div>
                   </div>
                   <div className="svr-cfg-tile-ctrl">
-                    <select
+                    <Select
                       id={`select-${setting.key}`}
-                      className="svr-cfg-pick"
-                      value={policyDraft[setting.key]}
+                      value={policyDraft[setting.key] as string}
+                      options={setting.options}
                       disabled={saveSettingMutation.isPending}
-                      onChange={(event) => onSelectSettingChange(setting.key, event.target.value)}
-                    >
-                      {setting.options.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val) => onSelectSettingChange(setting.key, val)}
+                    />
                     <SaveIndicator
                       settingKey={setting.key}
                       state={saveStates[setting.key] ?? 'idle'}
@@ -1217,19 +1212,18 @@ function ServerConfigPanel() {
                   </div>
                 </div>
                 <div className="svr-cfg-tile-ctrl">
-                  <select
+                  <Select
                     id="select-logChannelId"
-                    className="svr-cfg-pick"
                     value={policyDraft.logChannelId}
-                    onChange={(event) => onSelectSettingChange('logChannelId', event.target.value)}
-                  >
-                    <option value="">— None —</option>
-                    {channelsQuery.data?.map((channel) => (
-                      <option key={channel.id} value={channel.id}>
-                        #{channel.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: '', label: '— None —' },
+                      ...(channelsQuery.data?.map((ch) => ({
+                        value: ch.id,
+                        label: `#${ch.name}`,
+                      })) ?? []),
+                    ]}
+                    onChange={(val) => onSelectSettingChange('logChannelId', val)}
+                  />
                   <SaveIndicator
                     settingKey="logChannelId"
                     state={saveStates.logChannelId ?? 'idle'}
@@ -1250,21 +1244,20 @@ function ServerConfigPanel() {
                   </div>
                 </div>
                 <div className="svr-cfg-tile-ctrl">
-                  <select
+                  <Select
                     id="select-announcementsChannelId"
-                    className="svr-cfg-pick"
                     value={policyDraft.announcementsChannelId}
-                    onChange={(event) =>
-                      onSelectSettingChange('announcementsChannelId', event.target.value)
+                    options={[
+                      { value: '', label: '— None —' },
+                      ...(channelsQuery.data?.map((ch) => ({
+                        value: ch.id,
+                        label: `#${ch.name}`,
+                      })) ?? []),
+                    ]}
+                    onChange={(val) =>
+                      onSelectSettingChange('announcementsChannelId', val)
                     }
-                  >
-                    <option value="">— None —</option>
-                    {channelsQuery.data?.map((channel) => (
-                      <option key={channel.id} value={channel.id}>
-                        #{channel.name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                   <SaveIndicator
                     settingKey="announcementsChannelId"
                     state={saveStates.announcementsChannelId ?? 'idle'}

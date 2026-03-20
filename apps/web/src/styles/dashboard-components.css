@@ -587,22 +587,21 @@
   top: calc(100% + 8px);
   left: 0;
   width: 260px;
-  /* Match content-area liquid glass background */
-  background: rgba(255, 255, 255, 0.35);
-  backdrop-filter: blur(32px) saturate(180%);
-  -webkit-backdrop-filter: blur(32px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  border-radius: 18px;
   box-shadow:
-    inset 0 0 40px rgba(255, 255, 255, 0.2),
-    inset 0 2px 5px rgba(255, 255, 255, 0.5);
-  background-image: radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px);
-  background-size: 24px 24px;
+    0 8px 32px rgba(0, 0, 0, 0.16),
+    0 2px 8px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
   display: flex;
   flex-direction: column;
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-10px);
+  transform: translateY(-8px) scale(0.97);
+  transform-origin: top left;
   transition:
     opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
@@ -629,25 +628,26 @@
 .server-dropdown-menu.open {
   opacity: 1;
   visibility: visible;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
 }
 
 .server-dropdown-search {
-  padding: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .server-dropdown-search svg {
-  color: rgba(255, 255, 255, 0.6);
+  color: #94a3b8;
+  flex-shrink: 0;
 }
 
 .server-dropdown-search input {
   background: transparent;
   border: none;
-  color: var(--text-primary);
+  color: #0f172a;
   font-family: "DM Sans", sans-serif;
   font-size: 13px;
   width: 100%;
@@ -655,7 +655,7 @@
 }
 
 .server-dropdown-search input::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: #94a3b8;
 }
 
 .server-dropdown-list {
@@ -663,11 +663,11 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding: 8px;
+  padding: 6px;
 }
 
 .server-dropdown-list::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .server-dropdown-list::-webkit-scrollbar-track {
@@ -675,70 +675,71 @@
 }
 
 .server-dropdown-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
 }
 
 .server-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 9px 10px;
   border-radius: 10px;
-  color: var(--text-primary);
+  color: #0f172a;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition:
-    background 0.2s,
-    transform 0.1s;
+    background 0.15s ease,
+    transform 0.1s ease;
+  font-family: "Plus Jakarta Sans", sans-serif;
 }
 
 .server-dropdown-item:hover {
-  background: rgba(255, 255, 255, 0.15);
-  transform: translateX(2px);
+  background: rgba(0, 0, 0, 0.06);
+  transform: translateX(1px);
 }
 
 .server-dropdown-item.is-selected,
 .server-dropdown-item.active {
-  background: rgba(14, 165, 233, 0.2);
-  /* accent sky */
-  box-shadow: inset 2px 0 0 var(--accent-sky);
+  background: rgba(14, 165, 233, 0.1);
+  color: #0284c7;
+  box-shadow: inset 2px 0 0 #0ea5e9;
 }
 
 .server-dropdown-item img {
   width: 24px;
   height: 24px;
-  border-radius: 8px;
+  border-radius: 7px;
   object-fit: cover;
-  background: rgba(0, 0, 0, 0.2);
 }
 
 .server-dropdown-item .fallback-icon {
   width: 24px;
   height: 24px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.2);
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(88, 101, 242, 0.5), rgba(139, 92, 246, 0.5));
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
   font-weight: 800;
+  color: #ffffff;
+  flex-shrink: 0;
 }
 
 .server-dropdown-loading,
 .server-dropdown-empty {
   padding: 20px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.5);
+  color: #94a3b8;
   font-size: 13px;
   font-weight: 500;
 }
 
 .server-dropdown-footer {
-  padding: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.1);
+  padding: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
 }
 
 .server-dropdown-action-btn {
@@ -747,23 +748,23 @@
   justify-content: center;
   gap: 8px;
   width: 100%;
-  padding: 10px;
+  padding: 9px 10px;
   border-radius: 10px;
   background: transparent;
   border: none;
-  color: var(--text-primary);
+  color: #475569;
   font-family: "Plus Jakarta Sans", sans-serif;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   transition:
-    background 0.2s,
-    color 0.2s;
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .server-dropdown-action-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--accent-sky);
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
 }
 
 .intg-card {
@@ -1541,37 +1542,31 @@
   position: absolute;
   top: 100%;
   right: 0;
-  margin-top: 8px;
+  margin-top: 6px;
   min-width: 180px;
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
   border-radius: 14px;
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.12),
-    0 0 0 1px rgba(255, 255, 255, 0.3) inset;
+    0 4px 6px -1px rgba(0, 0, 0, 0.08),
+    0 12px 36px -6px rgba(0, 0, 0, 0.14);
   padding: 6px;
-  z-index: 50;
-  display: none;
+  z-index: 200;
   overflow: hidden;
-  animation: dropdown-glass-in 0.2s ease-out;
-}
-
-@keyframes dropdown-glass-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top right;
+  transition:
+    opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0.18s;
 }
 
 .dropdown-menu.open {
-  display: block;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
 }
 
 .dropdown-menu button {
@@ -1595,7 +1590,7 @@
 }
 
 .dropdown-menu button:hover {
-  background: rgba(255, 255, 255, 0.7);
+  background: #f1f5f9;
   color: #0f172a;
 }
 
@@ -1603,7 +1598,7 @@
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .dropdown-menu button:hover .dropdown-menu-icon {
@@ -1615,18 +1610,16 @@
 }
 
 .dropdown-menu-item-danger:hover {
-  background: rgba(220, 38, 38, 0.1);
-  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.08) !important;
+  color: #b91c1c !important;
 }
 
+/* intg-card context: same clean white style (intg-cards are also on white bg) */
 .intg-card .dropdown-menu {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(24px) saturate(200%);
-  -webkit-backdrop-filter: blur(24px) saturate(200%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.08),
-    0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+  background: #ffffff;
+  border-color: #e2e8f0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .intg-card .dropdown-menu button {
@@ -1634,8 +1627,8 @@
 }
 
 .intg-card .dropdown-menu button:hover {
-  background: rgba(14, 165, 233, 0.08);
-  color: #0ea5e9;
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 .intg-card .dropdown-menu-item-danger {
@@ -1643,8 +1636,8 @@
 }
 
 .intg-card .dropdown-menu-item-danger:hover {
-  background: rgba(220, 38, 38, 0.08);
-  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.08) !important;
+  color: #b91c1c !important;
 }
 
 .api-key-row {
@@ -2515,4 +2508,225 @@
 
 #participating-servers-list .platform-card > div > div:not(.font-bold) {
   color: #64748b;
+}
+
+/* ══════════════════════════════════════════════
+   Unified Select Component  (.ui-select-*)
+   Used across Server Config and settings pages.
+   ══════════════════════════════════════════════ */
+
+.ui-select-wrapper {
+  position: relative;
+  user-select: none;
+  min-width: 140px;
+  font-family: "Plus Jakarta Sans", sans-serif;
+}
+
+.ui-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 8px 7px 12px;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  color: #0f172a;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.ui-select-trigger:hover {
+  border-color: #94a3b8;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.07);
+}
+
+.ui-select-wrapper.open .ui-select-trigger {
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
+}
+
+.ui-select-wrapper.disabled .ui-select-trigger {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ui-select-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select-arrow {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #64748b;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ui-select-wrapper.open .ui-select-arrow {
+  transform: rotate(180deg);
+}
+
+.ui-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 100%;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.08),
+    0 12px 36px -6px rgba(0, 0, 0, 0.13);
+  padding: 4px;
+  z-index: 300;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top center;
+  transition:
+    opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0.18s;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.ui-select-wrapper.open .ui-select-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+.ui-select-menu::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ui-select-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ui-select-menu::-webkit-scrollbar-thumb {
+  background: #e2e8f0;
+  border-radius: 4px;
+}
+
+.ui-select-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #475569;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+  white-space: nowrap;
+}
+
+.ui-select-option:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.ui-select-option.selected {
+  background: rgba(14, 165, 233, 0.08);
+  color: #0284c7;
+}
+
+.ui-select-option.selected:hover {
+  background: rgba(14, 165, 233, 0.13);
+}
+
+.ui-select-option-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.ui-select-check {
+  width: 13px;
+  height: 13px;
+  color: #0ea5e9;
+}
+
+/* Dark mode */
+
+.dark .ui-select-trigger {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f1f5f9;
+}
+
+.dark .ui-select-trigger:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.dark .ui-select-wrapper.open .ui-select-trigger {
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2);
+}
+
+.dark .ui-select-arrow {
+  color: #94a3b8;
+}
+
+.dark .ui-select-menu {
+  background: rgba(15, 23, 42, 0.98);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.3),
+    0 12px 36px -6px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+.dark .ui-select-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dark .ui-select-option {
+  color: #94a3b8;
+}
+
+.dark .ui-select-option:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #f1f5f9;
+}
+
+.dark .ui-select-option.selected {
+  background: rgba(14, 165, 233, 0.18);
+  color: #38bdf8;
+}
+
+.dark .ui-select-option.selected:hover {
+  background: rgba(14, 165, 233, 0.24);
+}
+
+.dark .ui-select-check {
+  color: #38bdf8;
 }
