@@ -47,7 +47,7 @@ export async function serverApiFetch<T = unknown>(
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-Internal-Service': 'web',
-    Authorization: `Bearer ${getInternalSecret()}`,
+    'X-Internal-Service-Secret': getInternalSecret(),
   };
 
   if (authToken) {

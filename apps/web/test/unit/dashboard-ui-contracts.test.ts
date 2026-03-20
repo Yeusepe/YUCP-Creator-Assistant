@@ -24,7 +24,8 @@ const cloudBackgroundSource = readFileSync(
 
 describe('dashboard UI contracts', () => {
   it('uses shared dashboard query options for the guild picker and resolves empty server state text', () => {
-    expect(dashboardRouteSource).toContain('dashboardQueryOptions<Guild[]>');
+    expect(dashboardRouteSource).toContain('dashboardShellQueryOptions');
+    expect(dashboardRouteSource).toContain('useDashboardShell');
     expect(dashboardRouteSource).toContain('No servers configured yet');
   });
 
@@ -63,7 +64,7 @@ describe('dashboard UI contracts', () => {
     expect(dashboardCss).toContain('width: 100%;');
     expect(dashboardCss).toContain('z-index: 100003;');
     expect(dashboardCss).toContain('justify-content: space-between;');
-    expect(dashboardRouteSource).toContain('createPortal(');
+    expect(dashboardRouteSource).toContain('<DashboardBodyPortal>');
     expect(dashboardRouteSource).toContain('server-selector-portal');
   });
 

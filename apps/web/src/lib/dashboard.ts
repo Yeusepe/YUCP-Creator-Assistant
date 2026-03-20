@@ -1,20 +1,10 @@
 import { apiClient } from '@/api/client';
-import type { Guild } from '@/lib/server/dashboard';
+import type { DashboardProvider, Guild } from '@/lib/server/dashboard';
+
+export type { DashboardProvider };
 
 export interface DashboardViewer {
   authUserId: string;
-}
-
-export interface DashboardProvider {
-  key: string;
-  label?: string;
-  icon?: string;
-  iconBg?: string;
-  quickStartBg?: string;
-  quickStartBorder?: string;
-  serverTileHint?: string;
-  connectPath?: string;
-  connectParamStyle?: 'camelCase' | 'snakeCase';
 }
 
 export interface UserAccountConnection {

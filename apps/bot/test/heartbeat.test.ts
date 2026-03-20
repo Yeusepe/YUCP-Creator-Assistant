@@ -22,7 +22,7 @@ describe('heartbeat service', () => {
     });
 
     const origFetch = globalThis.fetch;
-    // @ts-expect-error - override global fetch for test
+    // @ts-ignore - override global fetch for test
     globalThis.fetch = fetchMock as any;
 
     const stop = startHeartbeat('https://example.test/heartbeat', 0.001); // ~60ms interval

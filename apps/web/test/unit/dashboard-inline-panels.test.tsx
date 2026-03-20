@@ -2,10 +2,36 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 
-vi.mock('@/lib/server/dashboard', async () => {
+process.env.CONVEX_SITE_URL ??= 'https://example.convex.site';
+process.env.CONVEX_URL ??= 'https://example.convex.cloud';
+
+vi.mock('@/hooks/useDashboardSession', () => {
   return {
-    fetchDashboardViewer: vi.fn(),
+    isDashboardAuthError: vi.fn(() => false),
+    useDashboardSession: vi.fn(() => ({
+      canRunPanelQueries: true,
+      clearSessionExpired: vi.fn(),
+      hasHydrated: true,
+      isAuthenticated: true,
+      isAuthResolved: true,
+      isSessionExpired: false,
+      markSessionExpired: vi.fn(),
+      status: 'active',
+    })),
+  };
+});
+
+vi.mock('@/hooks/useDashboardShell', () => {
+  return {
+    useDashboardShell: vi.fn(() => ({
+      guilds: [],
+      selectedGuild: undefined,
+      viewer: {
+        authUserId: 'user-123',
+      },
+    })),
   };
 });
 
@@ -20,7 +46,6 @@ vi.mock('@/lib/dashboard', async () => {
 });
 
 import * as dashboardApi from '@/lib/dashboard';
-import { fetchDashboardViewer } from '@/lib/server/dashboard';
 import { Route as IntegrationsRoute } from '@/routes/dashboard/integrations';
 
 function createWrapper() {
@@ -39,16 +64,23 @@ function createWrapper() {
 
 describe('dashboard inline panels', () => {
   beforeEach(() => {
-    vi.mocked(fetchDashboardViewer).mockResolvedValue({ authUserId: 'user-123' });
+    for (const existingHost of document.querySelectorAll('#portal-root')) {
+      existingHost.remove();
+    }
+
     vi.mocked(dashboardApi.listOAuthApps).mockResolvedValue([]);
     vi.mocked(dashboardApi.listPublicApiKeys).mockResolvedValue([]);
   });
 
-  it('portals the add-app panel to document.body so it is not clipped by dashboard cards', async () => {
+  it('portals the add-app panel to the shared dashboard portal host', async () => {
     const Component = IntegrationsRoute.options.component;
     if (!Component) {
       throw new Error('Integrations route component is not defined');
     }
+
+    const portalHost = document.createElement('div');
+    portalHost.id = 'portal-root';
+    document.body.appendChild(portalHost);
 
     const { container } = render(<Component />, { wrapper: createWrapper() });
 
@@ -60,9 +92,28 @@ describe('dashboard inline panels', () => {
 
     const panel = await screen.findByLabelText(/close oauth app panel/i);
     const portalRoot = panel.closest('#create-oauth-app-panel');
+    const sharedPortalHost = document.getElementById('portal-root');
 
     expect(portalRoot).not.toBeNull();
-    expect(portalRoot?.parentElement).toBe(document.body);
+    expect(sharedPortalHost).not.toBeNull();
+    expect(portalRoot?.parentElement).toBe(sharedPortalHost);
     expect(container.contains(portalRoot as Node)).toBe(false);
+  });
+
+  it('uses the shared portal host instead of mounting dashboard overlays directly on body', async () => {
+    const portalHost = document.createElement('div');
+    portalHost.id = 'portal-root';
+    document.body.appendChild(portalHost);
+
+    render(
+      <DashboardBodyPortal>
+        <div data-testid="portal-child">Portal child</div>
+      </DashboardBodyPortal>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('portal-child')).toBeInTheDocument());
+
+    const portalChild = screen.getByTestId('portal-child');
+    expect(portalChild.parentElement).toBe(portalHost);
   });
 });

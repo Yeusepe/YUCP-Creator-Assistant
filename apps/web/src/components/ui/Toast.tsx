@@ -168,7 +168,7 @@ function ToastItemComponent({
             type="button"
             className="toast-action"
             onClick={() => {
-              toast.action!.onClick();
+              toast.action?.onClick();
               onDismiss(toast.id);
             }}
           >

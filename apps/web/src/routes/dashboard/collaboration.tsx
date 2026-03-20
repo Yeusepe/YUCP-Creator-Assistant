@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import {
   DashboardActionRowSkeleton,
   DashboardListSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
+import { useDashboardShell } from '@/hooks/useDashboardShell';
 import type {
   CollabAsCollaboratorSummary,
   CollabConnectionSummary,
@@ -22,8 +24,10 @@ import {
   removeCollabConnection,
   revokeCollabInvite,
 } from '@/lib/dashboard';
-import { dashboardPollingQueryOptions, dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
-import { type DashboardViewer, fetchDashboardViewer } from '@/lib/server/dashboard';
+import {
+  dashboardPanelQueryOptions,
+  dashboardPollingQueryOptions,
+} from '@/lib/dashboardQueryOptions';
 import { copyToClipboard } from '@/lib/utils';
 
 export const Route = createFileRoute('/dashboard/collaboration')({
@@ -31,15 +35,11 @@ export const Route = createFileRoute('/dashboard/collaboration')({
 });
 
 function DashboardCollaboration() {
-  const viewerQuery = useQuery(
-    dashboardQueryOptions<DashboardViewer>({
-      queryKey: ['dashboard-viewer'],
-      queryFn: () => fetchDashboardViewer(),
-    })
-  );
-  const authUserId = viewerQuery.data?.authUserId;
+  const { viewer } = useDashboardShell();
+  const { isAuthResolved, status } = useDashboardSession();
+  const authUserId = viewer.authUserId;
 
-  if (!viewerQuery.isLoading && !authUserId) {
+  if (status === 'signed_out' || status === 'expired') {
     return (
       <div
         id="tab-panel-collaboration"
@@ -66,11 +66,8 @@ function DashboardCollaboration() {
       aria-labelledby="tab-btn-collaboration"
     >
       <div className="bento-grid">
-        <MyCollaboratorsSection authUserId={authUserId} viewerLoading={viewerQuery.isLoading} />
-        <StoresICollaborateWithSection
-          authUserId={authUserId}
-          viewerLoading={viewerQuery.isLoading}
-        />
+        <MyCollaboratorsSection authUserId={authUserId} viewerLoading={!isAuthResolved} />
+        <StoresICollaborateWithSection authUserId={authUserId} viewerLoading={!isAuthResolved} />
       </div>
     </div>
   );
@@ -84,6 +81,7 @@ function MyCollaboratorsSection({
   viewerLoading: boolean;
 }) {
   const queryClient = useQueryClient();
+  const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
   const [invitePanelOpen, setInvitePanelOpen] = useState(false);
   const [inviteStep, setInviteStep] = useState<'select' | 'url'>('select');
   const [selectedProvider, setSelectedProvider] = useState('');
@@ -92,17 +90,17 @@ function MyCollaboratorsSection({
   );
 
   const providersQuery = useQuery(
-    dashboardQueryOptions<CollabProviderSummary[]>({
+    dashboardPanelQueryOptions<CollabProviderSummary[]>({
       queryKey: ['dashboard-collab-providers'],
       queryFn: listCollabProviders,
-      enabled: Boolean(authUserId),
+      enabled: canRunPanelQueries && Boolean(authUserId),
     })
   );
   const invitesQuery = useQuery(
     dashboardPollingQueryOptions<PendingCollabInvite[]>({
       queryKey: ['dashboard-collab-invites', authUserId],
       queryFn: () => listCollabInvites(requireAuthUserId(authUserId)),
-      enabled: Boolean(authUserId),
+      enabled: canRunPanelQueries && Boolean(authUserId),
       refetchInterval: 15000,
     })
   );
@@ -110,10 +108,25 @@ function MyCollaboratorsSection({
     dashboardPollingQueryOptions<CollabConnectionSummary[]>({
       queryKey: ['dashboard-collab-connections', authUserId],
       queryFn: () => listCollabConnections(requireAuthUserId(authUserId)),
-      enabled: Boolean(authUserId),
+      enabled: canRunPanelQueries && Boolean(authUserId),
       refetchInterval: 15000,
     })
   );
+
+  useEffect(() => {
+    if (
+      isDashboardAuthError(providersQuery.error) ||
+      isDashboardAuthError(invitesQuery.error) ||
+      isDashboardAuthError(connectionsQuery.error)
+    ) {
+      markSessionExpired();
+    }
+  }, [connectionsQuery.error, invitesQuery.error, markSessionExpired, providersQuery.error]);
+
+  const hasAuthError =
+    isDashboardAuthError(providersQuery.error) ||
+    isDashboardAuthError(invitesQuery.error) ||
+    isDashboardAuthError(connectionsQuery.error);
 
   const providers = providersQuery.data ?? [];
   const invites = invitesQuery.data ?? [];
@@ -184,11 +197,20 @@ function MyCollaboratorsSection({
     ? `Hey, here's the Creator Assistant collaboration link for ${providerMap.get(selectedProvider) ?? selectedProvider}: ${generatedInvite.url}`
     : '';
 
+  if (hasAuthError) {
+    return (
+      <DashboardAuthRequiredState
+        id="dashboard-my-collaborators-auth-required"
+        title="Sign in to manage collaborators"
+        description="Your dashboard session expired while loading collaboration data. Sign in again to keep managing collaborator access."
+      />
+    );
+  }
+
   const isLoading =
     viewerLoading ||
-    providersQuery.isLoading ||
-    invitesQuery.isLoading ||
-    connectionsQuery.isLoading;
+    (canRunPanelQueries &&
+      (providersQuery.isLoading || invitesQuery.isLoading || connectionsQuery.isLoading));
 
   return (
     <section
@@ -657,17 +679,34 @@ function StoresICollaborateWithSection({
   authUserId: string | undefined;
   viewerLoading: boolean;
 }) {
+  const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
   const storesQuery = useQuery(
     dashboardPollingQueryOptions<CollabAsCollaboratorSummary[]>({
       queryKey: ['dashboard-collab-as-collaborator', authUserId],
       queryFn: () => listCollabConnectionsAsCollaborator(requireAuthUserId(authUserId)),
-      enabled: Boolean(authUserId),
+      enabled: canRunPanelQueries && Boolean(authUserId),
       refetchInterval: 15000,
     })
   );
 
+  useEffect(() => {
+    if (isDashboardAuthError(storesQuery.error)) {
+      markSessionExpired();
+    }
+  }, [markSessionExpired, storesQuery.error]);
+
+  if (isDashboardAuthError(storesQuery.error)) {
+    return (
+      <DashboardAuthRequiredState
+        id="dashboard-stores-collab-auth-required"
+        title="Sign in to view collaborator stores"
+        description="Your dashboard session expired while loading stores you collaborate with. Sign in again to continue."
+      />
+    );
+  }
+
   const stores = storesQuery.data ?? [];
-  const isLoading = viewerLoading || storesQuery.isLoading;
+  const isLoading = viewerLoading || (canRunPanelQueries && storesQuery.isLoading);
 
   return (
     <section

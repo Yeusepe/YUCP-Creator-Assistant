@@ -1,15 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from '@tanstack/react-router';
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAuth } from '@/hooks/useAuth';
-import { useHasMounted } from '@/hooks/useHasMounted';
+import { DashboardSessionProvider } from '@/hooks/useDashboardSession';
+import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { ServerContextProvider } from '@/hooks/useServerContext';
 import { useTheme } from '@/hooks/useTheme';
-import { listUserGuilds, normalizeDashboardIdentifier } from '@/lib/dashboard';
-import { dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
-import { type Guild } from '@/lib/server/dashboard';
+import { normalizeDashboardIdentifier } from '@/lib/dashboard';
+import { dashboardShellQueryOptions } from '@/lib/dashboardQueryOptions';
+import { fetchDashboardShell, type Guild } from '@/lib/server/dashboard';
 import '@/styles/dashboard.css';
 import '@/styles/dashboard-components.css';
 import { getServerIconUrl } from '@/lib/utils';
@@ -32,7 +32,15 @@ export const Route = createFileRoute('/dashboard')({
       });
     }
   },
+  loader: ({ context: { queryClient } }) =>
+    queryClient.ensureQueryData(
+      dashboardShellQueryOptions({
+        queryKey: ['dashboard-shell'],
+        queryFn: () => fetchDashboardShell(),
+      })
+    ),
   component: DashboardLayout,
+  errorComponent: DashboardRouteErrorComponent,
 });
 
 /* ------------------------------------------------------------------ */
@@ -53,15 +61,17 @@ function DashboardLayout() {
 
   return (
     <ServerContextProvider guildId={guild_id} tenantId={tenant_id}>
-      <div className="dashboard-page">
-        <div className="app-shell">
-          <SidebarOverlay />
-          <ServerDropdownBackdrop />
-          <CloudBackground variant="default" />
-          <Sidebar />
-          <MainContent />
+      <DashboardSessionProvider>
+        <div className="dashboard-page">
+          <div className="app-shell">
+            <SidebarOverlay />
+            <ServerDropdownBackdrop />
+            <CloudBackground variant="default" />
+            <Sidebar />
+            <MainContent />
+          </div>
         </div>
-      </div>
+      </DashboardSessionProvider>
     </ServerContextProvider>
   );
 }
@@ -307,7 +317,6 @@ function Sidebar() {
 /* ------------------------------------------------------------------ */
 
 function SidebarLogoArea() {
-  const hasMounted = useHasMounted();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -315,23 +324,12 @@ function SidebarLogoArea() {
   const navigate = useNavigate();
   const { guild_id } = Route.useSearch();
   const { signOut } = useAuth();
+  const { guilds, selectedGuild } = useDashboardShell();
   const [selectorRect, setSelectorRect] = useState<{
     top: number;
     left: number;
     width: number;
   } | null>(null);
-
-  const guildsQuery = useQuery(
-    dashboardQueryOptions<Guild[]>({
-      queryKey: ['dashboard-guilds'],
-      queryFn: listUserGuilds,
-      enabled: hasMounted,
-    })
-  );
-  const guilds = guildsQuery.data ?? [];
-  const isGuildsLoading = !hasMounted || guildsQuery.isLoading;
-
-  const selectedGuild = useMemo(() => guilds?.find((g) => g.id === guild_id), [guilds, guild_id]);
 
   const filteredGuilds = useMemo(() => {
     if (!guilds) return [];
@@ -518,7 +516,9 @@ function SidebarLogoArea() {
     <div
       className={`server-dropdown-menu${dropdownOpen ? ' open' : ''}`}
       id="server-dropdown-menu"
-      onClick={(e) => e.stopPropagation()}
+      role="menu"
+      aria-label="Server selector"
+      onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="server-dropdown-search">
         <svg
@@ -546,9 +546,7 @@ function SidebarLogoArea() {
         />
       </div>
       <div className="server-dropdown-list" id="server-dropdown-list">
-        {isGuildsLoading ? (
-          <div className="server-dropdown-loading">Loading servers...</div>
-        ) : filteredGuilds.length === 0 ? (
+        {filteredGuilds.length === 0 ? (
           <div className="server-dropdown-empty">
             {searchQuery ? 'No servers found' : 'No servers configured yet'}
           </div>
@@ -640,15 +638,44 @@ function SidebarLogoArea() {
           ref: selectorButtonRef,
           hidden: dropdownOpen,
         })}
-        {dropdownOpen && selectorPortalStyle && typeof document !== 'undefined'
-          ? createPortal(
-              <div className="server-selector-portal" style={selectorPortalStyle}>
-                {renderSelectorTrigger('sidebar-server-selector-portal')}
-                {renderDropdownMenu()}
-              </div>,
-              document.body
-            )
-          : null}
+        {dropdownOpen && selectorPortalStyle ? (
+          <DashboardBodyPortal>
+            <div className="server-selector-portal" style={selectorPortalStyle}>
+              {renderSelectorTrigger('sidebar-server-selector-portal')}
+              {renderDropdownMenu()}
+            </div>
+          </DashboardBodyPortal>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DashboardRouteErrorComponent({ error }: { error: Error }) {
+  return (
+    <div className="dashboard-page">
+      <div className="app-shell">
+        <CloudBackground variant="default" />
+        <main className="content-area">
+          <section className="section-card bento-col-12 p-6 sm:p-7 md:p-8">
+            <div className="content-header-eyebrow">Dashboard Error</div>
+            <h1 className="content-header-title">Dashboard unavailable</h1>
+            <p className="content-header-desc" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+              The dashboard shell could not be loaded. Refresh the page or sign in again if the
+              problem persists.
+            </p>
+            <pre
+              style={{
+                marginTop: '20px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                color: 'rgba(255,255,255,0.72)',
+              }}
+            >
+              {error.message}
+            </pre>
+          </section>
+        </main>
       </div>
     </div>
   );

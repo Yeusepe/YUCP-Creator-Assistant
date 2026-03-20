@@ -1,7 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import {
   DashboardActionRowSkeleton,
@@ -11,12 +12,12 @@ import {
   DashboardSettingsSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
-import { useHasMounted } from '@/hooks/useHasMounted';
+import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
+import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { useServerContext } from '@/hooks/useServerContext';
 import type {
   DashboardGuildChannel,
   DashboardPolicy,
-  DashboardProvider,
   DashboardSettingKey,
   UserAccountConnection,
 } from '@/lib/dashboard';
@@ -27,12 +28,14 @@ import {
   getProviderIconPath,
   listDashboardProviders,
   listGuildChannels,
-  listUserGuilds,
   uninstallGuild,
   updateDashboardSetting,
 } from '@/lib/dashboard';
-import { dashboardFreshQueryOptions, dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
-import { type DashboardViewer, fetchDashboardViewer, type Guild } from '@/lib/server/dashboard';
+import {
+  dashboardClientRevalidateQueryOptions,
+  dashboardPanelQueryOptions,
+} from '@/lib/dashboardQueryOptions';
+import { type DashboardProvider } from '@/lib/server/dashboard';
 import { getServerIconUrl } from '@/lib/utils';
 import { api } from '../../../../../convex/_generated/api';
 import type { Id } from '../../../../../convex/_generated/dataModel';
@@ -185,23 +188,9 @@ function DashboardIndex() {
 }
 
 function PersonalSetupPanel() {
-  const hasMounted = useHasMounted();
   const navigate = useNavigate();
-  const { data: viewer } = useQuery(
-    dashboardQueryOptions<DashboardViewer>({
-      queryKey: ['dashboard-viewer'],
-      queryFn: () => fetchDashboardViewer(),
-    })
-  );
-  const guildsQuery = useQuery(
-    dashboardQueryOptions<Guild[]>({
-      queryKey: ['dashboard-guilds'],
-      queryFn: listUserGuilds,
-      enabled: hasMounted,
-    })
-  );
-  const guilds = guildsQuery.data ?? [];
-  const isLoading = !hasMounted || guildsQuery.isLoading;
+  const { guilds, viewer } = useDashboardShell();
+  const isLoading = false;
 
   const openInstallFlow = useCallback(() => {
     if (!viewer?.authUserId || typeof window === 'undefined') {
@@ -363,22 +352,20 @@ function PersonalSetupPanel() {
 
 function ConnectedPlatformsPanel() {
   const { guildId, tenantId } = useServerContext();
-  const { data: viewer } = useQuery(
-    dashboardQueryOptions<DashboardViewer>({
-      queryKey: ['dashboard-viewer'],
-      queryFn: () => fetchDashboardViewer(),
-    })
-  );
+  const { viewer } = useDashboardShell();
+  const { canRunPanelQueries, markSessionExpired, status } = useDashboardSession();
   const authUserId = tenantId ?? viewer?.authUserId;
-  const queryClient = useQueryClient();
   const [pendingProviderDisconnect, setPendingProviderDisconnect] = useState<string | null>(null);
 
-  const { data: providers = [], isLoading: providersLoading } = useQuery(
-    dashboardQueryOptions<DashboardProvider[]>({
+  const providersQuery = useQuery(
+    dashboardPanelQueryOptions<DashboardProvider[]>({
       queryKey: ['dashboard-providers'],
       queryFn: listDashboardProviders,
+      enabled: canRunPanelQueries,
     })
   );
+  const providers = providersQuery.data ?? [];
+  const providersLoading = providersQuery.isLoading;
   const accountsRaw = useConvexQuery(api.dashboardViews.listMyConnections);
   const accounts: UserAccountConnection[] = (accountsRaw ?? []) as UserAccountConnection[];
   const accountsLoading = accountsRaw === undefined;
@@ -390,6 +377,12 @@ function ConnectedPlatformsPanel() {
       // Convex auto-refreshes accountsRaw reactively
     },
   });
+
+  useEffect(() => {
+    if (isDashboardAuthError(providersQuery.error)) {
+      markSessionExpired();
+    }
+  }, [markSessionExpired, providersQuery.error]);
 
   const accountsByProvider = useMemo(() => {
     const next = new Map<string, UserAccountConnection>();
@@ -419,7 +412,18 @@ function ConnectedPlatformsPanel() {
     [authUserId, guildId]
   );
 
-  const isLoading = providersLoading || accountsLoading;
+  if (isDashboardAuthError(providersQuery.error)) {
+    return (
+      <DashboardAuthRequiredState
+        id="dashboard-platforms-auth-required"
+        title="Sign in to manage connected platforms"
+        description="Your dashboard session expired while loading connected platforms. Sign in again to keep managing provider connections."
+      />
+    );
+  }
+
+  const isLoading =
+    status === 'resolving' || (canRunPanelQueries && (providersLoading || accountsLoading));
 
   return (
     <section
@@ -643,12 +647,8 @@ function ServerConfigPanel() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const { guildId, tenantId } = useServerContext();
-  const { data: viewer } = useQuery(
-    dashboardQueryOptions<DashboardViewer>({
-      queryKey: ['dashboard-viewer'],
-      queryFn: () => fetchDashboardViewer(),
-    })
-  );
+  const { viewer } = useDashboardShell();
+  const { canRunPanelQueries, markSessionExpired, status } = useDashboardSession();
   const authUserId = tenantId ?? viewer?.authUserId;
   const [policyDraft, setPolicyDraft] = useState<NormalizedPolicy>(DEFAULT_POLICY);
   const [saveStates, setSaveStates] = useState<Record<string, SaveIndicatorState>>({});
@@ -690,12 +690,15 @@ function ServerConfigPanel() {
     });
   }, [adminNotifications, toast, markSeenMutation]);
 
-  const { data: providers = [], isLoading: providersLoading } = useQuery(
-    dashboardQueryOptions<DashboardProvider[]>({
+  const providersQuery = useQuery(
+    dashboardPanelQueryOptions<DashboardProvider[]>({
       queryKey: ['dashboard-providers'],
       queryFn: listDashboardProviders,
+      enabled: canRunPanelQueries,
     })
   );
+  const providers = providersQuery.data ?? [];
+  const providersLoading = providersQuery.isLoading;
   // Convex reactive queries — update in real-time when provider_connections changes
   const statusByProviderRaw = useConvexQuery(api.dashboardViews.getMyConnectionStatus);
   const statusByProvider: Record<string, boolean> = statusByProviderRaw ?? {};
@@ -712,19 +715,29 @@ function ServerConfigPanel() {
     return map;
   }, [accounts]);
   const settingsQuery = useQuery(
-    dashboardFreshQueryOptions<DashboardPolicy>({
+    dashboardClientRevalidateQueryOptions<DashboardPolicy>({
       queryKey: ['dashboard-settings', authUserId],
       queryFn: () => getDashboardSettings(requireAuthUserId(authUserId)),
-      enabled: Boolean(authUserId && guildId),
+      enabled: canRunPanelQueries && Boolean(authUserId && guildId),
     })
   );
   const channelsQuery = useQuery(
-    dashboardQueryOptions<DashboardGuildChannel[]>({
+    dashboardPanelQueryOptions<DashboardGuildChannel[]>({
       queryKey: ['dashboard-guild-channels', guildId, authUserId],
       queryFn: () => listGuildChannels(requireGuildId(guildId), authUserId),
-      enabled: Boolean(guildId && authUserId),
+      enabled: canRunPanelQueries && Boolean(guildId && authUserId),
     })
   );
+
+  useEffect(() => {
+    if (
+      isDashboardAuthError(providersQuery.error) ||
+      isDashboardAuthError(settingsQuery.error) ||
+      isDashboardAuthError(channelsQuery.error)
+    ) {
+      markSessionExpired();
+    }
+  }, [channelsQuery.error, markSessionExpired, providersQuery.error, settingsQuery.error]);
 
   useEffect(() => {
     if (!settingsQuery.data) {
@@ -845,11 +858,29 @@ function ServerConfigPanel() {
     [saveSettingMutation]
   );
 
+  if (
+    isDashboardAuthError(providersQuery.error) ||
+    isDashboardAuthError(settingsQuery.error) ||
+    isDashboardAuthError(channelsQuery.error) ||
+    status === 'signed_out' ||
+    status === 'expired'
+  ) {
+    return (
+      <DashboardAuthRequiredState
+        id="dashboard-server-config-auth-required"
+        title="Sign in to manage server configuration"
+        description="Your dashboard session expired while loading server configuration. Sign in again to keep managing settings and channels."
+      />
+    );
+  }
+
   const isLoading =
-    providersLoading ||
-    connectionStatusLoading ||
-    settingsQuery.isLoading ||
-    channelsQuery.isLoading;
+    status === 'resolving' ||
+    (canRunPanelQueries &&
+      (providersLoading ||
+        connectionStatusLoading ||
+        settingsQuery.isLoading ||
+        channelsQuery.isLoading));
 
   return (
     <div

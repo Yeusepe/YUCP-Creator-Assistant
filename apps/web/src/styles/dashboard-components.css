@@ -189,11 +189,13 @@
 
 .quick-start-progress-fill {
   height: 100%;
-  width: 0%;
+  width: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #38bdf8 0%, #60a5fa 45%, #fde047 100%);
   box-shadow: 0 0 18px rgba(56, 189, 248, 0.35);
-  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
   position: relative;
   overflow: hidden;
 }

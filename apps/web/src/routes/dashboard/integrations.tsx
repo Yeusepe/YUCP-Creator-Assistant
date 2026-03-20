@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import {
   DashboardActionRowSkeleton,
   DashboardListSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
+import { useDashboardShell } from '@/hooks/useDashboardShell';
 import type {
   CreatedOAuthApp,
   CreatedPublicApiKey,
@@ -24,8 +26,7 @@ import {
   rotatePublicApiKey,
   updateOAuthApp,
 } from '@/lib/dashboard';
-import { dashboardQueryOptions } from '@/lib/dashboardQueryOptions';
-import { type DashboardViewer, fetchDashboardViewer } from '@/lib/server/dashboard';
+import { dashboardPanelQueryOptions } from '@/lib/dashboardQueryOptions';
 import { copyToClipboard } from '@/lib/utils';
 
 export const Route = createFileRoute('/dashboard/integrations')({
@@ -46,15 +47,11 @@ const OAUTH_SCOPE_OPTIONS = [
 ] as const;
 
 function DashboardIntegrations() {
-  const viewerQuery = useQuery(
-    dashboardQueryOptions<DashboardViewer>({
-      queryKey: ['dashboard-viewer'],
-      queryFn: () => fetchDashboardViewer(),
-    })
-  );
-  const authUserId = viewerQuery.data?.authUserId;
+  const { viewer } = useDashboardShell();
+  const { isAuthResolved, status } = useDashboardSession();
+  const authUserId = viewer.authUserId;
 
-  if (!viewerQuery.isLoading && !authUserId) {
+  if (status === 'signed_out' || status === 'expired') {
     return (
       <div
         id="tab-panel-integrations"
@@ -81,8 +78,8 @@ function DashboardIntegrations() {
       aria-labelledby="tab-btn-integrations"
     >
       <div className="bento-grid integrations-grid">
-        <OAuthAppsSection authUserId={authUserId} viewerLoading={viewerQuery.isLoading} />
-        <ApiKeysSection authUserId={authUserId} viewerLoading={viewerQuery.isLoading} />
+        <OAuthAppsSection authUserId={authUserId} viewerLoading={!isAuthResolved} />
+        <ApiKeysSection authUserId={authUserId} viewerLoading={!isAuthResolved} />
       </div>
     </div>
   );
@@ -96,6 +93,7 @@ function OAuthAppsSection({
   viewerLoading: boolean;
 }) {
   const queryClient = useQueryClient();
+  const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [appName, setAppName] = useState('');
   const [redirectUris, setRedirectUris] = useState('');
@@ -107,12 +105,20 @@ function OAuthAppsSection({
   const [revealedSecret, setRevealedSecret] = useState<CreatedOAuthApp | null>(null);
 
   const oauthAppsQuery = useQuery(
-    dashboardQueryOptions<OAuthAppSummary[]>({
+    dashboardPanelQueryOptions<OAuthAppSummary[]>({
       queryKey: ['dashboard-oauth-apps', authUserId],
       queryFn: () => listOAuthApps(requireAuthUserId(authUserId)),
-      enabled: Boolean(authUserId),
+      enabled: canRunPanelQueries && Boolean(authUserId),
     })
   );
+
+  useEffect(() => {
+    if (isDashboardAuthError(oauthAppsQuery.error)) {
+      markSessionExpired();
+    }
+  }, [markSessionExpired, oauthAppsQuery.error]);
+
+  const hasAuthError = isDashboardAuthError(oauthAppsQuery.error);
 
   const resetCreateForm = useCallback(() => {
     setAppName('');
@@ -180,7 +186,17 @@ function OAuthAppsSection({
     setEditingScopes(app.scopes);
   }, []);
 
-  const isLoading = viewerLoading || oauthAppsQuery.isLoading;
+  if (hasAuthError) {
+    return (
+      <DashboardAuthRequiredState
+        id="dashboard-oauth-apps-auth-required"
+        title="Sign in to manage OAuth applications"
+        description="Your dashboard session expired while loading OAuth apps. Sign in again to keep managing developer integrations."
+      />
+    );
+  }
+
+  const isLoading = viewerLoading || (canRunPanelQueries && oauthAppsQuery.isLoading);
   const apps = oauthAppsQuery.data ?? [];
 
   return (
@@ -459,18 +475,27 @@ function ApiKeysSection({
   viewerLoading: boolean;
 }) {
   const queryClient = useQueryClient();
+  const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [keyName, setKeyName] = useState('');
   const [scopes, setScopes] = useState<string[]>(['verification:read', 'subjects:read']);
   const [revealedKey, setRevealedKey] = useState<CreatedPublicApiKey | null>(null);
 
   const apiKeysQuery = useQuery(
-    dashboardQueryOptions<PublicApiKeySummary[]>({
+    dashboardPanelQueryOptions<PublicApiKeySummary[]>({
       queryKey: ['dashboard-api-keys', authUserId],
       queryFn: () => listPublicApiKeys(requireAuthUserId(authUserId)),
-      enabled: Boolean(authUserId),
+      enabled: canRunPanelQueries && Boolean(authUserId),
     })
   );
+
+  useEffect(() => {
+    if (isDashboardAuthError(apiKeysQuery.error)) {
+      markSessionExpired();
+    }
+  }, [apiKeysQuery.error, markSessionExpired]);
+
+  const hasAuthError = isDashboardAuthError(apiKeysQuery.error);
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -503,7 +528,17 @@ function ApiKeysSection({
     },
   });
 
-  const isLoading = viewerLoading || apiKeysQuery.isLoading;
+  if (hasAuthError) {
+    return (
+      <DashboardAuthRequiredState
+        id="dashboard-api-keys-auth-required"
+        title="Sign in to manage API keys"
+        description="Your dashboard session expired while loading API keys. Sign in again to keep managing developer integrations."
+      />
+    );
+  }
+
+  const isLoading = viewerLoading || (canRunPanelQueries && apiKeysQuery.isLoading);
   const keys = apiKeysQuery.data ?? [];
 
   return (

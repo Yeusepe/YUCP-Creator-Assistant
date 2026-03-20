@@ -75,6 +75,7 @@ export const Route = createRootRouteWithContext<{
     };
   },
   component: RootComponent,
+  errorComponent: RootErrorComponent,
 });
 
 function RootComponent() {
@@ -110,12 +111,63 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
       <head>
+        {/* Blocking script: runs before first paint to apply the stored theme.
+            Must precede HeadContent so the class is set before any CSS renders. */}
+        <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: intentional blocking inline script for theme hydration
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem('yucp_theme');if(t==='dark'||(t===null&&matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}`,
+          }}
+        />
         <HeadContent />
       </head>
       <body>
         {children}
+        <div id="portal-root" />
         <Scripts />
       </body>
     </html>
+  );
+}
+
+function RootErrorComponent({ error }: { error: Error }) {
+  return (
+    <RootDocument>
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'grid',
+          placeItems: 'center',
+          padding: '24px',
+          background: 'var(--bg-primary)',
+          color: 'var(--text-primary)',
+        }}
+      >
+        <div
+          style={{
+            width: 'min(560px, 100%)',
+            borderRadius: '20px',
+            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'rgba(255,255,255,0.03)',
+            padding: '28px',
+          }}
+        >
+          <h1 style={{ margin: '0 0 12px', fontSize: '28px' }}>Something went wrong</h1>
+          <p style={{ margin: '0 0 20px', color: 'rgba(255,255,255,0.72)' }}>
+            The app hit an unexpected error while rendering this page.
+          </p>
+          <pre
+            style={{
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              color: 'rgba(255,255,255,0.76)',
+            }}
+          >
+            {error.message}
+          </pre>
+        </div>
+      </div>
+    </RootDocument>
   );
 }

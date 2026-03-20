@@ -3,9 +3,22 @@ import { render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/server/dashboard', async () => {
+vi.mock('@/hooks/useDashboardShell', () => {
   return {
-    fetchDashboardViewer: vi.fn(),
+    useDashboardShell: vi.fn(() => ({
+      guilds: [],
+      selectedGuild: undefined,
+      viewer: {
+        authUserId: 'user-123',
+      },
+    })),
+  };
+});
+
+vi.mock('@/hooks/useDashboardSession', async () => {
+  return {
+    isDashboardAuthError: vi.fn(() => false),
+    useDashboardSession: vi.fn(),
   };
 });
 
@@ -23,8 +36,8 @@ vi.mock('@/lib/dashboard', async () => {
   };
 });
 
+import { useDashboardSession } from '@/hooks/useDashboardSession';
 import * as dashboardApi from '@/lib/dashboard';
-import { fetchDashboardViewer } from '@/lib/server/dashboard';
 import { Route as CollaborationRoute } from '@/routes/dashboard/collaboration';
 import { Route as IntegrationsRoute } from '@/routes/dashboard/integrations';
 
@@ -44,13 +57,24 @@ function createWrapper() {
 
 describe('dashboard auth-required states', () => {
   beforeEach(() => {
-    vi.mocked(fetchDashboardViewer).mockReset();
+    vi.mocked(useDashboardSession).mockReset();
     vi.mocked(dashboardApi.listOAuthApps).mockReset();
     vi.mocked(dashboardApi.listPublicApiKeys).mockReset();
     vi.mocked(dashboardApi.listCollabProviders).mockReset();
     vi.mocked(dashboardApi.listCollabInvites).mockReset();
     vi.mocked(dashboardApi.listCollabConnections).mockReset();
     vi.mocked(dashboardApi.listCollabConnectionsAsCollaborator).mockReset();
+
+    vi.mocked(useDashboardSession).mockReturnValue({
+      canRunPanelQueries: false,
+      clearSessionExpired: vi.fn(),
+      hasHydrated: true,
+      isAuthenticated: false,
+      isAuthResolved: true,
+      isSessionExpired: true,
+      markSessionExpired: vi.fn(),
+      status: 'expired',
+    });
 
     vi.mocked(dashboardApi.listOAuthApps).mockResolvedValue([]);
     vi.mocked(dashboardApi.listPublicApiKeys).mockResolvedValue([]);
@@ -61,8 +85,6 @@ describe('dashboard auth-required states', () => {
   });
 
   it('renders an auth-required state on developer integrations when viewer auth cannot be resolved', async () => {
-    vi.mocked(fetchDashboardViewer).mockRejectedValue(new Error('Not authenticated'));
-
     const Component = IntegrationsRoute.options.component;
     if (!Component) {
       throw new Error('Integrations route component is not defined');
@@ -79,8 +101,6 @@ describe('dashboard auth-required states', () => {
   });
 
   it('renders an auth-required state on collaboration when viewer auth cannot be resolved', async () => {
-    vi.mocked(fetchDashboardViewer).mockRejectedValue(new Error('Not authenticated'));
-
     const Component = CollaborationRoute.options.component;
     if (!Component) {
       throw new Error('Collaboration route component is not defined');

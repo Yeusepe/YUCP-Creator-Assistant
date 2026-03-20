@@ -32,7 +32,7 @@ describe('dashboard parity wiring', () => {
     const layoutSource = readFileSync(join(__dirname, '../../src/routes/dashboard.tsx'), 'utf8');
 
     expect(source).toContain('id="participating-servers-list"');
-    expect(source).toContain('id="dynamic-server-provider-tiles"');
+    expect(source).toContain('id="dynamic-platform-cards"');
     expect(source).toContain('id="server-disconnect-steps"');
     expect(helperSource).toContain('/api/providers');
     expect(helperSource).toContain('/api/connect/user/guilds');
@@ -43,8 +43,8 @@ describe('dashboard parity wiring', () => {
     expect(helperSource).toContain('/api/install/uninstall/');
     expect(serverHelperSource).toContain('/api/connect/user/guilds');
     expect(serverHelperSource).not.toContain('/api/dashboard/guilds');
-    expect(serverHelperSource).toContain('id: guild.guildId');
-    expect(serverHelperSource).toContain('tenantId: guild.authUserId');
+    expect(serverHelperSource).toContain('id: stripQuotes(guild.guildId)');
+    expect(serverHelperSource).toContain('tenantId: stripQuotes(guild.authUserId)');
     expect(guildLinksSource).toContain(".query('guild_links')");
     expect(guildLinksSource).toContain(
       ".withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))"
@@ -52,8 +52,10 @@ describe('dashboard parity wiring', () => {
     expect(guildLinksSource).not.toContain(
       ".query('creator_profiles')\n      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))\n      .collect()"
     );
-    expect(source).toContain('queryFn: listUserGuilds');
-    expect(layoutSource).toContain('queryFn: listUserGuilds');
+    expect(source).not.toContain('queryFn: listUserGuilds');
+    expect(layoutSource).not.toContain('queryFn: listUserGuilds');
+    expect(source).toContain('useDashboardShell');
+    expect(layoutSource).toContain('useDashboardShell');
   });
 
   it('derives server provider tiles from tenant connection status instead of the viewer account list', () => {
@@ -64,15 +66,10 @@ describe('dashboard parity wiring', () => {
       )?.[0] ?? '';
 
     expect(serverConfigPanelSource).toContain(
-      "queryKey: ['dashboard-connection-status', authUserId]"
-    );
-    expect(serverConfigPanelSource).toContain(
-      'queryFn: () => getConnectionStatus(requireAuthUserId(authUserId))'
+      'const statusByProviderRaw = useConvexQuery(api.dashboardViews.getMyConnectionStatus);'
     );
     expect(serverConfigPanelSource).toContain('statusByProvider[provider.key]');
-    expect(serverConfigPanelSource).not.toContain(
-      "queryKey: ['dashboard-user-accounts', viewer?.authUserId]"
-    );
+    expect(serverConfigPanelSource).toContain('const { viewer } = useDashboardShell();');
   });
 
   it('keeps connected platform rendering aligned with provider status cards instead of duplicate account strips', () => {
@@ -107,15 +104,12 @@ describe('dashboard parity wiring', () => {
     expect(collaborationSource).not.toContain('className="skeleton-block skeleton-card"');
   });
 
-  it('waits for the resolved dashboard viewer before querying user-scoped account data', () => {
+  it('derives dashboard viewer and guild shell data from the shared parent route loader', () => {
     const source = readRouteSource('index.tsx');
 
-    const guardedAccountQueries =
-      source.match(
-        /queryKey:\s*\['dashboard-user-accounts'[^\]]*\][\s\S]*?queryFn:\s*listUserAccounts,[\s\S]*?enabled:\s*Boolean\(viewer\?\.authUserId\)/g
-      ) ?? [];
-
-    expect(guardedAccountQueries).toHaveLength(1);
+    expect(source).toContain('const { guilds, viewer } = useDashboardShell();');
+    expect(source).toContain('const { viewer } = useDashboardShell();');
+    expect(source).not.toContain("queryKey: ['dashboard-viewer']");
   });
 
   it('wires developer integrations to OAuth app and API key CRUD flows', () => {
@@ -168,11 +162,12 @@ describe('dashboard parity wiring', () => {
     const integrationsSource = readRouteSource('integrations.tsx');
     const collaborationSource = readRouteSource('collaboration.tsx');
 
-    expect(indexSource).toContain('dashboardQueryOptions<');
-    expect(indexSource).toContain('enabled: hasMounted');
-    expect(layoutSource).toContain('enabled: hasMounted');
-    expect(integrationsSource).toContain('dashboardQueryOptions<');
-    expect(collaborationSource).toContain('dashboardQueryOptions<');
+    expect(indexSource).toContain('dashboardPanelQueryOptions<');
+    expect(indexSource).toContain('dashboardClientRevalidateQueryOptions<');
+    expect(indexSource).toContain('enabled: canRunPanelQueries');
+    expect(layoutSource).toContain('dashboardShellQueryOptions');
+    expect(integrationsSource).toContain('dashboardPanelQueryOptions<');
+    expect(collaborationSource).toContain('dashboardPanelQueryOptions<');
     expect(collaborationSource).toContain('dashboardPollingQueryOptions<');
   });
 });
