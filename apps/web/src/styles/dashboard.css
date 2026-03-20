@@ -177,7 +177,7 @@ body:not(.state-server-selected) .server-only {
 .settings-subsection {
   grid-column: 1 / -1;
   margin-bottom: 0;
-  padding-bottom: 32px;
+  padding-bottom: 24px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.07);
 }
 
@@ -187,7 +187,7 @@ body:not(.state-server-selected) .server-only {
 }
 
 .settings-subsection + .settings-subsection {
-  padding-top: 32px;
+  padding-top: 24px;
 }
 
 .settings-subsection.danger-zone {
@@ -224,8 +224,8 @@ body:not(.state-server-selected) .server-only {
 
 .intg-provider-card {
   position: relative;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 16px;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -462,8 +462,8 @@ body:not(.state-server-selected) .server-only {
 
 /* Dark mode adjustments for intg provider grid */
 .dark .intg-provider-card {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .dark .intg-provider-card:hover {
@@ -496,6 +496,20 @@ body:not(.state-server-selected) .server-only {
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.04),
     0 8px 16px rgba(0, 0, 0, 0.06);
+}
+
+.dark .setting-row {
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.dark .setting-row:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 8px 16px rgba(0, 0, 0, 0.2);
 }
 
 .setting-row-left {
@@ -919,7 +933,18 @@ body:not(.state-server-selected) .server-only {
 
 .svr-cfg-switch.saving {
   pointer-events: none;
-  opacity: 0.6;
+  opacity: 0.55;
+  animation: switch-saving-pulse 1s ease-in-out infinite;
+}
+
+@keyframes switch-saving-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 /* ─── Button loading spinner ─── */
@@ -1067,22 +1092,43 @@ body:not(.state-server-selected) .server-only {
 
 .collab-remove-btn {
   margin-left: auto;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
   font-weight: 700;
   background: transparent;
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  border-radius: 999px;
-  padding: 5px 12px;
+  border-radius: 10px;
+  padding: 6px 14px;
+  min-height: 32px;
   cursor: pointer;
   transition: all 0.2s;
   font-family: "Plus Jakarta Sans", sans-serif;
   flex-shrink: 0;
 }
 
-.collab-remove-btn:hover {
+.collab-remove-btn:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.1);
   border-color: rgba(248, 113, 113, 0.4);
+  color: #f87171;
+}
+
+.collab-remove-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dark .collab-remove-btn {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.dark .collab-remove-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(248, 113, 113, 0.45);
   color: #f87171;
 }
 
@@ -1213,6 +1259,14 @@ img.collab-avatar {
 .collab-invite-expiry {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* Unify Copy link + Revoke button sizes inside pending invite rows */
+.collab-invite-row .btn-ghost {
+  padding: 6px 14px;
+  min-height: 32px;
+  font-size: 12px;
+  border-radius: 10px;
 }
 
 /*  OAuth Apps (Glass Grid Style)  */
@@ -2066,7 +2120,7 @@ img.collab-avatar {
 .sidebar-server-icon {
   width: 20px;
   height: 20px;
-  border-radius: 6px;
+  border-radius: 8px;
   background: linear-gradient(135deg, rgba(88, 101, 242, 0.55), rgba(139, 92, 246, 0.55));
   flex-shrink: 0;
   display: flex;

@@ -709,7 +709,7 @@
 .server-dropdown-item img {
   width: 24px;
   height: 24px;
-  border-radius: 50%;
+  border-radius: 8px;
   object-fit: cover;
   background: rgba(0, 0, 0, 0.2);
 }
@@ -717,7 +717,7 @@
 .server-dropdown-item .fallback-icon {
   width: 24px;
   height: 24px;
-  border-radius: 50%;
+  border-radius: 8px;
   background: rgba(0, 0, 0, 0.2);
   display: flex;
   align-items: center;
@@ -2286,6 +2286,42 @@
   opacity: 0.55;
   cursor: not-allowed;
   transform: none;
+}
+
+/* ─── Loading state modifier — applies to any button ─── */
+
+.btn-loading {
+  pointer-events: none;
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.btn-loading .btn-label {
+  opacity: 0.7;
+}
+
+.btn-loading-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btn-loading-spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes btn-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Light mode: spinner on light-bg buttons */
+.intg-card .btn-loading-spinner,
+.section-card .btn-loading-spinner {
+  border-color: rgba(15, 23, 42, 0.2);
+  border-top-color: #0f172a;
 }
 
 .cred-block {
