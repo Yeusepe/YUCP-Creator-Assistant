@@ -1,5 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
+import { CloudBackground } from '@/components/three/CloudBackground';
+import { Select } from '@/components/ui/Select';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/setup/discord-role')({
@@ -219,32 +221,26 @@ function DiscordRoleSetupPage() {
   const showDots = view === 'signin' || view === 'pick';
   const oauthLink = '/api/setup/discord-role-oauth/begin';
 
+  const guildOptions = [
+    { value: '', label: 'Select a server...' },
+    ...guilds.map((g) => ({ value: g.id, label: g.name })),
+  ];
+
   /* ── Render ────────────────────────────────────────────────────── */
   return (
-    <div
-      className="discord-role-setup flex items-start sm:items-center justify-center p-4 sm:p-6"
-      style={{
-        minHeight: '100dvh',
-        paddingTop: 'max(2rem, env(safe-area-inset-top))',
-        paddingBottom: 'max(2rem, env(safe-area-inset-bottom))',
-      }}
-    >
-      <div className="w-full max-w-md animate-in" style={{ width: '100%' }}>
+    <div className="discord-role-setup">
+      <CloudBackground variant="default" />
+
+      <div className="discord-role-setup-inner animate-in">
         {/* Header */}
-        <div className="text-center mb-8">
-          <img
-            src="/Icons/MainLogo.png"
-            alt="Creator Assistant"
-            className="h-8 sm:h-10 max-w-full w-auto object-contain object-center flex-shrink-0 mx-auto mb-5 opacity-90"
-          />
-          <div className="inline-flex items-center gap-2.5 bg-[#5865F2]/20 border border-[#5865F2]/30 rounded-full px-4 py-1.5 mb-4">
-            <DiscordIcon className="w-4 h-4 text-[#7289da]" />
-            <span className="font-heading text-[11px] font-black uppercase tracking-widest text-[#a5b4fc]">
-              Discord® Role Setup
-            </span>
+        <div className="page-header">
+          <img src="/Icons/MainLogo.png" alt="Creator Assistant" className="page-header-logo" />
+          <div className="page-header-badge">
+            <DiscordIcon className="page-header-badge-icon" />
+            <span className="page-header-badge-text">Discord® Role Setup</span>
           </div>
-          <h1 className="text-3xl font-black text-white mb-2">Pick a server &amp; role</h1>
-          <p className="text-sm text-white/60" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+          <h1 className="page-header-title">Pick a server &amp; role</h1>
+          <p className="page-header-subtitle">
             Set which Discord® role grants verification access.
           </p>
         </div>
@@ -260,30 +256,17 @@ function DiscordRoleSetupPage() {
         {/* ── Sign in ────────────────────────────────────────────── */}
         {view === 'signin' && (
           <div className="card">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-9 h-9 rounded-xl bg-[#5865F2]/20 flex items-center justify-center flex-shrink-0">
-                <DiscordIcon className="w-5 h-5 text-[#7289da]" />
+            <div className="card-header">
+              <div className="card-header-icon">
+                <DiscordIcon />
               </div>
               <div>
-                <h2
-                  className="font-heading text-lg text-white"
-                  style={{ letterSpacing: '-0.02em' }}
-                >
-                  Sign in with Discord®
-                </h2>
-                <p
-                  className="text-xs text-white/50"
-                  style={{ fontFamily: "'DM Sans', sans-serif" }}
-                >
-                  Step 1 of 2
-                </p>
+                <h2 className="card-title">Sign in with Discord®</h2>
+                <p className="card-subtitle">Step 1 of 2</p>
               </div>
             </div>
 
-            <p
-              className="text-sm text-white/65 mb-6 leading-relaxed"
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
-            >
+            <p className="card-desc">
               We need to see which Discord® servers you're in so you can pick one - no typing server
               IDs required. We only read your server list, nothing else.
             </p>
@@ -301,8 +284,8 @@ function DiscordRoleSetupPage() {
             </a>
 
             <p
-              className="text-center text-xs text-white/30 mt-4"
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
+              className="field-hint"
+              style={{ textAlign: 'center', marginTop: '1rem', color: 'rgba(255,255,255,0.3)' }}
             >
               Only your server list is accessed. No messages or permissions.
             </p>
@@ -312,54 +295,35 @@ function DiscordRoleSetupPage() {
         {/* ── Pick server & role ─────────────────────────────────── */}
         {view === 'pick' && (
           <div className="card">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-9 h-9 rounded-xl bg-[#5865F2]/20 flex items-center justify-center flex-shrink-0">
+            <div className="card-header">
+              <div className="card-header-icon">
                 <img src="/Icons/PersonKey.png" className="w-5 h-5 object-contain" alt="" />
               </div>
               <div>
-                <h2
-                  className="font-heading text-lg text-white"
-                  style={{ letterSpacing: '-0.02em' }}
-                >
-                  Pick a server and role
-                </h2>
-                <p
-                  className="text-xs text-white/50"
-                  style={{ fontFamily: "'DM Sans', sans-serif" }}
-                >
-                  Step 2 of 2
-                </p>
+                <h2 className="card-title">Pick a server and role</h2>
+                <p className="card-subtitle">Step 2 of 2</p>
               </div>
             </div>
 
-            <p
-              className="text-sm text-white/65 mb-6 leading-relaxed"
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
-            >
+            <p className="card-desc">
               Select the server where users must have a role, then enter that role's ID.
             </p>
 
             {/* Server dropdown */}
-            <div className="mb-5">
+            <div style={{ marginBottom: '1.25rem' }}>
               <label className="form-label" htmlFor="guild-select">
                 Source Server
               </label>
-              <select
+              <Select
                 id="guild-select"
                 value={selectedGuild}
-                onChange={(e) => setSelectedGuild(e.target.value)}
-              >
-                <option value="">- Select a server -</option>
-                {guilds.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </select>
+                options={guildOptions}
+                onChange={setSelectedGuild}
+              />
             </div>
 
             {/* Role IDs */}
-            <div className="mb-2">
+            <div style={{ marginBottom: '0.5rem' }}>
               <label className="form-label" htmlFor="role-ids-input">
                 Required Role(s)
               </label>
@@ -367,19 +331,14 @@ function DiscordRoleSetupPage() {
                 id="role-ids-input"
                 rows={3}
                 placeholder={'One role ID per line, e.g.:\n123456789012345678\n987654321098765432'}
-                className="w-full rounded-xl border border-white/15 bg-black/20 px-4 py-3 text-white placeholder-white/30 focus:border-[#5865F2] focus:outline-none focus:ring-1 focus:ring-[#5865F2] font-mono text-sm"
-                style={{ fontSize: '16px' }}
                 value={roleIdsText}
                 onChange={(e) => setRoleIdsText(e.target.value)}
               />
-              <p
-                className="text-xs text-white/50 mt-1"
-                style={{ fontFamily: "'DM Sans', sans-serif" }}
-              >
+              <p className="field-hint">
                 Users must have these roles in the source server. Add one or more.
               </p>
 
-              <div className="helper-box mt-2">
+              <div className="helper-box" style={{ marginTop: '0.5rem' }}>
                 <div className="helper-step">
                   <div className="helper-num">1</div>
                   <span>Open the target server in Discord®</span>
@@ -387,16 +346,19 @@ function DiscordRoleSetupPage() {
                 <div className="helper-step">
                   <div className="helper-num">2</div>
                   <span>
-                    Go to <strong className="text-white/80">Server Settings &rarr; Roles</strong>
+                    Go to{' '}
+                    <strong style={{ color: 'rgba(255,255,255,0.8)' }}>
+                      Server Settings &rarr; Roles
+                    </strong>
                   </span>
                 </div>
                 <div className="helper-step">
                   <div className="helper-num">3</div>
                   <span>
                     Right-click the role &rarr;{' '}
-                    <strong className="text-white/80">Copy Role ID</strong>
+                    <strong style={{ color: 'rgba(255,255,255,0.8)' }}>Copy Role ID</strong>
                     <br />
-                    <span className="text-white/40">
+                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>
                       (Requires Developer Mode: User Settings &rarr; Advanced &rarr; Developer Mode)
                     </span>
                   </span>
@@ -405,7 +367,7 @@ function DiscordRoleSetupPage() {
             </div>
 
             {/* Match mode */}
-            <div className="mb-5 mt-4">
+            <div style={{ marginBottom: '1.25rem', marginTop: '1rem' }}>
               <span className="form-label">Verification rule</span>
               <div className="option-pill-group">
                 <label className="option-pill">
@@ -433,17 +395,14 @@ function DiscordRoleSetupPage() {
                   </span>
                 </label>
               </div>
-              <p
-                className="text-xs text-white/50 mt-1"
-                style={{ fontFamily: "'DM Sans', sans-serif" }}
-              >
+              <p className="field-hint" style={{ marginTop: '0.25rem' }}>
                 Choose whether the user needs at least one role or every role.
               </p>
             </div>
 
             {/* Error */}
             {error && (
-              <div className="error-box mt-4">
+              <div className="error-box" style={{ marginTop: '1rem' }}>
                 <img src="/Icons/X.png" className="error-box-icon" alt="" />
                 <span>{error}</span>
               </div>
@@ -452,27 +411,23 @@ function DiscordRoleSetupPage() {
             {/* Save */}
             <button
               type="button"
-              className="btn-primary mt-5"
+              className="btn-primary"
               disabled={isSaving}
               onClick={handleSave}
+              style={{ marginTop: '1.25rem' }}
             >
               {isSaving ? (
                 <>
-                  <div
-                    style={{
-                      width: 16,
-                      height: 16,
-                      border: '2px solid rgba(255,255,255,0.3)',
-                      borderTopColor: 'white',
-                      borderRadius: '50%',
-                      animation: 'spin 0.7s linear infinite',
-                    }}
-                  />
+                  <span className="btn-spinner" />
                   Saving...
                 </>
               ) : (
                 <>
-                  <img src="/Icons/Checkmark.png" className="w-4 h-4 object-contain" alt="" />
+                  <img
+                    src="/Icons/Checkmark.png"
+                    style={{ width: '1rem', height: '1rem', objectFit: 'contain' }}
+                    alt=""
+                  />
                   Save Selection
                 </>
               )}
@@ -482,52 +437,65 @@ function DiscordRoleSetupPage() {
 
         {/* ── Success ────────────────────────────────────────────── */}
         {view === 'success' && successData && (
-          <div className="card text-center">
+          <div className="card" style={{ textAlign: 'center' }}>
             <div className="success-glow">
-              <img src="/Icons/Checkmark.png" className="w-10 h-10 object-contain" alt="Success" />
+              <img
+                src="/Icons/Checkmark.png"
+                style={{ width: '2.5rem', height: '2.5rem', objectFit: 'contain' }}
+                alt="Success"
+              />
             </div>
-            <h2 className="font-heading text-2xl text-white mb-2">Selection saved!</h2>
+            <h2
+              style={{
+                fontFamily: '"Plus Jakarta Sans", sans-serif',
+                fontSize: '1.5rem',
+                fontWeight: 900,
+                color: '#fff',
+                marginBottom: '0.5rem',
+              }}
+            >
+              Selection saved!
+            </h2>
             <p
-              className="text-sm text-white/60 mb-5 leading-relaxed"
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
+              style={{
+                fontSize: '0.875rem',
+                color: 'rgba(255,255,255,0.6)',
+                marginBottom: '1.25rem',
+                lineHeight: 1.6,
+                fontFamily: '"DM Sans", sans-serif',
+              }}
             >
               Your Discord® role requirement has been configured.
             </p>
 
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6 text-left space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-widest text-white/40">
-                  Server
-                </span>
-                <span className="text-sm font-bold text-white">{successData.guildName}</span>
+            <div className="success-summary">
+              <div className="success-summary-row">
+                <span className="success-summary-label">Server</span>
+                <span className="success-summary-value">{successData.guildName}</span>
               </div>
-              <div className="border-t border-white/8" />
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-widest text-white/40">
-                  Required roles
-                </span>
-                <span className="text-sm text-white/90">
+              <div className="success-summary-divider" />
+              <div className="success-summary-row">
+                <span className="success-summary-label">Required roles</span>
+                <span style={{ fontSize: '0.875rem', color: 'rgba(255,255,255,0.9)' }}>
                   {successData.roleIds.length === 1
                     ? successData.roleIds[0]
                     : `${successData.roleIds.length} roles`}
                 </span>
               </div>
-              <div className="border-t border-white/8" />
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-widest text-white/40">
-                  Verification rule
-                </span>
-                <span className="text-sm text-white/90">
+              <div className="success-summary-divider" />
+              <div className="success-summary-row">
+                <span className="success-summary-label">Verification rule</span>
+                <span style={{ fontSize: '0.875rem', color: 'rgba(255,255,255,0.9)' }}>
                   {successData.matchMode === 'all' ? 'All roles required' : 'Any role'}
                 </span>
               </div>
             </div>
 
-            <div className="bg-[#5865F2]/10 border border-[#5865F2]/25 rounded-2xl p-4 flex items-start gap-3 text-left">
-              <DiscordIcon className="w-5 h-5 text-[#7289da] flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-white/70" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+            <div className="success-discord-note">
+              <DiscordIcon className="success-discord-note-icon" />
+              <p className="success-discord-note-text">
                 Go back to Discord® and click{' '}
-                <strong className="text-white">"Done, I've selected it"</strong> to finish setup.
+                <strong style={{ color: '#fff' }}>"Done, I've selected it"</strong> to finish setup.
               </p>
             </div>
           </div>
@@ -535,14 +503,43 @@ function DiscordRoleSetupPage() {
 
         {/* ── Error ──────────────────────────────────────────────── */}
         {view === 'error' && (
-          <div className="card text-center">
-            <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center mx-auto mb-5">
-              <img src="/Icons/X.png" className="w-8 h-8 object-contain" alt="Error" />
+          <div className="card" style={{ textAlign: 'center' }}>
+            <div
+              style={{
+                width: '4rem',
+                height: '4rem',
+                borderRadius: '1rem',
+                background: 'rgba(239,68,68,0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 1.25rem',
+              }}
+            >
+              <img
+                src="/Icons/X.png"
+                style={{ width: '2rem', height: '2rem', objectFit: 'contain' }}
+                alt="Error"
+              />
             </div>
-            <h2 className="font-heading text-xl text-white mb-2">Invalid or expired link</h2>
+            <h2
+              style={{
+                fontFamily: '"Plus Jakarta Sans", sans-serif',
+                fontSize: '1.25rem',
+                fontWeight: 900,
+                color: '#fff',
+                marginBottom: '0.5rem',
+              }}
+            >
+              Invalid or expired link
+            </h2>
             <p
-              className="text-sm text-white/60 leading-relaxed"
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
+              style={{
+                fontSize: '0.875rem',
+                color: 'rgba(255,255,255,0.6)',
+                lineHeight: 1.6,
+                fontFamily: '"DM Sans", sans-serif',
+              }}
             >
               This setup link has expired or is invalid.
               <br />

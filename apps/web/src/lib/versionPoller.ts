@@ -41,7 +41,6 @@ async function fetchBuildId(): Promise<string | null> {
 
 export function useVersionPoller(): void {
   const toast = useToast();
-  const toastIdRef = useRef<string | null>(null);
   const notifiedRef = useRef(false);
 
   useEffect(() => {
@@ -58,7 +57,7 @@ export function useVersionPoller(): void {
 
       notifiedRef.current = true;
 
-      toastIdRef.current = toast.info('A new version is available', {
+      toast.info('A new version is available', {
         duration: 0, // persistent — user must act
         description: 'Reload to get the latest version.',
         action: {

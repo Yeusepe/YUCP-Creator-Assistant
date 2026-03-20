@@ -24,6 +24,7 @@ import {
 import { getConvexApiSecret, getConvexClient, getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { encrypt } from '../lib/encrypt';
+import { createLegacyFrontendMovedResponse } from '../lib/legacyFrontend';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
@@ -692,7 +693,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     redirectUrl.search = url.search;
 
     if (redirectUrl.origin === url.origin && redirectUrl.pathname === url.pathname) {
-      return new Response('This UI route has moved to the TanStack web app.', { status: 404 });
+      return createLegacyFrontendMovedResponse();
     }
 
     return Response.redirect(redirectUrl.toString(), 302);

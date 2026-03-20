@@ -1,8 +1,23 @@
-/* ── Discord Role Setup – scoped styles ───────────────────────────── */
-
+/* ── Discord Role Setup – scoped styles ─────────────────────────── */
 .discord-role-setup {
+  position: relative;
   font-family: "DM Sans", sans-serif;
   color: #fff;
+  overflow-x: hidden;
+  width: 100%;
+  min-height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(2rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom)) 1rem;
+}
+
+@media (min-width: 640px) {
+  .discord-role-setup {
+    align-items: center;
+    padding: max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom))
+      1.5rem;
+  }
 }
 
 .discord-role-setup h1,
@@ -12,6 +27,14 @@
   font-family: "Plus Jakarta Sans", sans-serif;
   font-weight: 800;
   letter-spacing: -0.03em;
+}
+
+/* ── Inner container ─────────────────────────────────────────────── */
+.discord-role-setup-inner {
+  width: 100%;
+  max-width: 28rem;
+  position: relative;
+  z-index: 2;
 }
 
 /* ── Glass Card ─────────────────────────────────────────────────────── */
@@ -30,6 +53,120 @@
   .discord-role-setup .card {
     padding: 36px;
   }
+}
+
+/* ── Page Header ─────────────────────────────────────────────────── */
+.discord-role-setup .page-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.discord-role-setup .page-header-logo {
+  height: 2rem;
+  max-width: 100%;
+  width: auto;
+  object-fit: contain;
+  object-position: center;
+  margin: 0 auto 1.25rem;
+  display: block;
+  opacity: 0.9;
+}
+
+@media (min-width: 640px) {
+  .discord-role-setup .page-header-logo {
+    height: 2.5rem;
+  }
+}
+
+.discord-role-setup .page-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: rgba(88, 101, 242, 0.2);
+  border: 1px solid rgba(88, 101, 242, 0.3);
+  border-radius: 9999px;
+  padding: 0.375rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.discord-role-setup .page-header-badge-icon {
+  width: 1rem;
+  height: 1rem;
+  color: #7289da;
+  flex-shrink: 0;
+}
+
+.discord-role-setup .page-header-badge-text {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: #a5b4fc;
+}
+
+.discord-role-setup .page-header-title {
+  font-size: 1.875rem;
+  font-weight: 900;
+  color: #fff;
+  margin-bottom: 0.5rem;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.discord-role-setup .page-header-subtitle {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: "DM Sans", sans-serif;
+}
+
+/* ── Card header ─────────────────────────────────────────────────── */
+.discord-role-setup .card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.discord-role-setup .card-header-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.75rem;
+  background: rgba(88, 101, 242, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.discord-role-setup .card-header-icon img,
+.discord-role-setup .card-header-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  object-fit: contain;
+  color: #7289da;
+}
+
+.discord-role-setup .card-title {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 1.125rem;
+  color: #fff;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.discord-role-setup .card-subtitle {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: "DM Sans", sans-serif;
+}
+
+.discord-role-setup .card-desc {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.65;
+  margin-bottom: 1.5rem;
+  font-family: "DM Sans", sans-serif;
 }
 
 /* ── Steps ──────────────────────────────────────────────────────────── */
@@ -136,6 +273,24 @@
   box-shadow: none;
 }
 
+/* ── Button Spinner ──────────────────────────────────────────────── */
+.discord-role-setup .btn-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: drSpin 0.7s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+@keyframes drSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ── Form Inputs ────────────────────────────────────────────────────── */
 .discord-role-setup .form-label {
   display: block;
@@ -148,10 +303,8 @@
   margin-bottom: 8px;
 }
 
-.discord-role-setup select,
-.discord-role-setup input[type="text"],
-.discord-role-setup textarea {
-  font-size: 16px; /* Prevents iOS zoom on focus */
+.discord-role-setup input[type="text"] {
+  font-size: 16px;
 }
 
 .discord-role-setup select,
@@ -162,25 +315,13 @@
   border-radius: 12px;
   padding: 12px 16px;
   font-family: "DM Sans", sans-serif;
-  font-size: 16px; /* Prevents iOS zoom on focus */
+  font-size: 16px;
   color: #fff;
   outline: none;
   transition:
     border-color 0.2s,
     background 0.2s;
   appearance: none;
-}
-
-.discord-role-setup select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='white' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 14px center;
-  padding-right: 40px;
-}
-
-.discord-role-setup select option {
-  background: #1e3a8a;
-  color: #fff;
 }
 
 .discord-role-setup select:focus,
@@ -192,6 +333,43 @@
 
 .discord-role-setup input[type="text"]::placeholder {
   color: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Textarea ─────────────────────────────────────────────────────── */
+.discord-role-setup textarea {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-family: ui-monospace, "DM Mono", monospace;
+  font-size: 16px;
+  color: #fff;
+  outline: none;
+  resize: vertical;
+  display: block;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+
+.discord-role-setup textarea:focus {
+  border-color: rgba(88, 101, 242, 0.7);
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.15);
+}
+
+.discord-role-setup textarea::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+  font-family: "DM Sans", sans-serif;
+}
+
+/* ── Field hint ──────────────────────────────────────────────────── */
+.discord-role-setup .field-hint {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 0.25rem;
+  font-family: "DM Sans", sans-serif;
 }
 
 /* ── Error Box ──────────────────────────────────────────────────────── */
@@ -278,6 +456,65 @@
   margin: 0 auto 20px;
 }
 
+.discord-role-setup .success-summary {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.discord-role-setup .success-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0;
+}
+
+.discord-role-setup .success-summary-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.discord-role-setup .success-summary-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.discord-role-setup .success-summary-value {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.discord-role-setup .success-discord-note {
+  background: rgba(88, 101, 242, 0.1);
+  border: 1px solid rgba(88, 101, 242, 0.25);
+  border-radius: 1rem;
+  padding: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.discord-role-setup .success-discord-note-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #7289da;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+.discord-role-setup .success-discord-note-text {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: "DM Sans", sans-serif;
+  line-height: 1.5;
+}
+
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -343,4 +580,132 @@
   position: absolute;
   opacity: 0;
   pointer-events: none;
+}
+
+/* ── Custom Select (dark variant) ────────────────────────────────── */
+.discord-role-setup .ui-select-wrapper {
+  position: relative;
+  width: 100%;
+  user-select: none;
+}
+
+.discord-role-setup .ui-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 15px;
+  color: #fff;
+  cursor: pointer;
+  outline: none;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+  text-align: left;
+}
+
+.discord-role-setup .ui-select-trigger:focus,
+.discord-role-setup .ui-select-wrapper.open .ui-select-trigger {
+  border-color: rgba(88, 101, 242, 0.7);
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.15);
+}
+
+.discord-role-setup .ui-select-value {
+  flex: 1;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.discord-role-setup .ui-select-arrow {
+  width: 16px;
+  height: 16px;
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+  margin-left: 8px;
+  transition: transform 0.2s ease;
+}
+
+.discord-role-setup .ui-select-wrapper.open .ui-select-arrow {
+  transform: rotate(180deg);
+}
+
+.discord-role-setup .ui-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: rgba(20, 20, 35, 0.97);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(88, 101, 242, 0.3);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  overflow: hidden;
+  max-height: 240px;
+  overflow-y: auto;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.97) translateY(-4px);
+  transition:
+    opacity 0.15s ease,
+    visibility 0.15s ease,
+    transform 0.15s ease;
+  transform-origin: top center;
+}
+
+.discord-role-setup .ui-select-wrapper.open .ui-select-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1) translateY(0);
+}
+
+.discord-role-setup .ui-select-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.discord-role-setup .ui-select-option:hover {
+  background: rgba(88, 101, 242, 0.18);
+  color: #fff;
+}
+
+.discord-role-setup .ui-select-option.selected {
+  background: rgba(88, 101, 242, 0.12);
+  color: #a5b4fc;
+}
+
+.discord-role-setup .ui-select-option-indicator {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.discord-role-setup .ui-select-check {
+  width: 14px;
+  height: 14px;
+  color: #a5b4fc;
 }

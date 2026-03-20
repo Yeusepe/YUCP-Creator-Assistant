@@ -15,6 +15,34 @@ import type { ConnectConfig } from './connect';
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 
+/**
+ * Shared in-memory state store that both createSetupSession (imported at top-level)
+ * and resolveSetupSession (used inside connect.ts) will use. This avoids bun
+ * mock.module causing the stateStore singleton to diverge across module instances.
+ */
+const testStore = new Map<string, { value: string; expiresAt?: number }>();
+
+mock.module('../lib/stateStore', () => ({
+  getStateStore: () => ({
+    get: async (key: string): Promise<string | null> => {
+      const entry = testStore.get(key);
+      if (!entry) return null;
+      if (entry.expiresAt !== undefined && Date.now() > entry.expiresAt) {
+        testStore.delete(key);
+        return null;
+      }
+      return entry.value;
+    },
+    set: async (key: string, value: string, ttlMs?: number): Promise<void> => {
+      const expiresAt = ttlMs !== undefined ? Date.now() + ttlMs : undefined;
+      testStore.set(key, { value, expiresAt });
+    },
+    delete: async (key: string): Promise<void> => {
+      testStore.delete(key);
+    },
+  }),
+}));
+
 mock.module('../lib/convex', () => ({
   getConvexApiSecret: () => 'test-convex-secret',
   getConvexClient: () => ({
@@ -54,6 +82,7 @@ const routes = createConnectRoutes(auth, testConfig);
 afterEach(() => {
   queryImpl = async () => null;
   mutationImpl = async () => null;
+  testStore.clear();
 });
 
 describe('GET /api/connect/guild/channels', () => {

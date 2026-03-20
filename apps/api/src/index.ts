@@ -8,6 +8,11 @@ import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
+import {
+  createLegacyFrontendMovedResponse,
+  HTML_RESPONSE_SECURITY_HEADERS,
+  isLegacyFrontendAsset,
+} from './lib/legacyFrontend';
 import { detectTunnelUrl } from './lib/tunnel';
 import {
   createConnectRoutes,
@@ -425,6 +430,9 @@ async function routeRequest(request: Request): Promise<Response> {
   }
 
   if (pathname.startsWith('/assets/')) {
+    if (isLegacyFrontendAsset(pathname)) {
+      return new Response(null, { status: 404 });
+    }
     if (pathname.includes('..')) {
       return new Response(null, { status: 404 });
     }
@@ -840,7 +848,7 @@ async function routeRequest(request: Request): Promise<Response> {
     if (response) {
       return response;
     }
-    return new Response('This UI route has moved to the TanStack web app.', { status: 404 });
+    return createLegacyFrontendMovedResponse();
   }
 
   // Verification callback routes (pattern matching)
@@ -864,14 +872,7 @@ async function routeRequest(request: Request): Promise<Response> {
   html = html.replaceAll('__API_BASE__', resolvedFrontendOrigin ?? resolvedApiBaseUrl);
   return new Response(html, {
     status: 404,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Content-Security-Policy':
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'",
-      'Referrer-Policy': 'no-referrer',
-      'X-Content-Type-Options': 'nosniff',
-      'X-Frame-Options': 'DENY',
-    },
+    headers: HTML_RESPONSE_SECURITY_HEADERS,
   });
 }
 

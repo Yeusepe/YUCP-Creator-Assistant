@@ -8,7 +8,9 @@
   ],
   "overrides": {
     "bebop": "3.0.4",
-    "fast-xml-parser": ">=5.5.6",
+    "fast-xml-parser": ">=5.5.7",
+    "h3": "2.0.1-rc.17",
+    "kysely": ">=0.28.12",
     "prismjs": ">=1.30.0",
     "undici": ">=6.23.0",
     "@smithy/config-resolver": ">=4.4.0"
@@ -77,6 +79,7 @@
     "@better-auth/core": "1.5.5",
     "@better-auth/oauth-provider": "1.5.5",
     "@convex-dev/better-auth": "^0.11.0",
+    "h3-v2": "npm:h3@2.0.1-rc.17",
     "@noble/ed25519": "^2.2.3",
     "@tempojs/client": "^0.0.12",
     "@tempojs/cloudflare-worker-router": "^0.0.12",
@@ -85,5 +88,8 @@
     "better-auth": "1.5.5",
     "convex": "^1.32.0",
     "dotenv": "^17.3.1"
+  },
+  "patchedDependencies": {
+    "@tanstack/start-server-core@1.167.1": "patches/@tanstack%2Fstart-server-core@1.167.1.patch"
   }
 }
