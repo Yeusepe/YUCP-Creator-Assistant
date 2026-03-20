@@ -24,7 +24,9 @@ async function bootstrapInfisicalSecrets(): Promise<void> {
     }
     if (loaded > 0) {
       // eslint-disable-next-line no-console
-      console.log(`[web] Loaded ${loaded} secrets from Infisical (env=${process.env.INFISICAL_ENV ?? 'dev'})`);
+      console.log(
+        `[web] Loaded ${loaded} secrets from Infisical (env=${process.env.INFISICAL_ENV ?? 'dev'})`
+      );
     }
   } catch {
     // Infisical not available (build time or local dev without creds) - continue with process.env

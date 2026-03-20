@@ -7,7 +7,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 async function loadViteConfig() {
   vi.resetModules();
   const module = await import('../../vite.config');
-  return module.default;
+  const config = module.default;
+  // Async defineConfig returns a function; resolve it.
+  return typeof config === 'function'
+    ? await config({ command: 'serve' as const, mode: 'development', isSsrBuild: false })
+    : config;
 }
 
 describe('web vite allowed hosts', () => {
