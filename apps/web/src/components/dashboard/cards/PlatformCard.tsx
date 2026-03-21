@@ -44,9 +44,11 @@ export function PlatformCard({
     <div
       className={[
         'flex items-center gap-4 rounded-xl px-4 py-3',
-        'bg-white/55 backdrop-blur-md border border-white/60',
+        'bg-zinc-50/80 border border-zinc-200/60',
         'transition-colors duration-200',
-        'dark:bg-slate-800/45 dark:border-white/8',
+        'hover:bg-zinc-100/80 hover:border-zinc-300/60',
+        'dark:bg-[rgba(15,23,42,0.5)] dark:border-white/10',
+        'dark:hover:bg-[rgba(30,41,59,0.6)] dark:hover:border-white/15',
       ].join(' ')}
     >
       {/* Provider icon */}

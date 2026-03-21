@@ -185,13 +185,22 @@ export function DangerZonePanel({ guildId }: DangerZonePanelProps) {
   const stepConfig = DISCONNECT_STEPS[disconnectStep] ?? null;
 
   return (
-    <section id="danger-zone-panel" aria-label="Danger Zone" className="col-span-full">
-      <h2
-        className="mb-4 text-base font-bold tracking-tight text-red-500"
-        style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-      >
-        Danger Zone
-      </h2>
+    <section
+      id="danger-zone-panel"
+      aria-label="Danger Zone"
+      className="intg-card"
+      style={{ borderColor: 'rgba(239,68,68,0.2)' }}
+    >
+      <div className="intg-header">
+        <div className="intg-title-row">
+          <div className="intg-icon" style={{ background: 'rgba(239,68,68,0.1)' }}>
+            <TrashIcon />
+          </div>
+          <h2 className="intg-title" style={{ color: '#ef4444' }}>
+            Danger Zone
+          </h2>
+        </div>
+      </div>
 
       {/* Disconnect row */}
       <article

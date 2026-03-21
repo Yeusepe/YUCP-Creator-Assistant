@@ -143,53 +143,28 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
   return (
     <section
       id="connected-platforms-panel"
-      className="section-card bento-col-12 animate-in animate-in-delay-1"
+      className="intg-card animate-in animate-in-delay-1"
       aria-label="Connected platforms"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-6 pt-5 pb-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 dark:bg-sky-900/40">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-sky-600 dark:text-sky-400"
-              aria-hidden="true"
-            >
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
+      <div className="intg-header">
+        <div className="intg-title-row">
+          <div className="intg-icon">
+            <img src="/Icons/Link.png" alt="" />
           </div>
-          <h2
-            className="text-base font-bold text-zinc-900 dark:text-white"
-            style={{ fontFamily: "'DM Sans', sans-serif" }}
-          >
-            Connected Platforms
-          </h2>
+          <h2 className="intg-title">Connected Platforms</h2>
         </div>
         {!isLoading && totalCount > 1 && (
-          <span className="inline-flex items-center rounded-full bg-white/40 px-2.5 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-white/10 dark:text-zinc-400">
+          <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-white/10 dark:text-zinc-400">
             {connectedCount}&thinsp;/&thinsp;{totalCount}
           </span>
         )}
       </div>
+      <p className="intg-desc">Storefronts linked for automated verification.</p>
 
       {/* Body */}
-      <DashboardSkeletonSwap
-        isLoading={isLoading}
-        skeleton={
-          <div className="px-6 pb-6">
-            <DashboardListSkeleton rows={4} />
-          </div>
-        }
-      >
-        <div className="flex flex-col gap-2 px-6 pb-6">
+      <DashboardSkeletonSwap isLoading={isLoading} skeleton={<DashboardListSkeleton rows={4} />}>
+        <div className="flex flex-col gap-2">
           {/* Discord - always active */}
           <PlatformCard
             providerKey="discord"

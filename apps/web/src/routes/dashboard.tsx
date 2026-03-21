@@ -61,16 +61,26 @@ export const Route = createFileRoute('/dashboard')({
 
 /* ------------------------------------------------------------------ */
 
+type PendingDashboardGuild = { id: string } & Partial<Pick<Guild, 'icon' | 'name' | 'tenantId'>>;
+
 type DashboardBootstrapState =
   | {
       status: 'idle';
       setupToken?: undefined;
       connectToken?: undefined;
+      pendingGuild?: undefined;
+    }
+  | {
+      status: 'checking';
+      setupToken?: undefined;
+      connectToken?: undefined;
+      pendingGuild?: PendingDashboardGuild;
     }
   | {
       status: 'bootstrapping';
       setupToken?: string;
       connectToken?: string;
+      pendingGuild?: PendingDashboardGuild;
     };
 
 function buildDashboardLocation(args: {
@@ -129,22 +139,70 @@ function DashboardLayout() {
   const search = Route.useSearch();
   const { guild_id, tenant_id } = search;
   const { selectedGuild } = useDashboardShell();
+  const shouldCheckBootstrap = Boolean(guild_id && !tenant_id && !selectedGuild);
   const [bootstrapState, setBootstrapState] = useState<DashboardBootstrapState>(() =>
     search.setup_token || search.connect_token
       ? {
           status: 'bootstrapping',
           setupToken: search.setup_token,
           connectToken: search.connect_token,
+          pendingGuild: guild_id ? { id: guild_id, tenantId: tenant_id } : undefined,
         }
-      : { status: 'idle' }
+      : shouldCheckBootstrap && guild_id
+        ? {
+            status: 'checking',
+            pendingGuild: { id: guild_id, tenantId: tenant_id },
+          }
+        : { status: 'idle' }
   );
-  const hasBootstrapToken = bootstrapState.status === 'bootstrapping';
-  const resolvedGuildId = selectedGuild?.id ?? guild_id;
-  const resolvedTenantId = selectedGuild?.tenantId ?? tenant_id;
+  const hasBootstrapPending = bootstrapState.status !== 'idle';
+  const pendingGuild = bootstrapState.pendingGuild;
+  const displayGuild = selectedGuild ?? pendingGuild;
+  const resolvedGuildId = displayGuild?.id ?? guild_id;
+  const resolvedTenantId = displayGuild?.tenantId ?? tenant_id;
   const isPersonalDashboard = !resolvedGuildId;
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (search.setup_token || search.connect_token) {
+      setBootstrapState((current) => {
+        if (
+          current.status === 'bootstrapping' &&
+          current.setupToken === search.setup_token &&
+          current.connectToken === search.connect_token
+        ) {
+          return current;
+        }
+
+        return {
+          status: 'bootstrapping',
+          setupToken: search.setup_token,
+          connectToken: search.connect_token,
+          pendingGuild:
+            current.pendingGuild ?? (guild_id ? { id: guild_id, tenantId: tenant_id } : undefined),
+        };
+      });
+      return;
+    }
+
+    if (shouldCheckBootstrap && guild_id) {
+      setBootstrapState((current) => {
+        if (current.status !== 'idle') {
+          return current;
+        }
+
+        return {
+          status: 'checking',
+          pendingGuild: { id: guild_id, tenantId: tenant_id },
+        };
+      });
+      return;
+    }
+
+    setBootstrapState((current) => (current.status === 'checking' ? { status: 'idle' } : current));
+  }, [guild_id, search.connect_token, search.setup_token, shouldCheckBootstrap, tenant_id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || bootstrapState.status === 'idle') {
       return;
     }
 
@@ -152,6 +210,9 @@ function DashboardLayout() {
     const setupToken = search.setup_token ?? hashParams.get('s') ?? undefined;
     const connectToken = search.connect_token ?? hashParams.get('token') ?? undefined;
     if (!setupToken && !connectToken) {
+      if (bootstrapState.status === 'checking') {
+        setBootstrapState({ status: 'idle' });
+      }
       return;
     }
 
@@ -168,9 +229,11 @@ function DashboardLayout() {
         status: 'bootstrapping',
         setupToken,
         connectToken,
+        pendingGuild:
+          current.pendingGuild ?? (guild_id ? { id: guild_id, tenantId: tenant_id } : undefined),
       };
     });
-  }, [search.connect_token, search.setup_token]);
+  }, [bootstrapState.status, guild_id, search.connect_token, search.setup_token, tenant_id]);
 
   useEffect(() => {
     if (bootstrapState.status !== 'bootstrapping' || typeof window === 'undefined') {
@@ -225,9 +288,8 @@ function DashboardLayout() {
           return;
         }
 
-        setBootstrapState({ status: 'idle' });
         queryClient.removeQueries({ queryKey: ['dashboard-shell'] });
-        navigate({
+        await navigate({
           to: '/dashboard',
           search: {
             guild_id,
@@ -238,6 +300,11 @@ function DashboardLayout() {
           hash: '',
           replace: true,
         });
+        if (cancelled) {
+          return;
+        }
+
+        setBootstrapState({ status: 'idle' });
       } catch (error) {
         console.error('Failed to bootstrap dashboard setup:', error);
         redirectToExpiredLinkError();
@@ -269,8 +336,12 @@ function DashboardLayout() {
             <SidebarOverlay />
             <ServerDropdownBackdrop />
             <CloudBackground variant="default" />
-            <Sidebar />
-            {hasBootstrapToken ? <DashboardBootstrapState /> : <MainContent />}
+            <Sidebar hasBootstrapPending={hasBootstrapPending} pendingGuild={pendingGuild} />
+            {hasBootstrapPending ? (
+              <DashboardBootstrapState pendingGuild={displayGuild} />
+            ) : (
+              <MainContent pendingGuild={pendingGuild} />
+            )}
           </div>
         </div>
       </DashboardSessionProvider>
@@ -278,13 +349,15 @@ function DashboardLayout() {
   );
 }
 
-function DashboardBootstrapState() {
+function DashboardBootstrapState({ pendingGuild }: { pendingGuild?: PendingDashboardGuild }) {
   return (
     <main className="content-area">
       <div className="content-area-inner">
         <section className="section-card bento-col-12 p-6 sm:p-7 md:p-8">
           <div className="content-header-eyebrow">Server Setup</div>
-          <h1 className="content-header-title">Linking your server</h1>
+          <h1 className="content-header-title">
+            {pendingGuild?.name ? `Linking ${pendingGuild.name}` : 'Linking your server'}
+          </h1>
           <p className="content-header-desc" style={{ fontFamily: "'DM Sans', sans-serif" }}>
             Finalizing the server link and loading the dashboard.
           </p>
@@ -341,13 +414,19 @@ function toggleSidebarGlobal() {
 /*  Sidebar                                                            */
 /* ------------------------------------------------------------------ */
 
-function Sidebar() {
+function Sidebar({
+  hasBootstrapPending,
+  pendingGuild,
+}: {
+  hasBootstrapPending: boolean;
+  pendingGuild?: PendingDashboardGuild;
+}) {
   const { guild_id } = Route.useSearch();
   const _isPersonalDashboard = !guild_id;
 
   return (
     <aside id="sidebar" className="sidebar" aria-label="Main navigation">
-      <SidebarLogoArea />
+      <SidebarLogoArea hasBootstrapPending={hasBootstrapPending} pendingGuild={pendingGuild} />
 
       <div className="sidebar-scroll">
         <nav className="sidebar-nav" aria-label="Dashboard sections">
@@ -534,7 +613,13 @@ function Sidebar() {
 /*  Sidebar Logo + Server Selector                                     */
 /* ------------------------------------------------------------------ */
 
-function SidebarLogoArea() {
+function SidebarLogoArea({
+  hasBootstrapPending,
+  pendingGuild,
+}: {
+  hasBootstrapPending: boolean;
+  pendingGuild?: PendingDashboardGuild;
+}) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -641,7 +726,9 @@ function SidebarLogoArea() {
     };
   }, [dropdownOpen, syncSelectorRect]);
 
-  const selectedName = selectedGuild?.name ?? 'Select a Server';
+  const selectedServer = selectedGuild ?? pendingGuild;
+  const selectedName =
+    selectedServer?.name ?? (hasBootstrapPending ? 'Linking server...' : 'Select a Server');
   const selectorPortalStyle = selectorRect
     ? ({
         '--selector-top': `${selectorRect.top}px`,
@@ -677,9 +764,9 @@ function SidebarLogoArea() {
     >
       <div className="sidebar-server-info">
         <div className="sidebar-server-icon" id="sidebar-selected-icon">
-          {selectedGuild?.icon ? (
+          {selectedServer?.icon ? (
             <img
-              src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''}
+              src={getServerIconUrl(selectedServer.id, selectedServer.icon) ?? ''}
               alt=""
               style={{
                 width: '100%',
@@ -688,9 +775,9 @@ function SidebarLogoArea() {
                 objectFit: 'cover',
               }}
             />
-          ) : selectedGuild ? (
+          ) : selectedServer?.name ? (
             <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1 }}>
-              {selectedGuild.name.charAt(0).toUpperCase()}
+              {selectedServer.name.charAt(0).toUpperCase()}
             </span>
           ) : (
             <svg
@@ -925,13 +1012,14 @@ function DashboardRouteErrorComponent({ error }: { error: Error }) {
 /*  Main Content Area                                                  */
 /* ------------------------------------------------------------------ */
 
-function MainContent() {
+function MainContent({ pendingGuild }: { pendingGuild?: PendingDashboardGuild }) {
   const { selectedGuild } = useDashboardShell();
   const { guild_id } = Route.useSearch();
-  const isPersonalDashboard = !selectedGuild && !guild_id;
+  const displayGuild = selectedGuild ?? pendingGuild;
+  const isPersonalDashboard = !displayGuild && !guild_id;
 
   const eyebrow = isPersonalDashboard ? 'Personal Dashboard' : 'Server Dashboard';
-  const title = isPersonalDashboard ? 'Dashboard' : (selectedGuild?.name ?? 'Server');
+  const title = isPersonalDashboard ? 'Dashboard' : (displayGuild?.name ?? 'Server');
 
   return (
     <main className="content-area">

@@ -189,7 +189,7 @@ export function ActivityItem({
   const visuals = getEventVisuals(eventType, customIcon, accentColor);
 
   return (
-    <div className="flex items-start gap-3 border-b border-white/20 py-3 last:border-b-0 dark:border-white/8">
+    <div className="flex items-start gap-3 border-b border-zinc-200/60 py-3 last:border-b-0 dark:border-white/10">
       {/* Event icon */}
       <div
         className={[

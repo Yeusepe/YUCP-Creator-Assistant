@@ -8,9 +8,7 @@ import {
   OnboardingProgressPanel,
   type OnboardingStep,
 } from '@/components/dashboard/panels/OnboardingProgressPanel';
-import { QuickActionsPanel } from '@/components/dashboard/panels/QuickActionsPanel';
 import { RecentActivityPanel } from '@/components/dashboard/panels/RecentActivityPanel';
-import { ServerHealthPanel } from '@/components/dashboard/panels/ServerHealthPanel';
 import { ServerSettingsPanel } from '@/components/dashboard/panels/ServerSettingsPanel';
 import { StatsOverviewPanel } from '@/components/dashboard/panels/StatsOverviewPanel';
 import { StoreIntegrationsPanel } from '@/components/dashboard/panels/StoreIntegrationsPanel';
@@ -77,13 +75,6 @@ function DashboardIndex() {
     setTotalPlatforms(total);
   }, []);
 
-  // Linked providers count for server health
-  const [linkedProvidersCount, setLinkedProvidersCount] = useState(0);
-
-  const handleLinkedCountChange = useCallback((count: number) => {
-    setLinkedProvidersCount(count);
-  }, []);
-
   // Onboarding dismiss
   const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -98,7 +89,7 @@ function DashboardIndex() {
   // Onboarding steps
   const onboardingSteps: OnboardingStep[] = useMemo(() => {
     const hasServers = guilds.length > 0;
-    const hasStore = connectedPlatforms > 1; // >1 because Discord is always counted
+    const hasStore = connectedPlatforms > 1;
     return [
       {
         id: 'discord',
@@ -146,7 +137,7 @@ function DashboardIndex() {
     return (
       <div className="pb-16">
         <div className="grid grid-cols-12 gap-5">
-          {/* Stats overview - full width */}
+          {/* Stats overview */}
           <div className="col-span-12">
             <StatsOverviewPanel
               connectedPlatformsCount={connectedPlatforms}
@@ -154,7 +145,7 @@ function DashboardIndex() {
             />
           </div>
 
-          {/* Connected platforms + recent activity - 8/4 split */}
+          {/* Connected platforms + recent activity */}
           <div className="col-span-12 lg:col-span-8">
             <ConnectedPlatformsPanel onCountsChange={handleCountsChange} />
           </div>
@@ -162,12 +153,9 @@ function DashboardIndex() {
             <RecentActivityPanel />
           </div>
 
-          {/* Quick actions + onboarding - 6/6 split */}
-          <div className="col-span-12 md:col-span-6">
-            <QuickActionsPanel />
-          </div>
+          {/* Onboarding (conditional) */}
           {!onboardingDismissed && !allOnboardingComplete && (
-            <div className="col-span-12 md:col-span-6">
+            <div className="col-span-12">
               <OnboardingProgressPanel
                 steps={onboardingSteps}
                 onDismiss={handleDismissOnboarding}
@@ -186,23 +174,17 @@ function DashboardIndex() {
   return (
     <div className="pb-16">
       <div className="grid grid-cols-12 gap-5">
-        {/* Server health - full width */}
-        <div className="col-span-12">
-          <ServerHealthPanel linkedProvidersCount={linkedProvidersCount} />
-        </div>
-
-        {/* Store integrations - full width */}
+        {/* Store integrations */}
         <div className="col-span-12">
           <StoreIntegrationsPanel
             authUserId={authUserId}
             guildId={guildId}
             canRunPanelQueries={canRunPanelQueries}
             onAuthError={() => {}}
-            onLinkedCountChange={handleLinkedCountChange}
           />
         </div>
 
-        {/* Server settings + recent activity - 8/4 split */}
+        {/* Server settings + recent activity */}
         <div className="col-span-12 lg:col-span-8">
           {authUserId && guildId ? (
             <ServerSettingsPanel
@@ -216,7 +198,7 @@ function DashboardIndex() {
           <RecentActivityPanel />
         </div>
 
-        {/* Danger zone - full width */}
+        {/* Danger zone */}
         {guildId && (
           <div className="col-span-12">
             <DangerZonePanel guildId={guildId} />

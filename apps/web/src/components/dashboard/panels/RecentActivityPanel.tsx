@@ -40,10 +40,10 @@ function describeEvent(event: ActivityEvent): string {
 function ActivitySkeleton() {
   return (
     <div className="flex items-start gap-3 py-3" aria-hidden="true">
-      <div className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-white/30 dark:bg-white/8" />
+      <div className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-zinc-200/60 dark:bg-zinc-700/40" />
       <div className="flex flex-1 flex-col gap-1.5">
-        <div className="h-4 w-48 animate-pulse rounded bg-white/30 dark:bg-white/8" />
-        <div className="h-3 w-16 animate-pulse rounded bg-white/20 dark:bg-white/5" />
+        <div className="h-4 w-48 animate-pulse rounded bg-zinc-200/60 dark:bg-zinc-700/40" />
+        <div className="h-3 w-16 animate-pulse rounded bg-zinc-100/60 dark:bg-zinc-800/40" />
       </div>
     </div>
   );
@@ -56,37 +56,22 @@ export function RecentActivityPanel() {
   return (
     <section
       id="recent-activity-panel"
-      className="section-card bento-col-12 animate-in animate-in-delay-2"
+      className="intg-card animate-in animate-in-delay-2"
       aria-label="Recent activity"
     >
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 pt-5 pb-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/40">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-purple-600 dark:text-purple-400"
-            aria-hidden="true"
-          >
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-          </svg>
+      <div className="intg-header">
+        <div className="intg-title-row">
+          <div className="intg-icon">
+            <img src="/Icons/Timer.png" alt="" />
+          </div>
+          <h2 className="intg-title">Recent Activity</h2>
         </div>
-        <h2
-          className="text-base font-bold text-zinc-900 dark:text-white"
-          style={{ fontFamily: "'DM Sans', sans-serif" }}
-        >
-          Recent Activity
-        </h2>
       </div>
+      <p className="intg-desc">Latest verification and sync events.</p>
 
       {/* Body */}
-      <div className="max-h-[400px] overflow-y-auto px-6 pb-6">
+      <div className="max-h-[400px] overflow-y-auto">
         {isLoading ? (
           <div className="flex flex-col">
             {Array.from({ length: 5 }, (_, i) => {

@@ -151,9 +151,18 @@ export function StatsOverviewPanel({
   return (
     <section
       id="stats-overview-section"
-      className="bento-col-12"
+      className="intg-card animate-in"
       aria-label="Dashboard statistics overview"
     >
+      <div className="intg-header">
+        <div className="intg-title-row">
+          <div className="intg-icon">
+            <img src="/Icons/Checkmark.png" alt="" />
+          </div>
+          <h2 className="intg-title">Overview</h2>
+        </div>
+      </div>
+      <p className="intg-desc">Your verification system at a glance.</p>
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {STAT_DEFINITIONS.map((def) => (
           <StatCard

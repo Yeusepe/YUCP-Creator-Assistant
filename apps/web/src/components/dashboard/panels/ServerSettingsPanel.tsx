@@ -510,7 +510,7 @@ export function ServerSettingsPanel({
     <section
       id="server-settings-panel"
       aria-label="General Settings"
-      className="relative col-span-full"
+      className="intg-card relative"
     >
       {/* Sync bar */}
       {saveSettingMutation.isPending && (
@@ -520,12 +520,15 @@ export function ServerSettingsPanel({
         />
       )}
 
-      <h2
-        className="mb-4 text-base font-bold tracking-tight text-zinc-900 dark:text-white"
-        style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-      >
-        General Settings
-      </h2>
+      <div className="intg-header">
+        <div className="intg-title-row">
+          <div className="intg-icon">
+            <img src="/Icons/Wrench.png" alt="" />
+          </div>
+          <h2 className="intg-title">General Settings</h2>
+        </div>
+      </div>
+      <p className="intg-desc">Configure verification policies and channel routing.</p>
 
       <DashboardSkeletonSwap
         isLoading={isLoading}

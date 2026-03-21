@@ -51,8 +51,8 @@ const STATUS_LABELS: Record<ProviderStatus, string> = {
 
 function EmptyStoreState() {
   return (
-    <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/40 px-6 py-8 dark:border-white/10">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/40 text-zinc-400 dark:bg-white/8 dark:text-zinc-500">
+    <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-300 px-6 py-8 dark:border-white/10">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500">
         <svg
           width="20"
           height="20"
@@ -99,13 +99,11 @@ function StoreCard({
       id={`server-tile-${provider.key}`}
       className={[
         'flex min-w-[220px] flex-col gap-4 rounded-2xl p-5',
-        'bg-white/55 backdrop-blur-md border border-white/60',
-        'shadow-[0_2px_8px_rgba(0,0,0,0.04)]',
+        'bg-zinc-50 border border-zinc-200/60',
         'transition-all duration-200',
-        'hover:border-white/80 hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)]',
-        'dark:bg-slate-800/45 dark:border-white/8',
-        'dark:shadow-[0_2px_8px_rgba(0,0,0,0.15)]',
-        'dark:hover:border-white/15 dark:hover:bg-slate-800/55',
+        'hover:border-zinc-300 hover:shadow-sm',
+        'dark:bg-[rgba(15,23,42,0.5)] dark:border-white/10',
+        'dark:hover:border-white/15 dark:hover:bg-[rgba(30,41,59,0.6)]',
       ].join(' ')}
     >
       {/* Header: icon + meta */}
@@ -240,14 +238,17 @@ export function StoreIntegrationsPanel({
     <section
       id="server-store-integrations-section"
       aria-label="Store Integrations"
-      className="col-span-full"
+      className="intg-card"
     >
-      <h2
-        className="mb-4 text-base font-bold tracking-tight text-zinc-900 dark:text-white"
-        style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-      >
-        Store Integrations
-      </h2>
+      <div className="intg-header">
+        <div className="intg-title-row">
+          <div className="intg-icon">
+            <img src="/Icons/Bag.png" alt="" />
+          </div>
+          <h2 className="intg-title">Store Integrations</h2>
+        </div>
+      </div>
+      <p className="intg-desc">Storefronts linked to this server for automated role-gating.</p>
 
       <DashboardSkeletonSwap
         isLoading={isLoading}

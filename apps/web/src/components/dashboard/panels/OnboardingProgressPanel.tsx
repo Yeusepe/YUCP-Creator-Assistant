@@ -54,7 +54,7 @@ function ProgressBar({
   const percentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
   return (
     <div
-      className="h-2 w-full overflow-hidden rounded-full bg-white/40 dark:bg-white/10"
+      className="h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-white/10"
       role="progressbar"
       aria-valuenow={completedCount}
       aria-valuemin={0}
@@ -131,36 +131,17 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
   return (
     <section
       id="onboarding-progress-panel"
-      className="section-card bento-col-12 animate-in"
+      className="intg-card animate-in"
       aria-label="Getting started checklist"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-6 pt-5 pb-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-emerald-600 dark:text-emerald-400"
-              aria-hidden="true"
-            >
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
+      <div className="intg-header">
+        <div className="intg-title-row">
+          <div className="intg-icon">
+            <img src="/Icons/Point.png" alt="" />
           </div>
           <div className="flex items-center gap-2">
-            <h2
-              className="text-base font-bold text-zinc-900 dark:text-white"
-              style={{ fontFamily: "'DM Sans', sans-serif" }}
-            >
-              Getting Started
-            </h2>
+            <h2 className="intg-title">Getting Started</h2>
             <span className="text-sm text-zinc-400 dark:text-zinc-500">
               {completedCount}/{totalCount} complete
             </span>
@@ -170,7 +151,7 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
           <button
             type="button"
             onClick={onDismiss}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-400 transition-colors duration-150 hover:bg-white/30 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-300"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-400 transition-colors duration-150 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-300"
             aria-label="Dismiss getting started checklist"
           >
             <svg
@@ -191,12 +172,12 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
       </div>
 
       {/* Progress bar */}
-      <div className="px-6 pb-4">
+      <div className="pb-4">
         <ProgressBar completedCount={completedCount} totalCount={totalCount} />
       </div>
 
       {/* Content */}
-      <div className="px-6 pb-6">
+      <div>
         {allComplete ? (
           <CongratulationsState />
         ) : (
@@ -206,7 +187,7 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
                 <div
                   className={[
                     'flex items-start gap-3 rounded-xl px-3 py-3 transition-colors duration-150',
-                    step.completed ? 'opacity-60' : 'hover:bg-white/20 dark:hover:bg-white/5',
+                    step.completed ? 'opacity-60' : 'hover:bg-zinc-50 dark:hover:bg-white/5',
                   ].join(' ')}
                 >
                   <CheckCircle completed={step.completed} />

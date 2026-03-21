@@ -56,7 +56,7 @@ const TREND_CLASSES: Record<'up' | 'down' | 'neutral', string> = {
 function StatCardSkeleton() {
   return (
     <div
-      className="flex flex-col gap-3 rounded-2xl bg-white/55 p-5 backdrop-blur-md border border-white/60 dark:bg-slate-800/45 dark:border-white/8"
+      className="flex flex-col gap-3 rounded-2xl border border-zinc-200/60 bg-zinc-50 p-5 dark:border-white/10 dark:bg-zinc-800/50"
       aria-hidden="true"
     >
       <div className="h-10 w-10 animate-pulse rounded-full bg-zinc-200/60 dark:bg-zinc-700/40" />
@@ -73,13 +73,11 @@ export function StatCard({ label, value, icon, trend, loading }: StatCardProps) 
     <div
       className={[
         'flex flex-col gap-1 rounded-2xl p-5',
-        'bg-white/55 backdrop-blur-md border border-white/60',
-        'shadow-[0_2px_8px_rgba(0,0,0,0.04)]',
+        'bg-zinc-50 border border-zinc-200/60',
         'transition-all duration-200',
-        'hover:border-white/80 hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)]',
-        'dark:bg-slate-800/45 dark:border-white/8',
-        'dark:shadow-[0_2px_8px_rgba(0,0,0,0.15)]',
-        'dark:hover:border-white/15 dark:hover:bg-slate-800/55',
+        'hover:border-zinc-300 hover:shadow-sm',
+        'dark:bg-zinc-800/50 dark:border-white/10',
+        'dark:hover:border-white/20 dark:hover:bg-zinc-800/70',
       ].join(' ')}
     >
       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-400">
