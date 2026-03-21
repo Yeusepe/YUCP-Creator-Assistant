@@ -1,6 +1,9 @@
 import { convexBetterAuthReactStart } from '@convex-dev/better-auth/react-start';
+import { getToken as fetchConvexAuthToken } from '@convex-dev/better-auth/utils';
 import { resolveConvexSiteUrl } from '@yucp/shared';
 import { logWebError } from '@/lib/webDiagnostics';
+
+const convexSiteUrl = resolveConvexSiteUrl(process.env) ?? '';
 
 /**
  * Server-side auth utilities for TanStack Start.
@@ -14,7 +17,7 @@ import { logWebError } from '@/lib/webDiagnostics';
  */
 const authRuntime = convexBetterAuthReactStart({
   convexUrl: process.env.CONVEX_URL ?? '',
-  convexSiteUrl: resolveConvexSiteUrl(process.env) ?? '',
+  convexSiteUrl,
 });
 
 export const { handler, fetchAuthQuery, fetchAuthMutation, fetchAuthAction } = authRuntime;
@@ -72,21 +75,43 @@ async function probeConvexAuthEndpoints(convexSiteUrl: string): Promise<Record<s
   }
 }
 
-export async function collectAuthRuntimeDiagnostics(): Promise<Record<string, unknown>> {
+function buildAuthTokenRequestHeaders(requestHeaders: Headers): Headers {
+  const headers = new Headers();
+  const cookieHeader = requestHeaders.get('cookie');
+
+  if (cookieHeader) {
+    headers.set('cookie', cookieHeader);
+  }
+
+  headers.set('accept', 'application/json');
+  headers.set('accept-encoding', 'identity');
+
+  return headers;
+}
+
+async function getCurrentRequestHeaders(): Promise<Headers> {
   const { getRequestHeaders } = await import('@tanstack/react-start/server');
-  const headers = new Headers(getRequestHeaders());
-  const convexSiteUrl = resolveConvexSiteUrl(process.env);
+
+  return new Headers(getRequestHeaders());
+}
+
+export async function collectAuthRuntimeDiagnostics(): Promise<Record<string, unknown>> {
+  const headers = await getCurrentRequestHeaders();
 
   return {
-    convexSiteUrl,
+    convexSiteUrl: convexSiteUrl || undefined,
     ...summarizeRequestHeaders(headers),
+    forwardedTokenHeaderNames: Array.from(buildAuthTokenRequestHeaders(headers).keys()),
     ...(convexSiteUrl ? await probeConvexAuthEndpoints(convexSiteUrl) : {}),
   };
 }
 
 export async function getToken(): Promise<string | undefined> {
   try {
-    return await authRuntime.getToken();
+    const headers = await getCurrentRequestHeaders();
+    const token = await fetchConvexAuthToken(convexSiteUrl, buildAuthTokenRequestHeaders(headers));
+
+    return token.token;
   } catch (error) {
     try {
       logWebError('Auth token fetch failed', error, {

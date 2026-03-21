@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getRequestHeadersMock = vi.fn(() => new Headers());
+const getConvexAuthTokenMock = vi.fn();
 let authRuntimeMock = {
   handler: vi.fn(),
   getToken: vi.fn(),
@@ -15,6 +16,10 @@ vi.mock('@convex-dev/better-auth/react-start', () => ({
   convexBetterAuthReactStart: reactStartSpy,
 }));
 
+vi.mock('@convex-dev/better-auth/utils', () => ({
+  getToken: getConvexAuthTokenMock,
+}));
+
 vi.mock('@tanstack/react-start/server', () => ({
   getRequestHeaders: getRequestHeadersMock,
 }));
@@ -25,6 +30,7 @@ describe('auth-server environment resolution', () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    getConvexAuthTokenMock.mockReset();
     authRuntimeMock = {
       handler: vi.fn(),
       getToken: vi.fn(),
@@ -52,6 +58,51 @@ describe('auth-server environment resolution', () => {
     });
   });
 
+  it('forwards only the cookie header when fetching the auth token', async () => {
+    vi.stubEnv('CONVEX_URL', 'https://rare-squid-409.convex.cloud');
+    vi.stubEnv('CONVEX_SITE_URL', 'https://rare-squid-409.convex.site');
+    getRequestHeadersMock.mockReturnValue(
+      new Headers({
+        host: 'verify.creators.yucp.club',
+        'x-forwarded-host': 'verify.creators.yucp.club',
+        'x-forwarded-proto': 'https',
+        'accept-language': 'en-US,en;q=0.9',
+        connection: 'keep-alive',
+        cookie: '__Secure-yucp.session_token=abc; __Secure-yucp.session_data=def',
+      })
+    );
+    getConvexAuthTokenMock.mockResolvedValue({
+      isFresh: true,
+      token: 'test-jwt-token',
+    });
+
+    const authServer = await import('@/lib/auth-server');
+
+    await expect(authServer.getToken()).resolves.toBe('test-jwt-token');
+
+    expect(getConvexAuthTokenMock).toHaveBeenCalledTimes(1);
+    expect(getConvexAuthTokenMock).toHaveBeenCalledWith(
+      'https://rare-squid-409.convex.site',
+      expect.any(Headers)
+    );
+
+    const forwardedHeaders = getConvexAuthTokenMock.mock.calls[0][1] as Headers;
+    expect(Array.from(forwardedHeaders.keys()).sort()).toEqual([
+      'accept',
+      'accept-encoding',
+      'cookie',
+    ]);
+    expect(forwardedHeaders.get('accept')).toBe('application/json');
+    expect(forwardedHeaders.get('accept-encoding')).toBe('identity');
+    expect(forwardedHeaders.get('cookie')).toBe(
+      '__Secure-yucp.session_token=abc; __Secure-yucp.session_data=def'
+    );
+    expect(forwardedHeaders.get('host')).toBeNull();
+    expect(forwardedHeaders.get('x-forwarded-host')).toBeNull();
+    expect(forwardedHeaders.get('x-forwarded-proto')).toBeNull();
+    expect(forwardedHeaders.get('connection')).toBeNull();
+  });
+
   it('logs request metadata and direct Convex probe results when getToken fails', async () => {
     vi.stubEnv('CONVEX_URL', 'https://rare-squid-409.convex.cloud');
     vi.stubEnv('CONVEX_SITE_URL', 'https://rare-squid-409.convex.site');
@@ -60,7 +111,7 @@ describe('auth-server environment resolution', () => {
     const connectivityError = new Error(
       'Unable to connect. Is the computer able to access the url?'
     );
-    authRuntimeMock.getToken.mockRejectedValue(connectivityError);
+    getConvexAuthTokenMock.mockRejectedValue(connectivityError);
     getRequestHeadersMock.mockReturnValue(
       new Headers({
         host: 'verify.creators.yucp.club',
