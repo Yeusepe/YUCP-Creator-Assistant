@@ -5,14 +5,13 @@
 }
 
 .oauth-consent-page {
-  background-color: var(--bg-color);
-  color: var(--text-primary);
-  font-family: "DM Sans", sans-serif;
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100dvh;
   padding: 1.25rem;
+  overflow: hidden;
 }
 
 .consent-card {

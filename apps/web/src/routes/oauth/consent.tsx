@@ -1,11 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useState } from 'react';
-import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import { useCallback, useEffect, useState } from 'react';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import '@/styles/oauth-consent.css';
 
 export const Route = createFileRoute('/oauth/consent')({
-  head: () => ({
-    links: routeStylesheetLinks(routeStyleHrefs.oauthConsent),
-  }),
   component: OAuthConsentPage,
 });
 
@@ -60,11 +58,16 @@ const DEFAULT_SCOPE_ICON = (
 );
 
 function OAuthConsentPage() {
-  const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
-  const clientId = params.get('client_id') || '';
-  const rawScopes = (params.get('scope') || '').trim().split(/\s+/).filter(Boolean);
+  const [clientId, setClientId] = useState('');
+  const [rawScopes, setRawScopes] = useState<string[]>([]);
 
-  const consentAction = '/api/auth/oauth/consent';
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setClientId(params.get('client_id') || '');
+    setRawScopes((params.get('scope') || '').trim().split(/\s+/).filter(Boolean));
+  }, []);
+
+  const consentAction = '/api/auth/oauth2/consent';
 
   const [allowText, setAllowText] = useState('Allow access');
   const [denyText, setDenyText] = useState('Deny');
@@ -96,12 +99,12 @@ function OAuthConsentPage() {
       }
 
       const data = await res.json().catch(() => ({}));
-      if (data.redirectTo) {
-        window.location.href = data.redirectTo;
+      if (data.redirect_uri) {
+        window.location.href = data.redirect_uri;
         return;
       }
 
-      // Fallback: if no redirectTo, reload
+      // Fallback: if no redirect_uri, reload
       window.location.reload();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -115,6 +118,7 @@ function OAuthConsentPage() {
 
   return (
     <div className="oauth-consent-page">
+      <BackgroundCanvasRoot />
       <main>
         <div className="consent-card">
           {/* App connector */}
@@ -131,7 +135,7 @@ function OAuthConsentPage() {
               <div className="connector-dot"></div>
             </div>
             <div className="app-icon ours">
-              <img src="/Icons/MainLogo.png" alt="Creator Assistant" />
+              <img src="/Icons/Bag.png" alt="Creator Assistant" />
             </div>
           </div>
 
