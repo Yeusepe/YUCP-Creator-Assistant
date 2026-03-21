@@ -199,6 +199,11 @@ describe('web diagnostics integration', () => {
     expect(rootSource).toContain('loadRootAuthState');
   });
 
+  it('logs root auth server function execution in the root route', () => {
+    expect(rootSource).toContain('Root auth server function started');
+    expect(rootSource).toContain('Root auth server function failed');
+  });
+
   it('keeps the shared diagnostics module free of server-only auth imports', () => {
     expect(diagnosticsSource).not.toContain(`@/lib/auth-server`);
   });

@@ -14,10 +14,10 @@ import { createServerFn } from '@tanstack/react-start';
 import { type ReactNode, useEffect } from 'react';
 import { ToastProvider } from '@/components/ui/Toast';
 import { authClient } from '@/lib/auth-client';
-import { getToken } from '@/lib/auth-server';
+import { collectAuthRuntimeDiagnostics, getToken } from '@/lib/auth-server';
 import { installChunkErrorRecovery } from '@/lib/chunkErrorRecovery';
 import { useVersionPoller } from '@/lib/versionPoller';
-import { loadRootAuthState, logRootRenderError } from '@/lib/webDiagnostics';
+import { loadRootAuthState, logRootRenderError, logWebError } from '@/lib/webDiagnostics';
 
 import '@/styles/tokens.css';
 import '@/styles/loading.css';
@@ -29,7 +29,33 @@ import '@/styles/toast.css';
  * Called in beforeLoad so the initial HTML render is authenticated.
  */
 const getAuth = createServerFn({ method: 'GET' }).handler(async () => {
-  return await getToken();
+  console.info('[web] Root auth server function started', {
+    phase: 'root-getAuth-serverFn',
+  });
+
+  try {
+    const token = await getToken();
+
+    console.info('[web] Root auth server function completed', {
+      phase: 'root-getAuth-serverFn',
+      hasToken: Boolean(token),
+    });
+
+    return token;
+  } catch (error) {
+    try {
+      logWebError('Root auth server function failed', error, {
+        phase: 'root-getAuth-serverFn',
+        ...(await collectAuthRuntimeDiagnostics()),
+      });
+    } catch (diagnosticError) {
+      logWebError('Root auth server function diagnostics failed', diagnosticError, {
+        phase: 'root-getAuth-serverFn',
+      });
+    }
+
+    throw error;
+  }
 });
 
 export const Route = createRootRouteWithContext<{

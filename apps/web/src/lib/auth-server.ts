@@ -1,5 +1,6 @@
 import { convexBetterAuthReactStart } from '@convex-dev/better-auth/react-start';
 import { resolveConvexSiteUrl } from '@yucp/shared';
+import { logWebError } from '@/lib/webDiagnostics';
 
 /**
  * Server-side auth utilities for TanStack Start.
@@ -11,8 +12,93 @@ import { resolveConvexSiteUrl } from '@yucp/shared';
  * Env vars CONVEX_URL and CONVEX_SITE_URL come from Infisical bootstrap.
  * Ref: https://labs.convex.dev/better-auth/framework-guides/tanstack-start
  */
-export const { handler, getToken, fetchAuthQuery, fetchAuthMutation, fetchAuthAction } =
-  convexBetterAuthReactStart({
-    convexUrl: process.env.CONVEX_URL ?? '',
-    convexSiteUrl: resolveConvexSiteUrl(process.env) ?? '',
-  });
+const authRuntime = convexBetterAuthReactStart({
+  convexUrl: process.env.CONVEX_URL ?? '',
+  convexSiteUrl: resolveConvexSiteUrl(process.env) ?? '',
+});
+
+export const { handler, fetchAuthQuery, fetchAuthMutation, fetchAuthAction } = authRuntime;
+
+function getCookieNames(cookieHeader: string | null): string[] | undefined {
+  if (!cookieHeader) {
+    return undefined;
+  }
+
+  const cookieNames = cookieHeader
+    .split(';')
+    .map((entry) => entry.split('=')[0]?.trim())
+    .filter((entry): entry is string => Boolean(entry))
+    .slice(0, 12);
+
+  return cookieNames.length > 0 ? cookieNames : undefined;
+}
+
+function summarizeRequestHeaders(headers: Headers): Record<string, unknown> {
+  const cookieHeader = headers.get('cookie');
+
+  return {
+    requestHost: headers.get('host') ?? undefined,
+    forwardedHost: headers.get('x-forwarded-host') ?? undefined,
+    forwardedProto: headers.get('x-forwarded-proto') ?? undefined,
+    hasCookieHeader: Boolean(cookieHeader),
+    cookieHeaderLength: cookieHeader?.length,
+    cookieNames: getCookieNames(cookieHeader),
+    headerCount: Array.from(headers.keys()).length,
+  };
+}
+
+async function probeConvexAuthEndpoints(convexSiteUrl: string): Promise<Record<string, unknown>> {
+  const getSessionUrl = new URL('/api/auth/get-session', convexSiteUrl);
+  const tokenUrl = new URL('/api/auth/convex/token', convexSiteUrl);
+
+  try {
+    const [getSessionResponse, tokenResponse] = await Promise.all([
+      fetch(getSessionUrl, {
+        headers: { accept: 'application/json' },
+      }),
+      fetch(tokenUrl, {
+        headers: { accept: 'application/json' },
+      }),
+    ]);
+
+    return {
+      directGetSessionStatus: getSessionResponse.status,
+      directTokenStatus: tokenResponse.status,
+    };
+  } catch (error) {
+    return {
+      directProbeError: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function collectAuthRuntimeDiagnostics(): Promise<Record<string, unknown>> {
+  const { getRequestHeaders } = await import('@tanstack/react-start/server');
+  const headers = new Headers(getRequestHeaders());
+  const convexSiteUrl = resolveConvexSiteUrl(process.env);
+
+  return {
+    convexSiteUrl,
+    ...summarizeRequestHeaders(headers),
+    ...(convexSiteUrl ? await probeConvexAuthEndpoints(convexSiteUrl) : {}),
+  };
+}
+
+export async function getToken(): Promise<string | undefined> {
+  try {
+    return await authRuntime.getToken();
+  } catch (error) {
+    try {
+      logWebError('Auth token fetch failed', error, {
+        phase: 'auth-server-getToken',
+        ...(await collectAuthRuntimeDiagnostics()),
+      });
+    } catch (diagnosticError) {
+      logWebError('Auth token diagnostics failed', diagnosticError, {
+        phase: 'auth-server-getToken',
+      });
+    }
+
+    throw error;
+  }
+}
