@@ -11,8 +11,8 @@
  */
 
 import { v } from 'convex/values';
-import { authComponent } from './auth';
 import { query } from './_generated/server';
+import { authComponent } from './auth';
 
 interface AuthUserRecord {
   id?: string;
@@ -44,7 +44,6 @@ export const listMyConnections = query({
   args: {},
   returns: v.array(ConnectionSummaryV),
   handler: async (ctx) => {
-    // biome-ignore lint/suspicious/noExplicitAny: Convex auth generic
     const authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
     if (!authUser?.id) {
       return [];
@@ -85,7 +84,6 @@ export const getMyConnectionStatus = query({
   args: {},
   returns: v.record(v.string(), v.boolean()),
   handler: async (ctx) => {
-    // biome-ignore lint/suspicious/noExplicitAny: Convex auth generic
     const authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
     if (!authUser?.id) {
       return {};
@@ -104,5 +102,141 @@ export const getMyConnectionStatus = query({
       }
     }
     return status;
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getMyDashboardStats — replaces getStatsOverviewExtended for browser auth
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DashboardStatsV = v.object({
+  totalVerified: v.number(),
+  totalProducts: v.number(),
+  recent24h: v.number(),
+  recent7d: v.number(),
+  recent30d: v.number(),
+  totalLicenses: v.number(),
+  activeLicenses: v.number(),
+});
+
+/**
+ * Aggregated dashboard stats for the currently authenticated user.
+ * Combines entitlement stats (verified subjects, products, recent activity)
+ * with manual license counts. Reactive: re-renders when entitlements,
+ * subjects, or manual_licenses change for this user.
+ */
+export const getMyDashboardStats = query({
+  args: {},
+  returns: DashboardStatsV,
+  handler: async (ctx) => {
+    const authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
+    if (!authUser?.id) {
+      return {
+        totalVerified: 0,
+        totalProducts: 0,
+        recent24h: 0,
+        recent7d: 0,
+        recent30d: 0,
+        totalLicenses: 0,
+        activeLicenses: 0,
+      };
+    }
+
+    // --- entitlement stats (mirrors listActiveEntitlementsForActiveSubjects) ---
+    const activeEntitlements = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_status', (q) =>
+        q.eq('authUserId', authUser.id as string).eq('status', 'active')
+      )
+      .take(1000);
+
+    const activeSubjectIds = new Map<string, boolean>();
+    const filtered = [];
+
+    for (const entitlement of activeEntitlements) {
+      let isActive = activeSubjectIds.get(entitlement.subjectId);
+      if (isActive === undefined) {
+        const subject = await ctx.db.get(entitlement.subjectId);
+        isActive = subject?.status === 'active';
+        activeSubjectIds.set(entitlement.subjectId, isActive);
+      }
+      if (isActive) {
+        filtered.push(entitlement);
+      }
+    }
+
+    const uniqueSubjects = new Set(filtered.map((e) => e.subjectId));
+    const uniqueProducts = new Set(filtered.map((e) => e.productId));
+
+    const now = Date.now();
+    const oneDayAgo = now - 24 * 60 * 60 * 1000;
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+    const recent24h = filtered.filter((e) => e.grantedAt >= oneDayAgo).length;
+    const recent7d = filtered.filter((e) => e.grantedAt >= sevenDaysAgo).length;
+    const recent30d = filtered.filter((e) => e.grantedAt >= thirtyDaysAgo).length;
+
+    // --- manual license stats ---
+    const licenses = await ctx.db
+      .query('manual_licenses')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.id as string))
+      .collect();
+
+    const totalLicenses = licenses.length;
+    const activeLicenses = licenses.filter((l) => l.status === 'active').length;
+
+    return {
+      totalVerified: uniqueSubjects.size,
+      totalProducts: uniqueProducts.size,
+      recent24h,
+      recent7d,
+      recent30d,
+      totalLicenses,
+      activeLicenses,
+    };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// listMyRecentActivity — browser-auth audit event feed
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AuditEventSummaryV = v.object({
+  eventType: v.string(),
+  actorType: v.string(),
+  actorId: v.optional(v.string()),
+  metadata: v.optional(v.any()),
+  createdAt: v.number(),
+});
+
+/**
+ * Most recent audit events for the currently authenticated user.
+ * Returns the last 20 events sorted newest-first, suitable for an
+ * activity feed widget. Reactive: re-renders when audit_events change
+ * for this user.
+ */
+export const listMyRecentActivity = query({
+  args: {},
+  returns: v.array(AuditEventSummaryV),
+  handler: async (ctx) => {
+    const authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
+    if (!authUser?.id) {
+      return [];
+    }
+
+    const events = await ctx.db
+      .query('audit_events')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.id as string))
+      .order('desc')
+      .take(20);
+
+    return events.map((e) => ({
+      eventType: e.eventType,
+      actorType: e.actorType,
+      actorId: e.actorId,
+      metadata: e.metadata,
+      createdAt: e.createdAt,
+    }));
   },
 });

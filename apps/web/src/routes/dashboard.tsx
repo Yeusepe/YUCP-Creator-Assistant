@@ -1,12 +1,14 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from '@tanstack/react-router';
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ApiError, apiClient } from '@/api/client';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAuth } from '@/hooks/useAuth';
 import { DashboardSessionProvider } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { ServerContextProvider } from '@/hooks/useServerContext';
-import { useTheme } from '@/hooks/useTheme';
 import { normalizeDashboardIdentifier } from '@/lib/dashboard';
 import { dashboardShellQueryOptions } from '@/lib/dashboardQueryOptions';
 import { fetchDashboardShell, type Guild } from '@/lib/server/dashboard';
@@ -17,12 +19,16 @@ import { getServerIconUrl } from '@/lib/utils';
 interface DashboardSearch {
   guild_id?: string;
   tenant_id?: string;
+  setup_token?: string;
+  connect_token?: string;
 }
 
 export const Route = createFileRoute('/dashboard')({
   validateSearch: (search: Record<string, unknown>): DashboardSearch => ({
     guild_id: normalizeDashboardIdentifier(search.guild_id as string | undefined),
     tenant_id: normalizeDashboardIdentifier(search.tenant_id as string | undefined),
+    setup_token: typeof search.setup_token === 'string' ? search.setup_token : undefined,
+    connect_token: typeof search.connect_token === 'string' ? search.connect_token : undefined,
   }),
   beforeLoad: ({ context, location }) => {
     if (!context.isAuthenticated) {
@@ -32,14 +38,19 @@ export const Route = createFileRoute('/dashboard')({
       });
     }
   },
-  loader: async ({ context: { queryClient } }) => {
+  loader: async ({ context: { queryClient }, location }) => {
     const shell = await queryClient.ensureQueryData(
       dashboardShellQueryOptions({
         queryKey: ['dashboard-shell'],
         queryFn: () => fetchDashboardShell(),
       })
     );
-    if (shell.guilds.length === 0) {
+    const locationHref = String(location.href);
+    const allowsFreshGuildBootstrap =
+      locationHref.includes('guild_id=') ||
+      locationHref.includes('setup_token=') ||
+      locationHref.includes('connect_token=');
+    if (shell.guilds.length === 0 && !allowsFreshGuildBootstrap) {
       throw redirect({ to: '/account' });
     }
     return shell;
@@ -50,12 +61,195 @@ export const Route = createFileRoute('/dashboard')({
 
 /* ------------------------------------------------------------------ */
 
+type DashboardBootstrapState =
+  | {
+      status: 'idle';
+      setupToken?: undefined;
+      connectToken?: undefined;
+    }
+  | {
+      status: 'bootstrapping';
+      setupToken?: string;
+      connectToken?: string;
+    };
+
+function buildDashboardLocation(args: {
+  guildId?: string;
+  tenantId?: string;
+  setupToken?: string;
+  connectToken?: string;
+}) {
+  const dashboardUrl = new URL('/dashboard', window.location.origin);
+  if (args.guildId) {
+    dashboardUrl.searchParams.set('guild_id', args.guildId);
+  }
+  if (args.tenantId) {
+    dashboardUrl.searchParams.set('tenant_id', args.tenantId);
+  }
+
+  const hash = new URLSearchParams({
+    ...(args.setupToken ? { s: args.setupToken } : {}),
+    ...(args.connectToken ? { token: args.connectToken } : {}),
+  }).toString();
+  if (hash) {
+    dashboardUrl.hash = hash;
+  }
+
+  return `${dashboardUrl.pathname}${dashboardUrl.search}${dashboardUrl.hash}`;
+}
+
+function redirectToExpiredLinkError() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const errorUrl = new URL('/verify-error', window.location.origin);
+  errorUrl.searchParams.set('error', 'link_expired');
+  window.location.replace(errorUrl.toString());
+}
+
+function redirectToDashboardSignIn(args: {
+  guildId?: string;
+  tenantId?: string;
+  setupToken?: string;
+  connectToken?: string;
+}) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.location.assign(
+    `/sign-in-redirect?redirectTo=${encodeURIComponent(buildDashboardLocation(args))}`
+  );
+}
+
 function DashboardLayout() {
-  const { guild_id, tenant_id } = Route.useSearch();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const search = Route.useSearch();
+  const { guild_id, tenant_id } = search;
   const { selectedGuild } = useDashboardShell();
+  const [bootstrapState, setBootstrapState] = useState<DashboardBootstrapState>(() =>
+    search.setup_token || search.connect_token
+      ? {
+          status: 'bootstrapping',
+          setupToken: search.setup_token,
+          connectToken: search.connect_token,
+        }
+      : { status: 'idle' }
+  );
+  const hasBootstrapToken = bootstrapState.status === 'bootstrapping';
   const resolvedGuildId = selectedGuild?.id ?? guild_id;
   const resolvedTenantId = selectedGuild?.tenantId ?? tenant_id;
   const isPersonalDashboard = !resolvedGuildId;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const setupToken = search.setup_token ?? hashParams.get('s') ?? undefined;
+    const connectToken = search.connect_token ?? hashParams.get('token') ?? undefined;
+    if (!setupToken && !connectToken) {
+      return;
+    }
+
+    setBootstrapState((current) => {
+      if (
+        current.status === 'bootstrapping' &&
+        current.setupToken === setupToken &&
+        current.connectToken === connectToken
+      ) {
+        return current;
+      }
+
+      return {
+        status: 'bootstrapping',
+        setupToken,
+        connectToken,
+      };
+    });
+  }, [search.connect_token, search.setup_token]);
+
+  useEffect(() => {
+    if (bootstrapState.status !== 'bootstrapping' || typeof window === 'undefined') {
+      return;
+    }
+
+    let cancelled = false;
+    const { setupToken, connectToken } = bootstrapState;
+
+    async function bootstrapDashboardSetup() {
+      try {
+        const response = await fetch('/api/connect/bootstrap', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            setupToken,
+            connectToken,
+          }),
+        });
+
+        if (!response.ok) {
+          redirectToExpiredLinkError();
+          return;
+        }
+
+        let nextTenantId = tenant_id;
+        if (guild_id) {
+          try {
+            const data = await apiClient.get<{ authUserId?: string }>(
+              '/api/connect/ensure-tenant',
+              {
+                params: { guildId: guild_id },
+              }
+            );
+            nextTenantId = data.authUserId ?? nextTenantId;
+          } catch (error) {
+            if (error instanceof ApiError && error.status === 401) {
+              redirectToDashboardSignIn({
+                guildId: guild_id,
+                tenantId: tenant_id,
+                setupToken,
+                connectToken,
+              });
+              return;
+            }
+            throw error;
+          }
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setBootstrapState({ status: 'idle' });
+        queryClient.removeQueries({ queryKey: ['dashboard-shell'] });
+        navigate({
+          to: '/dashboard',
+          search: {
+            guild_id,
+            tenant_id: nextTenantId,
+            setup_token: undefined,
+            connect_token: undefined,
+          },
+          hash: '',
+          replace: true,
+        });
+      } catch (error) {
+        console.error('Failed to bootstrap dashboard setup:', error);
+        redirectToExpiredLinkError();
+      }
+    }
+
+    void bootstrapDashboardSetup();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bootstrapState, guild_id, navigate, queryClient, tenant_id]);
 
   // Toggle body class for CSS personal/server visibility
   useEffect(() => {
@@ -76,11 +270,27 @@ function DashboardLayout() {
             <ServerDropdownBackdrop />
             <CloudBackground variant="default" />
             <Sidebar />
-            <MainContent />
+            {hasBootstrapToken ? <DashboardBootstrapState /> : <MainContent />}
           </div>
         </div>
       </DashboardSessionProvider>
     </ServerContextProvider>
+  );
+}
+
+function DashboardBootstrapState() {
+  return (
+    <main className="content-area">
+      <div className="content-area-inner">
+        <section className="section-card bento-col-12 p-6 sm:p-7 md:p-8">
+          <div className="content-header-eyebrow">Server Setup</div>
+          <h1 className="content-header-title">Linking your server</h1>
+          <p className="content-header-desc" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+            Finalizing the server link and loading the dashboard.
+          </p>
+        </section>
+      </div>
+    </main>
   );
 }
 
@@ -716,91 +926,17 @@ function DashboardRouteErrorComponent({ error }: { error: Error }) {
 /* ------------------------------------------------------------------ */
 
 function MainContent() {
-  const { isDark, toggleTheme } = useTheme();
+  const { selectedGuild } = useDashboardShell();
+  const { guild_id } = Route.useSearch();
+  const isPersonalDashboard = !selectedGuild && !guild_id;
+
+  const eyebrow = isPersonalDashboard ? 'Personal Dashboard' : 'Server Dashboard';
+  const title = isPersonalDashboard ? 'Dashboard' : (selectedGuild?.name ?? 'Server');
 
   return (
     <main className="content-area">
       <div className="content-area-inner">
-        <header className="content-area-header animate-in relative z-10">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div className="min-w-0">
-              <div className="content-header-eyebrow">Server Dashboard</div>
-              <h1 className="content-header-title">Dashboard</h1>
-              <p className="content-header-desc" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-                Connect your storefronts, verify webhooks, and tune server behavior without
-                bouncing between separate setup pages.
-              </p>
-            </div>
-            <div className="content-header-actions flex items-center justify-end gap-3 w-full md:w-auto mt-4 md:mt-0">
-              <button
-                id="sidebar-toggle"
-                type="button"
-                className="sidebar-toggle-btn"
-                aria-label="Open menu"
-                onClick={toggleSidebarGlobal}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M3 12h18M3 6h18M3 18h18" />
-                </svg>
-              </button>
-              <button
-                id="theme-toggle"
-                type="button"
-                className="btn-ghost !px-3 !py-2 !rounded-xl"
-                aria-label="Toggle Dark Mode"
-                onClick={toggleTheme}
-                title="Toggle Dark Mode"
-              >
-                <svg
-                  className={`sun-icon${isDark ? '' : ' hidden'}`}
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="5" />
-                  <line x1="12" y1="1" x2="12" y2="3" />
-                  <line x1="12" y1="21" x2="12" y2="23" />
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                  <line x1="1" y1="12" x2="3" y2="12" />
-                  <line x1="21" y1="12" x2="23" y2="12" />
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                </svg>
-                <svg
-                  className={`moon-icon${isDark ? ' hidden' : ''}`}
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </header>
+        <DashboardHeader eyebrow={eyebrow} title={title} />
 
         <Outlet />
       </div>

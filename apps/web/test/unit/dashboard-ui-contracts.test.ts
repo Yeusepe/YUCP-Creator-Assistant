@@ -98,7 +98,12 @@ describe('dashboard UI contracts', () => {
   });
 
   it('keeps dashboard provider connect buttons on frontend setup routes instead of hardcoded raw API begin links', () => {
-    expect(dashboardIndexRouteSource).toContain('buildProviderConnectUrl(provider,');
+    const connectedPlatformsPanelSource = readFileSync(
+      resolve(__dirname, '../../src/components/dashboard/panels/ConnectedPlatformsPanel.tsx'),
+      'utf8'
+    );
+    expect(connectedPlatformsPanelSource).toContain('buildProviderConnectUrl(provider,');
+    expect(connectedPlatformsPanelSource).not.toContain('/api/connect/vrchat/begin');
     expect(dashboardIndexRouteSource).not.toContain('/api/connect/vrchat/begin');
   });
 

@@ -37,6 +37,12 @@ vi.mock('@/hooks/useServerContext', () => {
   };
 });
 
+vi.mock('@/hooks/useActiveDashboardContext', () => {
+  return {
+    useActiveDashboardContext: vi.fn(),
+  };
+});
+
 vi.mock('@/components/ui/Toast', () => {
   return {
     useToast: vi.fn(() => ({
@@ -67,6 +73,7 @@ vi.mock('@/lib/dashboard', () => {
   };
 });
 
+import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { useServerContext } from '@/hooks/useServerContext';
@@ -138,6 +145,19 @@ describe('dashboard server settings', () => {
       tenantId: 'tenant-123',
     });
 
+    vi.mocked(useActiveDashboardContext).mockReturnValue({
+      activeGuildId: 'guild-123',
+      activeTenantId: 'tenant-123',
+      isPersonalDashboard: false,
+      selectedGuild: {
+        icon: null,
+        id: 'guild-123',
+        name: 'Creator HQ',
+        tenantId: 'tenant-123',
+      },
+      viewer: { authUserId: 'user-123' },
+    });
+
     vi.mocked(dashboardApi.listDashboardProviders).mockResolvedValue([
       {
         connectParamStyle: 'camelCase',
@@ -192,7 +212,7 @@ describe('dashboard server settings', () => {
     await waitFor(() => expect(dashboardApi.getDashboardSettings).toHaveBeenCalled());
     await waitFor(() => expect(dashboardApi.listGuildChannels).toHaveBeenCalled());
 
-    expect(screen.getByText('Server Config')).toBeInTheDocument();
+    expect(screen.getByText('General Settings')).toBeInTheDocument();
     expect(screen.getByText('Allow Mismatched Emails')).toBeInTheDocument();
     expect(screen.getByText('Verification Scope')).toBeInTheDocument();
     expect(screen.getAllByText('Jinxxy').length).toBeGreaterThan(0);
@@ -230,6 +250,19 @@ describe('dashboard server settings', () => {
       guildId: 'guild-123',
       isPersonalDashboard: false,
       tenantId: undefined,
+    });
+
+    vi.mocked(useActiveDashboardContext).mockReturnValue({
+      activeGuildId: 'guild-123',
+      activeTenantId: 'tenant-123',
+      isPersonalDashboard: false,
+      selectedGuild: {
+        icon: null,
+        id: 'guild-123',
+        name: 'Creator HQ',
+        tenantId: 'tenant-123',
+      },
+      viewer: { authUserId: 'viewer-tenant' },
     });
 
     render(<Component />, { wrapper: createWrapper() });
