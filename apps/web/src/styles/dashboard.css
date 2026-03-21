@@ -1503,12 +1503,12 @@ img.collab-avatar {
 
 @media (min-width: 768px) {
   .sidebar {
-    position: sticky;
-    top: 0;
-    align-self: flex-start;
+    position: relative;
+    top: unset;
+    align-self: stretch;
     transform: translateX(0);
     width: 260px;
-    height: 100vh;
+    height: auto;
     max-width: none;
     z-index: 60;
   }
@@ -1841,7 +1841,6 @@ img.collab-avatar {
   .content-area {
     padding: 32px 40px 64px;
     border-top-left-radius: 24px;
-    border-bottom-left-radius: 24px;
     box-shadow:
       -12px 0 40px rgba(0, 0, 0, 0.06),
       inset 0 0 30px rgba(255, 255, 255, 0.3),
@@ -1967,8 +1966,8 @@ img.collab-avatar {
 
 .dashboard-header-leading {
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
 }
 

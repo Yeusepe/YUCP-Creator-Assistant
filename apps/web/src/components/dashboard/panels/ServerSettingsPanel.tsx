@@ -187,10 +187,7 @@ function SaveIndicator({ settingKey, state }: { settingKey: string; state: SaveI
   return (
     <>
       <span
-        className={[
-          'inline-flex items-center transition-opacity duration-200',
-          state === 'saved' ? 'opacity-100' : 'opacity-0',
-        ].join(' ')}
+        style={{ opacity: state === 'saved' ? 1 : 0, transition: 'opacity 0.2s' }}
         data-for={settingKey}
         aria-live="polite"
       >
@@ -200,11 +197,10 @@ function SaveIndicator({ settingKey, state }: { settingKey: string; state: SaveI
           height="14"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="currentColor"
+          stroke="#22c55e"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-emerald-500 dark:text-emerald-400"
         >
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
           <polyline points="17 21 17 13 7 13 7 21" />
@@ -212,10 +208,7 @@ function SaveIndicator({ settingKey, state }: { settingKey: string; state: SaveI
         </svg>
       </span>
       <span
-        className={[
-          'inline-flex items-center transition-opacity duration-200',
-          state === 'error' ? 'opacity-100' : 'opacity-0',
-        ].join(' ')}
+        style={{ opacity: state === 'error' ? 1 : 0, transition: 'opacity 0.2s' }}
         data-for={settingKey}
         aria-live="assertive"
         hidden={state !== 'error'}
@@ -226,11 +219,10 @@ function SaveIndicator({ settingKey, state }: { settingKey: string; state: SaveI
           height="14"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="currentColor"
+          stroke="#ef4444"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-red-500 dark:text-red-400"
         >
           <circle cx="12" cy="12" r="10" />
           <line x1="15" y1="9" x2="9" y2="15" />
@@ -271,23 +263,9 @@ function ToggleSwitch({
           onChange();
         }
       }}
-      className={[
-        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full',
-        'transition-colors duration-200 ease-in-out',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2',
-        'dark:focus-visible:ring-offset-zinc-900',
-        checked ? 'bg-sky-500 dark:bg-sky-600' : 'bg-zinc-300 dark:bg-zinc-600',
-        disabled ? 'opacity-50 cursor-not-allowed' : '',
-      ].join(' ')}
+      className="setting-toggle"
     >
-      <span
-        aria-hidden="true"
-        className={[
-          'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm',
-          'transition-transform duration-200 ease-in-out',
-          checked ? 'translate-x-6' : 'translate-x-1',
-        ].join(' ')}
-      />
+      <span aria-hidden="true" className="setting-toggle-thumb" />
     </div>
   );
 }
@@ -306,25 +284,15 @@ function SettingRow({
   indicator: React.ReactNode;
 }) {
   return (
-    <article className="flex items-center gap-4 rounded-2xl border border-zinc-200/60 bg-zinc-50/70 px-4 py-4 transition-colors hover:border-zinc-300 hover:bg-zinc-50 dark:border-white/10 dark:bg-[rgba(15,23,42,0.45)] dark:hover:border-white/15 dark:hover:bg-[rgba(15,23,42,0.58)]">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800">
-        <img src={icon} alt="" className="h-4 w-4 object-contain" />
+    <article className="setting-row">
+      <div className="setting-row-icon">
+        <img src={icon} alt="" />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span
-          className="text-sm font-semibold text-zinc-900 dark:text-white"
-          style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-        >
-          {label}
-        </span>
-        <span
-          className="text-xs text-zinc-500 dark:text-zinc-400"
-          style={{ fontFamily: "'DM Sans', sans-serif" }}
-        >
-          {hint}
-        </span>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span className="setting-row-label">{label}</span>
+        <span className="setting-row-hint">{hint}</span>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8 }}>
         {control}
         {indicator}
       </div>
@@ -515,7 +483,14 @@ export function ServerSettingsPanel({
       {/* Sync bar */}
       {saveSettingMutation.isPending && (
         <div
-          className="absolute inset-x-0 top-0 h-0.5 animate-pulse rounded-full bg-sky-500"
+          style={{
+            position: 'absolute',
+            inset: '0 0 auto 0',
+            height: 2,
+            borderRadius: 999,
+            background: '#0ea5e9',
+            animation: 'pulse 1.4s ease-in-out infinite',
+          }}
           aria-hidden="true"
         />
       )}
@@ -542,7 +517,7 @@ export function ServerSettingsPanel({
           />
         }
       >
-        <div className="flex flex-col gap-1">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {/* Boolean toggle settings */}
           {SWITCH_SETTING_CONFIG.map((setting) => (
             <SettingRow

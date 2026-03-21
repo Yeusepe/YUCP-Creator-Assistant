@@ -604,12 +604,33 @@ function Sidebar({
         </nav>
       </div>
 
-      <div className="sidebar-footer" />
+      <div className="sidebar-footer">
+        <Link
+          to="/account"
+          search={(prev) => prev}
+          className="sidebar-account-btn"
+          aria-label="My Account"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+          My Account
+        </Link>
+      </div>
     </aside>
   );
 }
-
-/* ------------------------------------------------------------------ */
 /*  Sidebar Logo + Server Selector                                     */
 /* ------------------------------------------------------------------ */
 
@@ -929,28 +950,6 @@ function SidebarLogoArea({
           </svg>
           Add a Server
         </button>
-        <Link
-          to="/account"
-          className="server-dropdown-action-btn"
-          id="btn-my-account"
-          onClick={() => setDropdownOpen(false)}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-          My Account
-        </Link>
         <div className="server-dropdown-divider" />
         <button
           type="button"
@@ -1043,7 +1042,6 @@ function MainContent({ pendingGuild }: { pendingGuild?: PendingDashboardGuild })
   const displayGuild = selectedGuild ?? pendingGuild;
   const isPersonalDashboard = !displayGuild && !guild_id;
 
-  const eyebrow = isPersonalDashboard ? 'Personal Dashboard' : 'Server Dashboard';
   const title = isPersonalDashboard ? 'Dashboard' : (displayGuild?.name ?? 'Server');
 
   const headerGuild =
@@ -1058,7 +1056,7 @@ function MainContent({ pendingGuild }: { pendingGuild?: PendingDashboardGuild })
   return (
     <main className="content-area">
       <div className="content-area-inner">
-        <DashboardHeader eyebrow={eyebrow} title={title} selectedGuild={headerGuild} />
+        <DashboardHeader title={title} selectedGuild={headerGuild} />
 
         <Outlet />
       </div>

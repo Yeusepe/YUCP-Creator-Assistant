@@ -440,6 +440,17 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 
+/* Flush variant: no padding, grid/list bleeds to card edges */
+.intg-card--flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.intg-card--flush .stat-grid {
+  border-radius: 0;
+  border: none;
+}
+
 .intg-header {
   display: flex;
   align-items: flex-start;
@@ -3354,4 +3365,160 @@
   padding: 6px 0;
   font-family: "Plus Jakarta Sans", sans-serif;
   gap: 5px;
+}
+
+/* ── Setting Row (ServerSettingsPanel) ────────────────────────────── */
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.7);
+  background: rgba(248, 250, 252, 0.8);
+  padding: 14px 16px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.setting-row:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.dark .setting-row {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.dark .setting-row:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.setting-row-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #f1f5f9;
+}
+
+.dark .setting-row-icon {
+  background: rgba(51, 65, 85, 0.8);
+}
+
+.setting-row-icon img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.setting-row-label {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.3;
+}
+
+.dark .setting-row-label {
+  color: #f8fafc;
+}
+
+.setting-row-hint {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.dark .setting-row-hint {
+  color: #94a3b8;
+}
+
+/* Toggle switch inside setting rows */
+
+.setting-toggle {
+  position: relative;
+  display: inline-flex;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+  align-items: center;
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+  background: #cbd5e1;
+  border: none;
+  outline: none;
+  padding: 0;
+  user-select: none;
+}
+
+.setting-toggle[aria-checked='true'] {
+  background: #0ea5e9;
+}
+
+.dark .setting-toggle {
+  background: #475569;
+}
+
+.dark .setting-toggle[aria-checked='true'] {
+  background: #0ea5e9;
+}
+
+.setting-toggle:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+
+.setting-toggle[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.setting-toggle-thumb {
+  pointer-events: none;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+  transform: translateX(4px);
+}
+
+.setting-toggle[aria-checked='true'] .setting-toggle-thumb {
+  transform: translateX(24px);
+}
+
+/* Sidebar account button */
+
+.sidebar-account-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: 'DM Sans', sans-serif;
+  color: rgba(255, 255, 255, 0.65);
+  text-decoration: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.sidebar-account-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.sidebar-account-btn svg {
+  flex-shrink: 0;
+  opacity: 0.7;
 }

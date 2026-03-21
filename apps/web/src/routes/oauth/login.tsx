@@ -13,23 +13,92 @@ export const Route = createFileRoute('/oauth/login')({
 
 type ViewState = 'loading' | 'error';
 
+function getSignedOAuthQuery(search: string): URLSearchParams | null {
+  const params = new URLSearchParams(search);
+  if (!params.has('sig')) {
+    return null;
+  }
+
+  const signedParams = new URLSearchParams();
+  for (const [key, value] of params.entries()) {
+    signedParams.append(key, value);
+    if (key === 'sig') {
+      break;
+    }
+  }
+
+  return signedParams;
+}
+
+function buildOAuthResumePath(search: string): string | null {
+  const signedParams = getSignedOAuthQuery(search);
+  if (!signedParams) {
+    return null;
+  }
+
+  signedParams.delete('exp');
+  signedParams.delete('sig');
+  const originalQuery = signedParams.toString();
+  if (!originalQuery) {
+    return null;
+  }
+
+  return `/api/auth/oauth2/authorize?${originalQuery}`;
+}
+
 function OAuthLoginPage() {
   const [viewState, setViewState] = useState<ViewState>('loading');
   const retryPathRef = useRef('/oauth/login');
 
   useEffect(() => {
-    retryPathRef.current = window.location.pathname;
+    retryPathRef.current = `${window.location.pathname}${window.location.search}`;
   }, []);
 
   const showError = useCallback(() => {
     setViewState('error');
   }, []);
 
+  const resumeOAuthFlow = useCallback(async () => {
+    const resumePath = buildOAuthResumePath(window.location.search);
+    if (!resumePath) {
+      showError();
+      return;
+    }
+
+    const response = await fetch(resumePath, {
+      headers: {
+        accept: 'application/json',
+      },
+    });
+
+    const redirectPayload = (await response.json().catch(() => null)) as {
+      redirect?: boolean;
+      url?: string;
+    } | null;
+    const redirectTarget =
+      redirectPayload?.redirect && redirectPayload.url
+        ? redirectPayload.url
+        : response.headers.get('location');
+
+    if (!redirectTarget) {
+      throw new Error('OAuth authorize resume did not provide a redirect target');
+    }
+
+    window.location.assign(redirectTarget);
+  }, [showError]);
+
   const runOAuthLoginFlow = useCallback(async () => {
+    const sessionResult = await authClient.getSession();
+    if (sessionResult.data?.session || sessionResult.data?.user) {
+      resumeOAuthFlow();
+      return;
+    }
+
     await authClient.signIn.social({
       provider: 'discord',
+      callbackURL: window.location.href,
     });
-  }, []);
+  }, [resumeOAuthFlow]);
 
   useEffect(() => {
     runOAuthLoginFlow().catch((err) => {

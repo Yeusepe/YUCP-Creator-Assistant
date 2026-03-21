@@ -4,7 +4,6 @@ import { getServerIconUrl } from '@/lib/utils';
 
 export interface DashboardHeaderProps {
   title: string;
-  eyebrow?: string;
   selectedGuild?: {
     id: string;
     icon?: string | null;
@@ -26,7 +25,7 @@ function toggleSidebar() {
   }
 }
 
-export function DashboardHeader({ title, eyebrow, selectedGuild }: DashboardHeaderProps) {
+export function DashboardHeader({ title, selectedGuild }: DashboardHeaderProps) {
   const { isDark, toggleTheme } = useTheme();
 
   const contextIcon = selectedGuild?.icon ? (
@@ -61,10 +60,7 @@ export function DashboardHeader({ title, eyebrow, selectedGuild }: DashboardHead
           >
             {contextIcon}
           </Link>
-          <div className="dashboard-header-title-block">
-            {eyebrow && <div className="content-header-eyebrow">{eyebrow}</div>}
-            <h1 className="content-header-title truncate">{title}</h1>
-          </div>
+          <h1 className="content-header-title truncate">{title}</h1>
         </div>
 
         <div className="dashboard-header-actions">

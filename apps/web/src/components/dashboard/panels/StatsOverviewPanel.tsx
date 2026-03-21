@@ -55,7 +55,7 @@ export function StatsOverviewPanel() {
   return (
     <section
       id="stats-overview-section"
-      className="intg-card animate-in"
+      className="intg-card intg-card--flush animate-in"
       aria-label="Dashboard statistics overview"
     >
       <div className="stat-grid">
