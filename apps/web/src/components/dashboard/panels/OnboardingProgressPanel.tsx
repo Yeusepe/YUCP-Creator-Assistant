@@ -6,6 +6,7 @@ interface OnboardingStep {
   description: string;
   completed: boolean;
   href?: string;
+  onClick?: () => void;
 }
 
 interface OnboardingProgressPanelProps {
@@ -17,15 +18,24 @@ function CheckCircle({ completed }: { completed: boolean }) {
   if (completed) {
     return (
       <div
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white"
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: '50%',
+          background: '#22c55e',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
         aria-hidden="true"
       >
         <svg
-          width="12"
-          height="12"
+          width="11"
+          height="11"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="currentColor"
+          stroke="#fff"
           strokeWidth="3"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -38,7 +48,14 @@ function CheckCircle({ completed }: { completed: boolean }) {
   }
   return (
     <div
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-zinc-300 dark:border-zinc-600"
+      className="step-circle-empty"
+      style={{
+        width: 22,
+        height: 22,
+        borderRadius: '50%',
+        border: '2px solid #e2e8f0',
+        flexShrink: 0,
+      }}
       aria-hidden="true"
     />
   );
@@ -54,69 +71,28 @@ function ProgressBar({
   const percentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
   return (
     <div
-      className="h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-white/10"
+      style={{
+        height: 6,
+        width: '100%',
+        borderRadius: 999,
+        overflow: 'hidden',
+        background: '#f1f5f9',
+      }}
       role="progressbar"
       aria-valuenow={completedCount}
       aria-valuemin={0}
       aria-valuemax={totalCount}
-      aria-label={`${completedCount} of ${totalCount} steps complete`}
+      aria-label={`${String(completedCount)} of ${String(totalCount)} steps complete`}
     >
       <div
-        className="h-full rounded-full bg-emerald-500 transition-all duration-500 ease-out"
-        style={{ width: `${percentage}%` }}
+        style={{
+          height: '100%',
+          borderRadius: 999,
+          background: '#22c55e',
+          width: `${percentage.toFixed(1)}%`,
+          transition: 'width 0.5s ease',
+        }}
       />
-    </div>
-  );
-}
-
-function CongratulationsState() {
-  return (
-    <div className="flex flex-col items-center py-8 text-center">
-      <div className="relative">
-        {/* Confetti accents */}
-        <div
-          className="absolute -top-2 -left-3 h-2 w-2 rotate-12 rounded-sm bg-amber-400"
-          aria-hidden="true"
-        />
-        <div
-          className="absolute -top-1 left-6 h-1.5 w-1.5 -rotate-12 rounded-sm bg-sky-400"
-          aria-hidden="true"
-        />
-        <div
-          className="absolute top-0 -right-2 h-2 w-2 rotate-45 rounded-sm bg-emerald-400"
-          aria-hidden="true"
-        />
-        <div
-          className="absolute -top-3 right-5 h-1.5 w-1.5 rotate-6 rounded-sm bg-purple-400"
-          aria-hidden="true"
-        />
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40">
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-emerald-600 dark:text-emerald-400"
-            aria-hidden="true"
-          >
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
-          </svg>
-        </div>
-      </div>
-      <p
-        className="mt-4 text-lg font-bold text-zinc-900 dark:text-white"
-        style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-      >
-        All set!
-      </p>
-      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-        You have completed all onboarding steps. You are ready to go.
-      </p>
     </div>
   );
 }
@@ -140,87 +116,109 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
           <div className="intg-icon">
             <img src="/Icons/Point.png" alt="" />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="intg-copy">
             <h2 className="intg-title">Getting Started</h2>
-            <span className="text-sm text-zinc-400 dark:text-zinc-500">
-              {completedCount}/{totalCount} complete
-            </span>
+            <p className="intg-desc">Finish core setup once, then let YUCP handle the rest.</p>
           </div>
         </div>
-        {onDismiss && (
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-400 transition-colors duration-150 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-300"
-            aria-label="Dismiss getting started checklist"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span className="count-badge">
+            {completedCount}/{totalCount}
+          </span>
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#94a3b8',
+                transition: 'background 0.12s ease, color 0.12s ease',
+              }}
+              className="onboarding-dismiss-btn"
+              aria-label="Dismiss getting started checklist"
             >
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-        )}
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Progress bar */}
-      <div className="pb-4">
+      <div style={{ marginBottom: 16 }}>
         <ProgressBar completedCount={completedCount} totalCount={totalCount} />
       </div>
 
-      {/* Content */}
-      <div>
-        {allComplete ? (
-          <CongratulationsState />
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {steps.map((step) => (
-              <li key={step.id}>
+      {/* Steps */}
+      {allComplete ? (
+        <div style={{ textAlign: 'center', padding: '20px 0' }}>
+          <p className="intg-title" style={{ fontSize: 15 }}>
+            All set!
+          </p>
+          <p className="intg-desc" style={{ marginTop: 4 }}>
+            All setup steps complete. Your verification system is live.
+          </p>
+        </div>
+      ) : (
+        <ul
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            listStyle: 'none',
+            margin: 0,
+            padding: 0,
+          }}
+        >
+          {steps.map((step) => (
+            <li key={step.id}>
+              <div className={`onboarding-step-row${step.completed ? ' completed' : ''}`}>
+                <CheckCircle completed={step.completed} />
                 <div
-                  className={[
-                    'flex items-start gap-3 rounded-xl px-3 py-3 transition-colors duration-150',
-                    step.completed ? 'opacity-60' : 'hover:bg-zinc-50 dark:hover:bg-white/5',
-                  ].join(' ')}
+                  style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}
                 >
-                  <CheckCircle completed={step.completed} />
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span
-                      className={[
-                        'text-sm font-semibold',
-                        step.completed
-                          ? 'text-zinc-400 line-through dark:text-zinc-500'
-                          : 'text-zinc-900 dark:text-white',
-                      ].join(' ')}
-                      style={{ fontFamily: "'DM Sans', sans-serif" }}
-                    >
-                      {step.label}
-                    </span>
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {step.description}
-                    </span>
-                  </div>
-                  {step.href && !step.completed && (
-                    <a
-                      href={step.href}
-                      className="shrink-0 rounded-full bg-zinc-900 px-3 py-1 text-xs font-semibold text-white transition-colors duration-150 hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
-                    >
-                      Start
-                    </a>
-                  )}
+                  <span
+                    className="platform-row-label"
+                    style={{
+                      textDecoration: step.completed ? 'line-through' : undefined,
+                      opacity: step.completed ? 0.5 : 1,
+                    }}
+                  >
+                    {step.label}
+                  </span>
+                  <span className="intg-desc" style={{ fontSize: 11 }}>
+                    {step.description}
+                  </span>
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+                {step.href && !step.completed && (
+                  <a href={step.href} onClick={step.onClick} className="onboarding-step-start-btn">
+                    Start
+                  </a>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

@@ -1,17 +1,10 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { authClient } from '@/lib/auth-client';
 import '@/styles/oauth-consent.css';
 
 export const Route = createFileRoute('/oauth/consent')({
-  beforeLoad: ({ context, location }) => {
-    if (!context.isAuthenticated) {
-      throw redirect({
-        to: '/oauth/login',
-        search: location.search,
-      });
-    }
-  },
   component: OAuthConsentPage,
 });
 
@@ -75,8 +68,6 @@ function OAuthConsentPage() {
     setRawScopes((params.get('scope') || '').trim().split(/\s+/).filter(Boolean));
   }, []);
 
-  const consentAction = '/api/auth/oauth2/consent';
-
   const [allowText, setAllowText] = useState('Allow access');
   const [denyText, setDenyText] = useState('Deny');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -87,33 +78,21 @@ function OAuthConsentPage() {
     setDenyText(accepted ? 'Deny' : 'Denying\u2026');
 
     try {
-      // oauth_query must NOT include the leading "?"
-      const oauthQuery = window.location.search.replace(/^\?/, '');
-
-      const res = await fetch(consentAction, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accept: accepted,
-          oauth_query: oauthQuery,
-        }),
-        credentials: 'include',
+      const result = await authClient.oauth2.consent({
+        accept: accepted,
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(`Error: ${data.message || data.code || res.statusText || 'Unknown error'}`);
+      if (result.error) {
+        alert(`Error: ${result.error.message || 'Unknown error'}`);
         return;
       }
 
-      const data = await res.json().catch(() => ({}));
-      const redirectTarget = data.redirectTo ?? data.redirect_uri;
+      const redirectTarget = result.data?.url;
       if (redirectTarget) {
         window.location.href = redirectTarget;
         return;
       }
 
-      // Fallback: if no redirect target, reload
       window.location.reload();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

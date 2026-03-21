@@ -394,6 +394,12 @@
   border-top: 1px solid rgba(0, 0, 0, 0.07);
 }
 
+.server-dropdown-divider {
+  height: 1px;
+  background: rgba(0, 0, 0, 0.08);
+  margin: 2px 4px;
+}
+
 .server-dropdown-action-btn {
   display: flex;
   align-items: center;
@@ -423,7 +429,7 @@
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
-  padding: 20px 24px;
+  padding: 22px 24px;
   transition:
     border-color 0.2s,
     box-shadow 0.2s;
@@ -436,22 +442,32 @@
 
 .intg-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: 16px;
+  margin-bottom: 18px;
 }
 
 .intg-title-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.intg-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .intg-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   background: #f1f5f9;
   display: flex;
   align-items: center;
@@ -463,7 +479,9 @@
 .intg-icon svg {
   width: 18px;
   height: 18px;
+  object-fit: contain;
   opacity: 0.85;
+  flex-shrink: 0;
 }
 
 .intg-icon svg {
@@ -477,6 +495,7 @@
   color: #0f172a;
   margin: 0;
   letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 .intg-add-btn {
@@ -510,8 +529,13 @@
   font-size: 12px;
   color: #64748b;
   line-height: 1.45;
-  margin: 0 0 16px 0;
-  padding-left: 48px;
+  margin: 0;
+  max-width: 36rem;
+}
+
+.intg-desc a {
+  color: inherit;
+  text-decoration: none;
 }
 
 .intg-desc code {
@@ -2186,7 +2210,7 @@
     border-radius: 20px;
   }
 
-.collab-row {
+  .collab-row {
     flex-wrap: wrap;
   }
 
@@ -2359,6 +2383,610 @@
 .ui-select-option.selected {
   background: rgba(14, 165, 233, 0.08);
   color: #0284c7;
+}
+
+/* ── Header Context Icon ──────────────────────────────────────────── */
+
+/* Inline icon beside the page title — no background box, no border. */
+/* Shows server icon when a guild is selected; home icon on personal. */
+.header-context-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  margin-top: 1px;
+  text-decoration: none;
+}
+
+.header-context-icon img {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.header-context-icon svg {
+  width: 20px;
+  height: 20px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.dark .header-context-icon svg {
+  color: #64748b;
+}
+
+/* ── Stat Grid (StatsOverviewPanel) ───────────────────────────────── */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+@media (max-width: 767px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.stat-cell {
+  background: #f8fafc;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stat-cell-value {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.stat-cell-label {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.stat-cell-trend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.stat-cell-trend.up {
+  color: #16a34a;
+}
+
+.stat-cell-trend.down {
+  color: #dc2626;
+}
+
+.stat-cell-trend.neutral {
+  color: #94a3b8;
+}
+
+.stat-cell-skeleton-val {
+  height: 28px;
+  width: 56px;
+  border-radius: 6px;
+  background: #e2e8f0;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.stat-cell-skeleton-label {
+  height: 14px;
+  width: 72px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.dark .stat-grid {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dark .stat-cell {
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.dark .stat-cell-value {
+  color: #f8fafc;
+}
+
+.dark .stat-cell-label {
+  color: #94a3b8;
+}
+
+.dark .stat-cell-trend.up {
+  color: #4ade80;
+}
+
+.dark .stat-cell-trend.down {
+  color: #f87171;
+}
+
+.dark .stat-cell-trend.neutral {
+  color: #64748b;
+}
+
+.dark .stat-cell-skeleton-val {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dark .stat-cell-skeleton-label {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ── Platform Row (PlatformCard) ──────────────────────────────────── */
+
+.platform-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.platform-row:hover {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.platform-row-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.platform-row-icon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.platform-row-label {
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.platform-row-sub {
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.2;
+  margin-top: 1px;
+}
+
+.platform-row-sub.connected {
+  color: #16a34a;
+}
+
+.platform-row-actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.platform-row-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: "DM Sans", sans-serif;
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+
+.platform-row-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "DM Sans", sans-serif;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.platform-row-btn:hover {
+  background: #1e293b;
+}
+
+.platform-row-btn.disconnect {
+  background: transparent;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.platform-row-btn.disconnect:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.platform-row-btn:disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.dark .platform-row {
+  background: rgba(15, 23, 42, 0.45);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.dark .platform-row:hover {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dark .platform-row-label {
+  color: #f1f5f9;
+}
+
+.dark .platform-row-sub {
+  color: #64748b;
+}
+
+.dark .platform-row-sub.connected {
+  color: #4ade80;
+}
+
+.dark .platform-row-badge {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.25);
+}
+
+.dark .platform-row-btn {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.dark .platform-row-btn:hover {
+  background: #ffffff;
+}
+
+.dark .platform-row-btn.disconnect {
+  background: transparent;
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.dark .platform-row-btn.disconnect:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+/* ── Store Row (StoreIntegrationsPanel) ──────────────────────────── */
+
+.store-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.store-row:hover {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.store-row-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.store-row-icon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.store-row-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.store-row-name {
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.store-row-status {
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.store-row-status.active {
+  color: #16a34a;
+}
+
+.store-row-status.degraded {
+  color: #d97706;
+}
+
+.store-row-action {
+  flex-shrink: 0;
+}
+
+.store-row-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "DM Sans", sans-serif;
+  background: #0f172a;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.store-row-connect-btn:hover {
+  background: #1e293b;
+}
+
+.store-row-manage-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "DM Sans", sans-serif;
+  background: transparent;
+  color: #0ea5e9;
+  border: 1px solid rgba(14, 165, 233, 0.3);
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.store-row-manage-btn:hover {
+  background: rgba(14, 165, 233, 0.06);
+  border-color: rgba(14, 165, 233, 0.5);
+}
+
+.dark .store-row {
+  background: rgba(15, 23, 42, 0.45);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.dark .store-row:hover {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dark .store-row-name {
+  color: #f1f5f9;
+}
+
+.dark .store-row-status {
+  color: #64748b;
+}
+
+.dark .store-row-status.active {
+  color: #4ade80;
+}
+
+.dark .store-row-status.degraded {
+  color: #fbbf24;
+}
+
+.dark .store-row-connect-btn {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.dark .store-row-connect-btn:hover {
+  background: #ffffff;
+}
+
+.dark .store-row-manage-btn {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.dark .store-row-manage-btn:hover {
+  background: rgba(14, 165, 233, 0.1);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+/* ── Onboarding Step Row ──────────────────────────────────────────── */
+
+.onboarding-step-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  transition: background 0.12s ease;
+}
+
+.onboarding-step-row:not(.completed):hover {
+  background: #f8fafc;
+}
+
+.onboarding-step-row.completed {
+  opacity: 0.55;
+}
+
+.onboarding-step-start-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 10px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  background: #0f172a;
+  color: #ffffff;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.onboarding-step-start-btn:hover {
+  background: #1e293b;
+}
+
+.dark .onboarding-step-row:not(.completed):hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dark .onboarding-step-start-btn {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.dark .onboarding-step-start-btn:hover {
+  background: #ffffff;
+}
+
+/* ── Count Badge ──────────────────────────────────────────────────── */
+
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.dark .count-badge {
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Empty State (inside intg-card) ──────────────────────────────── */
+
+.intg-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.intg-empty-state svg {
+  color: #cbd5e1;
+}
+
+.intg-empty-state-text {
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.dark .intg-empty-state svg {
+  color: #334155;
+}
+
+.dark .intg-empty-state-text {
+  color: #64748b;
+}
+
+/* ── Onboarding dismiss button dark variant ───────────────────────── */
+
+.dark .onboarding-dismiss-btn {
+  color: #64748b !important;
+}
+
+.dark .onboarding-dismiss-btn:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #94a3b8 !important;
+}
+
+/* Progress bar track dark mode */
+.dark #onboarding-progress-panel [role="progressbar"] {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Empty circle step indicator dark mode */
+.dark .step-circle-empty {
+  border-color: rgba(255, 255, 255, 0.15) !important;
 }
 
 .ui-select-option.selected:hover {

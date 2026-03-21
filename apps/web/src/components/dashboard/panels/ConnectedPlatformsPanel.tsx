@@ -152,7 +152,10 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
           <div className="intg-icon">
             <img src="/Icons/Link.png" alt="" />
           </div>
-          <h2 className="intg-title">Connected Platforms</h2>
+          <div className="intg-copy">
+            <h2 className="intg-title">Connected Platforms</h2>
+            <p className="intg-desc">Storefronts linked for automated verification.</p>
+          </div>
         </div>
         {!isLoading && totalCount > 1 && (
           <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-white/10 dark:text-zinc-400">
@@ -160,7 +163,6 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
           </span>
         )}
       </div>
-      <p className="intg-desc">Storefronts linked for automated verification.</p>
 
       {/* Body */}
       <DashboardSkeletonSwap isLoading={isLoading} skeleton={<DashboardListSkeleton rows={4} />}>

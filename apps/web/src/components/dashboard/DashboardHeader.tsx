@@ -1,9 +1,15 @@
 import { Link } from '@tanstack/react-router';
 import { useTheme } from '@/hooks/useTheme';
+import { getServerIconUrl } from '@/lib/utils';
 
 export interface DashboardHeaderProps {
   title: string;
   eyebrow?: string;
+  selectedGuild?: {
+    id: string;
+    icon?: string | null;
+    name: string;
+  };
 }
 
 function toggleSidebar() {
@@ -20,45 +26,62 @@ function toggleSidebar() {
   }
 }
 
-export function DashboardHeader({ title, eyebrow }: DashboardHeaderProps) {
+export function DashboardHeader({ title, eyebrow, selectedGuild }: DashboardHeaderProps) {
   const { isDark, toggleTheme } = useTheme();
+
+  const contextIcon = selectedGuild?.icon ? (
+    <img src={getServerIconUrl(selectedGuild.id, selectedGuild.icon) ?? ''} alt="" />
+  ) : (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <path d="M9 22v-8h6v8" />
+    </svg>
+  );
 
   return (
     <header className="content-area-header animate-in relative z-10">
-      <div className="flex items-center justify-between gap-4">
-        {/* Left: Home + title */}
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="dashboard-header-shell">
+        <div className="dashboard-header-leading">
           <Link
             to="/dashboard"
             search={{}}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/10"
-            aria-label="Back to dashboard"
+            className="header-context-icon"
+            aria-label="Back to dashboard home"
             title="Dashboard home"
           >
-            <img src="/Icons/Home.png" alt="" className="h-5 w-5" />
+            {contextIcon}
           </Link>
-          <div className="min-w-0">
+          <div className="dashboard-header-title-block">
             {eyebrow && <div className="content-header-eyebrow">{eyebrow}</div>}
             <h1 className="content-header-title truncate">{title}</h1>
           </div>
         </div>
 
-        {/* Right: Docs + Theme + Menu */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="dashboard-header-actions">
           <a
             href="https://creators.yucp.club/docs.html"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+            className="dashboard-header-icon-btn"
             aria-label="Documentation"
             title="Creator docs"
           >
-            <img src="/Icons/Library.png" alt="" className="h-5 w-5" />
+            <img src="/Icons/Library.png" alt="" />
           </a>
           <button
             id="theme-toggle"
             type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+            className="dashboard-header-icon-btn"
             aria-label="Toggle Dark Mode"
             onClick={toggleTheme}
             title="Toggle Dark Mode"
@@ -103,7 +126,7 @@ export function DashboardHeader({ title, eyebrow }: DashboardHeaderProps) {
           <button
             id="sidebar-toggle"
             type="button"
-            className="sidebar-toggle-btn"
+            className="sidebar-toggle-btn dashboard-header-icon-btn"
             aria-label="Open menu"
             onClick={toggleSidebar}
           >

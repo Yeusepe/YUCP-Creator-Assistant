@@ -1,19 +1,10 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
-import { getSafeRelativeRedirectTarget } from '@yucp/shared/authRedirects';
+import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { logWebError } from '@/lib/webDiagnostics';
 
 export const Route = createFileRoute('/oauth/login')({
-  beforeLoad: ({ context, location }) => {
-    if (context.isAuthenticated) {
-      throw redirect({
-        to: '/oauth/consent',
-        search: location.search,
-      });
-    }
-  },
   head: () => ({
     links: routeStylesheetLinks(routeStyleHrefs.oauthLogin),
   }),
@@ -35,19 +26,9 @@ function OAuthLoginPage() {
   }, []);
 
   const runOAuthLoginFlow = useCallback(async () => {
-    const returnTo =
-      getSafeRelativeRedirectTarget(window.location.pathname + window.location.search) ??
-      '/oauth/login';
     await authClient.signIn.social({
       provider: 'discord',
-      callbackURL: returnTo,
     });
-  }, []);
-
-  useEffect(() => {
-    retryPathRef.current =
-      getSafeRelativeRedirectTarget(window.location.pathname + window.location.search) ??
-      '/oauth/login';
   }, []);
 
   useEffect(() => {

@@ -306,9 +306,9 @@ function SettingRow({
   indicator: React.ReactNode;
 }) {
   return (
-    <article className="flex items-center gap-4 rounded-xl px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
-        <img src={icon} alt="" className="h-4 w-4" />
+    <article className="flex items-center gap-4 rounded-2xl border border-zinc-200/60 bg-zinc-50/70 px-4 py-4 transition-colors hover:border-zinc-300 hover:bg-zinc-50 dark:border-white/10 dark:bg-[rgba(15,23,42,0.45)] dark:hover:border-white/15 dark:hover:bg-[rgba(15,23,42,0.58)]">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800">
+        <img src={icon} alt="" className="h-4 w-4 object-contain" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span
@@ -525,10 +525,12 @@ export function ServerSettingsPanel({
           <div className="intg-icon">
             <img src="/Icons/Wrench.png" alt="" />
           </div>
-          <h2 className="intg-title">General Settings</h2>
+          <div className="intg-copy">
+            <h2 className="intg-title">General Settings</h2>
+            <p className="intg-desc">Configure verification policies and channel routing.</p>
+          </div>
         </div>
       </div>
-      <p className="intg-desc">Configure verification policies and channel routing.</p>
 
       <DashboardSkeletonSwap
         isLoading={isLoading}

@@ -686,6 +686,15 @@ function SidebarLogoArea({
     window.location.assign(`/api/install/bot?authUserId=${encodeURIComponent(viewer.authUserId)}`);
   }, [viewer?.authUserId]);
 
+  const openCreatorHome = useCallback(() => {
+    setDropdownOpen(false);
+    setSearchQuery('');
+    navigate({
+      to: '/dashboard',
+      search: {},
+    });
+  }, [navigate]);
+
   // Close dropdown when clicking the backdrop
   useEffect(() => {
     const backdrop = document.getElementById('server-dropdown-backdrop');
@@ -796,7 +805,7 @@ function SidebarLogoArea({
             </svg>
           )}
         </div>
-        <span className="sidebar-server-name text-white" id="sidebar-selected-name">
+        <span className="sidebar-server-name" id="sidebar-selected-name">
           {selectedName}
         </span>
       </div>
@@ -805,7 +814,7 @@ function SidebarLogoArea({
         height="12"
         viewBox="0 0 24 24"
         fill="none"
-        stroke="rgba(255,255,255,0.4)"
+        stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -879,6 +888,28 @@ function SidebarLogoArea({
         <button
           type="button"
           className="server-dropdown-action-btn"
+          id="btn-creator-home"
+          onClick={openCreatorHome}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 10.5 12 3l9 7.5" />
+            <path d="M5 9.5V21h14V9.5" />
+          </svg>
+          Creator Home
+        </button>
+        <button
+          type="button"
+          className="server-dropdown-action-btn"
           id="btn-add-server"
           onClick={addServer}
         >
@@ -920,13 +951,7 @@ function SidebarLogoArea({
           </svg>
           My Account
         </Link>
-        <div
-          style={{
-            height: '1px',
-            background: 'rgba(0,0,0,0.1)',
-            margin: '2px 4px',
-          }}
-        />
+        <div className="server-dropdown-divider" />
         <button
           type="button"
           className="server-dropdown-action-btn"
@@ -1021,10 +1046,19 @@ function MainContent({ pendingGuild }: { pendingGuild?: PendingDashboardGuild })
   const eyebrow = isPersonalDashboard ? 'Personal Dashboard' : 'Server Dashboard';
   const title = isPersonalDashboard ? 'Dashboard' : (displayGuild?.name ?? 'Server');
 
+  const headerGuild =
+    displayGuild && displayGuild.name
+      ? {
+          id: displayGuild.id,
+          icon: displayGuild.icon ?? null,
+          name: displayGuild.name,
+        }
+      : undefined;
+
   return (
     <main className="content-area">
       <div className="content-area-inner">
-        <DashboardHeader eyebrow={eyebrow} title={title} />
+        <DashboardHeader eyebrow={eyebrow} title={title} selectedGuild={headerGuild} />
 
         <Outlet />
       </div>

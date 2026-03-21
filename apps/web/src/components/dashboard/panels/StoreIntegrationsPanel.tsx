@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
-import { DashboardIntegrationsSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { isDashboardAuthError } from '@/hooks/useDashboardSession';
 import type { UserAccountConnection } from '@/lib/dashboard';
 import {
@@ -31,54 +31,7 @@ function requireAuthUserId(authUserId: string | undefined) {
 
 type ProviderStatus = 'active' | 'degraded' | 'disconnected';
 
-const STATUS_BADGE_CLASSES: Record<ProviderStatus, string> = {
-  active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
-  degraded: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
-  disconnected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
-};
-
-const STATUS_DOT_CLASSES: Record<ProviderStatus, string> = {
-  active: 'bg-emerald-500',
-  degraded: 'bg-amber-500',
-  disconnected: 'bg-red-500',
-};
-
-const STATUS_LABELS: Record<ProviderStatus, string> = {
-  active: 'Active',
-  degraded: 'Degraded',
-  disconnected: 'Disconnected',
-};
-
-function EmptyStoreState() {
-  return (
-    <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-300 px-6 py-8 dark:border-white/10">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500">
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-        </svg>
-      </div>
-      <p className="max-w-xs text-center text-sm text-zinc-500 dark:text-zinc-400">
-        No stores connected yet. Add a store account in{' '}
-        <strong className="font-semibold text-zinc-700 dark:text-zinc-300">
-          Connected Platforms
-        </strong>{' '}
-        above.
-      </p>
-    </div>
-  );
-}
-
-function StoreCard({
+function StoreRow({
   provider,
   account,
   authUserId,
@@ -89,61 +42,29 @@ function StoreCard({
   authUserId: string | undefined;
   guildId: string | undefined;
 }) {
-  const statusValue: ProviderStatus = (account?.status as ProviderStatus) ?? 'active';
+  const status: ProviderStatus = (account?.status as ProviderStatus) ?? 'active';
   const iconPath = getProviderIconPath(provider);
   const manageHref = buildProviderConnectUrl(provider, { authUserId, guildId });
   const label = provider.label ?? provider.key;
 
+  const statusLabel =
+    status === 'active' ? 'Connected' : status === 'degraded' ? 'Needs attention' : 'Connected';
+
   return (
-    <article
-      id={`server-tile-${provider.key}`}
-      className={[
-        'flex min-w-[220px] flex-col gap-4 rounded-2xl p-5',
-        'bg-zinc-50 border border-zinc-200/60',
-        'transition-all duration-200',
-        'hover:border-zinc-300 hover:shadow-sm',
-        'dark:bg-[rgba(15,23,42,0.5)] dark:border-white/10',
-        'dark:hover:border-white/15 dark:hover:bg-[rgba(30,41,59,0.6)]',
-      ].join(' ')}
-    >
-      {/* Header: icon + meta */}
-      <div className="flex items-center gap-3">
-        <div
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-          style={{ backgroundColor: provider.iconBg ?? '#1f2937' }}
-        >
-          {iconPath ? <img src={iconPath} alt={label} className="h-5 w-5 object-contain" /> : null}
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-white">{label}</h3>
-          <span
-            className={[
-              'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
-              STATUS_BADGE_CLASSES[statusValue],
-            ].join(' ')}
-          >
-            <span
-              className={`inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT_CLASSES[statusValue]}`}
-              aria-hidden="true"
-            />
-            {STATUS_LABELS[statusValue]}
-          </span>
-        </div>
+    <div className="store-row">
+      <div className="store-row-icon" style={{ backgroundColor: provider.iconBg ?? '#1f2937' }}>
+        {iconPath ? <img src={iconPath} alt={label} /> : null}
       </div>
 
-      {/* Footer: manage link */}
-      <div className="mt-auto flex items-center justify-end">
+      <div className="store-row-meta">
+        <span className="store-row-name">{label}</span>
+        <span className={`store-row-status ${status}`}>{statusLabel}</span>
+      </div>
+
+      <div className="store-row-action">
         {manageHref ? (
-          <a
-            href={manageHref}
-            className={[
-              'inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5',
-              'text-xs font-semibold text-sky-600',
-              'bg-sky-50 transition-colors hover:bg-sky-100',
-              'dark:bg-sky-900/30 dark:text-sky-400 dark:hover:bg-sky-900/50',
-            ].join(' ')}
-          >
-            Manage
+          <a href={manageHref} className="store-row-manage-btn">
+            Configure
             <svg
               width="10"
               height="10"
@@ -160,7 +81,7 @@ function StoreCard({
           </a>
         ) : null}
       </div>
-    </article>
+    </div>
   );
 }
 
@@ -214,12 +135,10 @@ export function StoreIntegrationsPanel({
     );
   }, [providers, statusByProvider]);
 
-  // Notify parent of linked provider count changes
   useEffect(() => {
     onLinkedCountChange?.(linkedProviders.length);
   }, [linkedProviders.length, onLinkedCountChange]);
 
-  // Notify parent on auth errors
   useEffect(() => {
     if (
       isDashboardAuthError(providersQuery.error) ||
@@ -245,21 +164,43 @@ export function StoreIntegrationsPanel({
           <div className="intg-icon">
             <img src="/Icons/Bag.png" alt="" />
           </div>
-          <h2 className="intg-title">Store Integrations</h2>
+          <div className="intg-copy">
+            <h2 className="intg-title">Storefronts</h2>
+            <p className="intg-desc">Stores driving automated role-gating for this server.</p>
+          </div>
         </div>
+        {!isLoading && linkedProviders.length > 0 && (
+          <span className="count-badge">{linkedProviders.length} linked</span>
+        )}
       </div>
-      <p className="intg-desc">Storefronts linked to this server for automated role-gating.</p>
 
-      <DashboardSkeletonSwap
-        isLoading={isLoading}
-        skeleton={<DashboardIntegrationsSkeleton cards={3} />}
-      >
+      <DashboardSkeletonSwap isLoading={isLoading} skeleton={<DashboardListSkeleton rows={3} />}>
         {linkedProviders.length === 0 ? (
-          <EmptyStoreState />
+          <div className="intg-empty-state">
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <path d="M16 10a4 4 0 0 1-8 0" />
+            </svg>
+            <p className="intg-empty-state-text">
+              No stores connected yet. Link a storefront in <strong>Connected Platforms</strong> on
+              your personal dashboard.
+            </p>
+          </div>
         ) : (
-          <div className="flex gap-4 overflow-x-auto pb-2">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {linkedProviders.map((provider) => (
-              <StoreCard
+              <StoreRow
                 key={provider.key}
                 provider={provider}
                 account={accountsByProvider.get(provider.key)}

@@ -24,6 +24,31 @@ export const Route = createFileRoute('/dashboard/')({
 });
 
 const ONBOARDING_DISMISSED_KEY = 'yucp_onboarding_dismissed';
+const ONBOARDING_STATE_KEY = 'yucp_onboarding_state';
+
+interface OnboardingState {
+  docsRead: boolean;
+}
+
+function readOnboardingState(): OnboardingState {
+  if (typeof window === 'undefined') {
+    return { docsRead: false };
+  }
+
+  try {
+    const raw = localStorage.getItem(ONBOARDING_STATE_KEY);
+    if (!raw) {
+      return { docsRead: false };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<OnboardingState>;
+    return {
+      docsRead: parsed.docsRead === true,
+    };
+  } catch {
+    return { docsRead: false };
+  }
+}
 
 function DashboardIndex() {
   const { isPersonalDashboard, activeGuildId, activeTenantId } = useActiveDashboardContext();
@@ -86,6 +111,22 @@ function DashboardIndex() {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, 'true');
   }, []);
 
+  const [onboardingState, setOnboardingState] = useState<OnboardingState>(() =>
+    readOnboardingState()
+  );
+
+  const markDocsRead = useCallback(() => {
+    setOnboardingState((current) => {
+      if (current.docsRead) {
+        return current;
+      }
+
+      const next = { ...current, docsRead: true };
+      localStorage.setItem(ONBOARDING_STATE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   // Onboarding steps
   const onboardingSteps: OnboardingStep[] = useMemo(() => {
     const hasServers = guilds.length > 0;
@@ -113,11 +154,12 @@ function DashboardIndex() {
         id: 'docs',
         label: 'Read the Docs',
         description: 'Learn how to set up verifications and roles.',
-        completed: false,
+        completed: onboardingState.docsRead,
         href: 'https://creators.yucp.club/docs.html',
+        onClick: markDocsRead,
       },
     ];
-  }, [guilds.length, connectedPlatforms]);
+  }, [guilds.length, connectedPlatforms, onboardingState.docsRead, markDocsRead]);
 
   // Auth error handling at page level
   if (status === 'signed_out' || status === 'expired') {
@@ -139,10 +181,7 @@ function DashboardIndex() {
         <div className="grid grid-cols-12 gap-5">
           {/* Stats overview */}
           <div className="col-span-12">
-            <StatsOverviewPanel
-              connectedPlatformsCount={connectedPlatforms}
-              totalPlatformsCount={totalPlatforms}
-            />
+            <StatsOverviewPanel />
           </div>
 
           {/* Connected platforms + recent activity */}

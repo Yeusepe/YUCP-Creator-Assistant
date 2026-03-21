@@ -36,7 +36,7 @@ const DISCONNECT_STEPS: ReadonlyArray<DisconnectStepConfig | null> = [
     buttonBgClass:
       'bg-orange-500/15 hover:bg-orange-500/25 dark:bg-orange-500/15 dark:hover:bg-orange-500/25',
     buttonBorderClass: 'border-orange-500/30 dark:border-orange-500/30',
-    titleColorClass: 'text-orange-400',
+    titleColorClass: 'text-orange-600 dark:text-orange-400',
   },
   {
     emoji: '\uD83D\uDDD1\uFE0F',
@@ -47,7 +47,7 @@ const DISCONNECT_STEPS: ReadonlyArray<DisconnectStepConfig | null> = [
     borderClass: 'border-red-500/20 dark:border-red-500/20',
     buttonBgClass: 'bg-red-500/15 hover:bg-red-500/25 dark:bg-red-500/15 dark:hover:bg-red-500/25',
     buttonBorderClass: 'border-red-500/30 dark:border-red-500/30',
-    titleColorClass: 'text-red-400',
+    titleColorClass: 'text-red-600 dark:text-red-400',
   },
   {
     emoji: '\uD83D\uDD12',
@@ -58,7 +58,7 @@ const DISCONNECT_STEPS: ReadonlyArray<DisconnectStepConfig | null> = [
     borderClass: 'border-red-600/25 dark:border-red-600/25',
     buttonBgClass: 'bg-red-600/20 hover:bg-red-600/30 dark:bg-red-600/20 dark:hover:bg-red-600/30',
     buttonBorderClass: 'border-red-600/35 dark:border-red-600/35',
-    titleColorClass: 'text-red-300',
+    titleColorClass: 'text-red-600 dark:text-red-300',
   },
 ];
 
@@ -112,7 +112,7 @@ function DisconnectStepCard({
             {config.title}
           </h3>
           <p
-            className="text-[13px] leading-relaxed text-zinc-400 dark:text-white/70"
+            className="text-[13px] leading-relaxed text-zinc-700 dark:text-white/70"
             style={{ fontFamily: "'DM Sans', sans-serif" }}
           >
             {config.text}
@@ -124,8 +124,8 @@ function DisconnectStepCard({
               onClick={onBack}
               className={[
                 'rounded-lg border px-4 py-2 text-[13px] font-semibold',
-                'bg-white/5 border-white/10 text-zinc-400',
-                'transition-all duration-200 hover:bg-white/10',
+                'border-zinc-200 bg-white text-zinc-600',
+                'transition-all duration-200 hover:bg-zinc-50',
                 'dark:bg-white/5 dark:border-white/10 dark:text-white/70 dark:hover:bg-white/10',
                 'cursor-pointer',
               ].join(' ')}
@@ -196,9 +196,12 @@ export function DangerZonePanel({ guildId }: DangerZonePanelProps) {
           <div className="intg-icon" style={{ background: 'rgba(239,68,68,0.1)' }}>
             <TrashIcon />
           </div>
-          <h2 className="intg-title" style={{ color: '#ef4444' }}>
-            Danger Zone
-          </h2>
+          <div className="intg-copy">
+            <h2 className="intg-title text-red-600 dark:text-red-400">Danger Zone</h2>
+            <p className="intg-desc">
+              Destructive actions for removing this server from the creator workflow.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -206,7 +209,7 @@ export function DangerZonePanel({ guildId }: DangerZonePanelProps) {
       <article
         className={[
           'flex items-center gap-4 rounded-xl border px-4 py-3',
-          'border-red-500/15 dark:border-red-500/15',
+          'border-red-500/15 bg-red-50/70 dark:border-red-500/15 dark:bg-red-950/10',
         ].join(' ')}
       >
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-500">
