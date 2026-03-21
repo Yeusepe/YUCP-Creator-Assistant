@@ -2,6 +2,11 @@ export interface WebDiagnosticsEnv {
   NODE_ENV?: string;
   CONVEX_URL?: string;
   CONVEX_SITE_URL?: string;
+  HTTP_PROXY?: string;
+  HTTPS_PROXY?: string;
+  ALL_PROXY?: string;
+  NO_PROXY?: string;
+  NODE_TLS_REJECT_UNAUTHORIZED?: string;
 }
 
 export interface LocationLike {
@@ -41,6 +46,11 @@ function getDefaultEnv(): WebDiagnosticsEnv {
     CONVEX_URL: (import.meta.env.CONVEX_URL as string | undefined) ?? processEnv?.CONVEX_URL,
     CONVEX_SITE_URL:
       (import.meta.env.CONVEX_SITE_URL as string | undefined) ?? processEnv?.CONVEX_SITE_URL,
+    HTTP_PROXY: processEnv?.HTTP_PROXY,
+    HTTPS_PROXY: processEnv?.HTTPS_PROXY,
+    ALL_PROXY: processEnv?.ALL_PROXY,
+    NO_PROXY: processEnv?.NO_PROXY,
+    NODE_TLS_REJECT_UNAUTHORIZED: processEnv?.NODE_TLS_REJECT_UNAUTHORIZED,
   };
 }
 
@@ -77,7 +87,34 @@ function buildEnvSnapshot(env: WebDiagnosticsEnv): Record<string, unknown> {
     convexUrlHost: safeHost(env.CONVEX_URL),
     hasConvexSiteUrl: Boolean(env.CONVEX_SITE_URL),
     convexSiteUrlHost: safeHost(env.CONVEX_SITE_URL),
+    hasHttpProxy: Boolean(env.HTTP_PROXY),
+    hasHttpsProxy: Boolean(env.HTTPS_PROXY),
+    hasAllProxy: Boolean(env.ALL_PROXY),
+    hasNoProxy: Boolean(env.NO_PROXY),
+    nodeTlsRejectUnauthorized: env.NODE_TLS_REJECT_UNAUTHORIZED,
   });
+}
+
+function getNetworkHint(error: unknown, env: WebDiagnosticsEnv): string | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (!message.includes('Unable to connect. Is the computer able to access the url?')) {
+    return undefined;
+  }
+
+  if (env.HTTPS_PROXY) {
+    return 'HTTPS_PROXY is set for the web runtime';
+  }
+
+  if (env.HTTP_PROXY) {
+    return 'HTTP_PROXY is set for the web runtime';
+  }
+
+  if (env.ALL_PROXY) {
+    return 'ALL_PROXY is set for the web runtime';
+  }
+
+  return undefined;
 }
 
 function serializeError(error: unknown): Record<string, unknown> {
@@ -137,6 +174,7 @@ export async function loadRootAuthState({
       compactRecord({
         phase: 'root-beforeLoad',
         route: location?.pathname,
+        networkHint: getNetworkHint(error, env),
         ...buildEnvSnapshot(env),
       })
     );

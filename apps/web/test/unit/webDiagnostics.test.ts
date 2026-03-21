@@ -70,6 +70,10 @@ describe('web diagnostics', () => {
         convexUrlHost: 'rare-squid-409.convex.cloud',
         hasConvexSiteUrl: true,
         convexSiteUrlHost: 'rare-squid-409.convex.site',
+        hasHttpsProxy: false,
+        hasHttpProxy: false,
+        hasAllProxy: false,
+        hasNoProxy: false,
         error: expect.objectContaining({
           name: 'Error',
           message: 'Unable to connect. Is the computer able to access the url?',
@@ -98,9 +102,46 @@ describe('web diagnostics', () => {
         hasConvexUrl: false,
         hasConvexSiteUrl: true,
         convexSiteUrlHost: 'rare-squid-409.convex.site',
+        hasHttpsProxy: false,
+        hasHttpProxy: false,
+        hasAllProxy: false,
+        hasNoProxy: false,
         error: expect.objectContaining({
           message: 'CONVEX_URL is not available. Ensure it is set in your Infisical environment.',
         }),
+      })
+    );
+  });
+
+  it('logs a proxy hint when a proxy env is present during connection failures', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('Unable to connect. Is the computer able to access the url?');
+
+    await expect(
+      loadRootAuthState({
+        convexQueryClient: {},
+        getAuthToken: async () => {
+          throw error;
+        },
+        location: {
+          pathname: '/sign-in',
+        },
+        env: {
+          NODE_ENV: 'production',
+          CONVEX_URL: 'https://rare-squid-409.convex.cloud',
+          CONVEX_SITE_URL: 'https://rare-squid-409.convex.site',
+          HTTPS_PROXY: 'http://proxy.example:8080',
+        },
+      })
+    ).rejects.toThrow(error);
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[web] Root auth bootstrap failed',
+      expect.objectContaining({
+        phase: 'root-beforeLoad',
+        route: '/sign-in',
+        networkHint: 'HTTPS_PROXY is set for the web runtime',
+        hasHttpsProxy: true,
       })
     );
   });
