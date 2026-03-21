@@ -305,6 +305,13 @@ export interface ConnectDisplayMeta {
   /** URL path to initiate the dashboard connect flow */
   readonly dashboardConnectPath: string;
   /**
+   * URL path for user-initiated identity linking (account portal).
+   * Only set on providers that support standalone user identity verification
+   * (e.g. VRChat). Storefront providers (Gumroad, Jinxxy…) are creator-only
+   * and must NOT set this field.
+   */
+  readonly userSetupPath?: string;
+  /**
    * Query-param naming convention expected by the connect endpoint.
    * 'camelCase' → tenantId + guildId (used by /api/connect/* routes)
    * 'snakeCase' → tenant_id + guild_id (used by legacy setup pages)

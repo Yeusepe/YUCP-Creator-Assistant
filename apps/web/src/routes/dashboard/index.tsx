@@ -7,7 +7,6 @@ import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredS
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
 import {
-  DashboardActionRowSkeleton,
   DashboardIntegrationsSkeleton,
   DashboardListSkeleton,
   DashboardSettingsSkeleton,
@@ -247,10 +246,12 @@ function ConnectedPlatformsPanel() {
     () => providers.filter((provider) => provider.key !== 'discord' && provider.connectPath),
     [providers]
   );
-  const unlinkedPlatformProviders = useMemo(
-    () => platformProviders.filter((provider) => !accountsByProvider.has(provider.key)),
-    [accountsByProvider, platformProviders]
+
+  const connectedCount = useMemo(
+    () => 1 + platformProviders.filter((p) => accountsByProvider.has(p.key)).length,
+    [platformProviders, accountsByProvider]
   );
+  const totalCount = 1 + platformProviders.length;
 
   const providerHref = useCallback(
     (provider: DashboardProvider) =>
@@ -277,124 +278,86 @@ function ConnectedPlatformsPanel() {
   return (
     <section
       id="connected-platforms-section"
-      className="section-card bento-col-12 p-4 sm:p-5 md:p-7 animate-in animate-in-delay-1 personal-only"
+      className="section-card bento-col-12 animate-in animate-in-delay-1 personal-only"
     >
-      <div className="flex items-center gap-3" style={{ gap: '12px', marginBottom: '24px' }}>
-        <div
-          className="w-8 h-8 rounded-xl flex items-center justify-center"
-          style={{ background: 'rgba(255,235,59,0.15)' }}
-        >
-          <img src="/Icons/Link.png" className="w-4 h-4 object-contain" alt="" />
+      <div className="cp-header">
+        <div className="cp-header-left">
+          <div className="cp-header-icon">
+            <img src="/Icons/Link.png" alt="" />
+          </div>
+          <div>
+            <h2 className="cp-header-title">Connected Platforms</h2>
+            <p className="cp-header-subtitle">
+              Link your creator accounts to enable member verification.
+            </p>
+          </div>
         </div>
-        <h2 className="text-lg font-black">Connected Platforms</h2>
+        {!isLoading && totalCount > 1 && (
+          <span className="cp-count-badge">
+            {connectedCount}&thinsp;/&thinsp;{totalCount}
+          </span>
+        )}
       </div>
 
       <DashboardSkeletonSwap
         isLoading={isLoading}
         skeleton={
-          <>
-            <DashboardActionRowSkeleton count={3} widths={[164, 184, 168]} />
-            <DashboardListSkeleton rows={3} />
-          </>
+          <div style={{ padding: '20px 28px 28px' }}>
+            <DashboardListSkeleton rows={4} />
+          </div>
         }
-        contentClassName="skeleton-content"
       >
-        <div aria-hidden="true" style={{ marginBottom: '16px' }} />
-        <div
-          id="add-account-buttons"
-          style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}
-        >
-          {unlinkedPlatformProviders.map((provider) => {
-            const href = providerHref(provider);
+        <div className="cp-grid">
+          <div className="cp-tile cp-tile--connected cp-tile--discord">
+            <div className="cp-tile-top">
+              <div className="cp-tile-icon" style={{ background: '#5865F2' }}>
+                <img src="/Icons/Discord.png" alt="Discord" />
+              </div>
+              <span className="cp-tile-badge cp-tile-badge--connected">Connected</span>
+            </div>
+            <div className="cp-tile-body">
+              <span className="cp-tile-name">Discord&reg;</span>
+              <span className="cp-tile-account">Bot access active</span>
+            </div>
+            <div className="cp-tile-footer">
+              <div className="cp-tile-locked">Always active</div>
+            </div>
+          </div>
+
+          {platformProviders.map((provider) => {
+            const account = accountsByProvider.get(provider.key);
             return (
-              <button
+              <ProviderTile
                 key={provider.key}
-                type="button"
-                className="card-action-btn link"
-                style={{
-                  flex: 1,
-                  minWidth: '160px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                }}
-                onClick={() => {
-                  if (!href || typeof window === 'undefined') {
-                    return;
+                account={account}
+                isDisconnectOpen={pendingProviderDisconnect === provider.key}
+                isDisconnectPending={
+                  disconnectMutation.isPending && disconnectMutation.variables === account?.id
+                }
+                onCloseDisconnect={() => setPendingProviderDisconnect(null)}
+                onConfirmDisconnect={() => {
+                  if (account) {
+                    disconnectMutation.mutate(account.id);
                   }
-                  window.location.assign(href);
                 }}
-              >
-                {provider.icon ? (
-                  <img
-                    src={getProviderIconPath(provider) ?? ''}
-                    style={{ width: '16px', borderRadius: '3px' }}
-                    alt=""
-                  />
-                ) : null}
-                Add {provider.label ?? provider.key} Account
-              </button>
+                onOpenDisconnect={() => setPendingProviderDisconnect(provider.key)}
+                onConnect={() => {
+                  const href = providerHref(provider);
+                  if (href && typeof window !== 'undefined') {
+                    window.location.assign(href);
+                  }
+                }}
+                provider={provider}
+              />
             );
           })}
-        </div>
-
-        <div
-          className="grid grid-cols-1 md:grid-cols-3 gap-4"
-          id="platforms-grid"
-          style={{ display: 'grid' }}
-        >
-          <div className="platform-card connected">
-            <div className="flex items-start justify-between">
-              <div className="w-10 h-10 bg-[#5865F2] rounded-xl flex items-center justify-center overflow-hidden">
-                <img src="/Icons/Discord.png" className="w-6 h-6 object-contain" alt="Discord®" />
-              </div>
-              <span className="status-pill connected">Connected</span>
-            </div>
-            <div>
-              <h3 className="font-bold text-base mb-0.5">Discord&reg;</h3>
-              <p className="text-xs text-white/60" style={{ fontFamily: "'DM Sans',sans-serif" }}>
-                Bot access active
-              </p>
-            </div>
-          </div>
-
-          <div id="dynamic-platform-cards" className="contents">
-            {platformProviders.map((provider) => {
-              const account = accountsByProvider.get(provider.key);
-              return (
-                <ProviderStatusCard
-                  key={provider.key}
-                  account={account}
-                  isDisconnectOpen={pendingProviderDisconnect === provider.key}
-                  isDisconnectPending={
-                    disconnectMutation.isPending && disconnectMutation.variables === account?.id
-                  }
-                  onCloseDisconnect={() => setPendingProviderDisconnect(null)}
-                  onConfirmDisconnect={() => {
-                    if (account) {
-                      disconnectMutation.mutate(account.id);
-                    }
-                  }}
-                  onOpenDisconnect={() => setPendingProviderDisconnect(provider.key)}
-                  onConnect={() => {
-                    const href = providerHref(provider);
-                    if (href && typeof window !== 'undefined') {
-                      window.location.assign(href);
-                    }
-                  }}
-                  provider={provider}
-                />
-              );
-            })}
-          </div>
         </div>
       </DashboardSkeletonSwap>
     </section>
   );
 }
 
-function ProviderStatusCard({
+function ProviderTile({
   provider,
   account,
   isDisconnectOpen,
@@ -420,36 +383,46 @@ function ProviderStatusCard({
   return (
     <div
       id={`${provider.key}-card`}
-      className={`platform-card ${isConnected ? 'connected' : 'disconnected'}`}
+      className={`cp-tile ${isConnected ? 'cp-tile--connected' : ''}`}
     >
-      <div className="flex items-start justify-between">
-        <div
-          className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center"
-          style={{ background: provider.iconBg ?? '#1f2937' }}
-        >
-          {iconPath ? <img className="w-6 h-6 object-contain" src={iconPath} alt={label} /> : null}
+      <div className="cp-tile-top">
+        <div className="cp-tile-icon" style={{ background: provider.iconBg ?? '#1f2937' }}>
+          {iconPath ? <img src={iconPath} alt={label} /> : null}
         </div>
         <span
           id={`${provider.key}-status`}
-          className={`status-pill ${isConnected ? 'connected' : 'disconnected'}`}
+          className={`cp-tile-badge ${isConnected ? 'cp-tile-badge--connected' : 'cp-tile-badge--idle'}`}
         >
-          {isConnected ? 'Connected' : 'Not Linked'}
+          {isConnected ? 'Connected' : 'Not linked'}
         </span>
       </div>
-      <div>
-        <h3 className="font-bold text-base mb-0.5">{label}</h3>
-        <p className="text-xs text-white/60" style={{ fontFamily: "'DM Sans',sans-serif" }}>
-          {account?.label ?? 'Connect this provider to enable creator syncing.'}
-        </p>
+      <div className="cp-tile-body">
+        <span className="cp-tile-name">{label}</span>
+        <span className="cp-tile-account">
+          {account?.label ?? 'Not connected'}
+        </span>
       </div>
-      <button
-        id={`${provider.key}-btn`}
-        className={`card-action-btn ${isConnected ? 'disconnect' : 'link'}`}
-        type="button"
-        onClick={isConnected ? onOpenDisconnect : onConnect}
-      >
-        {isConnected ? 'Disconnect' : 'Link Account'}
-      </button>
+      <div className="cp-tile-footer">
+        {isConnected ? (
+          <button
+            id={`${provider.key}-btn`}
+            type="button"
+            className="cp-tile-disconnect-btn"
+            onClick={onOpenDisconnect}
+          >
+            Disconnect
+          </button>
+        ) : (
+          <button
+            id={`${provider.key}-btn`}
+            type="button"
+            className="cp-tile-connect-btn"
+            onClick={onConnect}
+          >
+            + Connect
+          </button>
+        )}
+      </div>
       <DashboardBodyPortal>
         <div
           className={`inline-confirm${isDisconnectOpen ? ' open' : ''}`}
@@ -471,7 +444,7 @@ function ProviderStatusCard({
                   disabled={isDisconnectPending}
                   onClick={onConfirmDisconnect}
                 >
-                  {isDisconnectPending ? 'Disconnecting…' : 'Disconnect'}
+                  {isDisconnectPending ? 'Disconnecting...' : 'Disconnect'}
                 </button>
               </div>
             </div>

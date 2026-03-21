@@ -96,6 +96,7 @@ const vrchatProvider: ProviderPlugin = {
     description: 'Store',
     dashboardConnectPath: '/setup/vrchat?mode=connect',
     dashboardConnectParamStyle: 'snakeCase',
+    userSetupPath: '/setup/vrchat',
     dashboardIconBg: '#00b48c',
     dashboardQuickStartBg: 'rgba(0,180,140,0.1)',
     dashboardQuickStartBorder: 'rgba(0,180,140,0.3)',

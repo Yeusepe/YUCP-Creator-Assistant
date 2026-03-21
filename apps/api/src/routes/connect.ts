@@ -10,6 +10,7 @@
  */
 
 import { createLogger, getProviderDescriptor, timingSafeStringEqual } from '@yucp/shared';
+import { randomBytes } from 'node:crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
@@ -2287,6 +2288,89 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
+   * GET /api/connect/user/providers
+   * Returns providers that support user-initiated identity linking (not creator store setup).
+   * Only providers with `userSetupPath` in their displayMeta are returned.
+   * Public — no credentials, no session required.
+   */
+  function getUserProviders(_request: Request): Response {
+    const providers = Array.from(PROVIDERS.values())
+      .filter((p) => Boolean(p.displayMeta?.userSetupPath))
+      .map((p) => ({
+        id: p.id,
+        label: p.displayMeta!.label,
+        icon: p.displayMeta!.icon,
+        color: p.displayMeta!.color,
+        description: p.displayMeta!.description,
+        userSetupPath: p.displayMeta!.userSetupPath!,
+      }));
+    return Response.json({ providers });
+  }
+
+  /**
+   * POST /api/connect/user/verify/start
+   * Initiates a web-based verification session for the authenticated user.
+   * Creates a Convex verification session and returns the URL the client should
+   * navigate to in order to complete the identity link.
+   */
+  async function postUserVerifyStart(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    let body: { providerKey?: string } = {};
+    try {
+      body = (await request.json()) as { providerKey?: string };
+    } catch {
+      return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    const { providerKey } = body;
+    if (!providerKey) {
+      return Response.json({ error: 'providerKey is required' }, { status: 400 });
+    }
+
+    const provider = PROVIDERS.get(providerKey);
+    if (!provider?.displayMeta?.userSetupPath) {
+      return Response.json(
+        { error: `Provider '${providerKey}' does not support user identity linking` },
+        { status: 400 }
+      );
+    }
+
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const state = randomBytes(16).toString('hex');
+      const result = await convex.mutation(api.verificationSessions.createVerificationSession, {
+        apiSecret: config.convexApiSecret,
+        authUserId: session.user.id,
+        mode: providerKey,
+        providerKey,
+        verificationMethod: 'account_link',
+        state,
+        redirectUri: `${config.apiBaseUrl.replace(/\/$/, '')}/verify-success?provider=${encodeURIComponent(providerKey)}`,
+        successRedirectUri: `${config.frontendBaseUrl.replace(/\/$/, '')}/account/connections`,
+      });
+
+      const setupUrl = new URL(provider.displayMeta.userSetupPath, config.frontendBaseUrl);
+      setupUrl.searchParams.set('token', result.sessionId);
+      setupUrl.searchParams.set('returnUrl', '/account/connections');
+
+      return Response.json({ sessionId: result.sessionId, redirectUrl: setupUrl.pathname + setupUrl.search });
+    } catch (err) {
+      logger.error('Failed to start user verify session', {
+        providerKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to start verification session' }, { status: 500 });
+    }
+  }
+
+  /**
    * GET /api/connect/user/guilds
    * Returns a list of servers the user is an admin of
    */
@@ -2929,6 +3013,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     saveDiscordRoleSelection,
     getDiscordRoleResult,
     getUserGuilds,
+    getUserProviders,
+    postUserVerifyStart,
     getUserAccounts,
     deleteUserAccount,
     getUserLicenses,

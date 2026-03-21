@@ -24,6 +24,7 @@ export const Route = createFileRoute('/setup/vrchat')({
     mode: (search.mode as string) || '',
     guild_id: (search.guild_id as string) || '',
     tenant_id: (search.tenant_id as string) || '',
+    returnUrl: (search.returnUrl as string) || '',
   }),
   head: () => ({
     meta: [{ title: 'Verify with VRChat | Creator Assistant' }],
@@ -32,7 +33,7 @@ export const Route = createFileRoute('/setup/vrchat')({
 });
 
 function VRChatVerifyPage() {
-  const { token, mode, guild_id, tenant_id } = useSearch({ from: '/setup/vrchat' });
+  const { token, mode, guild_id, tenant_id, returnUrl } = useSearch({ from: '/setup/vrchat' });
   const isConnectMode = mode === 'connect';
 
   const [viewState, setViewState] = useState<ViewState>('form');
@@ -76,9 +77,14 @@ function VRChatVerifyPage() {
       return;
     }
 
+    if (returnUrl) {
+      window.location.href = returnUrl;
+      return;
+    }
+
     setViewState('success');
     setTimeout(() => window.close(), 1500);
-  }, [isConnectMode, guild_id, tenant_id]);
+  }, [isConnectMode, guild_id, tenant_id, returnUrl]);
 
   const showCredentialStep = useCallback(() => {
     setPendingTypes([]);

@@ -40,6 +40,7 @@ import { Route as DashboardAuditLogsRouteImport } from './routes/dashboard/audit
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as AccountPrivacyRouteImport } from './routes/account/privacy'
 import { Route as AccountLicensesRouteImport } from './routes/account/licenses'
+import { Route as AccountConnectionsRouteImport } from './routes/account/connections'
 import { Route as AccountAuthorizedAppsRouteImport } from './routes/account/authorized-apps'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -198,6 +199,11 @@ const AccountLicensesRoute = AccountLicensesRouteImport.update({
   path: '/licenses',
   getParentRoute: () => AccountRoute,
 } as any)
+const AccountConnectionsRoute = AccountConnectionsRouteImport.update({
+  id: '/connections',
+  path: '/connections',
+  getParentRoute: () => AccountRoute,
+} as any)
 const AccountAuthorizedAppsRoute = AccountAuthorizedAppsRouteImport.update({
   id: '/authorized-apps',
   path: '/authorized-apps',
@@ -219,6 +225,7 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/account/authorized-apps': typeof AccountAuthorizedAppsRoute
+  '/account/connections': typeof AccountConnectionsRoute
   '/account/licenses': typeof AccountLicensesRoute
   '/account/privacy': typeof AccountPrivacyRoute
   '/api/$': typeof ApiSplatRoute
@@ -252,6 +259,7 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/account/authorized-apps': typeof AccountAuthorizedAppsRoute
+  '/account/connections': typeof AccountConnectionsRoute
   '/account/licenses': typeof AccountLicensesRoute
   '/account/privacy': typeof AccountPrivacyRoute
   '/api/$': typeof ApiSplatRoute
@@ -288,6 +296,7 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/account/authorized-apps': typeof AccountAuthorizedAppsRoute
+  '/account/connections': typeof AccountConnectionsRoute
   '/account/licenses': typeof AccountLicensesRoute
   '/account/privacy': typeof AccountPrivacyRoute
   '/api/$': typeof ApiSplatRoute
@@ -325,6 +334,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-in-redirect'
     | '/account/authorized-apps'
+    | '/account/connections'
     | '/account/licenses'
     | '/account/privacy'
     | '/api/$'
@@ -358,6 +368,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-in-redirect'
     | '/account/authorized-apps'
+    | '/account/connections'
     | '/account/licenses'
     | '/account/privacy'
     | '/api/$'
@@ -393,6 +404,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-in-redirect'
     | '/account/authorized-apps'
+    | '/account/connections'
     | '/account/licenses'
     | '/account/privacy'
     | '/api/$'
@@ -665,6 +677,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AccountLicensesRouteImport
       parentRoute: typeof AccountRoute
     }
+    '/account/connections': {
+      id: '/account/connections'
+      path: '/connections'
+      fullPath: '/account/connections'
+      preLoaderRoute: typeof AccountConnectionsRouteImport
+      parentRoute: typeof AccountRoute
+    }
     '/account/authorized-apps': {
       id: '/account/authorized-apps'
       path: '/authorized-apps'
@@ -684,6 +703,7 @@ declare module '@tanstack/react-router' {
 
 interface AccountRouteChildren {
   AccountAuthorizedAppsRoute: typeof AccountAuthorizedAppsRoute
+  AccountConnectionsRoute: typeof AccountConnectionsRoute
   AccountLicensesRoute: typeof AccountLicensesRoute
   AccountPrivacyRoute: typeof AccountPrivacyRoute
   AccountIndexRoute: typeof AccountIndexRoute
@@ -691,6 +711,7 @@ interface AccountRouteChildren {
 
 const AccountRouteChildren: AccountRouteChildren = {
   AccountAuthorizedAppsRoute: AccountAuthorizedAppsRoute,
+  AccountConnectionsRoute: AccountConnectionsRoute,
   AccountLicensesRoute: AccountLicensesRoute,
   AccountPrivacyRoute: AccountPrivacyRoute,
   AccountIndexRoute: AccountIndexRoute,

@@ -655,6 +655,13 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/ensure-tenant' && connectRoutes) {
     return connectRoutes.ensureTenant(request);
   }
+  if (pathname === '/api/connect/user/providers' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getUserProviders(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/connect/user/verify/start' && connectRoutes) {
+    return connectRoutes.postUserVerifyStart(request);
+  }
   if (pathname === '/api/connect/user/guilds' && connectRoutes) {
     return connectRoutes.getUserGuilds(request);
   }

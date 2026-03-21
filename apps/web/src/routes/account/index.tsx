@@ -1,16 +1,21 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { useQuery as useConvexQuery } from 'convex/react';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { useAuth } from '@/hooks/useAuth';
+import { api } from '../../../../../convex/_generated/api';
 
 export const Route = createFileRoute('/account/')({
   component: AccountProfile,
 });
 
 function AccountProfile() {
-  const { viewer, guilds } = useAccountShell();
+  const { guilds } = useAccountShell();
   const { signOut } = useAuth();
+  const viewer = useConvexQuery(api.authViewer.getViewer);
 
   const isCreator = guilds.length > 0;
+  const displayName = viewer?.name ?? 'Your Account';
+  const avatarUrl = viewer?.image ?? null;
 
   return (
     <>
@@ -22,16 +27,20 @@ function AccountProfile() {
         <div className="account-section-body">
           <div className="account-profile-row">
             <div className="account-avatar" aria-hidden="true">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="12" cy="8" r="4" />
-                <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-              </svg>
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={displayName} />
+              ) : (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+                </svg>
+              )}
             </div>
             <div className="account-profile-info">
-              <p className="account-profile-name">Your Account</p>
-              <p className="account-profile-meta">
-                ID: {viewer.authUserId.slice(0, 8)}&hellip;
-              </p>
+              <p className="account-profile-name">{displayName}</p>
+              {viewer?.email && (
+                <p className="account-profile-meta">{viewer.email}</p>
+              )}
             </div>
           </div>
           <p style={{ fontSize: '12px', color: 'var(--text-muted, #888)', margin: '4px 0 0' }}>
@@ -66,7 +75,7 @@ function AccountProfile() {
                   type="button"
                   className="account-btn account-btn--primary"
                   onClick={() => {
-                    if (typeof window !== 'undefined') {
+                    if (typeof window !== 'undefined' && viewer?.authUserId) {
                       window.location.assign(
                         `/api/install/bot?authUserId=${encodeURIComponent(viewer.authUserId)}`
                       );

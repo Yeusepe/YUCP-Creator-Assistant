@@ -1,9 +1,17 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import '@/styles/oauth-consent.css';
 
 export const Route = createFileRoute('/oauth/consent')({
+  beforeLoad: ({ context, location }) => {
+    if (!context.isAuthenticated) {
+      throw redirect({
+        to: '/oauth/login',
+        search: location.search,
+      });
+    }
+  },
   component: OAuthConsentPage,
 });
 
@@ -99,12 +107,13 @@ function OAuthConsentPage() {
       }
 
       const data = await res.json().catch(() => ({}));
-      if (data.redirect_uri) {
-        window.location.href = data.redirect_uri;
+      const redirectTarget = data.redirectTo ?? data.redirect_uri;
+      if (redirectTarget) {
+        window.location.href = redirectTarget;
         return;
       }
 
-      // Fallback: if no redirect_uri, reload
+      // Fallback: if no redirect target, reload
       window.location.reload();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

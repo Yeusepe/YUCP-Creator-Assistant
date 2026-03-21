@@ -723,7 +723,15 @@ function MainContent() {
       <div className="content-area-inner">
         <header className="content-area-header animate-in relative z-10">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div className="flex items-start gap-3 w-full md:w-auto">
+            <div className="min-w-0">
+              <div className="content-header-eyebrow">Server Dashboard</div>
+              <h1 className="content-header-title">Dashboard</h1>
+              <p className="content-header-desc" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                Connect your storefronts, verify webhooks, and tune server behavior without
+                bouncing between separate setup pages.
+              </p>
+            </div>
+            <div className="content-header-actions flex items-center justify-end gap-3 w-full md:w-auto mt-4 md:mt-0">
               <button
                 id="sidebar-toggle"
                 type="button"
@@ -745,16 +753,6 @@ function MainContent() {
                   <path d="M3 12h18M3 6h18M3 18h18" />
                 </svg>
               </button>
-              <div className="relative flex-1 min-w-0">
-                <div className="content-header-eyebrow">Server Dashboard</div>
-                <h1 className="content-header-title">Dashboard</h1>
-                <p className="content-header-desc" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-                  Connect your storefronts, verify webhooks, and tune server behavior without
-                  bouncing between separate setup pages.
-                </p>
-              </div>
-            </div>
-            <div className="content-header-actions flex items-center justify-end gap-3 w-full md:w-auto mt-4 md:mt-0">
               <button
                 id="theme-toggle"
                 type="button"
