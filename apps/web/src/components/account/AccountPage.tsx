@@ -77,7 +77,11 @@ export function AccountEmptyState({
 }
 
 export function AccountInlineError({ message }: Readonly<{ message: string }>) {
-  return <p className="account-inline-error">{message}</p>;
+  return (
+    <p className="account-inline-error" role="alert">
+      {message}
+    </p>
+  );
 }
 
 export function AccountModal({

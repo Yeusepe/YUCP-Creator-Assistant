@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 interface OnboardingStep {
   id: string;
@@ -98,17 +98,7 @@ function ProgressBar({
 }
 
 export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgressPanelProps) {
-  const [isMounted, setIsMounted] = useState(false);
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // During SSR and the first client render, use a stable placeholder so
-  // hydration never mismatches. Real counts are shown after mount.
-  const completedCount = useMemo(
-    () => (isMounted ? steps.filter((s) => s.completed).length : 0),
-    [isMounted, steps]
-  );
+  const completedCount = useMemo(() => steps.filter((s) => s.completed).length, [steps]);
   const totalCount = steps.length;
   const allComplete = completedCount === totalCount && totalCount > 0;
 
@@ -200,10 +190,7 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
           }}
         >
           {steps.map((step) => {
-            // Gate completed state on mount to prevent SSR/client hydration mismatch.
-            // Steps depend on localStorage and live Convex data — neither is available
-            // during SSR, so we always render "not completed" on the first paint.
-            const isCompleted = isMounted && step.completed;
+            const isCompleted = step.completed;
             return (
               <li key={step.id}>
                 <div className={`onboarding-step-row${isCompleted ? ' completed' : ''}`}>

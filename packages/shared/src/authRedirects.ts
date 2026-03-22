@@ -8,7 +8,7 @@ function toRelativeTarget(url: URL): string {
 
 function hasDashboardBootstrapHash(url: URL): boolean {
   const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
-  return hashParams.has('s') || hashParams.has('token');
+  return Boolean(hashParams.get('s') || hashParams.get('token'));
 }
 
 // Source: https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html

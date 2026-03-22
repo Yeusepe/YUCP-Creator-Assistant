@@ -22,6 +22,13 @@ describe('auth redirect targets', () => {
     );
   });
 
+  it('strips dashboard guild context when the bootstrap hash token is empty', () => {
+    expect(normalizeAuthRedirectTarget('/dashboard?guild_id=123&tenant_id=abc#s=')).toBe(
+      '/dashboard#s='
+    );
+    expect(normalizeAuthRedirectTarget('/dashboard?guild_id=123#token=')).toBe('/dashboard#token=');
+  });
+
   it('preserves explicit setup routes', () => {
     expect(normalizeAuthRedirectTarget('/connect?guild_id=123')).toBe('/connect?guild_id=123');
     expect(normalizeAuthRedirectTarget('/setup/vrchat?guild_id=123&mode=connect')).toBe(

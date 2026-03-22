@@ -7,6 +7,10 @@ const accountIndexRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/account/index.tsx'),
   'utf8'
 );
+const accountComponentSource = readFileSync(
+  resolve(__dirname, '../../src/components/account/AccountPage.tsx'),
+  'utf8'
+);
 
 describe('account UI contracts', () => {
   it('uses an account-scoped shell hook instead of the dashboard route hook', () => {
@@ -33,5 +37,10 @@ describe('account UI contracts', () => {
     expect(accountIndexRouteSource).toContain('authClient.getSession()');
     expect(accountIndexRouteSource).not.toContain('useConvexQuery(api.authViewer.getViewer)');
     expect(accountIndexRouteSource).not.toContain("'Your Account'");
+  });
+
+  it('announces inline account errors to assistive technology', () => {
+    expect(accountComponentSource).toContain('role="alert"');
+    expect(accountComponentSource).toContain('className="account-inline-error"');
   });
 });

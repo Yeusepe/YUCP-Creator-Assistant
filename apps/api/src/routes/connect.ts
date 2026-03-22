@@ -2819,6 +2819,24 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         authUserId,
       });
 
+      const { apiKeys } = await auth.listApiKeys(request);
+      const managedPublicApiKeys = apiKeys.filter((key) => {
+        const metadata = parsePublicApiKeyMetadata(key.metadata);
+        return (
+          metadata?.kind === PUBLIC_API_KEY_METADATA_KIND &&
+          metadata.authUserId === authUserId &&
+          key.enabled !== false
+        );
+      });
+      await Promise.all(
+        managedPublicApiKeys.map((key) =>
+          convex.mutation(api.betterAuthApiKeys.updateApiKey, {
+            keyId: key.id,
+            enabled: false,
+          })
+        )
+      );
+
       const connections = await convex.query(api.providerConnections.listConnectionsForUser, {
         apiSecret: config.convexApiSecret,
         authUserId,

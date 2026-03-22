@@ -23,24 +23,50 @@ export const Route = createFileRoute('/dashboard/')({
   component: DashboardIndex,
 });
 
-const ONBOARDING_DISMISSED_KEY = 'yucp_onboarding_dismissed';
-const ONBOARDING_STATE_KEY = 'yucp_onboarding_state';
+const ONBOARDING_DISMISSED_KEY_PREFIX = 'yucp_onboarding_dismissed';
+const ONBOARDING_STATE_KEY_PREFIX = 'yucp_onboarding_state';
 
 interface OnboardingState {
   docsRead: boolean;
 }
 
-function readOnboardingState(): OnboardingState {
+function buildOnboardingStorageKeys(authUserId: string) {
+  const storageSuffix = encodeURIComponent(authUserId.trim());
+  return {
+    dismissedKey: `${ONBOARDING_DISMISSED_KEY_PREFIX}:${storageSuffix}`,
+    stateKey: `${ONBOARDING_STATE_KEY_PREFIX}:${storageSuffix}`,
+  };
+}
+
+function safeGetLocalStorageItem(key: string): string | null {
   if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetLocalStorageItem(key: string, value: string): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+}
+
+function readOnboardingState(stateKey: string): OnboardingState {
+  const raw = safeGetLocalStorageItem(stateKey);
+  if (!raw) {
     return { docsRead: false };
   }
 
   try {
-    const raw = localStorage.getItem(ONBOARDING_STATE_KEY);
-    if (!raw) {
-      return { docsRead: false };
-    }
-
     const parsed = JSON.parse(raw) as Partial<OnboardingState>;
     return {
       docsRead: parsed.docsRead === true,
@@ -53,8 +79,12 @@ function readOnboardingState(): OnboardingState {
 function DashboardIndex() {
   const { isPersonalDashboard, activeGuildId, activeTenantId } = useActiveDashboardContext();
   const { canRunPanelQueries, markSessionExpired, status } = useDashboardSession();
-  const { guilds } = useDashboardShell();
+  const { guilds, viewer } = useDashboardShell();
   const toast = useToast();
+  const onboardingStorageKeys = useMemo(
+    () => buildOnboardingStorageKeys(viewer.authUserId),
+    [viewer.authUserId]
+  );
 
   // Admin notifications (Convex real-time)
   const adminNotifications = useConvexQuery(api.adminNotifications.listUnseen) ?? [];
@@ -87,7 +117,9 @@ function DashboardIndex() {
     }
 
     markSeenMutation({ ids }).catch(() => {
-      // best-effort -- notifications will expire via cron anyway
+      for (const id of ids) {
+        seenNotificationIds.current.delete(id);
+      }
     });
   }, [adminNotifications, toast, markSeenMutation]);
 
@@ -104,22 +136,20 @@ function DashboardIndex() {
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true') {
-      setOnboardingDismissed(true);
-    }
-  }, []);
+    setOnboardingDismissed(safeGetLocalStorageItem(onboardingStorageKeys.dismissedKey) === 'true');
+  }, [onboardingStorageKeys.dismissedKey]);
 
   const handleDismissOnboarding = useCallback(() => {
     setOnboardingDismissed(true);
-    localStorage.setItem(ONBOARDING_DISMISSED_KEY, 'true');
-  }, []);
+    safeSetLocalStorageItem(onboardingStorageKeys.dismissedKey, 'true');
+  }, [onboardingStorageKeys.dismissedKey]);
 
   // Always start with default state (SSR-safe), then sync from localStorage after mount
   const [onboardingState, setOnboardingState] = useState<OnboardingState>({ docsRead: false });
 
   useEffect(() => {
-    setOnboardingState(readOnboardingState());
-  }, []);
+    setOnboardingState(readOnboardingState(onboardingStorageKeys.stateKey));
+  }, [onboardingStorageKeys.stateKey]);
 
   const markDocsRead = useCallback(() => {
     setOnboardingState((current) => {
@@ -128,10 +158,10 @@ function DashboardIndex() {
       }
 
       const next = { ...current, docsRead: true };
-      localStorage.setItem(ONBOARDING_STATE_KEY, JSON.stringify(next));
+      safeSetLocalStorageItem(onboardingStorageKeys.stateKey, JSON.stringify(next));
       return next;
     });
-  }, []);
+  }, [onboardingStorageKeys.stateKey]);
 
   // Onboarding steps
   const onboardingSteps: OnboardingStep[] = useMemo(() => {

@@ -15,6 +15,10 @@ const dashboardComponentsCss = readFileSync(
   resolve(__dirname, '../../src/styles/dashboard-components.css'),
   'utf8'
 );
+const onboardingProgressPanelSource = readFileSync(
+  resolve(__dirname, '../../src/components/dashboard/panels/OnboardingProgressPanel.tsx'),
+  'utf8'
+);
 
 const dashboardCss = readFileSync(resolve(__dirname, '../../src/styles/dashboard.css'), 'utf8');
 const cloudBackgroundSource = readFileSync(
@@ -141,5 +145,19 @@ describe('dashboard UI contracts', () => {
     expect(globalsCss).toContain('transition: opacity 0.6s ease;');
     // dashboard.css must NOT redefine it (globals.css is the single source of truth)
     expect(dashboardCss).not.toContain('.cloud-layer-fade');
+  });
+
+  it('scopes onboarding storage to the current viewer and retries notification ack on failure', () => {
+    expect(dashboardIndexRouteSource).toContain('buildOnboardingStorageKeys');
+    expect(dashboardIndexRouteSource).toContain('viewer.authUserId');
+    expect(dashboardIndexRouteSource).toContain('seenNotificationIds.current.delete(id)');
+  });
+
+  it('renders onboarding progress directly from the parent step state without a mount gate', () => {
+    expect(onboardingProgressPanelSource).not.toContain(
+      'const [isMounted, setIsMounted] = useState(false);'
+    );
+    expect(onboardingProgressPanelSource).not.toContain('isMounted && step.completed');
+    expect(onboardingProgressPanelSource).toContain('steps.filter((s) => s.completed).length');
   });
 });
