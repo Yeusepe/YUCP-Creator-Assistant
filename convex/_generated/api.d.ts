@@ -249,7 +249,9 @@ export declare const components: {
               }
             | {
                 data: {
+                  alg?: null | string;
                   createdAt: number;
+                  crv?: null | string;
                   expiresAt?: null | number;
                   privateKey: string;
                   publicKey: string;
@@ -515,6 +517,8 @@ export declare const components: {
                     | "privateKey"
                     | "createdAt"
                     | "expiresAt"
+                    | "alg"
+                    | "crv"
                     | "_id";
                   operator?:
                     | "lt"
@@ -913,6 +917,8 @@ export declare const components: {
                     | "privateKey"
                     | "createdAt"
                     | "expiresAt"
+                    | "alg"
+                    | "crv"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1433,7 +1439,9 @@ export declare const components: {
             | {
                 model: "jwks";
                 update: {
+                  alg?: null | string;
                   createdAt?: number;
+                  crv?: null | string;
                   expiresAt?: null | number;
                   privateKey?: string;
                   publicKey?: string;
@@ -1445,6 +1453,8 @@ export declare const components: {
                     | "privateKey"
                     | "createdAt"
                     | "expiresAt"
+                    | "alg"
+                    | "crv"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1962,7 +1972,9 @@ export declare const components: {
             | {
                 model: "jwks";
                 update: {
+                  alg?: null | string;
                   createdAt?: number;
+                  crv?: null | string;
                   expiresAt?: null | number;
                   privateKey?: string;
                   publicKey?: string;
@@ -1974,6 +1986,8 @@ export declare const components: {
                     | "privateKey"
                     | "createdAt"
                     | "expiresAt"
+                    | "alg"
+                    | "crv"
                     | "_id";
                   operator?:
                     | "lt"

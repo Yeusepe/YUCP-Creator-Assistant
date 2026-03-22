@@ -2,6 +2,9 @@ import { useMutation } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { apiClient } from '@/api/client';
+import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
+import { useToast } from '@/components/ui/Toast';
+import { downloadUserDataExport } from '@/lib/account';
 
 export const Route = createFileRoute('/account/privacy')({
   component: AccountPrivacy,
@@ -14,24 +17,25 @@ const DATA_RIGHTS = [
   },
   {
     title: 'Right to rectification',
-    desc: 'Profile information (name, avatar) is sourced from Discord. To change it, update your Discord profile.',
+    desc: 'Profile information is sourced from Discord. Update Discord to refresh it here.',
   },
   {
     title: 'Right to erasure',
-    desc: 'You can request deletion of your account and all associated data. Processing takes up to 30 days per Article 17 of GDPR.',
+    desc: 'You can request deletion of your account and associated data. Processing completes within the GDPR handling window.',
   },
   {
     title: 'Right to portability',
-    desc: 'Your data is available as a structured JSON file via the export tool below.',
+    desc: 'Your data export is delivered as structured JSON so it can be transferred elsewhere.',
   },
   {
     title: 'Right to restrict processing',
-    desc: 'Contact us to restrict processing of your data. Use the link below.',
+    desc: 'Contact us if you need processing restricted while a privacy request is handled.',
   },
-];
+] as const;
 
 function AccountPrivacy() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [exportLoading, setExportLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
@@ -43,26 +47,32 @@ function AccountPrivacy() {
       navigate({ to: '/' });
     },
     onError: () => {
-      setDeleteError('Failed to submit deletion request. Please try again.');
+      const message = 'Failed to submit deletion request. Please try again.';
+      setDeleteError(message);
+      toast.error('Could not request account deletion', {
+        description: message,
+      });
     },
   });
 
   async function handleExport() {
     setExportLoading(true);
+
     try {
-      const response = await fetch('/api/connect/user/data-export', {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Export failed');
-      const blob = await response.blob();
+      const blob = await downloadUserDataExport();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'yucp-data-export.json';
-      a.click();
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'yucp-data-export.json';
+      link.click();
       URL.revokeObjectURL(url);
+      toast.success('Data export is ready', {
+        description: 'Your browser should begin downloading the JSON export.',
+      });
     } catch {
-      // silently fail — user will see no download
+      toast.error('Could not prepare data export', {
+        description: 'Please try again in a moment.',
+      });
     } finally {
       setExportLoading(false);
     }
@@ -71,107 +81,113 @@ function AccountPrivacy() {
   const canDelete = deleteInput.trim() === 'DELETE';
 
   return (
-    <>
-      <section className="account-section">
-        <div className="account-section-header">
-          <h2 className="account-section-title">Your Data</h2>
-          <p className="account-section-desc">
-            Download or manage the data we hold about your account
-          </p>
-        </div>
-        <div className="account-section-body">
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: '14px', fontWeight: 500, margin: '0 0 4px', color: 'inherit' }}>
-                Download your data
-              </p>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted, #888)', margin: 0, lineHeight: 1.5 }}>
-                Includes your profile, verified purchases, authorized apps, and provider
-                connections. Credential values are never included.
-              </p>
-            </div>
-            <button
-              type="button"
-              className={`account-btn account-btn--secondary${exportLoading ? ' btn-loading' : ''}`}
-              onClick={handleExport}
-              disabled={exportLoading}
-            >
-              {exportLoading && <span className="btn-loading-spinner" aria-hidden="true" />}
-              {exportLoading ? 'Preparing export...' : 'Download'}
-            </button>
-          </div>
-        </div>
-      </section>
+    <AccountPage>
+      <AccountSectionCard
+        className="bento-col-8 animate-in animate-in-delay-1"
+        eyebrow="Export"
+        title="Download your data"
+        description="Includes profile, verified purchases, authorized apps, and provider connections. Credential values are never included."
+        actions={
+          <button
+            type="button"
+            className={`account-btn account-btn--secondary${exportLoading ? ' btn-loading' : ''}`}
+            onClick={handleExport}
+            disabled={exportLoading}
+          >
+            {exportLoading ? (
+              <>
+                <span className="btn-loading-spinner" aria-hidden="true" />
+                Preparing export...
+              </>
+            ) : (
+              'Download export'
+            )}
+          </button>
+        }
+      >
+        <p className="account-feature-copy">
+          Use an export whenever you want a portable snapshot of your account state. The file is
+          generated on demand and downloaded directly to your browser.
+        </p>
+      </AccountSectionCard>
 
-      <section className="account-section">
-        <div className="account-section-header">
-          <h2 className="account-section-title">Your Rights</h2>
-          <p className="account-section-desc">Under GDPR and applicable privacy law</p>
-        </div>
-        <div className="account-section-body">
-          <ul className="account-rights-list">
-            {DATA_RIGHTS.map((right) => (
-              <li key={right.title} className="account-rights-item">
-                <span className="account-rights-item-dot" aria-hidden="true" />
-                <span className="account-rights-item-text">
-                  <span className="account-rights-item-title">{right.title}</span>{' '}
-                  {right.desc}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p style={{ fontSize: '12px', color: 'var(--text-muted, #888)', marginTop: '8px' }}>
-            For manual requests, contact us via{' '}
-            <a
-              href="mailto:privacy@yucp.club"
-              style={{ color: '#7c3aed', textDecoration: 'none' }}
-            >
+      <AccountSectionCard
+        className="bento-col-4 animate-in animate-in-delay-2"
+        eyebrow="Contact"
+        title="Need manual help?"
+        description="Some privacy requests are easier to handle with a direct conversation."
+        actions={
+          <a
+            href="/legal/privacy-policy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="account-btn account-btn--secondary"
+          >
+            Privacy policy
+          </a>
+        }
+      >
+        <div className="account-note-stack">
+          <p className="account-feature-copy">
+            Contact{' '}
+            <a href="mailto:privacy@yucp.club" className="account-inline-link">
               privacy@yucp.club
-            </a>
-            .{' '}
-            <a
-              href="/legal/privacy-policy"
-              style={{ color: '#7c3aed', textDecoration: 'none' }}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Privacy Policy
-            </a>
+            </a>{' '}
+            if you need to restrict processing or have questions about the export contents.
           </p>
         </div>
-      </section>
+      </AccountSectionCard>
 
-      <section className="account-section">
-        <div className="account-section-header">
-          <h2 className="account-section-title">Danger Zone</h2>
-        </div>
-        <div className="account-section-body">
-          <div className="account-danger-zone">
-            <p className="account-danger-zone-title">Delete account</p>
-            <p className="account-danger-zone-desc">
-              Permanently removes your account, all verified licenses, and provider connections.
-              Discord roles granted by this system will be revoked. This is processed within
-              30 days per GDPR Article 17 and cannot be undone.
-            </p>
-            <button
-              type="button"
-              className="account-btn account-btn--danger"
-              onClick={() => { setDeleteConfirm(true); setDeleteInput(''); setDeleteError(null); }}
-            >
-              Request account deletion
-            </button>
-          </div>
-        </div>
-      </section>
+      <AccountSectionCard
+        className="bento-col-7 animate-in animate-in-delay-2"
+        eyebrow="Rights"
+        title="Your privacy rights"
+        description="A concise summary of the rights available to you under applicable privacy law."
+      >
+        <ul className="account-rights-list">
+          {DATA_RIGHTS.map((right) => (
+            <li key={right.title} className="account-rights-item">
+              <span className="account-rights-item-dot" aria-hidden="true" />
+              <span className="account-rights-item-text">
+                <span className="account-rights-item-title">{right.title}</span> {right.desc}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </AccountSectionCard>
 
-      {deleteConfirm && (
+      <AccountSectionCard
+        className="bento-col-5 animate-in animate-in-delay-3"
+        eyebrow="Danger zone"
+        title="Request account deletion"
+        description="This permanently removes your account, verified purchases, provider links, and related access."
+      >
+        <div className="account-danger-zone">
+          <p className="account-danger-zone-title">Delete account</p>
+          <p className="account-danger-zone-desc">
+            Discord roles granted by this system will be revoked, and the request will be processed
+            within the GDPR deletion window. This action cannot be undone.
+          </p>
+          <button
+            type="button"
+            className="account-btn account-btn--danger"
+            onClick={() => {
+              setDeleteConfirm(true);
+              setDeleteInput('');
+              setDeleteError(null);
+            }}
+          >
+            Request account deletion
+          </button>
+        </div>
+      </AccountSectionCard>
+
+      {deleteConfirm ? (
         <div className="account-modal-backdrop" onClick={() => setDeleteConfirm(false)}>
-          <div className="account-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="account-modal" onClick={(event) => event.stopPropagation()}>
             <h3 className="account-modal-title">Delete account permanently?</h3>
             <p className="account-modal-body">
-              This will revoke all licenses, remove Discord roles, and delete your data
-              within 30 days. This action cannot be undone.{' '}
-              <br /><br />
+              This revokes licenses, removes Discord roles, and schedules your data for deletion.
               Type <strong>DELETE</strong> to confirm.
             </p>
             <input
@@ -179,13 +195,11 @@ function AccountPrivacy() {
               className="account-modal-input"
               placeholder="DELETE"
               value={deleteInput}
-              onChange={(e) => setDeleteInput(e.target.value)}
+              onChange={(event) => setDeleteInput(event.target.value)}
               autoFocus
               disabled={deleteMut.isPending}
             />
-            {deleteError && (
-              <p style={{ fontSize: '13px', color: '#dc2626', margin: '0' }}>{deleteError}</p>
-            )}
+            {deleteError ? <p className="account-inline-error">{deleteError}</p> : null}
             <div className="account-modal-actions">
               <button
                 type="button"
@@ -201,13 +215,19 @@ function AccountPrivacy() {
                 onClick={() => deleteMut.mutate()}
                 disabled={!canDelete || deleteMut.isPending}
               >
-                {deleteMut.isPending && <span className="btn-loading-spinner" aria-hidden="true" />}
-                {deleteMut.isPending ? 'Submitting...' : 'Delete my account'}
+                {deleteMut.isPending ? (
+                  <>
+                    <span className="btn-loading-spinner" aria-hidden="true" />
+                    Submitting...
+                  </>
+                ) : (
+                  'Delete my account'
+                )}
               </button>
             </div>
           </div>
         </div>
-      )}
-    </>
+      ) : null}
+    </AccountPage>
   );
 }

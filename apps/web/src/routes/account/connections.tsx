@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
+import { type CSSProperties, useState } from 'react';
+import {
+  AccountEmptyState,
+  AccountInlineError,
+  AccountPage,
+  AccountSectionCard,
+} from '@/components/account/AccountPage';
+import { useToast } from '@/components/ui/Toast';
 import {
   disconnectUserAccount,
   listUserAccounts,
@@ -17,36 +24,46 @@ export const Route = createFileRoute('/account/connections')({
 function ProviderCard({
   provider,
   connection,
-  onDisconnected,
-}: {
+}: Readonly<{
   provider: UserProvider;
   connection: UserAccountConnection | undefined;
-  onDisconnected: (id: string) => void;
-}) {
+}>) {
   const [confirming, setConfirming] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const disconnectMut = useMutation({
     mutationFn: (id: string) => disconnectUserAccount(id),
-    onSuccess: (_data, id) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-accounts'] });
       setConfirming(false);
-      onDisconnected(id);
+      toast.success('Account disconnected', {
+        description: `${provider.label} will no longer be used for account verification.`,
+      });
+    },
+    onError: () => {
+      toast.error('Could not disconnect account', {
+        description: `Please try disconnecting ${provider.label} again.`,
+      });
     },
   });
 
   const handleConnect = async () => {
     setConnecting(true);
+
     try {
       const { redirectUrl } = await startUserVerify(provider.id);
       window.location.href = redirectUrl;
     } catch {
       setConnecting(false);
+      toast.error('Could not start connection', {
+        description: `Please try connecting ${provider.label} again.`,
+      });
     }
   };
 
-  const iconStyle = {
+  const iconStyle: CSSProperties = {
     backgroundColor: `${provider.color}20`,
   };
 
@@ -57,30 +74,34 @@ function ProviderCard({
       </div>
 
       <div className="acct-provider-info">
-        <p className="acct-provider-name">{provider.label}</p>
-        <p className="acct-provider-meta">
+        <div className="acct-provider-title-row">
+          <p className="acct-provider-name">{provider.label}</p>
           {connection ? (
-            <>
-              <span className="account-badge account-badge--connected">Connected</span>
-              {connection.label && <span style={{ marginLeft: '4px' }}>{connection.label}</span>}
-            </>
-          ) : (
-            provider.description
-          )}
-        </p>
+            <span className="account-badge account-badge--connected">Connected</span>
+          ) : null}
+        </div>
+        <p className="acct-provider-meta">{connection?.label ?? provider.description}</p>
+        {connection ? (
+          <div className="account-pill-row account-pill-row--compact">
+            <span className="account-badge account-badge--provider">
+              {connection.connectionType}
+            </span>
+            <span className="account-badge account-badge--provider">{connection.status}</span>
+            {connection.webhookConfigured ? (
+              <span className="account-badge account-badge--connected">Webhook ready</span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="acct-provider-actions">
         {connection ? (
           confirming ? (
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', color: '#888', whiteSpace: 'nowrap' }}>
-                Disconnect?
-              </span>
+            <div className="account-inline-actions">
+              <span className="account-field-note">Disconnect?</span>
               <button
                 type="button"
                 className={`account-btn account-btn--danger${disconnectMut.isPending ? ' btn-loading' : ''}`}
-                style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '8px' }}
                 onClick={() => disconnectMut.mutate(connection.id)}
                 disabled={disconnectMut.isPending}
               >
@@ -96,8 +117,8 @@ function ProviderCard({
               <button
                 type="button"
                 className="account-btn account-btn--secondary"
-                style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '8px' }}
                 onClick={() => setConfirming(false)}
+                disabled={disconnectMut.isPending}
               >
                 No
               </button>
@@ -106,7 +127,6 @@ function ProviderCard({
             <button
               type="button"
               className="account-btn account-btn--danger"
-              style={{ fontSize: '12px', padding: '5px 10px', borderRadius: '8px' }}
               onClick={() => setConfirming(true)}
             >
               Disconnect
@@ -135,8 +155,6 @@ function ProviderCard({
 }
 
 function AccountConnections() {
-  const queryClient = useQueryClient();
-
   const providersQuery = useQuery({
     queryKey: ['user-providers'],
     queryFn: listUserProviders,
@@ -150,35 +168,30 @@ function AccountConnections() {
   const isLoading = providersQuery.isLoading || accountsQuery.isLoading;
   const providers = providersQuery.data ?? [];
   const connections = accountsQuery.data ?? [];
-
   const connectionsByProvider = new Map<string, UserAccountConnection>(
-    connections.map((c) => [c.provider, c])
+    connections.map((connection) => [connection.provider, connection])
   );
-
-  const handleDisconnected = (_id: string) => {
-    queryClient.invalidateQueries({ queryKey: ['user-accounts'] });
-  };
+  const connectedCount = connections.length;
+  const webhookReadyCount = connections.filter((connection) => connection.webhookConfigured).length;
 
   return (
-    <section className="account-section">
-      <div className="account-section-header">
-        <h2 className="account-section-title">Connected Accounts</h2>
-        <p className="account-section-desc">
-          Link your platform accounts for seamless verification across servers.
-        </p>
-      </div>
-      <div className="account-section-body">
+    <AccountPage>
+      <AccountSectionCard
+        className="bento-col-8 animate-in animate-in-delay-1"
+        eyebrow="Providers"
+        title="Manage linked providers"
+        description="Connect only the services you actively use. Every provider can be revoked later from this same account shell."
+      >
         {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div className="account-skeleton-stack">
             <div className="account-skeleton-row" />
-            <div className="account-skeleton-row" style={{ width: '80%' }} />
-            <div className="account-skeleton-row" style={{ width: '60%' }} />
+            <div className="account-skeleton-row" style={{ width: '82%' }} />
+            <div className="account-skeleton-row" style={{ width: '68%' }} />
           </div>
         ) : providers.length === 0 ? (
-          <div className="account-empty">
-            <div className="account-empty-icon" aria-hidden="true">
+          <AccountEmptyState
+            icon={
               <svg
-                aria-hidden="true"
                 width="20"
                 height="20"
                 viewBox="0 0 24 24"
@@ -191,10 +204,10 @@ function AccountConnections() {
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
               </svg>
-            </div>
-            <p className="account-empty-title">No providers available</p>
-            <p className="account-empty-desc">Check back later for available integrations.</p>
-          </div>
+            }
+            title="No providers available"
+            description="Check back later for account providers that support direct linking."
+          />
         ) : (
           <div className="acct-provider-grid">
             {providers.map((provider) => (
@@ -202,18 +215,54 @@ function AccountConnections() {
                 key={provider.id}
                 provider={provider}
                 connection={connectionsByProvider.get(provider.id)}
-                onDisconnected={handleDisconnected}
               />
             ))}
           </div>
         )}
 
-        {(providersQuery.isError || accountsQuery.isError) && (
-          <p style={{ fontSize: '13px', color: '#dc2626', margin: 0 }}>
-            Failed to load connections. Refresh to try again.
+        {providersQuery.isError || accountsQuery.isError ? (
+          <AccountInlineError message="Failed to load account connections. Refresh to try again." />
+        ) : null}
+      </AccountSectionCard>
+
+      <AccountSectionCard
+        className="bento-col-4 animate-in animate-in-delay-2"
+        eyebrow="Guidance"
+        title="How links are used"
+        description="These connections power verification flows across supported providers."
+      >
+        <div className="account-kv-list">
+          <div className="account-kv-row">
+            <span className="account-kv-label">Live connections</span>
+            <span className="account-kv-value">
+              {accountsQuery.isLoading ? '...' : connectedCount}
+            </span>
+          </div>
+          <div className="account-kv-row">
+            <span className="account-kv-label">Available providers</span>
+            <span className="account-kv-value">
+              {providersQuery.isLoading ? '...' : providers.length}
+            </span>
+          </div>
+          <div className="account-kv-row">
+            <span className="account-kv-label">Webhook ready</span>
+            <span className="account-kv-value">
+              {accountsQuery.isLoading ? '...' : webhookReadyCount}
+            </span>
+          </div>
+        </div>
+
+        <div className="account-note-stack">
+          <p className="account-feature-copy">
+            Linked accounts are used only when a provider flow needs them. Disconnecting a provider
+            does not delete your licenses or revoke unrelated app authorizations.
           </p>
-        )}
-      </div>
-    </section>
+          <p className="account-feature-copy">
+            If a provider returns an auth error, reconnect it here so the system can resume using
+            fresh credentials.
+          </p>
+        </div>
+      </AccountSectionCard>
+    </AccountPage>
   );
 }

@@ -27,6 +27,11 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
       }),
       jwt({
         adapter: createJwtJwksAdapter(),
+        jwks: {
+          keyPairConfig: {
+            alg: 'RS256',
+          },
+        },
         jwt: {
           issuer: 'https://example.convex.site/api/auth',
           audience: PUBLIC_API_AUDIENCE,

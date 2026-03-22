@@ -1,66 +1,47 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
-import { apiClient } from '@/api/client';
+import { useMemo, useState } from 'react';
+import {
+  AccountEmptyState,
+  AccountInlineError,
+  AccountPage,
+  AccountSectionCard,
+} from '@/components/account/AccountPage';
+import { useToast } from '@/components/ui/Toast';
+import {
+  formatAccountDate,
+  getAccountProviderIconPath,
+  listUserLicenses,
+  revokeUserLicense,
+  type UserLicenseEntitlement,
+} from '@/lib/account';
 
 export const Route = createFileRoute('/account/licenses')({
   component: AccountLicenses,
 });
 
-interface Entitlement {
-  id: string;
-  sourceProvider: string;
-  productId: string;
-  sourceReference: string | null;
-  status: string;
-  grantedAt: number;
-  revokedAt: number | null;
-}
-
-interface Subject {
-  id: string;
-  displayName: string | null;
-  status: string;
-  entitlements: Entitlement[];
-}
-
-interface LicensesResponse {
-  subjects: Subject[];
-}
-
-function formatDate(ts: number): string {
-  return new Date(ts).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function providerIconPath(providerKey: string): string | null {
-  const map: Record<string, string> = {
-    gumroad: '/Icons/gumroad.png',
-    jinxxy: '/Icons/jinxxy.png',
-    lemonsqueezy: '/Icons/lemonsqueezy.png',
-    payhip: '/Icons/payhip.png',
-  };
-  return map[providerKey.toLowerCase()] ?? null;
-}
-
-function EntitlementRow({ entitlement, onRevoke }: { entitlement: Entitlement; onRevoke: (id: string) => void }) {
+function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEntitlement }>) {
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const revokeMut = useMutation({
-    mutationFn: () =>
-      apiClient.delete(`/api/connect/user/entitlements/${entitlement.id}`),
+    mutationFn: () => revokeUserLicense(entitlement.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-licenses'] });
       setConfirming(false);
-      onRevoke(entitlement.id);
+      toast.success('License deactivated', {
+        description: 'The associated Discord role will be removed on the next sync.',
+      });
+    },
+    onError: () => {
+      toast.error('Could not deactivate license', {
+        description: 'Please try again or re-run verification if the problem persists.',
+      });
     },
   });
 
-  const iconPath = providerIconPath(entitlement.sourceProvider);
+  const iconPath = getAccountProviderIconPath(entitlement.sourceProvider);
 
   return (
     <div className="account-list-row">
@@ -68,31 +49,43 @@ function EntitlementRow({ entitlement, onRevoke }: { entitlement: Entitlement; o
         {iconPath ? (
           <img src={iconPath} alt={entitlement.sourceProvider} width="20" height="20" />
         ) : (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <rect x="3" y="3" width="18" height="18" rx="2" />
             <path d="M9 9h6M9 13h4" />
           </svg>
         )}
       </div>
+
       <div className="account-list-row-info">
-        <p className="account-list-row-name">
-          {entitlement.productId}
-        </p>
+        <p className="account-list-row-name">{entitlement.productId}</p>
         <p className="account-list-row-meta">
-          <span className="account-badge account-badge--provider">{entitlement.sourceProvider}</span>
-          {entitlement.sourceReference && (
-            <span style={{ fontSize: '11px', fontFamily: 'monospace', opacity: 0.6 }}>
-              {entitlement.sourceReference.slice(0, 12)}&hellip;
+          <span className="account-badge account-badge--provider">
+            {entitlement.sourceProvider}
+          </span>
+          {entitlement.sourceReference ? (
+            <span className="account-reference-chip">
+              {entitlement.sourceReference.slice(0, 12)}
+              &hellip;
             </span>
-          )}
-          <span>{formatDate(entitlement.grantedAt)}</span>
+          ) : null}
+          <span>{formatAccountDate(entitlement.grantedAt)}</span>
         </p>
       </div>
+
       <div className="account-list-row-actions">
         <span className={`account-badge account-badge--${entitlement.status}`}>
           {entitlement.status.charAt(0).toUpperCase() + entitlement.status.slice(1)}
         </span>
-        {entitlement.status === 'active' && !confirming && (
+        {entitlement.status === 'active' && !confirming ? (
           <button
             type="button"
             className="account-btn account-btn--danger"
@@ -100,14 +93,14 @@ function EntitlementRow({ entitlement, onRevoke }: { entitlement: Entitlement; o
           >
             Deactivate
           </button>
-        )}
-        {confirming && (
+        ) : null}
+        {confirming ? (
           <div className="account-modal-backdrop" onClick={() => setConfirming(false)}>
-            <div className="account-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="account-modal" onClick={(event) => event.stopPropagation()}>
               <h3 className="account-modal-title">Deactivate license?</h3>
               <p className="account-modal-body">
-                This will remove your Discord role. Re-verification requires the full verify
-                flow. This cannot be undone immediately.
+                This removes the active grant from your account and revokes the linked Discord role.
+                Re-verification requires the full provider flow again.
               </p>
               <div className="account-modal-actions">
                 <button
@@ -124,72 +117,133 @@ function EntitlementRow({ entitlement, onRevoke }: { entitlement: Entitlement; o
                   onClick={() => revokeMut.mutate()}
                   disabled={revokeMut.isPending}
                 >
-                  {revokeMut.isPending && <span className="btn-loading-spinner" aria-hidden="true" />}
-                  {revokeMut.isPending ? 'Deactivating...' : 'Deactivate'}
+                  {revokeMut.isPending ? (
+                    <>
+                      <span className="btn-loading-spinner" aria-hidden="true" />
+                      Deactivating...
+                    </>
+                  ) : (
+                    'Deactivate'
+                  )}
                 </button>
               </div>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
 
 function AccountLicenses() {
-  const { data, isLoading, isError } = useQuery<LicensesResponse>({
+  const licensesQuery = useQuery({
     queryKey: ['user-licenses'],
-    queryFn: () => apiClient.get<LicensesResponse>('/api/connect/user/licenses'),
+    queryFn: listUserLicenses,
   });
 
-  const allEntitlements = (data?.subjects ?? []).flatMap((s) => s.entitlements);
-  const hasEntitlements = allEntitlements.length > 0;
+  const subjects = licensesQuery.data ?? [];
+  const allEntitlements = useMemo(
+    () => subjects.flatMap((subject) => subject.entitlements),
+    [subjects]
+  );
+  const activeCount = allEntitlements.filter(
+    (entitlement) => entitlement.status === 'active'
+  ).length;
+  const providerCount = new Set(allEntitlements.map((entitlement) => entitlement.sourceProvider))
+    .size;
 
   return (
-    <>
-      <section className="account-section">
-        <div className="account-section-header">
-          <h2 className="account-section-title">Verified Purchases</h2>
-          <p className="account-section-desc">
-            Licenses verified through Discord server bots
+    <AccountPage>
+      <AccountSectionCard
+        className="bento-col-8 animate-in animate-in-delay-1"
+        eyebrow="License ledger"
+        title="Verified purchases"
+        description="Review every entitlement this account has received from storefront verification."
+      >
+        {licensesQuery.isLoading ? (
+          <div className="account-skeleton-stack">
+            <div className="account-skeleton-row" />
+            <div className="account-skeleton-row" style={{ width: '78%' }} />
+            <div className="account-skeleton-row" style={{ width: '64%' }} />
+          </div>
+        ) : null}
+
+        {licensesQuery.isError ? (
+          <AccountInlineError message="Failed to load licenses. Please refresh." />
+        ) : null}
+
+        {!licensesQuery.isLoading && !licensesQuery.isError && allEntitlements.length === 0 ? (
+          <AccountEmptyState
+            icon={
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M9 9h6M9 13h4" />
+              </svg>
+            }
+            title="No verified purchases yet"
+            description={
+              <>
+                Join a server that uses Creator Assistant, then run{' '}
+                <span className="account-reference-chip">/verify</span> to connect your purchase.
+              </>
+            }
+          />
+        ) : null}
+
+        {!licensesQuery.isLoading && !licensesQuery.isError && allEntitlements.length > 0
+          ? allEntitlements.map((entitlement) => (
+              <EntitlementRow key={entitlement.id} entitlement={entitlement} />
+            ))
+          : null}
+      </AccountSectionCard>
+
+      <AccountSectionCard
+        className="bento-col-4 animate-in animate-in-delay-2"
+        eyebrow="Context"
+        title="What deactivation does"
+        description="Removing an entitlement updates the account record and revokes the role granted by this verification system."
+      >
+        <div className="account-kv-list">
+          <div className="account-kv-row">
+            <span className="account-kv-label">Active grants</span>
+            <span className="account-kv-value">
+              {licensesQuery.isLoading ? '...' : activeCount}
+            </span>
+          </div>
+          <div className="account-kv-row">
+            <span className="account-kv-label">Total purchases</span>
+            <span className="account-kv-value">
+              {licensesQuery.isLoading ? '...' : allEntitlements.length}
+            </span>
+          </div>
+          <div className="account-kv-row">
+            <span className="account-kv-label">Sources</span>
+            <span className="account-kv-value">
+              {licensesQuery.isLoading ? '...' : providerCount}
+            </span>
+          </div>
+        </div>
+
+        <div className="account-note-stack">
+          <p className="account-feature-copy">
+            Use deactivation when you want to remove access from this account. If you bought the
+            same product again later, the provider flow can grant a fresh entitlement.
+          </p>
+          <p className="account-feature-copy">
+            Purchases are grouped under {subjects.length} verified subject
+            {subjects.length === 1 ? '' : 's'} right now.
           </p>
         </div>
-        <div className="account-section-body">
-          {isLoading && (
-            <>
-              <div className="account-skeleton-row" style={{ width: '60%', height: '16px' }} />
-              <div className="account-skeleton-row" style={{ width: '80%', height: '16px' }} />
-              <div className="account-skeleton-row" style={{ width: '45%', height: '16px' }} />
-            </>
-          )}
-          {isError && (
-            <p style={{ fontSize: '13px', color: '#dc2626', margin: 0 }}>
-              Failed to load licenses. Please refresh.
-            </p>
-          )}
-          {!isLoading && !isError && !hasEntitlements && (
-            <div className="account-empty">
-              <div className="account-empty-icon" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <path d="M9 9h6M9 13h4" />
-                </svg>
-              </div>
-              <p className="account-empty-title">No verified purchases yet</p>
-              <p className="account-empty-desc">
-                Join a Discord server that uses this bot, then run{' '}
-                <code style={{ fontSize: '12px', background: 'rgba(0,0,0,.06)', padding: '1px 5px', borderRadius: '4px' }}>/verify</code>{' '}
-                to link your purchase.
-              </p>
-            </div>
-          )}
-          {!isLoading && !isError && hasEntitlements && (
-            allEntitlements.map((e) => (
-              <EntitlementRow key={e.id} entitlement={e} onRevoke={() => {}} />
-            ))
-          )}
-        </div>
-      </section>
-    </>
+      </AccountSectionCard>
+    </AccountPage>
   );
 }

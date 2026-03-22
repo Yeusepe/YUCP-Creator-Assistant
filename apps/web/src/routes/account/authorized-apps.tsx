@@ -1,75 +1,81 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
-import { apiClient } from '@/api/client';
+import { useMemo, useState } from 'react';
+import {
+  AccountEmptyState,
+  AccountInlineError,
+  AccountPage,
+  AccountSectionCard,
+} from '@/components/account/AccountPage';
+import { useToast } from '@/components/ui/Toast';
+import {
+  formatAccountDate,
+  listUserOAuthGrants,
+  type OAuthGrant,
+  revokeUserOAuthGrant,
+} from '@/lib/account';
 
 export const Route = createFileRoute('/account/authorized-apps')({
   component: AccountAuthorizedApps,
 });
 
-interface OAuthGrant {
-  consentId: string;
-  clientId: string;
-  appName: string;
-  scopes: string[];
-  grantedAt: number | null;
-  updatedAt: number | null;
-}
-
-interface GrantsResponse {
-  grants: OAuthGrant[];
-}
-
-function formatDate(ts: number | null): string {
-  if (!ts) return 'Unknown date';
-  return new Date(ts).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function GrantRow({ grant, onRevoked }: { grant: OAuthGrant; onRevoked: (id: string) => void }) {
+function GrantRow({ grant }: Readonly<{ grant: OAuthGrant }>) {
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const revokeMut = useMutation({
-    mutationFn: () =>
-      apiClient.delete(`/api/connect/user/oauth/grants/${encodeURIComponent(grant.consentId)}`),
+    mutationFn: () => revokeUserOAuthGrant(grant.consentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-oauth-grants'] });
       setConfirming(false);
-      onRevoked(grant.consentId);
+      toast.success('App access revoked', {
+        description: `${grant.appName} must be authorized again before it can use your account.`,
+      });
+    },
+    onError: () => {
+      toast.error('Could not revoke app access', {
+        description: `Please try revoking ${grant.appName} again.`,
+      });
     },
   });
 
   return (
     <div className="account-list-row">
       <div className="account-list-row-icon" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
         </svg>
       </div>
+
       <div className="account-list-row-info">
         <p className="account-list-row-name">{grant.appName}</p>
         <p className="account-list-row-meta">
-          <span style={{ fontFamily: 'monospace', fontSize: '11px', opacity: 0.6 }}>
-            {grant.clientId}
-          </span>
-          {grant.grantedAt && <span>Authorized {formatDate(grant.grantedAt)}</span>}
+          <span className="account-reference-chip">{grant.clientId}</span>
+          {grant.grantedAt ? <span>Authorized {formatAccountDate(grant.grantedAt)}</span> : null}
         </p>
-        {grant.scopes.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+        {grant.scopes.length > 0 ? (
+          <div className="account-pill-row account-pill-row--compact">
             {grant.scopes.map((scope) => (
               <span key={scope} className="account-badge account-badge--scope">
                 {scope}
               </span>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
+
       <div className="account-list-row-actions">
-        {!confirming && (
+        {!confirming ? (
           <button
             type="button"
             className="account-btn account-btn--danger"
@@ -77,14 +83,14 @@ function GrantRow({ grant, onRevoked }: { grant: OAuthGrant; onRevoked: (id: str
           >
             Revoke
           </button>
-        )}
-        {confirming && (
+        ) : null}
+        {confirming ? (
           <div className="account-modal-backdrop" onClick={() => setConfirming(false)}>
-            <div className="account-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="account-modal" onClick={(event) => event.stopPropagation()}>
               <h3 className="account-modal-title">Revoke {grant.appName}?</h3>
               <p className="account-modal-body">
-                Revoking will immediately disconnect <strong>{grant.appName}</strong> and
-                invalidate all its access tokens. The app will need to be re-authorized.
+                Revoking access immediately invalidates this client&apos;s ability to use your
+                account. Any existing access tokens must be reissued after a new consent flow.
               </p>
               <div className="account-modal-actions">
                 <button
@@ -101,66 +107,113 @@ function GrantRow({ grant, onRevoked }: { grant: OAuthGrant; onRevoked: (id: str
                   onClick={() => revokeMut.mutate()}
                   disabled={revokeMut.isPending}
                 >
-                  {revokeMut.isPending && <span className="btn-loading-spinner" aria-hidden="true" />}
-                  {revokeMut.isPending ? 'Revoking...' : 'Revoke access'}
+                  {revokeMut.isPending ? (
+                    <>
+                      <span className="btn-loading-spinner" aria-hidden="true" />
+                      Revoking...
+                    </>
+                  ) : (
+                    'Revoke access'
+                  )}
                 </button>
               </div>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
 
 function AccountAuthorizedApps() {
-  const { data, isLoading, isError } = useQuery<GrantsResponse>({
+  const grantsQuery = useQuery({
     queryKey: ['user-oauth-grants'],
-    queryFn: () => apiClient.get<GrantsResponse>('/api/connect/user/oauth/grants'),
+    queryFn: listUserOAuthGrants,
   });
 
-  const grants = data?.grants ?? [];
+  const grants = grantsQuery.data ?? [];
+  const uniqueScopeCount = useMemo(
+    () => new Set(grants.flatMap((grant) => grant.scopes)).size,
+    [grants]
+  );
 
   return (
-    <section className="account-section">
-      <div className="account-section-header">
-        <h2 className="account-section-title">Authorized Apps</h2>
-        <p className="account-section-desc">
-          Third-party applications you have granted access to your account
-        </p>
-      </div>
-      <div className="account-section-body">
-        {isLoading && (
-          <>
-            <div className="account-skeleton-row" style={{ width: '55%', height: '16px' }} />
-            <div className="account-skeleton-row" style={{ width: '70%', height: '16px' }} />
-          </>
-        )}
-        {isError && (
-          <p style={{ fontSize: '13px', color: '#dc2626', margin: 0 }}>
-            Failed to load authorized apps. Please refresh.
-          </p>
-        )}
-        {!isLoading && !isError && grants.length === 0 && (
-          <div className="account-empty">
-            <div className="account-empty-icon" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <AccountPage>
+      <AccountSectionCard
+        className="bento-col-8 animate-in animate-in-delay-1"
+        eyebrow="Consent ledger"
+        title="Authorized applications"
+        description="Review every app that currently has delegated access to your account."
+      >
+        {grantsQuery.isLoading ? (
+          <div className="account-skeleton-stack">
+            <div className="account-skeleton-row" />
+            <div className="account-skeleton-row" style={{ width: '74%' }} />
+          </div>
+        ) : null}
+
+        {grantsQuery.isError ? (
+          <AccountInlineError message="Failed to load authorized apps. Please refresh." />
+        ) : null}
+
+        {!grantsQuery.isLoading && !grantsQuery.isError && grants.length === 0 ? (
+          <AccountEmptyState
+            icon={
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
               </svg>
-            </div>
-            <p className="account-empty-title">No authorized apps</p>
-            <p className="account-empty-desc">
-              Apps you authorize with your account will appear here.
-              You can revoke access at any time.
-            </p>
+            }
+            title="No authorized apps"
+            description="Apps you authorize with your account will appear here. You can revoke access at any time."
+          />
+        ) : null}
+
+        {!grantsQuery.isLoading && !grantsQuery.isError && grants.length > 0
+          ? grants.map((grant) => <GrantRow key={grant.consentId} grant={grant} />)
+          : null}
+      </AccountSectionCard>
+
+      <AccountSectionCard
+        className="bento-col-4 animate-in animate-in-delay-2"
+        eyebrow="Security"
+        title="What revocation means"
+        description="Revoking consent is immediate and cuts off the app until it sends you through a new authorization flow."
+      >
+        <div className="account-kv-list">
+          <div className="account-kv-row">
+            <span className="account-kv-label">Authorized clients</span>
+            <span className="account-kv-value">
+              {grantsQuery.isLoading ? '...' : grants.length}
+            </span>
           </div>
-        )}
-        {!isLoading && !isError && grants.length > 0 && (
-          grants.map((grant) => (
-            <GrantRow key={grant.consentId} grant={grant} onRevoked={() => {}} />
-          ))
-        )}
-      </div>
-    </section>
+          <div className="account-kv-row">
+            <span className="account-kv-label">Unique scopes</span>
+            <span className="account-kv-value">
+              {grantsQuery.isLoading ? '...' : uniqueScopeCount}
+            </span>
+          </div>
+        </div>
+
+        <div className="account-note-stack">
+          <p className="account-feature-copy">
+            Revoke access when an app is no longer in use, when permissions changed unexpectedly, or
+            when you want to force a clean re-authorization.
+          </p>
+          <p className="account-feature-copy">
+            Scope badges reflect the exact strings stored on the consent grant, so they are useful
+            when auditing app access.
+          </p>
+        </div>
+      </AccountSectionCard>
+    </AccountPage>
   );
 }

@@ -15,4 +15,17 @@ describe('account UI contracts', () => {
     expect(accountRouteSource).toContain('useAccountShell');
     expect(accountIndexRouteSource).toContain('useAccountShell');
   });
+
+  it('loads dashboard styling as side-effect imports and reuses the shared dashboard header', () => {
+    expect(accountRouteSource).toContain("import '@/styles/dashboard.css';");
+    expect(accountRouteSource).toContain("import '@/styles/dashboard-components.css';");
+    expect(accountRouteSource).toContain("import '@/styles/account.css';");
+    expect(accountRouteSource).toContain('DashboardHeader');
+  });
+
+  it('uses the shared account page scaffold for the redesigned account landing page', () => {
+    expect(accountIndexRouteSource).toContain('AccountPage');
+    expect(accountIndexRouteSource).toContain('AccountSectionCard');
+    expect(accountIndexRouteSource).toContain('AccountMetric');
+  });
 });
