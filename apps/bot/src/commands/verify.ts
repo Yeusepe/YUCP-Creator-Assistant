@@ -232,6 +232,36 @@ function buildSpawnDescription(enabledSet: Set<string>, buttonText: string): str
   ].join('\n');
 }
 
+function buildGenericSpawnDescription(buttonText: string): string {
+  return [
+    `${E.Assistant} **Verify once and unlock your roles**`,
+    '',
+    `${E.Point} This server supports creator purchase verification for connected products.`,
+    '',
+    `${E.Num1} Click **${buttonText}**`,
+    `${E.Num2} Choose the option that matches your purchase`,
+    `${E.Num3} We’ll confirm it and update your roles automatically`,
+    '',
+    `${E.Link} **Sign in with your purchase account** when the creator supports account-based verification.`,
+    `${E.KeyCloud} **Use your license key** if the creator gave you one at checkout.`,
+    '',
+    `${E.Point} **Need help?** Ask a server admin if your purchase is missing.`,
+  ].join('\n');
+}
+
+function getEnabledProviders(result: unknown): string[] {
+  if (
+    typeof result === 'object' &&
+    result !== null &&
+    'providers' in result &&
+    Array.isArray(result.providers)
+  ) {
+    return result.providers.filter((provider): provider is string => typeof provider === 'string');
+  }
+
+  return [];
+}
+
 function getVerifyPanelKey(userId: string, guildId: string): string {
   return `${userId}:${guildId}`;
 }
@@ -892,7 +922,7 @@ export async function buildVerifyStatusReply(
       guildId,
     }),
   ]);
-  const enabledSet = new Set<string>((providersResult as { providers: string[] }).providers);
+  const enabledSet = new Set<string>(getEnabledProviders(providersResult));
 
   const bannerMessage =
     options?.bannerMessage ??
@@ -1089,6 +1119,7 @@ export async function handleVerifySpawn(
   ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
   let enabledSet = new Set<string>();
+  let useGenericFallbackCopy = false;
   try {
     const providersResult = await convex.query(
       api.role_rules.getEnabledVerificationProvidersFromProducts,
@@ -1098,13 +1129,11 @@ export async function handleVerifySpawn(
         guildId: ctx.guildId,
       }
     );
-    enabledSet = new Set<string>((providersResult as { providers: string[] }).providers);
+    enabledSet = new Set<string>(getEnabledProviders(providersResult));
   } catch (error) {
-    enabledSet = new Set<string>(
-      PROVIDER_REGISTRY.filter((provider) => provider.status === 'active').map(
-        (provider) => provider.providerKey
-      )
-    );
+    // Gracefully degrade to neutral verification copy so admins can still post a usable
+    // message even if the provider lookup is temporarily unavailable.
+    useGenericFallbackCopy = true;
     logger.warn('Falling back to generic spawn verification copy', {
       authUserId: ctx.authUserId,
       error: error instanceof Error ? error.message : String(error),
@@ -1113,10 +1142,16 @@ export async function handleVerifySpawn(
   }
 
   const buttonText =
-    interaction.options.getString('button_text') ?? buildSpawnButtonText(enabledSet);
-  const title = interaction.options.getString('title') ?? buildSpawnTitle(enabledSet);
+    interaction.options.getString('button_text') ??
+    (useGenericFallbackCopy ? DEFAULT_SPAWN_BUTTON_TEXT : buildSpawnButtonText(enabledSet));
+  const title =
+    interaction.options.getString('title') ??
+    (useGenericFallbackCopy ? DEFAULT_SPAWN_TITLE : buildSpawnTitle(enabledSet));
   const description =
-    interaction.options.getString('description') ?? buildSpawnDescription(enabledSet, buttonText);
+    interaction.options.getString('description') ??
+    (useGenericFallbackCopy
+      ? buildGenericSpawnDescription(buttonText)
+      : buildSpawnDescription(enabledSet, buttonText));
   const colorStr = interaction.options.getString('color');
   const imageUrl = interaction.options.getString('image_url');
 
