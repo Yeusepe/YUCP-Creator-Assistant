@@ -404,6 +404,13 @@ const _BAG_PATH =
   ' 62.4297 54.0188 65.9999 47.9317 65.9999H10.4532ZM28.7781 5.62865C25.0176 5.62865 22.2768' +
   ' 8.13742 21.735 11.8684H35.8532C35.3114 8.13742 32.5706 5.62865 28.7781 5.62865Z';
 
+declare global {
+  interface Window {
+    __deferLoadingDismiss?: boolean;
+    __dismissLoading?: () => void;
+  }
+}
+
 function bootLoadingOverlay() {
   const overlay = document.getElementById('page-loading-overlay');
   if (!overlay || overlay.children.length > 0) return;
@@ -446,8 +453,8 @@ function hideLoading() {
 
   // If the page defers overlay dismiss (e.g. dashboard waits for data),
   // expose a global callback and skip the automatic hide.
-  if ((window as any).__deferLoadingDismiss) {
-    (window as any).__dismissLoading = () => {
+  if (window.__deferLoadingDismiss) {
+    window.__dismissLoading = () => {
       setTimeout(dismissOverlay, 400);
     };
     return;

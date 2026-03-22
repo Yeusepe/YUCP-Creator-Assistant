@@ -1123,7 +1123,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     try {
       const connInfo = await convex.query(api.providerConnections.getConnectionForDisconnect, {
         apiSecret: config.convexApiSecret,
-        connectionId: connectionId as any,
+        connectionId: connectionId as Id<'provider_connections'>,
         authUserId,
       });
       if (!connInfo) return;
@@ -1169,12 +1169,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!bound.ok) return bound.response;
       authUserId = bound.setupSession.authUserId;
     } else {
-      const ownerCheck = await requireOwnerSessionForTenant(
-        request,
-        url.searchParams.get('authUserId') ?? undefined
-      );
+      const requestedAuthUserId = url.searchParams.get('authUserId') ?? undefined;
+      const ownerCheck = await requireOwnerSessionForTenant(request, requestedAuthUserId);
       if (!ownerCheck.ok) return ownerCheck.response;
-      authUserId = url.searchParams.get('authUserId')!;
+      if (!requestedAuthUserId) {
+        return Response.json({ error: 'authUserId is required' }, { status: 400 });
+      }
+      authUserId = requestedAuthUserId;
     }
 
     try {
@@ -1213,12 +1214,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       authUserId = bound.setupSession.authUserId;
     } else {
       const url = new URL(request.url);
-      const ownerCheck = await requireOwnerSessionForTenant(
-        request,
-        url.searchParams.get('authUserId') ?? undefined
-      );
+      const requestedAuthUserId = url.searchParams.get('authUserId') ?? undefined;
+      const ownerCheck = await requireOwnerSessionForTenant(request, requestedAuthUserId);
       if (!ownerCheck.ok) return ownerCheck.response;
-      authUserId = url.searchParams.get('authUserId')!;
+      if (!requestedAuthUserId) {
+        return Response.json({ error: 'authUserId is required' }, { status: 400 });
+      }
+      authUserId = requestedAuthUserId;
     }
 
     try {
@@ -1259,7 +1261,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!ownerCheck.ok) {
         return ownerCheck.response;
       }
-      authorizedAuthUserId = requestedAuthUserId!;
+      if (!requestedAuthUserId) {
+        return Response.json({ error: 'authUserId is required' }, { status: 400 });
+      }
+      authorizedAuthUserId = requestedAuthUserId;
       guildId = url.searchParams.get('guildId') ?? url.searchParams.get('guild_id');
       if (!guildId) {
         return Response.json({ error: 'guildId is required' }, { status: 400 });
@@ -1351,7 +1356,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     } else {
       const ownerCheck = await requireOwnerSessionForTenant(request, body.authUserId);
       if (!ownerCheck.ok) return ownerCheck.response;
-      authUserId = body.authUserId!;
+      if (!body.authUserId) {
+        return Response.json({ error: 'authUserId is required' }, { status: 400 });
+      }
+      authUserId = body.authUserId;
     }
 
     try {
@@ -3023,7 +3031,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       await convex.mutation(api.providerConnections.upsertProductCredential, {
         apiSecret: config.convexApiSecret,
         authUserId,
-        providerKey: providerKey as any,
+        providerKey: descriptor.providerKey,
         productId,
         credentialKeyPrefix: descriptor.perProductCredential.credentialKeyPrefix,
         encryptedSecretKey,
@@ -3152,7 +3160,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       await convex.mutation(api.providerConnections.upsertProductCredential, {
         apiSecret: config.convexApiSecret,
         authUserId: params.authUserId,
-        providerKey: params.providerKey as any,
+        providerKey: descriptor.providerKey,
         productId: params.productId,
         credentialKeyPrefix: descriptor.perProductCredential.credentialKeyPrefix,
         encryptedSecretKey,

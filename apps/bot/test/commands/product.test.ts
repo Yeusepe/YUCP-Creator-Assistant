@@ -12,7 +12,9 @@ const mockListProducts = mock(() =>
     products: [] as Array<{ id: string; name: string; collaboratorName?: string }>,
   })
 );
-const mockCreateDiscordRoleSetupSessionToken = mock(() => Promise.resolve(undefined));
+const mockCreateDiscordRoleSetupSessionToken = mock(() =>
+  Promise.resolve<string | undefined>(undefined)
+);
 const mockGetDiscordRoleSetupResult = mock(() => Promise.resolve({ completed: false }));
 
 mock.module('../../src/lib/internalRpc', () => ({
