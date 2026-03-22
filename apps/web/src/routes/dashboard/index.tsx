@@ -52,7 +52,7 @@ function readOnboardingState(): OnboardingState {
 
 function DashboardIndex() {
   const { isPersonalDashboard, activeGuildId, activeTenantId } = useActiveDashboardContext();
-  const { canRunPanelQueries, status } = useDashboardSession();
+  const { canRunPanelQueries, markSessionExpired, status } = useDashboardSession();
   const { guilds } = useDashboardShell();
   const toast = useToast();
 
@@ -225,7 +225,7 @@ function DashboardIndex() {
             authUserId={authUserId}
             guildId={guildId}
             canRunPanelQueries={canRunPanelQueries}
-            onAuthError={() => {}}
+            onAuthError={markSessionExpired}
           />
         </div>
 
@@ -236,6 +236,7 @@ function DashboardIndex() {
               authUserId={authUserId}
               guildId={guildId}
               canRunPanelQueries={canRunPanelQueries}
+              onAuthError={markSessionExpired}
             />
           ) : null}
         </div>

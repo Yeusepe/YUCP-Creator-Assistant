@@ -51,8 +51,8 @@ function AccountProfile() {
   const activeLicenses = entitlements.filter(
     (entitlement) => entitlement.status === 'active'
   ).length;
-  const authorizedApps = grantsQuery.data ?? [];
-  const availableProviders = providersQuery.data ?? [];
+  const authorizedApps = grantsQuery.data;
+  const availableProviders = providersQuery.data;
   const connectedLabels = accounts
     .map((connection) => connection.label || connection.provider)
     .filter(Boolean)
@@ -60,6 +60,16 @@ function AccountProfile() {
   const workspaceHref = viewer.authUserId
     ? `/api/install/bot?authUserId=${encodeURIComponent(viewer.authUserId)}`
     : undefined;
+
+  const renderMetricValue = (query: { isLoading: boolean; isError: boolean }, value: number) => {
+    if (query.isLoading) {
+      return '...';
+    }
+    if (query.isError) {
+      return '-';
+    }
+    return value;
+  };
 
   return (
     <AccountPage>
@@ -127,24 +137,26 @@ function AccountProfile() {
           </div>
           <div className="account-kv-row">
             <span className="account-kv-label">Authorized apps</span>
-            <span className="account-kv-value">{authorizedApps.length}</span>
+            <span className="account-kv-value">
+              {renderMetricValue(grantsQuery, authorizedApps?.length ?? 0)}
+            </span>
           </div>
           <div className="account-kv-row">
             <span className="account-kv-label">Connected providers</span>
             <span className="account-kv-value">
-              {accountsQuery.isLoading ? '...' : accounts.length}
+              {renderMetricValue(accountsQuery, accounts.length)}
             </span>
           </div>
           <div className="account-kv-row">
             <span className="account-kv-label">Active licenses</span>
             <span className="account-kv-value">
-              {licensesQuery.isLoading ? '...' : activeLicenses}
+              {renderMetricValue(licensesQuery, activeLicenses)}
             </span>
           </div>
           <div className="account-kv-row">
             <span className="account-kv-label">Available providers</span>
             <span className="account-kv-value">
-              {providersQuery.isLoading ? '...' : availableProviders.length}
+              {renderMetricValue(providersQuery, availableProviders?.length ?? 0)}
             </span>
           </div>
         </div>

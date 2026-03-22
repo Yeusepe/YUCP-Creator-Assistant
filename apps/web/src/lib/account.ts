@@ -53,10 +53,10 @@ export function formatAccountDateTime(timestamp: number | null) {
 
 export function getAccountProviderIconPath(providerKey: string) {
   const map: Record<string, string> = {
-    gumroad: '/Icons/gumroad.png',
-    jinxxy: '/Icons/jinxxy.png',
-    lemonsqueezy: '/Icons/lemonsqueezy.png',
-    payhip: '/Icons/payhip.png',
+    gumroad: '/Icons/Gumorad.png',
+    jinxxy: '/Icons/Jinxxy.png',
+    lemonsqueezy: '/Icons/LemonSqueezy.png',
+    payhip: '/Icons/PayHip.png',
   };
 
   return map[providerKey.toLowerCase()] ?? null;

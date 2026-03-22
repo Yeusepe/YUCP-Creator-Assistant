@@ -150,20 +150,19 @@ export const getMyDashboardStats = query({
       )
       .take(1000);
 
-    const activeSubjectIds = new Map<string, boolean>();
-    const filtered = [];
-
-    for (const entitlement of activeEntitlements) {
-      let isActive = activeSubjectIds.get(entitlement.subjectId);
-      if (isActive === undefined) {
-        const subject = await ctx.db.get(entitlement.subjectId);
-        isActive = subject?.status === 'active';
-        activeSubjectIds.set(entitlement.subjectId, isActive);
-      }
-      if (isActive) {
-        filtered.push(entitlement);
-      }
-    }
+    const activeSubjectIds = new Map(
+      await Promise.all(
+        [...new Set(activeEntitlements.map((entitlement) => entitlement.subjectId))].map(
+          async (subjectId) => {
+            const subject = await ctx.db.get(subjectId);
+            return [subjectId, subject?.status === 'active'] as const;
+          }
+        )
+      )
+    );
+    const filtered = activeEntitlements.filter((entitlement) =>
+      activeSubjectIds.get(entitlement.subjectId)
+    );
 
     const uniqueSubjects = new Set(filtered.map((e) => e.subjectId));
 
@@ -174,9 +173,7 @@ export const getMyDashboardStats = query({
       .query('role_rules')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.id as string))
       .collect();
-    const uniqueProducts = new Set(
-      roleRules.filter((r) => r.enabled).map((r) => r.productId),
-    );
+    const uniqueProducts = new Set(roleRules.filter((r) => r.enabled).map((r) => r.productId));
 
     const now = Date.now();
     const oneDayAgo = now - 24 * 60 * 60 * 1000;

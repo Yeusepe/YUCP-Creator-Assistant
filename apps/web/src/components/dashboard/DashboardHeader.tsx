@@ -19,11 +19,9 @@ function toggleSidebar() {
   const overlay = document.getElementById('sidebar-overlay');
   if (sidebar && overlay) {
     const isOpen = sidebar.classList.toggle('is-open');
-    if (isOpen) {
-      overlay.classList.add('is-visible');
-    } else {
-      overlay.classList.remove('is-visible');
-    }
+    overlay.classList.toggle('is-visible', isOpen);
+    overlay.setAttribute('aria-hidden', String(!isOpen));
+    document.body.style.overflow = isOpen ? 'hidden' : '';
   }
 }
 
@@ -59,7 +57,7 @@ export function DashboardHeader({
       <Link to="/account" className="header-context-icon" aria-label={homeLabel} title={homeLabel}>
         {contextIcon}
       </Link>
-    ) : (
+    ) : homeHref === '/dashboard' ? (
       <Link
         to="/dashboard"
         search={{}}
@@ -69,6 +67,10 @@ export function DashboardHeader({
       >
         {contextIcon}
       </Link>
+    ) : (
+      <a href={homeHref} className="header-context-icon" aria-label={homeLabel} title={homeLabel}>
+        {contextIcon}
+      </a>
     );
 
   return (

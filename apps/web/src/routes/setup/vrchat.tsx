@@ -1,4 +1,5 @@
 import { createFileRoute, useSearch } from '@tanstack/react-router';
+import { getSafeRelativeRedirectTarget } from '@yucp/shared/authRedirects';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import '@/styles/vrchat-verify.css';
 
@@ -77,8 +78,9 @@ function VRChatVerifyPage() {
       return;
     }
 
-    if (returnUrl) {
-      window.location.href = returnUrl;
+    const safeReturnUrl = getSafeRelativeRedirectTarget(returnUrl);
+    if (safeReturnUrl) {
+      window.location.assign(safeReturnUrl);
       return;
     }
 

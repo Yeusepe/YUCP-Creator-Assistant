@@ -46,10 +46,13 @@ export const Route = createFileRoute('/dashboard')({
       })
     );
     const locationHref = String(location.href);
+    const locationHash = String(location.hash ?? '');
     const allowsFreshGuildBootstrap =
       locationHref.includes('guild_id=') ||
       locationHref.includes('setup_token=') ||
-      locationHref.includes('connect_token=');
+      locationHref.includes('connect_token=') ||
+      locationHash.includes('s=') ||
+      locationHash.includes('token=');
     if (shell.guilds.length === 0 && !allowsFreshGuildBootstrap) {
       throw redirect({ to: '/account' });
     }
@@ -202,7 +205,7 @@ function DashboardLayout() {
   }, [guild_id, search.connect_token, search.setup_token, shouldCheckBootstrap, tenant_id]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || bootstrapState.status === 'idle') {
+    if (typeof window === 'undefined') {
       return;
     }
 
