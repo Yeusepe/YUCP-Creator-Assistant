@@ -130,13 +130,21 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
       // Mount jwt() first so both surfaces stay registered.
       jwt({
         adapter: createJwtJwksAdapter(),
+        jwks: {
+          keyPairConfig: {
+            alg: 'RS256',
+          },
+        },
         jwt: {
           issuer: authBaseUrl,
           audience: PUBLIC_API_AUDIENCE,
         },
         disableSettingJwtHeader: true,
       }),
-      convex({ authConfig }),
+      convex({
+        authConfig,
+        jwksRotateOnTokenGenerationError: true,
+      }),
       apiKey({
         defaultPrefix: PUBLIC_API_KEY_PREFIX,
         enableMetadata: true,

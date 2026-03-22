@@ -97,7 +97,7 @@ export const purgeJwks = internalMutation({
       paginationOpts: { cursor: null, numItems: 1000 },
     } as any);
     console.log(
-      'Purged all JWKS keys, they will be regenerated from the current Better Auth JWT config on next request.'
+      'Purged all JWKS keys, they will be regenerated as RS256 from the current Better Auth and Convex JWT config on next request.'
     );
     return { purged: true };
   },

@@ -4,6 +4,8 @@ import { getServerIconUrl } from '@/lib/utils';
 
 export interface DashboardHeaderProps {
   title: string;
+  homeHref?: string;
+  homeLabel?: string;
   selectedGuild?: {
     id: string;
     icon?: string | null;
@@ -25,7 +27,12 @@ function toggleSidebar() {
   }
 }
 
-export function DashboardHeader({ title, selectedGuild }: DashboardHeaderProps) {
+export function DashboardHeader({
+  title,
+  homeHref = '/dashboard',
+  homeLabel = 'Back to dashboard home',
+  selectedGuild,
+}: DashboardHeaderProps) {
   const { isDark, toggleTheme } = useTheme();
 
   const contextIcon = selectedGuild?.icon ? (
@@ -47,19 +54,28 @@ export function DashboardHeader({ title, selectedGuild }: DashboardHeaderProps) 
     </svg>
   );
 
+  const homeIconLink =
+    homeHref === '/account' ? (
+      <Link to="/account" className="header-context-icon" aria-label={homeLabel} title={homeLabel}>
+        {contextIcon}
+      </Link>
+    ) : (
+      <Link
+        to="/dashboard"
+        search={{}}
+        className="header-context-icon"
+        aria-label={homeLabel}
+        title={homeLabel}
+      >
+        {contextIcon}
+      </Link>
+    );
+
   return (
     <header className="content-area-header animate-in relative z-10">
       <div className="dashboard-header-shell">
         <div className="dashboard-header-leading">
-          <Link
-            to="/dashboard"
-            search={{}}
-            className="header-context-icon"
-            aria-label="Back to dashboard home"
-            title="Dashboard home"
-          >
-            {contextIcon}
-          </Link>
+          {homeIconLink}
           <h1 className="content-header-title truncate">{title}</h1>
         </div>
 
