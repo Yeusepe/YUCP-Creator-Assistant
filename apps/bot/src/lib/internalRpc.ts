@@ -113,6 +113,7 @@ export async function getDiscordRoleSetupResult(token: string): Promise<
   return {
     completed: response.completed ?? false,
     sourceGuildId: response.sourceGuildId,
+    sourceGuildName: response.sourceGuildName,
     sourceRoleId: response.sourceRoleId,
     sourceRoleIds: response.sourceRoleIds ?? [],
     requiredRoleMatchMode:

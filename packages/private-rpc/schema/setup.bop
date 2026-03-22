@@ -25,6 +25,7 @@ message DiscordRoleSetupResultResponse {
   3 -> string sourceRoleId;
   4 -> string[] sourceRoleIds;
   5 -> string requiredRoleMatchMode;
+  6 -> string sourceGuildName;
 }
 
 service Setup {

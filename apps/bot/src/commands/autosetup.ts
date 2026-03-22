@@ -44,6 +44,7 @@ import { E, Emoji } from '../lib/emojis';
 import { listProviderProducts } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 import { canBotManageRole } from '../lib/roleHierarchy';
+import { VERIFY_PROMPT_FOOTER_TEXT } from '../lib/verifyPrompt';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -983,7 +984,7 @@ export async function handleAutosetupCreateVerify(
         ].join('\n')
       )
       .setColor(0x5865f2)
-      .setFooter({ text: 'Creator Assistant · Secure verification' });
+      .setFooter({ text: VERIFY_PROMPT_FOOTER_TEXT });
 
     const button = new ButtonBuilder()
       .setCustomId('verify_start')
@@ -1076,7 +1077,7 @@ export async function handleAutosetupSpawnHere(
       ].join('\n')
     )
     .setColor(0x5865f2)
-    .setFooter({ text: 'Creator Assistant · Secure verification' });
+    .setFooter({ text: VERIFY_PROMPT_FOOTER_TEXT });
 
   const button = new ButtonBuilder()
     .setCustomId('verify_start')

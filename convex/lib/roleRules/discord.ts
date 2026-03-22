@@ -7,6 +7,7 @@
 
 import type { GenericMutationCtx } from 'convex/server';
 import type { DataModel, Id } from '../../_generated/dataModel';
+import { enqueueVerifyPromptRefreshJob } from '../verifyPrompt';
 import { requireApiSecret } from './queries';
 
 type MutationCtx = GenericMutationCtx<DataModel>;
@@ -31,6 +32,7 @@ export interface AddProductFromDiscordRoleArgs {
   apiSecret: string;
   authUserId: string;
   sourceGuildId: string;
+  sourceGuildName?: string;
   requiredRoleId?: string;
   requiredRoleIds?: string[];
   requiredRoleMatchMode?: 'any' | 'all';
@@ -65,9 +67,19 @@ export async function addProductFromDiscordRoleImpl(
     .first();
 
   if (existing) {
-    // Update displayName when the bot resolved a better name on re-add
+    const patch: {
+      displayName?: string;
+      sourceGuildName?: string;
+      updatedAt: number;
+    } = { updatedAt: Date.now() };
     if (args.displayName && existing.displayName !== args.displayName) {
-      await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: Date.now() });
+      patch.displayName = args.displayName;
+    }
+    if (args.sourceGuildName && existing.sourceGuildName !== args.sourceGuildName) {
+      patch.sourceGuildName = args.sourceGuildName;
+    }
+    if (Object.keys(patch).length > 1) {
+      await ctx.db.patch(existing._id, patch);
     }
     return { productId, ruleId: existing._id };
   }
@@ -89,6 +101,7 @@ export async function addProductFromDiscordRoleImpl(
     priority: 0,
     enabled: true,
     sourceGuildId: args.sourceGuildId,
+    sourceGuildName: args.sourceGuildName,
     requiredRoleId: reqIds.length === 1 ? reqIds[0] : undefined,
     requiredRoleIds: reqIds.length > 1 ? reqIds : undefined,
     requiredRoleMatchMode: reqIds.length > 1 ? (args.requiredRoleMatchMode ?? 'any') : undefined,
@@ -110,6 +123,12 @@ export async function addProductFromDiscordRoleImpl(
     maxRetries: 5,
     createdAt: now,
     updatedAt: now,
+  });
+
+  await enqueueVerifyPromptRefreshJob(ctx, {
+    authUserId: args.authUserId,
+    guildId: args.guildId,
+    guildLinkId: args.guildLinkId,
   });
 
   return { productId, ruleId };

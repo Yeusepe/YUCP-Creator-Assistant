@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 import type {
   ButtonInteraction,
   ChatInputCommandInteraction,
+  RoleSelectMenuInteraction,
   StringSelectMenuInteraction,
 } from 'discord.js';
 
@@ -11,11 +12,15 @@ const mockListProducts = mock(() =>
     products: [] as Array<{ id: string; name: string; collaboratorName?: string }>,
   })
 );
+const mockCreateDiscordRoleSetupSessionToken = mock(() =>
+  Promise.resolve<string | undefined>(undefined)
+);
+const mockGetDiscordRoleSetupResult = mock(() => Promise.resolve({ completed: false }));
 
 mock.module('../../src/lib/internalRpc', () => ({
   listProviderProducts: mockListProducts,
-  createDiscordRoleSetupSessionToken: mock(() => Promise.resolve(undefined)),
-  getDiscordRoleSetupResult: mock(() => Promise.resolve({ completed: false })),
+  createDiscordRoleSetupSessionToken: mockCreateDiscordRoleSetupSessionToken,
+  getDiscordRoleSetupResult: mockGetDiscordRoleSetupResult,
   resolveVrchatAvatarName: mock(() => Promise.resolve({ name: undefined })),
   upsertProductCredential: mock(() => Promise.resolve({ success: true, error: undefined })),
 }));
@@ -28,6 +33,10 @@ mock.module('../../src/lib/posthog', () => ({
 import {
   handleProductAddInteractive,
   handleProductCancelAdd,
+  handleProductConfirmAdd,
+  handleProductDiscordRoleDone,
+  handleProductList,
+  handleProductRoleSelect,
   handleProductTypeSelect,
 } from '../../src/commands/product';
 import type { MockFn } from '../helpers/mockInteraction';
@@ -513,5 +522,203 @@ describe('product command', () => {
     expect(optionValues).toContain('vrchat');
     expect(optionValues).toContain('license');
     expect(optionValues).toContain('discord_role');
+  });
+
+  it('uses the selected source server name when discord role setup cannot resolve the guild live', async () => {
+    const previousApiBaseUrl = process.env.API_BASE_URL;
+    process.env.API_BASE_URL = 'https://api.example.com';
+    mockCreateDiscordRoleSetupSessionToken.mockImplementation(() =>
+      Promise.resolve('setup_token_1')
+    );
+    mockGetDiscordRoleSetupResult.mockImplementation(() =>
+      Promise.resolve({
+        completed: true,
+        sourceGuildId: '1169053833922629653',
+        sourceGuildName: 'Humanify',
+        sourceRoleIds: ['1169056856354852927'],
+        requiredRoleMatchMode: 'any',
+      })
+    );
+
+    let mutationCallCount = 0;
+    const convex = {
+      query: mock((...args: unknown[]) => {
+        const [, callArgs] = args as [unknown, Record<string, unknown>];
+        if ('guildId' in callArgs && !('subjectId' in callArgs)) {
+          return Promise.resolve({
+            gumroad: true,
+            jinxxy: true,
+            lemonsqueezy: true,
+            payhip: true,
+          });
+        }
+        return Promise.resolve({ policy: { allowedSourceGuildIds: [] } });
+      }),
+      mutation: mock(() => {
+        mutationCallCount += 1;
+        if (mutationCallCount === 1) {
+          return Promise.resolve({
+            productId: 'discord_role:1169053833922629653:1169056856354852927',
+            ruleId: 'rule_1',
+          });
+        }
+        return Promise.resolve({});
+      }),
+      action: mock(() => Promise.resolve(undefined)),
+    } as unknown as import('convex/browser').ConvexHttpClient;
+
+    try {
+      const slashInteraction = mockSlashCommand({
+        userId: 'user_prod_discord_name',
+        guildId: 'guild_product_test',
+        commandName: 'creator-admin',
+        subcommandGroup: 'product',
+        subcommand: 'add',
+        isAdmin: true,
+      });
+      await handleProductAddInteractive(
+        slashInteraction as unknown as ChatInputCommandInteraction,
+        {
+          authUserId: 'auth_product_discord_name',
+          guildLinkId: 'link_discord_name' as ProductCtx['guildLinkId'],
+          guildId: 'guild_product_test',
+        },
+        convex,
+        TEST_API_SECRET
+      );
+
+      const typeSelectInteraction = mockStringSelect({
+        userId: 'user_prod_discord_name',
+        guildId: 'guild_product_test',
+        customId: 'creator_product:type_select:auth_product_discord_name',
+        values: ['discord_role'],
+      });
+      typeSelectInteraction.deferUpdate = mock(() =>
+        Promise.resolve(undefined)
+      ) as unknown as MockFn;
+
+      await handleProductTypeSelect(
+        typeSelectInteraction as unknown as StringSelectMenuInteraction,
+        'auth_product_discord_name',
+        convex,
+        TEST_API_SECRET
+      );
+
+      const doneInteraction = mockButton({
+        userId: 'user_prod_discord_name',
+        guildId: 'guild_product_test',
+        customId:
+          'creator_product:discord_role_done:user_prod_discord_name:auth_product_discord_name',
+      });
+      doneInteraction.deferUpdate = mock(() => Promise.resolve(undefined)) as unknown as MockFn;
+
+      await handleProductDiscordRoleDone(
+        doneInteraction as unknown as ButtonInteraction,
+        'user_prod_discord_name',
+        'auth_product_discord_name'
+      );
+
+      const roleSelectInteraction = mockStringSelect({
+        userId: 'user_prod_discord_name',
+        guildId: 'guild_product_test',
+        customId: 'creator_product:role_select:user_prod_discord_name:auth_product_discord_name',
+        values: ['verified_role_1'],
+      });
+      roleSelectInteraction.isRoleSelectMenu = () => true;
+      roleSelectInteraction.guild = {
+        roles: {
+          cache: new Map([['verified_role_1', { position: 1 }]]),
+          fetch: () => Promise.resolve({ name: 'Flame glasses' }),
+        },
+        members: {
+          me: {
+            roles: {
+              highest: { position: 10 },
+            },
+          },
+        },
+      } as never;
+
+      await handleProductRoleSelect(
+        roleSelectInteraction as unknown as RoleSelectMenuInteraction,
+        'user_prod_discord_name',
+        'auth_product_discord_name'
+      );
+
+      const confirmInteraction = mockButton({
+        userId: 'user_prod_discord_name',
+        guildId: 'guild_product_test',
+        customId: 'creator_product:confirm_add:user_prod_discord_name:auth_product_discord_name',
+      });
+      confirmInteraction.client.guilds.fetch = mock(async () => null);
+
+      await handleProductConfirmAdd(
+        confirmInteraction as unknown as ButtonInteraction,
+        convex,
+        TEST_API_SECRET,
+        'user_prod_discord_name',
+        'auth_product_discord_name'
+      );
+
+      const mutationCalls = (
+        convex.mutation as unknown as {
+          mock: { calls: Array<[unknown, Record<string, unknown>]> };
+        }
+      ).mock.calls;
+      const addDiscordRoleCall = mutationCalls.find(([, args]) => 'sourceGuildId' in args);
+      expect(addDiscordRoleCall?.[1]?.sourceGuildName).toBe('Humanify');
+      expect(addDiscordRoleCall?.[1]?.displayName).toBeUndefined();
+    } finally {
+      process.env.API_BASE_URL = previousApiBaseUrl;
+      mockCreateDiscordRoleSetupSessionToken.mockImplementation(() => Promise.resolve(undefined));
+      mockGetDiscordRoleSetupResult.mockImplementation(() => Promise.resolve({ completed: false }));
+    }
+  });
+
+  it('shows the stored source server name in product list when a discord role rule has no friendly role display name', async () => {
+    const convex = {
+      query: mock(() =>
+        Promise.resolve([
+          {
+            productId: 'discord_role:1169053833922629653:1169056856354852927',
+            displayName: null,
+            provider: 'discord',
+            sourceGuildId: '1169053833922629653',
+            sourceGuildName: 'Humanify',
+            requiredRoleId: '1169056856354852927',
+            verifiedRoleId: 'verified_role_1',
+            enabled: true,
+          },
+        ])
+      ),
+      mutation: mock(() => Promise.resolve(undefined)),
+      action: mock(() => Promise.resolve(undefined)),
+    } as unknown as import('convex/browser').ConvexHttpClient;
+    const interaction = mockSlashCommand({
+      userId: 'user_prod_list_discord_name',
+      guildId: 'guild_product_test',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'list',
+      isAdmin: true,
+    });
+    interaction.client.guilds.fetch = mock(async () => null);
+
+    await handleProductList(
+      interaction as unknown as ChatInputCommandInteraction,
+      convex,
+      TEST_API_SECRET,
+      {
+        authUserId: 'auth_product_list_discord_name',
+        guildId: 'guild_product_test',
+      }
+    );
+
+    const payload = interaction.editReply.mock.calls[0]?.[0];
+    const embed = payload?.embeds?.[0]?.toJSON?.() ?? payload?.embeds?.[0]?.data;
+    expect(embed?.description).toContain('[Discord Role] Humanify');
+    expect(embed?.description).not.toContain(
+      'discord_role:1169053833922629653:1169056856354852927'
+    );
   });
 });

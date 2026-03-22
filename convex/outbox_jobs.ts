@@ -29,7 +29,8 @@ export const OutboxJobType = v.union(
   v.literal('revocation'),
   v.literal('notification'),
   v.literal('creator_alert'),
-  v.literal('retroactive_rule_sync')
+  v.literal('retroactive_rule_sync'),
+  v.literal('verify_prompt_refresh')
 );
 
 // ============================================================================
@@ -61,7 +62,9 @@ export const getPendingJobs = query({
     if (args.jobTypes && args.jobTypes.length > 0) {
       // We need to filter after fetching since we can't combine index filters
       const allPending = await pendingQuery.take(1000);
-      const filtered = allPending.filter((job) => args.jobTypes?.includes(job.jobType as any));
+      const filtered = allPending.filter((job) =>
+        args.jobTypes?.some((jobType) => jobType === job.jobType)
+      );
       return filtered.slice(0, limit);
     }
 

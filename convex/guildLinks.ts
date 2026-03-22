@@ -15,6 +15,17 @@ const GuildLinkStatus = v.union(
   v.literal('suspended')
 );
 
+const VerifyPromptMessage = v.object({
+  channelId: v.string(),
+  messageId: v.string(),
+  titleOverride: v.optional(v.string()),
+  descriptionOverride: v.optional(v.string()),
+  buttonTextOverride: v.optional(v.string()),
+  color: v.optional(v.number()),
+  imageUrl: v.optional(v.string()),
+  updatedAt: v.number(),
+});
+
 /**
  * Upsert a guild link. Called by API after bot install callback.
  */
@@ -136,6 +147,62 @@ export const getByDiscordGuildForBot = query({
   },
 });
 
+export const getVerifyPromptMessageForOwner = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    guildLinkId: v.id('guild_links'),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      guildId: v.string(),
+      verifyPromptMessage: v.optional(VerifyPromptMessage),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const link = await ctx.db.get(args.guildLinkId);
+    if (!link) return null;
+    if (link.authUserId !== args.authUserId) {
+      throw new ConvexError('Unauthorized: not the owner');
+    }
+
+    return {
+      guildId: link.discordGuildId,
+      verifyPromptMessage: link.verifyPromptMessage,
+    };
+  },
+});
+
+export const getVerifyPromptMessageForBot = query({
+  args: {
+    apiSecret: v.string(),
+    guildLinkId: v.id('guild_links'),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      authUserId: v.string(),
+      guildId: v.string(),
+      verifyPromptMessage: v.optional(VerifyPromptMessage),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const link = await ctx.db.get(args.guildLinkId);
+    if (!link || link.status !== 'active') return null;
+
+    return {
+      authUserId: link.authUserId,
+      guildId: link.discordGuildId,
+      verifyPromptMessage: link.verifyPromptMessage,
+    };
+  },
+});
+
 /**
  * Get guild link with creator profile for ownership check. API calls this before uninstall.
  */
@@ -188,6 +255,76 @@ export const getUserGuilds = query({
       name: link.discordGuildName || profile?.name || 'Creator Server',
       icon: link.discordGuildIcon ?? null,
     }));
+  },
+});
+
+export const saveVerifyPromptMessage = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    guildLinkId: v.id('guild_links'),
+    channelId: v.string(),
+    messageId: v.string(),
+    titleOverride: v.optional(v.string()),
+    descriptionOverride: v.optional(v.string()),
+    buttonTextOverride: v.optional(v.string()),
+    color: v.optional(v.number()),
+    imageUrl: v.optional(v.string()),
+  },
+  returns: v.object({
+    success: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const link = await ctx.db.get(args.guildLinkId);
+    if (!link) {
+      throw new ConvexError('Guild link not found');
+    }
+    if (link.authUserId !== args.authUserId) {
+      throw new ConvexError('Unauthorized: not the owner');
+    }
+
+    await ctx.db.patch(args.guildLinkId, {
+      verifyPromptMessage: {
+        channelId: args.channelId,
+        messageId: args.messageId,
+        titleOverride: args.titleOverride,
+        descriptionOverride: args.descriptionOverride,
+        buttonTextOverride: args.buttonTextOverride,
+        color: args.color,
+        imageUrl: args.imageUrl,
+        updatedAt: Date.now(),
+      },
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+export const clearVerifyPromptMessage = mutation({
+  args: {
+    apiSecret: v.string(),
+    guildLinkId: v.id('guild_links'),
+  },
+  returns: v.object({
+    success: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const link = await ctx.db.get(args.guildLinkId);
+    if (!link) {
+      return { success: false };
+    }
+
+    await ctx.db.patch(args.guildLinkId, {
+      verifyPromptMessage: undefined,
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
   },
 });
 

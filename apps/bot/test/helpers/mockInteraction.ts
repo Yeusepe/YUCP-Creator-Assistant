@@ -51,8 +51,9 @@ export interface MockInteraction {
 
   // ── Guild / server context ─────────────────────────────────────────────────
   guildId: string | null;
+  channelId: string | null;
   guild: { roles: { fetch: (id: string) => Promise<{ name: string } | null> } } | null;
-  channel: { send: MockFn } | null;
+  channel: { id: string; send: MockFn } | null;
   /** Either an object (GuildMember) or a string (API member) – handlers guard with typeof check */
   member: { permissions: { has: (bit: bigint) => boolean } } | string | null;
 
@@ -200,6 +201,7 @@ function buildBase(
     token: 'mock_interaction_token',
 
     guildId,
+    channelId: guildId ? `channel-${guildId}` : null,
     guild: guildId
       ? {
           roles: {
@@ -208,6 +210,7 @@ function buildBase(
         }
       : null,
     channel: {
+      id: guildId ? `channel-${guildId}` : 'mock_channel_id',
       send: mock(() => Promise.resolve({ id: 'mock_message_id' })),
     },
     member: {

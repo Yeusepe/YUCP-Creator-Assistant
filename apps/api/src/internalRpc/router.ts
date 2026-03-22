@@ -211,6 +211,7 @@ function normalizeDiscordRoleSetupResult(
   return {
     completed: payload?.completed ?? false,
     sourceGuildId: payload?.sourceGuildId,
+    sourceGuildName: payload?.sourceGuildName,
     sourceRoleId: payload?.sourceRoleId,
     sourceRoleIds: payload?.sourceRoleIds ?? [],
     requiredRoleMatchMode: payload?.requiredRoleMatchMode,

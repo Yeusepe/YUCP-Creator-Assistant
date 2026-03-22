@@ -64,6 +64,7 @@ interface ProductSession {
   /** Per-product credential key (e.g. Payhip product secret key) */
   perProductCredentialKey?: string;
   sourceGuildId?: string;
+  sourceGuildName?: string;
   sourceRoleId?: string;
   sourceRoleIds?: string[];
   requiredRoleMatchMode?: 'any' | 'all';
@@ -101,6 +102,7 @@ async function enrichDiscordRoleNames<
     displayName: string | null;
     provider?: string;
     sourceGuildId?: string;
+    sourceGuildName?: string;
     requiredRoleId?: string;
     requiredRoleIds?: string[];
     requiredRoleMatchMode?: 'any' | 'all';
@@ -151,14 +153,18 @@ async function enrichDiscordRoleNames<
       return item;
     }
     const roleMap = guildRoles.get(item.sourceGuildId);
-    const guildName = guildNames.get(item.sourceGuildId);
-    if (!roleMap) return item;
+    const guildName = guildNames.get(item.sourceGuildId) ?? item.sourceGuildName;
+    if (!roleMap) {
+      return guildName ? { ...item, displayName: guildName } : item;
+    }
 
     const reqIds = item.requiredRoleIds ?? (item.requiredRoleId ? [item.requiredRoleId] : []);
     const names = reqIds
       .map((id) => roleMap.get(id))
       .filter((n): n is string => typeof n === 'string');
-    if (names.length === 0) return item;
+    if (names.length === 0) {
+      return guildName ? { ...item, displayName: guildName } : item;
+    }
 
     // Show "Role A + Role B" for "all" mode, "Role A / Role B" for "any" mode
     const sep = item.requiredRoleMatchMode === 'all' ? ' + ' : ' / ';
@@ -934,6 +940,7 @@ export async function handleProductDiscordRoleDone(
     }
 
     session.sourceGuildId = result.sourceGuildId;
+    session.sourceGuildName = result.sourceGuildName;
     session.sourceRoleIds =
       result.sourceRoleIds ?? (result.sourceRoleId ? [result.sourceRoleId] : []);
     session.sourceRoleId = result.sourceRoleId ?? session.sourceRoleIds[0];
@@ -1000,7 +1007,13 @@ export async function handleProductRoleSelect(
   const detailLines: string[] = [`**Type:** ${typeLabel(session.type)}`];
 
   if (session.type === 'discord_role') {
-    detailLines.push(`**Source Server ID:** \`${session.sourceGuildId}\``);
+    detailLines.push(
+      `**Source Server:** ${
+        session.sourceGuildName
+          ? `${session.sourceGuildName} (\`${session.sourceGuildId}\`)`
+          : `\`${session.sourceGuildId}\``
+      }`
+    );
     const srcIds = session.sourceRoleIds ?? (session.sourceRoleId ? [session.sourceRoleId] : []);
     const matchMode = session.requiredRoleMatchMode ?? 'any';
     detailLines.push(
@@ -1127,6 +1140,7 @@ export async function handleProductConfirmAdd(
         apiSecret,
         authUserId,
         sourceGuildId,
+        sourceGuildName: session.sourceGuildName,
         requiredRoleIds: reqIds,
         requiredRoleMatchMode: requiredRoleMatchMode ?? 'any',
         guildId,

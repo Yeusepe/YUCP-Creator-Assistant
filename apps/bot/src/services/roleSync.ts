@@ -16,6 +16,8 @@ import { ConvexHttpClient } from 'convex/browser';
 import { Client, GuildMember, RESTJSONErrorCodes } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import { sendDashboardNotification } from '../lib/notifications';
+import { buildVerifyPromptMessage, getEnabledProviders } from '../lib/verifyPrompt';
+import { buildVerifyPromptAccessPreview } from '../lib/verifyPromptAccess';
 
 type BotConvexClient = {
   // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
@@ -64,12 +66,27 @@ export interface RetroactiveRuleSyncPayload {
   productId: string;
 }
 
+export interface VerifyPromptRefreshPayload {
+  guildId: string;
+  guildLinkId: Id<'guild_links'>;
+}
+
 /** Outbox job document type */
 export interface OutboxJob {
   _id: Id<'outbox_jobs'>;
   authUserId: string;
-  jobType: 'role_sync' | 'role_removal' | 'creator_alert' | 'retroactive_rule_sync';
-  payload: RoleSyncPayload | RoleRemovalPayload | CreatorAlertPayload | RetroactiveRuleSyncPayload;
+  jobType:
+    | 'role_sync'
+    | 'role_removal'
+    | 'creator_alert'
+    | 'retroactive_rule_sync'
+    | 'verify_prompt_refresh';
+  payload:
+    | RoleSyncPayload
+    | RoleRemovalPayload
+    | CreatorAlertPayload
+    | RetroactiveRuleSyncPayload
+    | VerifyPromptRefreshPayload;
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'dead_letter';
   retryCount: number;
   maxRetries: number;
@@ -341,6 +358,13 @@ export class RoleSyncService {
         return;
       }
 
+      if (job.jobType === 'verify_prompt_refresh') {
+        await this.processVerifyPromptRefreshJob(job);
+        await this.updateJobStatus(job._id, 'completed');
+        this.logger.info('Verify prompt refresh job completed', { jobId: job._id });
+        return;
+      }
+
       let result: RoleSyncResult;
 
       if (job.jobType === 'role_sync') {
@@ -541,6 +565,101 @@ export class RoleSyncService {
     }
 
     await channel.send({ content: payload.message, allowedMentions: { parse: [] } });
+  }
+
+  private async processVerifyPromptRefreshJob(job: OutboxJob): Promise<void> {
+    const payload = job.payload as VerifyPromptRefreshPayload;
+    if (!payload.guildLinkId || !payload.guildId) {
+      throw new Error('Verify prompt refresh payload missing guildLinkId or guildId');
+    }
+
+    const link = (await this.convexClient.query(api.guildLinks.getVerifyPromptMessageForBot, {
+      apiSecret: this.apiSecret,
+      guildLinkId: payload.guildLinkId,
+    })) as {
+      authUserId: string;
+      guildId: string;
+      verifyPromptMessage?: {
+        channelId: string;
+        messageId: string;
+        titleOverride?: string;
+        descriptionOverride?: string;
+        buttonTextOverride?: string;
+        color?: number;
+        imageUrl?: string;
+      };
+    } | null;
+
+    if (!link?.verifyPromptMessage) {
+      return;
+    }
+
+    const providersResult = await this.convexClient.query(
+      api.role_rules.getEnabledVerificationProvidersFromProducts,
+      {
+        apiSecret: this.apiSecret,
+        authUserId: link.authUserId,
+        guildId: link.guildId,
+      }
+    );
+    const enabledSet = new Set<string>(getEnabledProviders(providersResult));
+    const accessPreview = await buildVerifyPromptAccessPreview({
+      convex: this.convexClient,
+      discordClient: this.discordClient,
+      apiSecret: this.apiSecret,
+      authUserId: link.authUserId,
+      guildId: link.guildId,
+    });
+    const { embed, row } = buildVerifyPromptMessage(
+      enabledSet,
+      {
+        titleOverride: link.verifyPromptMessage.titleOverride,
+        descriptionOverride: link.verifyPromptMessage.descriptionOverride,
+        buttonTextOverride: link.verifyPromptMessage.buttonTextOverride,
+        color: link.verifyPromptMessage.color,
+        imageUrl: link.verifyPromptMessage.imageUrl,
+      },
+      { accessPreview }
+    );
+
+    const channel = await this.discordClient.channels
+      .fetch(link.verifyPromptMessage.channelId)
+      .catch((error) => {
+        if (this.isUnknownDiscordResource(error)) {
+          return null;
+        }
+        throw error;
+      });
+    if (!channel || !('messages' in channel)) {
+      await this.clearVerifyPromptMessage(payload.guildLinkId);
+      return;
+    }
+
+    const message = await channel.messages
+      .fetch(link.verifyPromptMessage.messageId)
+      .catch((error) => {
+        if (this.isUnknownDiscordResource(error)) {
+          return null;
+        }
+        throw error;
+      });
+    if (!message) {
+      await this.clearVerifyPromptMessage(payload.guildLinkId);
+      return;
+    }
+
+    try {
+      await message.edit({
+        embeds: [embed],
+        components: [row],
+      });
+    } catch (error) {
+      if (this.isUnknownDiscordResource(error)) {
+        await this.clearVerifyPromptMessage(payload.guildLinkId);
+        return;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -1006,7 +1125,13 @@ export class RoleSyncService {
     try {
       const jobs = await this.convexClient.query(api.outbox_jobs.getPendingJobs, {
         apiSecret: this.apiSecret,
-        jobTypes: ['role_sync', 'role_removal', 'creator_alert', 'retroactive_rule_sync'],
+        jobTypes: [
+          'role_sync',
+          'role_removal',
+          'creator_alert',
+          'retroactive_rule_sync',
+          'verify_prompt_refresh',
+        ],
         limit: 10,
       });
 
@@ -1104,6 +1229,25 @@ export class RoleSyncService {
       'code' in error &&
       typeof (error as { code: unknown }).code === 'number'
     );
+  }
+
+  private isUnknownDiscordResource(error: unknown): boolean {
+    if (!this.isDiscordError(error)) {
+      return false;
+    }
+
+    const discordError = error as { code: number };
+    return (
+      discordError.code === RESTJSONErrorCodes.UnknownChannel ||
+      discordError.code === RESTJSONErrorCodes.UnknownMessage
+    );
+  }
+
+  private async clearVerifyPromptMessage(guildLinkId: Id<'guild_links'>): Promise<void> {
+    await this.convexClient.mutation(api.guildLinks.clearVerifyPromptMessage, {
+      apiSecret: this.apiSecret,
+      guildLinkId,
+    });
   }
 
   /**

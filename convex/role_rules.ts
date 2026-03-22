@@ -16,8 +16,9 @@ import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { internalQuery, mutation, query } from './_generated/server';
 import { addCatalogProductImpl } from './lib/roleRules/catalog';
-import { addProductFromDiscordRoleImpl, buildDiscordRoleKey } from './lib/roleRules/discord';
+import { addProductFromDiscordRoleImpl } from './lib/roleRules/discord';
 import { normalizeProductUrl, requireApiSecret, sha256Hex } from './lib/roleRules/queries';
+import { enqueueVerifyPromptRefreshJob } from './lib/verifyPrompt';
 
 // ============================================================================
 // QUERIES
@@ -181,6 +182,7 @@ export const getByGuildWithProductNames = query({
       displayName: v.union(v.string(), v.null()),
       provider: v.optional(v.string()),
       sourceGuildId: v.optional(v.string()),
+      sourceGuildName: v.optional(v.string()),
       requiredRoleId: v.optional(v.string()),
       requiredRoleIds: v.optional(v.array(v.string())),
       requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
@@ -205,6 +207,7 @@ export const getByGuildWithProductNames = query({
       displayName: string | null;
       provider?: string;
       sourceGuildId?: string;
+      sourceGuildName?: string;
       requiredRoleId?: string;
       requiredRoleIds?: string[];
       requiredRoleMatchMode?: 'any' | 'all';
@@ -243,6 +246,7 @@ export const getByGuildWithProductNames = query({
         displayName,
         provider,
         sourceGuildId: r.sourceGuildId,
+        sourceGuildName: r.sourceGuildName,
         requiredRoleId: r.requiredRoleId,
         requiredRoleIds: r.requiredRoleIds,
         requiredRoleMatchMode: r.requiredRoleMatchMode,
@@ -428,6 +432,12 @@ export const createRoleRule = mutation({
       });
     }
 
+    await enqueueVerifyPromptRefreshJob(ctx, {
+      authUserId: args.authUserId,
+      guildId: args.guildId,
+      guildLinkId: args.guildLinkId,
+    });
+
     return { ruleId };
   },
 });
@@ -481,6 +491,11 @@ export const updateRoleRule = mutation({
     }
 
     await ctx.db.patch(args.ruleId, update);
+    await enqueueVerifyPromptRefreshJob(ctx, {
+      authUserId: rule.authUserId,
+      guildId: rule.guildId,
+      guildLinkId: rule.guildLinkId,
+    });
 
     return { success: true };
   },
@@ -508,10 +523,11 @@ export const deleteRoleRule = mutation({
     await ctx.db.delete(args.ruleId);
 
     // If this rule had a catalogProductId, check if any other rules still reference it
-    if (rule.catalogProductId) {
+    const catalogProductId = rule.catalogProductId;
+    if (catalogProductId) {
       const remainingRefs = await ctx.db
         .query('role_rules')
-        .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', rule.catalogProductId!))
+        .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
         .first();
 
       // If no other rules reference this catalog product, purge it to keep the picker clean
@@ -519,7 +535,7 @@ export const deleteRoleRule = mutation({
         // Find and delete associated links first
         const links = await ctx.db
           .query('catalog_product_links')
-          .filter((q) => q.eq(q.field('catalogProductId'), rule.catalogProductId!))
+          .filter((q) => q.eq(q.field('catalogProductId'), catalogProductId))
           .take(1000);
 
         for (const link of links) {
@@ -527,9 +543,15 @@ export const deleteRoleRule = mutation({
         }
 
         // Then delete the catalog entry itself
-        await ctx.db.delete(rule.catalogProductId);
+        await ctx.db.delete(catalogProductId);
       }
     }
+
+    await enqueueVerifyPromptRefreshJob(ctx, {
+      authUserId: rule.authUserId,
+      guildId: rule.guildId,
+      guildLinkId: rule.guildLinkId,
+    });
 
     return { success: true };
   },
@@ -819,8 +841,7 @@ export const addProductForProvider = mutation({
     }
 
     const url =
-      args.productUrl ??
-      `https://example.invalid/${args.provider}/${args.providerProductRef}`;
+      args.productUrl ?? `https://example.invalid/${args.provider}/${args.providerProductRef}`;
     const normalized = url.toLowerCase().trim();
     const urlHash = await sha256Hex(normalized);
 
@@ -1061,7 +1082,6 @@ export const addProductFromVrchatCatalog = mutation({
   },
 });
 
-
 /**
  * Get or create a product catalog entry for a Payhip product.
  * The permalink (e.g., "RGsF") is the canonical Payhip product identifier.
@@ -1157,6 +1177,7 @@ export const addProductFromDiscordRole = mutation({
     apiSecret: v.string(),
     authUserId: v.string(),
     sourceGuildId: v.string(),
+    sourceGuildName: v.optional(v.string()),
     requiredRoleId: v.optional(v.string()),
     requiredRoleIds: v.optional(v.array(v.string())),
     requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
@@ -1281,6 +1302,12 @@ export const bulkCreateRoleRules = mutation({
         });
       }
     }
+
+    await enqueueVerifyPromptRefreshJob(ctx, {
+      authUserId: args.authUserId,
+      guildId: args.guildId,
+      guildLinkId: args.guildLinkId,
+    });
 
     return {
       createdCount: ruleIds.length,

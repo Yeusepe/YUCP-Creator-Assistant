@@ -38,6 +38,7 @@ import type * as lib_roleRules_catalog from "../lib/roleRules/catalog.js";
 import type * as lib_roleRules_discord from "../lib/roleRules/discord.js";
 import type * as lib_roleRules_queries from "../lib/roleRules/queries.js";
 import type * as lib_trustedOrigins from "../lib/trustedOrigins.js";
+import type * as lib_verifyPrompt from "../lib/verifyPrompt.js";
 import type * as lib_vrchat_client from "../lib/vrchat/client.js";
 import type * as lib_vrchat_cookie from "../lib/vrchat/cookie.js";
 import type * as lib_vrchat_crypto from "../lib/vrchat/crypto.js";
@@ -119,6 +120,7 @@ declare const fullApi: ApiFromModules<{
   "lib/roleRules/discord": typeof lib_roleRules_discord;
   "lib/roleRules/queries": typeof lib_roleRules_queries;
   "lib/trustedOrigins": typeof lib_trustedOrigins;
+  "lib/verifyPrompt": typeof lib_verifyPrompt;
   "lib/vrchat/client": typeof lib_vrchat_client;
   "lib/vrchat/cookie": typeof lib_vrchat_cookie;
   "lib/vrchat/crypto": typeof lib_vrchat_crypto;

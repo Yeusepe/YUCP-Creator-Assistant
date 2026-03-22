@@ -20,6 +20,12 @@ async function getRoleRuleCounts(t: ReturnType<typeof makeTestConvex>) {
   }));
 }
 
+async function getOutboxJobTypes(t: ReturnType<typeof makeTestConvex>) {
+  return t.run(async (ctx) =>
+    (await ctx.db.query('outbox_jobs').collect()).map((job) => job.jobType)
+  );
+}
+
 describe('role rules CRUD and isolation', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = 'test-secret';
@@ -217,6 +223,83 @@ describe('role rules CRUD and isolation', () => {
     expect(providers).toContain('gumroad');
     expect(providers).toContain('jinxxy');
     expect(providers.length).toBe(2); // no duplicates
+  });
+
+  it('enqueues a verify prompt refresh job when a role rule is created', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-refresh-create',
+      discordGuildId: 'guild-refresh-create',
+    });
+
+    await t.mutation(api.role_rules.createRoleRule, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-creator-refresh-create',
+      guildId: 'guild-refresh-create',
+      guildLinkId,
+      productId: 'gumroad:prod-refresh-create',
+      verifiedRoleId: 'role-refresh-create',
+    });
+
+    const jobTypes = await getOutboxJobTypes(t);
+
+    expect(jobTypes).toContain('retroactive_rule_sync');
+    expect(jobTypes).toContain('verify_prompt_refresh');
+  });
+
+  it('enqueues another verify prompt refresh job when a role rule is deleted', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-refresh-delete',
+      discordGuildId: 'guild-refresh-delete',
+    });
+
+    const { ruleId } = await t.mutation(api.role_rules.createRoleRule, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-creator-refresh-delete',
+      guildId: 'guild-refresh-delete',
+      guildLinkId,
+      productId: 'gumroad:prod-refresh-delete',
+      verifiedRoleId: 'role-refresh-delete',
+    });
+
+    await t.mutation(api.role_rules.deleteRoleRule, {
+      apiSecret: 'test-secret',
+      ruleId,
+    });
+
+    const refreshJobs = (await getOutboxJobTypes(t)).filter(
+      (jobType) => jobType === 'verify_prompt_refresh'
+    );
+
+    expect(refreshJobs).toHaveLength(2);
+  });
+
+  it('enqueues a verify prompt refresh job for discord cross-server role rules', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-refresh-discord',
+      discordGuildId: 'guild-refresh-discord',
+    });
+
+    await t.mutation(api.role_rules.addProductFromDiscordRole, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-creator-refresh-discord',
+      sourceGuildId: 'source-guild-refresh',
+      requiredRoleId: 'source-role-refresh',
+      guildId: 'guild-refresh-discord',
+      guildLinkId,
+      verifiedRoleId: 'target-role-refresh',
+      displayName: 'Member Access',
+    });
+
+    const jobTypes = await getOutboxJobTypes(t);
+
+    expect(jobTypes).toContain('retroactive_rule_sync');
+    expect(jobTypes).toContain('verify_prompt_refresh');
   });
 
   it('given wrong apiSecret, when creating rule, then throws', async () => {
