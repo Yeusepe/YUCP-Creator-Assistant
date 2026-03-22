@@ -2610,6 +2610,69 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
   }
 
+  async function listAllSubjectsForAuthUser(
+    convex: ReturnType<typeof getConvexClientFromUrl>,
+    authUserId: string
+  ) {
+    const subjects: Array<{
+      _id: string;
+      displayName?: string;
+      status: string;
+      primaryDiscordUserId?: string;
+    }> = [];
+    let cursor: string | null | undefined;
+
+    for (;;) {
+      const result = await convex.query(api.subjects.listByAuthUser, {
+        apiSecret: config.convexApiSecret,
+        authUserId,
+        limit: 100,
+        cursor: cursor ?? undefined,
+      });
+      subjects.push(...(result.data ?? []));
+
+      if (!result.hasMore || !result.nextCursor) {
+        return subjects;
+      }
+
+      cursor = result.nextCursor;
+    }
+  }
+
+  async function listAllEntitlementsForSubject(
+    convex: ReturnType<typeof getConvexClientFromUrl>,
+    authUserId: string,
+    subjectId: string
+  ) {
+    const entitlements: Array<{
+      id: string;
+      sourceProvider: string;
+      productId: string;
+      sourceReference?: string;
+      status: string;
+      grantedAt: number;
+      revokedAt?: number | null;
+    }> = [];
+    let cursor: string | null | undefined;
+
+    for (;;) {
+      const result = await convex.query(api.entitlements.listByAuthUser, {
+        apiSecret: config.convexApiSecret,
+        authUserId,
+        subjectId,
+        limit: 100,
+        cursor: cursor ?? undefined,
+      });
+      entitlements.push(...(result.data ?? []));
+
+      if (!result.hasMore || !result.nextCursor) {
+        return entitlements;
+      }
+
+      cursor = result.nextCursor;
+    }
+  }
+
   /**
    * GET /api/connect/user/data-export
    * GDPR right to data portability. Returns a JSON file attachment containing
@@ -2625,11 +2688,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
 
       const [subjectsResult, connectionsResult, grantsResult] = await Promise.all([
-        convex.query(api.subjects.listByAuthUser, {
-          apiSecret: config.convexApiSecret,
-          authUserId: session.user.id,
-          limit: 100,
-        }),
+        listAllSubjectsForAuthUser(convex, session.user.id),
         convex.query(api.providerConnections.listConnectionsForUser, {
           apiSecret: config.convexApiSecret,
           authUserId: session.user.id,
@@ -2640,27 +2699,25 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         }),
       ]);
 
-      const subjects = subjectsResult.data ?? [];
       const subjectsWithEntitlements = await Promise.all(
-        subjects.map(
+        subjectsResult.map(
           async (subject: {
             _id: string;
             displayName?: string;
             status: string;
             primaryDiscordUserId?: string;
           }) => {
-            const entitlementsResult = await convex.query(api.entitlements.listByAuthUser, {
-              apiSecret: config.convexApiSecret,
-              authUserId: session.user.id,
-              subjectId: subject._id,
-              limit: 100,
-            });
+            const entitlementsResult = await listAllEntitlementsForSubject(
+              convex,
+              session.user.id,
+              subject._id
+            );
             return {
               id: subject._id,
               displayName: subject.displayName ?? null,
               primaryDiscordUserId: subject.primaryDiscordUserId ?? null,
               status: subject.status,
-              entitlements: (entitlementsResult.data ?? []).map(
+              entitlements: entitlementsResult.map(
                 (e: {
                   id: string;
                   sourceProvider: string;
@@ -2747,12 +2804,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       const authUserId = session.user.id;
 
-      const subjectsResult = await convex.query(api.subjects.listByAuthUser, {
-        apiSecret: config.convexApiSecret,
-        authUserId,
-        limit: 100,
-      });
-      const subjects = subjectsResult.data ?? [];
+      const subjects = await listAllSubjectsForAuthUser(convex, authUserId);
 
       for (const subject of subjects as Array<{ _id: string }>) {
         await convex.mutation(api.entitlements.revokeAllEntitlementsForSubject, {

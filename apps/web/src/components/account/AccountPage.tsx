@@ -1,4 +1,4 @@
-import { type ReactNode, useId } from 'react';
+import { type ReactNode, useEffect, useId, useRef } from 'react';
 
 function joinClasses(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
@@ -92,6 +92,11 @@ export function AccountModal({
   children: ReactNode;
 }>) {
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
 
   return (
     <div className="account-modal-backdrop" role="presentation">
@@ -101,7 +106,14 @@ export function AccountModal({
         aria-label={closeLabel}
         onClick={onClose}
       />
-      <div className="account-modal" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div
+        ref={dialogRef}
+        className="account-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <h3 id={titleId} className="account-modal-title">
           {title}
         </h3>

@@ -90,7 +90,7 @@ function OAuthLoginPage() {
   const runOAuthLoginFlow = useCallback(async () => {
     const sessionResult = await authClient.getSession();
     if (sessionResult.data?.session || sessionResult.data?.user) {
-      resumeOAuthFlow();
+      await resumeOAuthFlow();
       return;
     }
 
