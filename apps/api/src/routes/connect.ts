@@ -2295,15 +2295,23 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    */
   function getUserProviders(_request: Request): Response {
     const providers = Array.from(PROVIDERS.values())
-      .filter((p) => Boolean(p.displayMeta?.userSetupPath))
-      .map((p) => ({
-        id: p.id,
-        label: p.displayMeta?.label,
-        icon: p.displayMeta?.icon,
-        color: p.displayMeta?.color,
-        description: p.displayMeta?.description,
-        userSetupPath: p.displayMeta?.userSetupPath!,
-      }));
+      .flatMap((p) => {
+        const displayMeta = p.displayMeta;
+        if (!displayMeta?.userSetupPath) {
+          return [];
+        }
+
+        return [
+          {
+            id: p.id,
+            label: displayMeta.label,
+            icon: displayMeta.icon,
+            color: displayMeta.color,
+            description: displayMeta.description,
+            userSetupPath: displayMeta.userSetupPath,
+          },
+        ];
+      });
     return Response.json({ providers });
   }
 
