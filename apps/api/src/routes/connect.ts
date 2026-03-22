@@ -2294,24 +2294,23 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Public — no credentials, no session required.
    */
   function getUserProviders(_request: Request): Response {
-    const providers = Array.from(PROVIDERS.values())
-      .flatMap((p) => {
-        const displayMeta = p.displayMeta;
-        if (!displayMeta?.userSetupPath) {
-          return [];
-        }
+    const providers = Array.from(PROVIDERS.values()).flatMap((p) => {
+      const displayMeta = p.displayMeta;
+      if (!displayMeta?.userSetupPath) {
+        return [];
+      }
 
-        return [
-          {
-            id: p.id,
-            label: displayMeta.label,
-            icon: displayMeta.icon,
-            color: displayMeta.color,
-            description: displayMeta.description,
-            userSetupPath: displayMeta.userSetupPath,
-          },
-        ];
-      });
+      return [
+        {
+          id: p.id,
+          label: displayMeta.label,
+          icon: displayMeta.icon,
+          color: displayMeta.color,
+          description: displayMeta.description,
+          userSetupPath: displayMeta.userSetupPath,
+        },
+      ];
+    });
     return Response.json({ providers });
   }
 
