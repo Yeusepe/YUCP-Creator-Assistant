@@ -11,14 +11,14 @@
  * Security:
  *  - `create` is internalMutation: only callable from Convex actions/mutations
  *    or via the API secret-authenticated HTTP route
- *  - `listUnseen` and `markSeen` use `authComponent.getAuthUser` to ensure
+ *  - `listUnseen` and `markSeen` use the shared authenticated-user resolver to ensure
  *    the caller can only access their own notifications
  */
 
 import { ConvexError, v } from 'convex/values';
-import { authComponent } from './auth';
 import { internalMutation, mutation, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
+import { getAuthenticatedAuthUser } from './lib/authUser';
 
 const NOTIFICATION_TTL_MS = 60_000; // 60 seconds
 
@@ -62,16 +62,17 @@ export const create = internalMutation({
 export const listUnseen = query({
   args: {},
   handler: async (ctx) => {
-    // biome-ignore lint/suspicious/noExplicitAny: Convex auth generic
-    const authUser = (await authComponent.getAuthUser(ctx)) as { id?: string } | null;
-    if (!authUser?.id) {
+    const authUser = await getAuthenticatedAuthUser(ctx);
+    if (!authUser) {
       return [];
     }
 
     const now = Date.now();
     return await ctx.db
       .query('admin_notifications')
-      .withIndex('by_auth_user_unseen', (q) => q.eq('authUserId', authUser.id as string).eq('seenAt', undefined))
+      .withIndex('by_auth_user_unseen', (q) =>
+        q.eq('authUserId', authUser.authUserId).eq('seenAt', undefined)
+      )
       .filter((q) => q.gt(q.field('expiresAt'), now))
       .order('asc')
       .collect();
@@ -87,9 +88,8 @@ export const markSeen = mutation({
     ids: v.array(v.id('admin_notifications')),
   },
   handler: async (ctx, args) => {
-    // biome-ignore lint/suspicious/noExplicitAny: Convex auth generic
-    const authUser = (await authComponent.getAuthUser(ctx)) as { id?: string } | null;
-    if (!authUser?.id) {
+    const authUser = await getAuthenticatedAuthUser(ctx);
+    if (!authUser) {
       throw new ConvexError('Unauthenticated');
     }
 
@@ -98,7 +98,7 @@ export const markSeen = mutation({
       args.ids.map(async (id) => {
         const doc = await ctx.db.get(id);
         // Only mark notifications belonging to this user
-        if (doc && doc.authUserId === authUser.id) {
+        if (doc && doc.authUserId === authUser.authUserId) {
           await ctx.db.patch(id, { seenAt: now });
         }
       })

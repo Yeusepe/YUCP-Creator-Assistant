@@ -27,6 +27,7 @@ import type * as guildMemberAdd from "../guildMemberAdd.js";
 import type * as http from "../http.js";
 import type * as identitySync from "../identitySync.js";
 import type * as lib_apiAuth from "../lib/apiAuth.js";
+import type * as lib_authUser from "../lib/authUser.js";
 import type * as lib_betterAuthAdapter from "../lib/betterAuthAdapter.js";
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
@@ -107,6 +108,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   identitySync: typeof identitySync;
   "lib/apiAuth": typeof lib_apiAuth;
+  "lib/authUser": typeof lib_authUser;
   "lib/betterAuthAdapter": typeof lib_betterAuthAdapter;
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;

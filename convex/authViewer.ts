@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values';
 import { components } from './_generated/api';
 import { type QueryCtx, query } from './_generated/server';
-import { authComponent } from './auth';
+import { getAuthenticatedAuthUser } from './lib/authUser';
 import { buildBetterAuthUserProviderLookupWhere } from './lib/betterAuthAdapter';
 
 const ViewerValue = v.object({
@@ -11,13 +11,6 @@ const ViewerValue = v.object({
   image: v.union(v.string(), v.null()),
   discordUserId: v.union(v.string(), v.null()),
 });
-
-interface AuthUserRecord {
-  id?: string;
-  name?: string | null;
-  email?: string | null;
-  image?: string | null;
-}
 
 interface DiscordAccountRecord {
   accountId?: string;
@@ -41,18 +34,9 @@ async function resolveViewer(ctx: QueryCtx) {
     phase: 'convex-authviewer-resolve',
   });
 
-  let authUser: AuthUserRecord | null;
-  try {
-    authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
-  } catch (error) {
-    console.error('[convex] authViewer auth user lookup failed', {
-      phase: 'convex-authviewer-auth-user',
-      error: serializeAuthViewerError(error),
-    });
-    throw error;
-  }
+  const authUser = await getAuthenticatedAuthUser(ctx);
 
-  if (!authUser?.id) {
+  if (!authUser) {
     console.info('[convex] authViewer resolve completed', {
       phase: 'convex-authviewer-resolve',
       hasAuthUser: false,
@@ -64,20 +48,20 @@ async function resolveViewer(ctx: QueryCtx) {
   try {
     discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
       model: 'account',
-      where: buildBetterAuthUserProviderLookupWhere(authUser.id, 'discord'),
+      where: buildBetterAuthUserProviderLookupWhere(authUser.authUserId, 'discord'),
       select: ['accountId'],
     })) as DiscordAccountRecord | null;
   } catch (error) {
     console.error('[convex] authViewer discord lookup failed', {
       phase: 'convex-authviewer-discord-lookup',
-      authUserId: authUser.id,
+      authUserId: authUser.authUserId,
       error: serializeAuthViewerError(error),
     });
     throw error;
   }
 
   const viewer = {
-    authUserId: authUser.id,
+    authUserId: authUser.authUserId,
     name: authUser.name ?? null,
     email: authUser.email ?? null,
     image: authUser.image ?? null,

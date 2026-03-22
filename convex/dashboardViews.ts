@@ -1,7 +1,7 @@
 /**
  * Dashboard Views — Session-authenticated Convex queries for the web dashboard.
  *
- * These queries use Better Auth session authentication (authComponent.getAuthUser),
+ * These queries use Better Auth session authentication via a shared resolver,
  * making them safe to call directly from the browser via useConvexQuery. Unlike the
  * existing provider_connections queries that require requireApiSecret, these are
  * authenticated per-user and provide real-time reactivity via Convex's push model.
@@ -12,11 +12,7 @@
 
 import { v } from 'convex/values';
 import { query } from './_generated/server';
-import { authComponent } from './auth';
-
-interface AuthUserRecord {
-  id?: string;
-}
+import { getAuthenticatedAuthUser } from './lib/authUser';
 
 const ConnectionSummaryV = v.object({
   id: v.id('provider_connections'),
@@ -44,14 +40,14 @@ export const listMyConnections = query({
   args: {},
   returns: v.array(ConnectionSummaryV),
   handler: async (ctx) => {
-    const authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
-    if (!authUser?.id) {
+    const authUser = await getAuthenticatedAuthUser(ctx);
+    if (!authUser) {
       return [];
     }
 
     const connections = await ctx.db
       .query('provider_connections')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.id as string))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.authUserId))
       .filter((q) => q.neq(q.field('status'), 'disconnected'))
       .collect();
 
@@ -84,14 +80,14 @@ export const getMyConnectionStatus = query({
   args: {},
   returns: v.record(v.string(), v.boolean()),
   handler: async (ctx) => {
-    const authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
-    if (!authUser?.id) {
+    const authUser = await getAuthenticatedAuthUser(ctx);
+    if (!authUser) {
       return {};
     }
 
     const connections = await ctx.db
       .query('provider_connections')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.id as string))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.authUserId))
       .filter((q) => q.neq(q.field('status'), 'disconnected'))
       .collect();
 
@@ -129,8 +125,8 @@ export const getMyDashboardStats = query({
   args: {},
   returns: DashboardStatsV,
   handler: async (ctx) => {
-    const authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
-    if (!authUser?.id) {
+    const authUser = await getAuthenticatedAuthUser(ctx);
+    if (!authUser) {
       return {
         totalVerified: 0,
         totalProducts: 0,
@@ -146,7 +142,7 @@ export const getMyDashboardStats = query({
     const activeEntitlements = await ctx.db
       .query('entitlements')
       .withIndex('by_auth_user_status', (q) =>
-        q.eq('authUserId', authUser.id as string).eq('status', 'active')
+        q.eq('authUserId', authUser.authUserId).eq('status', 'active')
       )
       .take(1000);
 
@@ -171,7 +167,7 @@ export const getMyDashboardStats = query({
     // rather than "how many products have been purchased so far."
     const roleRules = await ctx.db
       .query('role_rules')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.id as string))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.authUserId))
       .collect();
     const uniqueProducts = new Set(roleRules.filter((r) => r.enabled).map((r) => r.productId));
 
@@ -187,7 +183,7 @@ export const getMyDashboardStats = query({
     // --- manual license stats ---
     const licenses = await ctx.db
       .query('manual_licenses')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.id as string))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.authUserId))
       .collect();
 
     const totalLicenses = licenses.length;
@@ -227,14 +223,14 @@ export const listMyRecentActivity = query({
   args: {},
   returns: v.array(AuditEventSummaryV),
   handler: async (ctx) => {
-    const authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
-    if (!authUser?.id) {
+    const authUser = await getAuthenticatedAuthUser(ctx);
+    if (!authUser) {
       return [];
     }
 
     const events = await ctx.db
       .query('audit_events')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.id as string))
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.authUserId))
       .order('desc')
       .take(20);
 

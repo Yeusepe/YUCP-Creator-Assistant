@@ -33,10 +33,12 @@ export function buildTrustedBrowserOrigins({
     .map((v) => normalizeOrigin(v))
     .filter((o): o is string => Boolean(o));
 
-  const hasLoopbackOrigin = configured.some((origin) => {
-    const { hostname } = new URL(origin);
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
-  });
+  const hasLoopbackOrigin =
+    configured.length === 0 ||
+    configured.some((origin) => {
+      const { hostname } = new URL(origin);
+      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+    });
 
   const origins = hasLoopbackOrigin ? [...configured, ...LOCAL_BROWSER_ORIGIN_PATTERNS] : configured;
   return Array.from(new Set(origins));
