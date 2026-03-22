@@ -56,9 +56,11 @@ import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '../packages/shared/
 import { api, components, internal } from './_generated/api';
 import { httpAction } from './_generated/server';
 import { authComponent, createAuth } from './auth';
+import { buildPublicJwks } from './betterAuth/jwks';
 import {
   buildBetterAuthUserLookupWhere,
   buildBetterAuthUserProviderLookupWhere,
+  getBetterAuthPage,
 } from './lib/betterAuthAdapter';
 import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
@@ -526,6 +528,35 @@ http.route({
   method: 'GET',
   path: '/.well-known/oauth-authorization-server/api/auth',
   handler: httpAction(async (ctx, request) => handleOAuthAuthorizationServerMetadata(ctx, request)),
+});
+
+http.route({
+  method: 'GET',
+  path: '/api/auth/jwks',
+  handler: httpAction(async (ctx) => {
+    const keyResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: 'jwks',
+      select: ['id', 'publicKey', 'alg', 'crv', 'expiresAt'],
+      limit: 100,
+      paginationOpts: { cursor: null, numItems: 100 },
+    })) as {
+      ids?: string[];
+      page: Array<{
+      _id?: string;
+      publicKey: string;
+      alg?: string | null;
+      crv?: string | null;
+      expiresAt?: number | null;
+    }>;
+    };
+
+    const keys = getBetterAuthPage(keyResult).map((key, index) => ({
+      ...key,
+      id: key._id ?? keyResult.ids?.[index] ?? '',
+    }));
+
+    return jsonResponse(buildPublicJwks(keys.filter((key) => key.id)));
+  }),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

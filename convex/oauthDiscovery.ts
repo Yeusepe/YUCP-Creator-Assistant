@@ -21,10 +21,15 @@ function rewriteEndpointUrl(
   fallbackPath: string,
   value: unknown
 ): string | undefined {
-  const candidate =
-    typeof value === 'string' && value.length > 0
-      ? new URL(value).pathname + new URL(value).search
-      : fallbackPath;
+  let candidate = fallbackPath;
+  if (typeof value === 'string' && value.length > 0) {
+    try {
+      const parsed = new URL(value);
+      candidate = parsed.pathname + parsed.search;
+    } catch {
+      candidate = value.startsWith('/') ? value : fallbackPath;
+    }
+  }
   return new URL(candidate, origin).toString();
 }
 
