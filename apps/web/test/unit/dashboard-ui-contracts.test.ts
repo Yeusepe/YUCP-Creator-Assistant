@@ -149,7 +149,8 @@ describe('dashboard UI contracts', () => {
 
   it('scopes onboarding storage to the current viewer and retries notification ack on failure', () => {
     expect(dashboardIndexRouteSource).toContain('buildOnboardingStorageKeys');
-    expect(dashboardIndexRouteSource).toContain('viewer.authUserId');
+    expect(dashboardIndexRouteSource).toContain('viewer?.authUserId');
+    expect(dashboardIndexRouteSource).toContain('ANONYMOUS_ONBOARDING_STORAGE_SUFFIX');
     expect(dashboardIndexRouteSource).toContain('seenNotificationIds.current.delete(id)');
   });
 
