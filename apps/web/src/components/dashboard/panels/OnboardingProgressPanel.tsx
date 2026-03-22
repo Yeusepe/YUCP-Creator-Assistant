@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface OnboardingStep {
   id: string;
@@ -98,7 +98,17 @@ function ProgressBar({
 }
 
 export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgressPanelProps) {
-  const completedCount = useMemo(() => steps.filter((s) => s.completed).length, [steps]);
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // During SSR and the first client render, use a stable placeholder so
+  // hydration never mismatches. Real counts are shown after mount.
+  const completedCount = useMemo(
+    () => (isMounted ? steps.filter((s) => s.completed).length : 0),
+    [isMounted, steps],
+  );
   const totalCount = steps.length;
   const allComplete = completedCount === totalCount && totalCount > 0;
 
@@ -189,34 +199,52 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
             padding: 0,
           }}
         >
-          {steps.map((step) => (
-            <li key={step.id}>
-              <div className={`onboarding-step-row${step.completed ? ' completed' : ''}`}>
-                <CheckCircle completed={step.completed} />
-                <div
-                  style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}
-                >
-                  <span
-                    className="platform-row-label"
+          {steps.map((step) => {
+            // Gate completed state on mount to prevent SSR/client hydration mismatch.
+            // Steps depend on localStorage and live Convex data — neither is available
+            // during SSR, so we always render "not completed" on the first paint.
+            const isCompleted = isMounted && step.completed;
+            return (
+              <li key={step.id}>
+                <div className={`onboarding-step-row${isCompleted ? ' completed' : ''}`}>
+                  <CheckCircle completed={isCompleted} />
+                  <div
                     style={{
-                      textDecoration: step.completed ? 'line-through' : undefined,
-                      opacity: step.completed ? 0.5 : 1,
+                      flex: 1,
+                      minWidth: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
                     }}
                   >
-                    {step.label}
-                  </span>
-                  <span className="intg-desc" style={{ fontSize: 11 }}>
-                    {step.description}
-                  </span>
+                    <span
+                      className="platform-row-label"
+                      style={{
+                        textDecoration: isCompleted ? 'line-through' : undefined,
+                        opacity: isCompleted ? 0.5 : 1,
+                      }}
+                    >
+                      {step.label}
+                    </span>
+                    <span className="intg-desc" style={{ fontSize: 11 }}>
+                      {step.description}
+                    </span>
+                  </div>
+                  {step.href && !isCompleted && (
+                    <a
+                      href={step.href}
+                      onClick={step.onClick}
+                      className="onboarding-step-start-btn"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Start
+                    </a>
+                  )}
                 </div>
-                {step.href && !step.completed && (
-                  <a href={step.href} onClick={step.onClick} className="onboarding-step-start-btn">
-                    Start
-                  </a>
-                )}
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

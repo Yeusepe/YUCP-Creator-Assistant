@@ -2408,7 +2408,6 @@
   justify-content: center;
   flex-shrink: 0;
   border-radius: 8px;
-  margin-top: 1px;
   text-decoration: none;
 }
 
@@ -2421,8 +2420,8 @@
 }
 
 .header-context-icon svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   color: #94a3b8;
   flex-shrink: 0;
 }

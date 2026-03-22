@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
 export interface ActivityItemProps {
   eventType: string;
@@ -186,6 +186,12 @@ export function ActivityItem({
   icon: customIcon,
   accentColor,
 }: ActivityItemProps) {
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   const visuals = getEventVisuals(eventType, customIcon, accentColor);
 
   return (
@@ -214,8 +220,9 @@ export function ActivityItem({
         <time
           className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500"
           dateTime={new Date(timestamp).toISOString()}
+          suppressHydrationWarning
         >
-          {formatRelativeTime(timestamp)}
+          {isMounted ? formatRelativeTime(timestamp) : ''}
         </time>
       </div>
     </div>

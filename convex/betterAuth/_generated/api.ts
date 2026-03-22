@@ -10,6 +10,7 @@
 
 import type * as adapter from "../adapter.js";
 import type * as auth from "../auth.js";
+import type * as jwtAdapter from "../jwtAdapter.js";
 import type * as options from "../options.js";
 
 import type {
@@ -22,6 +23,7 @@ import { anyApi, componentsGeneric } from "convex/server";
 const fullApi: ApiFromModules<{
   adapter: typeof adapter;
   auth: typeof auth;
+  jwtAdapter: typeof jwtAdapter;
   options: typeof options;
 }> = anyApi as any;
 

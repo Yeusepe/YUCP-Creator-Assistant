@@ -166,7 +166,17 @@ export const getMyDashboardStats = query({
     }
 
     const uniqueSubjects = new Set(filtered.map((e) => e.subjectId));
-    const uniqueProducts = new Set(filtered.map((e) => e.productId));
+
+    // Count products from role_rules (creator's configured product→role mappings),
+    // not from entitlements, so the stat reflects "how many products I have set up"
+    // rather than "how many products have been purchased so far."
+    const roleRules = await ctx.db
+      .query('role_rules')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUser.id as string))
+      .collect();
+    const uniqueProducts = new Set(
+      roleRules.filter((r) => r.enabled).map((r) => r.productId),
+    );
 
     const now = Date.now();
     const oneDayAgo = now - 24 * 60 * 60 * 1000;

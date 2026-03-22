@@ -100,20 +100,26 @@ function DashboardIndex() {
     setTotalPlatforms(total);
   }, []);
 
-  // Onboarding dismiss
-  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true';
-  });
+  // Onboarding dismiss — always start as false to match SSR, then read localStorage after mount
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true') {
+      setOnboardingDismissed(true);
+    }
+  }, []);
 
   const handleDismissOnboarding = useCallback(() => {
     setOnboardingDismissed(true);
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, 'true');
   }, []);
 
-  const [onboardingState, setOnboardingState] = useState<OnboardingState>(() =>
-    readOnboardingState()
-  );
+  // Always start with default state (SSR-safe), then sync from localStorage after mount
+  const [onboardingState, setOnboardingState] = useState<OnboardingState>({ docsRead: false });
+
+  useEffect(() => {
+    setOnboardingState(readOnboardingState());
+  }, []);
 
   const markDocsRead = useCallback(() => {
     setOnboardingState((current) => {

@@ -1951,6 +1951,8 @@ img.collab-avatar {
 
 .content-area-header .content-header-title {
   margin-bottom: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
 }
 
 .content-header-actions {
@@ -2023,6 +2025,14 @@ img.collab-avatar {
   border-color: rgba(255, 255, 255, 0.16);
   color: #ffffff;
   box-shadow: none;
+}
+
+/* Sidebar toggle is mobile-only — hide at sidebar-visible breakpoint.
+   Must appear AFTER .dashboard-header-icon-btn to win the cascade. */
+@media (min-width: 768px) {
+  .sidebar-toggle-btn.dashboard-header-icon-btn {
+    display: none;
+  }
 }
 
 @media (max-width: 767px) {

@@ -2,6 +2,7 @@ import { oauthProvider } from '@better-auth/oauth-provider';
 import { apiKey } from '@better-auth/api-key';
 import type { BetterAuthOptions } from 'better-auth/minimal';
 import { jwt } from 'better-auth/plugins';
+import { createJwtJwksAdapter } from './jwtAdapter';
 
 const PUBLIC_API_AUDIENCE = 'yucp-public-api';
 const PUBLIC_API_KEY_PREFIX = 'ypsk_';
@@ -25,9 +26,7 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
         },
       }),
       jwt({
-        jwks: {
-          keyPairConfig: { alg: 'ES256' },
-        },
+        adapter: createJwtJwksAdapter(),
         jwt: {
           issuer: 'https://example.convex.site/api/auth',
           audience: PUBLIC_API_AUDIENCE,

@@ -20,6 +20,7 @@ import { jwt } from 'better-auth/plugins';
 import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
+import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
 import authSchema from './betterAuth/schema';
 import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
@@ -128,9 +129,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
       // while convex() adds the /convex/* JWT endpoints used by the web app.
       // Mount jwt() first so both surfaces stay registered.
       jwt({
-        jwks: {
-          keyPairConfig: { alg: 'ES256' },
-        },
+        adapter: createJwtJwksAdapter(),
         jwt: {
           issuer: authBaseUrl,
           audience: PUBLIC_API_AUDIENCE,
