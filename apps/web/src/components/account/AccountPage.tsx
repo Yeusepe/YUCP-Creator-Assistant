@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useId } from 'react';
 
 function joinClasses(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
@@ -78,4 +78,35 @@ export function AccountEmptyState({
 
 export function AccountInlineError({ message }: Readonly<{ message: string }>) {
   return <p className="account-inline-error">{message}</p>;
+}
+
+export function AccountModal({
+  title,
+  onClose,
+  closeLabel = 'Close dialog',
+  children,
+}: Readonly<{
+  title: string;
+  onClose: () => void;
+  closeLabel?: string;
+  children: ReactNode;
+}>) {
+  const titleId = useId();
+
+  return (
+    <div className="account-modal-backdrop" role="presentation">
+      <button
+        type="button"
+        className="account-modal-scrim"
+        aria-label={closeLabel}
+        onClick={onClose}
+      />
+      <div className="account-modal" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <h3 id={titleId} className="account-modal-title">
+          {title}
+        </h3>
+        {children}
+      </div>
+    </div>
+  );
 }

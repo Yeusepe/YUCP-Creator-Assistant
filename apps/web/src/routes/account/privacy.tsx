@@ -1,8 +1,8 @@
 import { useMutation } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/api/client';
-import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
+import { AccountModal, AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { useToast } from '@/components/ui/Toast';
 import { downloadUserDataExport } from '@/lib/account';
 
@@ -40,6 +40,7 @@ function AccountPrivacy() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteInputRef = useRef<HTMLInputElement>(null);
 
   const deleteMut = useMutation({
     mutationFn: () => apiClient.delete('/api/connect/user/gdpr-delete'),
@@ -79,6 +80,12 @@ function AccountPrivacy() {
   }
 
   const canDelete = deleteInput.trim() === 'DELETE';
+
+  useEffect(() => {
+    if (deleteConfirm) {
+      deleteInputRef.current?.focus();
+    }
+  }, [deleteConfirm]);
 
   return (
     <AccountPage>
@@ -183,50 +190,47 @@ function AccountPrivacy() {
       </AccountSectionCard>
 
       {deleteConfirm ? (
-        <div className="account-modal-backdrop" onClick={() => setDeleteConfirm(false)}>
-          <div className="account-modal" onClick={(event) => event.stopPropagation()}>
-            <h3 className="account-modal-title">Delete account permanently?</h3>
-            <p className="account-modal-body">
-              This revokes licenses, removes Discord roles, and schedules your data for deletion.
-              Type <strong>DELETE</strong> to confirm.
-            </p>
-            <input
-              type="text"
-              className="account-modal-input"
-              placeholder="DELETE"
-              value={deleteInput}
-              onChange={(event) => setDeleteInput(event.target.value)}
-              autoFocus
+        <AccountModal title="Delete account permanently?" onClose={() => setDeleteConfirm(false)}>
+          <p className="account-modal-body">
+            This revokes licenses, removes Discord roles, and schedules your data for deletion. Type{' '}
+            <strong>DELETE</strong> to confirm.
+          </p>
+          <input
+            ref={deleteInputRef}
+            type="text"
+            className="account-modal-input"
+            placeholder="DELETE"
+            value={deleteInput}
+            onChange={(event) => setDeleteInput(event.target.value)}
+            disabled={deleteMut.isPending}
+          />
+          {deleteError ? <p className="account-inline-error">{deleteError}</p> : null}
+          <div className="account-modal-actions">
+            <button
+              type="button"
+              className="account-btn account-btn--secondary"
+              onClick={() => setDeleteConfirm(false)}
               disabled={deleteMut.isPending}
-            />
-            {deleteError ? <p className="account-inline-error">{deleteError}</p> : null}
-            <div className="account-modal-actions">
-              <button
-                type="button"
-                className="account-btn account-btn--secondary"
-                onClick={() => setDeleteConfirm(false)}
-                disabled={deleteMut.isPending}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={`account-btn account-btn--danger${deleteMut.isPending ? ' btn-loading' : ''}`}
-                onClick={() => deleteMut.mutate()}
-                disabled={!canDelete || deleteMut.isPending}
-              >
-                {deleteMut.isPending ? (
-                  <>
-                    <span className="btn-loading-spinner" aria-hidden="true" />
-                    Submitting...
-                  </>
-                ) : (
-                  'Delete my account'
-                )}
-              </button>
-            </div>
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={`account-btn account-btn--danger${deleteMut.isPending ? ' btn-loading' : ''}`}
+              onClick={() => deleteMut.mutate()}
+              disabled={!canDelete || deleteMut.isPending}
+            >
+              {deleteMut.isPending ? (
+                <>
+                  <span className="btn-loading-spinner" aria-hidden="true" />
+                  Submitting...
+                </>
+              ) : (
+                'Delete my account'
+              )}
+            </button>
           </div>
-        </div>
+        </AccountModal>
       ) : null}
     </AccountPage>
   );

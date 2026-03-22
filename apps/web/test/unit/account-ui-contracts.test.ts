@@ -26,6 +26,11 @@ describe('account UI contracts', () => {
   it('uses the shared account page scaffold for the redesigned account landing page', () => {
     expect(accountIndexRouteSource).toContain('AccountPage');
     expect(accountIndexRouteSource).toContain('AccountSectionCard');
-    expect(accountIndexRouteSource).toContain('AccountMetric');
+  });
+
+  it('renders Discord identity from the account shell instead of a late viewer fallback', () => {
+    expect(accountIndexRouteSource).toContain('const { guilds, viewer } = useAccountShell();');
+    expect(accountIndexRouteSource).not.toContain('useConvexQuery(api.authViewer.getViewer)');
+    expect(accountIndexRouteSource).not.toContain("'Your Account'");
   });
 });

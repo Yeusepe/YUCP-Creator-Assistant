@@ -1,21 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery as useConvexQuery } from 'convex/react';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { useAuth } from '@/hooks/useAuth';
 import { listUserLicenses, listUserOAuthGrants } from '@/lib/account';
 import { listUserAccounts, listUserProviders } from '@/lib/dashboard';
-import { api } from '../../../../../convex/_generated/api';
 
 export const Route = createFileRoute('/account/')({
   component: AccountProfile,
 });
 
 function AccountProfile() {
-  const { guilds } = useAccountShell();
+  const { guilds, viewer } = useAccountShell();
   const { signOut } = useAuth();
-  const viewer = useConvexQuery(api.authViewer.getViewer);
   const providersQuery = useQuery({
     queryKey: ['user-providers'],
     queryFn: listUserProviders,
@@ -34,8 +31,8 @@ function AccountProfile() {
   });
 
   const isCreator = guilds.length > 0;
-  const displayName = viewer?.name ?? 'Your Account';
-  const avatarUrl = viewer?.image ?? null;
+  const displayName = viewer.name ?? viewer.email ?? 'Discord account';
+  const avatarUrl = viewer.image ?? null;
   const accounts = accountsQuery.data ?? [];
   const licenses = licensesQuery.data ?? [];
   const entitlements = licenses.flatMap((subject) => subject.entitlements);
@@ -48,7 +45,7 @@ function AccountProfile() {
     .map((connection) => connection.label || connection.provider)
     .filter(Boolean)
     .slice(0, 3);
-  const workspaceHref = viewer?.authUserId
+  const workspaceHref = viewer.authUserId
     ? `/api/install/bot?authUserId=${encodeURIComponent(viewer.authUserId)}`
     : undefined;
 
@@ -65,7 +62,13 @@ function AccountProfile() {
             {avatarUrl ? (
               <img src={avatarUrl} alt={displayName} />
             ) : (
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <svg
+                width="28"
+                height="28"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
                 <circle cx="12" cy="8" r="4" />
                 <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
               </svg>
@@ -73,7 +76,7 @@ function AccountProfile() {
           </div>
           <div className="account-profile-hero-copy">
             <p className="account-profile-name">{displayName}</p>
-            {viewer?.email ? <p className="account-profile-meta">{viewer.email}</p> : null}
+            {viewer.email ? <p className="account-profile-meta">{viewer.email}</p> : null}
             <p className="account-field-note">
               Profile details, avatar, and identity metadata are sourced from Discord and update
               there automatically.

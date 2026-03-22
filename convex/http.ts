@@ -56,8 +56,11 @@ import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '../packages/shared/
 import { api, components, internal } from './_generated/api';
 import { httpAction } from './_generated/server';
 import { authComponent, createAuth } from './auth';
+import {
+  buildBetterAuthUserLookupWhere,
+  buildBetterAuthUserProviderLookupWhere,
+} from './lib/betterAuthAdapter';
 import { constantTimeEqual } from './lib/vrchat/crypto';
-import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
 import {
   base64ToBytes,
   type CertEnvelope,
@@ -66,6 +69,7 @@ import {
   signLicenseJwt,
   verifyCertEnvelope,
 } from './lib/yucpCrypto';
+import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
 
 /**
  * Public API routes follow Spotify/GitHub/Stripe conventions.
@@ -521,9 +525,7 @@ http.route({
 http.route({
   method: 'GET',
   path: '/.well-known/oauth-authorization-server/api/auth',
-  handler: httpAction(async (ctx, request) =>
-    handleOAuthAuthorizationServerMetadata(ctx, request)
-  ),
+  handler: httpAction(async (ctx, request) => handleOAuthAuthorizationServerMetadata(ctx, request)),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -555,7 +557,7 @@ http.route({
     // sub = the user's stable primary key (_id in the betterAuth component).
     const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
       model: 'user',
-      where: [{ field: 'id', value: tokenResult.yucpUserId }],
+      where: buildBetterAuthUserLookupWhere(tokenResult.yucpUserId),
       select: ['id', 'name', 'email'],
     })) as { id?: string; name?: string; email?: string } | null;
 
@@ -620,10 +622,7 @@ http.route({
     try {
       const discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
         model: 'account',
-        where: [
-          { field: 'userId', value: tokenResult.yucpUserId },
-          { field: 'providerId', value: 'discord' },
-        ],
+        where: buildBetterAuthUserProviderLookupWhere(tokenResult.yucpUserId, 'discord'),
         select: ['accountId'],
       })) as { accountId?: string } | null;
 
@@ -1064,10 +1063,11 @@ http.route({
     const fingerprintHex = Array.from(new Uint8Array(fingerprintDigest))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-    const rateLimited = await ctx.runMutation(
-      internal.lib.httpRateLimit.checkAndIncrement,
-      { key: `fingerprint:${fingerprintHex}`, limit: 10, windowMs: 60_000 }
-    );
+    const rateLimited = await ctx.runMutation(internal.lib.httpRateLimit.checkAndIncrement, {
+      key: `fingerprint:${fingerprintHex}`,
+      limit: 10,
+      windowMs: 60_000,
+    });
     if (rateLimited) {
       return errorResponse('Too many verification attempts. Please wait before retrying.', 429);
     }
@@ -1162,10 +1162,7 @@ http.route({
     // Get buyer's linked Discord account via Better Auth
     const discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
       model: 'account',
-      where: [
-        { field: 'userId', value: tokenResult.yucpUserId },
-        { field: 'providerId', value: 'discord' },
-      ],
+      where: buildBetterAuthUserProviderLookupWhere(tokenResult.yucpUserId, 'discord'),
       select: ['accountId'],
     })) as { accountId?: string } | null;
 

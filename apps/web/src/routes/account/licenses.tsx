@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import {
   AccountEmptyState,
   AccountInlineError,
+  AccountModal,
   AccountPage,
   AccountSectionCard,
 } from '@/components/account/AccountPage';
@@ -58,6 +59,8 @@ function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEnti
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
+            aria-hidden="true"
+            focusable="false"
           >
             <rect x="3" y="3" width="18" height="18" rx="2" />
             <path d="M9 9h6M9 13h4" />
@@ -95,40 +98,37 @@ function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEnti
           </button>
         ) : null}
         {confirming ? (
-          <div className="account-modal-backdrop" onClick={() => setConfirming(false)}>
-            <div className="account-modal" onClick={(event) => event.stopPropagation()}>
-              <h3 className="account-modal-title">Deactivate license?</h3>
-              <p className="account-modal-body">
-                This removes the active grant from your account and revokes the linked Discord role.
-                Re-verification requires the full provider flow again.
-              </p>
-              <div className="account-modal-actions">
-                <button
-                  type="button"
-                  className="account-btn account-btn--secondary"
-                  onClick={() => setConfirming(false)}
-                  disabled={revokeMut.isPending}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className={`account-btn account-btn--danger${revokeMut.isPending ? ' btn-loading' : ''}`}
-                  onClick={() => revokeMut.mutate()}
-                  disabled={revokeMut.isPending}
-                >
-                  {revokeMut.isPending ? (
-                    <>
-                      <span className="btn-loading-spinner" aria-hidden="true" />
-                      Deactivating...
-                    </>
-                  ) : (
-                    'Deactivate'
-                  )}
-                </button>
-              </div>
+          <AccountModal title="Deactivate license?" onClose={() => setConfirming(false)}>
+            <p className="account-modal-body">
+              This removes the active grant from your account and revokes the linked Discord role.
+              Re-verification requires the full provider flow again.
+            </p>
+            <div className="account-modal-actions">
+              <button
+                type="button"
+                className="account-btn account-btn--secondary"
+                onClick={() => setConfirming(false)}
+                disabled={revokeMut.isPending}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`account-btn account-btn--danger${revokeMut.isPending ? ' btn-loading' : ''}`}
+                onClick={() => revokeMut.mutate()}
+                disabled={revokeMut.isPending}
+              >
+                {revokeMut.isPending ? (
+                  <>
+                    <span className="btn-loading-spinner" aria-hidden="true" />
+                    Deactivating...
+                  </>
+                ) : (
+                  'Deactivate'
+                )}
+              </button>
             </div>
-          </div>
+          </AccountModal>
         ) : null}
       </div>
     </div>
@@ -184,6 +184,8 @@ function AccountLicenses() {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                aria-hidden="true"
+                focusable="false"
               >
                 <rect x="3" y="3" width="18" height="18" rx="2" />
                 <path d="M9 9h6M9 13h4" />

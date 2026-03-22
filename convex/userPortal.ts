@@ -10,12 +10,13 @@
 import { ConvexError, v } from 'convex/values';
 import { components } from './_generated/api';
 import { mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
 import {
+  type BetterAuthPageResult,
+  buildBetterAuthEqualityWhere,
   buildOAuthConsentLookupWhere,
   getBetterAuthPage,
-  type BetterAuthPageResult,
 } from './lib/betterAuthAdapter';
-import { requireApiSecret } from './lib/apiAuth';
 
 // ============================================================================
 // OAuth Grants
@@ -35,7 +36,7 @@ export const listOAuthGrantsForUser = query({
 
     const consentResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
       model: 'oauthConsent',
-      where: [{ field: 'userId', value: args.authUserId }],
+      where: buildBetterAuthEqualityWhere([{ field: 'userId', value: args.authUserId }]),
       limit: 100,
       paginationOpts: { cursor: null, numItems: 100 },
     })) as BetterAuthPageResult<{
@@ -59,7 +60,7 @@ export const listOAuthGrantsForUser = query({
       clientIds.map((clientId) =>
         ctx.runQuery(components.betterAuth.adapter.findOne, {
           model: 'oauthClient',
-          where: [{ field: 'clientId', value: clientId }],
+          where: buildBetterAuthEqualityWhere([{ field: 'clientId', value: clientId }]),
         })
       )
     )) as Array<{ clientId: string; name?: string | null } | null>;
@@ -118,10 +119,10 @@ export const revokeOAuthGrant = mutation({
     await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
       input: {
         model: 'oauthConsent',
-        where: [
+        where: buildBetterAuthEqualityWhere([
           { field: 'userId', value: args.authUserId },
           { field: 'clientId', value: clientId },
-        ],
+        ]),
       },
       paginationOpts: { cursor: null, numItems: 10 },
     } as any);
@@ -129,10 +130,10 @@ export const revokeOAuthGrant = mutation({
     await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
       input: {
         model: 'oauthAccessToken',
-        where: [
+        where: buildBetterAuthEqualityWhere([
           { field: 'clientId', value: clientId },
           { field: 'userId', value: args.authUserId },
-        ],
+        ]),
       },
       paginationOpts: { cursor: null, numItems: 100 },
     } as any);
@@ -140,10 +141,10 @@ export const revokeOAuthGrant = mutation({
     await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
       input: {
         model: 'oauthRefreshToken',
-        where: [
+        where: buildBetterAuthEqualityWhere([
           { field: 'clientId', value: clientId },
           { field: 'userId', value: args.authUserId },
-        ],
+        ]),
       },
       paginationOpts: { cursor: null, numItems: 100 },
     } as any);
@@ -175,10 +176,7 @@ export const requestAccountDeletion = mutation({
       .query('account_deletion_requests')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
       .filter((q) =>
-        q.or(
-          q.eq(q.field('status'), 'pending'),
-          q.eq(q.field('status'), 'processing')
-        )
+        q.or(q.eq(q.field('status'), 'pending'), q.eq(q.field('status'), 'processing'))
       )
       .first();
 
@@ -223,7 +221,7 @@ export const revokeAllOAuthGrantsForUser = mutation({
     await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
       input: {
         model: 'oauthConsent',
-        where: [{ field: 'userId', value: args.authUserId }],
+        where: buildBetterAuthEqualityWhere([{ field: 'userId', value: args.authUserId }]),
       },
       paginationOpts: { cursor: null, numItems: 1000 },
     } as any);
@@ -231,7 +229,7 @@ export const revokeAllOAuthGrantsForUser = mutation({
     await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
       input: {
         model: 'oauthAccessToken',
-        where: [{ field: 'userId', value: args.authUserId }],
+        where: buildBetterAuthEqualityWhere([{ field: 'userId', value: args.authUserId }]),
       },
       paginationOpts: { cursor: null, numItems: 1000 },
     } as any);
@@ -239,7 +237,7 @@ export const revokeAllOAuthGrantsForUser = mutation({
     await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
       input: {
         model: 'oauthRefreshToken',
-        where: [{ field: 'userId', value: args.authUserId }],
+        where: buildBetterAuthEqualityWhere([{ field: 'userId', value: args.authUserId }]),
       },
       paginationOpts: { cursor: null, numItems: 1000 },
     } as any);

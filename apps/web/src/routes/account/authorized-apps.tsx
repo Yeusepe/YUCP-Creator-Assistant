@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import {
   AccountEmptyState,
   AccountInlineError,
+  AccountModal,
   AccountPage,
   AccountSectionCard,
 } from '@/components/account/AccountPage';
@@ -52,6 +53,8 @@ function GrantRow({ grant }: Readonly<{ grant: OAuthGrant }>) {
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
+          aria-hidden="true"
+          focusable="false"
         >
           <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
         </svg>
@@ -85,40 +88,37 @@ function GrantRow({ grant }: Readonly<{ grant: OAuthGrant }>) {
           </button>
         ) : null}
         {confirming ? (
-          <div className="account-modal-backdrop" onClick={() => setConfirming(false)}>
-            <div className="account-modal" onClick={(event) => event.stopPropagation()}>
-              <h3 className="account-modal-title">Revoke {grant.appName}?</h3>
-              <p className="account-modal-body">
-                Revoking access immediately invalidates this client&apos;s ability to use your
-                account. Any existing access tokens must be reissued after a new consent flow.
-              </p>
-              <div className="account-modal-actions">
-                <button
-                  type="button"
-                  className="account-btn account-btn--secondary"
-                  onClick={() => setConfirming(false)}
-                  disabled={revokeMut.isPending}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className={`account-btn account-btn--danger${revokeMut.isPending ? ' btn-loading' : ''}`}
-                  onClick={() => revokeMut.mutate()}
-                  disabled={revokeMut.isPending}
-                >
-                  {revokeMut.isPending ? (
-                    <>
-                      <span className="btn-loading-spinner" aria-hidden="true" />
-                      Revoking...
-                    </>
-                  ) : (
-                    'Revoke access'
-                  )}
-                </button>
-              </div>
+          <AccountModal title={`Revoke ${grant.appName}?`} onClose={() => setConfirming(false)}>
+            <p className="account-modal-body">
+              Revoking access immediately invalidates this client&apos;s ability to use your
+              account. Any existing access tokens must be reissued after a new consent flow.
+            </p>
+            <div className="account-modal-actions">
+              <button
+                type="button"
+                className="account-btn account-btn--secondary"
+                onClick={() => setConfirming(false)}
+                disabled={revokeMut.isPending}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`account-btn account-btn--danger${revokeMut.isPending ? ' btn-loading' : ''}`}
+                onClick={() => revokeMut.mutate()}
+                disabled={revokeMut.isPending}
+              >
+                {revokeMut.isPending ? (
+                  <>
+                    <span className="btn-loading-spinner" aria-hidden="true" />
+                    Revoking...
+                  </>
+                ) : (
+                  'Revoke access'
+                )}
+              </button>
             </div>
-          </div>
+          </AccountModal>
         ) : null}
       </div>
     </div>
@@ -168,6 +168,8 @@ function AccountAuthorizedApps() {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                aria-hidden="true"
+                focusable="false"
               >
                 <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
               </svg>

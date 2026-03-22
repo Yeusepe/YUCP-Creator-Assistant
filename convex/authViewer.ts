@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import { components } from './_generated/api';
 import { type QueryCtx, query } from './_generated/server';
 import { authComponent } from './auth';
+import { buildBetterAuthUserProviderLookupWhere } from './lib/betterAuthAdapter';
 
 const ViewerValue = v.object({
   authUserId: v.string(),
@@ -31,10 +32,7 @@ async function resolveViewer(ctx: QueryCtx) {
 
   const discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
     model: 'account',
-    where: [
-      { field: 'userId', value: authUser.id },
-      { field: 'providerId', value: 'discord' },
-    ],
+    where: buildBetterAuthUserProviderLookupWhere(authUser.id, 'discord'),
     select: ['accountId'],
   })) as DiscordAccountRecord | null;
 
