@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { api } from '../../../../../convex/_generated/api';
 import { fetchAuthQuery, getToken } from '../auth-server';
+import { logWebError } from '../webDiagnostics';
 import { serverApiFetch } from './api-client';
 
 /**
@@ -48,6 +49,10 @@ interface GuildResponse {
   icon: string | null;
 }
 
+function logDashboardInfo(event: string, context: Record<string, unknown>): void {
+  console.info(`[web] ${event}`, context);
+}
+
 function stripQuotes(value: string): string {
   return value.replace(/^"|"$/g, '');
 }
@@ -57,58 +62,124 @@ function stripQuotes(value: string): string {
  * Used by the dashboard sidebar to populate the guild picker.
  */
 async function requireDashboardToken() {
-  const token = await getToken();
-  if (!token) {
-    throw new Error('Not authenticated');
-  }
+  logDashboardInfo('Dashboard token fetch started', {
+    phase: 'dashboard-require-token',
+  });
 
-  return token;
+  try {
+    const token = await getToken();
+
+    logDashboardInfo('Dashboard token fetch completed', {
+      phase: 'dashboard-require-token',
+      hasToken: Boolean(token),
+    });
+
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    return token;
+  } catch (error) {
+    logWebError('Dashboard token fetch failed', error, {
+      phase: 'dashboard-require-token',
+    });
+    throw error;
+  }
 }
 
 function decodeDashboardViewer(token: string): DashboardViewer {
-  const payload = JSON.parse(
-    Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')
-  ) as {
-    sub?: string;
-  };
+  try {
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')
+    ) as {
+      sub?: string;
+    };
 
-  if (!payload.sub) {
-    throw new Error('Invalid auth token');
+    if (!payload.sub) {
+      throw new Error('Invalid auth token');
+    }
+
+    return {
+      authUserId: payload.sub,
+      name: null,
+      email: null,
+      image: null,
+      discordUserId: null,
+    };
+  } catch (error) {
+    logWebError('Dashboard viewer token decode failed', error, {
+      phase: 'dashboard-decode-viewer',
+      tokenSegmentCount: token.split('.').length,
+    });
+    throw error;
   }
-
-  return {
-    authUserId: payload.sub,
-    name: null,
-    email: null,
-    image: null,
-    discordUserId: null,
-  };
 }
 
 async function loadGuilds(token: string): Promise<Guild[]> {
-  const response = await serverApiFetch<{ guilds?: GuildResponse[] }>('/api/connect/user/guilds', {
-    authToken: token,
+  logDashboardInfo('Dashboard guild load started', {
+    phase: 'dashboard-load-guilds',
+    hasToken: Boolean(token),
   });
 
-  return (response.guilds ?? []).map((guild) => ({
-    id: stripQuotes(guild.guildId),
-    name: guild.name,
-    icon: guild.icon ?? null,
-    tenantId: stripQuotes(guild.authUserId),
-  }));
+  try {
+    const response = await serverApiFetch<{ guilds?: GuildResponse[] }>(
+      '/api/connect/user/guilds',
+      {
+        authToken: token,
+      }
+    );
+
+    const guilds = (response.guilds ?? []).map((guild) => ({
+      id: stripQuotes(guild.guildId),
+      name: guild.name,
+      icon: guild.icon ?? null,
+      tenantId: stripQuotes(guild.authUserId),
+    }));
+
+    logDashboardInfo('Dashboard guild load completed', {
+      phase: 'dashboard-load-guilds',
+      guildCount: guilds.length,
+    });
+
+    return guilds;
+  } catch (error) {
+    logWebError('Dashboard guild load failed', error, {
+      phase: 'dashboard-load-guilds',
+    });
+    throw error;
+  }
 }
 
 async function loadDashboardViewer(token: string): Promise<DashboardViewer> {
-  const baseViewer = decodeDashboardViewer(token);
-  const viewer = await fetchAuthQuery(api.authViewer.getViewer, {});
+  logDashboardInfo('Dashboard viewer load started', {
+    phase: 'dashboard-load-viewer',
+    hasToken: Boolean(token),
+  });
 
-  return {
-    authUserId: baseViewer.authUserId,
-    name: viewer?.name ?? null,
-    email: viewer?.email ?? null,
-    image: viewer?.image ?? null,
-    discordUserId: viewer?.discordUserId ?? null,
-  };
+  try {
+    const baseViewer = decodeDashboardViewer(token);
+    const viewer = await fetchAuthQuery(api.authViewer.getViewer, {});
+    const dashboardViewer = {
+      authUserId: baseViewer.authUserId,
+      name: viewer?.name ?? null,
+      email: viewer?.email ?? null,
+      image: viewer?.image ?? null,
+      discordUserId: viewer?.discordUserId ?? null,
+    };
+
+    logDashboardInfo('Dashboard viewer load completed', {
+      phase: 'dashboard-load-viewer',
+      hasViewerName: dashboardViewer.name !== null,
+      hasDiscordUserId: dashboardViewer.discordUserId !== null,
+    });
+
+    return dashboardViewer;
+  } catch (error) {
+    logWebError('Dashboard viewer load failed', error, {
+      phase: 'dashboard-load-viewer',
+    });
+    throw error;
+  }
 }
 
 /**
@@ -139,12 +210,28 @@ export const fetchDashboardViewer = createServerFn({ method: 'GET' }).handler(
 
 export const fetchDashboardShell = createServerFn({ method: 'GET' }).handler(
   async (): Promise<DashboardShellData> => {
-    const token = await requireDashboardToken();
-    const [viewer, guilds] = await Promise.all([loadDashboardViewer(token), loadGuilds(token)]);
+    logDashboardInfo('Dashboard shell load started', {
+      phase: 'dashboard-load-shell',
+    });
 
-    return {
-      viewer,
-      guilds,
-    };
+    try {
+      const token = await requireDashboardToken();
+      const [viewer, guilds] = await Promise.all([loadDashboardViewer(token), loadGuilds(token)]);
+
+      logDashboardInfo('Dashboard shell load completed', {
+        phase: 'dashboard-load-shell',
+        guildCount: guilds.length,
+      });
+
+      return {
+        viewer,
+        guilds,
+      };
+    } catch (error) {
+      logWebError('Dashboard shell load failed', error, {
+        phase: 'dashboard-load-shell',
+      });
+      throw error;
+    }
   }
 );
