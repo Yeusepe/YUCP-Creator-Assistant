@@ -23,26 +23,74 @@ interface DiscordAccountRecord {
   accountId?: string;
 }
 
+function serializeAuthViewerError(error: unknown): Record<string, string> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  return {
+    message: String(error),
+  };
+}
+
 async function resolveViewer(ctx: QueryCtx) {
-  const authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
+  console.info('[convex] authViewer resolve started', {
+    phase: 'convex-authviewer-resolve',
+  });
+
+  let authUser: AuthUserRecord | null;
+  try {
+    authUser = (await authComponent.getAuthUser(ctx)) as AuthUserRecord | null;
+  } catch (error) {
+    console.error('[convex] authViewer auth user lookup failed', {
+      phase: 'convex-authviewer-auth-user',
+      error: serializeAuthViewerError(error),
+    });
+    throw error;
+  }
 
   if (!authUser?.id) {
+    console.info('[convex] authViewer resolve completed', {
+      phase: 'convex-authviewer-resolve',
+      hasAuthUser: false,
+    });
     return null;
   }
 
-  const discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-    model: 'account',
-    where: buildBetterAuthUserProviderLookupWhere(authUser.id, 'discord'),
-    select: ['accountId'],
-  })) as DiscordAccountRecord | null;
+  let discordAccount: DiscordAccountRecord | null;
+  try {
+    discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'account',
+      where: buildBetterAuthUserProviderLookupWhere(authUser.id, 'discord'),
+      select: ['accountId'],
+    })) as DiscordAccountRecord | null;
+  } catch (error) {
+    console.error('[convex] authViewer discord lookup failed', {
+      phase: 'convex-authviewer-discord-lookup',
+      authUserId: authUser.id,
+      error: serializeAuthViewerError(error),
+    });
+    throw error;
+  }
 
-  return {
+  const viewer = {
     authUserId: authUser.id,
     name: authUser.name ?? null,
     email: authUser.email ?? null,
     image: authUser.image ?? null,
     discordUserId: discordAccount?.accountId ?? null,
   };
+
+  console.info('[convex] authViewer resolve completed', {
+    phase: 'convex-authviewer-resolve',
+    hasAuthUser: true,
+    hasDiscordAccount: Boolean(viewer.discordUserId),
+  });
+
+  return viewer;
 }
 
 export const getViewer = query({
