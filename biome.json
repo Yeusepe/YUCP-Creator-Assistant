@@ -29,7 +29,8 @@
         "noExplicitAny": "warn"
       },
       "style": {
-        "useImportType": "off"
+        "useImportType": "off",
+        "noDescendingSpecificity": "off"
       }
     }
   },

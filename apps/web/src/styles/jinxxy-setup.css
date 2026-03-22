@@ -84,16 +84,16 @@
     background-color 0.25s ease-out;
 }
 
-.jinxxy-setup .group:hover .webhook-field-ring {
-  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
-  background-color: rgba(255, 255, 255, 0.08);
-}
-
 .jinxxy-setup .webhook-field-ring {
   box-shadow: 0 0 0 0 transparent;
   transition:
     box-shadow 0.25s ease-out,
     background-color 0.25s ease-out;
+}
+
+.jinxxy-setup .group:hover .webhook-field-ring {
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 .jinxxy-setup .checkmark {

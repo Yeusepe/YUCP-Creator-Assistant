@@ -1,0 +1,156 @@
+/* Install result pages (success + error) */
+
+.install-result-page {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.dark .install-result-page {
+  background: transparent;
+}
+
+.install-result-content {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 420px;
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+.install-result-content.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.install-result-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  padding: 40px 36px;
+  text-align: center;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+}
+
+.dark .install-result-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.install-result-logo {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  margin: 0 auto 20px;
+  display: block;
+  border-radius: 12px;
+}
+
+.install-result-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+}
+
+.install-result-icon--success {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.dark .install-result-icon--success {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+
+.install-result-icon--error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.dark .install-result-icon--error {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+}
+
+.install-result-heading {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 12px;
+  line-height: 1.2;
+}
+
+.dark .install-result-heading {
+  color: #ffffff;
+}
+
+.install-result-body {
+  font-family: "DM Sans", sans-serif;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.72);
+  margin: 0 0 28px;
+  line-height: 1.6;
+}
+
+.dark .install-result-body {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.install-result-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 28px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.85);
+  color: #ffffff;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  transition:
+    background 0.18s ease,
+    transform 0.12s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.install-result-cta:hover {
+  background: rgba(99, 102, 241, 1);
+  transform: translateY(-1px);
+}
+
+.dark .install-result-cta {
+  background: rgba(99, 102, 241, 0.9);
+}
+
+.dark .install-result-cta:hover {
+  background: rgba(99, 102, 241, 1);
+}
+
+.install-result-hint {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  margin: 16px 0 0;
+  line-height: 1.5;
+}
+
+.dark .install-result-hint {
+  color: rgba(255, 255, 255, 0.38);
+}

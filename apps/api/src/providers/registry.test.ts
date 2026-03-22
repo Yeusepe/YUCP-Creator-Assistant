@@ -81,4 +81,9 @@ describe('provider plugin registry', () => {
     const unique = new Set(ids);
     expect(unique.size).toBe(ids.length);
   });
+
+  it('routes VRChat account linking through the connect-mode setup flow', () => {
+    const vrchat = ALL_PROVIDERS.find((provider) => provider.id === 'vrchat');
+    expect(vrchat?.displayMeta?.userSetupPath).toBe('/setup/vrchat?mode=connect');
+  });
 });

@@ -6,6 +6,11 @@ function toRelativeTarget(url: URL): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+function hasDashboardBootstrapHash(url: URL): boolean {
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+  return Boolean(hashParams.get('s') || hashParams.get('token'));
+}
+
 // Source: https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html
 export function getSafeRelativeRedirectTarget(value: string | null | undefined): string | null {
   if (!value) {
@@ -38,7 +43,10 @@ export function normalizeAuthRedirectTarget(
     return fallback;
   }
 
-  if (url.pathname === '/dashboard' || url.pathname.startsWith('/dashboard/')) {
+  if (
+    (url.pathname === '/dashboard' || url.pathname.startsWith('/dashboard/')) &&
+    !hasDashboardBootstrapHash(url)
+  ) {
     for (const key of DASHBOARD_QUERY_KEYS_TO_STRIP) {
       url.searchParams.delete(key);
     }

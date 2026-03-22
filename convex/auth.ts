@@ -20,6 +20,7 @@ import { jwt } from 'better-auth/plugins';
 import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
+import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
 import authSchema from './betterAuth/schema';
 import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
@@ -128,8 +129,11 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
       // while convex() adds the /convex/* JWT endpoints used by the web app.
       // Mount jwt() first so both surfaces stay registered.
       jwt({
+        adapter: createJwtJwksAdapter(),
         jwks: {
-          keyPairConfig: { alg: 'ES256' },
+          keyPairConfig: {
+            alg: 'RS256',
+          },
         },
         jwt: {
           issuer: authBaseUrl,
@@ -137,7 +141,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         },
         disableSettingJwtHeader: true,
       }),
-      convex({ authConfig }),
+      convex({
+        authConfig,
+        jwksRotateOnTokenGenerationError: true,
+      }),
       apiKey({
         defaultPrefix: PUBLIC_API_KEY_PREFIX,
         enableMetadata: true,
@@ -158,6 +165,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         allowDynamicClientRegistration: false,
         allowUnauthenticatedClientRegistration: false,
         grantTypes: ['authorization_code', 'refresh_token'],
+        silenceWarnings: {
+          oauthAuthServerConfig: true,
+        },
         customAccessTokenClaims: async ({ user, scopes }) => ({
           scope: scopes.join(' '),
           auth_user_id: user?.id,

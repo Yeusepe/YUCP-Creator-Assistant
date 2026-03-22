@@ -27,6 +27,7 @@ import type * as guildMemberAdd from "../guildMemberAdd.js";
 import type * as http from "../http.js";
 import type * as identitySync from "../identitySync.js";
 import type * as lib_apiAuth from "../lib/apiAuth.js";
+import type * as lib_betterAuthAdapter from "../lib/betterAuthAdapter.js";
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
 import type * as lib_httpRateLimit from "../lib/httpRateLimit.js";
@@ -48,6 +49,7 @@ import type * as manualLicenses from "../manualLicenses.js";
 import type * as migrations from "../migrations.js";
 import type * as oauthApps from "../oauthApps.js";
 import type * as oauthClients from "../oauthClients.js";
+import type * as oauthDiscovery from "../oauthDiscovery.js";
 import type * as oauthLoopback from "../oauthLoopback.js";
 import type * as outbox_jobs from "../outbox_jobs.js";
 import type * as packageRegistry from "../packageRegistry.js";
@@ -62,6 +64,7 @@ import type * as signingLog from "../signingLog.js";
 import type * as subjects from "../subjects.js";
 import type * as tenantHelpers from "../tenantHelpers.js";
 import type * as testHelpers from "../testHelpers.js";
+import type * as userPortal from "../userPortal.js";
 import type * as verificationSessions from "../verificationSessions.js";
 import type * as webhookCron from "../webhookCron.js";
 import type * as webhookDeliveries from "../webhookDeliveries.js";
@@ -104,6 +107,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   identitySync: typeof identitySync;
   "lib/apiAuth": typeof lib_apiAuth;
+  "lib/betterAuthAdapter": typeof lib_betterAuthAdapter;
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
   "lib/httpRateLimit": typeof lib_httpRateLimit;
@@ -125,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   migrations: typeof migrations;
   oauthApps: typeof oauthApps;
   oauthClients: typeof oauthClients;
+  oauthDiscovery: typeof oauthDiscovery;
   oauthLoopback: typeof oauthLoopback;
   outbox_jobs: typeof outbox_jobs;
   packageRegistry: typeof packageRegistry;
@@ -139,6 +144,7 @@ declare const fullApi: ApiFromModules<{
   subjects: typeof subjects;
   tenantHelpers: typeof tenantHelpers;
   testHelpers: typeof testHelpers;
+  userPortal: typeof userPortal;
   verificationSessions: typeof verificationSessions;
   webhookCron: typeof webhookCron;
   webhookDeliveries: typeof webhookDeliveries;
@@ -243,7 +249,9 @@ export declare const components: {
               }
             | {
                 data: {
+                  alg?: null | string;
                   createdAt: number;
+                  crv?: null | string;
                   expiresAt?: null | number;
                   privateKey: string;
                   publicKey: string;
@@ -509,6 +517,8 @@ export declare const components: {
                     | "privateKey"
                     | "createdAt"
                     | "expiresAt"
+                    | "alg"
+                    | "crv"
                     | "_id";
                   operator?:
                     | "lt"
@@ -907,6 +917,8 @@ export declare const components: {
                     | "privateKey"
                     | "createdAt"
                     | "expiresAt"
+                    | "alg"
+                    | "crv"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1427,7 +1439,9 @@ export declare const components: {
             | {
                 model: "jwks";
                 update: {
+                  alg?: null | string;
                   createdAt?: number;
+                  crv?: null | string;
                   expiresAt?: null | number;
                   privateKey?: string;
                   publicKey?: string;
@@ -1439,6 +1453,8 @@ export declare const components: {
                     | "privateKey"
                     | "createdAt"
                     | "expiresAt"
+                    | "alg"
+                    | "crv"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1956,7 +1972,9 @@ export declare const components: {
             | {
                 model: "jwks";
                 update: {
+                  alg?: null | string;
                   createdAt?: number;
+                  crv?: null | string;
                   expiresAt?: null | number;
                   privateKey?: string;
                   publicKey?: string;
@@ -1968,6 +1986,8 @@ export declare const components: {
                     | "privateKey"
                     | "createdAt"
                     | "expiresAt"
+                    | "alg"
+                    | "crv"
                     | "_id";
                   operator?:
                     | "lt"

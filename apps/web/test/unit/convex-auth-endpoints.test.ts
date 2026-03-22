@@ -36,4 +36,19 @@ describe('Convex Better Auth endpoints', () => {
 
     expect(response.status).toBe(401);
   });
+
+  it('exposes OAuth discovery metadata from the Better Auth server API', async () => {
+    const auth = await createTestAuth();
+    const { oauthProviderAuthServerMetadata } = await import('@better-auth/oauth-provider');
+
+    const response = await oauthProviderAuthServerMetadata(auth)(
+      new Request('http://localhost:3000/.well-known/oauth-authorization-server/api/auth')
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      issuer: 'https://example.convex.site/api/auth',
+      code_challenge_methods_supported: ['S256'],
+    });
+  });
 });

@@ -22,6 +22,41 @@ const authRuntime = convexBetterAuthReactStart({
 
 export const { handler, fetchAuthQuery, fetchAuthMutation, fetchAuthAction } = authRuntime;
 
+/**
+ * Converts a POST redirect response to a JSON { redirectTo } payload.
+ *
+ * @convex-dev/better-auth/react-start's handler fetches Convex with
+ * redirect:'manual' and passes 3xx responses straight through. When the
+ * browser's fetch() (default redirect:'follow') receives that 302 from
+ * POST /api/auth/oauth2/consent, it follows the entire redirect chain
+ * silently (Convex callback → Unity loopback server). The consent page
+ * never sees the redirect target and falls back to window.location.reload().
+ *
+ * By converting POST redirects to JSON here, the JS client reads the URL
+ * from data.redirectTo and navigates programmatically — the same pattern
+ * used by the Bun API proxy (apps/api/src/index.ts).
+ *
+ * GET redirects pass through unchanged so the browser navigates natively
+ * (e.g. the Discord OAuth redirect during sign-in).
+ */
+export function convertPostRedirectToJson(method: string, response: Response): Response {
+  if (method === 'POST' && response.status >= 300 && response.status < 400) {
+    const location = response.headers.get('location') ?? '';
+    return Response.json({ redirectTo: location }, { headers: { 'cache-control': 'no-store' } });
+  }
+  return response;
+}
+
+/**
+ * Wraps the Better Auth handler, applying convertPostRedirectToJson so that
+ * POST requests that result in redirects (e.g. /api/auth/oauth2/consent)
+ * return a JSON body the JS client can act on.
+ */
+export async function handleAuthRequest(request: Request): Promise<Response> {
+  const res = await handler(request);
+  return convertPostRedirectToJson(request.method, res);
+}
+
 function getCookieNames(cookieHeader: string | null): string[] | undefined {
   if (!cookieHeader) {
     return undefined;
@@ -83,6 +118,13 @@ function buildAuthTokenRequestHeaders(requestHeaders: Headers): Headers {
     headers.set('cookie', cookieHeader);
   }
 
+  // This is an internal server-to-server token fetch. In production behind a
+  // proxy, forwarding the full browser header set into /api/auth/convex/token
+  // can break the request path even though direct probes still work.
+  // Upstream refs:
+  // - https://github.com/get-convex/better-auth/issues/294
+  // - https://github.com/get-convex/better-auth/issues/295
+  // - https://github.com/get-convex/better-auth/pull/253
   headers.set('accept', 'application/json');
   headers.set('accept-encoding', 'identity');
 

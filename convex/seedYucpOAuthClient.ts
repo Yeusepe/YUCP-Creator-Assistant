@@ -15,6 +15,7 @@
 
 import { components } from './_generated/api';
 import { internalMutation } from './_generated/server';
+import { type BetterAuthPageResult, getBetterAuthPage } from './lib/betterAuthAdapter';
 
 export const seedUnityOAuthClient = internalMutation({
   args: {},
@@ -44,12 +45,13 @@ export const seedUnityOAuthClient = internalMutation({
     };
 
     // Check whether the client already exists
-    const existing = await ctx.runQuery(components.betterAuth.adapter.findMany, {
+    const existingResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
       model: 'oauthClient',
       where: [{ field: 'clientId', value: 'yucp-unity-editor', operator: 'eq' }],
       limit: 1,
       paginationOpts: { cursor: null, numItems: 1 },
-    });
+    })) as BetterAuthPageResult<{ clientId: string }>;
+    const existing = getBetterAuthPage(existingResult);
 
     if (existing.length > 0) {
       const result = await ctx.runMutation(components.betterAuth.adapter.updateOne as any, {
@@ -84,7 +86,7 @@ export const seedUnityOAuthClient = internalMutation({
 /**
  * Purge all stored JWKS keys so they are regenerated with the current algorithm.
  *
- * Run once after changing the JWT plugin keyPairConfig (e.g. EdDSA → ES256):
+ * Run once after changing the Better Auth JWT signing configuration:
  *   npx convex run seedYucpOAuthClient:purgeJwks
  */
 export const purgeJwks = internalMutation({
@@ -94,7 +96,9 @@ export const purgeJwks = internalMutation({
       input: { model: 'jwks' },
       paginationOpts: { cursor: null, numItems: 1000 },
     } as any);
-    console.log('Purged all JWKS keys, they will be regenerated as ES256 on next request.');
+    console.log(
+      'Purged all JWKS keys, they will be regenerated as RS256 from the current Better Auth and Convex JWT config on next request.'
+    );
     return { purged: true };
   },
 });

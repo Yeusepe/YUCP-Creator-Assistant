@@ -99,6 +99,11 @@ h4,
   margin-top: 1.5rem;
 }
 
+header h1,
+header p {
+  color: #ffffff;
+}
+
 .legal-card p {
   margin-bottom: 1rem;
   color: #ffffff;
@@ -131,11 +136,6 @@ main a:hover {
   margin-top: 1.25rem;
   margin-bottom: 0.5rem;
   font-size: 1rem;
-  color: #ffffff;
-}
-
-header h1,
-header p {
   color: #ffffff;
 }
 

@@ -1,4 +1,5 @@
 import { createFileRoute, useSearch } from '@tanstack/react-router';
+import { getSafeRelativeRedirectTarget } from '@yucp/shared/authRedirects';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import '@/styles/vrchat-verify.css';
 
@@ -24,6 +25,7 @@ export const Route = createFileRoute('/setup/vrchat')({
     mode: (search.mode as string) || '',
     guild_id: (search.guild_id as string) || '',
     tenant_id: (search.tenant_id as string) || '',
+    returnUrl: (search.returnUrl as string) || '',
   }),
   head: () => ({
     meta: [{ title: 'Verify with VRChat | Creator Assistant' }],
@@ -32,7 +34,7 @@ export const Route = createFileRoute('/setup/vrchat')({
 });
 
 function VRChatVerifyPage() {
-  const { token, mode, guild_id, tenant_id } = useSearch({ from: '/setup/vrchat' });
+  const { token, mode, guild_id, tenant_id, returnUrl } = useSearch({ from: '/setup/vrchat' });
   const isConnectMode = mode === 'connect';
 
   const [viewState, setViewState] = useState<ViewState>('form');
@@ -76,9 +78,15 @@ function VRChatVerifyPage() {
       return;
     }
 
+    const safeReturnUrl = getSafeRelativeRedirectTarget(returnUrl);
+    if (safeReturnUrl) {
+      window.location.assign(safeReturnUrl);
+      return;
+    }
+
     setViewState('success');
     setTimeout(() => window.close(), 1500);
-  }, [isConnectMode, guild_id, tenant_id]);
+  }, [isConnectMode, guild_id, tenant_id, returnUrl]);
 
   const showCredentialStep = useCallback(() => {
     setPendingTypes([]);

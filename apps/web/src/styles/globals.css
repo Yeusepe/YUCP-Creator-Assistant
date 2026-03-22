@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
-/* Scan route files for Tailwind utility classes */
+/* Scan route and component files for Tailwind utility classes */
 @source "../routes";
+@source "../components";
 
 @layer base {
   /* Shared resets matching the original HTML pages.

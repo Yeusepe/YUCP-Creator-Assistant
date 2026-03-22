@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
-import { getToken } from '../auth-server';
+import { api } from '../../../../../convex/_generated/api';
+import { fetchAuthQuery, getToken } from '../auth-server';
 import { serverApiFetch } from './api-client';
 
 /**
@@ -17,6 +18,10 @@ export interface Guild {
 
 export interface DashboardViewer {
   authUserId: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+  discordUserId: string | null;
 }
 
 export interface DashboardShellData {
@@ -71,7 +76,13 @@ function decodeDashboardViewer(token: string): DashboardViewer {
     throw new Error('Invalid auth token');
   }
 
-  return { authUserId: payload.sub };
+  return {
+    authUserId: payload.sub,
+    name: null,
+    email: null,
+    image: null,
+    discordUserId: null,
+  };
 }
 
 async function loadGuilds(token: string): Promise<Guild[]> {
@@ -85,6 +96,19 @@ async function loadGuilds(token: string): Promise<Guild[]> {
     icon: guild.icon ?? null,
     tenantId: stripQuotes(guild.authUserId),
   }));
+}
+
+async function loadDashboardViewer(token: string): Promise<DashboardViewer> {
+  const baseViewer = decodeDashboardViewer(token);
+  const viewer = await fetchAuthQuery(api.authViewer.getViewer, {});
+
+  return {
+    authUserId: baseViewer.authUserId,
+    name: viewer?.name ?? null,
+    email: viewer?.email ?? null,
+    image: viewer?.image ?? null,
+    discordUserId: viewer?.discordUserId ?? null,
+  };
 }
 
 /**
@@ -109,14 +133,14 @@ export const fetchDashboardProviders = createServerFn({ method: 'GET' }).handler
 export const fetchDashboardViewer = createServerFn({ method: 'GET' }).handler(
   async (): Promise<DashboardViewer> => {
     const token = await requireDashboardToken();
-    return decodeDashboardViewer(token);
+    return loadDashboardViewer(token);
   }
 );
 
 export const fetchDashboardShell = createServerFn({ method: 'GET' }).handler(
   async (): Promise<DashboardShellData> => {
     const token = await requireDashboardToken();
-    const [viewer, guilds] = await Promise.all([decodeDashboardViewer(token), loadGuilds(token)]);
+    const [viewer, guilds] = await Promise.all([loadDashboardViewer(token), loadGuilds(token)]);
 
     return {
       viewer,

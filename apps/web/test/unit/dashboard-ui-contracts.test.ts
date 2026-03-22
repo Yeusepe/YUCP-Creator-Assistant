@@ -15,6 +15,10 @@ const dashboardComponentsCss = readFileSync(
   resolve(__dirname, '../../src/styles/dashboard-components.css'),
   'utf8'
 );
+const onboardingProgressPanelSource = readFileSync(
+  resolve(__dirname, '../../src/components/dashboard/panels/OnboardingProgressPanel.tsx'),
+  'utf8'
+);
 
 const dashboardCss = readFileSync(resolve(__dirname, '../../src/styles/dashboard.css'), 'utf8');
 const cloudBackgroundSource = readFileSync(
@@ -23,6 +27,11 @@ const cloudBackgroundSource = readFileSync(
 );
 
 describe('dashboard UI contracts', () => {
+  it('removes the redundant select-server prompt card from the dashboard body', () => {
+    expect(dashboardIndexRouteSource).not.toContain('<SelectServerPrompt />');
+    expect(dashboardIndexRouteSource).not.toContain('function SelectServerPrompt()');
+  });
+
   it('uses shared dashboard query options for the guild picker and resolves empty server state text', () => {
     expect(dashboardRouteSource).toContain('dashboardShellQueryOptions');
     expect(dashboardRouteSource).toContain('useDashboardShell');
@@ -68,6 +77,13 @@ describe('dashboard UI contracts', () => {
     expect(dashboardRouteSource).toContain('server-selector-portal');
   });
 
+  it('uses an aligned content shell instead of overlap offsets in the main dashboard layout', () => {
+    expect(dashboardRouteSource).toContain('content-area-inner');
+    expect(dashboardCss).toContain('.content-area-inner {');
+    expect(dashboardCss).not.toContain('margin-left: -12px;');
+    expect(dashboardCss).not.toContain('margin-right: 16px;');
+  });
+
   it('uses the home icon for the personal dashboard selector trigger and no longer renders blob backgrounds', () => {
     expect(dashboardRouteSource).toContain(
       '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />'
@@ -86,7 +102,12 @@ describe('dashboard UI contracts', () => {
   });
 
   it('keeps dashboard provider connect buttons on frontend setup routes instead of hardcoded raw API begin links', () => {
-    expect(dashboardIndexRouteSource).toContain('buildProviderConnectUrl(provider,');
+    const connectedPlatformsPanelSource = readFileSync(
+      resolve(__dirname, '../../src/components/dashboard/panels/ConnectedPlatformsPanel.tsx'),
+      'utf8'
+    );
+    expect(connectedPlatformsPanelSource).toContain('buildProviderConnectUrl(provider,');
+    expect(connectedPlatformsPanelSource).not.toContain('/api/connect/vrchat/begin');
     expect(dashboardIndexRouteSource).not.toContain('/api/connect/vrchat/begin');
   });
 
@@ -124,5 +145,19 @@ describe('dashboard UI contracts', () => {
     expect(globalsCss).toContain('transition: opacity 0.6s ease;');
     // dashboard.css must NOT redefine it (globals.css is the single source of truth)
     expect(dashboardCss).not.toContain('.cloud-layer-fade');
+  });
+
+  it('scopes onboarding storage to the current viewer and retries notification ack on failure', () => {
+    expect(dashboardIndexRouteSource).toContain('buildOnboardingStorageKeys');
+    expect(dashboardIndexRouteSource).toContain('viewer.authUserId');
+    expect(dashboardIndexRouteSource).toContain('seenNotificationIds.current.delete(id)');
+  });
+
+  it('renders onboarding progress directly from the parent step state without a mount gate', () => {
+    expect(onboardingProgressPanelSource).not.toContain(
+      'const [isMounted, setIsMounted] = useState(false);'
+    );
+    expect(onboardingProgressPanelSource).not.toContain('isMounted && step.completed');
+    expect(onboardingProgressPanelSource).toContain('steps.filter((s) => s.completed).length');
   });
 });

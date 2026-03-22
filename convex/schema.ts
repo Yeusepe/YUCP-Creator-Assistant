@@ -1426,6 +1426,34 @@ const admin_notifications = defineTable({
   .index('by_auth_user_unseen', ['authUserId', 'seenAt'])
   .index('by_expires', ['expiresAt']);
 
+/**
+ * GDPR account deletion requests.
+ * Inserted when a user requests account deletion. A background job processes
+ * these within 30 days per Article 17 of GDPR.
+ */
+const account_deletion_requests = defineTable({
+  /** Better Auth user ID of the requesting user */
+  authUserId: v.string(),
+  /** Unix ms when the request was submitted */
+  requestedAt: v.number(),
+  /** Unix ms deadline by which deletion must be complete (requestedAt + 30 days) */
+  deadlineAt: v.number(),
+  /** Processing status */
+  status: v.union(
+    v.literal('pending'),
+    v.literal('processing'),
+    v.literal('completed'),
+    v.literal('failed')
+  ),
+  /** Unix ms when processing completed */
+  processedAt: v.optional(v.number()),
+  /** Optional error details if processing failed */
+  errorDetails: v.optional(v.string()),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_status', ['status'])
+  .index('by_deadline', ['deadlineAt']);
+
 // ============================================================================
 // SCHEMA EXPORT
 // ============================================================================
@@ -1709,4 +1737,7 @@ export default defineSchema({
 
   // Admin notifications — short-lived bot-to-dashboard events
   admin_notifications,
+
+  // GDPR account deletion requests (30-day processing window per Article 17)
+  account_deletion_requests,
 });

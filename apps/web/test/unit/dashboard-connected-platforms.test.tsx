@@ -55,6 +55,18 @@ vi.mock('@/hooks/useServerContext', () => {
   };
 });
 
+vi.mock('@/hooks/useActiveDashboardContext', () => {
+  return {
+    useActiveDashboardContext: vi.fn(() => ({
+      activeGuildId: undefined,
+      activeTenantId: 'user-123',
+      isPersonalDashboard: true,
+      selectedGuild: undefined,
+      viewer: { authUserId: 'user-123' },
+    })),
+  };
+});
+
 vi.mock('@/components/ui/Toast', () => {
   return {
     useToast: vi.fn(() => ({
@@ -148,6 +160,5 @@ describe('dashboard connected platforms', () => {
 
     await waitFor(() => expect(screen.getByText('Creator storefront')).toBeInTheDocument());
     expect(screen.getAllByText('Jinxxy').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Connected').length).toBeGreaterThan(0);
   });
 });

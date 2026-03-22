@@ -6,9 +6,14 @@ const ROUTES_DIR = join(__dirname, '../../src/routes/dashboard');
 const LIB_DIR = join(__dirname, '../../src/lib');
 const SERVER_LIB_DIR = join(__dirname, '../../src/lib/server');
 const CONVEX_DIR = join(__dirname, '../../../../convex');
+const PANELS_DIR = join(__dirname, '../../src/components/dashboard/panels');
 
 function readRouteSource(fileName: string) {
   return readFileSync(join(ROUTES_DIR, fileName), 'utf8');
+}
+
+function readPanelSource(fileName: string) {
+  return readFileSync(join(PANELS_DIR, fileName), 'utf8');
 }
 
 function readLibSource(fileName: string) {
@@ -90,15 +95,21 @@ describe('dashboard parity wiring', () => {
 
   it('uses simple section-specific skeleton components instead of generic card placeholders', () => {
     const indexSource = readRouteSource('index.tsx');
+    const connectedPlatformsSource = readPanelSource('ConnectedPlatformsPanel.tsx');
+    const serverSettingsSource = readPanelSource('ServerSettingsPanel.tsx');
+    const storeIntegrationsSource = readPanelSource('StoreIntegrationsPanel.tsx');
     const integrationsSource = readRouteSource('integrations.tsx');
     const collaborationSource = readRouteSource('collaboration.tsx');
 
-    expect(indexSource).toContain('DashboardGridSkeleton');
-    expect(indexSource).toContain('DashboardActionRowSkeleton');
-    expect(indexSource).toContain('DashboardSettingsSkeleton');
+    // Panel components use section-specific skeletons
+    expect(connectedPlatformsSource).toContain('DashboardListSkeleton');
+    expect(serverSettingsSource).toContain('DashboardSettingsSkeleton');
+    expect(storeIntegrationsSource).toContain('DashboardIntegrationsSkeleton');
     expect(integrationsSource).toContain('DashboardActionRowSkeleton');
     expect(integrationsSource).toContain('DashboardListSkeleton');
     expect(collaborationSource).toContain('DashboardListSkeleton');
+
+    // No generic card placeholders in route or panel files
     expect(indexSource).not.toContain('className="skeleton-block skeleton-card"');
     expect(integrationsSource).not.toContain('className="skeleton-block skeleton-card"');
     expect(collaborationSource).not.toContain('className="skeleton-block skeleton-card"');

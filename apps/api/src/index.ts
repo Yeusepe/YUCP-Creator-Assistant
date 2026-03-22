@@ -465,8 +465,9 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
 
-  // Proxy /api/auth/*, /api/yucp/*, and /v1/* requests to Convex.
-  // Auth, YUCP OAuth, and the versioned public API (/v1/) all live on Convex .site.
+  // Proxy the root OAuth discovery document, /api/auth/*, /api/yucp/*, and /v1/*
+  // requests to Convex. Auth, YUCP OAuth, and the versioned public API (/v1/)
+  // all live on Convex .site.
   // When the API runs on localhost, proxy so everything works from a single origin.
   if (pathname.startsWith('/v1/') && providerPlatformRoutes) {
     const localV1Response = await providerPlatformRoutes.handleRequest(request);
@@ -481,6 +482,7 @@ async function routeRequest(request: Request): Promise<Response> {
   }
 
   if (
+    pathname === '/.well-known/oauth-authorization-server/api/auth' ||
     pathname.startsWith('/api/auth/') ||
     pathname.startsWith('/api/yucp/') ||
     pathname.startsWith('/v1/')
@@ -653,6 +655,13 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/ensure-tenant' && connectRoutes) {
     return connectRoutes.ensureTenant(request);
   }
+  if (pathname === '/api/connect/user/providers' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getUserProviders(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/connect/user/verify/start' && connectRoutes) {
+    return connectRoutes.postUserVerifyStart(request);
+  }
   if (pathname === '/api/connect/user/guilds' && connectRoutes) {
     return connectRoutes.getUserGuilds(request);
   }
@@ -660,6 +669,29 @@ async function routeRequest(request: Request): Promise<Response> {
     if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
     if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/connect/user/licenses' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getUserLicenses(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const entitlementRevokeMatch = pathname.match(/^\/api\/connect\/user\/entitlements\/([^/]+)$/);
+  if (entitlementRevokeMatch && connectRoutes) {
+    return connectRoutes.revokeUserEntitlement(request, entitlementRevokeMatch[1]);
+  }
+  if (pathname === '/api/connect/user/oauth/grants' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getUserOAuthGrants(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const oauthGrantRevokeMatch = pathname.match(/^\/api\/connect\/user\/oauth\/grants\/([^/]+)$/);
+  if (oauthGrantRevokeMatch && connectRoutes) {
+    return connectRoutes.revokeUserOAuthGrant(request, oauthGrantRevokeMatch[1]);
+  }
+  if (pathname === '/api/connect/user/data-export' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getUserDataExport(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/connect/user/gdpr-delete' && connectRoutes) {
+    return connectRoutes.requestUserAccountDeletion(request);
   }
   // Pre-intercept: Gumroad callback is dual-purpose — may be a verification flow, not a connect flow
   if (pathname === '/api/connect/gumroad/callback') {

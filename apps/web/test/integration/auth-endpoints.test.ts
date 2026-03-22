@@ -33,6 +33,19 @@ describe('Auth health', () => {
     const body = await res.json();
     expect(body).toEqual({ ok: true });
   });
+
+  it('GET /.well-known/oauth-authorization-server/api/auth returns OAuth discovery metadata', async () => {
+    const res = await authFetch('/.well-known/oauth-authorization-server/api/auth');
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.issuer).toBeDefined();
+    expect(body.authorization_endpoint).toBeDefined();
+    expect(body.token_endpoint).toBeDefined();
+    expect(body.jwks_uri).toBeDefined();
+    expect(body.code_challenge_methods_supported).toEqual(['S256']);
+    expect(body.userinfo_endpoint).toBeUndefined();
+  });
 });
 
 describe('Session management', () => {

@@ -188,12 +188,30 @@ export function buildProviderConnectUrl(
   return `${connectUrl.pathname}${connectUrl.search}`;
 }
 
+export interface UserProvider {
+  id: string;
+  label: string;
+  icon: string;
+  color: string;
+  description: string;
+  userSetupPath: string;
+}
+
 export function getProviderIconPath(provider: { icon?: string | null }) {
   return provider.icon ? `/Icons/${provider.icon}` : null;
 }
 
 export async function listDashboardProviders() {
   return apiClient.get<DashboardProvider[]>('/api/providers');
+}
+
+export async function listUserProviders() {
+  const data = await apiClient.get<{ providers?: UserProvider[] }>('/api/connect/user/providers');
+  return data.providers ?? [];
+}
+
+export async function startUserVerify(providerKey: string): Promise<{ redirectUrl: string }> {
+  return apiClient.post<{ redirectUrl: string }>('/api/connect/user/verify/start', { providerKey });
 }
 
 export async function listUserAccounts() {

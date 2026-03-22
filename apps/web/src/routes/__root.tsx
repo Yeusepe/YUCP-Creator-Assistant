@@ -129,7 +129,7 @@ function AppEffects() {
 
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Blocking script: runs before first paint to apply the stored theme.
             Must precede HeadContent so the class is set before any CSS renders. */}

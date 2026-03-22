@@ -23,7 +23,7 @@ function readRoute(name: string): string {
 }
 
 // Routes that MUST have auth guards (creator-authenticated pages)
-const PROTECTED_ROUTES = ['dashboard.tsx'];
+const PROTECTED_ROUTES = ['dashboard.tsx', 'account.tsx'];
 
 // Routes that MUST NOT require auth (public-facing pages)
 const PUBLIC_ROUTES = [
