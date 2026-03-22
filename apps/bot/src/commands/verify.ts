@@ -97,9 +97,9 @@ type EnabledProviderDescriptor = (typeof PROVIDER_REGISTRY)[number];
 function formatNaturalList(items: string[], conjunction: 'and' | 'or' = 'and'): string {
   const filtered = items.map((item) => item.trim()).filter(Boolean);
   if (filtered.length === 0) return '';
-  if (filtered.length === 1) return filtered[0] ?? '';
+  if (filtered.length === 1) return filtered[0];
   if (filtered.length === 2) return `${filtered[0]} ${conjunction} ${filtered[1]}`;
-  return `${filtered.slice(0, -1).join(', ')}, ${conjunction} ${filtered[filtered.length - 1]}`;
+  return `${filtered.slice(0, -1).join(', ')}, ${conjunction} ${filtered.at(-1)}`;
 }
 
 function getEnabledProviderDescriptors(enabledSet: Set<string>): EnabledProviderDescriptor[] {

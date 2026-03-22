@@ -21,6 +21,11 @@ import { mockSlashCommand } from '../helpers/mockInteraction';
 
 // ─── Convex mock factory ──────────────────────────────────────────────────────
 
+type SpawnPayload = {
+  embeds?: Array<{ toJSON: () => { title?: string; description?: string } }>;
+  components?: Array<{ components?: Array<{ data?: { label?: string; style?: number } }> }>;
+};
+
 type ConvexMockOpts = {
   subjectFound?: boolean;
   linkedAccounts?: Array<{ provider: string; status: string; _id?: string }>;
@@ -194,10 +199,9 @@ describe('handleVerifySpawn', () => {
       }
     );
 
-    const sendPayload = interaction.channel?.send.mock.calls[0]?.[0] as {
-      embeds?: Array<{ toJSON: () => { title?: string; description?: string } }>;
-      components?: Array<{ components?: Array<{ data?: { label?: string; style?: number } }> }>;
-    };
+    expect(interaction.channel?.send.mock.calls[0]).toBeDefined();
+
+    const sendPayload = interaction.channel?.send.mock.calls[0]?.[0] as SpawnPayload;
     const embed = sendPayload.embeds?.[0]?.toJSON();
     const button = sendPayload.components?.[0]?.components?.[0] as {
       data?: { label?: string; style?: number };
