@@ -467,7 +467,7 @@ async function handleSlashCommand(
       await handleStats(interaction, ctx.convex, ctx.apiSecret, { authUserId, guildId });
     } else if (subcommand === 'spawn-verify') {
       const { handleVerifySpawn } = await import('../commands/verify');
-      await handleVerifySpawn(interaction, ctx.convex, getApiUrls().apiPublic, {
+      await handleVerifySpawn(interaction, ctx.convex, ctx.apiSecret, getApiUrls().apiPublic, {
         authUserId,
         guildLinkId,
         guildId,

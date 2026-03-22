@@ -6,7 +6,12 @@
 
 import { randomBytes } from 'node:crypto';
 import { PROVIDER_META, providerLabel } from '@yucp/providers';
-import { createLogger, formatVerificationSupportMessage, PROVIDER_REGISTRY } from '@yucp/shared';
+import {
+  createLogger,
+  formatVerificationSupportMessage,
+  PROVIDER_REGISTRY,
+  PROVIDER_REGISTRY_BY_KEY,
+} from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type {
   ButtonInteraction,
@@ -41,33 +46,8 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const VERIFY_PREFIX = 'creator_verify:';
 
-/** Default embed for spawn-verify: explains verification (scannable, benefit-first, plain language). */
-const DEFAULT_SPAWN_TITLE = `${E.Assistant} Get your special access`;
-const _spawnOAuthList = PROVIDER_REGISTRY.filter(
-  (d) => d.status === 'active' && d.supportsOAuth && d.category === 'commerce'
-)
-  .map((d) => `${E[d.emojiKey as keyof typeof E] ?? ''} ${d.label}`)
-  .join(' or ');
-const _spawnLicenseList = PROVIDER_REGISTRY.filter(
-  (d) => d.status === 'active' && d.supportsLicenseVerify
-)
-  .map((d) => `${E[d.emojiKey as keyof typeof E] ?? ''} ${d.label}`)
-  .join(' or ');
-const DEFAULT_SPAWN_DESCRIPTION = [
-  `${E.Assistant} **Verify your purchase to get access**`,
-  '',
-  `${E.Touch} **Getting started:**`,
-  `${E.Num1} Click the **Verify** button below`,
-  `${E.Num2} Choose how to prove your purchase`,
-  `${E.Num3} Follow the steps (takes about 30 seconds)`,
-  '',
-  `${E.Link} **Sign in** - Connect your ${_spawnOAuthList || 'store account'}. We'll find your purchases and grant access automatically.`,
-  '',
-  `${E.KeyCloud} **Use license key** - Using ${_spawnLicenseList}? Enter your key once. We'll link your account and sync all purchases so you only verify once.`,
-  '',
-  `${E.Point} **Need help?** Ask a server admin or check our support guide.`,
-].join('\n');
-const DEFAULT_SPAWN_BUTTON_TEXT = 'Verify';
+const DEFAULT_SPAWN_TITLE = `${E.Assistant} Verify your creator access`;
+const DEFAULT_SPAWN_BUTTON_TEXT = 'Start verification';
 const DEFAULT_SPAWN_COLOR = 0x5865f2; // Discord Blurple
 
 // Semantic colors
@@ -110,6 +90,146 @@ interface VerifyData {
   guildProductCount: number;
   /** Set of provider keys the user has at least one active account for */
   connectedProviders: Set<string>;
+}
+
+type EnabledProviderDescriptor = (typeof PROVIDER_REGISTRY)[number];
+
+function formatNaturalList(items: string[], conjunction: 'and' | 'or' = 'and'): string {
+  const filtered = items.map((item) => item.trim()).filter(Boolean);
+  if (filtered.length === 0) return '';
+  if (filtered.length === 1) return filtered[0] ?? '';
+  if (filtered.length === 2) return `${filtered[0]} ${conjunction} ${filtered[1]}`;
+  return `${filtered.slice(0, -1).join(', ')}, ${conjunction} ${filtered[filtered.length - 1]}`;
+}
+
+function getEnabledProviderDescriptors(enabledSet: Set<string>): EnabledProviderDescriptor[] {
+  return [...enabledSet]
+    .map((provider) => PROVIDER_REGISTRY_BY_KEY[provider as keyof typeof PROVIDER_REGISTRY_BY_KEY])
+    .filter(
+      (provider): provider is EnabledProviderDescriptor =>
+        provider !== undefined && provider.status === 'active'
+    );
+}
+
+function getProviderChip(provider: EnabledProviderDescriptor): string {
+  const emoji = E[provider.emojiKey as keyof typeof E] ?? '';
+  return emoji ? `${emoji} ${provider.label}` : provider.label;
+}
+
+function buildVerificationCoverage(enabledSet: Set<string>): string {
+  const enabledProviders = getEnabledProviderDescriptors(enabledSet);
+  const commerceProviders = enabledProviders.filter((provider) => provider.category === 'commerce');
+  const coverage: string[] = [];
+
+  if (commerceProviders.length > 0) {
+    coverage.push(
+      `store purchases from ${formatNaturalList(
+        commerceProviders.map((provider) => provider.label),
+        'or'
+      )}`
+    );
+  }
+  if (enabledSet.has('vrchat')) {
+    coverage.push('VRChat product ownership');
+  }
+  if (enabledSet.has('discord')) {
+    coverage.push('access from another Discord server');
+  }
+
+  return formatNaturalList(coverage, 'and');
+}
+
+function buildSpawnTitle(enabledSet: Set<string>): string {
+  const enabledProviders = getEnabledProviderDescriptors(enabledSet);
+  if (enabledProviders.length === 1) {
+    const [provider] = enabledProviders;
+    if (provider) {
+      if (provider.providerKey === 'discord') return `${E.Assistant} Verify your server access`;
+      if (provider.providerKey === 'vrchat') return `${E.Assistant} Verify your VRChat access`;
+      return `${E.Assistant} Verify your ${provider.label} purchase`;
+    }
+  }
+
+  return DEFAULT_SPAWN_TITLE;
+}
+
+function buildSpawnButtonText(enabledSet: Set<string>): string {
+  const enabledProviders = getEnabledProviderDescriptors(enabledSet);
+  if (enabledProviders.length === 1) {
+    const [provider] = enabledProviders;
+    if (provider) {
+      if (provider.providerKey === 'discord') return 'Check server access';
+      if (provider.providerKey === 'vrchat') return 'Verify with VRChat';
+      if (provider.supportsLicenseVerify && !provider.supportsOAuth) return 'Enter license key';
+      if (provider.supportsOAuth && !provider.supportsLicenseVerify)
+        return `Connect ${provider.label}`;
+      return `Verify ${provider.label}`;
+    }
+  }
+
+  return DEFAULT_SPAWN_BUTTON_TEXT;
+}
+
+function buildSpawnDescription(enabledSet: Set<string>, buttonText: string): string {
+  if (enabledSet.size === 0) {
+    return [
+      `${E.Wrench} **This server is still being set up**`,
+      '',
+      `${E.Point} A creator or server admin still needs to add products before buyers can verify here.`,
+      `${E.Point} Once setup is finished, this message will show the right verification options automatically.`,
+    ].join('\n');
+  }
+
+  const enabledProviders = getEnabledProviderDescriptors(enabledSet);
+  const oauthProviders = enabledProviders.filter(
+    (provider) => provider.supportsOAuth && provider.category === 'commerce'
+  );
+  const licenseProviders = enabledProviders.filter((provider) => provider.supportsLicenseVerify);
+  const coverage = buildVerificationCoverage(enabledSet);
+  const details: string[] = [];
+
+  if (oauthProviders.length > 0) {
+    details.push(
+      `${E.Link} **Sign in with ${formatNaturalList(
+        oauthProviders.map((provider) => getProviderChip(provider)),
+        'or'
+      )}** so we can find your purchase automatically.`
+    );
+  }
+  if (licenseProviders.length > 0) {
+    details.push(
+      `${E.KeyCloud} **Use a ${formatNaturalList(
+        licenseProviders.map((provider) => getProviderChip(provider)),
+        'or'
+      )} license key** if you bought access with a key.`
+    );
+  }
+  if (enabledSet.has('discord')) {
+    details.push(
+      `${E.Discord} **Use your role from another Discord server** if this creator shares access across communities.`
+    );
+  }
+  if (enabledSet.has('vrchat')) {
+    details.push(
+      `${E.VRC} **Sign in with VRChat** to confirm ownership for connected VRChat products.`
+    );
+  }
+
+  return [
+    `${E.Assistant} **Verify once and unlock your roles**`,
+    '',
+    coverage
+      ? `${E.Point} This server currently checks ${coverage}.`
+      : `${E.Point} This server will show the right verification options below.`,
+    '',
+    `${E.Num1} Click **${buttonText}**`,
+    `${E.Num2} Choose the option that matches where you bought access`,
+    `${E.Num3} We’ll confirm it and update your roles automatically`,
+    '',
+    ...details,
+    '',
+    `${E.Point} **Need help?** Ask a server admin if your purchase is missing.`,
+  ].join('\n');
 }
 
 function getVerifyPanelKey(userId: string, guildId: string): string {
@@ -391,46 +511,29 @@ async function getRoleSyncBanner(
 
 /** Build context-aware prompt based on which verification methods are available. */
 function getVerifyPrompt(enabledSet: Set<string>): string {
-  const methods: string[] = [];
-  for (const provider of enabledSet) {
-    if (provider === 'discord') {
-      methods.push(`${E.Discord} another server`);
-      continue;
-    }
-    const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
-    if (meta) {
-      const emoji = meta.emojiKey ? (E[meta.emojiKey as keyof typeof E] ?? '') : '';
-      methods.push(`${emoji} ${meta.label}`);
-    }
+  if (enabledSet.size === 0) return '';
+
+  const coverage = buildVerificationCoverage(enabledSet);
+  if (enabledSet.size === 1 && enabledSet.has('discord')) {
+    return `${E.Touch} Use the option below to confirm your role from another Discord server.`;
   }
-  if (methods.length === 0) return '';
-  if (methods.length === 1) {
-    if (enabledSet.size === 1 && enabledSet.has('discord')) {
-      return `${E.Touch} Verify your role from another server:`;
-    }
-    const nonDiscord = [...enabledSet].find((p) => p !== 'discord');
-    const meta = nonDiscord ? PROVIDER_META[nonDiscord as keyof typeof PROVIDER_META] : undefined;
-    const name = meta?.label ?? nonDiscord ?? 'store';
-    return `${E.Touch} Choose how to verify your ${name} purchase:`;
+  if (enabledSet.size === 1 && enabledSet.has('vrchat')) {
+    return `${E.Touch} Use the option below to confirm your VRChat ownership.`;
   }
-  return `${E.Touch} Choose how to verify your purchase:`;
+
+  return coverage
+    ? `${E.Touch} Pick the option that matches where you bought access.\n${E.PointDown} Available here: ${coverage}.`
+    : `${E.Touch} Pick the option below to verify your access.`;
 }
 
 /** Build context-aware message for connected_no_products state. */
 function getConnectedNoProductsPrompt(enabledSet: Set<string>): string {
-  const methods: string[] = [];
-  for (const provider of enabledSet) {
-    if (provider === 'discord') {
-      methods.push('another server');
-      continue;
-    }
-    const meta = PROVIDER_META[provider as keyof typeof PROVIDER_META];
-    if (meta) methods.push(meta.label);
-  }
-  if (methods.length === 0) return '';
-  const hint =
-    methods.length === 1 ? `try connecting via ${methods[0]}` : 'try another verification method';
-  return `We found your account, but couldn't locate any purchases for this server.\n\n💡 **Try this:** Make sure you're using the same account you bought with, or ${hint}:`;
+  if (enabledSet.size === 0) return '';
+
+  const coverage = buildVerificationCoverage(enabledSet);
+  return coverage
+    ? `${E.Timer} We found a linked account, but not a matching purchase for this server yet.\n\n${E.Point} Double-check the account or key you used for ${coverage}, or try another option below.`
+    : `${E.Timer} We found a linked account, but not a matching purchase for this server yet.\n\n${E.Point} Double-check your account details, or try another option below.`;
 }
 
 function getUniqueActiveEnabledProviders(
@@ -980,13 +1083,40 @@ export async function handleVerifyAddMore(
 /** /creator-admin spawn-verify - post non-ephemeral verify button in channel */
 export async function handleVerifySpawn(
   interaction: ChatInputCommandInteraction,
-  _convex: ConvexHttpClient,
+  convex: ConvexHttpClient,
+  apiSecret: string,
   _apiBaseUrl: string | undefined,
-  _ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
+  ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
 ): Promise<void> {
-  const title = interaction.options.getString('title') ?? DEFAULT_SPAWN_TITLE;
-  const description = interaction.options.getString('description') ?? DEFAULT_SPAWN_DESCRIPTION;
-  const buttonText = interaction.options.getString('button_text') ?? DEFAULT_SPAWN_BUTTON_TEXT;
+  let enabledSet = new Set<string>();
+  try {
+    const providersResult = await convex.query(
+      api.role_rules.getEnabledVerificationProvidersFromProducts,
+      {
+        apiSecret,
+        authUserId: ctx.authUserId,
+        guildId: ctx.guildId,
+      }
+    );
+    enabledSet = new Set<string>((providersResult as { providers: string[] }).providers);
+  } catch (error) {
+    enabledSet = new Set<string>(
+      PROVIDER_REGISTRY.filter((provider) => provider.status === 'active').map(
+        (provider) => provider.providerKey
+      )
+    );
+    logger.warn('Falling back to generic spawn verification copy', {
+      authUserId: ctx.authUserId,
+      error: error instanceof Error ? error.message : String(error),
+      guildId: ctx.guildId,
+    });
+  }
+
+  const buttonText =
+    interaction.options.getString('button_text') ?? buildSpawnButtonText(enabledSet);
+  const title = interaction.options.getString('title') ?? buildSpawnTitle(enabledSet);
+  const description =
+    interaction.options.getString('description') ?? buildSpawnDescription(enabledSet, buttonText);
   const colorStr = interaction.options.getString('color');
   const imageUrl = interaction.options.getString('image_url');
 
@@ -1008,8 +1138,8 @@ export async function handleVerifySpawn(
   const button = new ButtonBuilder()
     .setCustomId('verify_start')
     .setLabel(buttonText)
-    .setEmoji(Emoji.Bag)
-    .setStyle(ButtonStyle.Primary);
+    .setEmoji(Emoji.PersonKey)
+    .setStyle(ButtonStyle.Success);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 

@@ -15,7 +15,9 @@
 
 import { describe, expect, it, mock } from 'bun:test';
 import type { ConvexHttpClient } from 'convex/browser';
-import { buildVerifyStatusReply } from '../../src/commands/verify';
+import type { ChatInputCommandInteraction } from 'discord.js';
+import { buildVerifyStatusReply, handleVerifySpawn } from '../../src/commands/verify';
+import { mockSlashCommand } from '../helpers/mockInteraction';
 
 // ─── Convex mock factory ──────────────────────────────────────────────────────
 
@@ -136,11 +138,26 @@ describe('buildVerifyStatusReply', () => {
     expect(text).toContain('creator_verify:license:auth_verify_3');
   });
 
+  it('describes the enabled verification coverage when multiple provider types are configured', async () => {
+    const convex = makeConvex({ subjectFound: false, providers: ['gumroad', 'discord', 'vrchat'] });
+
+    const reply = await buildVerifyStatusReply(
+      'user_verify_coverage',
+      'auth_verify_coverage',
+      'guild_verify_coverage',
+      convex,
+      'api-secret',
+      'https://api.example.com'
+    );
+
+    const text = JSON.stringify(reply.components[0].toJSON());
+    expect(text).toContain('Pick the option that matches where you bought access.');
+    expect(text).toContain(
+      'store purchases from Gumroad, VRChat product ownership, and access from another Discord server.'
+    );
+  });
+
   it('handles DM context (null guildId) gracefully without throwing', async () => {
-    // ⚠️ BUG: buildVerifyStatusReply does not validate that guildId is non-null.
-    // DM interactions should receive a clear "use this in a server" error, but the function
-    // proceeds with guildId=null and returns a "No products added" panel instead.
-    // The assertion below expects a guild-required message — it will FAIL, revealing the bug.
     const convex = makeConvex({ subjectFound: false, providers: [] });
 
     const reply = await buildVerifyStatusReply(
@@ -153,7 +170,46 @@ describe('buildVerifyStatusReply', () => {
     );
 
     const text = JSON.stringify(reply.components[0].toJSON());
-    // ⚠️ BUG: returns "No products have been added" instead of a guild-required error
     expect(text).toContain('Use this command in a server');
+  });
+});
+
+describe('handleVerifySpawn', () => {
+  it('builds dynamic spawn copy from the enabled providers for the guild', async () => {
+    const convex = makeConvex({ providers: ['gumroad', 'jinxxy', 'discord'] });
+    const interaction = mockSlashCommand({
+      commandName: 'creator-admin',
+      subcommand: 'spawn-verify',
+    });
+
+    await handleVerifySpawn(
+      interaction as unknown as ChatInputCommandInteraction,
+      convex,
+      'api-secret',
+      'https://api.example.com',
+      {
+        authUserId: 'auth_spawn_1',
+        guildId: 'guild_spawn_1',
+        guildLinkId: 'guild_link_spawn_1' as never,
+      }
+    );
+
+    const sendPayload = interaction.channel?.send.mock.calls[0]?.[0] as {
+      embeds?: Array<{ toJSON: () => { title?: string; description?: string } }>;
+      components?: Array<{ components?: Array<{ data?: { label?: string; style?: number } }> }>;
+    };
+    const embed = sendPayload.embeds?.[0]?.toJSON();
+    const button = sendPayload.components?.[0]?.components?.[0] as {
+      data?: { label?: string; style?: number };
+    };
+
+    expect(embed?.title).toContain('Verify your creator access');
+    expect(embed?.description).toContain(
+      'This server currently checks store purchases from Gumroad or Jinxxy and access from another Discord server.'
+    );
+    expect(embed?.description).toContain('Sign in with');
+    expect(embed?.description).toContain('Use a');
+    expect(button.data?.label).toBe('Start verification');
+    expect(button.data?.style).toBe(3);
   });
 });
