@@ -107,7 +107,7 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
   // hydration never mismatches. Real counts are shown after mount.
   const completedCount = useMemo(
     () => (isMounted ? steps.filter((s) => s.completed).length : 0),
-    [isMounted, steps],
+    [isMounted, steps]
   );
   const totalCount = steps.length;
   const allComplete = completedCount === totalCount && totalCount > 0;

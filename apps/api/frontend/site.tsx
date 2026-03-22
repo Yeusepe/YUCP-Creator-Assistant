@@ -434,7 +434,7 @@ function dismissOverlay() {
 }
 
 function hideLoading() {
-  const overlay = document.getElementById('page-loading-overlay');
+  const _overlay = document.getElementById('page-loading-overlay');
   const content = document.getElementById('page-content');
 
   // Step 1: reveal content underneath the still-opaque overlay so it can

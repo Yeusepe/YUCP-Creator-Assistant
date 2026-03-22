@@ -9,8 +9,8 @@
  * 5. Close page, continue setup in Discord
  */
 
-import { createLogger, getProviderDescriptor, timingSafeStringEqual } from '@yucp/shared';
 import { randomBytes } from 'node:crypto';
+import { createLogger, getProviderDescriptor, timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
@@ -30,7 +30,7 @@ import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
 import { PROVIDERS } from '../providers/index';
-import type { ConnectConfig, ConnectContext, DisconnectContext } from '../providers/types';
+import type { ConnectConfig, ConnectContext } from '../providers/types';
 
 // Re-exported for backwards compatibility — ConnectConfig is defined in providers/types.ts
 export type { ConnectConfig } from '../providers/types';
@@ -689,7 +689,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    */
   async function serveConnectPage(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const frontendUrl = new URL(config.frontendBaseUrl);
+    const _frontendUrl = new URL(config.frontendBaseUrl);
     const redirectUrl = new URL('/connect', `${config.frontendBaseUrl.replace(/\/$/, '')}/`);
     redirectUrl.search = url.search;
 
@@ -2298,11 +2298,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       .filter((p) => Boolean(p.displayMeta?.userSetupPath))
       .map((p) => ({
         id: p.id,
-        label: p.displayMeta!.label,
-        icon: p.displayMeta!.icon,
-        color: p.displayMeta!.color,
-        description: p.displayMeta!.description,
-        userSetupPath: p.displayMeta!.userSetupPath!,
+        label: p.displayMeta?.label,
+        icon: p.displayMeta?.icon,
+        color: p.displayMeta?.color,
+        description: p.displayMeta?.description,
+        userSetupPath: p.displayMeta?.userSetupPath!,
       }));
     return Response.json({ providers });
   }
@@ -2360,7 +2360,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       setupUrl.searchParams.set('token', result.sessionId);
       setupUrl.searchParams.set('returnUrl', '/account/connections');
 
-      return Response.json({ sessionId: result.sessionId, redirectUrl: setupUrl.pathname + setupUrl.search });
+      return Response.json({
+        sessionId: result.sessionId,
+        redirectUrl: setupUrl.pathname + setupUrl.search,
+      });
     } catch (err) {
       logger.error('Failed to start user verify session', {
         providerKey,
@@ -2500,10 +2503,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * DELETE /api/connect/user/entitlements/:entitlementId
    * Revokes a specific entitlement owned by the authenticated user.
    */
-  async function revokeUserEntitlement(
-    request: Request,
-    entitlementId: string
-  ): Promise<Response> {
+  async function revokeUserEntitlement(request: Request, entitlementId: string): Promise<Response> {
     if (request.method !== 'DELETE') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
@@ -2527,7 +2527,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('Unauthorized') || msg.includes('not the owner')) {
-        return Response.json({ error: 'Not authorized to revoke this entitlement' }, { status: 403 });
+        return Response.json(
+          { error: 'Not authorized to revoke this entitlement' },
+          { status: 403 }
+        );
       }
       logger.error('Failed to revoke entitlement', {
         entitlementId,
@@ -2565,10 +2568,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * DELETE /api/connect/user/oauth/grants/:consentId
    * Revokes an OAuth grant (authorized app) for the authenticated user.
    */
-  async function revokeUserOAuthGrant(
-    request: Request,
-    consentId: string
-  ): Promise<Response> {
+  async function revokeUserOAuthGrant(request: Request, consentId: string): Promise<Response> {
     if (request.method !== 'DELETE') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
@@ -2635,49 +2635,58 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
       const subjects = subjectsResult.data ?? [];
       const subjectsWithEntitlements = await Promise.all(
-        subjects.map(async (subject: { _id: string; displayName?: string; status: string; primaryDiscordUserId?: string }) => {
-          const entitlementsResult = await convex.query(api.entitlements.listByAuthUser, {
-            apiSecret: config.convexApiSecret,
-            authUserId: session.user.id,
-            subjectId: subject._id,
-            limit: 100,
-          });
-          return {
-            id: subject._id,
-            displayName: subject.displayName ?? null,
-            primaryDiscordUserId: subject.primaryDiscordUserId ?? null,
-            status: subject.status,
-            entitlements: (entitlementsResult.data ?? []).map(
-              (e: {
-                id: string;
-                sourceProvider: string;
-                productId: string;
-                sourceReference?: string;
-                status: string;
-                grantedAt: number;
-                revokedAt?: number | null;
-              }) => ({
-                id: e.id,
-                sourceProvider: e.sourceProvider,
-                productId: e.productId,
-                sourceReference: e.sourceReference ?? null,
-                status: e.status,
-                grantedAt: e.grantedAt,
-                revokedAt: e.revokedAt ?? null,
-              })
-            ),
-          };
-        })
+        subjects.map(
+          async (subject: {
+            _id: string;
+            displayName?: string;
+            status: string;
+            primaryDiscordUserId?: string;
+          }) => {
+            const entitlementsResult = await convex.query(api.entitlements.listByAuthUser, {
+              apiSecret: config.convexApiSecret,
+              authUserId: session.user.id,
+              subjectId: subject._id,
+              limit: 100,
+            });
+            return {
+              id: subject._id,
+              displayName: subject.displayName ?? null,
+              primaryDiscordUserId: subject.primaryDiscordUserId ?? null,
+              status: subject.status,
+              entitlements: (entitlementsResult.data ?? []).map(
+                (e: {
+                  id: string;
+                  sourceProvider: string;
+                  productId: string;
+                  sourceReference?: string;
+                  status: string;
+                  grantedAt: number;
+                  revokedAt?: number | null;
+                }) => ({
+                  id: e.id,
+                  sourceProvider: e.sourceProvider,
+                  productId: e.productId,
+                  sourceReference: e.sourceReference ?? null,
+                  status: e.status,
+                  grantedAt: e.grantedAt,
+                  revokedAt: e.revokedAt ?? null,
+                })
+              ),
+            };
+          }
+        )
       );
 
-      const sanitizedConnections = (connectionsResult as Array<{
-        id?: string;
-        provider?: string;
-        connectionType?: string;
-        status?: string;
-        createdAt?: number;
-        updatedAt?: number;
-      }>).map((c) => ({
+      const sanitizedConnections = (
+        connectionsResult as Array<{
+          id?: string;
+          provider?: string;
+          connectionType?: string;
+          status?: string;
+          createdAt?: number;
+          updatedAt?: number;
+        }>
+      ).map((c) => ({
         id: c.id,
         provider: c.provider,
         connectionType: c.connectionType,
@@ -2785,7 +2794,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       logger.error('Failed to process account deletion request', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to process account deletion request' }, { status: 500 });
+      return Response.json(
+        { error: 'Failed to process account deletion request' },
+        { status: 500 }
+      );
     }
   }
 

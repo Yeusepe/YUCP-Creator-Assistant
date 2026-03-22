@@ -69,7 +69,7 @@ describe('VrchatApiClient.beginLogin', () => {
   });
 
   it('returns pending 2FA state when VRChat requires two-factor auth', async () => {
-    const fetchMock = mock(async (url: string, init?: RequestInit) => {
+    const fetchMock = mock(async (url: string, _init?: RequestInit) => {
       if (url.includes('/auth/user')) {
         expect(url).not.toContain('apiKey=');
         const responseHeaders = new Headers();

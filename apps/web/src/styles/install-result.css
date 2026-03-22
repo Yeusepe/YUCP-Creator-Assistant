@@ -21,7 +21,9 @@
   max-width: 420px;
   opacity: 0;
   transform: translateY(16px);
-  transition: opacity 0.4s ease, transform 0.4s ease;
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
 }
 
 .install-result-content.is-visible {
@@ -85,7 +87,7 @@
 }
 
 .install-result-heading {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: "Plus Jakarta Sans", sans-serif;
   font-size: 24px;
   font-weight: 800;
   color: #ffffff;
@@ -98,7 +100,7 @@
 }
 
 .install-result-body {
-  font-family: 'DM Sans', sans-serif;
+  font-family: "DM Sans", sans-serif;
   font-size: 15px;
   color: rgba(255, 255, 255, 0.72);
   margin: 0 0 28px;
@@ -117,11 +119,13 @@
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.85);
   color: #ffffff;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: "Plus Jakarta Sans", sans-serif;
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;
-  transition: background 0.18s ease, transform 0.12s ease;
+  transition:
+    background 0.18s ease,
+    transform 0.12s ease;
   border: none;
   cursor: pointer;
 }
@@ -140,7 +144,7 @@
 }
 
 .install-result-hint {
-  font-family: 'DM Sans', sans-serif;
+  font-family: "DM Sans", sans-serif;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.4);
   margin: 16px 0 0;

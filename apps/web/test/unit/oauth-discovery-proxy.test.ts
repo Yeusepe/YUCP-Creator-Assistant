@@ -27,9 +27,7 @@ describe('proxyOAuthAuthorizationServerMetadata', () => {
       })
     );
 
-    const { proxyOAuthAuthorizationServerMetadata } = await import(
-      '@/lib/server/oauthDiscovery'
-    );
+    const { proxyOAuthAuthorizationServerMetadata } = await import('@/lib/server/oauthDiscovery');
 
     const response = await proxyOAuthAuthorizationServerMetadata(
       new Request('http://localhost:3000/.well-known/oauth-authorization-server/api/auth', {
@@ -55,9 +53,7 @@ describe('proxyOAuthAuthorizationServerMetadata', () => {
     vi.stubEnv('CONVEX_SITE_URL', '');
     vi.stubEnv('CONVEX_URL', '');
 
-    const { proxyOAuthAuthorizationServerMetadata } = await import(
-      '@/lib/server/oauthDiscovery'
-    );
+    const { proxyOAuthAuthorizationServerMetadata } = await import('@/lib/server/oauthDiscovery');
 
     const response = await proxyOAuthAuthorizationServerMetadata(
       new Request('http://localhost:3000/.well-known/oauth-authorization-server/api/auth')

@@ -93,7 +93,7 @@ function DashboardIndex() {
 
   // Platform counts for onboarding + stats
   const [connectedPlatforms, setConnectedPlatforms] = useState(0);
-  const [totalPlatforms, setTotalPlatforms] = useState(0);
+  const [_totalPlatforms, setTotalPlatforms] = useState(0);
 
   const handleCountsChange = useCallback((connected: number, total: number) => {
     setConnectedPlatforms(connected);

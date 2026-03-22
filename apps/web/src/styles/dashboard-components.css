@@ -1374,8 +1374,8 @@
 }
 
 .dropdown-menu-item-danger:hover {
-  background: rgba(220, 38, 38, 0.08) !important;
-  color: #b91c1c !important;
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
 }
 
 /* intg-card context: same clean white style (intg-cards are also on white bg) */
@@ -1400,8 +1400,8 @@
 }
 
 .intg-card .dropdown-menu-item-danger:hover {
-  background: rgba(220, 38, 38, 0.08) !important;
-  color: #b91c1c !important;
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
 }
 
 .api-key-row {
@@ -2511,8 +2511,13 @@
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .dark .stat-grid {
@@ -2981,12 +2986,12 @@
 /* ── Onboarding dismiss button dark variant ───────────────────────── */
 
 .dark .onboarding-dismiss-btn {
-  color: #64748b !important;
+  color: #64748b;
 }
 
 .dark .onboarding-dismiss-btn:hover {
-  background: rgba(255, 255, 255, 0.06) !important;
-  color: #94a3b8 !important;
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
 }
 
 /* Progress bar track dark mode */
@@ -2996,7 +3001,7 @@
 
 /* Empty circle step indicator dark mode */
 .dark .step-circle-empty {
-  border-color: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .ui-select-option.selected:hover {
@@ -3376,7 +3381,9 @@
   border: 1px solid rgba(226, 232, 240, 0.7);
   background: rgba(248, 250, 252, 0.8);
   padding: 14px 16px;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .setting-row:hover {
@@ -3416,7 +3423,7 @@
 }
 
 .setting-row-label {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: "Plus Jakarta Sans", sans-serif;
   font-size: 13px;
   font-weight: 600;
   color: #0f172a;
@@ -3428,7 +3435,7 @@
 }
 
 .setting-row-hint {
-  font-family: 'DM Sans', sans-serif;
+  font-family: "DM Sans", sans-serif;
   font-size: 12px;
   color: #64748b;
   line-height: 1.4;
@@ -3457,7 +3464,7 @@
   user-select: none;
 }
 
-.setting-toggle[aria-checked='true'] {
+.setting-toggle[aria-checked="true"] {
   background: #0ea5e9;
 }
 
@@ -3465,7 +3472,7 @@
   background: #475569;
 }
 
-.dark .setting-toggle[aria-checked='true'] {
+.dark .setting-toggle[aria-checked="true"] {
   background: #0ea5e9;
 }
 
@@ -3474,7 +3481,7 @@
   outline-offset: 2px;
 }
 
-.setting-toggle[aria-disabled='true'] {
+.setting-toggle[aria-disabled="true"] {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -3491,7 +3498,7 @@
   transform: translateX(4px);
 }
 
-.setting-toggle[aria-checked='true'] .setting-toggle-thumb {
+.setting-toggle[aria-checked="true"] .setting-toggle-thumb {
   transform: translateX(24px);
 }
 
@@ -3506,10 +3513,12 @@
   border-radius: 10px;
   font-size: 13px;
   font-weight: 500;
-  font-family: 'DM Sans', sans-serif;
+  font-family: "DM Sans", sans-serif;
   color: rgba(255, 255, 255, 0.65);
   text-decoration: none;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .sidebar-account-btn:hover {

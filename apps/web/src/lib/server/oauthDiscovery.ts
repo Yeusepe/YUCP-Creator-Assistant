@@ -2,9 +2,7 @@ import { resolveConvexSiteUrl } from '@yucp/shared';
 
 const OAUTH_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-server/api/auth';
 
-export async function proxyOAuthAuthorizationServerMetadata(
-  request: Request
-): Promise<Response> {
+export async function proxyOAuthAuthorizationServerMetadata(request: Request): Promise<Response> {
   const convexSiteUrl = resolveConvexSiteUrl(process.env);
   if (!convexSiteUrl) {
     return new Response(JSON.stringify({ error: 'CONVEX_SITE_URL is required' }), {

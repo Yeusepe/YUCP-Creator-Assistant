@@ -11,9 +11,11 @@ export const Route = createFileRoute('/install/error')({
 });
 
 const ERROR_MESSAGES: Record<string, string> = {
-  installation_failed: 'The bot installation could not be completed. This may be a temporary issue.',
+  installation_failed:
+    'The bot installation could not be completed. This may be a temporary issue.',
   invalid_state: 'The installation link expired or was already used. Please start over.',
-  bot_missing_permissions: 'The bot needs the "Manage Roles" and "Send Messages" permissions to work correctly.',
+  bot_missing_permissions:
+    'The bot needs the "Manage Roles" and "Send Messages" permissions to work correctly.',
   access_denied: 'You declined the bot installation. You can try again at any time.',
   unknown: 'Something went wrong during installation. Please try again.',
 };
@@ -43,7 +45,17 @@ function InstallErrorPage() {
           />
 
           <div className="install-result-icon install-result-icon--error" aria-hidden="true">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <title>Installation failed</title>
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>

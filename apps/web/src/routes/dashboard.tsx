@@ -1044,14 +1044,13 @@ function MainContent({ pendingGuild }: { pendingGuild?: PendingDashboardGuild })
 
   const title = isPersonalDashboard ? 'Dashboard' : (displayGuild?.name ?? 'Server');
 
-  const headerGuild =
-    displayGuild && displayGuild.name
-      ? {
-          id: displayGuild.id,
-          icon: displayGuild.icon ?? null,
-          name: displayGuild.name,
-        }
-      : undefined;
+  const headerGuild = displayGuild?.name
+    ? {
+        id: displayGuild.id,
+        icon: displayGuild.icon ?? null,
+        name: displayGuild.name,
+      }
+    : undefined;
 
   return (
     <main className="content-area">
