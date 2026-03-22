@@ -25,13 +25,19 @@ export const Route = createFileRoute('/dashboard/')({
 
 const ONBOARDING_DISMISSED_KEY_PREFIX = 'yucp_onboarding_dismissed';
 const ONBOARDING_STATE_KEY_PREFIX = 'yucp_onboarding_state';
+const ANONYMOUS_ONBOARDING_STORAGE_SUFFIX = 'anonymous';
 
 interface OnboardingState {
   docsRead: boolean;
 }
 
-function buildOnboardingStorageKeys(authUserId: string) {
-  const storageSuffix = encodeURIComponent(authUserId.trim());
+function buildOnboardingStorageKeys(authUserId: string | null | undefined) {
+  const normalizedAuthUserId = authUserId?.trim();
+  const storageSuffix = encodeURIComponent(
+    normalizedAuthUserId && normalizedAuthUserId.length > 0
+      ? normalizedAuthUserId
+      : ANONYMOUS_ONBOARDING_STORAGE_SUFFIX
+  );
   return {
     dismissedKey: `${ONBOARDING_DISMISSED_KEY_PREFIX}:${storageSuffix}`,
     stateKey: `${ONBOARDING_STATE_KEY_PREFIX}:${storageSuffix}`,
@@ -82,8 +88,8 @@ function DashboardIndex() {
   const { guilds, viewer } = useDashboardShell();
   const toast = useToast();
   const onboardingStorageKeys = useMemo(
-    () => buildOnboardingStorageKeys(viewer.authUserId),
-    [viewer.authUserId]
+    () => buildOnboardingStorageKeys(viewer?.authUserId),
+    [viewer?.authUserId]
   );
 
   // Admin notifications (Convex real-time)
