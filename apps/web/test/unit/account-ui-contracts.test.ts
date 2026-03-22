@@ -28,8 +28,9 @@ describe('account UI contracts', () => {
     expect(accountIndexRouteSource).toContain('AccountSectionCard');
   });
 
-  it('renders Discord identity from the account shell instead of a late viewer fallback', () => {
+  it('renders Discord identity from auth session data with the account shell as fallback', () => {
     expect(accountIndexRouteSource).toContain('const { guilds, viewer } = useAccountShell();');
+    expect(accountIndexRouteSource).toContain('authClient.getSession()');
     expect(accountIndexRouteSource).not.toContain('useConvexQuery(api.authViewer.getViewer)');
     expect(accountIndexRouteSource).not.toContain("'Your Account'");
   });

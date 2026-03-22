@@ -4,6 +4,7 @@ import { AccountPage, AccountSectionCard } from '@/components/account/AccountPag
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { useAuth } from '@/hooks/useAuth';
 import { listUserLicenses, listUserOAuthGrants } from '@/lib/account';
+import { authClient } from '@/lib/auth-client';
 import { listUserAccounts, listUserProviders } from '@/lib/dashboard';
 
 export const Route = createFileRoute('/account/')({
@@ -13,6 +14,14 @@ export const Route = createFileRoute('/account/')({
 function AccountProfile() {
   const { guilds, viewer } = useAccountShell();
   const { signOut } = useAuth();
+  const sessionQuery = useQuery({
+    queryKey: ['better-auth-session'],
+    queryFn: async () => {
+      const result = await authClient.getSession();
+      return result.data ?? null;
+    },
+    staleTime: 60_000,
+  });
   const providersQuery = useQuery({
     queryKey: ['user-providers'],
     queryFn: listUserProviders,
@@ -31,8 +40,11 @@ function AccountProfile() {
   });
 
   const isCreator = guilds.length > 0;
-  const displayName = viewer.name ?? viewer.email ?? 'Discord account';
-  const avatarUrl = viewer.image ?? null;
+  const sessionUser = sessionQuery.data?.user;
+  const displayName =
+    sessionUser?.name ?? viewer.name ?? sessionUser?.email ?? viewer.email ?? 'Discord account';
+  const avatarUrl = sessionUser?.image ?? viewer.image ?? null;
+  const email = sessionUser?.email ?? viewer.email ?? null;
   const accounts = accountsQuery.data ?? [];
   const licenses = licensesQuery.data ?? [];
   const entitlements = licenses.flatMap((subject) => subject.entitlements);
@@ -76,11 +88,7 @@ function AccountProfile() {
           </div>
           <div className="account-profile-hero-copy">
             <p className="account-profile-name">{displayName}</p>
-            {viewer.email ? <p className="account-profile-meta">{viewer.email}</p> : null}
-            <p className="account-field-note">
-              Profile details, avatar, and identity metadata are sourced from Discord and update
-              there automatically.
-            </p>
+            {email ? <p className="account-profile-meta">{email}</p> : null}
           </div>
         </div>
 
