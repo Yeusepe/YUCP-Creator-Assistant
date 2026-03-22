@@ -15,4 +15,9 @@ describe('dashboard server logging', () => {
     expect(dashboardServerSource).toContain('dashboard-load-shell');
     expect(dashboardServerSource).toContain('logWebError');
   });
+
+  it('degrades viewer profile fields instead of crashing the whole dashboard when the Convex viewer query fails', () => {
+    expect(dashboardServerSource).toContain('Dashboard viewer load degraded');
+    expect(dashboardServerSource).toContain('return baseViewer;');
+  });
 });

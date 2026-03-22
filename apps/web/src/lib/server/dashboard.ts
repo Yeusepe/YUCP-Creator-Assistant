@@ -156,8 +156,9 @@ async function loadDashboardViewer(token: string): Promise<DashboardViewer> {
     hasToken: Boolean(token),
   });
 
+  const baseViewer = decodeDashboardViewer(token);
+
   try {
-    const baseViewer = decodeDashboardViewer(token);
     const viewer = await fetchAuthQuery(api.authViewer.getViewer, {});
     const dashboardViewer = {
       authUserId: baseViewer.authUserId,
@@ -178,7 +179,13 @@ async function loadDashboardViewer(token: string): Promise<DashboardViewer> {
     logWebError('Dashboard viewer load failed', error, {
       phase: 'dashboard-load-viewer',
     });
-    throw error;
+
+    logDashboardInfo('Dashboard viewer load degraded', {
+      phase: 'dashboard-load-viewer',
+      fallbackToTokenClaims: true,
+    });
+
+    return baseViewer;
   }
 }
 
