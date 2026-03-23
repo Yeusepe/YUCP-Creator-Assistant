@@ -8,7 +8,7 @@ import {
   type DiscordProviderConfig,
   validateDiscordConfig,
 } from './discord';
-import { type AuthConfig, createAuth } from './index';
+import { type AuthConfig, BetterAuthEndpointError, createAuth } from './index';
 import {
   createCookieConfig,
   createSessionConfig,
@@ -429,6 +429,129 @@ describe('Auth Configuration', () => {
       } finally {
         globalThis.fetch = originalFetch;
         process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalSecret;
+      }
+    });
+
+    it('uses the configured trusted browser origin for Polar checkout requests', async () => {
+      const originalInternalSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-secret';
+      const originalFetch = globalThis.fetch;
+      let originHeader = '';
+      let requestUrl = '';
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        requestUrl = String(input);
+        originHeader = new Headers(init?.headers).get('origin') ?? '';
+        return new Response(
+          JSON.stringify({ url: 'https://polar.sh/checkout/test', redirect: false }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+      }) as typeof fetch;
+
+      try {
+        const config: AuthConfig = {
+          baseUrl: 'https://dsktp.tailc472f7.ts.net',
+          trustedOrigin: 'https://creators.yucp.club',
+          convexSiteUrl: 'https://test-123.convex.site',
+          convexUrl: 'https://test-123.convex.site',
+        };
+        const auth = createAuth(config);
+        const req = new Request(
+          'https://dsktp.tailc472f7.ts.net/api/connect/creator/certificates/checkout',
+          {
+            method: 'POST',
+            headers: {
+              cookie: 'yucp.session_token=session-cookie',
+            },
+          }
+        );
+
+        const result = await auth.createPolarCheckout(req, {
+          slug: 'certificates-pro',
+          redirect: false,
+        });
+
+        expect(requestUrl).toContain('/api/auth/checkout');
+        expect(originHeader).toBe('https://creators.yucp.club');
+        expect(result).toEqual({
+          url: 'https://polar.sh/checkout/test',
+          redirect: false,
+        });
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (originalInternalSecret === undefined) {
+          delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+        } else {
+          process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalSecret;
+        }
+      }
+    });
+
+    it('throws a typed Better Auth endpoint error when checkout initialization fails upstream', async () => {
+      const originalInternalSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-secret';
+      const originalFetch = globalThis.fetch;
+
+      globalThis.fetch = (async () => {
+        return new Response(
+          JSON.stringify({
+            error:
+              'Polar checkout creation failed. Error: API error occurred: Status 401\nBody: {"error":"invalid_token","error_description":"The access token provided is expired, revoked, malformed, or invalid for other reasons."}',
+          }),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+      }) as unknown as typeof fetch;
+
+      try {
+        const config: AuthConfig = {
+          baseUrl: 'https://creators.yucp.club',
+          convexSiteUrl: 'https://test-123.convex.site',
+          convexUrl: 'https://test-123.convex.site',
+        };
+        const auth = createAuth(config);
+        const req = new Request(
+          'https://creators.yucp.club/api/connect/creator/certificates/checkout',
+          {
+            method: 'POST',
+            headers: {
+              cookie: 'yucp.session_token=session-cookie',
+            },
+          }
+        );
+
+        await expect(
+          auth.createPolarCheckout(req, {
+            products: ['prod_certificates'],
+            redirect: false,
+          })
+        ).rejects.toBeInstanceOf(BetterAuthEndpointError);
+
+        await expect(
+          auth.createPolarCheckout(req, {
+            products: ['prod_certificates'],
+            redirect: false,
+          })
+        ).rejects.toMatchObject({
+          path: '/checkout',
+          status: 500,
+        });
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (originalInternalSecret === undefined) {
+          delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+        } else {
+          process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalSecret;
+        }
       }
     });
 

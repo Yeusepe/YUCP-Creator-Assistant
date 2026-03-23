@@ -36,6 +36,7 @@ import { Route as InstallErrorRouteImport } from './routes/install/error'
 import { Route as DashboardServerRulesRouteImport } from './routes/dashboard/server-rules'
 import { Route as DashboardIntegrationsRouteImport } from './routes/dashboard/integrations'
 import { Route as DashboardCollaborationRouteImport } from './routes/dashboard/collaboration'
+import { Route as DashboardCertificatesRouteImport } from './routes/dashboard/certificates'
 import { Route as DashboardAuditLogsRouteImport } from './routes/dashboard/audit-logs'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as AccountPrivacyRouteImport } from './routes/account/privacy'
@@ -180,6 +181,11 @@ const DashboardCollaborationRoute = DashboardCollaborationRouteImport.update({
   path: '/collaboration',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardCertificatesRoute = DashboardCertificatesRouteImport.update({
+  id: '/certificates',
+  path: '/certificates',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardAuditLogsRoute = DashboardAuditLogsRouteImport.update({
   id: '/audit-logs',
   path: '/audit-logs',
@@ -237,6 +243,7 @@ export interface FileRoutesByFullPath {
   '/account/privacy': typeof AccountPrivacyRoute
   '/api/$': typeof ApiSplatRoute
   '/dashboard/audit-logs': typeof DashboardAuditLogsRoute
+  '/dashboard/certificates': typeof DashboardCertificatesRoute
   '/dashboard/collaboration': typeof DashboardCollaborationRoute
   '/dashboard/integrations': typeof DashboardIntegrationsRoute
   '/dashboard/server-rules': typeof DashboardServerRulesRoute
@@ -272,6 +279,7 @@ export interface FileRoutesByTo {
   '/account/privacy': typeof AccountPrivacyRoute
   '/api/$': typeof ApiSplatRoute
   '/dashboard/audit-logs': typeof DashboardAuditLogsRoute
+  '/dashboard/certificates': typeof DashboardCertificatesRoute
   '/dashboard/collaboration': typeof DashboardCollaborationRoute
   '/dashboard/integrations': typeof DashboardIntegrationsRoute
   '/dashboard/server-rules': typeof DashboardServerRulesRoute
@@ -310,6 +318,7 @@ export interface FileRoutesById {
   '/account/privacy': typeof AccountPrivacyRoute
   '/api/$': typeof ApiSplatRoute
   '/dashboard/audit-logs': typeof DashboardAuditLogsRoute
+  '/dashboard/certificates': typeof DashboardCertificatesRoute
   '/dashboard/collaboration': typeof DashboardCollaborationRoute
   '/dashboard/integrations': typeof DashboardIntegrationsRoute
   '/dashboard/server-rules': typeof DashboardServerRulesRoute
@@ -349,6 +358,7 @@ export interface FileRouteTypes {
     | '/account/privacy'
     | '/api/$'
     | '/dashboard/audit-logs'
+    | '/dashboard/certificates'
     | '/dashboard/collaboration'
     | '/dashboard/integrations'
     | '/dashboard/server-rules'
@@ -384,6 +394,7 @@ export interface FileRouteTypes {
     | '/account/privacy'
     | '/api/$'
     | '/dashboard/audit-logs'
+    | '/dashboard/certificates'
     | '/dashboard/collaboration'
     | '/dashboard/integrations'
     | '/dashboard/server-rules'
@@ -421,6 +432,7 @@ export interface FileRouteTypes {
     | '/account/privacy'
     | '/api/$'
     | '/dashboard/audit-logs'
+    | '/dashboard/certificates'
     | '/dashboard/collaboration'
     | '/dashboard/integrations'
     | '/dashboard/server-rules'
@@ -661,6 +673,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardCollaborationRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/dashboard/certificates': {
+      id: '/dashboard/certificates'
+      path: '/certificates'
+      fullPath: '/dashboard/certificates'
+      preLoaderRoute: typeof DashboardCertificatesRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/audit-logs': {
       id: '/dashboard/audit-logs'
       path: '/audit-logs'
@@ -743,6 +762,7 @@ const AccountRouteWithChildren =
 
 interface DashboardRouteChildren {
   DashboardAuditLogsRoute: typeof DashboardAuditLogsRoute
+  DashboardCertificatesRoute: typeof DashboardCertificatesRoute
   DashboardCollaborationRoute: typeof DashboardCollaborationRoute
   DashboardIntegrationsRoute: typeof DashboardIntegrationsRoute
   DashboardServerRulesRoute: typeof DashboardServerRulesRoute
@@ -751,6 +771,7 @@ interface DashboardRouteChildren {
 
 const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAuditLogsRoute: DashboardAuditLogsRoute,
+  DashboardCertificatesRoute: DashboardCertificatesRoute,
   DashboardCollaborationRoute: DashboardCollaborationRoute,
   DashboardIntegrationsRoute: DashboardIntegrationsRoute,
   DashboardServerRulesRoute: DashboardServerRulesRoute,

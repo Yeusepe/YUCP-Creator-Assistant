@@ -34,6 +34,7 @@ export interface VrchatInternalResponse {
 
 export interface AuthConfig {
   baseUrl: string;
+  trustedOrigin?: string;
   convexSiteUrl: string;
   convexUrl: string;
 }
@@ -102,6 +103,38 @@ interface PolarCheckoutResponse {
 
 interface PolarPortalRequest {
   redirect?: boolean;
+}
+
+function extractBetterAuthErrorDetail(body: unknown, bodyText: string): string | null {
+  if (body && typeof body === 'object') {
+    const value = body as Record<string, unknown>;
+    if (typeof value.error === 'string' && value.error.trim()) {
+      return value.error.trim();
+    }
+    if (typeof value.message === 'string' && value.message.trim()) {
+      return value.message.trim();
+    }
+  }
+
+  return bodyText.trim() ? bodyText.trim() : null;
+}
+
+export class BetterAuthEndpointError extends Error {
+  override readonly name = 'BetterAuthEndpointError';
+
+  constructor(
+    public readonly path: string,
+    public readonly status: number,
+    public readonly body: unknown,
+    public readonly bodyText: string
+  ) {
+    const detail = extractBetterAuthErrorDetail(body, bodyText);
+    super(
+      detail
+        ? `Better Auth request to ${path} failed with status ${status}: ${detail}`
+        : `Better Auth request to ${path} failed with status ${status}`
+    );
+  }
 }
 
 type ViewerData = {
@@ -252,7 +285,7 @@ export function createAuth(config: AuthConfig) {
     const headers = new Headers({
       [INTERNAL_AUTH_TS_HEADER]: timestamp,
       [INTERNAL_AUTH_SIG_HEADER]: signature,
-      origin: config.baseUrl,
+      origin: config.trustedOrigin ?? config.baseUrl,
     });
 
     if (body !== undefined) {
@@ -380,29 +413,31 @@ export function createAuth(config: AuthConfig) {
       return null;
     }
 
-    try {
-      const { response } = await callInternalAuth(path, {
-        method: 'POST',
-        cookieHeader,
-        body,
-      });
+    const { response } = await callInternalAuth(path, {
+      method: 'POST',
+      cookieHeader,
+      body,
+    });
 
-      if (!response.ok) {
-        logger.warn('Better Auth endpoint mutation failed', {
-          path,
-          status: response.status,
-        });
-        return null;
+    if (!response.ok) {
+      const bodyText = await response.text();
+      let parsedBody: unknown = null;
+      if (bodyText.trim()) {
+        try {
+          parsedBody = JSON.parse(bodyText) as unknown;
+        } catch {
+          parsedBody = null;
+        }
       }
 
-      return (await response.json()) as T;
-    } catch (error) {
-      logger.warn('Failed to post Better Auth endpoint', {
+      logger.warn('Better Auth endpoint mutation failed', {
         path,
-        error: error instanceof Error ? error.message : String(error),
+        status: response.status,
       });
-      return null;
+      throw new BetterAuthEndpointError(path, response.status, parsedBody, bodyText);
     }
+
+    return (await response.json()) as T;
   }
 
   return {

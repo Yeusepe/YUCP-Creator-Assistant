@@ -13,7 +13,8 @@ import { randomBytes } from 'node:crypto';
 import { createLogger, getProviderDescriptor, timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
-import type { Auth } from '../auth';
+import { getCertificateBillingConfig } from '../../../../convex/lib/certificateBillingConfig';
+import { type Auth, BetterAuthEndpointError } from '../auth';
 import {
   buildCookie,
   CONNECT_TOKEN_COOKIE,
@@ -151,6 +152,9 @@ interface CertificateOverview {
     planKey: string;
     slug: string;
     productId: string;
+    displayName: string;
+    description?: string;
+    highlights: string[];
     priority: number;
     deviceCap: number;
     signQuotaPerPeriod?: number;
@@ -158,6 +162,136 @@ interface CertificateOverview {
     supportTier: string;
     billingGraceDays: number;
   }>;
+}
+
+interface PolarProductResponse {
+  name?: string | null;
+  description?: string | null;
+  benefits?: Array<{
+    description?: string | null;
+  }> | null;
+}
+
+function getPolarApiBaseUrl(server: 'sandbox' | undefined) {
+  return server === 'sandbox' ? 'https://sandbox-api.polar.sh/v1' : 'https://api.polar.sh/v1';
+}
+
+function getPolarPlanHighlights(product: PolarProductResponse | null | undefined) {
+  if (!Array.isArray(product?.benefits)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      product.benefits
+        .map((benefit) =>
+          typeof benefit.description === 'string' ? benefit.description.trim() : ''
+        )
+        .filter(Boolean)
+    )
+  );
+}
+
+function isPolarAccessTokenFailure(error: unknown): error is BetterAuthEndpointError {
+  if (!(error instanceof BetterAuthEndpointError)) {
+    return false;
+  }
+
+  const bodyValue =
+    error.body && typeof error.body === 'object'
+      ? JSON.stringify(error.body)
+      : String(error.body ?? '');
+  const haystack = `${error.message}\n${error.bodyText}\n${bodyValue}`.toLowerCase();
+
+  return (
+    haystack.includes('invalid_token') ||
+    haystack.includes('access token provided is expired') ||
+    haystack.includes('expired, revoked, malformed') ||
+    haystack.includes('status 401')
+  );
+}
+
+function createPolarAccessTokenFailureResponse(): Response {
+  return Response.json(
+    {
+      error:
+        'Certificate billing is temporarily unavailable because the configured Polar organization access token is invalid, expired, or for the wrong Polar environment. Update POLAR_ACCESS_TOKEN and POLAR_SERVER, then try again.',
+      code: 'polar_access_token_invalid',
+    },
+    { status: 503 }
+  );
+}
+
+async function enrichCertificateOverviewWithPolar(
+  overview: CertificateOverview
+): Promise<CertificateOverview> {
+  const billingConfig = getCertificateBillingConfig();
+  if (!billingConfig.polarAccessToken || overview.availablePlans.length === 0) {
+    return overview;
+  }
+
+  const apiBaseUrl = getPolarApiBaseUrl(billingConfig.polarServer);
+  const products = await Promise.all(
+    overview.availablePlans.map(async (plan) => {
+      try {
+        // Polar product metadata reference: https://www.polar.sh/docs/api-reference/products/get
+        const response = await fetch(
+          `${apiBaseUrl}/products/${encodeURIComponent(plan.productId)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${billingConfig.polarAccessToken}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          logger.warn('Failed to fetch Polar product metadata for certificate plan', {
+            productId: plan.productId,
+            status: response.status,
+            server: billingConfig.polarServer ?? 'production',
+            hint:
+              response.status === 401
+                ? 'POLAR_ACCESS_TOKEN may be invalid, expired, or configured for the wrong Polar environment'
+                : undefined,
+          });
+          return null;
+        }
+
+        const product = (await response.json()) as PolarProductResponse;
+        return [plan.productId, product] as const;
+      } catch (error) {
+        logger.warn('Failed to read Polar product metadata for certificate plan', {
+          productId: plan.productId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }
+    })
+  );
+
+  const productById = new Map(
+    products.filter((entry): entry is readonly [string, PolarProductResponse] => entry !== null)
+  );
+
+  return {
+    ...overview,
+    availablePlans: overview.availablePlans.map((plan) => {
+      const product = productById.get(plan.productId);
+      const polarHighlights = getPolarPlanHighlights(product);
+      return {
+        ...plan,
+        displayName:
+          typeof product?.name === 'string' && product.name.trim()
+            ? product.name.trim()
+            : plan.displayName,
+        description:
+          typeof product?.description === 'string' && product.description.trim()
+            ? product.description.trim()
+            : plan.description,
+        highlights: polarHighlights.length > 0 ? polarHighlights : plan.highlights,
+      };
+    }),
+  };
 }
 
 function toTimestamp(value: unknown): number | undefined {
@@ -1163,7 +1297,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     try {
       const connInfo = await convex.query(api.providerConnections.getConnectionForDisconnect, {
         apiSecret: config.convexApiSecret,
-        connectionId: connectionId as any,
+        connectionId,
         authUserId,
       });
       if (!connInfo) return;
@@ -2550,10 +2684,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     authUserId: string
   ): Promise<CertificateOverview> {
     const convex = getConvexClientFromUrl(config.convexUrl);
-    return (await convex.query(api.certificateBilling.getAccountOverview, {
+    const overview = (await convex.query(api.certificateBilling.getAccountOverview, {
       apiSecret: config.convexApiSecret,
       authUserId,
     })) as CertificateOverview;
+    return enrichCertificateOverviewWithPolar(overview);
   }
 
   async function getUserCertificates(request: Request): Promise<Response> {
@@ -2607,7 +2742,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       }
 
       const checkout = await auth.createPolarCheckout(request, {
-        slug: plan.slug,
+        products: [plan.productId],
         referenceId: overview.workspaceKey,
         metadata: {
           workspace_key: overview.workspaceKey,
@@ -2629,6 +2764,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         planKey: plan.planKey,
       });
     } catch (err) {
+      if (isPolarAccessTokenFailure(err)) {
+        logger.error('Polar credentials rejected certificate checkout request', {
+          authUserId: session.user.id,
+          planKey: body.planKey,
+          status: err.status,
+          path: err.path,
+        });
+        return createPolarAccessTokenFailureResponse();
+      }
+
       logger.error('Failed to create certificate checkout', {
         authUserId: session.user.id,
         planKey: body.planKey,
@@ -2658,6 +2803,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         redirect: portal.redirect,
       });
     } catch (err) {
+      if (isPolarAccessTokenFailure(err)) {
+        logger.error('Polar credentials rejected certificate portal request', {
+          authUserId: session.user.id,
+          status: err.status,
+          path: err.path,
+        });
+        return createPolarAccessTokenFailureResponse();
+      }
+
       logger.error('Failed to create certificate billing portal session', {
         authUserId: session.user.id,
         error: err instanceof Error ? err.message : String(err),
@@ -3231,7 +3385,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       await convex.mutation(api.providerConnections.upsertProductCredential, {
         apiSecret: config.convexApiSecret,
         authUserId,
-        providerKey: providerKey as any,
+        providerKey,
         productId,
         credentialKeyPrefix: descriptor.perProductCredential.credentialKeyPrefix,
         encryptedSecretKey,
@@ -3316,9 +3470,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     getUserAccounts,
     deleteUserAccount,
     getUserCertificates,
+    getCreatorCertificates: getUserCertificates,
     createUserCertificateCheckout,
+    createCreatorCertificateCheckout: createUserCertificateCheckout,
     getUserCertificatePortal,
+    getCreatorCertificatePortal: getUserCertificatePortal,
     revokeUserCertificate,
+    revokeCreatorCertificate: revokeUserCertificate,
     getUserLicenses,
     revokeUserEntitlement,
     getUserOAuthGrants,
@@ -3364,7 +3522,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       await convex.mutation(api.providerConnections.upsertProductCredential, {
         apiSecret: config.convexApiSecret,
         authUserId: params.authUserId,
-        providerKey: params.providerKey as any,
+        providerKey: params.providerKey,
         productId: params.productId,
         credentialKeyPrefix: descriptor.perProductCredential.credentialKeyPrefix,
         encryptedSecretKey,

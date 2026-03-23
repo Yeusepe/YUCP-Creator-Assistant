@@ -187,6 +187,7 @@ function initializeAuth(webhookBaseUrl?: string) {
 
   auth = createAuth({
     baseUrl: siteUrl,
+    trustedOrigin: frontendUrl,
     convexSiteUrl,
     convexUrl,
   });
@@ -684,15 +685,29 @@ async function routeRequest(request: Request): Promise<Response> {
     if (request.method === 'GET') return connectRoutes.getUserCertificates(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
+  if (pathname === '/api/connect/creator/certificates' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getCreatorCertificates(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   if (pathname === '/api/connect/user/certificates/checkout' && connectRoutes) {
     return connectRoutes.createUserCertificateCheckout(request);
+  }
+  if (pathname === '/api/connect/creator/certificates/checkout' && connectRoutes) {
+    return connectRoutes.createCreatorCertificateCheckout(request);
   }
   if (pathname === '/api/connect/user/certificates/portal' && connectRoutes) {
     if (request.method === 'GET') return connectRoutes.getUserCertificatePortal(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
+  if (pathname === '/api/connect/creator/certificates/portal' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getCreatorCertificatePortal(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   if (pathname === '/api/connect/user/certificates/revoke' && connectRoutes) {
     return connectRoutes.revokeUserCertificate(request);
+  }
+  if (pathname === '/api/connect/creator/certificates/revoke' && connectRoutes) {
+    return connectRoutes.revokeCreatorCertificate(request);
   }
   if (pathname === '/api/connect/user/licenses' && connectRoutes) {
     if (request.method === 'GET') return connectRoutes.getUserLicenses(request);

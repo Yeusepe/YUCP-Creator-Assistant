@@ -12,6 +12,9 @@ export interface CertificateBillingPlanConfig {
   planKey: string;
   productId: string;
   slug: string;
+  displayName: string;
+  description?: string;
+  highlights: string[];
   priority: number;
   deviceCap: number;
   signQuotaPerPeriod: number | null;
@@ -32,6 +35,9 @@ interface RawPlanConfig {
   planKey?: unknown;
   productId?: unknown;
   slug?: unknown;
+  displayName?: unknown;
+  description?: unknown;
+  highlights?: unknown;
   priority?: unknown;
   deviceCap?: unknown;
   signQuotaPerPeriod?: unknown;
@@ -112,11 +118,23 @@ export function parseCertificateBillingProductsJson(
     if (typeof value.slug !== 'string' || !value.slug.trim()) {
       throw new Error(`POLAR_CERT_PRODUCTS_JSON[${index}].slug must be a non-empty string`);
     }
-
     return {
       planKey: value.planKey.trim(),
       productId: value.productId.trim(),
       slug: value.slug.trim(),
+      displayName:
+        typeof value.displayName === 'string' && value.displayName.trim()
+          ? value.displayName.trim()
+          : value.planKey.trim(),
+      description:
+        typeof value.description === 'string' && value.description.trim()
+          ? value.description.trim()
+          : undefined,
+      highlights: Array.isArray(value.highlights)
+        ? value.highlights
+            .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+            .filter(Boolean)
+        : [],
       priority: readNonNegativeInteger(value.priority, index),
       deviceCap: readPositiveInteger(value.deviceCap, 1),
       signQuotaPerPeriod:

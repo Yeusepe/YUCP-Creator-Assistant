@@ -729,6 +729,16 @@ http.route({
 
     if (!cert) return errorResponse('No active certificate found for this machine', 404);
 
+    const certificateEntitlements = await ctx.runQuery(internal.certificateBilling.resolveForAuthUser, {
+      authUserId: tokenResult.yucpUserId,
+    });
+    if (!certificateEntitlements.allowSigning) {
+      return errorResponse(
+        certificateEntitlements.reason ?? 'Certificate signing is not available for this account',
+        certificateEntitlements.billingEnabled ? 402 : 403
+      );
+    }
+
     return jsonResponse({ certificate: JSON.parse(cert.certData) });
   }),
 });

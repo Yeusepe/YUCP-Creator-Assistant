@@ -18,13 +18,15 @@ describe('certificateBillingConfig', () => {
     process.env.POLAR_CERT_PRODUCTS_JSON = originalPolarProductsJson;
   });
 
-  it('parses product configuration with defaults', () => {
+  it('parses product configuration with defaults and display metadata', () => {
     const plans = parseCertificateBillingProductsJson(
       JSON.stringify([
         {
           planKey: 'starter',
           productId: 'prod_starter',
           slug: 'starter',
+          displayName: 'Starter Creator',
+          highlights: ['2 signing devices', 'Email support'],
           deviceCap: 2,
         },
       ])
@@ -35,6 +37,9 @@ describe('certificateBillingConfig', () => {
         planKey: 'starter',
         productId: 'prod_starter',
         slug: 'starter',
+        displayName: 'Starter Creator',
+        description: undefined,
+        highlights: ['2 signing devices', 'Email support'],
         priority: 0,
         deviceCap: 2,
         signQuotaPerPeriod: null,

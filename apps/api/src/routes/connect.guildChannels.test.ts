@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import type { Auth } from '../auth';
+import { type Auth, BetterAuthEndpointError } from '../auth';
 import type { ConnectConfig } from './connect';
 
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
@@ -393,6 +393,9 @@ describe('POST /api/connect/user/certificates/checkout', () => {
               planKey: 'starter',
               slug: 'starter',
               productId: 'prod_starter',
+              displayName: 'Starter',
+              description: 'Entry tier',
+              highlights: ['Up to 2 signing devices'],
               priority: 1,
               deviceCap: 2,
               auditRetentionDays: 30,
@@ -432,13 +435,278 @@ describe('POST /api/connect/user/certificates/checkout', () => {
 
     expect(res.status).toBe(200);
     expect(checkoutPayload).toMatchObject({
-      slug: 'starter',
+      products: ['prod_starter'],
       referenceId: 'creator-profile:checkout-1',
       metadata: {
         workspace_key: 'creator-profile:checkout-1',
         plan_key: 'starter',
       },
     });
+  });
+
+  it('returns 409 when the auth layer cannot initialize certificate checkout', async () => {
+    queryImpl = async (reference: unknown) => {
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return {
+          workspaceKey: 'creator-profile:checkout-2',
+          creatorProfileId: 'checkout-2',
+          billing: {
+            billingEnabled: true,
+            status: 'inactive',
+            allowEnrollment: false,
+            allowSigning: false,
+            activeDeviceCount: 0,
+          },
+          devices: [],
+          availablePlans: [
+            {
+              planKey: 'starter',
+              slug: 'starter',
+              productId: 'prod_starter',
+              displayName: 'Starter',
+              description: 'Entry tier',
+              highlights: ['Up to 2 signing devices'],
+              priority: 1,
+              deviceCap: 2,
+              auditRetentionDays: 30,
+              supportTier: 'standard',
+              billingGraceDays: 3,
+            },
+          ],
+        };
+      }
+      return null;
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-2',
+        },
+      }),
+      createPolarCheckout: async () => null,
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planKey: 'starter' }),
+    });
+    const res = await isolatedRoutes.createUserCertificateCheckout(req);
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('Could not initialize certificate checkout');
+  });
+
+  it('returns 404 when the requested certificate plan does not exist', async () => {
+    queryImpl = async (reference: unknown) => {
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return {
+          workspaceKey: 'creator-profile:checkout-3',
+          creatorProfileId: 'checkout-3',
+          billing: {
+            billingEnabled: true,
+            status: 'inactive',
+            allowEnrollment: false,
+            allowSigning: false,
+            activeDeviceCount: 0,
+          },
+          devices: [],
+          availablePlans: [
+            {
+              planKey: 'starter',
+              slug: 'starter',
+              productId: 'prod_starter',
+              displayName: 'Starter',
+              description: 'Entry tier',
+              highlights: ['Up to 2 signing devices'],
+              priority: 1,
+              deviceCap: 2,
+              auditRetentionDays: 30,
+              supportTier: 'standard',
+              billingGraceDays: 3,
+            },
+          ],
+        };
+      }
+      return null;
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-2',
+        },
+      }),
+      createPolarCheckout: async () => ({
+        url: 'https://polar.example.test/checkout',
+        redirect: false,
+      }),
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planKey: 'missing-plan' }),
+    });
+    const res = await isolatedRoutes.createUserCertificateCheckout(req);
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('Unknown certificate plan');
+  });
+
+  it('returns 503 when certificate billing is not configured', async () => {
+    queryImpl = async (reference: unknown) => {
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return {
+          workspaceKey: 'creator-profile:checkout-4',
+          creatorProfileId: 'checkout-4',
+          billing: {
+            billingEnabled: false,
+            status: 'unmanaged',
+            allowEnrollment: true,
+            allowSigning: true,
+            activeDeviceCount: 0,
+          },
+          devices: [],
+          availablePlans: [],
+        };
+      }
+      return null;
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-2',
+        },
+      }),
+      createPolarCheckout: async () => ({
+        url: 'https://polar.example.test/checkout',
+        redirect: false,
+      }),
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planKey: 'starter' }),
+    });
+    const res = await isolatedRoutes.createUserCertificateCheckout(req);
+
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('Certificate billing is not configured');
+  });
+
+  it('returns 503 when Polar rejects the configured access token for checkout', async () => {
+    queryImpl = async (reference: unknown) => {
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return {
+          workspaceKey: 'creator-profile:checkout-5',
+          creatorProfileId: 'checkout-5',
+          billing: {
+            billingEnabled: true,
+            status: 'inactive',
+            allowEnrollment: false,
+            allowSigning: false,
+            activeDeviceCount: 0,
+          },
+          devices: [],
+          availablePlans: [
+            {
+              planKey: 'starter',
+              slug: 'starter',
+              productId: 'prod_starter',
+              displayName: 'Starter',
+              description: 'Entry tier',
+              highlights: ['Up to 2 signing devices'],
+              priority: 1,
+              deviceCap: 2,
+              auditRetentionDays: 30,
+              supportTier: 'standard',
+              billingGraceDays: 3,
+            },
+          ],
+        };
+      }
+      return null;
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-2',
+        },
+      }),
+      createPolarCheckout: async () => {
+        throw new BetterAuthEndpointError(
+          '/checkout',
+          500,
+          {
+            error:
+              'Polar checkout creation failed. Error: API error occurred: Status 401\nBody: {"error":"invalid_token","error_description":"The access token provided is expired, revoked, malformed, or invalid for other reasons."}',
+          },
+          '{"error":"Polar checkout creation failed. Error: API error occurred: Status 401\\nBody: {\\"error\\":\\"invalid_token\\"}"}'
+        );
+      },
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planKey: 'starter' }),
+    });
+    const res = await isolatedRoutes.createUserCertificateCheckout(req);
+
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string; code: string };
+    expect(body.code).toBe('polar_access_token_invalid');
+    expect(body.error).toContain('POLAR_ACCESS_TOKEN');
+    expect(body.error).toContain('POLAR_SERVER');
+  });
+});
+
+describe('GET /api/connect/user/certificates/portal', () => {
+  it('returns 503 when Polar rejects the configured access token for portal sessions', async () => {
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-4',
+        },
+      }),
+      createPolarCheckout: async () => null,
+      createPolarPortal: async () => {
+        throw new BetterAuthEndpointError(
+          '/customer/portal',
+          500,
+          {
+            error:
+              'Polar portal creation failed. Error: API error occurred: Status 401\nBody: {"error":"invalid_token","error_description":"The access token provided is expired, revoked, malformed, or invalid for other reasons."}',
+          },
+          '{"error":"Polar portal creation failed. Error: API error occurred: Status 401\\nBody: {\\"error\\":\\"invalid_token\\"}"}'
+        );
+      },
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates/portal');
+    const res = await isolatedRoutes.getUserCertificatePortal(req);
+
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string; code: string };
+    expect(body.code).toBe('polar_access_token_invalid');
+    expect(body.error).toContain('POLAR_ACCESS_TOKEN');
   });
 });
 

@@ -11,6 +11,10 @@ const accountCertificatesRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/account/certificates.tsx'),
   'utf8'
 );
+const dashboardCertificatesRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/dashboard/certificates.tsx'),
+  'utf8'
+);
 const accountComponentSource = readFileSync(
   resolve(__dirname, '../../src/components/account/AccountPage.tsx'),
   'utf8'
@@ -34,8 +38,8 @@ describe('account UI contracts', () => {
   it('uses the shared account page scaffold for the redesigned account landing page', () => {
     expect(accountIndexRouteSource).toContain('AccountPage');
     expect(accountIndexRouteSource).toContain('AccountSectionCard');
-    expect(accountCertificatesRouteSource).toContain('AccountPage');
-    expect(accountCertificatesRouteSource).toContain('AccountSectionCard');
+    expect(accountCertificatesRouteSource).not.toContain('AccountPage');
+    expect(accountCertificatesRouteSource).toContain('beforeLoad');
   });
 
   it('renders Discord identity from auth session data with the account shell as fallback', () => {
@@ -50,18 +54,24 @@ describe('account UI contracts', () => {
     expect(accountComponentSource).toContain('className="account-inline-error"');
   });
 
-  it('includes a dedicated certificates and billing account surface', () => {
-    expect(accountRouteSource).toContain('/account/certificates');
-    expect(accountIndexRouteSource).toContain('/account/certificates');
+  it('routes certificate billing through the creator dashboard instead of account space', () => {
+    expect(accountRouteSource).not.toContain('/account/certificates');
+    expect(accountIndexRouteSource).toContain('/dashboard/certificates');
     expect(accountCertificatesRouteSource).toContain("createFileRoute('/account/certificates')");
-    expect(accountCertificatesRouteSource).toContain('Manage billing');
+    expect(accountCertificatesRouteSource).toContain('beforeLoad');
+    expect(accountCertificatesRouteSource).toContain("to: '/dashboard/certificates'");
+    expect(dashboardCertificatesRouteSource).toContain(
+      "createFileRoute('/dashboard/certificates')"
+    );
+    expect(dashboardCertificatesRouteSource).toContain('Manage billing');
   });
 
-  it('supports plan and portal deep links for Unity billing handoff', () => {
-    expect(accountCertificatesRouteSource).toContain('validateSearch:');
-    expect(accountCertificatesRouteSource).toContain("search.checkout === '1'");
-    expect(accountCertificatesRouteSource).toContain("search.portal === '1'");
-    expect(accountCertificatesRouteSource).toContain('checkoutMut.mutate(targetPlan.planKey)');
-    expect(accountCertificatesRouteSource).toContain('portalMut.mutate()');
+  it('supports creator-scoped plan and portal deep links for Unity billing handoff', () => {
+    expect(dashboardCertificatesRouteSource).toContain('validateSearch:');
+    expect(dashboardCertificatesRouteSource).toContain("search.checkout === '1'");
+    expect(dashboardCertificatesRouteSource).toContain("search.portal === '1'");
+    expect(dashboardCertificatesRouteSource).toContain('checkoutMut.mutate(targetPlan.planKey)');
+    expect(dashboardCertificatesRouteSource).toContain('portalMut.mutate()');
+    expect(dashboardCertificatesRouteSource).toContain('dashboard-tab-panel');
   });
 });

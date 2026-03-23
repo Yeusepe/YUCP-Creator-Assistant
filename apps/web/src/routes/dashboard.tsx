@@ -465,6 +465,35 @@ function Sidebar({
             <div className="sidebar-nav-group">
               <span className="sidebar-nav-label">Developer</span>
               <Link
+                id="tab-btn-certificates"
+                to="/dashboard/certificates"
+                search={(prev) => ({
+                  ...prev,
+                  guild_id: undefined,
+                  tenant_id: undefined,
+                })}
+                className="sidebar-nav-btn"
+                activeProps={{ className: 'sidebar-nav-btn is-active' }}
+                role="tab"
+                aria-selected={false}
+                aria-controls="tab-panel-certificates"
+              >
+                <svg
+                  className="sidebar-nav-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 2l7 4v6c0 5-3.2 9.4-7 10-3.8-.6-7-5-7-10V6z" />
+                  <path d="M9 12l2 2 4-4" />
+                </svg>
+                Certificates &amp; Billing
+              </Link>
+              <Link
                 to="/dashboard/integrations"
                 search={(prev) => prev}
                 className="sidebar-nav-btn"

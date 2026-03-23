@@ -3,8 +3,9 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { useAuth } from '@/hooks/useAuth';
-import { listUserCertificates, listUserLicenses, listUserOAuthGrants } from '@/lib/account';
+import { listUserLicenses, listUserOAuthGrants } from '@/lib/account';
 import { authClient } from '@/lib/auth-client';
+import { listCreatorCertificates } from '@/lib/certificates';
 import { listUserAccounts, listUserProviders } from '@/lib/dashboard';
 
 export const Route = createFileRoute('/account/')({
@@ -35,8 +36,8 @@ function AccountProfile() {
     queryFn: listUserLicenses,
   });
   const certificatesQuery = useQuery({
-    queryKey: ['user-certificates'],
-    queryFn: listUserCertificates,
+    queryKey: ['creator-certificates'],
+    queryFn: listCreatorCertificates,
   });
   const grantsQuery = useQuery({
     queryKey: ['user-oauth-grants'],
@@ -203,10 +204,10 @@ function AccountProfile() {
               Review active access and deactivate licenses when needed.
             </span>
           </Link>
-          <Link to="/account/certificates" className="account-shortcut-card">
+          <Link to="/dashboard/certificates" className="account-shortcut-card">
             <span className="account-shortcut-title">Certificates & Billing</span>
             <span className="account-shortcut-desc">
-              Review signing devices, subscription status, and recovery-safe billing controls.
+              Open the creator certificate workspace, billing plans, and device controls.
             </span>
           </Link>
           <Link to="/account/authorized-apps" className="account-shortcut-card">

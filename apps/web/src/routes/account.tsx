@@ -104,28 +104,6 @@ const NAV_GROUPS = [
         ),
       },
       {
-        to: '/account/certificates' as const,
-        exact: false,
-        label: 'Certificates & Billing',
-        headerTitle: 'Certificates & Billing',
-        icon: (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M12 2l7 4v6c0 5-3.2 9.4-7 10-3.8-.6-7-5-7-10V6z" />
-            <path d="M9 12l2 2 4-4" />
-          </svg>
-        ),
-      },
-      {
         to: '/account/authorized-apps' as const,
         exact: false,
         label: 'Authorized Apps',
