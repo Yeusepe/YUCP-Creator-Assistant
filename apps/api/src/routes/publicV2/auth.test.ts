@@ -23,6 +23,7 @@ mock.module('../../lib/oauthAccessToken', () => ({
 }));
 
 const { resolveAuth } = await import('./auth');
+const { RouteTimingCollector } = await import('../../lib/requestTiming');
 
 // --- Shared fixtures ---
 
@@ -142,6 +143,22 @@ describe('resolveAuth', () => {
       mutationImpl = async () => validKeyResult([]);
       const result = await resolveAuth(makeRequest({ 'x-api-key': VALID_API_KEY }), config, []);
       expect(result instanceof Response).toBe(false);
+    });
+
+    it('records auth timing metrics when a collector is provided', async () => {
+      mutationImpl = async () => validKeyResult(['subjects:read']);
+      const timing = new RouteTimingCollector();
+
+      const result = await resolveAuth(
+        makeRequest({ 'x-api-key': VALID_API_KEY }),
+        config,
+        ['subjects:read'],
+        'req_timing_auth_123456',
+        timing
+      );
+
+      expect(result instanceof Response).toBe(false);
+      expect(timing.toServerTimingHeader()).toMatch(/auth_api_key;dur=.*total;dur=/);
     });
 
     it('includes keyId and expiresAt in the returned AuthResult', async () => {

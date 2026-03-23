@@ -24,6 +24,9 @@ const ConnectionSummaryV = v.object({
   hasApiKey: v.boolean(),
   hasAccessToken: v.boolean(),
   authUserId: v.optional(v.string()),
+  lastHealthcheckAt: v.optional(v.number()),
+  lastSyncAt: v.optional(v.number()),
+  lastWebhookAt: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),
 });
@@ -61,6 +64,9 @@ export const listMyConnections = query({
       hasApiKey: false,
       hasAccessToken: false,
       authUserId: c.authUserId,
+      lastHealthcheckAt: c.lastHealthcheckAt,
+      lastSyncAt: c.lastSyncAt,
+      lastWebhookAt: c.lastWebhookAt,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     }));

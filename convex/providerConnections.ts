@@ -10,13 +10,13 @@ import { providerLabel } from '../packages/shared/src/providers';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
+import { requireApiSecret } from './lib/apiAuth';
+import { AUTH_MODE_CREDENTIAL_KEY } from './lib/credentialKeys';
 import {
   type ExternalAccountIdentityCandidate,
   findDuplicateExternalAccountIdentityGroups,
 } from './lib/externalAccountIdentity';
-import { AUTH_MODE_CREDENTIAL_KEY } from './lib/credentialKeys';
 import { ProviderV } from './lib/providers';
-import { requireApiSecret } from './lib/apiAuth';
 
 function getConnectionProviderKey(connection: {
   provider?: unknown;
@@ -340,7 +340,9 @@ export const markWebhookConfigured = mutation({
     if (args.webhookRouteToken) {
       conn = await ctx.db
         .query('provider_connections')
-        .withIndex('by_webhook_route_token', (q) => q.eq('webhookRouteToken', args.webhookRouteToken!))
+        .withIndex('by_webhook_route_token', (q) =>
+          q.eq('webhookRouteToken', args.webhookRouteToken!)
+        )
         .filter((q) => q.eq(q.field('provider'), args.provider))
         .first();
     } else if (args.authUserId) {
@@ -433,11 +435,7 @@ export const listConnections = query({
             providerKey,
             label: c.label ?? getDefaultConnectionLabel(providerKey),
             connectionType: c.connectionType ?? 'setup',
-            status:
-              c.status ??
-              (apiKey || apiToken || accessToken
-                ? 'active'
-                : 'disconnected'),
+            status: c.status ?? (apiKey || apiToken || accessToken ? 'active' : 'disconnected'),
             authMode: c.authMode,
             externalShopId: c.externalShopId,
             externalShopName: c.externalShopName,
@@ -982,10 +980,14 @@ export const upsertProviderConnection = mutation({
         authMode: args.authMode,
         ...(args.externalShopId !== undefined ? { externalShopId: args.externalShopId } : {}),
         ...(args.externalShopName !== undefined ? { externalShopName: args.externalShopName } : {}),
-        ...(args.webhookRouteToken !== undefined ? { webhookRouteToken: args.webhookRouteToken } : {}),
+        ...(args.webhookRouteToken !== undefined
+          ? { webhookRouteToken: args.webhookRouteToken }
+          : {}),
         ...(args.webhookEndpoint !== undefined ? { webhookEndpoint: args.webhookEndpoint } : {}),
         ...(args.webhookSecretRef !== undefined ? { webhookSecretRef: args.webhookSecretRef } : {}),
-        ...(args.webhookConfigured !== undefined ? { webhookConfigured: args.webhookConfigured } : {}),
+        ...(args.webhookConfigured !== undefined
+          ? { webhookConfigured: args.webhookConfigured }
+          : {}),
         updatedAt: now,
       });
       connectionId = existing._id;
@@ -1290,6 +1292,9 @@ const ConnectionSummaryV = v.object({
   hasApiKey: v.boolean(),
   hasAccessToken: v.boolean(),
   authUserId: v.optional(v.string()),
+  lastHealthcheckAt: v.optional(v.number()),
+  lastSyncAt: v.optional(v.number()),
+  lastWebhookAt: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),
 });
@@ -1317,13 +1322,14 @@ export const listConnectionsForUser = query({
       provider: c.provider,
       label: c.label ?? `${c.provider} Connection`,
       connectionType: c.connectionType ?? 'setup',
-      status:
-        c.status ??
-        (c.webhookConfigured ? 'active' : 'disconnected'),
+      status: c.status ?? (c.webhookConfigured ? 'active' : 'disconnected'),
       webhookConfigured: c.webhookConfigured,
       hasApiKey: false,
       hasAccessToken: false,
       authUserId: c.authUserId,
+      lastHealthcheckAt: c.lastHealthcheckAt,
+      lastSyncAt: c.lastSyncAt,
+      lastWebhookAt: c.lastWebhookAt,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     }));
@@ -1667,7 +1673,9 @@ export const markPayhipWebhookConfigured = mutation({
     if (args.webhookRouteToken) {
       conn = await ctx.db
         .query('provider_connections')
-        .withIndex('by_webhook_route_token', (q) => q.eq('webhookRouteToken', args.webhookRouteToken!))
+        .withIndex('by_webhook_route_token', (q) =>
+          q.eq('webhookRouteToken', args.webhookRouteToken!)
+        )
         .filter((q) => q.eq(q.field('provider'), 'payhip'))
         .first();
     } else if (args.authUserId) {

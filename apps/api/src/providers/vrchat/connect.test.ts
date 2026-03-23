@@ -18,6 +18,15 @@ process.env.BETTER_AUTH_SECRET ??= 'test-better-auth-secret-for-pending!!';
 let activeStore = new InMemoryStateStore();
 const mutationCalls: Array<[string, unknown]> = [];
 const encryptedCalls: Array<{ value: string; purpose: string }> = [];
+const apiMock = {
+  providerConnections: {
+    upsertProviderConnection: 'providerConnections.upsertProviderConnection',
+  },
+} as const;
+
+mock.module('../../../../../convex/_generated/api', () => ({
+  api: apiMock,
+}));
 
 mock.module('../../lib/stateStore', () => ({
   getStateStore: () => activeStore,

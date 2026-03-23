@@ -676,6 +676,12 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/user/guilds' && connectRoutes) {
     return connectRoutes.getUserGuilds(request);
   }
+  if (pathname === '/api/connect/dashboard/shell' && connectRoutes) {
+    return connectRoutes.getDashboardShell(request);
+  }
+  if (pathname === '/api/connect/branding' && connectRoutes) {
+    return connectRoutes.getViewerBranding(request);
+  }
   if (pathname === '/api/connect/user/accounts' && connectRoutes) {
     if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
     if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);

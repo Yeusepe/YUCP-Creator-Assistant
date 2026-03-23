@@ -302,6 +302,9 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       return connectRoutes.getDashboardSessionStatus(request);
     if (pathname === '/api/connect/ensure-tenant') return connectRoutes.ensureTenant(request);
     if (pathname === '/api/connect/user/guilds') return connectRoutes.getUserGuilds(request);
+    if (pathname === '/api/connect/dashboard/shell')
+      return connectRoutes.getDashboardShell(request);
+    if (pathname === '/api/connect/branding') return connectRoutes.getViewerBranding(request);
     if (pathname === '/api/connect/user/accounts') {
       if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
       if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);

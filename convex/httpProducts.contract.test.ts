@@ -17,6 +17,10 @@ describe('/v1/products fast path contract', () => {
     expect(httpSource).toContain("name: 'total'");
   });
 
+  it('imports Convex polyfills before using runtime timing APIs in the HTTP router', () => {
+    expect(httpSource).toContain("import './polyfills';");
+  });
+
   it('defines a cached provider products query backed by local mappings', () => {
     expect(licensesSource).toContain(
       'export const getCachedProviderProductsForTenant = internalQuery('

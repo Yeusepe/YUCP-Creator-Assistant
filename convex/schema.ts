@@ -1405,6 +1405,7 @@ const collaborator_connections = defineTable({
   /** Discord user ID of admin who ran the manual add (audit) */
   addedByDiscordUserId: v.optional(v.string()),
   createdAt: v.number(),
+  updatedAt: v.optional(v.number()),
 })
   .index('by_owner', ['ownerAuthUserId'])
   .index('by_invite', ['inviteId'])

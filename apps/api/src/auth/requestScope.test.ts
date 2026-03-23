@@ -7,7 +7,9 @@ const apiMock = {
 } as const;
 
 const setAuthMock = mock((_token: string) => undefined);
-const queryMock = mock(async () => null);
+const queryMock = mock(
+  async (_functionReference?: unknown, _args?: unknown): Promise<unknown> => null
+);
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: apiMock,
@@ -31,13 +33,13 @@ describe('request-scoped auth caching', () => {
   beforeEach(() => {
     setAuthMock.mockClear();
     queryMock.mockClear();
-    queryMock.mockResolvedValue({
+    queryMock.mockImplementation(async () => ({
       authUserId: 'auth-user-123',
       email: 'creator@example.com',
       name: 'Creator',
       image: null,
       discordUserId: 'discord-user-123',
-    });
+    }));
   });
 
   it('coalesces viewer resolution when session and discord identity are read on one request', async () => {

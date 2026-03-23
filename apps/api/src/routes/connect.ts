@@ -169,6 +169,59 @@ interface CertificateOverview {
   }>;
 }
 
+interface DashboardShellResponse {
+  viewer: {
+    authUserId: string;
+    name: string | null;
+    email: string | null;
+    image: string | null;
+    discordUserId: string | null;
+  };
+  branding?: {
+    isPlus: boolean;
+    billingStatus?: string;
+  };
+  guilds: Array<{
+    authUserId: string;
+    guildId: string;
+    name: string;
+    icon: string | null;
+  }>;
+  home?: {
+    providers: Array<{
+      key: string;
+      label?: string;
+      icon?: string;
+      iconBg?: string;
+      quickStartBg?: string;
+      quickStartBorder?: string;
+      serverTileHint?: string;
+      connectPath?: string;
+      connectParamStyle?: 'camelCase' | 'snakeCase';
+    }>;
+    userAccounts: Array<{
+      id: string;
+      provider: string;
+      label: string;
+      connectionType: string;
+      status: string;
+      webhookConfigured: boolean;
+      hasApiKey: boolean;
+      hasAccessToken: boolean;
+      authUserId?: string;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+    connectionStatusAuthUserId: string;
+    connectionStatusByProvider: Record<string, boolean>;
+  };
+  selectedServer?: {
+    authUserId: string;
+    guildId: string;
+    policy: Record<string, unknown>;
+  };
+}
+
 interface PolarProductResponse {
   name?: string | null;
   description?: string | null;
@@ -2668,67 +2721,316 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
   }
 
+  function listDashboardProvidersForShell(): NonNullable<
+    DashboardShellResponse['home']
+  >['providers'] {
+    return Array.from(PROVIDERS.values())
+      .filter((provider) => provider.displayMeta?.dashboardConnectPath)
+      .map((provider) => ({
+        key: provider.id,
+        label: provider.displayMeta?.label,
+        icon: provider.displayMeta?.icon,
+        iconBg: provider.displayMeta?.dashboardIconBg,
+        quickStartBg: provider.displayMeta?.dashboardQuickStartBg,
+        quickStartBorder: provider.displayMeta?.dashboardQuickStartBorder,
+        serverTileHint: provider.displayMeta?.dashboardServerTileHint,
+        connectPath: provider.displayMeta?.dashboardConnectPath,
+        connectParamStyle: provider.displayMeta?.dashboardConnectParamStyle,
+      }));
+  }
+
+  async function loadUserAccountsForAuthUser(
+    authUserId: string,
+    timing?: RouteTimingCollector
+  ): Promise<NonNullable<DashboardShellResponse['home']>['userAccounts']> {
+    const convex = getConvexClientFromUrl(config.convexUrl);
+    return (
+      timing
+        ? await timing.measure(
+            'convex_home_connections',
+            () =>
+              convex.query(api.providerConnections.listConnectionsForUser, {
+                apiSecret: config.convexApiSecret,
+                authUserId,
+              }),
+            'load dashboard home connections'
+          )
+        : await convex.query(api.providerConnections.listConnectionsForUser, {
+            apiSecret: config.convexApiSecret,
+            authUserId,
+          })
+    ) as NonNullable<DashboardShellResponse['home']>['userAccounts'];
+  }
+
+  function buildConnectionStatusByProvider(
+    userAccounts: NonNullable<DashboardShellResponse['home']>['userAccounts']
+  ): Record<string, boolean> {
+    const status: Record<string, boolean> = {};
+    for (const connection of userAccounts) {
+      if (connection.provider && connection.status !== 'disconnected') {
+        status[connection.provider] = true;
+      }
+    }
+    return status;
+  }
+
+  async function loadConnectionStatusForAuthUser(
+    authUserId: string,
+    timing?: RouteTimingCollector
+  ): Promise<Record<string, boolean>> {
+    const convex = getConvexClientFromUrl(config.convexUrl);
+    return (
+      timing
+        ? await timing.measure(
+            'convex_selected_status',
+            () =>
+              convex.query(api.providerConnections.getConnectionStatus, {
+                apiSecret: config.convexApiSecret,
+                authUserId,
+              }),
+            'load selected tenant connection status'
+          )
+        : await convex.query(api.providerConnections.getConnectionStatus, {
+            apiSecret: config.convexApiSecret,
+            authUserId,
+          })
+    ) as Record<string, boolean>;
+  }
+
+  async function loadDashboardPolicyForAuthUser(
+    request: Request,
+    authUserId: string,
+    timing?: RouteTimingCollector
+  ): Promise<Record<string, unknown>> {
+    const profile = timing
+      ? await timing.measure(
+          'selected_policy',
+          () => getCreatorProfile(request, authUserId),
+          'load selected server policy'
+        )
+      : await getCreatorProfile(request, authUserId);
+    return profile?.policy ?? {};
+  }
+
   /**
    * GET /api/connect/user/guilds
    * Returns a list of servers the user is an admin of
    */
+  async function loadUserGuildsForAuthUser(
+    authUserId: string,
+    timing?: RouteTimingCollector
+  ): Promise<DashboardShellResponse['guilds']> {
+    const convex = getConvexClientFromUrl(config.convexUrl);
+    const userGuilds = (
+      timing
+        ? await timing.measure(
+            'convex_guilds',
+            () =>
+              convex.query(api.guildLinks.getUserGuilds, {
+                apiSecret: config.convexApiSecret,
+                authUserId,
+              }),
+            'load dashboard guilds'
+          )
+        : await convex.query(api.guildLinks.getUserGuilds, {
+            apiSecret: config.convexApiSecret,
+            authUserId,
+          })
+    ) as DashboardShellResponse['guilds'];
+
+    if (config.discordBotToken) {
+      const missing = userGuilds.filter((g) => !g.name || g.name.startsWith('Creator '));
+
+      if (missing.length > 0) {
+        const results = await Promise.allSettled(
+          missing.map(async (g) => {
+            const meta = await fetchGuildMeta(g.guildId);
+            if (meta.discordGuildName) {
+              g.name = meta.discordGuildName;
+              if (meta.discordGuildIcon) g.icon = meta.discordGuildIcon;
+              convex
+                .mutation(api.guildLinks.updateGuildLinkStatus, {
+                  apiSecret: config.convexApiSecret,
+                  discordGuildId: g.guildId,
+                  status: 'active' as const,
+                  botPresent: true,
+                  discordGuildName: meta.discordGuildName,
+                  ...(meta.discordGuildIcon ? { discordGuildIcon: meta.discordGuildIcon } : {}),
+                })
+                .catch((err) => {
+                  logger.warn('Failed to persist backfilled guild name', {
+                    guildId: g.guildId,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                });
+            }
+          })
+        );
+        const failures = results.filter((r) => r.status === 'rejected');
+        if (failures.length > 0) {
+          logger.warn('Some guild name backfills failed', { count: failures.length });
+        }
+      }
+    }
+
+    return userGuilds;
+  }
+
   async function getUserGuilds(request: Request): Promise<Response> {
-    const session = await auth.getSession(request);
+    const timing = new RouteTimingCollector();
+    const session = await timing.measure(
+      'session',
+      () => auth.getSession(request),
+      'resolve session'
+    );
     if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Authentication required' }, { status: 401 }),
+        'serialize guild response'
+      );
     }
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const userGuilds = await convex.query(api.guildLinks.getUserGuilds, {
-        apiSecret: config.convexApiSecret,
-        authUserId: session.user.id,
-      });
-
-      // Backfill missing guild names from Discord
-      if (config.discordBotToken) {
-        const guilds = userGuilds as Array<{ guildId: string; name: string; icon?: string | null }>;
-        const missing = guilds.filter((g) => !g.name || g.name.startsWith('Creator '));
-
-        if (missing.length > 0) {
-          const results = await Promise.allSettled(
-            missing.map(async (g) => {
-              const meta = await fetchGuildMeta(g.guildId);
-              if (meta.discordGuildName) {
-                g.name = meta.discordGuildName;
-                if (meta.discordGuildIcon) g.icon = meta.discordGuildIcon;
-                // Persist to DB in background so future loads are instant
-                convex
-                  .mutation(api.guildLinks.updateGuildLinkStatus, {
-                    apiSecret: config.convexApiSecret,
-                    discordGuildId: g.guildId,
-                    status: 'active' as const,
-                    botPresent: true,
-                    discordGuildName: meta.discordGuildName,
-                    ...(meta.discordGuildIcon ? { discordGuildIcon: meta.discordGuildIcon } : {}),
-                  })
-                  .catch((err) => {
-                    logger.warn('Failed to persist backfilled guild name', {
-                      guildId: g.guildId,
-                      error: err instanceof Error ? err.message : String(err),
-                    });
-                  });
-              }
-            })
-          );
-          const failures = results.filter((r) => r.status === 'rejected');
-          if (failures.length > 0) {
-            logger.warn('Some guild name backfills failed', { count: failures.length });
-          }
-        }
-      }
-
-      return Response.json({ guilds: userGuilds });
+      const userGuilds = await loadUserGuildsForAuthUser(session.user.id, timing);
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ guilds: userGuilds }),
+        'serialize guild response'
+      );
     } catch (err) {
       logger.error('Failed to get user guilds', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to fetch user guilds' }, { status: 500 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Failed to fetch user guilds' }, { status: 500 }),
+        'serialize guild response'
+      );
+    }
+  }
+
+  async function getDashboardShell(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
+    const session = await timing.measure(
+      'session',
+      () => auth.getSession(request),
+      'resolve dashboard shell session'
+    );
+    if (!session) {
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Authentication required' }, { status: 401 }),
+        'serialize dashboard shell'
+      );
+    }
+
+    try {
+      const url = new URL(request.url);
+      const requestedAuthUserId =
+        url.searchParams.get('authUserId') ??
+        url.searchParams.get('tenantId') ??
+        url.searchParams.get('tenant_id') ??
+        undefined;
+      const requestedGuildId =
+        url.searchParams.get('guildId') ?? url.searchParams.get('guild_id') ?? undefined;
+      const includeHomeData =
+        url.searchParams.get('includeHomeData') === 'true' || Boolean(requestedGuildId);
+      const [guilds, userAccounts, branding] = await Promise.all([
+        loadUserGuildsForAuthUser(session.user.id, timing),
+        includeHomeData
+          ? loadUserAccountsForAuthUser(session.user.id, timing)
+          : Promise.resolve(null),
+        timing.measure(
+          'convex_shell_branding',
+          () =>
+            getConvexClientFromUrl(config.convexUrl).query(
+              api.certificateBilling.getShellBrandingForAuthUser,
+              {
+                apiSecret: config.convexApiSecret,
+                authUserId: session.user.id,
+              }
+            ),
+          'load dashboard shell branding'
+        ) as Promise<NonNullable<DashboardShellResponse['branding']>>,
+      ]);
+      const selectedGuild =
+        requestedGuildId !== undefined
+          ? guilds.find((guild) => guild.guildId === requestedGuildId)
+          : undefined;
+      const selectedTenantAuthUserId =
+        requestedAuthUserId ?? selectedGuild?.authUserId ?? session.user.id;
+      let home: DashboardShellResponse['home'] | undefined;
+      let selectedServer: DashboardShellResponse['selectedServer'] | undefined;
+
+      if (userAccounts) {
+        let connectionStatusAuthUserId = session.user.id;
+        let connectionStatusByProvider = buildConnectionStatusByProvider(userAccounts);
+
+        if (selectedTenantAuthUserId && selectedTenantAuthUserId !== session.user.id) {
+          const ownsSelectedTenant = await timing.measure(
+            'selected_owner',
+            () => isTenantOwnedBySessionUser(request, session.user.id, selectedTenantAuthUserId),
+            'resolve selected tenant ownership'
+          );
+          if (ownsSelectedTenant) {
+            connectionStatusAuthUserId = selectedTenantAuthUserId;
+            connectionStatusByProvider = await loadConnectionStatusForAuthUser(
+              selectedTenantAuthUserId,
+              timing
+            );
+            if (requestedGuildId) {
+              selectedServer = {
+                authUserId: selectedTenantAuthUserId,
+                guildId: requestedGuildId,
+                policy: await loadDashboardPolicyForAuthUser(
+                  request,
+                  selectedTenantAuthUserId,
+                  timing
+                ),
+              };
+            }
+          }
+        } else if (requestedGuildId && selectedTenantAuthUserId) {
+          selectedServer = {
+            authUserId: selectedTenantAuthUserId,
+            guildId: requestedGuildId,
+            policy: await loadDashboardPolicyForAuthUser(request, selectedTenantAuthUserId, timing),
+          };
+        }
+
+        home = {
+          providers: listDashboardProvidersForShell(),
+          userAccounts,
+          connectionStatusAuthUserId,
+          connectionStatusByProvider,
+        };
+      }
+
+      const payload: DashboardShellResponse = {
+        viewer: {
+          authUserId: session.user.id,
+          name: session.user.name ?? null,
+          email: session.user.email ?? null,
+          image: session.user.image ?? null,
+          discordUserId: session.discordUserId ?? null,
+        },
+        branding,
+        guilds,
+        ...(home ? { home } : {}),
+        ...(selectedServer ? { selectedServer } : {}),
+      };
+
+      return buildTimedResponse(timing, () => Response.json(payload), 'serialize dashboard shell');
+    } catch (err) {
+      logger.error('Failed to get dashboard shell', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Failed to fetch dashboard shell' }, { status: 500 }),
+        'serialize dashboard shell'
+      );
     }
   }
 
@@ -2870,6 +3172,31 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         () => Response.json({ error: 'Failed to fetch certificate workspace' }, { status: 500 }),
         'serialize certificate response'
       );
+    }
+  }
+
+  async function getViewerBranding(request: Request): Promise<Response> {
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    try {
+      const branding = await getConvexClientFromUrl(config.convexUrl).query(
+        api.certificateBilling.getShellBrandingForAuthUser,
+        {
+          apiSecret: config.convexApiSecret,
+          authUserId: session.user.id,
+        }
+      );
+
+      return Response.json(branding);
+    } catch (err) {
+      logger.error('Failed to get viewer branding', {
+        authUserId: session.user.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to fetch viewer branding' }, { status: 500 });
     }
   }
 
@@ -3759,6 +4086,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     getDiscordRoleGuilds,
     saveDiscordRoleSelection,
     getDiscordRoleResult,
+    getDashboardShell,
+    getViewerBranding,
     getUserGuilds,
     getUserProviders,
     postUserVerifyStart,

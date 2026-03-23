@@ -11,6 +11,7 @@ import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { ServerContextProvider } from '@/hooks/useServerContext';
 import { normalizeDashboardIdentifier } from '@/lib/dashboard';
 import { dashboardShellQueryOptions } from '@/lib/dashboardQueryOptions';
+import { primeDashboardShellCaches } from '@/lib/dashboardShellCache';
 import { fetchDashboardShell, type Guild } from '@/lib/server/dashboard';
 import '@/styles/dashboard.css';
 import '@/styles/dashboard-components.css';
@@ -39,13 +40,28 @@ export const Route = createFileRoute('/dashboard')({
     }
   },
   loader: async ({ context: { queryClient }, location }) => {
+    const locationHref = String(location.href);
+    const parsedLocation = new URL(locationHref, 'http://dashboard.local');
+    const selectedGuildId = normalizeDashboardIdentifier(
+      parsedLocation.searchParams.get('guild_id')
+    );
+    const selectedTenantId = normalizeDashboardIdentifier(
+      parsedLocation.searchParams.get('tenant_id')
+    );
     const shell = await queryClient.ensureQueryData(
       dashboardShellQueryOptions({
-        queryKey: ['dashboard-shell'],
-        queryFn: () => fetchDashboardShell(),
+        queryKey: ['dashboard-shell', 'route', selectedGuildId ?? null, selectedTenantId ?? null],
+        queryFn: () =>
+          fetchDashboardShell({
+            data: {
+              authUserId: selectedTenantId,
+              guildId: selectedGuildId,
+              includeHomeData: true,
+            },
+          }),
       })
     );
-    const locationHref = String(location.href);
+    primeDashboardShellCaches(queryClient, shell);
     const locationHash = String(location.hash ?? '');
     const allowsFreshGuildBootstrap =
       locationHref.includes('guild_id=') ||

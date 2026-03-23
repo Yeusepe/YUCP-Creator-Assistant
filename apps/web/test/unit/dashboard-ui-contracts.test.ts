@@ -25,6 +25,10 @@ const cloudBackgroundSource = readFileSync(
   resolve(__dirname, '../../src/components/three/CloudBackground.tsx'),
   'utf8'
 );
+const brandingAssetsSource = readFileSync(
+  resolve(__dirname, '../../src/lib/brandingAssets.ts'),
+  'utf8'
+);
 
 describe('dashboard UI contracts', () => {
   it('removes the redundant select-server prompt card from the dashboard body', () => {
@@ -82,6 +86,13 @@ describe('dashboard UI contracts', () => {
     expect(dashboardCss).toContain('.content-area-inner {');
     expect(dashboardCss).not.toContain('margin-left: -12px;');
     expect(dashboardCss).not.toContain('margin-right: 16px;');
+  });
+
+  it('swaps dashboard tab content to a pending panel instead of leaving stale content visible', () => {
+    expect(dashboardRouteSource).toContain('useRouterState');
+    expect(dashboardRouteSource).toContain('routerState.location.pathname');
+    expect(dashboardRouteSource).toContain('routerState.resolvedLocation.pathname');
+    expect(dashboardRouteSource).toContain('DashboardPendingPanel');
   });
 
   it('uses the home icon for the personal dashboard selector trigger and no longer renders blob backgrounds', () => {
@@ -160,5 +171,13 @@ describe('dashboard UI contracts', () => {
     );
     expect(onboardingProgressPanelSource).not.toContain('isMounted && step.completed');
     expect(onboardingProgressPanelSource).toContain('steps.filter((s) => s.completed).length');
+  });
+
+  it('centralizes subscription-aware brand asset selection', () => {
+    expect(brandingAssetsSource).toContain('getBrandedIconPath');
+    expect(brandingAssetsSource).toContain('isPlusBrandingActive');
+    expect(brandingAssetsSource).toContain("'/Icons/MainLogoPlus.png'");
+    expect(brandingAssetsSource).toContain("'/Icons/BagPlus.png'");
+    expect(brandingAssetsSource).toContain("'/Icons/AssistantPlus.png'");
   });
 });

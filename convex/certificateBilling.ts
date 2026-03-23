@@ -19,6 +19,27 @@ import { summarizeActiveCertificatesByDevice } from './yucpCertificates';
 
 type BillingStatus = 'active' | 'grace' | 'inactive' | 'suspended';
 
+const resolveForAuthUserReturnValidator = v.object({
+  billingEnabled: v.boolean(),
+  workspaceKey: v.optional(v.string()),
+  status: v.string(),
+  allowEnrollment: v.boolean(),
+  allowSigning: v.boolean(),
+  planKey: v.optional(v.string()),
+  deviceCap: v.optional(v.number()),
+  signQuotaPerPeriod: v.optional(v.number()),
+  auditRetentionDays: v.optional(v.number()),
+  supportTier: v.optional(v.string()),
+  currentPeriodEnd: v.optional(v.number()),
+  graceUntil: v.optional(v.number()),
+  reason: v.optional(v.string()),
+});
+
+const shellBrandingReturnValidator = v.object({
+  isPlus: v.boolean(),
+  billingStatus: v.optional(v.string()),
+});
+
 const accountOverviewReturnValidator = v.object({
   workspaceKey: v.string(),
   creatorProfileId: v.optional(v.string()),
@@ -200,6 +221,67 @@ async function buildAccountOverview(ctx: QueryCtx, authUserId: string) {
       status: device.status,
     })),
     availablePlans: buildAvailablePlans(config),
+  };
+}
+
+async function resolveCertificateBillingForAuthUser(ctx: QueryCtx, authUserId: string) {
+  const config = getCertificateBillingConfig();
+  if (!config.enabled) {
+    return {
+      billingEnabled: false,
+      status: 'unmanaged',
+      allowEnrollment: true,
+      allowSigning: true,
+      reason: undefined,
+    };
+  }
+
+  const creatorProfile = await ctx.db
+    .query('creator_profiles')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+    .first();
+  const workspaceKeys = resolveWorkspaceKeys(authUserId, creatorProfile?._id ?? null);
+  const entitlements = await ctx.db
+    .query('creator_billing_entitlements')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+    .collect();
+
+  const matches = entitlements.filter((entry) => workspaceKeys.includes(entry.workspaceKey));
+  if (matches.length === 0) {
+    return {
+      billingEnabled: true,
+      status: 'inactive',
+      allowEnrollment: false,
+      allowSigning: false,
+      reason: 'Certificate subscription required',
+    };
+  }
+
+  const winner = matches.sort((left, right) => {
+    const statusDiff = compareBillingStatus(right.status, left.status);
+    if (statusDiff !== 0) return statusDiff;
+    return (right.deviceCap ?? 0) - (left.deviceCap ?? 0);
+  })[0];
+
+  return {
+    billingEnabled: true,
+    workspaceKey: winner.workspaceKey,
+    status: winner.status,
+    allowEnrollment: winner.allowEnrollment,
+    allowSigning: winner.allowSigning,
+    planKey: winner.planKey,
+    deviceCap: winner.deviceCap,
+    signQuotaPerPeriod: winner.signQuotaPerPeriod ?? undefined,
+    auditRetentionDays: winner.auditRetentionDays,
+    supportTier: winner.supportTier,
+    currentPeriodEnd: winner.currentPeriodEnd ?? undefined,
+    graceUntil: winner.graceUntil ?? undefined,
+    reason:
+      winner.status === 'grace'
+        ? 'Billing grace period active. Existing devices can continue signing, but new enrollment is blocked.'
+        : winner.allowSigning
+          ? undefined
+          : 'Certificate subscription required',
   };
 }
 
@@ -467,79 +549,23 @@ export const revokeOwnedCertificate = mutation({
 
 export const resolveForAuthUser = internalQuery({
   args: { authUserId: v.string() },
-  returns: v.object({
-    billingEnabled: v.boolean(),
-    workspaceKey: v.optional(v.string()),
-    status: v.string(),
-    allowEnrollment: v.boolean(),
-    allowSigning: v.boolean(),
-    planKey: v.optional(v.string()),
-    deviceCap: v.optional(v.number()),
-    signQuotaPerPeriod: v.optional(v.number()),
-    auditRetentionDays: v.optional(v.number()),
-    supportTier: v.optional(v.string()),
-    currentPeriodEnd: v.optional(v.number()),
-    graceUntil: v.optional(v.number()),
-    reason: v.optional(v.string()),
-  }),
+  returns: resolveForAuthUserReturnValidator,
+  handler: async (ctx, args) => await resolveCertificateBillingForAuthUser(ctx, args.authUserId),
+});
+
+export const getShellBrandingForAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  returns: shellBrandingReturnValidator,
   handler: async (ctx, args) => {
-    const config = getCertificateBillingConfig();
-    if (!config.enabled) {
-      return {
-        billingEnabled: false,
-        status: 'unmanaged',
-        allowEnrollment: true,
-        allowSigning: true,
-        reason: undefined,
-      };
-    }
-
-    const creatorProfile = await ctx.db
-      .query('creator_profiles')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .first();
-    const workspaceKeys = resolveWorkspaceKeys(args.authUserId, creatorProfile?._id ?? null);
-    const entitlements = await ctx.db
-      .query('creator_billing_entitlements')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .collect();
-
-    const matches = entitlements.filter((entry) => workspaceKeys.includes(entry.workspaceKey));
-    if (matches.length === 0) {
-      return {
-        billingEnabled: true,
-        status: 'inactive',
-        allowEnrollment: false,
-        allowSigning: false,
-        reason: 'Certificate subscription required',
-      };
-    }
-
-    const winner = matches.sort((left, right) => {
-      const statusDiff = compareBillingStatus(right.status, left.status);
-      if (statusDiff !== 0) return statusDiff;
-      return (right.deviceCap ?? 0) - (left.deviceCap ?? 0);
-    })[0];
-
+    requireApiSecret(args.apiSecret);
+    const billing = await resolveCertificateBillingForAuthUser(ctx, args.authUserId);
+    const billingStatus = billing.status || undefined;
     return {
-      billingEnabled: true,
-      workspaceKey: winner.workspaceKey,
-      status: winner.status,
-      allowEnrollment: winner.allowEnrollment,
-      allowSigning: winner.allowSigning,
-      planKey: winner.planKey,
-      deviceCap: winner.deviceCap,
-      signQuotaPerPeriod: winner.signQuotaPerPeriod ?? undefined,
-      auditRetentionDays: winner.auditRetentionDays,
-      supportTier: winner.supportTier,
-      currentPeriodEnd: winner.currentPeriodEnd ?? undefined,
-      graceUntil: winner.graceUntil ?? undefined,
-      reason:
-        winner.status === 'grace'
-          ? 'Billing grace period active. Existing devices can continue signing, but new enrollment is blocked.'
-          : winner.allowSigning
-            ? undefined
-            : 'Certificate subscription required',
+      isPlus: billing.status === 'active' || billing.status === 'grace',
+      billingStatus,
     };
   },
 });

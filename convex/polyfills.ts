@@ -14,6 +14,16 @@ export function ensureConvexPolyfills() {
     globalWithBuffer.Buffer = Buffer;
   }
 
+  if (typeof globalThis.performance?.now !== 'function') {
+    Object.defineProperty(globalThis, 'performance', {
+      value: {
+        now: () => Date.now(),
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
   // URL.canParse was added in Node 18.17; Convex runtime may not have it
   if (typeof URL !== 'undefined' && typeof (URL as { canParse?: unknown }).canParse !== 'function') {
     (URL as { canParse: (url: string, base?: string) => boolean }).canParse = (

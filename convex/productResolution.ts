@@ -101,6 +101,7 @@ export const getProductsForTenant = query({
       providerProductRef: v.string(),
       canonicalSlug: v.optional(v.string()),
       displayName: v.optional(v.string()),
+      lastSyncedAt: v.optional(v.number()),
     })
   ),
   handler: async (ctx, args) => {
@@ -111,6 +112,24 @@ export const getProductsForTenant = query({
       .filter((q) => q.eq(q.field('status'), 'active'))
       .collect();
 
+    const freshestByCatalogId = new Map<string, number>();
+    await Promise.all(
+      products.map(async (product) => {
+        const mappings = await ctx.db
+          .query('provider_catalog_mappings')
+          .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
+          .collect();
+        const freshest = mappings.reduce<number | undefined>((current, mapping) => {
+          const candidate = mapping.lastSyncedAt ?? mapping.updatedAt;
+          if (candidate === undefined) return current;
+          return current === undefined ? candidate : Math.max(current, candidate);
+        }, undefined);
+        if (freshest !== undefined) {
+          freshestByCatalogId.set(String(product._id), freshest);
+        }
+      })
+    );
+
     return products.map((p) => ({
       _id: p._id,
       productId: p.productId,
@@ -118,6 +137,7 @@ export const getProductsForTenant = query({
       providerProductRef: p.providerProductRef,
       canonicalSlug: p.canonicalSlug,
       displayName: p.displayName,
+      lastSyncedAt: freshestByCatalogId.get(String(p._id)) ?? p.updatedAt,
     }));
   },
 });

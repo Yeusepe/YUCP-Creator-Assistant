@@ -82,6 +82,7 @@ import {
   verifyCertEnvelope,
 } from './lib/yucpCrypto';
 import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
+import './polyfills';
 
 /**
  * Public API routes follow Spotify/GitHub/Stripe conventions.

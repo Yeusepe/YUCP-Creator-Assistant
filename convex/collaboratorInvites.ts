@@ -189,6 +189,7 @@ export const acceptCollaboratorInvite = mutation({
   returns: v.id('collaborator_connections'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    const now = Date.now();
 
     const invite = await ctx.db.get(args.inviteId);
     if (!invite) throw new Error('Invite not found');
@@ -222,9 +223,10 @@ export const acceptCollaboratorInvite = mutation({
       collaboratorDiscordUserId: args.collaboratorDiscordUserId,
       collaboratorDisplayName: args.collaboratorDisplayName,
       collaboratorAvatarHash: args.collaboratorAvatarHash,
-      createdAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
     });
-    await ctx.db.patch(args.inviteId, { usedAt: Date.now() });
+    await ctx.db.patch(args.inviteId, { usedAt: now });
     await ctx.db.insert('audit_events', {
       authUserId: invite.ownerAuthUserId,
       eventType: 'collaborator.invite.accepted',
@@ -260,6 +262,7 @@ export const addCollaboratorConnectionManual = mutation({
   returns: v.id('collaborator_connections'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    const now = Date.now();
     const owner = await ctx.db
       .query('creator_profiles')
       .filter((q) => q.eq(q.field('authUserId'), args.ownerAuthUserId))
@@ -278,7 +281,8 @@ export const addCollaboratorConnectionManual = mutation({
       collaboratorDiscordUserId: args.collaboratorIdentity,
       collaboratorDisplayName: args.collaboratorDisplayName,
       addedByDiscordUserId: args.addedByDiscordUserId,
-      createdAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
     });
     await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
@@ -348,6 +352,7 @@ export const listCollaboratorConnections = query({
       collaboratorDisplayName: c.collaboratorDisplayName,
       collaboratorAvatarHash: c.collaboratorAvatarHash,
       createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
     }));
   },
 });
@@ -392,6 +397,17 @@ export const listConnectionsAsCollaborator = query({
     apiSecret: v.string(),
     authUserId: v.string(),
   },
+  returns: v.array(
+    v.object({
+      id: v.id('collaborator_connections'),
+      provider: v.string(),
+      linkType: v.union(v.literal('account'), v.literal('api')),
+      ownerAuthUserId: v.string(),
+      ownerDisplayName: v.union(v.string(), v.null()),
+      createdAt: v.number(),
+      updatedAt: v.optional(v.number()),
+    })
+  ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
 
@@ -425,6 +441,7 @@ export const listConnectionsAsCollaborator = query({
           ownerAuthUserId: c.ownerAuthUserId,
           ownerDisplayName: ownerProfile?.name ?? null,
           createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
         };
       })
     );
@@ -448,7 +465,10 @@ export const removeCollaboratorConnection = mutation({
     if (!conn || conn.ownerAuthUserId !== args.ownerAuthUserId) {
       throw new Error('Connection not found or access denied');
     }
-    await ctx.db.patch(args.connectionId, { status: 'disconnected' });
+    await ctx.db.patch(args.connectionId, {
+      status: 'disconnected',
+      updatedAt: Date.now(),
+    });
     await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
       eventType: 'collaborator.connection.removed',
@@ -537,7 +557,6 @@ export const getActiveByCollaboratorDiscord = internalQuery({
   },
 });
 
-
 /**
  * List collaborator_connections for a creator (owner) with optional provider/status filters.
  * Credential fields are never returned.
@@ -548,7 +567,34 @@ export const listConnectionsByOwner = query({
     authUserId: v.string(),
     provider: v.optional(v.string()),
     status: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
   },
+  returns: v.object({
+    data: v.array(
+      v.object({
+        _id: v.id('collaborator_connections'),
+        _creationTime: v.number(),
+        ownerAuthUserId: v.string(),
+        provider: v.string(),
+        linkType: v.union(v.literal('account'), v.literal('api')),
+        status: v.union(v.literal('active'), v.literal('paused'), v.literal('disconnected')),
+        collaboratorDiscordUserId: v.string(),
+        collaboratorDisplayName: v.string(),
+        collaboratorAvatarHash: v.optional(v.string()),
+        source: v.optional(v.union(v.literal('invite'), v.literal('manual'))),
+        inviteId: v.optional(v.id('collaborator_invites')),
+        addedByDiscordUserId: v.optional(v.string()),
+        webhookConfigured: v.boolean(),
+        webhookEndpoint: v.optional(v.string()),
+        createdAt: v.number(),
+        updatedAt: v.optional(v.number()),
+      })
+    ),
+    hasMore: v.boolean(),
+    cursor: v.union(v.string(), v.null()),
+    nextCursor: v.union(v.string(), v.null()),
+  }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
 
@@ -564,7 +610,14 @@ export const listConnectionsByOwner = query({
       all = all.filter((c) => c.status === args.status);
     }
 
-    return all.map((c) => ({
+    const limit = Math.min(args.limit ?? 50, 100);
+    let startIndex = 0;
+    if (args.cursor) {
+      const idx = all.findIndex((item) => String(item._id) === args.cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+
+    const data = all.slice(startIndex, startIndex + limit).map((c) => ({
       _id: c._id,
       _creationTime: c._creationTime,
       ownerAuthUserId: c.ownerAuthUserId,
@@ -580,7 +633,18 @@ export const listConnectionsByOwner = query({
       webhookConfigured: c.webhookConfigured,
       webhookEndpoint: c.webhookEndpoint,
       createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
     }));
+    const hasMore = startIndex + limit < all.length;
+
+    const nextCursor = hasMore ? String(data[data.length - 1]?._id ?? null) : null;
+
+    return {
+      data,
+      hasMore,
+      cursor: nextCursor,
+      nextCursor,
+    };
   },
 });
 
@@ -614,6 +678,7 @@ export const getConnectionById = query({
       webhookConfigured: doc.webhookConfigured,
       webhookEndpoint: doc.webhookEndpoint,
       createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
     };
   },
 });

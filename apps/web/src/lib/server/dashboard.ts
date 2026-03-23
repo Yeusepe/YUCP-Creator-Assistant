@@ -25,9 +25,52 @@ export interface DashboardViewer {
   discordUserId: string | null;
 }
 
+export interface DashboardBranding {
+  isPlus: boolean;
+  billingStatus: string | null;
+}
+
+export interface DashboardUserAccountConnection {
+  id: string;
+  provider: string;
+  label: string;
+  connectionType: string;
+  status: string;
+  webhookConfigured: boolean;
+  hasApiKey: boolean;
+  hasAccessToken: boolean;
+  authUserId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DashboardPolicy {
+  allowMismatchedEmails?: boolean;
+  autoVerifyOnJoin?: boolean;
+  shareVerificationWithServers?: boolean;
+  enableDiscordRoleFromOtherServers?: boolean;
+  verificationScope?: 'account' | 'license';
+  duplicateVerificationBehavior?: 'allow' | 'notify' | 'block';
+  suspiciousAccountBehavior?: 'notify' | 'quarantine' | 'revoke';
+  logChannelId?: string;
+  announcementsChannelId?: string;
+}
+
 export interface DashboardShellData {
   viewer: DashboardViewer;
+  branding: DashboardBranding;
   guilds: Guild[];
+  home?: {
+    providers: DashboardProvider[];
+    userAccounts: DashboardUserAccountConnection[];
+    connectionStatusAuthUserId: string;
+    connectionStatusByProvider: Record<string, boolean>;
+  };
+  selectedServer?: {
+    authUserId: string;
+    guildId: string;
+    policy: DashboardPolicy;
+  };
 }
 
 export interface DashboardProvider {
@@ -49,12 +92,81 @@ interface GuildResponse {
   icon: string | null;
 }
 
+interface DashboardShellResponse {
+  viewer?: {
+    authUserId?: string;
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+    discordUserId?: string | null;
+  } | null;
+  branding?: {
+    isPlus?: boolean;
+    billingStatus?: string | null;
+  } | null;
+  guilds?: GuildResponse[];
+  home?: DashboardShellData['home'];
+  selectedServer?: DashboardShellData['selectedServer'];
+}
+
+interface DashboardShellRequest {
+  authUserId?: string;
+  guildId?: string;
+  includeHomeData?: boolean;
+}
+
 function logDashboardInfo(event: string, context: Record<string, unknown>): void {
   console.info(`[web] ${event}`, context);
 }
 
 function stripQuotes(value: string): string {
   return value.replace(/^"|"$/g, '');
+}
+
+function normalizeGuild(guild: GuildResponse): Guild {
+  return {
+    id: stripQuotes(guild.guildId),
+    name: guild.name,
+    icon: guild.icon ?? null,
+    tenantId: stripQuotes(guild.authUserId),
+  };
+}
+
+function normalizeDashboardShellResponse(
+  response: DashboardShellResponse,
+  fallbackViewer: DashboardViewer
+): DashboardShellData {
+  return {
+    viewer: {
+      authUserId: response.viewer?.authUserId ?? fallbackViewer.authUserId,
+      name: response.viewer?.name ?? null,
+      email: response.viewer?.email ?? null,
+      image: response.viewer?.image ?? null,
+      discordUserId: response.viewer?.discordUserId ?? null,
+    },
+    branding: {
+      isPlus: response.branding?.isPlus === true,
+      billingStatus:
+        typeof response.branding?.billingStatus === 'string' &&
+        response.branding.billingStatus.length > 0
+          ? response.branding.billingStatus
+          : null,
+    },
+    guilds: (response.guilds ?? []).map(normalizeGuild),
+    home: response.home
+      ? {
+          ...response.home,
+          connectionStatusAuthUserId: stripQuotes(response.home.connectionStatusAuthUserId),
+        }
+      : undefined,
+    selectedServer: response.selectedServer
+      ? {
+          ...response.selectedServer,
+          authUserId: stripQuotes(response.selectedServer.authUserId),
+          guildId: stripQuotes(response.selectedServer.guildId),
+        }
+      : undefined,
+  };
 }
 
 /**
@@ -129,12 +241,7 @@ async function loadGuilds(token: string): Promise<Guild[]> {
       }
     );
 
-    const guilds = (response.guilds ?? []).map((guild) => ({
-      id: stripQuotes(guild.guildId),
-      name: guild.name,
-      icon: guild.icon ?? null,
-      tenantId: stripQuotes(guild.authUserId),
-    }));
+    const guilds = (response.guilds ?? []).map(normalizeGuild);
 
     logDashboardInfo('Dashboard guild load completed', {
       phase: 'dashboard-load-guilds',
@@ -215,30 +322,47 @@ export const fetchDashboardViewer = createServerFn({ method: 'GET' }).handler(
   }
 );
 
-export const fetchDashboardShell = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<DashboardShellData> => {
+export const fetchDashboardShell = createServerFn({ method: 'GET' })
+  .inputValidator((data: DashboardShellRequest | undefined) => data ?? {})
+  .handler(async ({ data }: { data?: DashboardShellRequest }): Promise<DashboardShellData> => {
     logDashboardInfo('Dashboard shell load started', {
       phase: 'dashboard-load-shell',
     });
 
     try {
       const token = await requireDashboardToken();
-      const [viewer, guilds] = await Promise.all([loadDashboardViewer(token), loadGuilds(token)]);
+      const baseViewer = decodeDashboardViewer(token);
+      const params: Record<string, string> = {};
+      if (data?.authUserId) {
+        params.authUserId = data.authUserId;
+      }
+      if (data?.guildId) {
+        params.guildId = data.guildId;
+      }
+      if (data?.includeHomeData) {
+        params.includeHomeData = 'true';
+      }
+      const response = await serverApiFetch<DashboardShellResponse>(
+        '/api/connect/dashboard/shell',
+        {
+          authToken: token,
+          params: Object.keys(params).length > 0 ? params : undefined,
+        }
+      );
+      const shell = normalizeDashboardShellResponse(response, baseViewer);
 
       logDashboardInfo('Dashboard shell load completed', {
         phase: 'dashboard-load-shell',
-        guildCount: guilds.length,
+        guildCount: shell.guilds.length,
+        hasHomeData: Boolean(shell.home),
+        hasSelectedServer: Boolean(shell.selectedServer),
       });
 
-      return {
-        viewer,
-        guilds,
-      };
+      return shell;
     } catch (error) {
       logWebError('Dashboard shell load failed', error, {
         phase: 'dashboard-load-shell',
       });
       throw error;
     }
-  }
-);
+  });

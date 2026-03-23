@@ -21,6 +21,7 @@ const apiMock = {
   },
   certificateBilling: {
     getAccountOverview: 'certificateBilling.getAccountOverview',
+    getShellBrandingForAuthUser: 'certificateBilling.getShellBrandingForAuthUser',
     projectCustomerStateForApi: 'certificateBilling.projectCustomerStateForApi',
     revokeOwnedCertificate: 'certificateBilling.revokeOwnedCertificate',
   },
@@ -29,10 +30,13 @@ const apiMock = {
   },
   guildLinks: {
     getGuildLinkForUninstall: 'guildLinks.getGuildLinkForUninstall',
+    getUserGuilds: 'guildLinks.getUserGuilds',
   },
   providerConnections: {
     getConnectionForDisconnect: 'providerConnections.getConnectionForDisconnect',
     disconnectConnection: 'providerConnections.disconnectConnection',
+    getConnectionStatus: 'providerConnections.getConnectionStatus',
+    listConnectionsForUser: 'providerConnections.listConnectionsForUser',
     updateTenantSetting: 'providerConnections.updateTenantSetting',
   },
 } as const;
@@ -154,6 +158,177 @@ describe('GET /api/connect/guild/channels', () => {
     expect(res.status).toBe(401);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/authentication required/i);
+  });
+});
+
+describe('GET /api/connect/dashboard/shell', () => {
+  it('returns the viewer, shared home shell, and selected server policy in one response', async () => {
+    const queriedFns: string[] = [];
+    queryImpl = async (fn, args) => {
+      queriedFns.push(String(fn));
+
+      if (fn === apiMock.guildLinks.getUserGuilds) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'user-dashboard-001',
+        });
+        return [
+          {
+            authUserId: 'user-dashboard-001',
+            guildId: 'guild-dashboard-001',
+            name: 'Dashboard Guild',
+            icon: 'guild-icon',
+          },
+        ];
+      }
+
+      if (fn === apiMock.providerConnections.listConnectionsForUser) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'user-dashboard-001',
+        });
+        return [
+          {
+            id: 'conn-1',
+            provider: 'gumroad',
+            label: 'Gumroad Connection',
+            connectionType: 'setup',
+            status: 'active',
+            webhookConfigured: true,
+            hasApiKey: false,
+            hasAccessToken: true,
+            authUserId: 'user-dashboard-001',
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ];
+      }
+
+      if (fn === apiMock.creatorProfiles.getCreatorProfile) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'user-dashboard-001',
+        });
+        return {
+          authUserId: 'user-dashboard-001',
+          policy: {
+            autoVerifyOnJoin: true,
+          },
+        };
+      }
+
+      if (fn === apiMock.certificateBilling.getShellBrandingForAuthUser) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'user-dashboard-001',
+        });
+        return {
+          isPlus: true,
+          billingStatus: 'active',
+        };
+      }
+
+      throw new Error(`Unexpected query fn: ${String(fn)}`);
+    };
+
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({
+        user: {
+          id: 'user-dashboard-001',
+          email: 'creator@example.com',
+          name: 'Creator Name',
+          image: 'https://example.com/avatar.png',
+        },
+        discordUserId: 'discord-user-001',
+      }),
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+
+    const req = new Request(
+      'http://localhost:3001/api/connect/dashboard/shell?guildId=guild-dashboard-001&includeHomeData=true',
+      {
+        headers: { 'x-auth-token': 'viewer-token' },
+      }
+    );
+    const res = await isolatedRoutes.getDashboardShell(req);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Server-Timing')).toContain('session');
+    expect(res.headers.get('Server-Timing')).toContain('convex_guilds');
+    expect(res.headers.get('Server-Timing')).toContain('convex_shell_branding');
+    expect(res.headers.get('Server-Timing')).toContain('convex_home_connections');
+    expect(res.headers.get('Server-Timing')).toContain('selected_policy');
+    expect(queriedFns).toEqual([
+      apiMock.guildLinks.getUserGuilds,
+      apiMock.providerConnections.listConnectionsForUser,
+      apiMock.certificateBilling.getShellBrandingForAuthUser,
+      apiMock.creatorProfiles.getCreatorProfile,
+    ]);
+
+    const body = (await res.json()) as {
+      viewer: {
+        authUserId: string;
+        email: string | null;
+        name: string | null;
+        image: string | null;
+        discordUserId: string | null;
+      };
+      guilds: Array<{ guildId: string; authUserId: string; name: string; icon: string | null }>;
+      home: {
+        providers: Array<{ key: string; label?: string }>;
+        userAccounts: Array<{ provider: string; label: string }>;
+        connectionStatusAuthUserId: string;
+        connectionStatusByProvider: Record<string, boolean>;
+      };
+      selectedServer: {
+        authUserId: string;
+        guildId: string;
+        policy: {
+          autoVerifyOnJoin?: boolean;
+        };
+      };
+      branding: {
+        isPlus: boolean;
+        billingStatus: string | null;
+      };
+    };
+
+    expect(body.viewer).toEqual({
+      authUserId: 'user-dashboard-001',
+      email: 'creator@example.com',
+      name: 'Creator Name',
+      image: 'https://example.com/avatar.png',
+      discordUserId: 'discord-user-001',
+    });
+    expect(body.guilds).toEqual([
+      {
+        authUserId: 'user-dashboard-001',
+        guildId: 'guild-dashboard-001',
+        name: 'Dashboard Guild',
+        icon: 'guild-icon',
+      },
+    ]);
+    expect(body.home.connectionStatusAuthUserId).toBe('user-dashboard-001');
+    expect(body.home.connectionStatusByProvider).toEqual({ gumroad: true });
+    expect(body.home.userAccounts).toEqual([
+      expect.objectContaining({
+        provider: 'gumroad',
+        label: 'Gumroad Connection',
+      }),
+    ]);
+    expect(body.home.providers.length).toBeGreaterThan(0);
+    expect(body.selectedServer).toEqual({
+      authUserId: 'user-dashboard-001',
+      guildId: 'guild-dashboard-001',
+      policy: {
+        autoVerifyOnJoin: true,
+      },
+    });
+    expect(body.branding).toEqual({
+      isPlus: true,
+      billingStatus: 'active',
+    });
   });
 });
 

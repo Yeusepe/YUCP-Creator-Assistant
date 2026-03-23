@@ -11,7 +11,18 @@
 
 import { describe, expect, it, mock } from 'bun:test';
 import { CredentialExpiredError } from '../types';
-import vrchatProvider from './index';
+
+const apiMock = {
+  providerConnections: {
+    getConnectionForBackfill: 'providerConnections.getConnectionForBackfill',
+  },
+} as const;
+
+mock.module('../../../../../convex/_generated/api', () => ({
+  api: apiMock,
+}));
+
+const { default: vrchatProvider } = await import('./index');
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
