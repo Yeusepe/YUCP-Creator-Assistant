@@ -53,8 +53,7 @@ async function gumroadBegin(request: Request, ctx: ConnectContext): Promise<Resp
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const cfg = config as any;
+  const cfg = config;
   if (!cfg.gumroadClientId || !cfg.gumroadClientSecret) {
     return Response.json({ error: 'Gumroad OAuth not configured' }, { status: 400 });
   }

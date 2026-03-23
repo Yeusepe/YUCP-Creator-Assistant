@@ -30,6 +30,8 @@ import { encrypt } from '../lib/encrypt';
 import { createLegacyFrontendMovedResponse } from '../lib/legacyFrontend';
 import { fetchCertificateBillingCustomerStateByExternalId } from '../lib/polar';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
+import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
+import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
 import { PROVIDERS } from '../providers/index';
@@ -39,6 +41,7 @@ import type { ConnectConfig, ConnectContext } from '../providers/types';
 export type { ConnectConfig } from '../providers/types';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+type CreatorProfileRecord = { authUserId: string; policy?: Record<string, unknown> } | null;
 
 const TOKEN_MAX_LEN = 256;
 const TOKEN_PATTERN = /^[a-zA-Z0-9._-]+$/;
@@ -225,7 +228,8 @@ function createPolarAccessTokenFailureResponse(): Response {
 }
 
 async function enrichCertificateOverviewWithPolar(
-  overview: CertificateOverview
+  overview: CertificateOverview,
+  timing?: RouteTimingCollector
 ): Promise<CertificateOverview> {
   const billingConfig = getCertificateBillingConfig();
   if (!billingConfig.polarAccessToken || overview.availablePlans.length === 0) {
@@ -233,43 +237,47 @@ async function enrichCertificateOverviewWithPolar(
   }
 
   const apiBaseUrl = getPolarApiBaseUrl(billingConfig.polarServer);
-  const products = await Promise.all(
-    overview.availablePlans.map(async (plan) => {
-      try {
-        // Polar product metadata reference: https://www.polar.sh/docs/api-reference/products/get
-        const response = await fetch(
-          `${apiBaseUrl}/products/${encodeURIComponent(plan.productId)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${billingConfig.polarAccessToken}`,
-            },
-          }
-        );
+  const loadProducts = () =>
+    Promise.all(
+      overview.availablePlans.map(async (plan) => {
+        try {
+          // Polar product metadata reference: https://www.polar.sh/docs/api-reference/products/get
+          const response = await fetch(
+            `${apiBaseUrl}/products/${encodeURIComponent(plan.productId)}`,
+            {
+              headers: {
+                Authorization: `Bearer ${billingConfig.polarAccessToken}`,
+              },
+            }
+          );
 
-        if (!response.ok) {
-          logger.warn('Failed to fetch Polar product metadata for certificate plan', {
+          if (!response.ok) {
+            logger.warn('Failed to fetch Polar product metadata for certificate plan', {
+              productId: plan.productId,
+              status: response.status,
+              server: billingConfig.polarServer ?? 'production',
+              hint:
+                response.status === 401
+                  ? 'POLAR_ACCESS_TOKEN may be invalid, expired, or configured for the wrong Polar environment'
+                  : undefined,
+            });
+            return null;
+          }
+
+          const product = (await response.json()) as PolarProductResponse;
+          return [plan.productId, product] as const;
+        } catch (error) {
+          logger.warn('Failed to read Polar product metadata for certificate plan', {
             productId: plan.productId,
-            status: response.status,
-            server: billingConfig.polarServer ?? 'production',
-            hint:
-              response.status === 401
-                ? 'POLAR_ACCESS_TOKEN may be invalid, expired, or configured for the wrong Polar environment'
-                : undefined,
+            error: error instanceof Error ? error.message : String(error),
           });
           return null;
         }
-
-        const product = (await response.json()) as PolarProductResponse;
-        return [plan.productId, product] as const;
-      } catch (error) {
-        logger.warn('Failed to read Polar product metadata for certificate plan', {
-          productId: plan.productId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      }
-    })
-  );
+      })
+    );
+  const products = timing
+    ? await timing.measure('provider_polar_products', loadProducts, 'fetch Polar product metadata')
+    : await loadProducts();
 
   const productById = new Map(
     products.filter((entry): entry is readonly [string, PolarProductResponse] => entry !== null)
@@ -300,26 +308,52 @@ async function reconcileCertificateOverviewWithPolarState(
   convex: ReturnType<typeof getConvexClientFromUrl>,
   convexApiSecret: string,
   authUserId: string,
-  overview: CertificateOverview
+  overview: CertificateOverview,
+  timing?: RouteTimingCollector
 ): Promise<CertificateOverview> {
   if (!overview.billing.billingEnabled || overview.billing.status === 'active') {
     return overview;
   }
 
-  const customerState = await fetchCertificateBillingCustomerStateByExternalId(authUserId);
+  const customerState = timing
+    ? await timing.measure(
+        'provider_polar_customer_state',
+        () => fetchCertificateBillingCustomerStateByExternalId(authUserId),
+        'fetch Polar customer state'
+      )
+    : await fetchCertificateBillingCustomerStateByExternalId(authUserId);
   if (!customerState || customerState.activeSubscriptions.length === 0) {
     return overview;
   }
 
-  await convex.mutation(api.certificateBilling.projectCustomerStateForApi, {
-    apiSecret: convexApiSecret,
-    authUserId,
-    polarCustomerId: customerState.id,
-    customerEmail: customerState.email,
-    activeSubscriptions: customerState.activeSubscriptions.map(
-      toCertificateBillingProjectionSubscription
-    ),
-  });
+  const projectCustomerState = () =>
+    convex.mutation(api.certificateBilling.projectCustomerStateForApi, {
+      apiSecret: convexApiSecret,
+      authUserId,
+      polarCustomerId: customerState.id,
+      customerEmail: customerState.email,
+      activeSubscriptions: customerState.activeSubscriptions.map(
+        toCertificateBillingProjectionSubscription
+      ),
+    });
+  if (timing) {
+    await timing.measure(
+      'convex_certificate_projection',
+      projectCustomerState,
+      'project Polar customer state'
+    );
+    return (await timing.measure(
+      'convex_certificate_overview_refresh',
+      () =>
+        convex.query(api.certificateBilling.getAccountOverview, {
+          apiSecret: convexApiSecret,
+          authUserId,
+        }),
+      'reload certificate overview'
+    )) as CertificateOverview;
+  }
+
+  await projectCustomerState();
 
   return (await convex.query(api.certificateBilling.getAccountOverview, {
     apiSecret: convexApiSecret,
@@ -626,9 +660,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   async function resolveSetupSessionFromRequest(
     request: Request
   ): Promise<{ authUserId: string; guildId: string; discordUserId: string } | null> {
-    const token = getSetupSessionTokenFromRequest(request);
-    if (!token) return null;
-    return resolveSetupSession(token, config.encryptionSecret);
+    return loadRequestScoped(request, 'connect:setup-session', async () => {
+      const token = getSetupSessionTokenFromRequest(request);
+      if (!token) return null;
+      return resolveSetupSession(token, config.encryptionSecret);
+    });
   }
 
   function getSetupSessionTokenFromRequest(request: Request): string | null {
@@ -639,16 +675,35 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   async function resolveConnectSession(request: Request): Promise<ConnectSession | null> {
-    const token = getCookieValue(request, CONNECT_TOKEN_COOKIE);
-    if (!token) return null;
-    const store = getStateStore();
-    const raw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as ConnectSession;
-    } catch {
-      return null;
-    }
+    return loadRequestScoped(request, 'connect:browser-session', async () => {
+      const token = getCookieValue(request, CONNECT_TOKEN_COOKIE);
+      if (!token) return null;
+      const store = getStateStore();
+      const raw = await store.get(`${CONNECT_TOKEN_PREFIX}${token}`);
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as ConnectSession;
+      } catch {
+        return null;
+      }
+    });
+  }
+
+  async function getCreatorProfile(
+    request: Request,
+    authUserId: string
+  ): Promise<CreatorProfileRecord> {
+    return loadRequestScoped(
+      request,
+      requestScopeKey('connect:creator-profile', { authUserId }),
+      async () => {
+        const convex = getConvexClientFromUrl(config.convexUrl);
+        return (await convex.query(api.creatorProfiles.getCreatorProfile, {
+          apiSecret: config.convexApiSecret,
+          authUserId,
+        })) as CreatorProfileRecord;
+      }
+    );
   }
 
   async function _resolveConnectDiscordUserId(request: Request): Promise<string | null> {
@@ -729,14 +784,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   async function isTenantOwnedBySessionUser(
+    request: Request,
     sessionUserId: string,
     profileAuthUserId: string
   ): Promise<boolean> {
-    const convex = getConvexClientFromUrl(config.convexUrl);
-    const profile = await convex.query(api.creatorProfiles.getCreatorProfile, {
-      apiSecret: config.convexApiSecret,
-      authUserId: profileAuthUserId,
-    });
+    const profile = await getCreatorProfile(request, profileAuthUserId);
     return !!profile && profile.authUserId === sessionUserId;
   }
 
@@ -779,7 +831,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     let tenantOwned: boolean;
     try {
-      tenantOwned = await isTenantOwnedBySessionUser(session.user.id, authUserId);
+      tenantOwned = await isTenantOwnedBySessionUser(request, session.user.id, authUserId);
     } catch (error) {
       logger.error('Tenant ownership resolution failed', {
         sessionUserId: session.user.id,
@@ -803,13 +855,16 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * ConnectContext — injected into every provider connect plugin route handler.
    * Built from the auth instance and config that were passed to createConnectRoutes.
    */
-  const connectContext: ConnectContext = {
-    config,
-    auth,
-    requireBoundSetupSession,
-    getSetupSessionTokenFromRequest,
-    isTenantOwnedBySessionUser,
-  };
+  function createConnectContext(request: Request): ConnectContext {
+    return {
+      config,
+      auth,
+      requireBoundSetupSession,
+      getSetupSessionTokenFromRequest,
+      isTenantOwnedBySessionUser: (sessionUserId, authUserId) =>
+        isTenantOwnedBySessionUser(request, sessionUserId, authUserId),
+    };
+  }
 
   /**
    * Dispatches a request to the matching provider connect plugin route.
@@ -824,7 +879,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!plugin.connect) continue;
       for (const route of plugin.connect.routes) {
         if (route.method === method && route.path === pathname) {
-          return route.handler(request, connectContext);
+          return route.handler(request, createConnectContext(request));
         }
       }
     }
@@ -1271,7 +1326,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.json(status);
       }
 
-      const tenantOwned = await isTenantOwnedBySessionUser(session.user.id, authUserId);
+      const tenantOwned = await isTenantOwnedBySessionUser(request, session.user.id, authUserId);
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -1431,11 +1486,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const tenant = (await convex.query(api.creatorProfiles.getCreatorProfile, {
-        apiSecret: config.convexApiSecret,
-        authUserId,
-      })) as { policy?: Record<string, unknown> };
+      const tenant = await getCreatorProfile(request, authUserId);
       return Response.json({ policy: tenant?.policy ?? {} });
     } catch (err) {
       logger.error('Get settings failed', {
@@ -1561,11 +1612,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!bound.ok) return bound.response;
       authUserId = bound.setupSession.authUserId;
     } else {
-      const ownerCheck = await requireOwnerSessionForTenant(request, body.authUserId);
-      if (!ownerCheck.ok) return ownerCheck.response;
       if (!body.authUserId) {
         return Response.json({ error: 'authUserId is required' }, { status: 400 });
       }
+      const ownerCheck = await requireOwnerSessionForTenant(request, body.authUserId);
+      if (!ownerCheck.ok) return ownerCheck.response;
       authUserId = body.authUserId;
     }
 
@@ -2744,31 +2795,58 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   async function getUserCertificateOverviewForAuthUser(
-    authUserId: string
+    authUserId: string,
+    timing?: RouteTimingCollector
   ): Promise<CertificateOverview> {
     const convex = getConvexClientFromUrl(config.convexUrl);
-    const overview = (await convex.query(api.certificateBilling.getAccountOverview, {
-      apiSecret: config.convexApiSecret,
-      authUserId,
-    })) as CertificateOverview;
+    const overview = (
+      timing
+        ? await timing.measure(
+            'convex_certificate_overview',
+            () =>
+              convex.query(api.certificateBilling.getAccountOverview, {
+                apiSecret: config.convexApiSecret,
+                authUserId,
+              }),
+            'load certificate overview'
+          )
+        : await convex.query(api.certificateBilling.getAccountOverview, {
+            apiSecret: config.convexApiSecret,
+            authUserId,
+          })
+    ) as CertificateOverview;
     const reconciledOverview = await reconcileCertificateOverviewWithPolarState(
       convex,
       config.convexApiSecret,
       authUserId,
-      overview
+      overview,
+      timing
     );
-    return enrichCertificateOverviewWithPolar(reconciledOverview);
+    return enrichCertificateOverviewWithPolar(reconciledOverview, timing);
   }
 
   async function getUserCertificates(request: Request): Promise<Response> {
-    const session = await auth.getSession(request);
+    const timing = new RouteTimingCollector();
+    const session = await timing.measure(
+      'session',
+      () => auth.getSession(request),
+      'resolve account session'
+    );
     if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Authentication required' }, { status: 401 }),
+        'serialize certificate response'
+      );
     }
 
     try {
-      const overview = await getUserCertificateOverviewForAuthUser(session.user.id);
-      return Response.json(overview);
+      const overview = await getUserCertificateOverviewForAuthUser(session.user.id, timing);
+      return buildTimedResponse(
+        timing,
+        () => Response.json(overview),
+        'serialize certificate response'
+      );
     } catch (err) {
       if (isPolarAccessTokenFailure(err)) {
         logger.error('Polar credentials rejected certificate workspace reconciliation request', {
@@ -2776,71 +2854,123 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           status: err.status,
           path: err.path,
         });
-        return createPolarAccessTokenFailureResponse();
+        return buildTimedResponse(
+          timing,
+          () => createPolarAccessTokenFailureResponse(),
+          'serialize certificate response'
+        );
       }
 
       logger.error('Failed to get certificate workspace overview', {
         authUserId: session.user.id,
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to fetch certificate workspace' }, { status: 500 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Failed to fetch certificate workspace' }, { status: 500 }),
+        'serialize certificate response'
+      );
     }
   }
 
   async function createUserCertificateCheckout(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
     if (request.method !== 'POST') {
-      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Method not allowed' }, { status: 405 }),
+        'serialize certificate response'
+      );
     }
 
-    const session = await auth.getSession(request);
+    const session = await timing.measure(
+      'session',
+      () => auth.getSession(request),
+      'resolve account session'
+    );
     if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Authentication required' }, { status: 401 }),
+        'serialize certificate response'
+      );
     }
 
     let body: { planKey?: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
-      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Invalid JSON' }, { status: 400 }),
+        'serialize certificate response'
+      );
     }
 
     if (!body.planKey?.trim()) {
-      return Response.json({ error: 'planKey is required' }, { status: 400 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'planKey is required' }, { status: 400 }),
+        'serialize certificate response'
+      );
     }
 
     try {
-      const overview = await getUserCertificateOverviewForAuthUser(session.user.id);
+      const overview = await getUserCertificateOverviewForAuthUser(session.user.id, timing);
       if (!overview.billing.billingEnabled || overview.availablePlans.length === 0) {
-        return Response.json({ error: 'Certificate billing is not configured' }, { status: 503 });
+        return buildTimedResponse(
+          timing,
+          () => Response.json({ error: 'Certificate billing is not configured' }, { status: 503 }),
+          'serialize certificate response'
+        );
       }
 
       const plan = overview.availablePlans.find((entry) => entry.planKey === body.planKey?.trim());
       if (!plan) {
-        return Response.json({ error: 'Unknown certificate plan' }, { status: 404 });
-      }
-
-      const checkout = await auth.createPolarCheckout(request, {
-        products: [plan.productId],
-        referenceId: overview.workspaceKey,
-        metadata: {
-          workspace_key: overview.workspaceKey,
-          plan_key: plan.planKey,
-        },
-        redirect: false,
-      });
-      if (!checkout) {
-        return Response.json(
-          { error: 'Could not initialize certificate checkout for this session' },
-          { status: 409 }
+        return buildTimedResponse(
+          timing,
+          () => Response.json({ error: 'Unknown certificate plan' }, { status: 404 }),
+          'serialize certificate response'
         );
       }
 
-      return Response.json({
-        url: checkout.url,
-        redirect: checkout.redirect,
-        workspaceKey: overview.workspaceKey,
-        planKey: plan.planKey,
-      });
+      const checkout = await timing.measure(
+        'provider_polar_checkout',
+        () =>
+          auth.createPolarCheckout(request, {
+            products: [plan.productId],
+            referenceId: overview.workspaceKey,
+            metadata: {
+              workspace_key: overview.workspaceKey,
+              plan_key: plan.planKey,
+            },
+            redirect: false,
+          }),
+        'create Polar checkout'
+      );
+      if (!checkout) {
+        return buildTimedResponse(
+          timing,
+          () =>
+            Response.json(
+              { error: 'Could not initialize certificate checkout for this session' },
+              { status: 409 }
+            ),
+          'serialize certificate response'
+        );
+      }
+
+      return buildTimedResponse(
+        timing,
+        () =>
+          Response.json({
+            url: checkout.url,
+            redirect: checkout.redirect,
+            workspaceKey: overview.workspaceKey,
+            planKey: plan.planKey,
+          }),
+        'serialize certificate response'
+      );
     } catch (err) {
       if (isPolarAccessTokenFailure(err)) {
         logger.error('Polar credentials rejected certificate checkout request', {
@@ -2849,7 +2979,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           status: err.status,
           path: err.path,
         });
-        return createPolarAccessTokenFailureResponse();
+        return buildTimedResponse(
+          timing,
+          () => createPolarAccessTokenFailureResponse(),
+          'serialize certificate response'
+        );
       }
 
       logger.error('Failed to create certificate checkout', {
@@ -2857,29 +2991,56 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         planKey: body.planKey,
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to create certificate checkout' }, { status: 500 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Failed to create certificate checkout' }, { status: 500 }),
+        'serialize certificate response'
+      );
     }
   }
 
   async function getUserCertificatePortal(request: Request): Promise<Response> {
-    const session = await auth.getSession(request);
+    const timing = new RouteTimingCollector();
+    const session = await timing.measure(
+      'session',
+      () => auth.getSession(request),
+      'resolve account session'
+    );
     if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Authentication required' }, { status: 401 }),
+        'serialize certificate response'
+      );
     }
 
     try {
-      const portal = await auth.createPolarPortal(request, { redirect: false });
+      const portal = await timing.measure(
+        'provider_polar_portal',
+        () => auth.createPolarPortal(request, { redirect: false }),
+        'create Polar billing portal'
+      );
       if (!portal) {
-        return Response.json(
-          { error: 'No billing portal is available for this account yet' },
-          { status: 409 }
+        return buildTimedResponse(
+          timing,
+          () =>
+            Response.json(
+              { error: 'No billing portal is available for this account yet' },
+              { status: 409 }
+            ),
+          'serialize certificate response'
         );
       }
 
-      return Response.json({
-        url: portal.url,
-        redirect: portal.redirect,
-      });
+      return buildTimedResponse(
+        timing,
+        () =>
+          Response.json({
+            url: portal.url,
+            redirect: portal.redirect,
+          }),
+        'serialize certificate response'
+      );
     } catch (err) {
       if (isPolarAccessTokenFailure(err)) {
         logger.error('Polar credentials rejected certificate portal request', {
@@ -2887,63 +3048,114 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           status: err.status,
           path: err.path,
         });
-        return createPolarAccessTokenFailureResponse();
+        return buildTimedResponse(
+          timing,
+          () => createPolarAccessTokenFailureResponse(),
+          'serialize certificate response'
+        );
       }
 
       logger.error('Failed to create certificate billing portal session', {
         authUserId: session.user.id,
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to open billing portal' }, { status: 500 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Failed to open billing portal' }, { status: 500 }),
+        'serialize certificate response'
+      );
     }
   }
 
   async function revokeUserCertificate(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
     if (request.method !== 'POST') {
-      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Method not allowed' }, { status: 405 }),
+        'serialize certificate response'
+      );
     }
 
-    const session = await auth.getSession(request);
+    const session = await timing.measure(
+      'session',
+      () => auth.getSession(request),
+      'resolve account session'
+    );
     if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Authentication required' }, { status: 401 }),
+        'serialize certificate response'
+      );
     }
 
     let body: { certNonce?: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
-      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Invalid JSON' }, { status: 400 }),
+        'serialize certificate response'
+      );
     }
 
     if (!body.certNonce?.trim()) {
-      return Response.json({ error: 'certNonce is required' }, { status: 400 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'certNonce is required' }, { status: 400 }),
+        'serialize certificate response'
+      );
     }
+    const certNonce = body.certNonce.trim();
 
     try {
-      await getConvexClientFromUrl(config.convexUrl).mutation(
-        api.certificateBilling.revokeOwnedCertificate,
-        {
-          apiSecret: config.convexApiSecret,
-          authUserId: session.user.id,
-          certNonce: body.certNonce.trim(),
-          reason: 'User-initiated device revoke from account portal',
-        }
+      await timing.measure(
+        'convex_certificate_revoke',
+        () =>
+          getConvexClientFromUrl(config.convexUrl).mutation(
+            api.certificateBilling.revokeOwnedCertificate,
+            {
+              apiSecret: config.convexApiSecret,
+              authUserId: session.user.id,
+              certNonce,
+              reason: 'User-initiated device revoke from account portal',
+            }
+          ),
+        'revoke certificate device'
       );
-      return Response.json({ success: true });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ success: true }),
+        'serialize certificate response'
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('Unauthorized')) {
-        return Response.json({ error: 'Not authorized to revoke this device' }, { status: 403 });
+        return buildTimedResponse(
+          timing,
+          () => Response.json({ error: 'Not authorized to revoke this device' }, { status: 403 }),
+          'serialize certificate response'
+        );
       }
       if (message.includes('not found')) {
-        return Response.json({ error: 'Certificate device not found' }, { status: 404 });
+        return buildTimedResponse(
+          timing,
+          () => Response.json({ error: 'Certificate device not found' }, { status: 404 }),
+          'serialize certificate response'
+        );
       }
       logger.error('Failed to revoke certificate device', {
         authUserId: session.user.id,
         certNonce: body.certNonce,
         error: message,
       });
-      return Response.json({ error: 'Failed to revoke certificate device' }, { status: 500 });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Failed to revoke certificate device' }, { status: 500 }),
+        'serialize certificate response'
+      );
     }
   }
 
@@ -3440,7 +3652,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       if (!authSession) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
       }
-      const tenantOwned = await isTenantOwnedBySessionUser(authSession.user.id, body.authUserId);
+      const tenantOwned = await isTenantOwnedBySessionUser(
+        request,
+        authSession.user.id,
+        body.authUserId
+      );
       if (!tenantOwned) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }

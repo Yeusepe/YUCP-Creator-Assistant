@@ -61,14 +61,15 @@ function PlanCard({
   isPending: boolean;
   onCheckout: (plan: CreatorCertificatePlan) => void;
 }>) {
-  const highlights = plan.highlights.length > 0
-    ? plan.highlights
-    : [
-        `${plan.deviceCap} signing machine${plan.deviceCap !== 1 ? 's' : ''}`,
-        `${formatQuota(plan.signQuotaPerPeriod)} signatures per period`,
-        `${plan.auditRetentionDays}-day audit log retention`,
-        `${plan.supportTier === 'premium' ? 'Premium' : 'Standard'} support`,
-      ];
+  const highlights =
+    plan.highlights.length > 0
+      ? plan.highlights
+      : [
+          `${plan.deviceCap} signing machine${plan.deviceCap !== 1 ? 's' : ''}`,
+          `${formatQuota(plan.signQuotaPerPeriod)} signatures per period`,
+          `${plan.auditRetentionDays}-day audit log retention`,
+          `${plan.supportTier === 'premium' ? 'Premium' : 'Standard'} support`,
+        ];
 
   return (
     <article className={`account-plan-card ${isCurrentPlan ? 'is-current' : ''}`}>
@@ -76,19 +77,43 @@ function PlanCard({
         <div>
           <h3 className="account-plan-name">{plan.displayName}</h3>
           {plan.description && (
-            <p className="account-plan-meta" style={{ fontFamily: 'inherit' }}>{plan.description}</p>
+            <p className="account-plan-meta" style={{ fontFamily: 'inherit' }}>
+              {plan.description}
+            </p>
           )}
         </div>
         {isCurrentPlan && <span className="account-badge account-badge--connected">Active</span>}
       </div>
 
-      <ul className="account-plan-feature-list" style={{ listStyle: 'none', paddingLeft: 0, flex: 1 }}>
-        {highlights.map((h, i) => (
-          <li key={`${plan.planKey}-${i}`} style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"
-              style={{ flexShrink: 0, marginTop: '3px', color: isCurrentPlan ? '#0ea5e9' : '#94a3b8' }}>
+      <ul
+        className="account-plan-feature-list"
+        style={{ listStyle: 'none', paddingLeft: 0, flex: 1 }}
+      >
+        {highlights.map((h) => (
+          <li
+            key={`${plan.planKey}-${h}`}
+            style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              aria-hidden="true"
+              style={{
+                flexShrink: 0,
+                marginTop: '3px',
+                color: isCurrentPlan ? '#0ea5e9' : '#94a3b8',
+              }}
+            >
               <circle cx="6" cy="6" r="5" fill="currentColor" opacity="0.15" />
-              <path d="M3.5 6l1.8 1.8L8.5 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M3.5 6l1.8 1.8L8.5 4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
             {h}
           </li>
@@ -102,7 +127,16 @@ function PlanCard({
         onClick={() => onCheckout(plan)}
         disabled={isPending || isCurrentPlan}
       >
-        {isPending ? <span className="btn-loading-spinner" /> : isCurrentPlan ? 'Current Plan' : <><PolarIcon />Subscribe via Polar</>}
+        {isPending ? (
+          <span className="btn-loading-spinner" />
+        ) : isCurrentPlan ? (
+          'Current Plan'
+        ) : (
+          <>
+            <PolarIcon />
+            Subscribe via Polar
+          </>
+        )}
       </button>
     </article>
   );
@@ -124,18 +158,33 @@ function CertificateDeviceRow({
 
   return (
     <div className="account-list-row">
-      <div className="account-list-row-icon"
-        style={{ background: isActive ? 'rgba(34,197,94,0.1)' : 'rgba(148,163,184,0.1)' }}>
-        <img src="/Icons/Laptop.png" alt="" aria-hidden="true"
-          style={{ width: '18px', height: '18px', objectFit: 'contain', opacity: isActive ? 1 : 0.4 }} />
+      <div
+        className="account-list-row-icon"
+        style={{ background: isActive ? 'rgba(34,197,94,0.1)' : 'rgba(148,163,184,0.1)' }}
+      >
+        <img
+          src="/Icons/Laptop.png"
+          alt=""
+          aria-hidden="true"
+          style={{
+            width: '18px',
+            height: '18px',
+            objectFit: 'contain',
+            opacity: isActive ? 1 : 0.4,
+          }}
+        />
       </div>
 
       <div className="account-list-row-info">
         <p className="account-list-row-name">{device.publisherName}</p>
         <div className="account-list-row-meta">
           <span className="account-reference-chip">{device.devPublicKey.slice(0, 20)}…</span>
-          <span className={`account-badge account-badge--${isActive ? 'active' : 'revoked'}`}
-            style={{ textTransform: 'capitalize' }}>{device.status}</span>
+          <span
+            className={`account-badge account-badge--${isActive ? 'active' : 'revoked'}`}
+            style={{ textTransform: 'capitalize' }}
+          >
+            {device.status}
+          </span>
           <span>Issued {formatCertificateDate(device.issuedAt)}</span>
           <span aria-hidden="true">·</span>
           <span>Expires {formatCertificateDate(device.expiresAt)}</span>
@@ -144,25 +193,43 @@ function CertificateDeviceRow({
 
       <div className="account-list-row-actions">
         {isActive && (
-          <button className="account-btn account-btn--danger"
+          <button
+            type="button"
+            className="account-btn account-btn--danger"
             style={{ borderRadius: '8px', fontSize: '12px', padding: '5px 12px' }}
-            onClick={() => setConfirming(true)}>
+            onClick={() => setConfirming(true)}
+          >
             Revoke
           </button>
         )}
       </div>
 
       {confirming && (
-        <AccountModal title="Revoke Device" onClose={() => { if (!isRevoking) setConfirming(false); }}>
+        <AccountModal
+          title="Revoke Device"
+          onClose={() => {
+            if (!isRevoking) setConfirming(false);
+          }}
+        >
           <p className="account-modal-body">
-            You are about to revoke <strong>{device.publisherName}</strong>. This takes effect immediately and invalidates its signing certificate.
+            You are about to revoke <strong>{device.publisherName}</strong>. This takes effect
+            immediately and invalidates its signing certificate.
           </p>
           <div className="account-modal-actions">
-            <button className="account-btn account-btn--secondary" onClick={() => setConfirming(false)} disabled={isRevoking}>
+            <button
+              type="button"
+              className="account-btn account-btn--secondary"
+              onClick={() => setConfirming(false)}
+              disabled={isRevoking}
+            >
               Cancel
             </button>
-            <button className={`account-btn account-btn--danger ${isRevoking ? 'btn-loading' : ''}`}
-              onClick={() => onRevoke(device.certNonce)} disabled={isRevoking}>
+            <button
+              type="button"
+              className={`account-btn account-btn--danger ${isRevoking ? 'btn-loading' : ''}`}
+              onClick={() => onRevoke(device.certNonce)}
+              disabled={isRevoking}
+            >
               {isRevoking ? <span className="btn-loading-spinner" /> : 'Confirm Revocation'}
             </button>
           </div>
@@ -198,9 +265,14 @@ export default function DashboardCertificates() {
 
   const checkoutMut = useMutation({
     mutationFn: (planKey: string) => createCreatorCertificateCheckout(planKey),
-    onSuccess: (result) => { window.location.href = result.url; },
+    onSuccess: (result) => {
+      window.location.href = result.url;
+    },
     onError: (error) => {
-      if (isDashboardAuthError(error)) { markSessionExpired(); return; }
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
       toast.error('Could not start checkout', { description: 'Please try again.' });
     },
     onSettled: () => setPendingPlanKey(null),
@@ -208,10 +280,17 @@ export default function DashboardCertificates() {
 
   const portalMut = useMutation({
     mutationFn: () => getCreatorCertificatePortal(),
-    onSuccess: (result) => { window.location.href = result.url; },
+    onSuccess: (result) => {
+      window.location.href = result.url;
+    },
     onError: (error) => {
-      if (isDashboardAuthError(error)) { markSessionExpired(); return; }
-      toast.error('Could not open billing portal', { description: 'Session expired or portal unavailable.' });
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not open billing portal', {
+        description: 'Session expired or portal unavailable.',
+      });
     },
   });
 
@@ -222,7 +301,10 @@ export default function DashboardCertificates() {
       toast.success('Device revoked');
     },
     onError: (error) => {
-      if (isDashboardAuthError(error)) { markSessionExpired(); return; }
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
       toast.error('Could not revoke device', { description: 'Contact support if this persists.' });
     },
     onSettled: () => setPendingCertNonce(null),
@@ -237,7 +319,8 @@ export default function DashboardCertificates() {
 
   const isLoading = !isAuthResolved || (canRunPanelQueries && certificatesQuery.isLoading);
   const hasAuthError = isDashboardAuthError(certificatesQuery.error);
-  const hasActiveSubscription = billing && (billing.status === 'active' || billing.status === 'grace');
+  const hasActiveSubscription =
+    billing && (billing.status === 'active' || billing.status === 'grace');
   const activeDeviceCount = overview?.devices.filter((d) => d.status === 'active').length ?? 0;
 
   useEffect(() => {
@@ -255,7 +338,15 @@ export default function DashboardCertificates() {
       autoLaunchRef.current = 'portal';
       portalMut.mutate();
     }
-  }, [certificatesQuery.isLoading, overview, search.checkout, search.plan, search.portal, checkoutMut, portalMut]);
+  }, [
+    certificatesQuery.isLoading,
+    overview,
+    search.checkout,
+    search.plan,
+    search.portal,
+    checkoutMut,
+    portalMut,
+  ]);
 
   const handleCheckout = (plan: CreatorCertificatePlan) => {
     setPendingPlanKey(plan.planKey);
@@ -288,11 +379,19 @@ export default function DashboardCertificates() {
           <section className="intg-card animate-in bento-col-12">
             <div className="intg-header">
               <div className="intg-icon">
-                <img src="/Icons/Shield.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+                <img
+                  src="/Icons/Shield.png"
+                  alt=""
+                  aria-hidden="true"
+                  style={{ width: '22px', height: '22px', objectFit: 'contain' }}
+                />
               </div>
               <div className="intg-copy" style={{ flex: 1 }}>
                 <h1 className="intg-title">Creator scope required</h1>
-                <p className="intg-desc">Certificates are tied to your base creator identity. Return to your root dashboard to manage them.</p>
+                <p className="intg-desc">
+                  Certificates are tied to your base creator identity. Return to your root dashboard
+                  to manage them.
+                </p>
               </div>
             </div>
             <Link
@@ -314,7 +413,6 @@ export default function DashboardCertificates() {
   return (
     <div id="tab-panel-certificates" className="dashboard-tab-panel is-active" role="tabpanel">
       <div className="bento-grid">
-
         {certificatesQuery.isError && !hasAuthError && (
           <div className="bento-col-12">
             <AccountInlineError message="Failed to load certificate workspace. Please refresh." />
@@ -330,11 +428,19 @@ export default function DashboardCertificates() {
             <section className="intg-card animate-in bento-col-8">
               <div className="intg-header">
                 <div className="intg-icon">
-                  <img src="/Icons/Laptop.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+                  <img
+                    src="/Icons/Laptop.png"
+                    alt=""
+                    aria-hidden="true"
+                    style={{ width: '22px', height: '22px', objectFit: 'contain' }}
+                  />
                 </div>
                 <div className="intg-copy" style={{ flex: 1 }}>
                   <h2 className="intg-title">Authorized Machines</h2>
-                  <p className="intg-desc">Each enrolled machine holds a unique signing certificate. Revoking it takes effect immediately.</p>
+                  <p className="intg-desc">
+                    Each enrolled machine holds a unique signing certificate. Revoking it takes
+                    effect immediately.
+                  </p>
                 </div>
                 <span className="account-badge account-badge--provider" style={{ flexShrink: 0 }}>
                   {activeDeviceCount} active
@@ -342,8 +448,8 @@ export default function DashboardCertificates() {
               </div>
 
               <div className="account-list">
-                {overview?.devices && overview.devices.length > 0
-                  ? overview.devices.map((device) => (
+                {overview?.devices && overview.devices.length > 0 ? (
+                  overview.devices.map((device) => (
                     <CertificateDeviceRow
                       key={device.certNonce}
                       device={device}
@@ -351,16 +457,27 @@ export default function DashboardCertificates() {
                       onRevoke={handleRevoke}
                     />
                   ))
-                  : (
-                    <div className="account-empty">
-                      <div className="account-empty-icon">
-                        <img src="/Icons/Laptop.png" alt="" aria-hidden="true"
-                          style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.45 }} />
-                      </div>
-                      <p className="account-empty-title">No devices enrolled yet</p>
-                      <p className="account-empty-desc">Authorize a machine via the CLI or Unity plugin and it will appear here.</p>
+                ) : (
+                  <div className="account-empty">
+                    <div className="account-empty-icon">
+                      <img
+                        src="/Icons/Laptop.png"
+                        alt=""
+                        aria-hidden="true"
+                        style={{
+                          width: '20px',
+                          height: '20px',
+                          objectFit: 'contain',
+                          opacity: 0.45,
+                        }}
+                      />
                     </div>
-                  )}
+                    <p className="account-empty-title">No devices enrolled yet</p>
+                    <p className="account-empty-desc">
+                      Authorize a machine via the CLI or Unity plugin and it will appear here.
+                    </p>
+                  </div>
+                )}
               </div>
             </section>
 
@@ -368,7 +485,12 @@ export default function DashboardCertificates() {
             <section className="intg-card animate-in animate-in-delay-1 bento-col-4">
               <div className="intg-header">
                 <div className="intg-icon">
-                  <img src="/Icons/Shield.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+                  <img
+                    src="/Icons/Shield.png"
+                    alt=""
+                    aria-hidden="true"
+                    style={{ width: '22px', height: '22px', objectFit: 'contain' }}
+                  />
                 </div>
                 <div className="intg-copy" style={{ flex: 1 }}>
                   <h2 className="intg-title">{currentPlan?.displayName ?? 'Subscription'}</h2>
@@ -376,7 +498,10 @@ export default function DashboardCertificates() {
                     {billing.status === 'grace' ? 'Grace period' : 'Active'}
                   </p>
                 </div>
-                <span className={`account-badge account-badge--${billing.status === 'active' ? 'active' : 'warning'}`} style={{ flexShrink: 0 }}>
+                <span
+                  className={`account-badge account-badge--${billing.status === 'active' ? 'active' : 'warning'}`}
+                  style={{ flexShrink: 0 }}
+                >
                   {billing.status}
                 </span>
               </div>
@@ -390,21 +515,29 @@ export default function DashboardCertificates() {
                 </div>
                 <div className="account-kv-row">
                   <dt className="account-kv-label">Enrollment</dt>
-                  <dd className="account-kv-value">{billing.allowEnrollment ? 'Open' : 'Closed'}</dd>
+                  <dd className="account-kv-value">
+                    {billing.allowEnrollment ? 'Open' : 'Closed'}
+                  </dd>
                 </div>
                 <div className="account-kv-row">
                   <dt className="account-kv-label">Signing</dt>
-                  <dd className="account-kv-value">{billing.allowSigning ? 'Enabled' : 'Restricted'}</dd>
+                  <dd className="account-kv-value">
+                    {billing.allowSigning ? 'Enabled' : 'Restricted'}
+                  </dd>
                 </div>
                 {billing.signQuotaPerPeriod !== null && (
                   <div className="account-kv-row">
                     <dt className="account-kv-label">Quota</dt>
-                    <dd className="account-kv-value">{billing.signQuotaPerPeriod.toLocaleString()}</dd>
+                    <dd className="account-kv-value">
+                      {billing.signQuotaPerPeriod.toLocaleString()}
+                    </dd>
                   </div>
                 )}
                 {(billing.graceUntil ?? billing.currentPeriodEnd) && (
                   <div className="account-kv-row">
-                    <dt className="account-kv-label">{billing.graceUntil ? 'Grace until' : 'Renews'}</dt>
+                    <dt className="account-kv-label">
+                      {billing.graceUntil ? 'Grace until' : 'Renews'}
+                    </dt>
                     <dd className="account-kv-value">
                       {formatCertificateDate(billing.graceUntil ?? billing.currentPeriodEnd)}
                     </dd>
@@ -412,8 +545,15 @@ export default function DashboardCertificates() {
                 )}
               </dl>
 
-              <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid rgba(148,163,184,0.18)' }}>
+              <div
+                style={{
+                  marginTop: 'auto',
+                  paddingTop: '16px',
+                  borderTop: '1px solid rgba(148,163,184,0.18)',
+                }}
+              >
                 <button
+                  type="button"
                   className={`account-btn account-btn--secondary ${portalMut.isPending ? 'btn-loading' : ''}`}
                   style={{ width: '100%', justifyContent: 'center', borderRadius: '999px' }}
                   onClick={() => portalMut.mutate()}
@@ -430,24 +570,49 @@ export default function DashboardCertificates() {
               <section className="intg-card animate-in animate-in-delay-2 bento-col-12">
                 <div className="intg-header">
                   <div className="intg-icon">
-                    <img src="/Icons/BagPlus.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+                    <img
+                      src="/Icons/BagPlus.png"
+                      alt=""
+                      aria-hidden="true"
+                      style={{ width: '22px', height: '22px', objectFit: 'contain' }}
+                    />
                   </div>
                   <div className="intg-copy" style={{ flex: 1 }}>
                     <h2 className="intg-title">Available Plans</h2>
-                    <p className="intg-desc">Upgrade or change your plan. Changes apply immediately via Polar checkout.</p>
+                    <p className="intg-desc">
+                      Upgrade or change your plan. Changes apply immediately via Polar checkout.
+                    </p>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#94a3b8', fontSize: '12px', flexShrink: 0 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      color: '#94a3b8',
+                      fontSize: '12px',
+                      flexShrink: 0,
+                    }}
+                  >
                     <PolarIcon size={12} />
                     <span>Polar</span>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
                   {overview.availablePlans.map((plan) => (
                     <PlanCard
                       key={plan.planKey}
                       plan={plan}
-                      isCurrentPlan={billing?.planKey === plan.planKey && (billing.status === 'active' || billing.status === 'grace')}
+                      isCurrentPlan={
+                        billing?.planKey === plan.planKey &&
+                        (billing.status === 'active' || billing.status === 'grace')
+                      }
                       isPending={pendingPlanKey === plan.planKey && checkoutMut.isPending}
                       onCheckout={handleCheckout}
                     />
@@ -467,23 +632,60 @@ export default function DashboardCertificates() {
             <section className="intg-card animate-in bento-col-8">
               <div className="intg-header">
                 <div className="intg-icon">
-                  <img src="/Icons/Shield.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+                  <img
+                    src="/Icons/Shield.png"
+                    alt=""
+                    aria-hidden="true"
+                    style={{ width: '22px', height: '22px', objectFit: 'contain' }}
+                  />
                 </div>
                 <div className="intg-copy">
                   <h2 className="intg-title">Code Signing Certificates</h2>
-                  <p className="intg-desc">Cryptographically bind your packages to your creator identity.</p>
+                  <p className="intg-desc">
+                    Cryptographically bind your packages to your creator identity.
+                  </p>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-                {([
-                  { icon: '/Icons/Shield.png',     title: 'Verified identity',    desc: 'Packages are signed with a certificate tied to your creator profile.' },
-                  { icon: '/Icons/Laptop.png',     title: 'Multi-device signing', desc: 'Authorize multiple publishing machines under one account.' },
-                  { icon: '/Icons/Key.png',        title: 'Instant revocation',   desc: 'Remove any device in one click — effective immediately.' },
-                  { icon: '/Icons/Wrench.png',     title: 'Audit log',            desc: 'Full history of certificate issuance and signing events.' },
-                ] as const).map(({ icon, title, desc }) => (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: '10px',
+                }}
+              >
+                {(
+                  [
+                    {
+                      icon: '/Icons/Shield.png',
+                      title: 'Verified identity',
+                      desc: 'Packages are signed with a certificate tied to your creator profile.',
+                    },
+                    {
+                      icon: '/Icons/Laptop.png',
+                      title: 'Multi-device signing',
+                      desc: 'Authorize multiple publishing machines under one account.',
+                    },
+                    {
+                      icon: '/Icons/Key.png',
+                      title: 'Instant revocation',
+                      desc: 'Remove any device in one click — effective immediately.',
+                    },
+                    {
+                      icon: '/Icons/Wrench.png',
+                      title: 'Audit log',
+                      desc: 'Full history of certificate issuance and signing events.',
+                    },
+                  ] as const
+                ).map(({ icon, title, desc }) => (
                   <div key={title} className="acct-provider-card">
-                    <div className="acct-provider-icon" style={{ background: 'rgba(15,23,42,0.04)', border: '1px solid rgba(148,163,184,0.15)' }}>
+                    <div
+                      className="acct-provider-icon"
+                      style={{
+                        background: 'rgba(15,23,42,0.04)',
+                        border: '1px solid rgba(148,163,184,0.15)',
+                      }}
+                    >
                       <img src={icon} alt="" aria-hidden="true" />
                     </div>
                     <div className="acct-provider-info">
@@ -499,7 +701,12 @@ export default function DashboardCertificates() {
             <section className="intg-card animate-in animate-in-delay-1 bento-col-4">
               <div className="intg-header">
                 <div className="intg-icon">
-                  <img src="/Icons/BagPlus.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+                  <img
+                    src="/Icons/BagPlus.png"
+                    alt=""
+                    aria-hidden="true"
+                    style={{ width: '22px', height: '22px', objectFit: 'contain' }}
+                  />
                 </div>
                 <div className="intg-copy">
                   <h2 className="intg-title">Get Started</h2>
@@ -510,7 +717,9 @@ export default function DashboardCertificates() {
               <dl className="account-kv-list">
                 <div className="account-kv-row">
                   <dt className="account-kv-label">Status</dt>
-                  <dd><span className="account-badge account-badge--provider">Inactive</span></dd>
+                  <dd>
+                    <span className="account-badge account-badge--provider">Inactive</span>
+                  </dd>
                 </div>
                 <div className="account-kv-row">
                   <dt className="account-kv-label">Devices</dt>
@@ -522,11 +731,32 @@ export default function DashboardCertificates() {
                 </div>
               </dl>
 
-              <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid rgba(148,163,184,0.18)' }}>
-                <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#64748b', lineHeight: 1.5 }}>
+              <div
+                style={{
+                  marginTop: 'auto',
+                  paddingTop: '16px',
+                  borderTop: '1px solid rgba(148,163,184,0.18)',
+                }}
+              >
+                <p
+                  style={{
+                    margin: '0 0 12px',
+                    fontSize: '12px',
+                    color: '#64748b',
+                    lineHeight: 1.5,
+                  }}
+                >
                   Choose a plan below to activate certificate signing for your account.
                 </p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#94a3b8' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    fontSize: '11px',
+                    color: '#94a3b8',
+                  }}
+                >
                   <PolarIcon size={11} />
                   <span>Billing managed by Polar</span>
                 </div>
@@ -538,19 +768,42 @@ export default function DashboardCertificates() {
               <section className="intg-card animate-in animate-in-delay-2 bento-col-12">
                 <div className="intg-header">
                   <div className="intg-icon">
-                    <img src="/Icons/BagPlus.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+                    <img
+                      src="/Icons/BagPlus.png"
+                      alt=""
+                      aria-hidden="true"
+                      style={{ width: '22px', height: '22px', objectFit: 'contain' }}
+                    />
                   </div>
                   <div className="intg-copy" style={{ flex: 1 }}>
                     <h2 className="intg-title">Choose a Plan</h2>
-                    <p className="intg-desc">Subscribe to unlock certificate signing. All plans include a {overview.availablePlans[0]?.billingGraceDays ?? 3}-day grace period.</p>
+                    <p className="intg-desc">
+                      Subscribe to unlock certificate signing. All plans include a{' '}
+                      {overview.availablePlans[0]?.billingGraceDays ?? 3}-day grace period.
+                    </p>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#94a3b8', fontSize: '12px', flexShrink: 0 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      color: '#94a3b8',
+                      fontSize: '12px',
+                      flexShrink: 0,
+                    }}
+                  >
                     <PolarIcon size={12} />
                     <span>Polar</span>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
                   {overview.availablePlans.map((plan) => (
                     <PlanCard
                       key={plan.planKey}
@@ -569,14 +822,29 @@ export default function DashboardCertificates() {
         {/* Loading */}
         {isLoading && (
           <div className="bento-col-12">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '40px 0', color: '#94a3b8', fontSize: '13px' }}>
-              <span className="btn-loading-spinner"
-                style={{ borderColor: '#e2e8f0', borderRightColor: 'transparent', width: '14px', height: '14px' }} />
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '40px 0',
+                color: '#94a3b8',
+                fontSize: '13px',
+              }}
+            >
+              <span
+                className="btn-loading-spinner"
+                style={{
+                  borderColor: '#e2e8f0',
+                  borderRightColor: 'transparent',
+                  width: '14px',
+                  height: '14px',
+                }}
+              />
               Loading workspace…
             </div>
           </div>
         )}
-
       </div>
     </div>
   );

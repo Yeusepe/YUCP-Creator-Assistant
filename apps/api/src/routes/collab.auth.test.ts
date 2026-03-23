@@ -11,10 +11,26 @@ import { createAuth } from '../auth';
 import { createSetupSession } from '../lib/setupSession';
 import type { CollabConfig } from './collab';
 
+const apiMock = {
+  collaboratorInvites: {
+    listCollaboratorConnections: 'collaboratorInvites.listCollaboratorConnections',
+    removeCollaboratorConnection: 'collaboratorInvites.removeCollaboratorConnection',
+  },
+} as const;
+
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 
+mock.module('../../../../convex/_generated/api', () => ({
+  api: apiMock,
+}));
+
 mock.module('../lib/convex', () => ({
+  getConvexApiSecret: () => 'test-convex-secret',
+  getConvexClient: () => ({
+    query: (...args: unknown[]) => queryImpl(...args),
+    mutation: (...args: unknown[]) => mutationImpl(...args),
+  }),
   getConvexClientFromUrl: () => ({
     query: (...args: unknown[]) => queryImpl(...args),
     mutation: (...args: unknown[]) => mutationImpl(...args),
@@ -58,6 +74,9 @@ describe('POST /api/collab/invite (auth guard)', () => {
     });
     const res = await routes.handleCollabRequest(req);
     expect(res.status).toBe(401);
+    expect(res.headers.get('Server-Timing')).toMatch(
+      /session_setup;dur=.*session_web;dur=.*serialize;dur=.*total;dur=/
+    );
   });
 
   it('accepts a setup session token for owner invite creation', async () => {
@@ -126,6 +145,9 @@ describe('GET /api/collab/connections (auth guard)', () => {
     });
     const res = await routes.handleCollabRequest(req);
     expect(res.status).toBe(200);
+    expect(res.headers.get('Server-Timing')).toMatch(
+      /session_setup;dur=.*session_web;dur=.*convex_collab_connections;dur=.*serialize;dur=.*total;dur=/
+    );
     await expect(res.json()).resolves.toMatchObject({ connections: [] });
   });
 });

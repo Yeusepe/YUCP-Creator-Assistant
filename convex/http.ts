@@ -71,10 +71,7 @@ import {
   getBetterAuthPage,
 } from './lib/betterAuthAdapter';
 import { isSigningRequestTimestampFresh, verifySigningProof } from './lib/certificateSigning';
-import {
-  fetchLiveProviderProductsForSources,
-  type PublicProductRecord,
-} from './lib/publicProducts';
+import { type PublicProductRecord } from './lib/publicProducts';
 import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
   base64ToBytes,
@@ -116,15 +113,27 @@ const http = httpRouter();
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
   });
 }
 
 function errorResponse(message: string, status: number): Response {
   return jsonResponse({ error: message }, status);
+}
+
+function buildServerTimingHeader(
+  metrics: Array<{
+    name: string;
+    dur: number;
+  }>
+): string {
+  return metrics
+    .filter((metric) => Number.isFinite(metric.dur) && metric.dur >= 0)
+    .map((metric) => `${metric.name};dur=${metric.dur.toFixed(1)}`)
+    .join(', ');
 }
 
 function normalizeProductToken(value: string | null | undefined): string {
@@ -549,6 +558,7 @@ http.route({
   method: 'GET',
   path: '/v1/products',
   handler: httpAction(async (ctx, request) => {
+    const routeStart = performance.now();
     const siteUrl = process.env.CONVEX_SITE_URL;
     if (!siteUrl) return errorResponse('Service not configured', 503);
 
@@ -556,12 +566,16 @@ http.route({
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
 
+    const authStart = performance.now();
     const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    const authDuration = performance.now() - authStart;
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
+    const tenantStart = performance.now();
     const tenant = await ctx.runQuery(internal.yucpLicenses.getTenantByAuthUser, {
       ownerAuthUserId: tokenResult.yucpUserId,
     });
+    const tenantDuration = performance.now() - tenantStart;
     if (!tenant) {
       console.log(`[products] No creator profile found for user ${tokenResult.yucpUserId}`);
       return errorResponse('Creator account not found', 404);
@@ -571,9 +585,11 @@ http.route({
     productSources.set(tokenResult.yucpUserId, null);
 
     // ── Own products (includes Discord if role_rules are configured) ──────────
+    const ownStart = performance.now();
     const ownProducts = await ctx.runQuery(internal.yucpLicenses.getProductsForTenant, {
       authUserId: tokenResult.yucpUserId,
     });
+    const ownDuration = performance.now() - ownStart;
 
     // Tag own products with owner=null
     const allProducts: PublicProductRecord[] = ownProducts.map((p) => ({
@@ -585,6 +601,7 @@ http.route({
 
     // ── Collaborator products ─────────────────────────────────────────────────
     // If the creator has linked Discord, check for collaborator connections
+    const collaboratorStart = performance.now();
     try {
       const discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
         model: 'account',
@@ -627,30 +644,55 @@ http.route({
       // Non-fatal: collaborator lookup failure should not block own products
       console.warn('[products] collaborator lookup failed:', err);
     }
+    const collaboratorDuration = performance.now() - collaboratorStart;
 
-    const liveProviderKeys = PROVIDER_REGISTRY.filter(
-      (provider) =>
-        provider.status === 'active' &&
-        (provider.capabilities as ReadonlyArray<string>).includes('catalog_sync')
-    ).map((provider) => provider.providerKey);
-    const liveProducts = await fetchLiveProviderProductsForSources({
-      env: process.env,
-      sources: Array.from(productSources.entries()).map(([authUserId, owner]) => ({
-        authUserId,
-        owner,
-      })),
-      providerKeys: liveProviderKeys,
-      warn: console.warn,
-    });
-    const mergedProducts = mergePublicProducts([...allProducts, ...liveProducts]).sort((a, b) => {
+    const cachedStart = performance.now();
+    const cachedProductsBySource = await Promise.all(
+      Array.from(productSources.entries()).map(async ([authUserId, owner]) => {
+        const cachedProducts = await ctx.runQuery(
+          internal.yucpLicenses.getCachedProviderProductsForTenant,
+          {
+            authUserId,
+          }
+        );
+
+        return cachedProducts.map(
+          (product): PublicProductRecord => ({
+            productId: product.productId,
+            displayName: product.displayName,
+            owner,
+            providers: product.providers,
+            configured: product.configured,
+            live: product.live,
+          })
+        );
+      })
+    );
+    const cachedProducts = cachedProductsBySource.flat();
+    const cachedDuration = performance.now() - cachedStart;
+
+    const mergeStart = performance.now();
+    const mergedProducts = mergePublicProducts([...allProducts, ...cachedProducts]).sort((a, b) => {
       if (a.configured !== b.configured) return a.configured ? -1 : 1;
       return (a.displayName ?? a.productId).localeCompare(b.displayName ?? b.productId);
     });
+    const mergeDuration = performance.now() - mergeStart;
+    const totalDuration = performance.now() - routeStart;
 
     console.log(
-      `[products] authUserId=${tokenResult.yucpUserId} own=${ownProducts.length} catalog=${allProducts.length} live=${liveProducts.length} total=${mergedProducts.length}`
+      `[products] authUserId=${tokenResult.yucpUserId} own=${ownProducts.length} catalog=${allProducts.length} cached=${cachedProducts.length} total=${mergedProducts.length}`
     );
-    return jsonResponse({ products: mergedProducts });
+    return jsonResponse({ products: mergedProducts }, 200, {
+      'Server-Timing': buildServerTimingHeader([
+        { name: 'auth', dur: authDuration },
+        { name: 'tenant', dur: tenantDuration },
+        { name: 'own', dur: ownDuration },
+        { name: 'collab', dur: collaboratorDuration },
+        { name: 'cached', dur: cachedDuration },
+        { name: 'merge', dur: mergeDuration },
+        { name: 'total', dur: totalDuration },
+      ]),
+    });
   }),
 });
 
@@ -729,9 +771,12 @@ http.route({
 
     if (!cert) return errorResponse('No active certificate found for this machine', 404);
 
-    const certificateEntitlements = await ctx.runQuery(internal.certificateBilling.resolveForAuthUser, {
-      authUserId: tokenResult.yucpUserId,
-    });
+    const certificateEntitlements = await ctx.runQuery(
+      internal.certificateBilling.resolveForAuthUser,
+      {
+        authUserId: tokenResult.yucpUserId,
+      }
+    );
     if (!certificateEntitlements.allowSigning) {
       return errorResponse(
         certificateEntitlements.reason ?? 'Certificate signing is not available for this account',

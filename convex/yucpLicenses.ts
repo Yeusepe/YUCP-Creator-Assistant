@@ -277,6 +277,82 @@ export const getProductsForTenant = internalQuery({
   },
 });
 
+export const getCachedProviderProductsForTenant = internalQuery({
+  args: { authUserId: v.string() },
+  returns: v.array(
+    v.object({
+      productId: v.string(),
+      displayName: v.optional(v.string()),
+      providers: v.array(v.object({ provider: v.string(), providerProductRef: v.string() })),
+      configured: v.boolean(),
+      live: v.boolean(),
+      lastSyncedAt: v.optional(v.number()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const connections = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .collect();
+
+    const activeConnections = connections.filter(
+      (connection) => connection.status !== 'disconnected'
+    );
+    const mappingGroups = await Promise.all(
+      activeConnections.map(async (connection) => ({
+        connection,
+        mappings: await ctx.db
+          .query('provider_catalog_mappings')
+          .withIndex('by_connection', (q) => q.eq('providerConnectionId', connection._id))
+          .filter((q) => q.eq(q.field('status'), 'active'))
+          .collect(),
+      }))
+    );
+
+    const products: Array<{
+      productId: string;
+      displayName?: string;
+      providers: Array<{ provider: string; providerProductRef: string }>;
+      configured: boolean;
+      live: boolean;
+      lastSyncedAt?: number;
+    }> = [];
+
+    for (const { connection, mappings } of mappingGroups) {
+      for (const mapping of mappings) {
+        const providerProductRef =
+          mapping.externalVariantId ??
+          mapping.externalProductId ??
+          mapping.externalSku ??
+          mapping.externalPriceId;
+        if (!providerProductRef) {
+          continue;
+        }
+
+        products.push({
+          productId: mapping.localProductId ?? '',
+          displayName: mapping.displayName ?? undefined,
+          providers: [
+            {
+              provider: mapping.providerKey,
+              providerProductRef,
+            },
+          ],
+          configured: Boolean(mapping.catalogProductId || mapping.localProductId),
+          live: true,
+          lastSyncedAt:
+            mapping.lastSyncedAt ??
+            connection.lastSyncAt ??
+            connection.lastWebhookAt ??
+            connection.updatedAt,
+        });
+      }
+    }
+
+    return products;
+  },
+});
+
 /**
  * Get Discord user ID for a YUCP auth user by looking up their linked Better Auth Discord account.
  * Returns null if user has no Discord linked.
@@ -487,7 +563,10 @@ export const verifyLicense = internalAction({
         packageId: args.packageId,
       });
       if (!packageReg || packageReg.yucpUserId !== product.authUserId) {
-        return { success: false, error: 'Package not found or not registered to the product owner' };
+        return {
+          success: false,
+          error: 'Package not found or not registered to the product owner',
+        };
       }
 
       const conn = await ctx.runQuery(internal.yucpLicenses.getProviderConnection, {

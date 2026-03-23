@@ -5,6 +5,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt, encrypt } from '../lib/encrypt';
+import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 import {
   isWebhookContentLengthTooLarge,
   PayloadTooLargeError,
@@ -208,15 +209,21 @@ async function listAllLicenseKeys(client: LemonSqueezyApiClient, storeId: string
 }
 
 async function isTenantOwnedBySessionUser(
+  request: Request,
   convex: ConvexClient,
   apiSecret: string,
   profileAuthUserId: string,
   sessionUserId: string
 ): Promise<boolean> {
-  const profile = (await convex.query(api.creatorProfiles.getCreatorProfile, {
-    apiSecret,
-    authUserId: profileAuthUserId,
-  })) as { authUserId?: string } | null;
+  const profile = await loadRequestScoped(
+    request,
+    requestScopeKey('provider-platform:creator-profile', { authUserId: profileAuthUserId }),
+    async () =>
+      (await convex.query(api.creatorProfiles.getCreatorProfile, {
+        apiSecret,
+        authUserId: profileAuthUserId,
+      })) as { authUserId?: string } | null
+  );
   return !!profile && profile.authUserId === sessionUserId;
 }
 
@@ -236,6 +243,7 @@ async function requireTenantAccess(
   }
 
   const owned = await isTenantOwnedBySessionUser(
+    request,
     convex,
     config.convexApiSecret,
     authUserId,
@@ -258,10 +266,15 @@ async function requireConnectionAccess(
   request: Request,
   connectionId: string
 ) {
-  const connection = await convex.query(api.providerPlatform.getProviderConnectionAdmin, {
-    apiSecret: config.convexApiSecret,
-    providerConnectionId: connectionId,
-  });
+  const connection = await loadRequestScoped(
+    request,
+    requestScopeKey('provider-platform:connection-admin', { connectionId }),
+    async () =>
+      convex.query(api.providerPlatform.getProviderConnectionAdmin, {
+        apiSecret: config.convexApiSecret,
+        providerConnectionId: connectionId,
+      })
+  );
 
   if (!connection) {
     return {
@@ -305,15 +318,24 @@ function resolveCatalogMatch(
 }
 
 async function buildLemonClientForConnection(
+  request: Request,
   convex: ConvexClient,
   config: ProviderPlatformConfig,
   authUserId: string
 ) {
-  const secrets = await convex.query(api.providerConnections.getConnectionForBackfill, {
-    apiSecret: config.convexApiSecret,
-    authUserId,
-    provider: 'lemonsqueezy',
-  });
+  const secrets = await loadRequestScoped(
+    request,
+    requestScopeKey('provider-platform:connection-backfill', {
+      authUserId,
+      provider: 'lemonsqueezy',
+    }),
+    async () =>
+      convex.query(api.providerConnections.getConnectionForBackfill, {
+        apiSecret: config.convexApiSecret,
+        authUserId,
+        provider: 'lemonsqueezy',
+      })
+  );
   const encryptedApiToken = secrets?.credentials.api_token;
   if (!encryptedApiToken) throw new Error('Lemon Squeezy API token not configured');
   const apiToken = await decrypt(
@@ -325,11 +347,17 @@ async function buildLemonClientForConnection(
 }
 
 async function syncLemonCatalog(
+  request: Request,
   convex: ConvexClient,
   config: ProviderPlatformConfig,
   connection: { connectionId: string; authUserId: string; externalShopId?: string }
 ) {
-  const client = await buildLemonClientForConnection(convex, config, connection.authUserId);
+  const client = await buildLemonClientForConnection(
+    request,
+    convex,
+    config,
+    connection.authUserId
+  );
   if (!connection.externalShopId) throw new Error('No Lemon Squeezy store selected');
 
   const [catalogProducts, products] = await Promise.all([
@@ -404,11 +432,17 @@ async function syncLemonCatalog(
 }
 
 async function reconcileLemonConnection(
+  request: Request,
   convex: ConvexClient,
   config: ProviderPlatformConfig,
   connection: { connectionId: string; authUserId: string; externalShopId?: string }
 ) {
-  const client = await buildLemonClientForConnection(convex, config, connection.authUserId);
+  const client = await buildLemonClientForConnection(
+    request,
+    convex,
+    config,
+    connection.authUserId
+  );
   if (!connection.externalShopId) throw new Error('No Lemon Squeezy store selected');
 
   const [mappings, catalogProducts, orders, subscriptions, licenseKeys] = await Promise.all([
@@ -805,7 +839,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       });
     }
 
-    const sync = await syncLemonCatalog(convex, config, {
+    const sync = await syncLemonCatalog(request, convex, config, {
       connectionId: connection.connectionId,
       authUserId: connection.authUserId,
       externalShopId: selectedStore.id,
@@ -831,7 +865,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
         requestId,
         422
       );
-    const stats = await syncLemonCatalog(convex, config, {
+    const stats = await syncLemonCatalog(request, convex, config, {
       connectionId: access.connection.connectionId,
       authUserId: access.connection.authUserId,
       externalShopId: access.connection.externalShopId,
@@ -852,7 +886,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
         requestId,
         422
       );
-    const stats = await reconcileLemonConnection(convex, config, {
+    const stats = await reconcileLemonConnection(request, convex, config, {
       connectionId: access.connection.connectionId,
       authUserId: access.connection.authUserId,
       externalShopId: access.connection.externalShopId,
@@ -954,7 +988,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
     if (!connection)
       return jsonResponse({ error: 'Lemon Squeezy connection not found' }, requestId, 404);
 
-    const client = await buildLemonClientForConnection(convex, config, body.authUserId);
+    const client = await buildLemonClientForConnection(request, convex, config, body.authUserId);
     const validation = await client.validateLicenseKey(String(body.licenseKey).trim());
     if (!validation.valid || !validation.license_key)
       return jsonResponse(
@@ -1090,17 +1124,30 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
         requestId,
         404
       );
-    const connection = await convex.query(api.providerPlatform.getProviderConnectionAdmin, {
-      apiSecret: config.convexApiSecret,
-      providerConnectionId: connectionId,
-    });
+    const connection = await loadRequestScoped(
+      request,
+      requestScopeKey('provider-platform:connection-admin', { connectionId }),
+      async () =>
+        convex.query(api.providerPlatform.getProviderConnectionAdmin, {
+          apiSecret: config.convexApiSecret,
+          providerConnectionId: connectionId,
+        })
+    );
     if (!connection) return jsonResponse({ error: 'Connection not found' }, requestId, 404);
 
-    const secrets = await convex.query(api.providerConnections.getConnectionForBackfill, {
-      apiSecret: config.convexApiSecret,
-      authUserId: connection.authUserId,
-      provider: 'lemonsqueezy',
-    });
+    const secrets = await loadRequestScoped(
+      request,
+      requestScopeKey('provider-platform:connection-backfill', {
+        authUserId: connection.authUserId,
+        provider: 'lemonsqueezy',
+      }),
+      async () =>
+        convex.query(api.providerConnections.getConnectionForBackfill, {
+          apiSecret: config.convexApiSecret,
+          authUserId: connection.authUserId,
+          provider: 'lemonsqueezy',
+        })
+    );
     const encryptedWebhookSecret =
       connection.remoteWebhookSecretRef ?? secrets?.webhookSecretRef ?? null;
     if (!encryptedWebhookSecret)

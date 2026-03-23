@@ -182,6 +182,43 @@ describe('GET /api/connect/settings (setup-session path)', () => {
     expect(body.policy.allowMismatchedEmails).toBe(true);
   });
 
+  it('reuses the creator profile read across tenant ownership and settings lookup', async () => {
+    const creatorProfileQueries: Array<{ apiSecret?: string; authUserId?: string }> = [];
+
+    queryImpl = async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.creatorProfiles.getCreatorProfile) {
+        const record = args as { authUserId?: string };
+        creatorProfileQueries.push(record);
+        return {
+          authUserId: 'session-user-123',
+          policy: { allowMismatchedEmails: true },
+        };
+      }
+
+      return null;
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-123',
+        },
+      }),
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/settings?authUserId=tenant-123');
+
+    const res = await isolatedRoutes.getSettingsHandler(req);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { policy: { allowMismatchedEmails: boolean } };
+    expect(body.policy.allowMismatchedEmails).toBe(true);
+    expect(creatorProfileQueries).toEqual([
+      { apiSecret: 'test-convex-secret', authUserId: 'tenant-123' },
+    ]);
+  });
+
   it('returns a controlled error when tenant ownership resolution fails in the web-session path', async () => {
     queryImpl = async (_reference: unknown, args: unknown) => {
       const record = args as { authUserId?: string };
@@ -374,6 +411,9 @@ describe('GET /api/connect/user/certificates', () => {
     const res = await isolatedRoutes.getUserCertificates(req);
 
     expect(res.status).toBe(200);
+    expect(res.headers.get('Server-Timing')).toMatch(
+      /session;dur=.*convex_certificate_overview;dur=.*serialize;dur=.*total;dur=/
+    );
     const body = (await res.json()) as {
       workspaceKey: string;
       billing: { planKey: string };
@@ -683,6 +723,9 @@ describe('POST /api/connect/user/certificates/checkout', () => {
     const res = await isolatedRoutes.createUserCertificateCheckout(req);
 
     expect(res.status).toBe(200);
+    expect(res.headers.get('Server-Timing')).toMatch(
+      /session;dur=.*convex_certificate_overview;dur=.*provider_polar_checkout;dur=.*serialize;dur=.*total;dur=/
+    );
     expect(checkoutPayload).toMatchObject({
       products: ['prod_starter'],
       referenceId: 'creator-profile:checkout-1',
@@ -989,6 +1032,9 @@ describe('POST /api/connect/user/certificates/revoke', () => {
     const res = await isolatedRoutes.revokeUserCertificate(req);
 
     expect(res.status).toBe(200);
+    expect(res.headers.get('Server-Timing')).toMatch(
+      /session;dur=.*convex_certificate_revoke;dur=.*serialize;dur=.*total;dur=/
+    );
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);
   });

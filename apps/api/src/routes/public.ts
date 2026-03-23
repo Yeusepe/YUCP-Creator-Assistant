@@ -4,6 +4,7 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
+import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createPublicApiSupportError } from '../lib/verificationSupport';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -98,11 +99,15 @@ interface VerifiedPublicApiKey {
   authUserId: string;
 }
 
-function jsonResponse(body: object, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+function jsonResponse(body: object, status = 200, timing?: RouteTimingCollector): Response {
+  const buildResponse = () =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  return timing
+    ? buildTimedResponse(timing, buildResponse, 'serialize public api response')
+    : buildResponse();
 }
 
 /** Returns error response with encrypted supportCode (same format as verify flow) for debugging. */
@@ -110,7 +115,8 @@ async function errorResponseWithSupportCode(
   realError: string | Error,
   genericMessage: string,
   status: number,
-  options: { stage: string; authUserId?: string }
+  options: { stage: string; authUserId?: string },
+  timing?: RouteTimingCollector
 ): Promise<Response> {
   const support = await createPublicApiSupportError(logger, {
     error: typeof realError === 'string' ? new Error(realError) : realError,
@@ -127,7 +133,8 @@ async function errorResponseWithSupportCode(
           : 'bad_request';
   return jsonResponse(
     { error: errorCode, message: genericMessage, supportCode: support.supportCode },
-    status
+    status,
+    timing
   );
 }
 
@@ -356,14 +363,29 @@ async function getVerificationStatusResponse(
   convex: ReturnType<typeof getConvexClientFromUrl>,
   config: PublicRouteConfig,
   authUserId: string,
-  subjectId: string
+  subjectId: string,
+  timing?: RouteTimingCollector
 ): Promise<Response> {
-  const entitlements = (await convex.query(api.entitlements.getEntitlementsBySubject, {
-    apiSecret: config.convexApiSecret,
-    authUserId,
-    subjectId,
-    includeInactive: false,
-  })) as PublicEntitlement[];
+  const entitlements = (
+    timing
+      ? await timing.measure(
+          'convex_entitlements',
+          () =>
+            convex.query(api.entitlements.getEntitlementsBySubject, {
+              apiSecret: config.convexApiSecret,
+              authUserId,
+              subjectId,
+              includeInactive: false,
+            }),
+          'load subject entitlements'
+        )
+      : await convex.query(api.entitlements.getEntitlementsBySubject, {
+          apiSecret: config.convexApiSecret,
+          authUserId,
+          subjectId,
+          includeInactive: false,
+        })
+  ) as PublicEntitlement[];
 
   const products = (entitlements ?? []).map((entitlement) => ({
     productId: entitlement.productId,
@@ -372,11 +394,15 @@ async function getVerificationStatusResponse(
     sourceProvider: entitlement.sourceProvider,
   }));
 
-  return jsonResponse({
-    verified: products.length > 0,
-    subjectId,
-    products,
-  });
+  return jsonResponse(
+    {
+      verified: products.length > 0,
+      subjectId,
+      products,
+    },
+    200,
+    timing
+  );
 }
 
 async function resolveSubjectOrResponse(
@@ -384,13 +410,27 @@ async function resolveSubjectOrResponse(
   config: PublicRouteConfig,
   authUserId: string,
   selector: SubjectSelector,
-  notFoundStatus = 404
+  notFoundStatus = 404,
+  timing?: RouteTimingCollector
 ): Promise<{ subject: PublicSubject } | { response: Response }> {
-  const resolved = (await convex.query(api.subjects.resolveSubjectForPublicApi, {
-    apiSecret: config.convexApiSecret,
-    authUserId,
-    selector,
-  })) as { found?: boolean; subject?: PublicSubject | null } | null;
+  const resolved = (
+    timing
+      ? await timing.measure(
+          'convex_subject',
+          () =>
+            convex.query(api.subjects.resolveSubjectForPublicApi, {
+              apiSecret: config.convexApiSecret,
+              authUserId,
+              selector,
+            }),
+          'resolve subject'
+        )
+      : await convex.query(api.subjects.resolveSubjectForPublicApi, {
+          apiSecret: config.convexApiSecret,
+          authUserId,
+          selector,
+        })
+  ) as { found?: boolean; subject?: PublicSubject | null } | null;
 
   if (!resolved?.found || !resolved.subject) {
     return {
@@ -398,17 +438,24 @@ async function resolveSubjectOrResponse(
         'Subject not found',
         'Resource not found',
         notFoundStatus,
-        { stage: 'resolve_subject', authUserId }
+        { stage: 'resolve_subject', authUserId },
+        timing
       ),
     };
   }
 
   if (resolved.subject.status !== 'active') {
     return {
-      response: await errorResponseWithSupportCode('Subject is not active', 'Access denied', 403, {
-        stage: 'resolve_subject',
-        authUserId,
-      }),
+      response: await errorResponseWithSupportCode(
+        'Subject is not active',
+        'Access denied',
+        403,
+        {
+          stage: 'resolve_subject',
+          authUserId,
+        },
+        timing
+      ),
     };
   }
 
@@ -420,7 +467,11 @@ async function authenticateServiceKey(
   config: PublicRouteConfig,
   authUserId: string,
   requiredScopes: string[],
-  verifyApiKey: (apiKey: string, cfg: PublicRouteConfig) => Promise<BetterAuthVerifiedApiKey | null>
+  verifyApiKey: (
+    apiKey: string,
+    cfg: PublicRouteConfig
+  ) => Promise<BetterAuthVerifiedApiKey | null>,
+  timing?: RouteTimingCollector
 ): Promise<{ key: VerifiedPublicApiKey } | { response: Response }> {
   const apiKey = extractApiKey(request);
   if (!apiKey) {
@@ -429,7 +480,8 @@ async function authenticateServiceKey(
         'Missing API key (x-api-key header or Authorization: Bearer)',
         'Authentication failed',
         401,
-        { stage: 'auth', authUserId }
+        { stage: 'auth', authUserId },
+        timing
       ),
     };
   }
@@ -440,19 +492,27 @@ async function authenticateServiceKey(
         'Malformed API key',
         'Authentication failed',
         401,
-        { stage: 'auth', authUserId }
+        { stage: 'auth', authUserId },
+        timing
       ),
     };
   }
 
-  const verified = await verifyApiKey(apiKey, config);
+  const verified = timing
+    ? await timing.measure(
+        'auth_api_key',
+        () => verifyApiKey(apiKey, config),
+        'verify service api key'
+      )
+    : await verifyApiKey(apiKey, config);
   if (!verified || verified.enabled === false) {
     return {
       response: await errorResponseWithSupportCode(
         'Invalid API key',
         'Authentication failed',
         401,
-        { stage: 'auth', authUserId }
+        { stage: 'auth', authUserId },
+        timing
       ),
     };
   }
@@ -468,7 +528,8 @@ async function authenticateServiceKey(
         'API key is not valid for this user',
         'Access denied',
         403,
-        { stage: 'auth', authUserId }
+        { stage: 'auth', authUserId },
+        timing
       ),
     };
   }
@@ -480,7 +541,8 @@ async function authenticateServiceKey(
         'Insufficient API key scope',
         'Access denied',
         403,
-        { stage: 'auth', authUserId }
+        { stage: 'auth', authUserId },
+        timing
       ),
     };
   }
@@ -492,7 +554,8 @@ async function authenticateServiceKey(
         'API key expired',
         'Authentication failed',
         401,
-        { stage: 'auth', authUserId }
+        { stage: 'auth', authUserId },
+        timing
       ),
     };
   }
@@ -518,7 +581,11 @@ async function authenticateVerifyRequest(
     cfg: PublicRouteConfig,
     scopes: string[]
   ) => Promise<{ sub: string } | null>,
-  verifyApiKey: (apiKey: string, cfg: PublicRouteConfig) => Promise<BetterAuthVerifiedApiKey | null>
+  verifyApiKey: (
+    apiKey: string,
+    cfg: PublicRouteConfig
+  ) => Promise<BetterAuthVerifiedApiKey | null>,
+  timing?: RouteTimingCollector
 ): Promise<{ authUserId: string } | { response: Response }> {
   const apiKey = extractApiKey(request);
   const bearerToken = extractBearerToken(request);
@@ -529,21 +596,29 @@ async function authenticateVerifyRequest(
       config,
       authUserId,
       [VERIFICATION_SCOPE],
-      verifyApiKey
+      verifyApiKey,
+      timing
     );
     if ('response' in auth) return auth;
     return { authUserId };
   }
 
   if (bearerToken) {
-    const verified = await verifyAccessToken(bearerToken, config, [VERIFICATION_SCOPE]);
+    const verified = timing
+      ? await timing.measure(
+          'auth_oauth',
+          () => verifyAccessToken(bearerToken, config, [VERIFICATION_SCOPE]),
+          'verify OAuth access token'
+        )
+      : await verifyAccessToken(bearerToken, config, [VERIFICATION_SCOPE]);
     if (!verified) {
       return {
         response: await errorResponseWithSupportCode(
           'Invalid or expired access token',
           'Authentication failed',
           401,
-          { stage: 'verify_auth' }
+          { stage: 'verify_auth' },
+          timing
         ),
       };
     }
@@ -555,7 +630,8 @@ async function authenticateVerifyRequest(
       'Missing API key (x-api-key or Authorization: Bearer) or OAuth access token',
       'Authentication failed',
       401,
-      { stage: 'verify_auth' }
+      { stage: 'verify_auth' },
+      timing
     ),
   };
 }
@@ -566,42 +642,65 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
   const verifyApiKey = deps.verifyApiKey ?? defaultVerifyApiKey;
 
   async function getTenantBySlug(_request: Request, slug: string): Promise<Response> {
+    const timing = new RouteTimingCollector();
     const convex = createConvexClient(config.convexUrl);
-    const tenant = (await convex.query(api.creatorProfiles.getCreatorBySlug, {
-      apiSecret: config.convexApiSecret,
-      slug,
-    })) as { _id: string; authUserId: string; name: string; slug: string } | null;
+    const tenant = (await timing.measure(
+      'convex_creator_profile',
+      () =>
+        convex.query(api.creatorProfiles.getCreatorBySlug, {
+          apiSecret: config.convexApiSecret,
+          slug,
+        }),
+      'load creator by slug'
+    )) as { _id: string; authUserId: string; name: string; slug: string } | null;
 
     if (!tenant) {
-      return await errorResponseWithSupportCode('Tenant not found', 'Resource not found', 404, {
-        stage: 'creator_profiles',
-      });
+      return await errorResponseWithSupportCode(
+        'Tenant not found',
+        'Resource not found',
+        404,
+        {
+          stage: 'creator_profiles',
+        },
+        timing
+      );
     }
 
-    return jsonResponse({
-      name: tenant.name,
-      slug: tenant.slug,
-    });
+    return jsonResponse(
+      {
+        name: tenant.name,
+        slug: tenant.slug,
+      },
+      200,
+      timing
+    );
   }
 
   async function getMeVerificationStatus(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
     const token = extractBearerToken(request);
     if (!token) {
       return await errorResponseWithSupportCode(
         'Missing or invalid Authorization header',
         'Authentication failed',
         401,
-        { stage: 'me_verification_status' }
+        { stage: 'me_verification_status' },
+        timing
       );
     }
 
-    const verified = await verifyAccessToken(token, config, [VERIFICATION_SCOPE]);
+    const verified = await timing.measure(
+      'auth_oauth',
+      () => verifyAccessToken(token, config, [VERIFICATION_SCOPE]),
+      'verify OAuth access token'
+    );
     if (!verified) {
       return await errorResponseWithSupportCode(
         'Invalid or expired access token',
         'Authentication failed',
         401,
-        { stage: 'me_verification_status' }
+        { stage: 'me_verification_status' },
+        timing
       );
     }
 
@@ -611,37 +710,58 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
         'authUserId query parameter is required',
         'Bad request',
         400,
-        { stage: 'me_verification_status' }
+        { stage: 'me_verification_status' },
+        timing
       );
     }
 
     const convex = createConvexClient(config.convexUrl);
-    const resolved = await resolveSubjectOrResponse(convex, config, authUserId, {
-      authUserId: verified.sub,
-    });
+    const resolved = await resolveSubjectOrResponse(
+      convex,
+      config,
+      authUserId,
+      {
+        authUserId: verified.sub,
+      },
+      404,
+      timing
+    );
 
     if ('response' in resolved) {
       return resolved.response;
     }
 
-    return getVerificationStatusResponse(convex, config, authUserId, resolved.subject._id);
+    return getVerificationStatusResponse(convex, config, authUserId, resolved.subject._id, timing);
   }
 
   async function getVerificationStatus(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
     let body: { authUserId?: string; subject?: unknown };
     try {
       body = (await request.json()) as typeof body;
     } catch {
-      return await errorResponseWithSupportCode('Invalid JSON body', 'Bad request', 400, {
-        stage: 'verification_status',
-      });
+      return await errorResponseWithSupportCode(
+        'Invalid JSON body',
+        'Bad request',
+        400,
+        {
+          stage: 'verification_status',
+        },
+        timing
+      );
     }
 
     const authUserId = body.authUserId?.trim();
     if (!authUserId) {
-      return await errorResponseWithSupportCode('authUserId is required', 'Bad request', 400, {
-        stage: 'verification_status',
-      });
+      return await errorResponseWithSupportCode(
+        'authUserId is required',
+        'Bad request',
+        400,
+        {
+          stage: 'verification_status',
+        },
+        timing
+      );
     }
 
     const subject = parseSubjectSelector(body.subject);
@@ -650,7 +770,8 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
         'subject selector is required',
         'Bad request',
         400,
-        { stage: 'verification_status' }
+        { stage: 'verification_status' },
+        timing
       );
     }
 
@@ -660,35 +781,56 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       config,
       authUserId,
       [VERIFICATION_SCOPE],
-      verifyApiKey
+      verifyApiKey,
+      timing
     );
     if ('response' in auth) {
       return auth.response;
     }
 
-    const resolved = await resolveSubjectOrResponse(convex, config, authUserId, subject);
+    const resolved = await resolveSubjectOrResponse(
+      convex,
+      config,
+      authUserId,
+      subject,
+      404,
+      timing
+    );
     if ('response' in resolved) {
       return resolved.response;
     }
 
-    return getVerificationStatusResponse(convex, config, authUserId, resolved.subject._id);
+    return getVerificationStatusResponse(convex, config, authUserId, resolved.subject._id, timing);
   }
 
   async function checkVerification(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
     let body: { authUserId?: string; subject?: unknown; productIds?: string[] };
     try {
       body = (await request.json()) as typeof body;
     } catch {
-      return await errorResponseWithSupportCode('Invalid JSON body', 'Bad request', 400, {
-        stage: 'verification_check',
-      });
+      return await errorResponseWithSupportCode(
+        'Invalid JSON body',
+        'Bad request',
+        400,
+        {
+          stage: 'verification_check',
+        },
+        timing
+      );
     }
 
     const authUserId = body.authUserId?.trim();
     if (!authUserId) {
-      return await errorResponseWithSupportCode('authUserId is required', 'Bad request', 400, {
-        stage: 'verification_check',
-      });
+      return await errorResponseWithSupportCode(
+        'authUserId is required',
+        'Bad request',
+        400,
+        {
+          stage: 'verification_check',
+        },
+        timing
+      );
     }
 
     const subject = parseSubjectSelector(body.subject);
@@ -697,7 +839,8 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
         'subject selector is required',
         'Bad request',
         400,
-        { stage: 'verification_check' }
+        { stage: 'verification_check' },
+        timing
       );
     }
     if (!Array.isArray(body.productIds) || body.productIds.length === 0) {
@@ -705,7 +848,8 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
         'productIds must be a non-empty array',
         'Bad request',
         400,
-        { stage: 'verification_check' }
+        { stage: 'verification_check' },
+        timing
       );
     }
     if (body.productIds.length > MAX_PRODUCT_IDS_PER_CHECK) {
@@ -713,9 +857,11 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
         `productIds must not exceed ${MAX_PRODUCT_IDS_PER_CHECK} items`,
         'Bad request',
         400,
-        { stage: 'verification_check' }
+        { stage: 'verification_check' },
+        timing
       );
     }
+    const productIds = body.productIds;
 
     const convex = createConvexClient(config.convexUrl);
     const auth = await authenticateServiceKey(
@@ -723,57 +869,93 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       config,
       authUserId,
       [VERIFICATION_SCOPE],
-      verifyApiKey
+      verifyApiKey,
+      timing
     );
     if ('response' in auth) {
       return auth.response;
     }
 
-    const resolved = await resolveSubjectOrResponse(convex, config, authUserId, subject, 200);
+    const resolved = await resolveSubjectOrResponse(
+      convex,
+      config,
+      authUserId,
+      subject,
+      200,
+      timing
+    );
     if ('response' in resolved) {
-      return jsonResponse({
-        results: body.productIds.map((productId) => ({ productId, verified: false })),
-      });
+      return jsonResponse(
+        {
+          results: productIds.map((productId) => ({ productId, verified: false })),
+        },
+        200,
+        timing
+      );
     }
 
-    const results = await Promise.all(
-      body.productIds.map(async (productId) => {
-        const verified = await convex.query(api.entitlements.hasActiveEntitlement, {
-          apiSecret: config.convexApiSecret,
-          authUserId,
-          subjectId: resolved.subject._id,
-          productId,
-        });
+    const results = await timing.measure(
+      'convex_entitlements_check',
+      () =>
+        Promise.all(
+          productIds.map(async (productId) => {
+            const verified = await convex.query(api.entitlements.hasActiveEntitlement, {
+              apiSecret: config.convexApiSecret,
+              authUserId,
+              subjectId: resolved.subject._id,
+              productId,
+            });
 
-        return { productId, verified: verified === true };
-      })
+            return { productId, verified: verified === true };
+          })
+        ),
+      'check product entitlements'
     );
 
-    return jsonResponse({ results });
+    return jsonResponse({ results }, 200, timing);
   }
 
   async function verifyVerification(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
     let body: Record<string, unknown>;
     try {
       body = (await request.json()) as Record<string, unknown>;
     } catch {
-      return await errorResponseWithSupportCode('Invalid JSON body', 'Bad request', 400, {
-        stage: 'verification_verify',
-      });
+      return await errorResponseWithSupportCode(
+        'Invalid JSON body',
+        'Bad request',
+        400,
+        {
+          stage: 'verification_verify',
+        },
+        timing
+      );
     }
 
     const authUserId = typeof body.authUserId === 'string' ? body.authUserId.trim() : '';
     if (!authUserId) {
-      return await errorResponseWithSupportCode('authUserId is required', 'Bad request', 400, {
-        stage: 'verification_verify',
-      });
+      return await errorResponseWithSupportCode(
+        'authUserId is required',
+        'Bad request',
+        400,
+        {
+          stage: 'verification_verify',
+        },
+        timing
+      );
     }
 
     const productId = typeof body.productId === 'string' ? body.productId.trim() : '';
     if (!productId) {
-      return await errorResponseWithSupportCode('productId is required', 'Bad request', 400, {
-        stage: 'verification_verify',
-      });
+      return await errorResponseWithSupportCode(
+        'productId is required',
+        'Bad request',
+        400,
+        {
+          stage: 'verification_verify',
+        },
+        timing
+      );
     }
 
     const selector = parseVerifyRequestSelector(body);
@@ -782,7 +964,8 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
         'Exactly one identity field is required: subjectId, authUserId, discordUserId, vrchatUserId, gumroadUserId, jinxxyEmail, or jinxxyUserId',
         'Bad request',
         400,
-        { stage: 'verification_verify' }
+        { stage: 'verification_verify' },
+        timing
       );
     }
 
@@ -793,7 +976,8 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       convex,
       authUserId,
       verifyAccessToken,
-      verifyApiKey
+      verifyApiKey,
+      timing
     );
     if ('response' in auth) {
       return auth.response;
@@ -809,44 +993,71 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       config,
       verifiedAuthUserId,
       selector,
-      200
+      200,
+      timing
     );
     if ('response' in resolved) {
-      return jsonResponse({
-        verified: false,
-        productId,
-      });
+      return jsonResponse(
+        {
+          verified: false,
+          productId,
+        },
+        200,
+        timing
+      );
     }
 
-    const hasEntitlement = (await convex.query(api.entitlements.hasActiveEntitlement, {
-      apiSecret: config.convexApiSecret,
-      authUserId: verifiedAuthUserId,
-      subjectId: resolved.subject._id,
-      productId,
-    })) as boolean;
+    const hasEntitlement = (await timing.measure(
+      'convex_entitlement_check',
+      () =>
+        convex.query(api.entitlements.hasActiveEntitlement, {
+          apiSecret: config.convexApiSecret,
+          authUserId: verifiedAuthUserId,
+          subjectId: resolved.subject._id,
+          productId,
+        }),
+      'check product entitlement'
+    )) as boolean;
 
-    return jsonResponse({
-      verified: hasEntitlement,
-      subjectId: resolved.subject._id,
-      productId,
-    });
+    return jsonResponse(
+      {
+        verified: hasEntitlement,
+        subjectId: resolved.subject._id,
+        productId,
+      },
+      200,
+      timing
+    );
   }
 
   async function resolveSubject(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
     let body: { authUserId?: string; subject?: unknown };
     try {
       body = (await request.json()) as typeof body;
     } catch {
-      return await errorResponseWithSupportCode('Invalid JSON body', 'Bad request', 400, {
-        stage: 'subjects_resolve',
-      });
+      return await errorResponseWithSupportCode(
+        'Invalid JSON body',
+        'Bad request',
+        400,
+        {
+          stage: 'subjects_resolve',
+        },
+        timing
+      );
     }
 
     const authUserId = body.authUserId?.trim();
     if (!authUserId) {
-      return await errorResponseWithSupportCode('authUserId is required', 'Bad request', 400, {
-        stage: 'subjects_resolve',
-      });
+      return await errorResponseWithSupportCode(
+        'authUserId is required',
+        'Bad request',
+        400,
+        {
+          stage: 'subjects_resolve',
+        },
+        timing
+      );
     }
 
     const subjectSelector = parseSubjectSelector(body.subject);
@@ -855,7 +1066,8 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
         'subject selector is required',
         'Bad request',
         400,
-        { stage: 'subjects_resolve' }
+        { stage: 'subjects_resolve' },
+        timing
       );
     }
 
@@ -865,22 +1077,35 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
       config,
       authUserId,
       [SUBJECTS_SCOPE],
-      verifyApiKey
+      verifyApiKey,
+      timing
     );
     if ('response' in auth) {
       return auth.response;
     }
 
-    const resolved = await resolveSubjectOrResponse(convex, config, authUserId, subjectSelector);
+    const resolved = await resolveSubjectOrResponse(
+      convex,
+      config,
+      authUserId,
+      subjectSelector,
+      404,
+      timing
+    );
     if ('response' in resolved) {
       return resolved.response;
     }
 
-    const subjectWithAccounts = (await convex.query(api.subjects.getSubjectWithAccounts, {
-      apiSecret: config.convexApiSecret,
-      subjectId: resolved.subject._id,
-      authUserId,
-    })) as {
+    const subjectWithAccounts = (await timing.measure(
+      'convex_subject_accounts',
+      () =>
+        convex.query(api.subjects.getSubjectWithAccounts, {
+          apiSecret: config.convexApiSecret,
+          subjectId: resolved.subject._id,
+          authUserId,
+        }),
+      'load subject accounts'
+    )) as {
       externalAccounts: unknown[];
       found?: boolean;
       subject?: {
@@ -891,19 +1116,29 @@ export function createPublicRoutes(config: PublicRouteConfig, deps: PublicRouteD
     } | null;
 
     if (!subjectWithAccounts?.found || !subjectWithAccounts.subject) {
-      return await errorResponseWithSupportCode('Subject not found', 'Resource not found', 404, {
-        stage: 'subjects_resolve',
-        authUserId,
-      });
+      return await errorResponseWithSupportCode(
+        'Subject not found',
+        'Resource not found',
+        404,
+        {
+          stage: 'subjects_resolve',
+          authUserId,
+        },
+        timing
+      );
     }
 
-    return jsonResponse({
-      found: true,
-      subjectId: subjectWithAccounts.subject._id,
-      authUserId: subjectWithAccounts.subject.authUserId,
-      discordUserId: subjectWithAccounts.subject.primaryDiscordUserId,
-      externalAccounts: subjectWithAccounts.externalAccounts,
-    });
+    return jsonResponse(
+      {
+        found: true,
+        subjectId: subjectWithAccounts.subject._id,
+        authUserId: subjectWithAccounts.subject.authUserId,
+        discordUserId: subjectWithAccounts.subject.primaryDiscordUserId,
+        externalAccounts: subjectWithAccounts.externalAccounts,
+      },
+      200,
+      timing
+    );
   }
 
   return {

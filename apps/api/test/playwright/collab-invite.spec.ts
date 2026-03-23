@@ -22,9 +22,10 @@ test.describe('Collab invite page', () => {
   }) => {
     await page.goto('/collab-invite', { waitUntil: 'load' });
     await page.waitForTimeout(500);
-    const opacity = await page.evaluate(
-      () => window.getComputedStyle(document.getElementById('page-content')!).opacity
-    );
+    const opacity = await page.evaluate(() => {
+      const content = document.getElementById('page-content');
+      return content ? window.getComputedStyle(content).opacity : '0';
+    });
     expect(Number(opacity)).toBeGreaterThan(0.5);
   });
 

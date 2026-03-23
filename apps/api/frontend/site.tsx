@@ -441,6 +441,10 @@ function dismissOverlay() {
 }
 
 function hideLoading() {
+  const loadingWindow = window as Window & {
+    __deferLoadingDismiss?: boolean;
+    __dismissLoading?: () => void;
+  };
   const _overlay = document.getElementById('page-loading-overlay');
   const content = document.getElementById('page-content');
 
@@ -453,8 +457,8 @@ function hideLoading() {
 
   // If the page defers overlay dismiss (e.g. dashboard waits for data),
   // expose a global callback and skip the automatic hide.
-  if (window.__deferLoadingDismiss) {
-    window.__dismissLoading = () => {
+  if (loadingWindow.__deferLoadingDismiss) {
+    loadingWindow.__dismissLoading = () => {
       setTimeout(dismissOverlay, 400);
     };
     return;

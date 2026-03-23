@@ -2,6 +2,7 @@ import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { verifyBetterAuthAccessToken } from '../../lib/oauthAccessToken';
+import { buildTimedResponse, type RouteTimingCollector } from '../../lib/requestTiming';
 import { errorResponse, generateRequestId } from './helpers';
 import type { PublicV2Config } from './types';
 
@@ -36,9 +37,18 @@ export async function resolveAuth(
   request: Request,
   config: PublicV2Config,
   requiredScopes: string[],
-  requestId?: string
+  requestId?: string,
+  timing?: RouteTimingCollector
 ): Promise<AuthResult | Response> {
   const reqId = requestId ?? generateRequestId();
+  const buildErrorResponse = (error: string, message: string, status: number): Response =>
+    timing
+      ? buildTimedResponse(
+          timing,
+          () => errorResponse(error, message, status, reqId),
+          'serialize auth error response'
+        )
+      : errorResponse(error, message, status, reqId);
 
   const apiKeyHeader = request.headers.get('x-api-key');
   const authHeader = request.headers.get('authorization');
@@ -58,24 +68,33 @@ export async function resolveAuth(
   }
 
   if (!apiKey && !bearerToken) {
-    return errorResponse(
+    return buildErrorResponse(
       'unauthorized',
       'Missing authentication credentials. Provide x-api-key header or Authorization: Bearer token.',
-      401,
-      reqId
+      401
     );
   }
 
   if (apiKey) {
     const convex = getConvexClientFromUrl(config.convexUrl);
     try {
-      const result = await convex.mutation(api.betterAuthApiKeys.verifyApiKey, {
-        apiSecret: config.convexApiSecret,
-        key: apiKey,
-      });
+      const result = timing
+        ? await timing.measure(
+            'auth_api_key',
+            () =>
+              convex.mutation(api.betterAuthApiKeys.verifyApiKey, {
+                apiSecret: config.convexApiSecret,
+                key: apiKey,
+              }),
+            'verify public api key'
+          )
+        : await convex.mutation(api.betterAuthApiKeys.verifyApiKey, {
+            apiSecret: config.convexApiSecret,
+            key: apiKey,
+          });
 
       if (!result?.key) {
-        return errorResponse('unauthorized', 'Invalid or expired API key', 401, reqId);
+        return buildErrorResponse('unauthorized', 'Invalid or expired API key', 401);
       }
 
       const keyData = result.key as {
@@ -87,17 +106,16 @@ export async function resolveAuth(
 
       const authUserId = keyData.metadata?.authUserId as string | undefined;
       if (!authUserId) {
-        return errorResponse('unauthorized', 'API key has no associated user', 401, reqId);
+        return buildErrorResponse('unauthorized', 'API key has no associated user', 401);
       }
 
       const scopes = getPublicApiKeyScopes((keyData.permissions as Record<string, unknown>) ?? {});
 
       if (!hasRequiredScopes(scopes, requiredScopes)) {
-        return errorResponse(
+        return buildErrorResponse(
           'forbidden',
           `Missing required scopes: ${requiredScopes.join(', ')}`,
-          403,
-          reqId
+          403
         );
       }
 
@@ -109,29 +127,44 @@ export async function resolveAuth(
       };
     } catch (err) {
       logger.error('API key verification error', { error: String(err) });
-      return errorResponse('internal_error', 'Authentication service unavailable', 500, reqId);
+      return buildErrorResponse('internal_error', 'Authentication service unavailable', 500);
     }
   }
 
   // OAuth bearer token path
+  if (!bearerToken) {
+    return buildErrorResponse('invalid_token', 'Missing bearer token', 401);
+  }
+
   try {
-    const oauthResult = await verifyBetterAuthAccessToken(bearerToken!, {
-      convexSiteUrl: config.convexSiteUrl,
-      audience: config.oauthAudience ?? 'yucp-public-api',
-      requiredScopes,
-      logger,
-    });
+    const oauthResult = timing
+      ? await timing.measure(
+          'auth_oauth',
+          () =>
+            verifyBetterAuthAccessToken(bearerToken, {
+              convexSiteUrl: config.convexSiteUrl,
+              audience: config.oauthAudience ?? 'yucp-public-api',
+              requiredScopes,
+              logger,
+            }),
+          'verify OAuth access token'
+        )
+      : await verifyBetterAuthAccessToken(bearerToken, {
+          convexSiteUrl: config.convexSiteUrl,
+          audience: config.oauthAudience ?? 'yucp-public-api',
+          requiredScopes,
+          logger,
+        });
 
     if (!oauthResult.ok) {
       if (oauthResult.reason === 'insufficient_scope') {
-        return errorResponse(
+        return buildErrorResponse(
           'forbidden',
           `Missing required scopes: ${requiredScopes.join(', ')}`,
-          403,
-          reqId
+          403
         );
       }
-      return errorResponse('unauthorized', 'Invalid or expired access token', 401, reqId);
+      return buildErrorResponse('unauthorized', 'Invalid or expired access token', 401);
     }
 
     return {
@@ -140,6 +173,6 @@ export async function resolveAuth(
     };
   } catch (err) {
     logger.error('OAuth token verification error', { error: String(err) });
-    return errorResponse('internal_error', 'Authentication service unavailable', 500, reqId);
+    return buildErrorResponse('internal_error', 'Authentication service unavailable', 500);
   }
 }

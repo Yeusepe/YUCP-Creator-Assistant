@@ -2,6 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { createLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const INTERNAL_AUTH_TS_HEADER = 'x-yucp-internal-auth-ts';
@@ -235,21 +236,24 @@ export function createAuth(config: AuthConfig) {
     return secret;
   }
 
-  async function resolveViewer(authToken: string | null | undefined): Promise<ViewerData | null> {
-    if (!authToken) {
-      return null;
-    }
+  async function resolveViewer(request: Request): Promise<ViewerData | null> {
+    return loadRequestScoped(request, 'auth:viewer', async () => {
+      const authToken = getAuthToken(request);
+      if (!authToken) {
+        return null;
+      }
 
-    try {
-      const convexClient = getConvexClient(config.convexUrl);
-      convexClient.setAuth(authToken);
-      return (await convexClient.query(api.authViewer.getViewer, {})) as ViewerData | null;
-    } catch (error) {
-      logger.warn('Failed to resolve viewer from Convex auth token', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
+      try {
+        const convexClient = getConvexClient(config.convexUrl);
+        convexClient.setAuth(authToken);
+        return (await convexClient.query(api.authViewer.getViewer, {})) as ViewerData | null;
+      } catch (error) {
+        logger.warn('Failed to resolve viewer from Convex auth token', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }
+    });
   }
 
   function getAuthToken(request: Request): string | null {
@@ -332,75 +336,79 @@ export function createAuth(config: AuthConfig) {
   }
 
   async function resolveSessionFromBetterAuthCookie(request: Request): Promise<SessionData | null> {
-    const cookieHeader = getBetterAuthCookieHeader(request);
-    if (!cookieHeader) {
-      return null;
-    }
+    return loadRequestScoped(request, 'auth:cookie-session', async () => {
+      const cookieHeader = getBetterAuthCookieHeader(request);
+      if (!cookieHeader) {
+        return null;
+      }
 
-    try {
-      const { response } = await callInternalAuth('/get-session', {
-        method: 'GET',
-        cookieHeader,
-      });
+      try {
+        const { response } = await callInternalAuth('/get-session', {
+          method: 'GET',
+          cookieHeader,
+        });
 
-      if (!response.ok) {
-        logger.warn('Better Auth cookie session lookup failed', {
-          status: response.status,
+        if (!response.ok) {
+          logger.warn('Better Auth cookie session lookup failed', {
+            status: response.status,
+          });
+          return null;
+        }
+
+        const payload = (await response.json()) as BetterAuthSessionResponse | null;
+        const user = payload?.user;
+        if (!user || typeof user.id !== 'string' || !user.id.trim()) {
+          return null;
+        }
+
+        return {
+          user: {
+            id: user.id,
+            email: typeof user.email === 'string' ? user.email : null,
+            name: typeof user.name === 'string' ? user.name : null,
+            image: typeof user.image === 'string' ? user.image : null,
+          },
+          discordUserId: null,
+        };
+      } catch (error) {
+        logger.warn('Failed to resolve Better Auth session from cookies', {
+          error: error instanceof Error ? error.message : String(error),
         });
         return null;
       }
-
-      const payload = (await response.json()) as BetterAuthSessionResponse | null;
-      const user = payload?.user;
-      if (!user || typeof user.id !== 'string' || !user.id.trim()) {
-        return null;
-      }
-
-      return {
-        user: {
-          id: user.id,
-          email: typeof user.email === 'string' ? user.email : null,
-          name: typeof user.name === 'string' ? user.name : null,
-          image: typeof user.image === 'string' ? user.image : null,
-        },
-        discordUserId: null,
-      };
-    } catch (error) {
-      logger.warn('Failed to resolve Better Auth session from cookies', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
+    });
   }
 
   async function getBetterAuthJson<T>(request: Request, path: string): Promise<T | null> {
-    const cookieHeader = getBetterAuthCookieHeader(request);
-    if (!cookieHeader) {
-      return null;
-    }
-
-    try {
-      const { response } = await callInternalAuth(path, {
-        method: 'GET',
-        cookieHeader,
-      });
-
-      if (!response.ok) {
-        logger.warn('Better Auth endpoint lookup failed', {
-          path,
-          status: response.status,
-        });
+    return loadRequestScoped(request, requestScopeKey('auth:get', { path }), async () => {
+      const cookieHeader = getBetterAuthCookieHeader(request);
+      if (!cookieHeader) {
         return null;
       }
 
-      return (await response.json()) as T;
-    } catch (error) {
-      logger.warn('Failed to read Better Auth endpoint', {
-        path,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
+      try {
+        const { response } = await callInternalAuth(path, {
+          method: 'GET',
+          cookieHeader,
+        });
+
+        if (!response.ok) {
+          logger.warn('Better Auth endpoint lookup failed', {
+            path,
+            status: response.status,
+          });
+          return null;
+        }
+
+        return (await response.json()) as T;
+      } catch (error) {
+        logger.warn('Failed to read Better Auth endpoint', {
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }
+    });
   }
 
   async function postBetterAuthJson<T>(
@@ -442,7 +450,7 @@ export function createAuth(config: AuthConfig) {
 
   return {
     async getSession(request: Request): Promise<SessionData | null> {
-      const viewer = await resolveViewer(getAuthToken(request));
+      const viewer = await resolveViewer(request);
       if (viewer) {
         return {
           user: {
@@ -459,7 +467,7 @@ export function createAuth(config: AuthConfig) {
     },
 
     async getDiscordUserId(request: Request): Promise<string | null> {
-      const viewer = await resolveViewer(getAuthToken(request));
+      const viewer = await resolveViewer(request);
       return viewer?.discordUserId ?? null;
     },
 
