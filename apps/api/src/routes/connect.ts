@@ -14,6 +14,7 @@ import { createLogger, getProviderDescriptor, timingSafeStringEqual } from '@yuc
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getCertificateBillingConfig } from '../../../../convex/lib/certificateBillingConfig';
+import { toCertificateBillingProjectionSubscription } from '../../../../convex/lib/certificateBillingProjection';
 import { type Auth, BetterAuthEndpointError } from '../auth';
 import {
   buildCookie,
@@ -27,6 +28,7 @@ import { getConvexApiSecret, getConvexClient, getConvexClientFromUrl } from '../
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { encrypt } from '../lib/encrypt';
 import { createLegacyFrontendMovedResponse } from '../lib/legacyFrontend';
+import { fetchCertificateBillingCustomerStateByExternalId } from '../lib/polar';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
@@ -292,6 +294,37 @@ async function enrichCertificateOverviewWithPolar(
       };
     }),
   };
+}
+
+async function reconcileCertificateOverviewWithPolarState(
+  convex: ReturnType<typeof getConvexClientFromUrl>,
+  convexApiSecret: string,
+  authUserId: string,
+  overview: CertificateOverview
+): Promise<CertificateOverview> {
+  if (!overview.billing.billingEnabled || overview.billing.status === 'active') {
+    return overview;
+  }
+
+  const customerState = await fetchCertificateBillingCustomerStateByExternalId(authUserId);
+  if (!customerState || customerState.activeSubscriptions.length === 0) {
+    return overview;
+  }
+
+  await convex.mutation(api.certificateBilling.projectCustomerStateForApi, {
+    apiSecret: convexApiSecret,
+    authUserId,
+    polarCustomerId: customerState.id,
+    customerEmail: customerState.email,
+    activeSubscriptions: customerState.activeSubscriptions.map(
+      toCertificateBillingProjectionSubscription
+    ),
+  });
+
+  return (await convex.query(api.certificateBilling.getAccountOverview, {
+    apiSecret: convexApiSecret,
+    authUserId,
+  })) as CertificateOverview;
 }
 
 function toTimestamp(value: unknown): number | undefined {
@@ -1553,25 +1586,47 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const { apiKeys: data } = await auth.listApiKeys(request);
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      let data = (await convex.query(api.betterAuthApiKeys.listApiKeysForAuthUser, {
+        apiSecret: config.convexApiSecret,
+        authUserId: required.session.user.id === authUserId ? required.session.user.id : authUserId,
+      })) as Array<{
+        id: string;
+        name: string | null;
+        start: string | null;
+        prefix: string | null;
+        enabled: boolean;
+        permissions: BetterAuthPermissionStatements | null;
+        lastRequestAt: number | null;
+        expiresAt: number | null;
+        createdAt: number | null;
+      }>;
+
+      if (data.length === 0 && authUserId) {
+        const backfill = (await convex.mutation(api.betterAuthApiKeys.backfillApiKeyReferenceIds, {
+          apiSecret: config.convexApiSecret,
+          ownerUserId: required.session.user.id,
+          authUserId,
+        })) as { updatedCount: number };
+        if (backfill.updatedCount > 0) {
+          data = (await convex.query(api.betterAuthApiKeys.listApiKeysForAuthUser, {
+            apiSecret: config.convexApiSecret,
+            authUserId,
+          })) as typeof data;
+        }
+      }
 
       const keys = data
-        .filter((key) => {
-          const metadata = parsePublicApiKeyMetadata(key.metadata);
-          return (
-            metadata?.kind === PUBLIC_API_KEY_METADATA_KIND && metadata.authUserId === authUserId
-          );
-        })
         .map((key) => ({
           _id: key.id,
-          _creationTime: toTimestamp(key.createdAt) ?? Date.now(),
+          _creationTime: key.createdAt ?? Date.now(),
           authUserId,
           name: key.name ?? 'Unnamed',
           prefix: key.start ?? key.prefix ?? PUBLIC_API_KEY_PREFIX,
           status: key.enabled === false ? ('revoked' as const) : ('active' as const),
           scopes: getPublicApiKeyScopes(key.permissions),
-          lastUsedAt: toTimestamp(key.lastRequest),
-          expiresAt: toTimestamp(key.expiresAt),
+          lastUsedAt: key.lastRequestAt ?? undefined,
+          expiresAt: key.expiresAt ?? undefined,
         }))
         .sort((left, right) => right._creationTime - left._creationTime);
 
@@ -2688,7 +2743,13 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       apiSecret: config.convexApiSecret,
       authUserId,
     })) as CertificateOverview;
-    return enrichCertificateOverviewWithPolar(overview);
+    const reconciledOverview = await reconcileCertificateOverviewWithPolarState(
+      convex,
+      config.convexApiSecret,
+      authUserId,
+      overview
+    );
+    return enrichCertificateOverviewWithPolar(reconciledOverview);
   }
 
   async function getUserCertificates(request: Request): Promise<Response> {
@@ -2701,6 +2762,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const overview = await getUserCertificateOverviewForAuthUser(session.user.id);
       return Response.json(overview);
     } catch (err) {
+      if (isPolarAccessTokenFailure(err)) {
+        logger.error('Polar credentials rejected certificate workspace reconciliation request', {
+          authUserId: session.user.id,
+          status: err.status,
+          path: err.path,
+        });
+        return createPolarAccessTokenFailureResponse();
+      }
+
       logger.error('Failed to get certificate workspace overview', {
         authUserId: session.user.id,
         error: err instanceof Error ? err.message : String(err),

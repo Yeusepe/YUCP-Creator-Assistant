@@ -12,10 +12,16 @@ import type { ConnectConfig } from './connect';
 
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
+let polarCustomerStateImpl: (externalId: string) => Promise<unknown> = async () => null;
 
 const apiMock = {
+  betterAuthApiKeys: {
+    backfillApiKeyReferenceIds: 'betterAuthApiKeys.backfillApiKeyReferenceIds',
+    listApiKeysForAuthUser: 'betterAuthApiKeys.listApiKeysForAuthUser',
+  },
   certificateBilling: {
     getAccountOverview: 'certificateBilling.getAccountOverview',
+    projectCustomerStateForApi: 'certificateBilling.projectCustomerStateForApi',
     revokeOwnedCertificate: 'certificateBilling.revokeOwnedCertificate',
   },
   creatorProfiles: {
@@ -75,6 +81,11 @@ mock.module('../lib/convex', () => ({
   }),
 }));
 
+mock.module('../lib/polar', () => ({
+  fetchCertificateBillingCustomerStateByExternalId: (externalId: string) =>
+    polarCustomerStateImpl(externalId),
+}));
+
 const { createSetupSession } = await import('../lib/setupSession');
 const { createConnectRoutes } = await import('./connect');
 
@@ -104,6 +115,7 @@ const routes = createConnectRoutes(auth, testConfig);
 afterEach(() => {
   queryImpl = async () => null;
   mutationImpl = async () => null;
+  polarCustomerStateImpl = async () => null;
   testStore.clear();
 });
 
@@ -370,6 +382,243 @@ describe('GET /api/connect/user/certificates', () => {
     expect(body.workspaceKey).toBe('creator-profile:abc123');
     expect(body.billing.planKey).toBe('pro');
     expect(body.devices[0]?.certNonce).toBe('cert_nonce_1');
+  });
+
+  it('reconciles stale inactive billing from authoritative Polar customer state', async () => {
+    let overviewCalls = 0;
+    queryImpl = async (reference: unknown) => {
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        overviewCalls += 1;
+        if (overviewCalls === 1) {
+          return {
+            workspaceKey: 'creator-profile:sync-1',
+            creatorProfileId: 'sync-1',
+            billing: {
+              billingEnabled: true,
+              status: 'inactive',
+              allowEnrollment: false,
+              allowSigning: false,
+              activeDeviceCount: 0,
+            },
+            devices: [],
+            availablePlans: [
+              {
+                planKey: 'starter',
+                slug: 'starter',
+                productId: 'prod_starter',
+                displayName: 'Starter',
+                description: 'Entry tier',
+                highlights: ['Up to 2 signing devices'],
+                priority: 1,
+                deviceCap: 2,
+                auditRetentionDays: 30,
+                supportTier: 'standard',
+                billingGraceDays: 3,
+              },
+            ],
+          };
+        }
+
+        return {
+          workspaceKey: 'creator-profile:sync-1',
+          creatorProfileId: 'sync-1',
+          billing: {
+            billingEnabled: true,
+            status: 'active',
+            allowEnrollment: true,
+            allowSigning: true,
+            planKey: 'starter',
+            deviceCap: 2,
+            activeDeviceCount: 0,
+            auditRetentionDays: 30,
+            supportTier: 'standard',
+            currentPeriodEnd: 1_742_850_400_000,
+          },
+          devices: [],
+          availablePlans: [
+            {
+              planKey: 'starter',
+              slug: 'starter',
+              productId: 'prod_starter',
+              displayName: 'Starter',
+              description: 'Entry tier',
+              highlights: ['Up to 2 signing devices'],
+              priority: 1,
+              deviceCap: 2,
+              auditRetentionDays: 30,
+              supportTier: 'standard',
+              billingGraceDays: 3,
+            },
+          ],
+        };
+      }
+      return null;
+    };
+
+    polarCustomerStateImpl = async (externalId: string) => {
+      expect(externalId).toBe('session-user-sync');
+      return {
+        id: 'cus_sync_1',
+        email: 'creator@example.com',
+        externalId: 'session-user-sync',
+        activeSubscriptions: [
+          {
+            id: 'sub_sync_1',
+            status: 'active',
+            recurringInterval: 'month',
+            currentPeriodStart: new Date('2026-03-23T00:00:00.000Z'),
+            currentPeriodEnd: new Date('2026-04-23T00:00:00.000Z'),
+            cancelAtPeriodEnd: false,
+            productId: 'prod_starter',
+            metadata: {
+              workspace_key: 'creator-profile:sync-1',
+            },
+          },
+        ],
+      };
+    };
+
+    mutationImpl = async (reference: unknown, args: unknown) => {
+      expect(reference).toBe(apiMock.certificateBilling.projectCustomerStateForApi);
+      expect(args).toMatchObject({
+        apiSecret: 'test-convex-secret',
+        authUserId: 'session-user-sync',
+        polarCustomerId: 'cus_sync_1',
+        customerEmail: 'creator@example.com',
+        activeSubscriptions: [
+          {
+            subscriptionId: 'sub_sync_1',
+            productId: 'prod_starter',
+            status: 'active',
+            recurringInterval: 'month',
+            cancelAtPeriodEnd: false,
+            metadata: {
+              workspace_key: 'creator-profile:sync-1',
+            },
+          },
+        ],
+      });
+      return { updated: true, workspaceCount: 1 };
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-sync',
+        },
+      }),
+      createPolarCheckout: async () => null,
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates');
+    const res = await isolatedRoutes.getUserCertificates(req);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      billing: { status: string; planKey?: string; allowSigning: boolean };
+    };
+    expect(body.billing.status).toBe('active');
+    expect(body.billing.planKey).toBe('starter');
+    expect(body.billing.allowSigning).toBe(true);
+    expect(overviewCalls).toBe(2);
+  });
+});
+
+describe('GET /api/connect/public-api/keys', () => {
+  it('uses the indexed Convex API key path and backfills legacy keys once', async () => {
+    let listCalls = 0;
+    queryImpl = async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.creatorProfiles.getCreatorProfile) {
+        expect(args).toMatchObject({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'tenant-auth-user-1',
+        });
+        return {
+          authUserId: 'session-owner-1',
+        };
+      }
+
+      if (reference === apiMock.betterAuthApiKeys.listApiKeysForAuthUser) {
+        listCalls += 1;
+        expect(args).toMatchObject({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'tenant-auth-user-1',
+        });
+
+        if (listCalls === 1) {
+          return [];
+        }
+
+        return [
+          {
+            id: 'key_1',
+            name: 'Verification Key',
+            start: 'ypsk_',
+            prefix: 'ypsk_',
+            enabled: true,
+            permissions: {
+              publicApi: ['verification:read'],
+            },
+            lastRequestAt: 1_742_840_000_000,
+            expiresAt: null,
+            createdAt: 1_742_830_000_000,
+          },
+        ];
+      }
+
+      return null;
+    };
+
+    mutationImpl = async (reference: unknown, args: unknown) => {
+      expect(reference).toBe(apiMock.betterAuthApiKeys.backfillApiKeyReferenceIds);
+      expect(args).toMatchObject({
+        apiSecret: 'test-convex-secret',
+        ownerUserId: 'session-owner-1',
+        authUserId: 'tenant-auth-user-1',
+      });
+      return { updatedCount: 1 };
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-owner-1',
+        },
+      }),
+      listApiKeys: async () => {
+        throw new Error('slow Better Auth list path should not be used');
+      },
+      createPolarCheckout: async () => null,
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request(
+      'http://localhost:3001/api/connect/public-api/keys?authUserId=tenant-auth-user-1'
+    );
+    const res = await isolatedRoutes.listPublicApiKeys(req);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      keys: Array<{
+        _id: string;
+        authUserId: string | undefined;
+        name: string;
+        status: string;
+        scopes: string[];
+      }>;
+    };
+    expect(body.keys).toHaveLength(1);
+    expect(body.keys[0]).toMatchObject({
+      _id: 'key_1',
+      authUserId: 'tenant-auth-user-1',
+      name: 'Verification Key',
+      status: 'active',
+      scopes: ['verification:read'],
+    });
+    expect(listCalls).toBe(2);
   });
 });
 

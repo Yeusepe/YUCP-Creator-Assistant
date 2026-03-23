@@ -1,5 +1,12 @@
 import { ConvexError, v } from 'convex/values';
-import { type QueryCtx, internalMutation, internalQuery, mutation, query } from './_generated/server';
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  mutation,
+  type QueryCtx,
+  query,
+} from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import {
   buildAuthUserWorkspaceKey,
@@ -57,6 +64,29 @@ const accountOverviewReturnValidator = v.object({
       billingGraceDays: v.number(),
     })
   ),
+});
+
+const customerStateProjectionSubscriptionValidator = v.object({
+  subscriptionId: v.string(),
+  productId: v.string(),
+  status: v.string(),
+  recurringInterval: v.string(),
+  currentPeriodStart: v.number(),
+  currentPeriodEnd: v.number(),
+  cancelAtPeriodEnd: v.boolean(),
+  metadata: v.record(v.string(), v.union(v.string(), v.number(), v.boolean())),
+});
+
+const customerStateProjectionArgsValidator = {
+  authUserId: v.string(),
+  polarCustomerId: v.string(),
+  customerEmail: v.string(),
+  activeSubscriptions: v.array(customerStateProjectionSubscriptionValidator),
+} as const;
+
+const customerStateProjectionReturnValidator = v.object({
+  updated: v.boolean(),
+  workspaceCount: v.number(),
 });
 
 function compareBillingStatus(left: BillingStatus, right: BillingStatus): number {
@@ -171,6 +201,217 @@ async function buildAccountOverview(ctx: QueryCtx, authUserId: string) {
     })),
     availablePlans: buildAvailablePlans(config),
   };
+}
+
+async function projectCustomerStateIntoBilling(
+  ctx: MutationCtx,
+  args: {
+    authUserId: string;
+    polarCustomerId: string;
+    customerEmail: string;
+    activeSubscriptions: Array<{
+      subscriptionId: string;
+      productId: string;
+      status: string;
+      recurringInterval: string;
+      currentPeriodStart: number;
+      currentPeriodEnd: number;
+      cancelAtPeriodEnd: boolean;
+      metadata: Record<string, string | number | boolean>;
+    }>;
+  }
+) {
+  const config = getCertificateBillingConfig();
+  if (!config.enabled) {
+    return { updated: false, workspaceCount: 0 };
+  }
+
+  const now = Date.now();
+  const creatorProfile = await ctx.db
+    .query('creator_profiles')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+    .first();
+  const defaultWorkspaceKey = creatorProfile?._id
+    ? `creator-profile:${creatorProfile._id}`
+    : buildAuthUserWorkspaceKey(args.authUserId);
+
+  const activeByWorkspace = new Map<
+    string,
+    Array<{
+      subscriptionId: string;
+      productId: string;
+      status: string;
+      recurringInterval: string;
+      currentPeriodStart: number;
+      currentPeriodEnd: number;
+      cancelAtPeriodEnd: boolean;
+      metadata: Record<string, string | number | boolean>;
+    }>
+  >();
+
+  for (const subscription of args.activeSubscriptions) {
+    const plan = getPlanForProductId(config, subscription.productId);
+    if (!plan) continue;
+    const workspaceKey = extractWorkspaceKeyFromMetadata(
+      subscription.metadata,
+      defaultWorkspaceKey
+    );
+    const entries = activeByWorkspace.get(workspaceKey) ?? [];
+    entries.push(subscription);
+    activeByWorkspace.set(workspaceKey, entries);
+  }
+
+  const existingAccounts = await ctx.db
+    .query('creator_billing_accounts')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+    .collect();
+  const existingByWorkspace = new Map(existingAccounts.map((entry) => [entry.workspaceKey, entry]));
+
+  for (const [workspaceKey, subscriptions] of activeByWorkspace.entries()) {
+    const matchingPlans = subscriptions
+      .map((subscription) => ({
+        subscription,
+        plan: getPlanForProductId(config, subscription.productId),
+      }))
+      .filter(
+        (
+          entry
+        ): entry is {
+          subscription: (typeof subscriptions)[number];
+          plan: NonNullable<ReturnType<typeof getPlanForProductId>>;
+        } => entry.plan !== null
+      )
+      .sort((left, right) => right.plan.priority - left.plan.priority);
+
+    const winningPlan = matchingPlans[0]?.plan;
+    if (!winningPlan) continue;
+
+    const account = existingByWorkspace.get(workspaceKey);
+    const currentPeriodEnd = Math.max(
+      ...subscriptions.map((subscription) => subscription.currentPeriodEnd)
+    );
+    const graceUntil = currentPeriodEnd + winningPlan.billingGraceDays * 24 * 60 * 60 * 1000;
+
+    if (account) {
+      await ctx.db.patch(account._id, {
+        creatorProfileId: creatorProfile?._id,
+        polarCustomerId: args.polarCustomerId,
+        polarExternalId: args.authUserId,
+        workspaceKey,
+        planKey: winningPlan.planKey,
+        status: 'active',
+        customerEmail: args.customerEmail,
+        currentPeriodEnd,
+        graceUntil,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert('creator_billing_accounts', {
+        workspaceKey,
+        authUserId: args.authUserId,
+        creatorProfileId: creatorProfile?._id,
+        polarCustomerId: args.polarCustomerId,
+        polarExternalId: args.authUserId,
+        planKey: winningPlan.planKey,
+        status: 'active',
+        customerEmail: args.customerEmail,
+        currentPeriodEnd,
+        graceUntil,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    const entitlement = await ctx.db
+      .query('creator_billing_entitlements')
+      .withIndex('by_workspace_key', (q) => q.eq('workspaceKey', workspaceKey))
+      .first();
+
+    const entitlementPatch = {
+      authUserId: args.authUserId,
+      creatorProfileId: creatorProfile?._id,
+      workspaceKey,
+      planKey: winningPlan.planKey,
+      status: 'active' as BillingStatus,
+      allowEnrollment: true,
+      allowSigning: true,
+      deviceCap: winningPlan.deviceCap,
+      signQuotaPerPeriod: winningPlan.signQuotaPerPeriod ?? undefined,
+      auditRetentionDays: winningPlan.auditRetentionDays,
+      supportTier: winningPlan.supportTier,
+      currentPeriodEnd,
+      graceUntil,
+      updatedAt: now,
+    };
+
+    if (entitlement) {
+      await ctx.db.patch(entitlement._id, entitlementPatch);
+    } else {
+      await ctx.db.insert('creator_billing_entitlements', {
+        ...entitlementPatch,
+        createdAt: now,
+      });
+    }
+
+    const existingSubscriptions = await ctx.db
+      .query('creator_billing_subscriptions')
+      .withIndex('by_workspace_key', (q) => q.eq('workspaceKey', workspaceKey))
+      .collect();
+    await Promise.all(existingSubscriptions.map((entry) => ctx.db.delete(entry._id)));
+
+    for (const subscription of subscriptions) {
+      await ctx.db.insert('creator_billing_subscriptions', {
+        workspaceKey,
+        authUserId: args.authUserId,
+        creatorProfileId: creatorProfile?._id,
+        polarSubscriptionId: subscription.subscriptionId,
+        polarProductId: subscription.productId,
+        planKey: winningPlan.planKey,
+        status: subscription.status,
+        recurringInterval: subscription.recurringInterval,
+        currentPeriodStart: subscription.currentPeriodStart,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+        metadataJson: JSON.stringify(subscription.metadata),
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+
+  for (const existing of existingAccounts) {
+    if (activeByWorkspace.has(existing.workspaceKey)) continue;
+
+    const graceDays = existing.planKey
+      ? (config.products.find((plan) => plan.planKey === existing.planKey)?.billingGraceDays ?? 3)
+      : 3;
+    const graceUntil =
+      Math.max(existing.currentPeriodEnd ?? now, now) + graceDays * 24 * 60 * 60 * 1000;
+    const nextStatus: BillingStatus = graceUntil > now ? 'grace' : 'suspended';
+
+    await ctx.db.patch(existing._id, {
+      status: nextStatus,
+      graceUntil,
+      updatedAt: now,
+    });
+
+    const entitlement = await ctx.db
+      .query('creator_billing_entitlements')
+      .withIndex('by_workspace_key', (q) => q.eq('workspaceKey', existing.workspaceKey))
+      .first();
+
+    if (entitlement) {
+      await ctx.db.patch(entitlement._id, {
+        status: nextStatus,
+        allowEnrollment: false,
+        allowSigning: nextStatus === 'grace',
+        graceUntil,
+        updatedAt: now,
+      });
+    }
+  }
+
+  return { updated: true, workspaceCount: activeByWorkspace.size };
 }
 
 export const getAccountOverview = query({
@@ -303,222 +544,23 @@ export const resolveForAuthUser = internalQuery({
   },
 });
 
-export const projectCustomerStateChanged = internalMutation({
+export const projectCustomerStateForApi = mutation({
   args: {
-    authUserId: v.string(),
-    polarCustomerId: v.string(),
-    customerEmail: v.string(),
-    activeSubscriptions: v.array(
-      v.object({
-        subscriptionId: v.string(),
-        productId: v.string(),
-        status: v.string(),
-        recurringInterval: v.string(),
-        currentPeriodStart: v.number(),
-        currentPeriodEnd: v.number(),
-        cancelAtPeriodEnd: v.boolean(),
-        metadata: v.record(v.string(), v.union(v.string(), v.number(), v.boolean())),
-      })
-    ),
+    apiSecret: v.string(),
+    ...customerStateProjectionArgsValidator,
   },
-  returns: v.object({
-    updated: v.boolean(),
-    workspaceCount: v.number(),
-  }),
+  returns: customerStateProjectionReturnValidator,
   handler: async (ctx, args) => {
-    const config = getCertificateBillingConfig();
-    if (!config.enabled) {
-      return { updated: false, workspaceCount: 0 };
-    }
+    requireApiSecret(args.apiSecret);
+    return await projectCustomerStateIntoBilling(ctx, args);
+  },
+});
 
-    const now = Date.now();
-    const creatorProfile = await ctx.db
-      .query('creator_profiles')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .first();
-    const defaultWorkspaceKey = creatorProfile?._id
-      ? `creator-profile:${creatorProfile._id}`
-      : buildAuthUserWorkspaceKey(args.authUserId);
-
-    const activeByWorkspace = new Map<
-      string,
-      Array<{
-        subscriptionId: string;
-        productId: string;
-        status: string;
-        recurringInterval: string;
-        currentPeriodStart: number;
-        currentPeriodEnd: number;
-        cancelAtPeriodEnd: boolean;
-        metadata: Record<string, string | number | boolean>;
-      }>
-    >();
-
-    for (const subscription of args.activeSubscriptions) {
-      const plan = getPlanForProductId(config, subscription.productId);
-      if (!plan) continue;
-      const workspaceKey = extractWorkspaceKeyFromMetadata(
-        subscription.metadata,
-        defaultWorkspaceKey
-      );
-      const entries = activeByWorkspace.get(workspaceKey) ?? [];
-      entries.push(subscription);
-      activeByWorkspace.set(workspaceKey, entries);
-    }
-
-    const existingAccounts = await ctx.db
-      .query('creator_billing_accounts')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .collect();
-    const existingByWorkspace = new Map(
-      existingAccounts.map((entry) => [entry.workspaceKey, entry])
-    );
-
-    for (const [workspaceKey, subscriptions] of activeByWorkspace.entries()) {
-      const matchingPlans = subscriptions
-        .map((subscription) => ({
-          subscription,
-          plan: getPlanForProductId(config, subscription.productId),
-        }))
-        .filter(
-          (
-            entry
-          ): entry is {
-            subscription: (typeof subscriptions)[number];
-            plan: NonNullable<ReturnType<typeof getPlanForProductId>>;
-          } => entry.plan !== null
-        )
-        .sort((left, right) => right.plan.priority - left.plan.priority);
-
-      const winningPlan = matchingPlans[0]?.plan;
-      if (!winningPlan) continue;
-
-      const account = existingByWorkspace.get(workspaceKey);
-      const currentPeriodEnd = Math.max(
-        ...subscriptions.map((subscription) => subscription.currentPeriodEnd)
-      );
-      const graceUntil = currentPeriodEnd + winningPlan.billingGraceDays * 24 * 60 * 60 * 1000;
-
-      if (account) {
-        await ctx.db.patch(account._id, {
-          creatorProfileId: creatorProfile?._id,
-          polarCustomerId: args.polarCustomerId,
-          polarExternalId: args.authUserId,
-          workspaceKey,
-          planKey: winningPlan.planKey,
-          status: 'active',
-          customerEmail: args.customerEmail,
-          currentPeriodEnd,
-          graceUntil,
-          updatedAt: now,
-        });
-      } else {
-        await ctx.db.insert('creator_billing_accounts', {
-          workspaceKey,
-          authUserId: args.authUserId,
-          creatorProfileId: creatorProfile?._id,
-          polarCustomerId: args.polarCustomerId,
-          polarExternalId: args.authUserId,
-          planKey: winningPlan.planKey,
-          status: 'active',
-          customerEmail: args.customerEmail,
-          currentPeriodEnd,
-          graceUntil,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-
-      const entitlement = await ctx.db
-        .query('creator_billing_entitlements')
-        .withIndex('by_workspace_key', (q) => q.eq('workspaceKey', workspaceKey))
-        .first();
-
-      const entitlementPatch = {
-        authUserId: args.authUserId,
-        creatorProfileId: creatorProfile?._id,
-        workspaceKey,
-        planKey: winningPlan.planKey,
-        status: 'active' as BillingStatus,
-        allowEnrollment: true,
-        allowSigning: true,
-        deviceCap: winningPlan.deviceCap,
-        signQuotaPerPeriod: winningPlan.signQuotaPerPeriod ?? undefined,
-        auditRetentionDays: winningPlan.auditRetentionDays,
-        supportTier: winningPlan.supportTier,
-        currentPeriodEnd,
-        graceUntil,
-        updatedAt: now,
-      };
-
-      if (entitlement) {
-        await ctx.db.patch(entitlement._id, entitlementPatch);
-      } else {
-        await ctx.db.insert('creator_billing_entitlements', {
-          ...entitlementPatch,
-          createdAt: now,
-        });
-      }
-
-      const existingSubscriptions = await ctx.db
-        .query('creator_billing_subscriptions')
-        .withIndex('by_workspace_key', (q) => q.eq('workspaceKey', workspaceKey))
-        .collect();
-      await Promise.all(existingSubscriptions.map((entry) => ctx.db.delete(entry._id)));
-
-      for (const subscription of subscriptions) {
-        await ctx.db.insert('creator_billing_subscriptions', {
-          workspaceKey,
-          authUserId: args.authUserId,
-          creatorProfileId: creatorProfile?._id,
-          polarSubscriptionId: subscription.subscriptionId,
-          polarProductId: subscription.productId,
-          planKey: winningPlan.planKey,
-          status: subscription.status,
-          recurringInterval: subscription.recurringInterval,
-          currentPeriodStart: subscription.currentPeriodStart,
-          currentPeriodEnd: subscription.currentPeriodEnd,
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          metadataJson: JSON.stringify(subscription.metadata),
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-
-    for (const existing of existingAccounts) {
-      if (activeByWorkspace.has(existing.workspaceKey)) continue;
-
-      const graceDays = existing.planKey
-        ? (config.products.find((plan) => plan.planKey === existing.planKey)?.billingGraceDays ?? 3)
-        : 3;
-      const graceUntil =
-        Math.max(existing.currentPeriodEnd ?? now, now) + graceDays * 24 * 60 * 60 * 1000;
-      const nextStatus: BillingStatus = graceUntil > now ? 'grace' : 'suspended';
-
-      await ctx.db.patch(existing._id, {
-        status: nextStatus,
-        graceUntil,
-        updatedAt: now,
-      });
-
-      const entitlement = await ctx.db
-        .query('creator_billing_entitlements')
-        .withIndex('by_workspace_key', (q) => q.eq('workspaceKey', existing.workspaceKey))
-        .first();
-
-      if (entitlement) {
-        await ctx.db.patch(entitlement._id, {
-          status: nextStatus,
-          allowEnrollment: false,
-          allowSigning: nextStatus === 'grace',
-          graceUntil,
-          updatedAt: now,
-        });
-      }
-    }
-
-    return { updated: true, workspaceCount: activeByWorkspace.size };
+export const projectCustomerStateChanged = internalMutation({
+  args: customerStateProjectionArgsValidator,
+  returns: customerStateProjectionReturnValidator,
+  handler: async (ctx, args) => {
+    return await projectCustomerStateIntoBilling(ctx, args);
   },
 });
 

@@ -3,7 +3,7 @@
  * Must be imported before Better Auth or other deps that need these APIs.
  */
 
-import { Buffer } from 'node:buffer';
+import { Buffer } from 'buffer';
 
 export function ensureConvexPolyfills() {
   const globalWithBuffer = globalThis as typeof globalThis & {

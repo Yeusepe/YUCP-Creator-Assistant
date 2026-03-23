@@ -25,6 +25,7 @@ import authConfig from './auth.config';
 import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
 import authSchema from './betterAuth/schema';
 import { getCertificateBillingConfig } from './lib/certificateBillingConfig';
+import { toCertificateBillingProjectionSubscription } from './lib/certificateBillingProjection';
 import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
 
@@ -166,23 +167,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
                     authUserId,
                     polarCustomerId: payload.data.id,
                     customerEmail: payload.data.email,
-                    activeSubscriptions: payload.data.activeSubscriptions.map((subscription) => ({
-                      subscriptionId: subscription.id,
-                      productId: subscription.productId,
-                      status: subscription.status,
-                      recurringInterval: subscription.recurringInterval,
-                      currentPeriodStart: subscription.currentPeriodStart.getTime(),
-                      currentPeriodEnd: subscription.currentPeriodEnd.getTime(),
-                      cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-                      metadata: Object.fromEntries(
-                        Object.entries(subscription.metadata ?? {}).filter(
-                          ([, value]) =>
-                            typeof value === 'string' ||
-                            typeof value === 'number' ||
-                            typeof value === 'boolean'
-                        )
-                      ) as Record<string, string | number | boolean>,
-                    })),
+                    activeSubscriptions: payload.data.activeSubscriptions.map(
+                      toCertificateBillingProjectionSubscription
+                    ),
                   });
                 },
               }),

@@ -17,6 +17,7 @@
         "@tempojs/server": "^0.0.12",
         "bebop": "3.0.4",
         "better-auth": "1.5.5",
+        "buffer": "^6.0.3",
         "convex": "^1.32.0",
         "dotenv": "^17.3.1",
         "h3-v2": "npm:h3@2.0.1-rc.17",

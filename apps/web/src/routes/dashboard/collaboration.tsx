@@ -25,6 +25,7 @@ import {
   removeCollabConnection,
   revokeCollabInvite,
 } from '@/lib/dashboard';
+import { warmDashboardCollaboration } from '@/lib/dashboardPrefetch';
 import {
   dashboardPanelQueryOptions,
   dashboardPollingQueryOptions,
@@ -32,6 +33,10 @@ import {
 import { copyToClipboard } from '@/lib/utils';
 
 export const Route = createFileRoute('/dashboard/collaboration')({
+  loader: ({ context: { queryClient } }) => {
+    warmDashboardCollaboration(queryClient);
+    return null;
+  },
   component: DashboardCollaboration,
 });
 

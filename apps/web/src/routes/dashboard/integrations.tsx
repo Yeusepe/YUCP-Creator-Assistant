@@ -27,10 +27,15 @@ import {
   rotatePublicApiKey,
   updateOAuthApp,
 } from '@/lib/dashboard';
+import { warmDashboardIntegrations } from '@/lib/dashboardPrefetch';
 import { dashboardPanelQueryOptions } from '@/lib/dashboardQueryOptions';
 import { copyToClipboard } from '@/lib/utils';
 
 export const Route = createFileRoute('/dashboard/integrations')({
+  loader: ({ context: { queryClient } }) => {
+    warmDashboardIntegrations(queryClient);
+    return null;
+  },
   component: DashboardIntegrations,
 });
 

@@ -15,6 +15,10 @@ const dashboardCertificatesRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/dashboard/certificates.tsx'),
   'utf8'
 );
+const dashboardPrefetchSource = readFileSync(
+  resolve(__dirname, '../../src/lib/dashboardPrefetch.ts'),
+  'utf8'
+);
 const accountComponentSource = readFileSync(
   resolve(__dirname, '../../src/components/account/AccountPage.tsx'),
   'utf8'
@@ -63,7 +67,11 @@ describe('account UI contracts', () => {
     expect(dashboardCertificatesRouteSource).toContain(
       "createFileRoute('/dashboard/certificates')"
     );
-    expect(dashboardCertificatesRouteSource).toContain('Manage billing');
+    expect(dashboardCertificatesRouteSource).toContain('Manage Billing');
+    expect(dashboardCertificatesRouteSource).toContain('warmDashboardCertificates(queryClient)');
+    expect(dashboardCertificatesRouteSource).not.toContain('ensureQueryData(');
+    expect(dashboardPrefetchSource).toContain("queryKey: ['creator-certificates']");
+    expect(dashboardPrefetchSource).toContain('prefetchQuery(');
   });
 
   it('supports creator-scoped plan and portal deep links for Unity billing handoff', () => {

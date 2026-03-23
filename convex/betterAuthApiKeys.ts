@@ -1,4 +1,5 @@
 import { v } from 'convex/values';
+import { components } from './_generated/api';
 import { mutation, query } from './_generated/server';
 import { createAuth } from './auth';
 import { requireApiSecret } from './lib/apiAuth';
@@ -23,16 +24,57 @@ function toTimestamp(value: unknown): number | null {
   return null;
 }
 
+function parseJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function parsePermissionStatements(value: unknown): Record<string, string[]> | null {
+  const record = parseJsonRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const normalized = Object.fromEntries(
+    Object.entries(record)
+      .map(([key, permissions]) => [
+        key,
+        Array.isArray(permissions)
+          ? permissions.filter((entry): entry is string => typeof entry === 'string')
+          : [],
+      ])
+      .filter(([, permissions]) => permissions.length > 0)
+  );
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
 function serializeApiKeyRecord(
   value: {
-    id: string;
+    id?: string;
+    _id?: string;
     userId: string;
     name: string | null;
     start: string | null;
     prefix: string | null;
-    enabled: boolean;
-    permissions?: Record<string, string[]> | null;
+    enabled: boolean | null;
+    permissions?: unknown;
     metadata?: unknown;
+    referenceId?: string | null;
     lastRequest?: unknown;
     expiresAt?: unknown;
     createdAt?: unknown;
@@ -43,10 +85,7 @@ function serializeApiKeyRecord(
     return null;
   }
 
-  const meta =
-    value.metadata && typeof value.metadata === 'object' && !Array.isArray(value.metadata)
-      ? (value.metadata as Record<string, unknown>)
-      : null;
+  const meta = parseJsonRecord(value.metadata);
 
   // Accept authUserId directly; fall back to tenantId for keys issued before migration.
   const resolvedAuthUserId =
@@ -65,13 +104,13 @@ function serializeApiKeyRecord(
       : null;
 
   return {
-    id: value.id,
+    id: value.id ?? value._id ?? '',
     userId: value.userId,
     name: value.name,
     start: value.start,
     prefix: value.prefix,
-    enabled: value.enabled,
-    permissions: value.permissions ?? null,
+    enabled: value.enabled !== false,
+    permissions: parsePermissionStatements(value.permissions),
     metadata,
     lastRequestAt: toTimestamp(value.lastRequest),
     expiresAt: toTimestamp(value.expiresAt),
@@ -142,6 +181,7 @@ interface BetterAuthServerApi {
         kind: string;
         authUserId: string;
       };
+      referenceId?: string;
       permissions: Record<string, string[]>;
     };
   }): Promise<{
@@ -203,6 +243,18 @@ interface BetterAuthServerApi {
   }>;
 }
 
+function isManagedPublicApiKeyForAuthUser(
+  value: ReturnType<typeof serializeApiKeyRecord>,
+  authUserId: string
+): value is NonNullable<ReturnType<typeof serializeApiKeyRecord>> {
+  return (
+    value !== null &&
+    value.id.length > 0 &&
+    value.metadata?.kind === PUBLIC_API_KEY_METADATA_KIND &&
+    value.metadata.authUserId === authUserId
+  );
+}
+
 export const listApiKeys = query({
   args: {},
   returns: v.array(SerializedApiKey),
@@ -217,6 +269,60 @@ export const listApiKeys = query({
       }
       return serialized;
     });
+  },
+});
+
+export const listApiKeysForAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  returns: v.array(SerializedApiKey),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const result = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: 'apikey',
+      where: [{ field: 'referenceId', operator: 'eq', value: args.authUserId }],
+      select: [
+        '_id',
+        'userId',
+        'name',
+        'start',
+        'prefix',
+        'enabled',
+        'permissions',
+        'metadata',
+        'lastRequest',
+        'expiresAt',
+        'createdAt',
+        'updatedAt',
+        'referenceId',
+      ],
+      paginationOpts: { cursor: null, numItems: 100 },
+    })) as {
+      page: Array<{
+        _id?: string;
+        userId: string;
+        name: string | null;
+        start: string | null;
+        prefix: string | null;
+        enabled: boolean | null;
+        permissions?: unknown;
+        metadata?: unknown;
+        referenceId?: string | null;
+        lastRequest?: unknown;
+        expiresAt?: unknown;
+        createdAt?: unknown;
+        updatedAt?: unknown;
+      }>;
+    };
+
+    return result.page
+      .map((record) => serializeApiKeyRecord(record))
+      .filter((record): record is NonNullable<typeof record> =>
+        isManagedPublicApiKeyForAuthUser(record, args.authUserId)
+      )
+      .sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));
   },
 });
 
@@ -260,6 +366,7 @@ export const createApiKey = mutation({
         name: args.name,
         prefix: PUBLIC_API_KEY_PREFIX,
         expiresIn: args.expiresIn,
+        referenceId: args.authUserId,
         metadata: {
           kind: PUBLIC_API_KEY_METADATA_KIND,
           authUserId: args.authUserId,
@@ -267,6 +374,15 @@ export const createApiKey = mutation({
         permissions: {
           [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: args.scopes,
         },
+      },
+    });
+    await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+      input: {
+        model: 'apikey',
+        update: {
+          referenceId: args.authUserId,
+        },
+        where: [{ field: '_id', operator: 'eq', value: created.id }],
       },
     });
     const serialized = serializeApiKeyRecord(created);
@@ -278,6 +394,79 @@ export const createApiKey = mutation({
       key: created.key,
       apiKey: serialized,
     };
+  },
+});
+
+export const backfillApiKeyReferenceIds = mutation({
+  args: {
+    apiSecret: v.string(),
+    ownerUserId: v.string(),
+    authUserId: v.string(),
+  },
+  returns: v.object({
+    updatedCount: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const result = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: 'apikey',
+      where: [{ field: 'userId', operator: 'eq', value: args.ownerUserId }],
+      select: [
+        '_id',
+        'userId',
+        'name',
+        'start',
+        'prefix',
+        'enabled',
+        'permissions',
+        'metadata',
+        'referenceId',
+        'lastRequest',
+        'expiresAt',
+        'createdAt',
+        'updatedAt',
+      ],
+      paginationOpts: { cursor: null, numItems: 100 },
+    })) as {
+      page: Array<{
+        _id?: string;
+        userId: string;
+        name: string | null;
+        start: string | null;
+        prefix: string | null;
+        enabled: boolean | null;
+        permissions?: unknown;
+        metadata?: unknown;
+        referenceId?: string | null;
+        lastRequest?: unknown;
+        expiresAt?: unknown;
+        createdAt?: unknown;
+        updatedAt?: unknown;
+      }>;
+    };
+
+    const legacyKeys = result.page
+      .map((record) => serializeApiKeyRecord(record))
+      .filter((record): record is NonNullable<typeof record> =>
+        isManagedPublicApiKeyForAuthUser(record, args.authUserId)
+      )
+      .filter((record) => record.id.length > 0);
+
+    let updatedCount = 0;
+    for (const key of legacyKeys) {
+      await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+        input: {
+          model: 'apikey',
+          update: {
+            referenceId: args.authUserId,
+          },
+          where: [{ field: '_id', operator: 'eq', value: key.id }],
+        },
+      });
+      updatedCount += 1;
+    }
+
+    return { updatedCount };
   },
 });
 
