@@ -620,6 +620,15 @@
   color: rgba(226, 232, 240, 0.84);
 }
 
+.account-badge--warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+.dark .account-badge--warning {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+}
+
 .account-badge--scope {
   background: rgba(124, 58, 237, 0.1);
   color: #6d28d9;
@@ -756,6 +765,171 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.account-status-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.68);
+}
+.dark .account-status-banner {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.account-status-banner--success {
+  border-color: rgba(34, 197, 94, 0.16);
+  background: rgba(34, 197, 94, 0.05);
+}
+.dark .account-status-banner--success {
+  border-color: rgba(74, 222, 128, 0.2);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.account-status-banner--warning {
+  border-color: rgba(245, 158, 11, 0.18);
+  background: rgba(245, 158, 11, 0.06);
+}
+.dark .account-status-banner--warning {
+  border-color: rgba(251, 191, 36, 0.2);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.account-status-banner--danger {
+  border-color: rgba(239, 68, 68, 0.18);
+  background: rgba(239, 68, 68, 0.05);
+}
+.dark .account-status-banner--danger {
+  border-color: rgba(248, 113, 113, 0.2);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.account-status-banner--neutral {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.68);
+}
+.dark .account-status-banner--neutral {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.account-status-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.account-stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.62);
+}
+.dark .account-stat-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.account-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.dark .account-stat-label {
+  color: #94a3b8;
+}
+
+.account-stat-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.dark .account-stat-value {
+  color: #f8fafc;
+}
+
+.account-plan-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.account-plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.62);
+}
+.dark .account-plan-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.account-plan-card.is-current {
+  border-color: rgba(14, 165, 233, 0.24);
+  background: rgba(14, 165, 233, 0.05);
+}
+.dark .account-plan-card.is-current {
+  border-color: rgba(125, 211, 252, 0.24);
+  background: rgba(14, 165, 233, 0.1);
+}
+
+.account-plan-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-plan-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.dark .account-plan-name {
+  color: #f8fafc;
+}
+
+.account-plan-meta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+.dark .account-plan-meta {
+  color: rgba(226, 232, 240, 0.74);
+}
+
+.account-plan-feature-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.dark .account-plan-feature-list {
+  color: rgba(226, 232, 240, 0.76);
 }
 
 .account-empty {
@@ -1019,6 +1193,10 @@
   }
 
   .account-shortcut-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .account-stat-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

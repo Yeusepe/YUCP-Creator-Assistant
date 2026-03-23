@@ -14,6 +14,10 @@ let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 
 const apiMock = {
+  certificateBilling: {
+    getAccountOverview: 'certificateBilling.getAccountOverview',
+    revokeOwnedCertificate: 'certificateBilling.revokeOwnedCertificate',
+  },
   creatorProfiles: {
     getCreatorProfile: 'creatorProfiles.getCreatorProfile',
   },
@@ -91,6 +95,8 @@ const testConfig: ConnectConfig = {
 const auth = {
   getSession: async () => null,
   getDiscordUserId: async () => null,
+  createPolarCheckout: async () => null,
+  createPolarPortal: async () => null,
 } as unknown as Auth;
 
 const routes = createConnectRoutes(auth, testConfig);
@@ -296,6 +302,175 @@ describe('POST /api/connect/settings (setup-session path)', () => {
       body: JSON.stringify({ key: 'allowMismatchedEmails', value: true }),
     });
     const res = await routes.updateSettingHandler(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean };
+    expect(body.success).toBe(true);
+  });
+});
+
+describe('GET /api/connect/user/certificates', () => {
+  it('returns 401 without an authenticated account session', async () => {
+    const req = new Request('http://localhost:3001/api/connect/user/certificates');
+    const res = await routes.getUserCertificates(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns the certificate workspace overview for the authenticated account', async () => {
+    queryImpl = async (reference: unknown) => {
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return {
+          workspaceKey: 'creator-profile:abc123',
+          creatorProfileId: 'abc123',
+          billing: {
+            billingEnabled: true,
+            status: 'active',
+            allowEnrollment: true,
+            allowSigning: true,
+            planKey: 'pro',
+            deviceCap: 5,
+            activeDeviceCount: 1,
+          },
+          devices: [
+            {
+              certNonce: 'cert_nonce_1',
+              devPublicKey: 'dev_public_key_1',
+              publisherId: 'publisher_1',
+              publisherName: 'Test Publisher',
+              issuedAt: 1,
+              expiresAt: 2,
+              status: 'active',
+            },
+          ],
+          availablePlans: [],
+        };
+      }
+      return null;
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-1',
+        },
+      }),
+      createPolarCheckout: async () => null,
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates');
+    const res = await isolatedRoutes.getUserCertificates(req);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      workspaceKey: string;
+      billing: { planKey: string };
+      devices: Array<{ certNonce: string }>;
+    };
+    expect(body.workspaceKey).toBe('creator-profile:abc123');
+    expect(body.billing.planKey).toBe('pro');
+    expect(body.devices[0]?.certNonce).toBe('cert_nonce_1');
+  });
+});
+
+describe('POST /api/connect/user/certificates/checkout', () => {
+  it('passes the workspace key to Polar checkout as referenceId and metadata', async () => {
+    queryImpl = async (reference: unknown) => {
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return {
+          workspaceKey: 'creator-profile:checkout-1',
+          creatorProfileId: 'checkout-1',
+          billing: {
+            billingEnabled: true,
+            status: 'inactive',
+            allowEnrollment: false,
+            allowSigning: false,
+            activeDeviceCount: 0,
+          },
+          devices: [],
+          availablePlans: [
+            {
+              planKey: 'starter',
+              slug: 'starter',
+              productId: 'prod_starter',
+              priority: 1,
+              deviceCap: 2,
+              auditRetentionDays: 30,
+              supportTier: 'standard',
+              billingGraceDays: 3,
+            },
+          ],
+        };
+      }
+      return null;
+    };
+
+    let checkoutPayload: Record<string, unknown> | null = null;
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-2',
+        },
+      }),
+      createPolarCheckout: async (_request: Request, payload: Record<string, unknown>) => {
+        checkoutPayload = payload;
+        return {
+          url: 'https://polar.example.test/checkout',
+          redirect: false,
+        };
+      },
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planKey: 'starter' }),
+    });
+    const res = await isolatedRoutes.createUserCertificateCheckout(req);
+
+    expect(res.status).toBe(200);
+    expect(checkoutPayload).toMatchObject({
+      slug: 'starter',
+      referenceId: 'creator-profile:checkout-1',
+      metadata: {
+        workspace_key: 'creator-profile:checkout-1',
+        plan_key: 'starter',
+      },
+    });
+  });
+});
+
+describe('POST /api/connect/user/certificates/revoke', () => {
+  it('revokes an owned signing device from the account session flow', async () => {
+    mutationImpl = async (reference: unknown, args: unknown) => {
+      expect(reference).toBe(apiMock.certificateBilling.revokeOwnedCertificate);
+      expect(args).toMatchObject({
+        authUserId: 'session-user-3',
+        certNonce: 'cert_nonce_2',
+      });
+      return { revoked: true };
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-3',
+        },
+      }),
+      createPolarCheckout: async () => null,
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ certNonce: 'cert_nonce_2' }),
+    });
+    const res = await isolatedRoutes.revokeUserCertificate(req);
+
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);

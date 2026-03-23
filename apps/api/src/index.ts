@@ -145,6 +145,16 @@ function initializeAuth(webhookBaseUrl?: string) {
     getRequired('VRCHAT_PENDING_STATE_SECRET');
     getRequired('ENCRYPTION_SECRET');
   }
+  const configuredPolarKeys = [
+    env.POLAR_ACCESS_TOKEN,
+    env.POLAR_WEBHOOK_SECRET,
+    env.POLAR_CERT_PRODUCTS_JSON,
+  ].filter((value) => typeof value === 'string' && value.trim()).length;
+  if (configuredPolarKeys > 0 && configuredPolarKeys < 3) {
+    throw new Error(
+      'POLAR_ACCESS_TOKEN, POLAR_WEBHOOK_SECRET, and POLAR_CERT_PRODUCTS_JSON must be configured together'
+    );
+  }
   const siteUrl = env.SITE_URL ?? 'http://localhost:3001';
   // Use a tunnel only for externally reachable webhook/install callbacks.
   const publicBaseUrl = webhookBaseUrl ?? siteUrl;
@@ -669,6 +679,20 @@ async function routeRequest(request: Request): Promise<Response> {
     if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
     if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/connect/user/certificates' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getUserCertificates(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/connect/user/certificates/checkout' && connectRoutes) {
+    return connectRoutes.createUserCertificateCheckout(request);
+  }
+  if (pathname === '/api/connect/user/certificates/portal' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getUserCertificatePortal(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/connect/user/certificates/revoke' && connectRoutes) {
+    return connectRoutes.revokeUserCertificate(request);
   }
   if (pathname === '/api/connect/user/licenses' && connectRoutes) {
     if (request.method === 'GET') return connectRoutes.getUserLicenses(request);

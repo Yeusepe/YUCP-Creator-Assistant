@@ -26,6 +26,52 @@ export interface OAuthGrant {
   updatedAt: number | null;
 }
 
+export interface UserCertificateBillingSummary {
+  billingEnabled: boolean;
+  status: string;
+  allowEnrollment: boolean;
+  allowSigning: boolean;
+  planKey: string | null;
+  deviceCap: number | null;
+  activeDeviceCount: number;
+  signQuotaPerPeriod: number | null;
+  auditRetentionDays: number | null;
+  supportTier: string | null;
+  currentPeriodEnd: number | null;
+  graceUntil: number | null;
+  reason: string | null;
+}
+
+export interface UserCertificateDevice {
+  certNonce: string;
+  devPublicKey: string;
+  publisherId: string;
+  publisherName: string;
+  issuedAt: number;
+  expiresAt: number;
+  status: string;
+}
+
+export interface UserCertificatePlan {
+  planKey: string;
+  slug: string;
+  productId: string;
+  priority: number;
+  deviceCap: number;
+  signQuotaPerPeriod: number | null;
+  auditRetentionDays: number;
+  supportTier: string;
+  billingGraceDays: number;
+}
+
+export interface UserCertificateWorkspace {
+  workspaceKey: string;
+  creatorProfileId: string | null;
+  billing: UserCertificateBillingSummary;
+  devices: UserCertificateDevice[];
+  availablePlans: UserCertificatePlan[];
+}
+
 function padTwoDigits(value: number) {
   return value.toString().padStart(2, '0');
 }
@@ -78,6 +124,48 @@ export async function revokeUserLicense(entitlementId: string) {
 export async function listUserOAuthGrants() {
   const data = await apiClient.get<{ grants?: OAuthGrant[] }>('/api/connect/user/oauth/grants');
   return data.grants ?? [];
+}
+
+export async function listUserCertificates() {
+  const data = await apiClient.get<UserCertificateWorkspace>('/api/connect/user/certificates');
+  return {
+    ...data,
+    creatorProfileId: data.creatorProfileId ?? null,
+    billing: {
+      ...data.billing,
+      planKey: data.billing.planKey ?? null,
+      deviceCap: data.billing.deviceCap ?? null,
+      signQuotaPerPeriod: data.billing.signQuotaPerPeriod ?? null,
+      auditRetentionDays: data.billing.auditRetentionDays ?? null,
+      supportTier: data.billing.supportTier ?? null,
+      currentPeriodEnd: data.billing.currentPeriodEnd ?? null,
+      graceUntil: data.billing.graceUntil ?? null,
+      reason: data.billing.reason ?? null,
+    },
+    availablePlans: data.availablePlans.map((plan) => ({
+      ...plan,
+      signQuotaPerPeriod: plan.signQuotaPerPeriod ?? null,
+    })),
+  } satisfies UserCertificateWorkspace;
+}
+
+export async function createUserCertificateCheckout(planKey: string) {
+  return apiClient.post<{
+    url: string;
+    redirect: boolean;
+    workspaceKey: string;
+    planKey: string;
+  }>('/api/connect/user/certificates/checkout', { planKey });
+}
+
+export async function getUserCertificatePortal() {
+  return apiClient.get<{ url: string; redirect: boolean }>('/api/connect/user/certificates/portal');
+}
+
+export async function revokeUserCertificate(certNonce: string) {
+  return apiClient.post<{ success: boolean }>('/api/connect/user/certificates/revoke', {
+    certNonce,
+  });
 }
 
 export async function revokeUserOAuthGrant(consentId: string) {

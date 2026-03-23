@@ -120,6 +120,46 @@ interface OAuthAppMappingRecord {
   scopes: string[];
 }
 
+interface CertificateOverview {
+  workspaceKey: string;
+  creatorProfileId?: string;
+  billing: {
+    billingEnabled: boolean;
+    status: string;
+    allowEnrollment: boolean;
+    allowSigning: boolean;
+    planKey?: string;
+    deviceCap?: number;
+    activeDeviceCount: number;
+    signQuotaPerPeriod?: number;
+    auditRetentionDays?: number;
+    supportTier?: string;
+    currentPeriodEnd?: number;
+    graceUntil?: number;
+    reason?: string;
+  };
+  devices: Array<{
+    certNonce: string;
+    devPublicKey: string;
+    publisherId: string;
+    publisherName: string;
+    issuedAt: number;
+    expiresAt: number;
+    status: string;
+  }>;
+  availablePlans: Array<{
+    planKey: string;
+    slug: string;
+    productId: string;
+    priority: number;
+    deviceCap: number;
+    signQuotaPerPeriod?: number;
+    auditRetentionDays: number;
+    supportTier: string;
+    billingGraceDays: number;
+  }>;
+}
+
 function toTimestamp(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -2506,6 +2546,175 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
   }
 
+  async function getUserCertificateOverviewForAuthUser(
+    authUserId: string
+  ): Promise<CertificateOverview> {
+    const convex = getConvexClientFromUrl(config.convexUrl);
+    return (await convex.query(api.certificateBilling.getAccountOverview, {
+      apiSecret: config.convexApiSecret,
+      authUserId,
+    })) as CertificateOverview;
+  }
+
+  async function getUserCertificates(request: Request): Promise<Response> {
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    try {
+      const overview = await getUserCertificateOverviewForAuthUser(session.user.id);
+      return Response.json(overview);
+    } catch (err) {
+      logger.error('Failed to get certificate workspace overview', {
+        authUserId: session.user.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to fetch certificate workspace' }, { status: 500 });
+    }
+  }
+
+  async function createUserCertificateCheckout(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    let body: { planKey?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    if (!body.planKey?.trim()) {
+      return Response.json({ error: 'planKey is required' }, { status: 400 });
+    }
+
+    try {
+      const overview = await getUserCertificateOverviewForAuthUser(session.user.id);
+      if (!overview.billing.billingEnabled || overview.availablePlans.length === 0) {
+        return Response.json({ error: 'Certificate billing is not configured' }, { status: 503 });
+      }
+
+      const plan = overview.availablePlans.find((entry) => entry.planKey === body.planKey?.trim());
+      if (!plan) {
+        return Response.json({ error: 'Unknown certificate plan' }, { status: 404 });
+      }
+
+      const checkout = await auth.createPolarCheckout(request, {
+        slug: plan.slug,
+        referenceId: overview.workspaceKey,
+        metadata: {
+          workspace_key: overview.workspaceKey,
+          plan_key: plan.planKey,
+        },
+        redirect: false,
+      });
+      if (!checkout) {
+        return Response.json(
+          { error: 'Could not initialize certificate checkout for this session' },
+          { status: 409 }
+        );
+      }
+
+      return Response.json({
+        url: checkout.url,
+        redirect: checkout.redirect,
+        workspaceKey: overview.workspaceKey,
+        planKey: plan.planKey,
+      });
+    } catch (err) {
+      logger.error('Failed to create certificate checkout', {
+        authUserId: session.user.id,
+        planKey: body.planKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to create certificate checkout' }, { status: 500 });
+    }
+  }
+
+  async function getUserCertificatePortal(request: Request): Promise<Response> {
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    try {
+      const portal = await auth.createPolarPortal(request, { redirect: false });
+      if (!portal) {
+        return Response.json(
+          { error: 'No billing portal is available for this account yet' },
+          { status: 409 }
+        );
+      }
+
+      return Response.json({
+        url: portal.url,
+        redirect: portal.redirect,
+      });
+    } catch (err) {
+      logger.error('Failed to create certificate billing portal session', {
+        authUserId: session.user.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to open billing portal' }, { status: 500 });
+    }
+  }
+
+  async function revokeUserCertificate(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    let body: { certNonce?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    if (!body.certNonce?.trim()) {
+      return Response.json({ error: 'certNonce is required' }, { status: 400 });
+    }
+
+    try {
+      await getConvexClientFromUrl(config.convexUrl).mutation(
+        api.certificateBilling.revokeOwnedCertificate,
+        {
+          apiSecret: config.convexApiSecret,
+          authUserId: session.user.id,
+          certNonce: body.certNonce.trim(),
+          reason: 'User-initiated device revoke from account portal',
+        }
+      );
+      return Response.json({ success: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('Unauthorized')) {
+        return Response.json({ error: 'Not authorized to revoke this device' }, { status: 403 });
+      }
+      if (message.includes('not found')) {
+        return Response.json({ error: 'Certificate device not found' }, { status: 404 });
+      }
+      logger.error('Failed to revoke certificate device', {
+        authUserId: session.user.id,
+        certNonce: body.certNonce,
+        error: message,
+      });
+      return Response.json({ error: 'Failed to revoke certificate device' }, { status: 500 });
+    }
+  }
+
   /**
    * DELETE /api/connect/user/entitlements/:entitlementId
    * Revokes a specific entitlement owned by the authenticated user.
@@ -3106,6 +3315,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     postUserVerifyStart,
     getUserAccounts,
     deleteUserAccount,
+    getUserCertificates,
+    createUserCertificateCheckout,
+    getUserCertificatePortal,
+    revokeUserCertificate,
     getUserLicenses,
     revokeUserEntitlement,
     getUserOAuthGrants,

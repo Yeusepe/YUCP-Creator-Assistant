@@ -26,7 +26,63 @@ import { type CertData, type CertEnvelope, signCertData } from './lib/yucpCrypto
 const CERT_TTL_DAYS = 90;
 const RATE_LIMIT_DAYS = 30;
 const NEW_KEY_RATE_LIMIT = 5; // max new machine keys per 30 days per account
+const RENEWAL_OVERLAP_WINDOW_DAYS = 14;
 const ISSUER = 'YUCP Certificate Authority';
+
+type StoredCertificate = {
+  certData: string;
+  certNonce: string;
+  createdAt: number;
+  devPublicKey: string;
+  expiresAt: number;
+  issuedAt: number;
+  publisherId: string;
+  publisherName: string;
+  status: 'active' | 'revoked' | 'expired';
+  updatedAt: number;
+  yucpUserId: string;
+};
+
+export function isWithinRenewalOverlapWindow(expiresAt: number, now = Date.now()): boolean {
+  return expiresAt > now && expiresAt - now <= RENEWAL_OVERLAP_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+}
+
+export function selectLatestActiveCertificate<T extends StoredCertificate>(
+  certificates: T[],
+  now = Date.now()
+): T | null {
+  return (
+    certificates
+      .filter((certificate) => certificate.status === 'active' && certificate.expiresAt > now)
+      .sort((left, right) => right.issuedAt - left.issuedAt)[0] ?? null
+  );
+}
+
+export function summarizeActiveCertificatesByDevice<T extends StoredCertificate>(
+  certificates: T[],
+  now = Date.now()
+): T[] {
+  const latestByDevice = new Map<string, T>();
+  for (const certificate of certificates) {
+    if (certificate.status !== 'active' || certificate.expiresAt <= now) continue;
+    const existing = latestByDevice.get(certificate.devPublicKey);
+    if (!existing || certificate.issuedAt > existing.issuedAt) {
+      latestByDevice.set(certificate.devPublicKey, certificate);
+    }
+  }
+
+  return [...latestByDevice.values()].sort((left, right) => right.issuedAt - left.issuedAt);
+}
+
+export function countDistinctActiveDeviceKeys<
+  T extends Pick<StoredCertificate, 'devPublicKey' | 'expiresAt' | 'status'>,
+>(certificates: T[], now = Date.now()): number {
+  return new Set(
+    certificates
+      .filter((certificate) => certificate.status === 'active' && certificate.expiresAt > now)
+      .map((certificate) => certificate.devPublicKey)
+  ).size;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal mutations
@@ -99,6 +155,25 @@ export const revokeCertByNonce = internalMutation({
   },
 });
 
+export const revokeOwnedCertByNonce = internalMutation({
+  args: { yucpUserId: v.string(), certNonce: v.string(), reason: v.string() },
+  handler: async (ctx, args) => {
+    const cert = await ctx.db
+      .query('yucp_certificates')
+      .withIndex('by_cert_nonce', (q) => q.eq('certNonce', args.certNonce))
+      .first();
+    if (!cert) return { revoked: false, notFound: true as const };
+    if (cert.yucpUserId !== args.yucpUserId) return { revoked: false, forbidden: true as const };
+    await ctx.db.patch(cert._id, {
+      status: 'revoked',
+      revocationReason: args.reason,
+      revokedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return { revoked: true as const };
+  },
+});
+
 export const recordIssuance = internalMutation({
   args: {
     yucpUserId: v.string(),
@@ -155,10 +230,11 @@ export const checkRateLimit = internalQuery({
 export const getCertByPublisherId = internalQuery({
   args: { publisherId: v.string() },
   handler: async (ctx, args) => {
+    const now = Date.now();
     return await ctx.db
       .query('yucp_certificates')
       .withIndex('by_publisher_id', (q) => q.eq('publisherId', args.publisherId))
-      .filter((q) => q.eq(q.field('status'), 'active'))
+      .filter((q) => q.and(q.eq(q.field('status'), 'active'), q.gt(q.field('expiresAt'), now)))
       .first();
   },
 });
@@ -166,10 +242,11 @@ export const getCertByPublisherId = internalQuery({
 export const getCertByDevPublicKey = internalQuery({
   args: { devPublicKey: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const certs = await ctx.db
       .query('yucp_certificates')
       .withIndex('by_dev_public_key', (q) => q.eq('devPublicKey', args.devPublicKey))
-      .first();
+      .collect();
+    return certs.sort((left, right) => right.issuedAt - left.issuedAt)[0] ?? null;
   },
 });
 
@@ -186,13 +263,36 @@ export const getCertByNonce = internalQuery({
 export const getActiveCertForUser = internalQuery({
   args: { yucpUserId: v.string(), devPublicKey: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const certs = await ctx.db
       .query('yucp_certificates')
       .withIndex('by_dev_public_key', (q) => q.eq('devPublicKey', args.devPublicKey))
-      .filter((q) =>
-        q.and(q.eq(q.field('yucpUserId'), args.yucpUserId), q.eq(q.field('status'), 'active'))
-      )
-      .first();
+      .filter((q) => q.eq(q.field('yucpUserId'), args.yucpUserId))
+      .collect();
+    return selectLatestActiveCertificate(certs);
+  },
+});
+
+export const countActiveCertsForUser = internalQuery({
+  args: { yucpUserId: v.string() },
+  handler: async (ctx, args) => {
+    const certs = await ctx.db
+      .query('yucp_certificates')
+      .withIndex('by_yucp_user_id', (q) => q.eq('yucpUserId', args.yucpUserId))
+      .collect();
+
+    return countDistinctActiveDeviceKeys(certs);
+  },
+});
+
+export const listActiveCertsForUser = internalQuery({
+  args: { yucpUserId: v.string() },
+  handler: async (ctx, args) => {
+    const certs = await ctx.db
+      .query('yucp_certificates')
+      .withIndex('by_yucp_user_id', (q) => q.eq('yucpUserId', args.yucpUserId))
+      .collect();
+
+    return summarizeActiveCertificatesByDevice(certs);
   },
 });
 
@@ -219,6 +319,7 @@ export const issueCertificate = internalAction({
     discordUserId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<CertEnvelope> => {
+    const now = new Date();
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
     const keyId = process.env.YUCP_KEY_ID ?? 'yucp-root-2025';
     if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
@@ -235,6 +336,22 @@ export const issueCertificate = internalAction({
       );
     }
 
+    const existingActive = await ctx.runQuery(internal.yucpCertificates.getActiveCertForUser, {
+      yucpUserId: args.yucpUserId,
+      devPublicKey: args.devPublicKey,
+    });
+    if (existingActive) {
+      const existingEnvelope = JSON.parse(existingActive.certData) as CertEnvelope;
+      const existingIssuedAt = Date.parse(existingEnvelope.cert.issuedAt);
+      if (
+        !isWithinRenewalOverlapWindow(existingActive.expiresAt) ||
+        (Number.isFinite(existingIssuedAt) &&
+          now.getTime() - existingIssuedAt < 24 * 60 * 60 * 1000)
+      ) {
+        return existingEnvelope;
+      }
+    }
+
     // Reuse publisherId for the same devPublicKey (key rotation keeps identity stable)
     const existingByKey = await ctx.runQuery(internal.yucpCertificates.getCertByDevPublicKey, {
       devPublicKey: args.devPublicKey,
@@ -248,15 +365,6 @@ export const issueCertificate = internalAction({
 
     const publisherId = existingByKey?.publisherId ?? crypto.randomUUID();
 
-    // Revoke any active certs for this publisher before issuing a new one
-    if (existingByKey?.status === 'active') {
-      await ctx.runMutation(internal.yucpCertificates.autoRevokeActiveForPublisher, {
-        publisherId,
-        reason: 'Superseded by new certificate issuance',
-      });
-    }
-
-    const now = new Date();
     const expiresAt = new Date(now.getTime() + CERT_TTL_DAYS * 24 * 60 * 60 * 1000);
     const certNonce = crypto.randomUUID();
 

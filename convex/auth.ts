@@ -14,14 +14,17 @@ import { oauthProvider } from '@better-auth/oauth-provider';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import { createClient } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
+import { checkout, polar, portal, webhooks } from '@polar-sh/better-auth';
+import { Polar } from '@polar-sh/sdk';
 import type { BetterAuthOptions } from 'better-auth';
 import { betterAuth } from 'better-auth';
 import { jwt } from 'better-auth/plugins';
-import { components } from './_generated/api';
+import { components, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
 import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
 import authSchema from './betterAuth/schema';
+import { getCertificateBillingConfig } from './lib/certificateBillingConfig';
 import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
 
@@ -117,6 +120,76 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
   const cachedTrustedClients = parseCachedTrustedClients(
     process.env.PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON
   );
+  const certificateBillingConfig = getCertificateBillingConfig();
+  const polarPlugins =
+    certificateBillingConfig.enabled && certificateBillingConfig.polarAccessToken
+      ? [
+          polar({
+            client: new Polar({
+              accessToken: certificateBillingConfig.polarAccessToken,
+              ...(certificateBillingConfig.polarServer
+                ? { server: certificateBillingConfig.polarServer }
+                : {}),
+            }),
+            createCustomerOnSignUp: true,
+            getCustomerCreateParams: async ({ user }) => ({
+              metadata: {
+                certificate_billing: true,
+                yucp_user_id: user.id ?? '',
+              },
+            }),
+            use: [
+              checkout({
+                products: certificateBillingConfig.products.map((product) => ({
+                  productId: product.productId,
+                  slug: product.slug,
+                })),
+                successUrl: `${siteUrl.replace(/\/$/, '')}/account?checkout_id={CHECKOUT_ID}`,
+                returnUrl: `${siteUrl.replace(/\/$/, '')}/account`,
+                authenticatedUsersOnly: true,
+              }),
+              portal({
+                returnUrl: `${siteUrl.replace(/\/$/, '')}/account`,
+              }),
+              webhooks({
+                secret: certificateBillingConfig.polarWebhookSecret ?? '',
+                onCustomerStateChanged: async (payload) => {
+                  const authUserId = payload.data.externalId?.trim();
+                  if (!authUserId) return;
+                  if (!('runMutation' in ctx)) {
+                    throw new Error(
+                      'Polar webhook projection requires mutation-capable auth context'
+                    );
+                  }
+
+                  await ctx.runMutation(internal.certificateBilling.projectCustomerStateChanged, {
+                    authUserId,
+                    polarCustomerId: payload.data.id,
+                    customerEmail: payload.data.email,
+                    activeSubscriptions: payload.data.activeSubscriptions.map((subscription) => ({
+                      subscriptionId: subscription.id,
+                      productId: subscription.productId,
+                      status: subscription.status,
+                      recurringInterval: subscription.recurringInterval,
+                      currentPeriodStart: subscription.currentPeriodStart.getTime(),
+                      currentPeriodEnd: subscription.currentPeriodEnd.getTime(),
+                      cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+                      metadata: Object.fromEntries(
+                        Object.entries(subscription.metadata ?? {}).filter(
+                          ([, value]) =>
+                            typeof value === 'string' ||
+                            typeof value === 'number' ||
+                            typeof value === 'boolean'
+                        )
+                      ) as Record<string, string | number | boolean>,
+                    })),
+                  });
+                },
+              }),
+            ],
+          }),
+        ]
+      : [];
 
   return {
     secret: betterAuthSecret,
@@ -179,6 +252,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
           email: user?.email ?? null,
         }),
       }),
+      ...polarPlugins,
       vrchat(),
     ],
     session: {

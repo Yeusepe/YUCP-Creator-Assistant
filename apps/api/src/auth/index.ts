@@ -85,6 +85,25 @@ interface BetterAuthApiKeyResponse {
   updatedAt?: unknown;
 }
 
+interface PolarCheckoutRequest {
+  products?: string | string[];
+  slug?: string;
+  referenceId?: string;
+  metadata?: Record<string, string | number | boolean>;
+  redirect?: boolean;
+  successUrl?: string;
+  returnUrl?: string;
+}
+
+interface PolarCheckoutResponse {
+  url: string;
+  redirect: boolean;
+}
+
+interface PolarPortalRequest {
+  redirect?: boolean;
+}
+
 type ViewerData = {
   authUserId: string;
   name?: string | null;
@@ -351,6 +370,41 @@ export function createAuth(config: AuthConfig) {
     }
   }
 
+  async function postBetterAuthJson<T>(
+    request: Request,
+    path: string,
+    body: unknown
+  ): Promise<T | null> {
+    const cookieHeader = getBetterAuthCookieHeader(request);
+    if (!cookieHeader) {
+      return null;
+    }
+
+    try {
+      const { response } = await callInternalAuth(path, {
+        method: 'POST',
+        cookieHeader,
+        body,
+      });
+
+      if (!response.ok) {
+        logger.warn('Better Auth endpoint mutation failed', {
+          path,
+          status: response.status,
+        });
+        return null;
+      }
+
+      return (await response.json()) as T;
+    } catch (error) {
+      logger.warn('Failed to post Better Auth endpoint', {
+        path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
   return {
     async getSession(request: Request): Promise<SessionData | null> {
       const viewer = await resolveViewer(getAuthToken(request));
@@ -400,6 +454,20 @@ export function createAuth(config: AuthConfig) {
         limit: data?.limit,
         offset: data?.offset,
       };
+    },
+
+    async createPolarCheckout(
+      request: Request,
+      payload: PolarCheckoutRequest
+    ): Promise<PolarCheckoutResponse | null> {
+      return postBetterAuthJson<PolarCheckoutResponse>(request, '/checkout', payload);
+    },
+
+    async createPolarPortal(
+      request: Request,
+      payload?: PolarPortalRequest
+    ): Promise<PolarCheckoutResponse | null> {
+      return postBetterAuthJson<PolarCheckoutResponse>(request, '/customer/portal', payload ?? {});
     },
 
     async persistVrchatSession(

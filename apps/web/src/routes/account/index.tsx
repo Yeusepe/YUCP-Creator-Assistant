@@ -3,7 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { useAuth } from '@/hooks/useAuth';
-import { listUserLicenses, listUserOAuthGrants } from '@/lib/account';
+import { listUserCertificates, listUserLicenses, listUserOAuthGrants } from '@/lib/account';
 import { authClient } from '@/lib/auth-client';
 import { listUserAccounts, listUserProviders } from '@/lib/dashboard';
 
@@ -34,6 +34,10 @@ function AccountProfile() {
     queryKey: ['user-licenses'],
     queryFn: listUserLicenses,
   });
+  const certificatesQuery = useQuery({
+    queryKey: ['user-certificates'],
+    queryFn: listUserCertificates,
+  });
   const grantsQuery = useQuery({
     queryKey: ['user-oauth-grants'],
     queryFn: listUserOAuthGrants,
@@ -51,6 +55,7 @@ function AccountProfile() {
   const activeLicenses = entitlements.filter(
     (entitlement) => entitlement.status === 'active'
   ).length;
+  const certificateWorkspace = certificatesQuery.data;
   const authorizedApps = grantsQuery.data;
   const availableProviders = providersQuery.data;
   const connectedLabels = accounts
@@ -154,6 +159,15 @@ function AccountProfile() {
             </span>
           </div>
           <div className="account-kv-row">
+            <span className="account-kv-label">Signing devices</span>
+            <span className="account-kv-value">
+              {renderMetricValue(
+                certificatesQuery,
+                certificateWorkspace?.billing.activeDeviceCount ?? 0
+              )}
+            </span>
+          </div>
+          <div className="account-kv-row">
             <span className="account-kv-label">Available providers</span>
             <span className="account-kv-value">
               {renderMetricValue(providersQuery, availableProviders?.length ?? 0)}
@@ -187,6 +201,12 @@ function AccountProfile() {
             <span className="account-shortcut-title">Verified Purchases</span>
             <span className="account-shortcut-desc">
               Review active access and deactivate licenses when needed.
+            </span>
+          </Link>
+          <Link to="/account/certificates" className="account-shortcut-card">
+            <span className="account-shortcut-title">Certificates & Billing</span>
+            <span className="account-shortcut-desc">
+              Review signing devices, subscription status, and recovery-safe billing controls.
             </span>
           </Link>
           <Link to="/account/authorized-apps" className="account-shortcut-card">

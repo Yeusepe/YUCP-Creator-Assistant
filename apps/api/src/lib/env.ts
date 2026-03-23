@@ -52,6 +52,11 @@ export interface LocalEnv {
   // Email (Resend)
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
+  // Polar certificate billing
+  POLAR_ACCESS_TOKEN?: string;
+  POLAR_WEBHOOK_SECRET?: string;
+  POLAR_CERT_PRODUCTS_JSON?: string;
+  POLAR_SERVER?: string;
 }
 
 async function fetchFromInfisical(): Promise<Record<string, string>> {
@@ -132,6 +137,10 @@ function loadFromEnv(): LocalEnv {
     REDIS_URL: process.env.REDIS_URL,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     EMAIL_FROM: process.env.EMAIL_FROM,
+    POLAR_ACCESS_TOKEN: process.env.POLAR_ACCESS_TOKEN,
+    POLAR_WEBHOOK_SECRET: process.env.POLAR_WEBHOOK_SECRET,
+    POLAR_CERT_PRODUCTS_JSON: process.env.POLAR_CERT_PRODUCTS_JSON,
+    POLAR_SERVER: process.env.POLAR_SERVER,
   };
 }
 

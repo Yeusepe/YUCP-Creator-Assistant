@@ -1463,6 +1463,12 @@ const account_deletion_requests = defineTable({
 // ============================================================================
 
 const YucpCertStatus = v.union(v.literal('active'), v.literal('revoked'), v.literal('expired'));
+const CreatorBillingStatus = v.union(
+  v.literal('active'),
+  v.literal('grace'),
+  v.literal('inactive'),
+  v.literal('suspended')
+);
 
 /** Issued YUCP publisher certificates (schemaVersion 2+, identity-anchored) */
 const yucp_certificates = defineTable({
@@ -1495,6 +1501,74 @@ const yucp_certificates = defineTable({
   .index('by_dev_public_key', ['devPublicKey'])
   .index('by_cert_nonce', ['certNonce'])
   .index('by_status', ['status']);
+
+const creator_billing_accounts = defineTable({
+  workspaceKey: v.string(),
+  authUserId: v.string(),
+  creatorProfileId: v.optional(v.id('creator_profiles')),
+  polarCustomerId: v.optional(v.string()),
+  polarExternalId: v.optional(v.string()),
+  planKey: v.optional(v.string()),
+  status: CreatorBillingStatus,
+  customerEmail: v.optional(v.string()),
+  currentPeriodEnd: v.optional(v.number()),
+  graceUntil: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_workspace_key', ['workspaceKey'])
+  .index('by_auth_user', ['authUserId']);
+
+const creator_billing_subscriptions = defineTable({
+  workspaceKey: v.string(),
+  authUserId: v.string(),
+  creatorProfileId: v.optional(v.id('creator_profiles')),
+  polarSubscriptionId: v.string(),
+  polarProductId: v.string(),
+  planKey: v.string(),
+  status: v.string(),
+  recurringInterval: v.string(),
+  currentPeriodStart: v.number(),
+  currentPeriodEnd: v.number(),
+  cancelAtPeriodEnd: v.boolean(),
+  metadataJson: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_workspace_key', ['workspaceKey'])
+  .index('by_auth_user', ['authUserId'])
+  .index('by_polar_subscription_id', ['polarSubscriptionId']);
+
+const creator_billing_entitlements = defineTable({
+  workspaceKey: v.string(),
+  authUserId: v.string(),
+  creatorProfileId: v.optional(v.id('creator_profiles')),
+  planKey: v.string(),
+  status: CreatorBillingStatus,
+  allowEnrollment: v.boolean(),
+  allowSigning: v.boolean(),
+  deviceCap: v.number(),
+  signQuotaPerPeriod: v.optional(v.number()),
+  auditRetentionDays: v.number(),
+  supportTier: v.string(),
+  currentPeriodEnd: v.optional(v.number()),
+  graceUntil: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_workspace_key', ['workspaceKey'])
+  .index('by_auth_user', ['authUserId']);
+
+const creator_billing_usage_events = defineTable({
+  workspaceKey: v.string(),
+  authUserId: v.string(),
+  eventType: v.string(),
+  quantity: v.number(),
+  certNonce: v.optional(v.string()),
+  createdAt: v.number(),
+})
+  .index('by_workspace_created', ['workspaceKey', 'createdAt'])
+  .index('by_auth_user_created', ['authUserId', 'createdAt']);
 
 /**
  * Package Name Registry, Layer 1 defense.
@@ -1725,6 +1799,10 @@ export default defineSchema({
   webhook_events,
 
   // YUCP Certificate Authority tables
+  creator_billing_accounts,
+  creator_billing_subscriptions,
+  creator_billing_entitlements,
+  creator_billing_usage_events,
   yucp_certificates,
   package_registry,
   signing_log,

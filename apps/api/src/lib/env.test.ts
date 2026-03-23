@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { resolveConvexSiteUrl, resolveSiteUrl } from './env';
+import { loadEnv, resolveConvexSiteUrl, resolveSiteUrl } from './env';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -49,5 +49,22 @@ describe('resolveSiteUrl', () => {
         RENDER_EXTERNAL_URL: 'https://render.example.com/',
       })
     ).toBe('https://render.example.com');
+  });
+});
+
+describe('loadEnv', () => {
+  it('includes Polar billing fields when present', () => {
+    process.env.POLAR_ACCESS_TOKEN = 'polar-access-token';
+    process.env.POLAR_WEBHOOK_SECRET = 'polar-webhook-secret';
+    process.env.POLAR_CERT_PRODUCTS_JSON =
+      '[{"planKey":"pro","productId":"prod_123","slug":"pro"}]';
+    process.env.POLAR_SERVER = 'sandbox';
+
+    expect(loadEnv()).toMatchObject({
+      POLAR_ACCESS_TOKEN: 'polar-access-token',
+      POLAR_WEBHOOK_SECRET: 'polar-webhook-secret',
+      POLAR_CERT_PRODUCTS_JSON: '[{"planKey":"pro","productId":"prod_123","slug":"pro"}]',
+      POLAR_SERVER: 'sandbox',
+    });
   });
 });

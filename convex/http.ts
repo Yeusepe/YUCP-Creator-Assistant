@@ -14,6 +14,10 @@
  *        Returns the authenticated creator's profile (sub, name, email).
  *        Like Spotify GET /v1/me, token identifies "me".
  *
+ *   GET  /v1/certificates/devices
+ *        List the authenticated creator's active signing devices and current
+ *        certificate-plan summary.
+ *
  *   GET  /v1/products
  *        List the authenticated creator's registered products (all providers).
  *        Used by the Unity PackageSigning editor to populate Gumroad/Jinxxy pickers.
@@ -24,6 +28,10 @@
  *        Scope: cert:issue   Audience: yucp-public-api
  *        Body: { devPublicKey (base64 Ed25519), publisherName }
  *        Returns: { success, certificate: CertEnvelope }
+ *
+ *   POST /v1/certificates/self-revoke
+ *        Revoke one of the authenticated creator's own signing devices without
+ *        needing admin support.
  *
  *   GET  /v1/packages/:hash
  *        Consumer verification: look up a package by its content SHA-256.
@@ -62,6 +70,7 @@ import {
   buildBetterAuthUserProviderLookupWhere,
   getBetterAuthPage,
 } from './lib/betterAuthAdapter';
+import { isSigningRequestTimestampFresh, verifySigningProof } from './lib/certificateSigning';
 import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
   base64ToBytes,
@@ -542,12 +551,12 @@ http.route({
     })) as {
       ids?: string[];
       page: Array<{
-      _id?: string;
-      publicKey: string;
-      alg?: string | null;
-      crv?: string | null;
-      expiresAt?: number | null;
-    }>;
+        _id?: string;
+        publicKey: string;
+        alg?: string | null;
+        crv?: string | null;
+        expiresAt?: number | null;
+      }>;
     };
 
     const keys = getBetterAuthPage(keyResult).map((key, index) => ({
@@ -787,6 +796,54 @@ http.route({
   }),
 });
 
+http.route({
+  method: 'GET',
+  path: '/v1/certificates/devices',
+  handler: httpAction(async (ctx, request) => {
+    const siteUrl = process.env.CONVEX_SITE_URL;
+    if (!siteUrl) return errorResponse('Service not configured', 503);
+
+    const authHeader = request.headers.get('Authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
+
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
+
+    const [devices, certificateEntitlements] = await Promise.all([
+      ctx.runQuery(internal.yucpCertificates.listActiveCertsForUser, {
+        yucpUserId: tokenResult.yucpUserId,
+      }),
+      ctx.runQuery(internal.certificateBilling.resolveForAuthUser, {
+        authUserId: tokenResult.yucpUserId,
+      }),
+    ]);
+
+    return jsonResponse({
+      devices: devices.map((device) => ({
+        certNonce: device.certNonce,
+        devPublicKey: device.devPublicKey,
+        publisherId: device.publisherId,
+        publisherName: device.publisherName,
+        issuedAt: device.issuedAt,
+        expiresAt: device.expiresAt,
+        status: device.status,
+      })),
+      billing: {
+        billingEnabled: certificateEntitlements.billingEnabled,
+        status: certificateEntitlements.status,
+        planKey: certificateEntitlements.planKey,
+        deviceCap: certificateEntitlements.deviceCap,
+        activeDeviceCount: devices.length,
+        allowEnrollment: certificateEntitlements.allowEnrollment,
+        allowSigning: certificateEntitlements.allowSigning,
+        currentPeriodEnd: certificateEntitlements.currentPeriodEnd,
+        graceUntil: certificateEntitlements.graceUntil,
+      },
+    });
+  }),
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /v1/certificates, Issue cert via YUCP OAuth token (was /api/yucp/certificates/issue)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -839,6 +896,42 @@ http.route({
       if (keyBytes.length !== 32) throw new Error('wrong length');
     } catch {
       return errorResponse('devPublicKey must be a base64-encoded 32-byte Ed25519 public key', 400);
+    }
+
+    const [certificateEntitlements, existingKeyCert] = await Promise.all([
+      ctx.runQuery(internal.certificateBilling.resolveForAuthUser, {
+        authUserId: yucpUserId,
+      }),
+      ctx.runQuery(internal.yucpCertificates.getCertByDevPublicKey, {
+        devPublicKey: body.devPublicKey,
+      }),
+    ]);
+    const isKnownDeviceForUser = existingKeyCert?.yucpUserId === yucpUserId;
+
+    if (
+      !certificateEntitlements.allowEnrollment &&
+      !(certificateEntitlements.status === 'grace' && isKnownDeviceForUser)
+    ) {
+      return errorResponse(
+        certificateEntitlements.reason ??
+          'Certificate enrollment is not available for this account',
+        certificateEntitlements.billingEnabled ? 402 : 403
+      );
+    }
+
+    if (!isKnownDeviceForUser && certificateEntitlements.deviceCap !== undefined) {
+      const activeDeviceCount = await ctx.runQuery(
+        internal.yucpCertificates.countActiveCertsForUser,
+        {
+          yucpUserId,
+        }
+      );
+      if (activeDeviceCount >= certificateEntitlements.deviceCap) {
+        return errorResponse(
+          `Device limit reached for plan ${certificateEntitlements.planKey ?? 'current'}. Revoke an existing device or upgrade your certificate plan.`,
+          409
+        );
+      }
     }
 
     // Issue certificate anchored to YUCP user identity
@@ -947,17 +1040,72 @@ http.route({
       return errorResponse('Certificate has been revoked', 401);
     }
 
-    let body: { packageId: string; contentHash: string; packageVersion?: string };
+    let body: {
+      packageId: string;
+      contentHash: string;
+      packageVersion?: string;
+      requestNonce?: string;
+      requestTimestamp?: number;
+      requestSignature?: string;
+    };
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return errorResponse('Invalid JSON body', 400);
     }
-    if (!body.packageId || !body.contentHash) {
-      return errorResponse('packageId and contentHash are required', 400);
+    if (
+      !body.packageId ||
+      !body.contentHash ||
+      !body.requestNonce ||
+      typeof body.requestTimestamp !== 'number' ||
+      !body.requestSignature
+    ) {
+      return errorResponse(
+        'packageId, contentHash, requestNonce, requestTimestamp, and requestSignature are required',
+        400
+      );
+    }
+    if (!isSigningRequestTimestampFresh(body.requestTimestamp)) {
+      return errorResponse('Signing proof timestamp is too old or invalid', 401);
+    }
+
+    const proofValid = await verifySigningProof(
+      {
+        certNonce: envelope.cert.nonce,
+        packageId: body.packageId,
+        contentHash: body.contentHash,
+        packageVersion: body.packageVersion,
+        requestNonce: body.requestNonce,
+        requestTimestamp: body.requestTimestamp,
+      },
+      body.requestSignature,
+      envelope.cert.devPublicKey
+    );
+    if (!proofValid) {
+      return errorResponse('Signing proof verification failed', 401);
     }
 
     const { publisherId, yucpUserId } = envelope.cert;
+    const certificateEntitlements = await ctx.runQuery(
+      internal.certificateBilling.resolveForAuthUser,
+      {
+        authUserId: yucpUserId,
+      }
+    );
+    if (!certificateEntitlements.allowSigning) {
+      return errorResponse(
+        certificateEntitlements.reason ?? 'Certificate signing is not available for this account',
+        certificateEntitlements.billingEnabled ? 402 : 403
+      );
+    }
+
+    try {
+      await ctx.runMutation(internal.yucpLicenses.checkAndConsumeNonce, {
+        nonce: body.requestNonce,
+      });
+    } catch {
+      return errorResponse('Signing proof nonce has already been used', 409);
+    }
 
     // Layer 1: enforce package namespace ownership
     const regResult = await ctx.runMutation(internal.packageRegistry.registerPackage, {
@@ -998,6 +1146,14 @@ http.route({
       );
     }
 
+    if (certificateEntitlements.workspaceKey) {
+      await ctx.runMutation(internal.certificateBilling.recordSigningUsage, {
+        authUserId: yucpUserId,
+        workspaceKey: certificateEntitlements.workspaceKey,
+        certNonce: envelope.cert.nonce,
+      });
+    }
+
     return jsonResponse({
       success: true,
       packageId: body.packageId,
@@ -1034,6 +1190,47 @@ http.route({
       certNonce: body.certNonce,
       reason: body.reason,
     });
+
+    return jsonResponse(result);
+  }),
+});
+
+http.route({
+  method: 'POST',
+  path: '/v1/certificates/self-revoke',
+  handler: httpAction(async (ctx, request) => {
+    const siteUrl = process.env.CONVEX_SITE_URL;
+    if (!siteUrl) return errorResponse('Service not configured', 503);
+
+    const authHeader = request.headers.get('Authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
+
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
+
+    let body: { certNonce: string; reason?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    if (!body.certNonce) {
+      return errorResponse('certNonce is required', 400);
+    }
+
+    const result = await ctx.runMutation(internal.yucpCertificates.revokeOwnedCertByNonce, {
+      yucpUserId: tokenResult.yucpUserId,
+      certNonce: body.certNonce,
+      reason: body.reason?.trim() || 'Revoked by certificate owner',
+    });
+
+    if ('forbidden' in result && result.forbidden) {
+      return errorResponse('Certificate does not belong to the authenticated user', 403);
+    }
+    if ('notFound' in result && result.notFound) {
+      return errorResponse('Certificate not found', 404);
+    }
 
     return jsonResponse(result);
   }),

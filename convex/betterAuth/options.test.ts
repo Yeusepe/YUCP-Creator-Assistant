@@ -6,6 +6,9 @@ import { tables } from './schema';
 describe('createSchemaAuthOptions', () => {
   const originalBetterAuthSecret = process.env.BETTER_AUTH_SECRET;
   const originalConvexSiteUrl = process.env.CONVEX_SITE_URL;
+  const originalPolarAccessToken = process.env.POLAR_ACCESS_TOKEN;
+  const originalPolarWebhookSecret = process.env.POLAR_WEBHOOK_SECRET;
+  const originalPolarProductsJson = process.env.POLAR_CERT_PRODUCTS_JSON;
 
   beforeEach(() => {
     process.env.BETTER_AUTH_SECRET = 'test-secret';
@@ -15,6 +18,9 @@ describe('createSchemaAuthOptions', () => {
   afterEach(() => {
     process.env.BETTER_AUTH_SECRET = originalBetterAuthSecret;
     process.env.CONVEX_SITE_URL = originalConvexSiteUrl;
+    process.env.POLAR_ACCESS_TOKEN = originalPolarAccessToken;
+    process.env.POLAR_WEBHOOK_SECRET = originalPolarWebhookSecret;
+    process.env.POLAR_CERT_PRODUCTS_JSON = originalPolarProductsJson;
   });
 
   it('aligns the Better Auth JWT plugin with Convex customJwt RS256 signing', () => {
@@ -58,6 +64,24 @@ describe('createSchemaAuthOptions', () => {
     expect(jwtPlugin?.options?.jwt?.issuer).toBe('https://example.convex.site/api/auth');
     expect(jwtPlugin?.options?.jwt?.audience).toBe('yucp-public-api');
     expect(convexPlugin).toBeDefined();
+  });
+
+  it('adds the Polar billing plugin when certificate billing env is configured', () => {
+    process.env.POLAR_ACCESS_TOKEN = 'polar-token';
+    process.env.POLAR_WEBHOOK_SECRET = 'polar-webhook-secret';
+    process.env.POLAR_CERT_PRODUCTS_JSON = JSON.stringify([
+      {
+        planKey: 'pro',
+        productId: 'prod_123',
+        slug: 'cert-pro',
+        deviceCap: 5,
+      },
+    ]);
+
+    const options = createAuthOptions({} as never);
+    const polarPlugin = options.plugins?.find((plugin) => plugin.id === 'polar');
+
+    expect(polarPlugin).toBeDefined();
   });
 
   it('stores jwks signing metadata in the schema mirror', () => {

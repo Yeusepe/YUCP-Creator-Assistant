@@ -41,6 +41,7 @@ import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as AccountPrivacyRouteImport } from './routes/account/privacy'
 import { Route as AccountLicensesRouteImport } from './routes/account/licenses'
 import { Route as AccountConnectionsRouteImport } from './routes/account/connections'
+import { Route as AccountCertificatesRouteImport } from './routes/account/certificates'
 import { Route as AccountAuthorizedAppsRouteImport } from './routes/account/authorized-apps'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -204,6 +205,11 @@ const AccountConnectionsRoute = AccountConnectionsRouteImport.update({
   path: '/connections',
   getParentRoute: () => AccountRoute,
 } as any)
+const AccountCertificatesRoute = AccountCertificatesRouteImport.update({
+  id: '/certificates',
+  path: '/certificates',
+  getParentRoute: () => AccountRoute,
+} as any)
 const AccountAuthorizedAppsRoute = AccountAuthorizedAppsRouteImport.update({
   id: '/authorized-apps',
   path: '/authorized-apps',
@@ -225,6 +231,7 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/account/authorized-apps': typeof AccountAuthorizedAppsRoute
+  '/account/certificates': typeof AccountCertificatesRoute
   '/account/connections': typeof AccountConnectionsRoute
   '/account/licenses': typeof AccountLicensesRoute
   '/account/privacy': typeof AccountPrivacyRoute
@@ -259,6 +266,7 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/account/authorized-apps': typeof AccountAuthorizedAppsRoute
+  '/account/certificates': typeof AccountCertificatesRoute
   '/account/connections': typeof AccountConnectionsRoute
   '/account/licenses': typeof AccountLicensesRoute
   '/account/privacy': typeof AccountPrivacyRoute
@@ -296,6 +304,7 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/account/authorized-apps': typeof AccountAuthorizedAppsRoute
+  '/account/certificates': typeof AccountCertificatesRoute
   '/account/connections': typeof AccountConnectionsRoute
   '/account/licenses': typeof AccountLicensesRoute
   '/account/privacy': typeof AccountPrivacyRoute
@@ -334,6 +343,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-in-redirect'
     | '/account/authorized-apps'
+    | '/account/certificates'
     | '/account/connections'
     | '/account/licenses'
     | '/account/privacy'
@@ -368,6 +378,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-in-redirect'
     | '/account/authorized-apps'
+    | '/account/certificates'
     | '/account/connections'
     | '/account/licenses'
     | '/account/privacy'
@@ -404,6 +415,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-in-redirect'
     | '/account/authorized-apps'
+    | '/account/certificates'
     | '/account/connections'
     | '/account/licenses'
     | '/account/privacy'
@@ -684,6 +696,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AccountConnectionsRouteImport
       parentRoute: typeof AccountRoute
     }
+    '/account/certificates': {
+      id: '/account/certificates'
+      path: '/certificates'
+      fullPath: '/account/certificates'
+      preLoaderRoute: typeof AccountCertificatesRouteImport
+      parentRoute: typeof AccountRoute
+    }
     '/account/authorized-apps': {
       id: '/account/authorized-apps'
       path: '/authorized-apps'
@@ -703,6 +722,7 @@ declare module '@tanstack/react-router' {
 
 interface AccountRouteChildren {
   AccountAuthorizedAppsRoute: typeof AccountAuthorizedAppsRoute
+  AccountCertificatesRoute: typeof AccountCertificatesRoute
   AccountConnectionsRoute: typeof AccountConnectionsRoute
   AccountLicensesRoute: typeof AccountLicensesRoute
   AccountPrivacyRoute: typeof AccountPrivacyRoute
@@ -711,6 +731,7 @@ interface AccountRouteChildren {
 
 const AccountRouteChildren: AccountRouteChildren = {
   AccountAuthorizedAppsRoute: AccountAuthorizedAppsRoute,
+  AccountCertificatesRoute: AccountCertificatesRoute,
   AccountConnectionsRoute: AccountConnectionsRoute,
   AccountLicensesRoute: AccountLicensesRoute,
   AccountPrivacyRoute: AccountPrivacyRoute,

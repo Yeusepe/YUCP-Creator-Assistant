@@ -23,9 +23,13 @@ const CONVEX_ENV_VARS = [
   'BACKFILL_API_URL',
   'YUCP_ROOT_PRIVATE_KEY',
   'YUCP_KEY_ID',
+  'POLAR_ACCESS_TOKEN',
+  'POLAR_WEBHOOK_SECRET',
+  'POLAR_CERT_PRODUCTS_JSON',
+  'POLAR_SERVER',
 ] as const;
 
-const DEV_ENV_OVERRIDE_KEYS = new Set<typeof CONVEX_ENV_VARS[number]>(['FRONTEND_URL']);
+const DEV_ENV_OVERRIDE_KEYS = new Set<(typeof CONVEX_ENV_VARS)[number]>(['FRONTEND_URL']);
 
 const isProd = process.argv.includes('--prod');
 
@@ -62,7 +66,9 @@ async function main() {
   const secrets = await fetchInfisicalSecrets();
   if (Object.keys(secrets).length === 0) {
     if (isProd) {
-      console.error('sync-convex-env: FATAL - No secrets returned from Infisical in production. Refusing to deploy with potentially stale/missing secrets.');
+      console.error(
+        'sync-convex-env: FATAL - No secrets returned from Infisical in production. Refusing to deploy with potentially stale/missing secrets.'
+      );
       process.exit(1);
     }
     console.warn('sync-convex-env: No secrets from Infisical, skipping');
@@ -97,10 +103,10 @@ async function main() {
 
   if (changes.length === 0) {
     if (isProd) {
-      console.error('sync-convex-env: FATAL - No auth secrets to sync in production.');
+      console.error('sync-convex-env: FATAL - No config secrets to sync in production.');
       process.exit(1);
     }
-    console.warn('sync-convex-env: No auth secrets to sync, skipping');
+    console.warn('sync-convex-env: No config secrets to sync, skipping');
     process.exit(0);
   }
 
