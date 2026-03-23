@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
+import { DashboardGridSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { ConnectedPlatformsPanel } from '@/components/dashboard/panels/ConnectedPlatformsPanel';
 import { DangerZonePanel } from '@/components/dashboard/panels/DangerZonePanel';
 import {
@@ -19,7 +20,18 @@ import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { api } from '../../../../../convex/_generated/api';
 import type { Id } from '../../../../../convex/_generated/dataModel';
 
+function DashboardIndexPending() {
+  return (
+    <div className="pb-16">
+      <div className="grid grid-cols-12 gap-5">
+        <DashboardGridSkeleton cards={4} />
+      </div>
+    </div>
+  );
+}
+
 export const Route = createFileRoute('/dashboard/')({
+  pendingComponent: DashboardIndexPending,
   component: DashboardIndex,
 });
 

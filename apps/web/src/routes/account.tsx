@@ -4,10 +4,12 @@ import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { dashboardShellQueryOptions } from '@/lib/dashboardQueryOptions';
 import { primeDashboardShellCaches } from '@/lib/dashboardShellCache';
-import { fetchDashboardShell } from '@/lib/server/dashboard';
+import { fetchDashboardShell, type DashboardShellData } from '@/lib/server/dashboard';
 import '@/styles/dashboard.css';
 import '@/styles/dashboard-components.css';
 import '@/styles/account.css';
+
+let _accountLoaderCache: DashboardShellData | null = null;
 
 export const Route = createFileRoute('/account')({
   beforeLoad: ({ context, location }) => {
@@ -18,7 +20,11 @@ export const Route = createFileRoute('/account')({
       });
     }
   },
+  staleTime: Infinity,
   loader: async ({ context: { queryClient } }) => {
+    if (typeof window !== 'undefined' && _accountLoaderCache !== null) {
+      return _accountLoaderCache;
+    }
     const shell = await queryClient.ensureQueryData(
       dashboardShellQueryOptions({
         queryKey: ['dashboard-shell'],
@@ -26,6 +32,9 @@ export const Route = createFileRoute('/account')({
       })
     );
     primeDashboardShellCaches(queryClient, shell);
+    if (typeof window !== 'undefined') {
+      _accountLoaderCache = shell;
+    }
     return shell;
   },
   component: AccountLayout,

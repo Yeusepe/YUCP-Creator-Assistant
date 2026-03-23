@@ -9,7 +9,7 @@
   "overrides": {
     "bebop": "3.0.4",
     "fast-xml-parser": ">=5.5.7",
-    "h3": "2.0.1-rc.17",
+    "h3": "2.0.1-rc.19",
     "kysely": ">=0.28.12",
     "prismjs": ">=1.30.0",
     "undici": ">=6.23.0",
@@ -91,7 +91,7 @@
     "buffer": "^6.0.3",
     "convex": "^1.32.0",
     "dotenv": "^17.3.1",
-    "h3-v2": "npm:h3@2.0.1-rc.17"
+    "h3-v2": "npm:h3@2.0.1-rc.19"
   },
   "patchedDependencies": {
     "@tanstack/start-server-core@1.167.1": "patches/@tanstack%2Fstart-server-core@1.167.1.patch"

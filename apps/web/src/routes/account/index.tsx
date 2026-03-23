@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
+import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { useAuth } from '@/hooks/useAuth';
 import { listUserLicenses, listUserOAuthGrants } from '@/lib/account';
@@ -8,7 +9,16 @@ import { authClient } from '@/lib/auth-client';
 import { listCreatorCertificates } from '@/lib/certificates';
 import { listUserAccounts, listUserProviders } from '@/lib/dashboard';
 
+function AccountProfilePending() {
+  return (
+    <AccountPage>
+      <DashboardListSkeleton rows={4} />
+    </AccountPage>
+  );
+}
+
 export const Route = createFileRoute('/account/')({
+  pendingComponent: AccountProfilePending,
   component: AccountProfile,
 });
 

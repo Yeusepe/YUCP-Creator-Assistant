@@ -8,6 +8,7 @@ import {
   AccountPage,
   AccountSectionCard,
 } from '@/components/account/AccountPage';
+import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
 import {
   formatAccountDate,
@@ -17,7 +18,16 @@ import {
   type UserLicenseEntitlement,
 } from '@/lib/account';
 
+function AccountLicensesPending() {
+  return (
+    <AccountPage>
+      <DashboardListSkeleton rows={3} />
+    </AccountPage>
+  );
+}
+
 export const Route = createFileRoute('/account/licenses')({
+  pendingComponent: AccountLicensesPending,
   component: AccountLicenses,
 });
 

@@ -16,8 +16,11 @@
  */
 
 import path from 'node:path';
+import { internal } from '../../../convex/_generated/api';
 import type { Auth } from './auth';
+import { getConvexClientFromUrl } from './lib/convex';
 import { createLegacyFrontendMovedResponse, isLegacyFrontendAsset } from './lib/legacyFrontend';
+import { handleYucpOAuthAuthorize, type OauthLoopbackSession } from './lib/yucpOAuthProxy';
 import {
   createVerificationRoutes,
   mountVerificationRouteHandlers,
@@ -74,6 +77,9 @@ export interface TestServerConfig {
    * for auth-guard tests). Supply this when you need to test authenticated paths.
    */
   auth?: Auth;
+  oauthLoopbackStore?: {
+    storeSession(session: OauthLoopbackSession): Promise<void>;
+  };
 }
 
 export interface TestServer {
@@ -172,6 +178,16 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     convexApiSecret: config.convexApiSecret,
     encryptionSecret: config.encryptionSecret,
   });
+  const oauthLoopbackStore = config.oauthLoopbackStore ?? {
+    storeSession: async (session: OauthLoopbackSession) => {
+      const convex = getConvexClientFromUrl(config.convexUrl) as {
+        setAdminAuth?: (token: string) => void;
+        mutation: (functionReference: unknown, args?: unknown) => Promise<unknown>;
+      };
+      convex.setAdminAuth?.(config.convexApiSecret);
+      await convex.mutation(internal.oauthLoopback.storeSession, session);
+    },
+  };
 
   async function handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -215,6 +231,13 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     // Webhook routes (Gumroad, Jinxxy, Payhip, etc.)
     if (pathname.startsWith('/webhooks/')) {
       return webhookHandler(request);
+    }
+
+    if (pathname === '/api/yucp/oauth/authorize' && request.method === 'GET') {
+      return handleYucpOAuthAuthorize(request, {
+        convexSiteUrl: config.convexSiteUrl,
+        storeSession: oauthLoopbackStore.storeSession,
+      });
     }
 
     // Provider platform routes (/v1/*)

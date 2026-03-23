@@ -30,6 +30,8 @@ export function getRouter() {
     routeTree,
     scrollRestoration: true,
     defaultPreload: 'intent',
+    defaultPendingMs: 0,
+    defaultPendingMinMs: 200,
     parseSearch: (search) => {
       const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
       return Object.fromEntries(params.entries());

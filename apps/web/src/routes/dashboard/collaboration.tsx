@@ -32,11 +32,29 @@ import {
 } from '@/lib/dashboardQueryOptions';
 import { copyToClipboard } from '@/lib/utils';
 
+function DashboardCollaborationPending() {
+  return (
+    <div
+      id="tab-panel-collaboration"
+      className="dashboard-tab-panel is-active"
+      role="tabpanel"
+      aria-labelledby="tab-btn-collaboration"
+    >
+      <div className="bento-grid">
+        <DashboardListSkeleton rows={2} />
+        <DashboardListSkeleton rows={1} showAction={false} />
+      </div>
+    </div>
+  );
+}
+
 export const Route = createFileRoute('/dashboard/collaboration')({
+  staleTime: Infinity,
   loader: ({ context: { queryClient } }) => {
     warmDashboardCollaboration(queryClient);
     return null;
   },
+  pendingComponent: DashboardCollaborationPending,
   component: DashboardCollaboration,
 });
 

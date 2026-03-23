@@ -33,7 +33,7 @@ export const seedUnityOAuthClient = internalMutation({
       clientSecret: null,
       name: 'YUCP Unity Editor',
       redirectUris: [callbackUrl],
-      scopes: ['cert:issue'],
+      scopes: ['verification:read', 'cert:issue'],
       grantTypes: ['authorization_code', 'refresh_token'],
       responseTypes: ['code'],
       tokenEndpointAuthMethod: 'none',

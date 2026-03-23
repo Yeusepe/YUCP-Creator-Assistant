@@ -12,10 +12,18 @@ import { ServerContextProvider } from '@/hooks/useServerContext';
 import { normalizeDashboardIdentifier } from '@/lib/dashboard';
 import { dashboardShellQueryOptions } from '@/lib/dashboardQueryOptions';
 import { primeDashboardShellCaches } from '@/lib/dashboardShellCache';
-import { fetchDashboardShell, type Guild } from '@/lib/server/dashboard';
+import { type DashboardShellData, fetchDashboardShell, type Guild } from '@/lib/server/dashboard';
 import '@/styles/dashboard.css';
 import '@/styles/dashboard-components.css';
 import { getServerIconUrl } from '@/lib/utils';
+
+/**
+ * Client-side cache for dashboard shell data, keyed by "guildId|tenantId".
+ * Prevents the route loader from re-running fetchDashboardShell (a server
+ * function = HTTP round-trip) on every tab switch within /dashboard/*.
+ * The loader still runs on first visit and whenever guild/tenant changes.
+ */
+const _dashboardLoaderCache = new Map<string, DashboardShellData>();
 
 interface DashboardSearch {
   guild_id?: string;
@@ -39,6 +47,7 @@ export const Route = createFileRoute('/dashboard')({
       });
     }
   },
+  staleTime: Infinity,
   loader: async ({ context: { queryClient }, location }) => {
     const locationHref = String(location.href);
     const parsedLocation = new URL(locationHref, 'http://dashboard.local');
@@ -48,6 +57,12 @@ export const Route = createFileRoute('/dashboard')({
     const selectedTenantId = normalizeDashboardIdentifier(
       parsedLocation.searchParams.get('tenant_id')
     );
+
+    const cacheKey = `${selectedGuildId ?? ''}|${selectedTenantId ?? ''}`;
+    if (typeof window !== 'undefined' && _dashboardLoaderCache.has(cacheKey)) {
+      return _dashboardLoaderCache.get(cacheKey) as DashboardShellData;
+    }
+
     const shell = await queryClient.ensureQueryData(
       dashboardShellQueryOptions({
         queryKey: ['dashboard-shell', 'route', selectedGuildId ?? null, selectedTenantId ?? null],
@@ -71,6 +86,9 @@ export const Route = createFileRoute('/dashboard')({
       locationHash.includes('token=');
     if (shell.guilds.length === 0 && !allowsFreshGuildBootstrap) {
       throw redirect({ to: '/account' });
+    }
+    if (typeof window !== 'undefined') {
+      _dashboardLoaderCache.set(cacheKey, shell);
     }
     return shell;
   },

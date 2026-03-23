@@ -58,6 +58,18 @@ const getAuth = createServerFn({ method: 'GET' }).handler(async () => {
   }
 });
 
+/**
+ * Cached auth state for client-side navigations.
+ *
+ * beforeLoad has no staleTime — it runs on every navigation. On the server
+ * (SSR) we must always fetch a fresh token, but on the client the token is
+ * only needed once (for ConvexBetterAuthProvider's initialToken during
+ * hydration). After that, better-auth / Convex manage auth state internally
+ * via the WebSocket connection. Caching here prevents a server round-trip on
+ * every tab switch.
+ */
+let _clientRootAuthCache: import('@/lib/webDiagnostics').RootAuthState | null = null;
+
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
   convexQueryClient: ConvexQueryClient;
@@ -88,11 +100,18 @@ export const Route = createRootRouteWithContext<{
     ],
   }),
   beforeLoad: async (ctx) => {
-    return await loadRootAuthState({
+    if (typeof window !== 'undefined' && _clientRootAuthCache !== null) {
+      return _clientRootAuthCache;
+    }
+    const state = await loadRootAuthState({
       convexQueryClient: ctx.context.convexQueryClient,
       location: ctx.location,
       getAuthToken: () => getAuth(),
     });
+    if (typeof window !== 'undefined') {
+      _clientRootAuthCache = state;
+    }
+    return state;
   },
   component: RootComponent,
   errorComponent: RootErrorComponent,

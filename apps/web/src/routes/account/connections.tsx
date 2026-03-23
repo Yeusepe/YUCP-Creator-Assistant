@@ -7,6 +7,7 @@ import {
   AccountPage,
   AccountSectionCard,
 } from '@/components/account/AccountPage';
+import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
 import {
   disconnectUserAccount,
@@ -17,7 +18,16 @@ import {
   type UserProvider,
 } from '@/lib/dashboard';
 
+function AccountConnectionsPending() {
+  return (
+    <AccountPage>
+      <DashboardListSkeleton rows={3} />
+    </AccountPage>
+  );
+}
+
 export const Route = createFileRoute('/account/connections')({
+  pendingComponent: AccountConnectionsPending,
   component: AccountConnections,
 });
 

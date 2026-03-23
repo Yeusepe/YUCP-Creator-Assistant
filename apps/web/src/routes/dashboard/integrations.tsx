@@ -31,11 +31,29 @@ import { warmDashboardIntegrations } from '@/lib/dashboardPrefetch';
 import { dashboardPanelQueryOptions } from '@/lib/dashboardQueryOptions';
 import { copyToClipboard } from '@/lib/utils';
 
+function DashboardIntegrationsPending() {
+  return (
+    <div
+      id="tab-panel-integrations"
+      className="dashboard-tab-panel is-active"
+      role="tabpanel"
+      aria-labelledby="tab-btn-integrations"
+    >
+      <div className="bento-grid integrations-grid">
+        <DashboardListSkeleton rows={2} />
+        <DashboardListSkeleton rows={2} />
+      </div>
+    </div>
+  );
+}
+
 export const Route = createFileRoute('/dashboard/integrations')({
+  staleTime: Infinity,
   loader: ({ context: { queryClient } }) => {
     warmDashboardIntegrations(queryClient);
     return null;
   },
+  pendingComponent: DashboardIntegrationsPending,
   component: DashboardIntegrations,
 });
 

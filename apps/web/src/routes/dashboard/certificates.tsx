@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccountInlineError, AccountModal } from '@/components/account/AccountPage';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
+import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
@@ -23,6 +24,16 @@ interface DashboardCertificatesSearch {
   source?: string;
 }
 
+function DashboardCertificatesPending() {
+  return (
+    <div id="tab-panel-certificates" className="dashboard-tab-panel is-active" role="tabpanel">
+      <div className="bento-grid">
+        <DashboardListSkeleton rows={3} />
+      </div>
+    </div>
+  );
+}
+
 export const Route = createFileRoute('/dashboard/certificates')({
   validateSearch: (search: Record<string, unknown>): DashboardCertificatesSearch => ({
     plan: typeof search.plan === 'string' ? search.plan : undefined,
@@ -30,6 +41,7 @@ export const Route = createFileRoute('/dashboard/certificates')({
     portal: typeof search.portal === 'string' ? search.portal : undefined,
     source: typeof search.source === 'string' ? search.source : undefined,
   }),
+  pendingComponent: DashboardCertificatesPending,
   component: DashboardCertificates,
 });
 
@@ -820,31 +832,7 @@ export default function DashboardCertificates() {
         )}
 
         {/* Loading */}
-        {isLoading && (
-          <div className="bento-col-12">
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '40px 0',
-                color: '#94a3b8',
-                fontSize: '13px',
-              }}
-            >
-              <span
-                className="btn-loading-spinner"
-                style={{
-                  borderColor: '#e2e8f0',
-                  borderRightColor: 'transparent',
-                  width: '14px',
-                  height: '14px',
-                }}
-              />
-              Loading workspace…
-            </div>
-          </div>
-        )}
+        {isLoading && <DashboardListSkeleton rows={3} />}
       </div>
     </div>
   );

@@ -90,6 +90,45 @@ describe('API server — route mounting', () => {
     }
   });
 
+  it('bridges native OAuth authorize requests on the API host without proxying to a Convex-only route', async () => {
+    const storedSessions: Array<{ oauthState: string; originalRedirectUri: string }> = [];
+    const oauthServer = await startTestServer({
+      convexSiteUrl: 'https://convex.example.com',
+      oauthLoopbackStore: {
+        storeSession: async (session) => {
+          storedSessions.push(session);
+        },
+      },
+    });
+
+    try {
+      const res = await oauthServer.fetch(
+        '/api/yucp/oauth/authorize' +
+          '?client_id=yucp-unity-editor' +
+          '&response_type=code' +
+          '&code_challenge=test-challenge' +
+          '&code_challenge_method=S256' +
+          '&redirect_uri=http%3A%2F%2F127.0.0.1%3A57000%2Fcallback' +
+          '&scope=verification%3Aread' +
+          '&state=abcdefghijklmnopqrstuvwxyzABCDEF',
+        { redirect: 'manual' }
+      );
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe(
+        'https://convex.example.com/api/auth/oauth2/authorize?client_id=yucp-unity-editor&response_type=code&code_challenge=test-challenge&code_challenge_method=S256&redirect_uri=https%3A%2F%2Fconvex.example.com%2Fapi%2Fyucp%2Foauth%2Fcallback&scope=verification%3Aread&state=abcdefghijklmnopqrstuvwxyzABCDEF'
+      );
+      expect(storedSessions).toEqual([
+        {
+          oauthState: 'abcdefghijklmnopqrstuvwxyzABCDEF',
+          originalRedirectUri: 'http://127.0.0.1:57000/callback',
+        },
+      ]);
+    } finally {
+      oauthServer.stop();
+    }
+  });
+
   it('GET /webhooks/gumroad/:id returns 405 for the wrong method', async () => {
     const res = await server.fetch('/webhooks/gumroad/any-route-id', {
       method: 'GET',

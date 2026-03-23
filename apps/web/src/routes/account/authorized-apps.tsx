@@ -8,6 +8,7 @@ import {
   AccountPage,
   AccountSectionCard,
 } from '@/components/account/AccountPage';
+import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
 import {
   formatAccountDate,
@@ -16,7 +17,16 @@ import {
   revokeUserOAuthGrant,
 } from '@/lib/account';
 
+function AccountAuthorizedAppsPending() {
+  return (
+    <AccountPage>
+      <DashboardListSkeleton rows={2} />
+    </AccountPage>
+  );
+}
+
 export const Route = createFileRoute('/account/authorized-apps')({
+  pendingComponent: AccountAuthorizedAppsPending,
   component: AccountAuthorizedApps,
 });
 
