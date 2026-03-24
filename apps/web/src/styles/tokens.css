@@ -1,8 +1,8 @@
 :root {
   /* Base Colors */
   --bg-color: #0a3d9e;
-  --cloud-fallback-sky: #779DC3;
-  --cloud-fallback-sky-dark: #6F8CA9;
+  --cloud-fallback-sky: #779dc3;
+  --cloud-fallback-sky-dark: #6f8ca9;
   --text-primary: rgba(255, 255, 255, 0.95);
   --text-secondary: rgba(255, 255, 255, 0.85);
   --border-color: rgba(255, 255, 255, 0.15);

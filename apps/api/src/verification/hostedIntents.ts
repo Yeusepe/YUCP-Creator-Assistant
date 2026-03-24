@@ -134,8 +134,8 @@ function createBuyerProviderLinkCapability(
 }
 
 function supportsHostedBuyerAccountLink(providerKey: string): boolean {
-  const provider = getProvider(providerKey);
-  return Boolean(provider?.displayMeta?.userSetupPath || getVerificationConfig(providerKey));
+  const descriptor = getProviderDescriptor(providerKey);
+  return Boolean(descriptor?.supportsOAuth && getVerificationConfig(providerKey));
 }
 
 function getHostedProviderLabel(providerKey: string): string {

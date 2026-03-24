@@ -21,6 +21,11 @@ const CREATOR_USER_COMMAND = new SlashCommandBuilder()
   )
   .addSubcommand((s) =>
     s
+      .setName('account')
+      .setDescription('Open your Creator Assistant account and manage your connections')
+  )
+  .addSubcommand((s) =>
+    s
       .setName('verify')
       .setDescription('Verify a purchase with a license key - pick a product and enter your key')
       .addStringOption((o) =>

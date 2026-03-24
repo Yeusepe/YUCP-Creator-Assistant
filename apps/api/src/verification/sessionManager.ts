@@ -166,18 +166,6 @@ export const DISCORD_ROLE_CONFIG: VerificationModeConfig = {
 };
 
 /**
- * Jinxxy OAuth configuration
- */
-export const JINXXY_CONFIG: VerificationModeConfig = {
-  authUrl: 'https://jinxxy.com/oauth/authorize',
-  tokenUrl: 'https://api.jinxxy.com/oauth/token',
-  scopes: ['user:read', 'products:read', 'purchases:read'],
-  callbackPath: '/api/verification/callback/jinxxy',
-  clientIdKey: 'jinxxyClientId',
-  clientSecretKey: 'jinxxyClientSecret',
-};
-
-/**
  * Get configuration for a verification mode.
  * Callback path uses 'discord' but internal mode is 'discord_role'.
  */
@@ -189,7 +177,6 @@ const VERIFICATION_CONFIGS: Record<string, VerificationModeConfig> = {
   gumroad: GUMROAD_CONFIG,
   discord: DISCORD_ROLE_CONFIG,
   discord_role: DISCORD_ROLE_CONFIG,
-  jinxxy: JINXXY_CONFIG,
 };
 
 export function getVerificationConfig(mode: string): VerificationModeConfig | null {
@@ -201,7 +188,6 @@ const MODE_TO_PROVIDER_MAP: Record<string, string> = {
   gumroad: 'gumroad',
   discord: 'discord',
   discord_role: 'discord',
-  jinxxy: 'jinxxy',
 };
 
 function modeToProvider(mode: string): string | null {
@@ -685,17 +671,7 @@ export function createVerificationSessionManager(
           : undefined;
         profileUrl = me.id ? `https://discord.com/users/${me.id}` : undefined;
       } else {
-        // Jinxxy - use generic pattern
-        const meRes = await fetch('https://api.jinxxy.com/me', {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!meRes.ok) {
-          return { success: false, error: 'Failed to fetch Jinxxy user' };
-        }
-        const me = (await meRes.json()) as { id?: string; username?: string; email?: string };
-        providerUserId = me.id ?? '';
-        username = me.username;
-        email = me.email;
+        return { success: false, error: `Unknown provider for mode: ${mode}` };
       }
 
       if (!providerUserId) {
@@ -2401,7 +2377,6 @@ export function mountVerificationRouteHandlers(
   routeMap.set('/api/verification/panel/refresh', routes.refreshVerifyPanel);
   routeMap.set('/api/verification/callback/gumroad', routes.handleVerificationCallback);
   routeMap.set('/api/verification/callback/discord', routes.handleVerificationCallback);
-  routeMap.set('/api/verification/callback/jinxxy', routes.handleVerificationCallback);
   routeMap.set('/api/verification/complete', routes.completeVerification);
   routeMap.set('/api/verification/complete-license', routes.completeLicenseVerification);
   routeMap.set('/api/verification/complete-vrchat', routes.completeVrchatVerification);

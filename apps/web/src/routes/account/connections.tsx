@@ -16,6 +16,7 @@ import {
   startUserVerify,
   type UserAccountConnection,
   type UserProvider,
+  type UserProviderDisplay,
 } from '@/lib/dashboard';
 
 function AccountConnectionsPending() {
@@ -24,6 +25,55 @@ function AccountConnectionsPending() {
       <DashboardListSkeleton rows={3} />
     </AccountPage>
   );
+}
+
+interface ProviderCardModel extends UserProviderDisplay {
+  canConnect: boolean;
+}
+
+function buildProviderCardModel(connection: UserAccountConnection): ProviderCardModel {
+  const display = connection.providerDisplay;
+
+  return {
+    id: connection.provider,
+    label: display?.label ?? connection.provider,
+    icon: display?.icon ?? null,
+    color: display?.color ?? null,
+    description: display?.description ?? connection.label ?? null,
+    canConnect: false,
+  };
+}
+
+function buildProviderCards(
+  providers: UserProvider[],
+  connections: UserAccountConnection[]
+): ProviderCardModel[] {
+  const cards = new Map<string, ProviderCardModel>();
+
+  for (const provider of providers) {
+    cards.set(provider.id, {
+      ...provider,
+      canConnect: true,
+    });
+  }
+
+  for (const connection of connections) {
+    const fallback = buildProviderCardModel(connection);
+    const existing = cards.get(connection.provider);
+    if (!existing) {
+      cards.set(connection.provider, fallback);
+      continue;
+    }
+
+    cards.set(connection.provider, {
+      ...existing,
+      icon: existing.icon ?? fallback.icon,
+      color: existing.color ?? fallback.color,
+      description: existing.description ?? fallback.description,
+    });
+  }
+
+  return Array.from(cards.values());
 }
 
 export const Route = createFileRoute('/account/connections')({
@@ -35,7 +85,7 @@ function ProviderCard({
   provider,
   connections,
 }: Readonly<{
-  provider: UserProvider;
+  provider: ProviderCardModel;
   connections: UserAccountConnection[];
 }>) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -73,15 +123,25 @@ function ProviderCard({
     }
   };
 
+  const providerColor = provider.color ?? '#64748b';
+  const providerDescription = provider.description ?? 'Linked provider';
   const iconStyle: CSSProperties = {
-    backgroundColor: `${provider.color}20`,
+    backgroundColor: `${providerColor}20`,
   };
   const isConnected = connections.length > 0;
 
   return (
     <div className="acct-provider-card">
       <div className="acct-provider-icon" style={iconStyle} aria-hidden="true">
-        <img src={`/Icons/${provider.icon}`} alt={provider.label} style={{ borderRadius: '4px' }} />
+        {provider.icon ? (
+          <img
+            src={`/Icons/${provider.icon}`}
+            alt={provider.label}
+            style={{ borderRadius: '4px' }}
+          />
+        ) : (
+          <span>{provider.label.slice(0, 1).toUpperCase()}</span>
+        )}
       </div>
 
       <div className="acct-provider-info">
@@ -166,11 +226,11 @@ function ProviderCard({
             })}
           </div>
         ) : (
-          <p className="acct-provider-meta">{provider.description}</p>
+          <p className="acct-provider-meta">{providerDescription}</p>
         )}
       </div>
 
-      {!isConnected ? (
+      {!isConnected && provider.canConnect ? (
         <div className="acct-provider-actions">
           <button
             type="button"
@@ -205,8 +265,9 @@ function AccountConnections() {
   });
 
   const isLoading = providersQuery.isLoading || accountsQuery.isLoading;
-  const providers = providersQuery.data ?? [];
+  const connectableProviders = providersQuery.data ?? [];
   const connections = accountsQuery.data ?? [];
+  const providers = buildProviderCards(connectableProviders, connections);
   const connectionsByProvider = new Map<string, UserAccountConnection[]>();
   for (const connection of connections) {
     const providerConnections = connectionsByProvider.get(connection.provider) ?? [];
@@ -288,7 +349,7 @@ function AccountConnections() {
           <div className="account-kv-row">
             <span className="account-kv-label">Available providers</span>
             <span className="account-kv-value">
-              {providersQuery.isLoading ? '...' : providers.length}
+              {providersQuery.isLoading ? '...' : connectableProviders.length}
             </span>
           </div>
           <div className="account-kv-row">

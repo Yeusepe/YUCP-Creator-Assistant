@@ -97,6 +97,30 @@ describe('hostedIntents', () => {
     ).toThrow("Provider 'lemonsqueezy' does not support buyer account linking in the hosted flow");
   });
 
+  it('rejects buyer-linked account requirements for manual setup providers without hosted verification', () => {
+    expect(() =>
+      normalizeHostedVerificationRequirements([
+        {
+          methodKey: 'vrchat-link',
+          providerKey: 'vrchat',
+          kind: 'buyer_provider_link',
+        },
+      ])
+    ).toThrow("Provider 'vrchat' does not support buyer account linking in the hosted flow");
+  });
+
+  it('rejects buyer-linked account requirements for providers without OAuth account linking', () => {
+    expect(() =>
+      normalizeHostedVerificationRequirements([
+        {
+          methodKey: 'jinxxy-link',
+          providerKey: 'jinxxy',
+          kind: 'buyer_provider_link',
+        },
+      ])
+    ).toThrow("Provider 'jinxxy' does not support buyer account linking in the hosted flow");
+  });
+
   it('rejects hosted manual license methods for providers without buyer adapters', () => {
     expect(() =>
       normalizeHostedVerificationRequirements([

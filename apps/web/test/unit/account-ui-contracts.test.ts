@@ -96,14 +96,14 @@ describe('account UI contracts', () => {
     expect(accountVerifyRouteSource).toContain('listUserAccounts');
     expect(accountVerifyRouteSource).toContain('listUserProviders');
     expect(accountVerifyRouteSource).toContain('startUserVerify');
-    expect(accountVerifyRouteSource).toContain('Connect ${method.providerLabel}');
-    expect(accountVerifyRouteSource).toContain('Reconnect ${method.providerLabel}');
+    expect(accountVerifyRouteSource).toContain('Connect ' + '$' + '{method.providerLabel}');
+    expect(accountVerifyRouteSource).toContain('Reconnect ' + '$' + '{method.providerLabel}');
     expect(accountVerifyRouteSource).toContain('Open connections');
     expect(dashboardSource).toContain('returnUrl?: string');
     expect(connectRouteSource).toContain('getSafeRelativeRedirectTarget');
     expect(connectRouteSource).toContain(
       'const safeReturnUrl = getSafeRelativeRedirectTarget(body.returnUrl)'
     );
-    expect(connectRouteSource).toContain("setupUrl.searchParams.set('returnUrl', safeReturnUrl);");
+    expect(connectRouteSource).not.toContain('userSetupPath');
   });
 });

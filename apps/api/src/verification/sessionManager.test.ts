@@ -15,7 +15,6 @@ import {
   generateState,
   getVerificationConfig,
   hashVerifier,
-  JINXXY_CONFIG,
   SESSION_EXPIRY_MS,
   type VerificationConfig,
 } from './sessionManager';
@@ -124,9 +123,9 @@ describe('Verification Config', () => {
       expect(config).toEqual(DISCORD_ROLE_CONFIG);
     });
 
-    it('returns jinxxy config for jinxxy mode', () => {
+    it('returns null for jinxxy mode because Jinxxy does not support OAuth verification', () => {
       const config = getVerificationConfig('jinxxy');
-      expect(config).toEqual(JINXXY_CONFIG);
+      expect(config).toBeNull();
     });
 
     it('returns null for unknown mode', () => {
@@ -161,19 +160,6 @@ describe('Verification Config', () => {
     it('has correct scopes', () => {
       expect(DISCORD_ROLE_CONFIG.scopes).toContain('identify');
       expect(DISCORD_ROLE_CONFIG.scopes).toContain('guilds');
-    });
-  });
-
-  describe('JINXXY_CONFIG', () => {
-    it('has correct OAuth endpoints', () => {
-      expect(JINXXY_CONFIG.authUrl).toBe('https://jinxxy.com/oauth/authorize');
-      expect(JINXXY_CONFIG.tokenUrl).toBe('https://api.jinxxy.com/oauth/token');
-    });
-
-    it('has correct scopes', () => {
-      expect(JINXXY_CONFIG.scopes).toContain('user:read');
-      expect(JINXXY_CONFIG.scopes).toContain('products:read');
-      expect(JINXXY_CONFIG.scopes).toContain('purchases:read');
     });
   });
 });
@@ -268,15 +254,15 @@ describe('VerificationSessionManager', () => {
       expect(result.authUrl).toContain('discord.com/api/oauth2/authorize');
     });
 
-    it('creates session with jinxxy mode', async () => {
+    it('rejects session creation with jinxxy mode because it is not an OAuth verification provider', async () => {
       const manager = createVerificationSessionManager(testConfig);
       const result = await manager.beginSession({
         authUserId: 'user_test123',
         mode: 'jinxxy',
         redirectUri: 'http://localhost:3000/callback',
       });
-      expect(result.success).toBe(true);
-      expect(result.authUrl).toContain('jinxxy.com/oauth/authorize');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Unknown verification mode');
     });
 
     it('includes PKCE parameters in auth URL', async () => {

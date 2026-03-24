@@ -20,6 +20,7 @@ export interface UserAccountConnection {
   providerUserId?: string | null;
   providerUsername?: string | null;
   verificationMethod?: string | null;
+  providerDisplay?: UserProviderDisplay | null;
   linkedAt?: number | null;
   lastValidatedAt?: number | null;
   expiresAt?: number | null;
@@ -197,10 +198,17 @@ export function buildProviderConnectUrl(
 export interface UserProvider {
   id: string;
   label: string;
-  icon: string;
-  color: string;
-  description: string;
-  userSetupPath: string | null;
+  icon: string | null;
+  color: string | null;
+  description: string | null;
+}
+
+export interface UserProviderDisplay {
+  id: string;
+  label: string;
+  icon: string | null;
+  color: string | null;
+  description: string | null;
 }
 
 export function getProviderIconPath(provider: { icon?: string | null }) {

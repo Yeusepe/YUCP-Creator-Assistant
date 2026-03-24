@@ -188,8 +188,13 @@ function MethodRow({
     );
   }
 
-  // buyer_provider_link: show connection status; connect or verify
+  // buyer_provider_link: only OAuth providers can connect; `provider` being non-null means the
+  // provider is in listUserProviders(), which filters for supportsOAuth + VERIFICATION_CONFIGS entry.
+  // Non-OAuth providers (Jinxxy, LS, Payhip) never appear here legitimately — they only send
+  // manual_license requirements — but guard defensively anyway.
   if (requirement.kind === 'buyer_provider_link') {
+    const supportsOAuthLink = provider !== null;
+
     return (
       <div className={`vp-method-row${isVerified ? ' vp-method-row--verified' : ''}`}>
         <div className="vp-method-row-info">
@@ -198,23 +203,28 @@ function MethodRow({
               <img src={providerIconSrc} alt="" className="vp-provider-icon" aria-hidden="true" />
             ) : null}
             <span className="vp-provider-label-text">{requirement.providerLabel}</span>
-            <ProviderStatusBadge connected={isConnected} label={linkedLabel} />
+            {supportsOAuthLink ? (
+              <ProviderStatusBadge connected={isConnected} label={linkedLabel} />
+            ) : null}
           </div>
           <p className="vp-method-title">{requirement.title}</p>
           <p className="vp-method-desc">
-            {isConnected
-              ? `Verify using the connected ${requirement.providerLabel} account${linkedLabel ? ` (${linkedLabel})` : ''}.`
-              : expiredLink
-                ? `Your ${requirement.providerLabel} connection expired. Reconnect to verify.`
-                : (requirement.description ??
-                  `Connect your ${requirement.providerLabel} account to verify your purchase.`)}
+            {!supportsOAuthLink
+              ? (requirement.description ??
+                `${requirement.providerLabel} account linking is not available here. Ask the creator for a license key.`)
+              : isConnected
+                ? `Verify using the connected ${requirement.providerLabel} account${linkedLabel ? ` (${linkedLabel})` : ''}.`
+                : expiredLink
+                  ? `Your ${requirement.providerLabel} connection expired. Reconnect to verify.`
+                  : (requirement.description ??
+                    `Connect your ${requirement.providerLabel} account to verify your purchase.`)}
           </p>
         </div>
 
         <div className="vp-method-row-action">
           {isVerified ? (
             <span className="vp-status-badge vp-status-badge--connected">Verified</span>
-          ) : isConnected ? (
+          ) : !supportsOAuthLink ? null : isConnected ? (
             <button
               type="button"
               className={`vp-action-btn${providerLinkMut.isPending ? ' btn-loading' : ''}`}
@@ -231,6 +241,7 @@ function MethodRow({
               )}
             </button>
           ) : (
+            // OAuth connect → POST /api/connect/user/verify/start → /api/verification/begin?mode={providerKey}
             <button
               type="button"
               className={`vp-action-btn${connectMut.isPending ? ' btn-loading' : ''}`}

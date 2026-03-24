@@ -474,9 +474,13 @@ describe('GET /api/connect/user/connections', () => {
       getUserConnections?: (request: Request) => Promise<Response>;
     };
 
-    expect(isolatedRoutes.getUserConnections).toBeDefined();
+    const getUserConnections = isolatedRoutes.getUserConnections;
+    expect(getUserConnections).toBeDefined();
+    if (!getUserConnections) {
+      throw new Error('getUserConnections route is not defined');
+    }
 
-    const res = await isolatedRoutes.getUserConnections!(
+    const res = await getUserConnections(
       new Request('http://localhost:3001/api/connect/user/connections', {
         headers: { 'x-auth-token': 'viewer-token' },
       })

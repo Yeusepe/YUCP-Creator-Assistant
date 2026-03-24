@@ -9,7 +9,6 @@
  * 5. Close page, continue setup in Discord
  */
 
-import { randomBytes } from 'node:crypto';
 import {
   createLogger,
   getProviderDescriptor,
@@ -2629,6 +2628,19 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
     try {
+      const getProviderDisplay = (providerKey: string) => {
+        const provider = PROVIDERS.get(providerKey);
+        const displayMeta = provider?.displayMeta;
+        const descriptor = getProviderDescriptor(providerKey);
+
+        return {
+          id: providerKey,
+          label: displayMeta?.label ?? descriptor?.label ?? providerKey,
+          icon: displayMeta?.icon ?? null,
+          color: displayMeta?.color ?? null,
+          description: displayMeta?.description ?? null,
+        };
+      };
       const convex = getConvexClientFromUrl(config.convexUrl);
       const links = await convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
         apiSecret: config.convexApiSecret,
@@ -2647,6 +2659,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           providerUserId: link.providerUserId,
           providerUsername: link.providerUsername ?? null,
           verificationMethod: link.verificationMethod ?? null,
+          providerDisplay: getProviderDisplay(link.provider),
           linkedAt: link.linkedAt,
           lastValidatedAt: link.lastValidatedAt ?? null,
           expiresAt: link.expiresAt ?? null,
@@ -2706,9 +2719,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   function getUserProviders(_request: Request): Response {
     const providers = Array.from(PROVIDERS.values()).flatMap((p) => {
       const displayMeta = p.displayMeta;
-      const supportsDirectSetup = Boolean(displayMeta?.userSetupPath);
-      const supportsOAuthLink = getVerificationConfig(p.id) !== null;
-      if (!displayMeta || (!supportsDirectSetup && !supportsOAuthLink)) {
+      const descriptor = getProviderDescriptor(p.id);
+      const supportsOAuthLink =
+        descriptor?.supportsOAuth === true && getVerificationConfig(p.id) !== null;
+      if (!displayMeta || !supportsOAuthLink) {
         return [];
       }
 
@@ -2719,7 +2733,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           icon: displayMeta.icon,
           color: displayMeta.color,
           description: displayMeta.description,
-          userSetupPath: displayMeta.userSetupPath ?? null,
         },
       ];
     });
@@ -2753,8 +2766,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'providerKey is required' }, { status: 400 });
     }
 
-    const provider = PROVIDERS.get(providerKey);
-    if (!provider) {
+    if (!PROVIDERS.has(providerKey)) {
       return Response.json(
         { error: `Provider '${providerKey}' does not support user identity linking` },
         { status: 400 }
@@ -2764,44 +2776,22 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     try {
       const safeReturnUrl = getSafeRelativeRedirectTarget(body.returnUrl) ?? '/account/connections';
       const frontendReturnUrl = `${config.frontendBaseUrl.replace(/\/$/, '')}${safeReturnUrl}`;
-      const oauthConfig = getVerificationConfig(providerKey);
-      if (oauthConfig) {
-        const beginUrl = new URL('/api/verification/begin', config.frontendBaseUrl);
-        beginUrl.searchParams.set('authUserId', session.user.id);
-        beginUrl.searchParams.set('mode', providerKey);
-        beginUrl.searchParams.set('redirectUri', frontendReturnUrl);
-        return Response.json({
-          redirectUrl: `${beginUrl.pathname}${beginUrl.search}`,
-        });
-      }
-
-      if (!provider?.displayMeta?.userSetupPath) {
+      const descriptor = getProviderDescriptor(providerKey);
+      const oauthConfig =
+        descriptor?.supportsOAuth === true ? getVerificationConfig(providerKey) : null;
+      if (!oauthConfig) {
         return Response.json(
           { error: `Provider '${providerKey}' does not support user identity linking` },
           { status: 400 }
         );
       }
 
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const state = randomBytes(16).toString('hex');
-      const result = await convex.mutation(api.verificationSessions.createVerificationSession, {
-        apiSecret: config.convexApiSecret,
-        authUserId: session.user.id,
-        mode: providerKey,
-        providerKey,
-        verificationMethod: 'account_link',
-        state,
-        redirectUri: `${config.apiBaseUrl.replace(/\/$/, '')}/verify-success?provider=${encodeURIComponent(providerKey)}`,
-        successRedirectUri: frontendReturnUrl,
-      });
-
-      const setupUrl = new URL(provider.displayMeta.userSetupPath, config.frontendBaseUrl);
-      setupUrl.searchParams.set('token', result.sessionId);
-      setupUrl.searchParams.set('returnUrl', safeReturnUrl);
-
+      const beginUrl = new URL('/api/verification/begin', config.frontendBaseUrl);
+      beginUrl.searchParams.set('authUserId', session.user.id);
+      beginUrl.searchParams.set('mode', providerKey);
+      beginUrl.searchParams.set('redirectUri', frontendReturnUrl);
       return Response.json({
-        sessionId: result.sessionId,
-        redirectUrl: setupUrl.pathname + setupUrl.search,
+        redirectUrl: `${beginUrl.pathname}${beginUrl.search}`,
       });
     } catch (err) {
       logger.error('Failed to start user verify session', {

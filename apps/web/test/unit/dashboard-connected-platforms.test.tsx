@@ -134,23 +134,25 @@ describe('dashboard connected platforms', () => {
     ]);
 
     vi.mocked(
-      (dashboardApi as unknown as {
-        listDashboardConnections: ReturnType<typeof vi.fn>;
-      }).listDashboardConnections
+      (
+        dashboardApi as unknown as {
+          listDashboardConnections: ReturnType<typeof vi.fn>;
+        }
+      ).listDashboardConnections
     ).mockResolvedValue([
-        {
-          connectionType: 'setup',
-          createdAt: 1,
-          hasAccessToken: true,
-          hasApiKey: false,
-          id: 'connection-1',
-          label: 'Creator storefront',
-          provider: 'jinxxy',
-          status: 'active',
-          updatedAt: 2,
-          webhookConfigured: true,
-        },
-      ]);
+      {
+        connectionType: 'setup',
+        createdAt: 1,
+        hasAccessToken: true,
+        hasApiKey: false,
+        id: 'connection-1',
+        label: 'Creator storefront',
+        provider: 'jinxxy',
+        status: 'active',
+        updatedAt: 2,
+        webhookConfigured: true,
+      },
+    ]);
 
     vi.mocked(dashboardApi.listUserAccounts).mockResolvedValue([
       // The personal account route should not drive dashboard storefront cards.
@@ -169,9 +171,11 @@ describe('dashboard connected platforms', () => {
     await waitFor(() =>
       expect(
         vi.mocked(
-          (dashboardApi as unknown as {
-            listDashboardConnections: ReturnType<typeof vi.fn>;
-          }).listDashboardConnections
+          (
+            dashboardApi as unknown as {
+              listDashboardConnections: ReturnType<typeof vi.fn>;
+            }
+          ).listDashboardConnections
         )
       ).toHaveBeenCalled()
     );
@@ -208,10 +212,11 @@ describe('dashboard connected platforms', () => {
     await waitFor(() =>
       expect(
         vi.mocked(
-          (dashboardApi as unknown as {
-            disconnectDashboardConnection: ReturnType<typeof vi.fn>;
-          })
-            .disconnectDashboardConnection
+          (
+            dashboardApi as unknown as {
+              disconnectDashboardConnection: ReturnType<typeof vi.fn>;
+            }
+          ).disconnectDashboardConnection
         )
       ).toHaveBeenCalledWith('connection-1', 'user-123')
     );

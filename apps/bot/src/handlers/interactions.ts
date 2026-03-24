@@ -569,6 +569,14 @@ async function handleUserCommand(
   interaction: ChatInputCommandInteraction,
   ctx: InteractionHandlerContext
 ): Promise<void> {
+  const subcommand = interaction.options.getSubcommand(false);
+
+  if (subcommand === 'account') {
+    const { handleAccountCommand } = await import('../commands/account');
+    await handleAccountCommand(interaction);
+    return;
+  }
+
   const guildId = interaction.guildId;
 
   if (!guildId) {
@@ -595,8 +603,6 @@ async function handleUserCommand(
   const authUserId = guildLink.authUserId as string;
 
   try {
-    const subcommand = interaction.options.getSubcommand(false);
-
     // /creator status - show status panel (default entry point)
     // /creator verify [product] - fast path: skip the picker, go straight to modal
     if (subcommand === 'status' || subcommand === null) {
