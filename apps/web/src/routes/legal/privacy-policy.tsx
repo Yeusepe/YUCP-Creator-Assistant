@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import { CloudBackground } from '@/components/three/CloudBackground';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/legal/privacy-policy')({
@@ -20,7 +19,6 @@ function PrivacyPolicyPage() {
 
   return (
     <div className={`legal-page${isVisible ? ' is-visible' : ''}`}>
-      <CloudBackground variant="default" />
       <main className="max-w-3xl mx-auto px-4 sm:px-6 pb-10 sm:pb-16 md:pb-20">
         <header className="mb-10 sm:mb-16">
           <p className="text-[#0ea5e9] font-bold uppercase tracking-[0.3em] text-xs mb-8">

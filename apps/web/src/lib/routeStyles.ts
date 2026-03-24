@@ -13,6 +13,7 @@ import payhipSetupHref from '@/styles/payhip-setup.css?url';
 import signInHref from '@/styles/sign-in.css?url';
 import signInRedirectHref from '@/styles/sign-in-redirect.css?url';
 import verifyErrorHref from '@/styles/verify-error.css?url';
+import verifyPurchaseHref from '@/styles/verify-purchase.css?url';
 import verifySuccessHref from '@/styles/verify-success.css?url';
 import vrchatVerifyHref from '@/styles/vrchat-verify.css?url';
 
@@ -32,6 +33,7 @@ export const routeStyleHrefs = {
   signIn: signInHref,
   signInRedirect: signInRedirectHref,
   verifyError: verifyErrorHref,
+  verifyPurchase: verifyPurchaseHref,
   verifySuccess: verifySuccessHref,
   vrchatVerify: vrchatVerifyHref,
 } as const;

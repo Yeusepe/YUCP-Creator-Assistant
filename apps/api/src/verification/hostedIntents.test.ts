@@ -45,6 +45,29 @@ describe('hostedIntents', () => {
     });
   });
 
+  it('accepts YUCP entitlement checks without requiring an external provider descriptor', () => {
+    const [requirement] = normalizeHostedVerificationRequirements([
+      {
+        methodKey: 'existing-entitlement',
+        providerKey: 'yucp',
+        kind: 'existing_entitlement',
+        creatorAuthUserId: 'creator_123',
+        productId: 'product_123',
+      },
+    ]);
+
+    expect(requirement).toMatchObject({
+      methodKey: 'existing-entitlement',
+      providerKey: 'yucp',
+      kind: 'existing_entitlement',
+      title: 'Connected YUCP access',
+      description:
+        'Check whether your signed-in YUCP buyer account already has access to this package.',
+      creatorAuthUserId: 'creator_123',
+      productId: 'product_123',
+    });
+  });
+
   it('describes buyer-linked account requirements without provider branching in the caller', () => {
     const requirement = decorateHostedVerificationRequirement({
       methodKey: 'gumroad-link',

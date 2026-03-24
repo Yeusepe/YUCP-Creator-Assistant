@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import { CloudBackgroundLayer } from '@/components/three/CloudBackground';
+import { Cloud404Layer } from '@/components/three/CloudBackground';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/$')({
@@ -32,28 +32,15 @@ function NotFoundPage() {
           <div className="blob" />
           <div className="blob" />
         </div>
-        <div
-          id="bg-canvas-root"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            zIndex: 0,
-            pointerEvents: 'none',
-          }}
-        >
-          <CloudBackgroundLayer />
-        </div>
-
         <main className="content-above-clouds text-center max-w-xl w-full px-4 sm:px-6">
           <div
             id="canvas-404-root"
             className="fade-up"
-            style={{ animationDelay: '0.1s' }}
+            style={{ animationDelay: '0.1s', position: 'relative', zIndex: 2 }}
             aria-hidden="true"
-          />
+          >
+            <Cloud404Layer />
+          </div>
           <h1
             className="text-2xl sm:text-3xl text-white mb-4 fade-up"
             style={{ animationDelay: '0.2s' }}

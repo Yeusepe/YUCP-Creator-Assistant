@@ -1,10 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
-import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
+import { useCloudReady } from '@/hooks/useCloudReady';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
-import { usePageRevealGate } from '@/hooks/usePageRevealGate';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { logWebError } from '@/lib/webDiagnostics';
@@ -26,13 +24,17 @@ function SignInRedirectPage() {
   const [isVisible, setIsVisible] = useState(false);
   const { redirectTo } = Route.useSearch();
   const postAuthTarget = normalizeAuthRedirectTarget(redirectTo);
+  const bgReady = useCloudReady();
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),
     overlayFadeClass: 'is-hiding',
     overlayFadeDelayMs: 400,
     overlayRemoveDelayMs: 650,
   });
-  const handleBackgroundReady = usePageRevealGate({ reveal: showPage });
+
+  useEffect(() => {
+    if (bgReady) showPage();
+  }, [bgReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showError = useCallback(() => {
     setViewState('error');
@@ -109,14 +111,11 @@ function SignInRedirectPage() {
 
   return (
     <div className="sign-in-redirect-page">
-      <PageLoadingOverlay />
-
       <div
         id="page-content"
         className={isVisible ? 'is-visible' : ''}
         style={isVisible ? undefined : { display: 'none' }}
       >
-        <BackgroundCanvasRoot onReady={handleBackgroundReady} />
         <main className="text-center max-w-md w-full px-4 sm:px-6">
           <div className="connect-card rounded-[32px] p-8 sm:p-12">
             {viewState === 'loading' && (

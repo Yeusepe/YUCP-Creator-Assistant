@@ -3,7 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccountInlineError, AccountModal } from '@/components/account/AccountPage';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
-import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { DashboardCertificatesSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
@@ -28,7 +28,7 @@ function DashboardCertificatesPending() {
   return (
     <div id="tab-panel-certificates" className="dashboard-tab-panel is-active" role="tabpanel">
       <div className="bento-grid">
-        <DashboardListSkeleton rows={3} />
+        <DashboardCertificatesSkeleton />
       </div>
     </div>
   );
@@ -832,7 +832,7 @@ export default function DashboardCertificates() {
         )}
 
         {/* Loading */}
-        {isLoading && <DashboardListSkeleton rows={3} />}
+        {isLoading && <DashboardCertificatesSkeleton />}
       </div>
     </div>
   );

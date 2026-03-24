@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { authClient } from '@/lib/auth-client';
 import '@/styles/oauth-consent.css';
 
@@ -106,7 +105,6 @@ function OAuthConsentPage() {
 
   return (
     <div className="oauth-consent-page">
-      <BackgroundCanvasRoot />
       <main>
         <div className="consent-card">
           {/* App connector */}

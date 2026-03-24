@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CloudBackground } from '@/components/three/CloudBackground';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { copyToClipboard } from '@/lib/utils';
 
@@ -611,9 +610,6 @@ function CollabInvitePage() {
 
   return (
     <div className="collab-invite-page flex flex-col items-center justify-center min-h-screen p-4 py-8">
-      {/* Cloud background rendered independently so it doesn't fade with page-content */}
-      <CloudBackground variant="default" />
-
       <div id="page-content" className={pageVisible ? 'is-visible' : ''}>
         {/* Back to dashboard button */}
         {backToDashboardUrl && (

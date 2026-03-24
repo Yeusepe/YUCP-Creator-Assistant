@@ -95,6 +95,68 @@ export function DashboardSettingsSkeleton({ rows = 5 }: { rows?: number }) {
   );
 }
 
+/** Certificates page skeleton — matches the 8/4 bento-grid split. */
+export function DashboardCertificatesSkeleton() {
+  return (
+    <>
+      {/* Left — 8-col card: header + device rows */}
+      <div className="intg-card bento-col-8" aria-hidden="true">
+        <div className="intg-header">
+          <SkeletonBlock
+            className="skeleton-block skeleton-circle"
+            style={{ width: '36px', height: '36px', flexShrink: 0 }}
+          />
+          <div className="skeleton-copy" style={{ flex: 1 }}>
+            <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '45%' }} />
+            <SkeletonBlock
+              className="skeleton-block skeleton-line skeleton-line-muted"
+              style={{ width: '70%' }}
+            />
+          </div>
+        </div>
+        <div className="skeleton-stack" style={{ marginTop: '12px' }}>
+          {Array.from({ length: 3 }, (_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
+            <DashboardRowSkeleton key={i} />
+          ))}
+        </div>
+      </div>
+
+      {/* Right — 4-col card: header + kv rows + button */}
+      <div className="intg-card bento-col-4" aria-hidden="true">
+        <div className="intg-header">
+          <SkeletonBlock
+            className="skeleton-block skeleton-circle"
+            style={{ width: '36px', height: '36px', flexShrink: 0 }}
+          />
+          <div className="skeleton-copy" style={{ flex: 1 }}>
+            <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '55%' }} />
+            <SkeletonBlock
+              className="skeleton-block skeleton-line skeleton-line-muted"
+              style={{ width: '38%' }}
+            />
+          </div>
+        </div>
+        <div className="skeleton-stack" style={{ marginTop: '12px' }}>
+          {Array.from({ length: 3 }, (_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
+            <div key={i} className="skeleton-row-card" style={{ minHeight: '40px' }}>
+              <div className="skeleton-copy" style={{ flex: 1 }}>
+                <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '40%' }} />
+              </div>
+              <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '25%' }} />
+            </div>
+          ))}
+        </div>
+        <SkeletonBlock
+          className="skeleton-block skeleton-pill"
+          style={{ width: '100%', height: '36px', borderRadius: '999px', marginTop: 'auto' }}
+        />
+      </div>
+    </>
+  );
+}
+
 /**
  * Provider card skeleton — matches the intg-provider-grid card layout.
  * Used for the Store Integrations section while providers are loading.

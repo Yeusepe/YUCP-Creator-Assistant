@@ -252,7 +252,7 @@ const OPENAPI_SPEC = {
         properties: {
           methodKind: {
             type: 'string',
-            enum: ['existing_entitlement', 'manual_license'],
+            enum: ['existing_entitlement', 'manual_license', 'buyer_provider_link'],
           },
           completion: { type: 'string', enum: ['immediate', 'deferred'] },
           actionLabel: { type: 'string' },
@@ -267,10 +267,14 @@ const OPENAPI_SPEC = {
         type: 'object',
         properties: {
           methodKey: { type: 'string' },
-          providerKey: { type: 'string' },
+          providerKey: {
+            type: 'string',
+            description:
+              "Verification provider key. Use a provider registry key such as 'gumroad' or 'jinxxy' for marketplace-backed methods. For 'existing_entitlement', internal YUCP account checks may use 'yucp'.",
+          },
           kind: {
             type: 'string',
-            enum: ['existing_entitlement', 'manual_license'],
+            enum: ['existing_entitlement', 'manual_license', 'buyer_provider_link'],
           },
           title: { type: 'string' },
           description: { type: 'string', nullable: true },
@@ -284,11 +288,15 @@ const OPENAPI_SPEC = {
         type: 'object',
         properties: {
           methodKey: { type: 'string' },
-          providerKey: { type: 'string' },
+          providerKey: {
+            type: 'string',
+            description:
+              "Verification provider key. Internal entitlement checks may return 'yucp' when the requirement uses the signed-in YUCP buyer account rather than an external marketplace account.",
+          },
           providerLabel: { type: 'string' },
           kind: {
             type: 'string',
-            enum: ['existing_entitlement', 'manual_license'],
+            enum: ['existing_entitlement', 'manual_license', 'buyer_provider_link'],
           },
           title: { type: 'string' },
           description: { type: 'string', nullable: true },

@@ -332,18 +332,67 @@ components:
           type: integer
         createdAt:
           type: integer
-    VerificationIntentRequirement:
+    VerificationIntentCapabilityInput:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - license_key
+        label:
+          type: string
+        placeholder:
+          type: string
+          nullable: true
+        masked:
+          type: boolean
+        submitLabel:
+          type: string
+      required:
+      - kind
+      - label
+      - masked
+      - submitLabel
+    VerificationIntentCapability:
+      type: object
+      properties:
+        methodKind:
+          type: string
+          enum:
+          - existing_entitlement
+          - manual_license
+          - buyer_provider_link
+        completion:
+          type: string
+          enum:
+          - immediate
+          - deferred
+        actionLabel:
+          type: string
+        input:
+          allOf:
+          - $ref: '#/components/schemas/VerificationIntentCapabilityInput'
+          nullable: true
+      required:
+      - methodKind
+      - completion
+      - actionLabel
+    VerificationIntentRequirementInput:
       type: object
       properties:
         methodKey:
           type: string
         providerKey:
           type: string
+          description: Verification provider key. Use a provider registry key such
+            as 'gumroad' or 'jinxxy' for marketplace-backed methods. For 'existing_entitlement',
+            internal YUCP account checks may use 'yucp'.
         kind:
           type: string
           enum:
           - existing_entitlement
           - manual_license
+          - buyer_provider_link
         title:
           type: string
         description:
@@ -363,6 +412,47 @@ components:
       - providerKey
       - kind
       - title
+    VerificationIntentRequirement:
+      type: object
+      properties:
+        methodKey:
+          type: string
+        providerKey:
+          type: string
+          description: Verification provider key. Internal entitlement checks may
+            return 'yucp' when the requirement uses the signed-in YUCP buyer account
+            rather than an external marketplace account.
+        providerLabel:
+          type: string
+        kind:
+          type: string
+          enum:
+          - existing_entitlement
+          - manual_license
+          - buyer_provider_link
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        creatorAuthUserId:
+          type: string
+          nullable: true
+        productId:
+          type: string
+          nullable: true
+        providerProductRef:
+          type: string
+          nullable: true
+        capability:
+          $ref: '#/components/schemas/VerificationIntentCapability'
+      required:
+      - methodKey
+      - providerKey
+      - providerLabel
+      - kind
+      - title
+      - capability
     VerificationIntent:
       type: object
       description: A hosted buyer verification attempt for one package and one public-client
@@ -464,7 +554,7 @@ components:
         requirements:
           type: array
           items:
-            $ref: '#/components/schemas/VerificationIntentRequirement'
+            $ref: '#/components/schemas/VerificationIntentRequirementInput'
       required:
       - packageId
       - machineFingerprint
@@ -610,7 +700,7 @@ components:
         signingSecret:
           type: string
           description: "Returned ONLY on create and rotate-secret. Store this value\
-            \ securely \u0393\xC7\xF6 it will not be shown again."
+            \ securely \u2014 it will not be shown again."
         createdAt:
           type: integer
     WebhookDelivery:
@@ -2275,7 +2365,7 @@ paths:
       operationId: createWebhook
       summary: Create a webhook subscription
       description: "Creates a webhook endpoint. The `signingSecret` is returned in\
-        \ this response only \u0393\xC7\xF6 store it securely."
+        \ this response only \u2014 store it securely."
       tags:
       - Webhooks
       requestBody:

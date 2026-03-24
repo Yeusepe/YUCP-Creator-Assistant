@@ -20,6 +20,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as AccountIndexRouteImport } from './routes/account/index'
 import { Route as VerifySuccessRouteImport } from './routes/verify/success'
+import { Route as VerifyPurchaseRouteImport } from './routes/verify/purchase'
 import { Route as VerifyErrorRouteImport } from './routes/verify/error'
 import { Route as SetupVrchatRouteImport } from './routes/setup/vrchat'
 import { Route as SetupPayhipRouteImport } from './routes/setup/payhip'
@@ -100,6 +101,11 @@ const AccountIndexRoute = AccountIndexRouteImport.update({
 const VerifySuccessRoute = VerifySuccessRouteImport.update({
   id: '/verify/success',
   path: '/verify/success',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VerifyPurchaseRoute = VerifyPurchaseRouteImport.update({
+  id: '/verify/purchase',
+  path: '/verify/purchase',
   getParentRoute: () => rootRouteImport,
 } as any)
 const VerifyErrorRoute = VerifyErrorRouteImport.update({
@@ -267,6 +273,7 @@ export interface FileRoutesByFullPath {
   '/setup/payhip': typeof SetupPayhipRoute
   '/setup/vrchat': typeof SetupVrchatRoute
   '/verify/error': typeof VerifyErrorRoute
+  '/verify/purchase': typeof VerifyPurchaseRoute
   '/verify/success': typeof VerifySuccessRoute
   '/account/': typeof AccountIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
@@ -304,6 +311,7 @@ export interface FileRoutesByTo {
   '/setup/payhip': typeof SetupPayhipRoute
   '/setup/vrchat': typeof SetupVrchatRoute
   '/verify/error': typeof VerifyErrorRoute
+  '/verify/purchase': typeof VerifyPurchaseRoute
   '/verify/success': typeof VerifySuccessRoute
   '/account': typeof AccountIndexRoute
   '/dashboard': typeof DashboardIndexRoute
@@ -344,6 +352,7 @@ export interface FileRoutesById {
   '/setup/payhip': typeof SetupPayhipRoute
   '/setup/vrchat': typeof SetupVrchatRoute
   '/verify/error': typeof VerifyErrorRoute
+  '/verify/purchase': typeof VerifyPurchaseRoute
   '/verify/success': typeof VerifySuccessRoute
   '/account/': typeof AccountIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
@@ -385,6 +394,7 @@ export interface FileRouteTypes {
     | '/setup/payhip'
     | '/setup/vrchat'
     | '/verify/error'
+    | '/verify/purchase'
     | '/verify/success'
     | '/account/'
     | '/dashboard/'
@@ -422,6 +432,7 @@ export interface FileRouteTypes {
     | '/setup/payhip'
     | '/setup/vrchat'
     | '/verify/error'
+    | '/verify/purchase'
     | '/verify/success'
     | '/account'
     | '/dashboard'
@@ -461,6 +472,7 @@ export interface FileRouteTypes {
     | '/setup/payhip'
     | '/setup/vrchat'
     | '/verify/error'
+    | '/verify/purchase'
     | '/verify/success'
     | '/account/'
     | '/dashboard/'
@@ -490,6 +502,7 @@ export interface RootRouteChildren {
   SetupPayhipRoute: typeof SetupPayhipRoute
   SetupVrchatRoute: typeof SetupVrchatRoute
   VerifyErrorRoute: typeof VerifyErrorRoute
+  VerifyPurchaseRoute: typeof VerifyPurchaseRoute
   VerifySuccessRoute: typeof VerifySuccessRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -571,6 +584,13 @@ declare module '@tanstack/react-router' {
       path: '/verify/success'
       fullPath: '/verify/success'
       preLoaderRoute: typeof VerifySuccessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verify/purchase': {
+      id: '/verify/purchase'
+      path: '/verify/purchase'
+      fullPath: '/verify/purchase'
+      preLoaderRoute: typeof VerifyPurchaseRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/verify/error': {
@@ -826,6 +846,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupPayhipRoute: SetupPayhipRoute,
   SetupVrchatRoute: SetupVrchatRoute,
   VerifyErrorRoute: VerifyErrorRoute,
+  VerifyPurchaseRoute: VerifyPurchaseRoute,
   VerifySuccessRoute: VerifySuccessRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

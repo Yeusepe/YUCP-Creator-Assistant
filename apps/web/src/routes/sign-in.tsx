@@ -1,10 +1,8 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
-import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
-import { CloudBackground } from '@/components/three/CloudBackground';
+import { useCloudReady } from '@/hooks/useCloudReady';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
-import { usePageRevealGate } from '@/hooks/usePageRevealGate';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { logWebError } from '@/lib/webDiagnostics';
@@ -39,6 +37,7 @@ export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null
   const [errorMessage, setErrorMessage] = useState('Something went wrong. Please try again.');
   const redirectTarget = normalizeAuthRedirectTarget(redirectTo);
 
+  const bgReady = useCloudReady();
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),
     visibleClass: 'visible',
@@ -46,7 +45,10 @@ export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null
     overlayFadeDelayMs: 350,
     overlayRemoveDelayMs: 650,
   });
-  const handleBackgroundReady = usePageRevealGate({ reveal: showPage });
+
+  useEffect(() => {
+    if (bgReady) showPage();
+  }, [bgReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showError = useCallback(
     (msg?: string) => {
@@ -81,10 +83,6 @@ export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null
 
   return (
     <div className="sign-in-page">
-      <PageLoadingOverlay />
-
-      <CloudBackground onReady={handleBackgroundReady} variant="default" />
-
       <div id="page-content" className={isVisible ? 'visible' : ''}>
         <div className="logo-wrap">
           <img src="/Icons/MainLogo.png" alt="Creator Assistant" />

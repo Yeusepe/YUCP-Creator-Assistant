@@ -11,8 +11,11 @@ import {
   useRouteContext,
 } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
+import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { ToastProvider } from '@/components/ui/Toast';
+import { CloudReadyContext } from '@/hooks/useCloudReady';
 import { authClient } from '@/lib/auth-client';
 import { collectAuthRuntimeDiagnostics, getToken } from '@/lib/auth-server';
 import { installChunkErrorRecovery } from '@/lib/chunkErrorRecovery';
@@ -119,6 +122,7 @@ export const Route = createRootRouteWithContext<{
 
 function RootComponent() {
   const context = useRouteContext({ from: Route.id });
+  const [bgReady, setBgReady] = useState(false);
   return (
     <RootDocument>
       <ConvexBetterAuthProvider
@@ -126,10 +130,14 @@ function RootComponent() {
         authClient={authClient}
         initialToken={context.token}
       >
-        <ToastProvider>
-          <AppEffects />
-          <Outlet />
-        </ToastProvider>
+        <CloudReadyContext.Provider value={bgReady}>
+          <PageLoadingOverlay />
+          <CloudBackground variant="default" onReady={() => setBgReady(true)} />
+          <ToastProvider>
+            <AppEffects />
+            <Outlet />
+          </ToastProvider>
+        </CloudReadyContext.Provider>
       </ConvexBetterAuthProvider>
     </RootDocument>
   );

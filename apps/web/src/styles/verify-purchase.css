@@ -1,0 +1,532 @@
+/* ============================================================
+   Verify Purchase — standalone buyer verification page
+   Mirrors the bot's verify panel for browser-hosted flow
+   ============================================================ */
+
+/* === Page shell === */
+
+.vp-wrapper {
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  font-family: "DM Sans", sans-serif;
+  min-height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  position: relative;
+  padding: 2rem 1rem 3rem;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+@media (min-width: 640px) {
+  .vp-wrapper {
+    align-items: center;
+    padding: 2.5rem 1.5rem;
+  }
+}
+
+.vp-main {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 580px;
+  opacity: 0;
+  transition: opacity 0.35s ease 0.05s;
+}
+
+.vp-main.is-visible {
+  opacity: 1;
+}
+
+/* === Card === */
+
+.vp-card {
+  background: rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 20px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.vp-card--success {
+  border-color: rgba(0, 230, 118, 0.25);
+}
+
+.vp-card--error {
+  border-color: rgba(255, 80, 80, 0.2);
+  padding: 2.5rem;
+  text-align: center;
+}
+
+/* === Card header === */
+
+.vp-card-header {
+  padding: 2rem 2rem 0;
+}
+
+@media (max-width: 480px) {
+  .vp-card-header {
+    padding: 1.5rem 1.25rem 0;
+  }
+}
+
+.vp-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  margin: 0 0 0.5rem;
+}
+
+.vp-package-name {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-weight: 800;
+  font-size: clamp(1.35rem, 4vw, 1.75rem);
+  letter-spacing: -0.03em;
+  line-height: 1.18;
+  color: #ffffff;
+  margin: 0 0 0.25rem;
+}
+
+.vp-card-subtitle {
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0.75rem 0 0;
+  line-height: 1.55;
+}
+
+/* === Error banner (inline) === */
+
+.vp-error-banner {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(220, 60, 60, 0.15);
+  border: 1px solid rgba(220, 60, 60, 0.3);
+  border-radius: 10px;
+  font-size: 0.875rem;
+  color: rgba(255, 160, 160, 0.95);
+  line-height: 1.45;
+}
+
+/* === Sections === */
+
+.vp-section {
+  padding: 1.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+@media (max-width: 480px) {
+  .vp-section {
+    padding: 1.25rem 1.25rem;
+  }
+}
+
+.vp-section-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+  margin: 0;
+}
+
+.vp-checking-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2.5rem 2rem;
+}
+
+/* === Method row === */
+
+.vp-method-row {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 1.125rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.vp-method-row--verified {
+  background: rgba(0, 230, 118, 0.06);
+  border-color: rgba(0, 230, 118, 0.25);
+}
+
+/* === Provider info inside row === */
+
+.vp-method-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.vp-method-provider {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.vp-provider-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.vp-provider-label-text {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.vp-method-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  margin: 0;
+  line-height: 1.35;
+}
+
+.vp-method-desc {
+  font-size: 0.845rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.vp-method-error {
+  font-size: 0.8rem;
+  color: rgba(255, 120, 120, 0.95);
+  margin: 0.25rem 0 0;
+  line-height: 1.4;
+}
+
+/* === Action area === */
+
+.vp-method-row-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.vp-method-row-action--license {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+/* === Buttons === */
+
+.vp-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.25rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #ffffff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    transform 0.18s ease,
+    opacity 0.18s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.vp-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  transform: translateY(-1px);
+}
+
+.vp-action-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.vp-action-btn:disabled,
+.vp-action-btn.btn-loading {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* === Status badges === */
+
+.vp-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.755rem;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.015em;
+}
+
+.vp-status-badge--connected {
+  background: rgba(0, 230, 118, 0.14);
+  color: #00e676;
+  border: 1px solid rgba(0, 230, 118, 0.25);
+}
+
+.vp-status-badge--none {
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.vp-status-badge-icon {
+  width: 11px;
+  height: 11px;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  fill: none;
+  flex-shrink: 0;
+}
+
+/* === License key input === */
+
+.vp-license-input {
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  font-family: "DM Mono", "Fira Code", monospace;
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+  box-sizing: border-box;
+}
+
+.vp-license-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+  font-family: "DM Sans", sans-serif;
+  letter-spacing: 0;
+}
+
+.vp-license-input:focus {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* === Spinner === */
+
+.vp-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  animation: vp-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.vp-spinner--lg {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+}
+
+@keyframes vp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* shared with verify-success.css */
+.btn-loading-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  animation: vp-spin 0.7s linear infinite;
+}
+
+.vp-checking-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* === Loading state === */
+
+.vp-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 3rem 2rem;
+}
+
+.vp-loading-text {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+}
+
+/* === Success state === */
+
+.vp-success-icon {
+  width: 100px;
+  height: 100px;
+  margin: 2.5rem auto 1.5rem;
+}
+
+.vp-success-title {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-weight: 800;
+  font-size: clamp(1.75rem, 6vw, 2.5rem);
+  letter-spacing: -0.04em;
+  text-align: center;
+  color: #ffffff;
+  margin: 0 0 0.75rem;
+  padding: 0 2rem;
+}
+
+.vp-success-subtitle {
+  font-size: 0.9375rem;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  margin: 0 0 1.75rem;
+  line-height: 1.55;
+  padding: 0 2rem;
+}
+
+.vp-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #ffffff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    transform 0.18s ease;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  margin: 0 auto;
+}
+
+.vp-primary-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.38);
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.35);
+  transform: translateY(-2px);
+}
+
+.vp-countdown-text {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+  margin: 0.875rem 0 2rem;
+}
+
+/* === SVG path animations (success checkmark) === */
+
+.vp-circle-path {
+  stroke-dasharray: 300;
+  stroke-dashoffset: 300;
+  animation: vp-dash 0.6s ease-out forwards;
+}
+
+.vp-check-path {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: vp-dash 0.8s ease-out 0.3s forwards;
+}
+
+@keyframes vp-dash {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* === Card footer === */
+
+.vp-card-footer {
+  padding: 1rem 2rem 1.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .vp-card-footer {
+    padding: 1rem 1.25rem 1.5rem;
+  }
+}
+
+.vp-footer-note {
+  font-size: 0.775rem;
+  color: rgba(255, 255, 255, 0.3);
+  margin: 0;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* === Animations === */
+
+.fade-up {
+  animation: fadeUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+@keyframes fadeUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

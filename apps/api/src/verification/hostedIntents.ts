@@ -7,6 +7,9 @@ import { getProvider } from '../providers';
 import type { BuyerVerificationCapabilityDescriptor } from '../providers/types';
 import { getVerificationConfig } from './sessionManager';
 
+const INTERNAL_ENTITLEMENT_PROVIDER_KEY = 'yucp';
+const INTERNAL_ENTITLEMENT_PROVIDER_LABEL = 'YUCP';
+
 export interface VerificationIntentRequirementInput {
   methodKey?: string;
   providerKey?: string;
@@ -95,15 +98,23 @@ function trimToUndefined(value: string | undefined): string | undefined {
 function createExistingEntitlementCapability(
   providerKey: string
 ): ExistingEntitlementCapabilityDescriptor {
-  const descriptor = getProviderDescriptor(providerKey);
-  const providerLabel = descriptor?.label ?? providerKey;
+  const providerLabel =
+    providerKey === INTERNAL_ENTITLEMENT_PROVIDER_KEY
+      ? INTERNAL_ENTITLEMENT_PROVIDER_LABEL
+      : (getProviderDescriptor(providerKey)?.label ?? providerKey);
 
   return {
     methodKind: 'existing_entitlement',
     completion: 'immediate',
     actionLabel: 'Check access',
-    defaultTitle: `${providerLabel} access`,
-    defaultDescription: `Check whether your linked ${providerLabel} access already grants this package.`,
+    defaultTitle:
+      providerKey === INTERNAL_ENTITLEMENT_PROVIDER_KEY
+        ? 'Connected YUCP access'
+        : `${providerLabel} access`,
+    defaultDescription:
+      providerKey === INTERNAL_ENTITLEMENT_PROVIDER_KEY
+        ? 'Check whether your signed-in YUCP buyer account already has access to this package.'
+        : `Check whether your linked ${providerLabel} access already grants this package.`,
   };
 }
 
@@ -127,16 +138,25 @@ function supportsHostedBuyerAccountLink(providerKey: string): boolean {
   return Boolean(provider?.displayMeta?.userSetupPath || getVerificationConfig(providerKey));
 }
 
+function getHostedProviderLabel(providerKey: string): string {
+  if (providerKey === INTERNAL_ENTITLEMENT_PROVIDER_KEY) {
+    return INTERNAL_ENTITLEMENT_PROVIDER_LABEL;
+  }
+  return getProviderDescriptor(providerKey)?.label ?? providerKey;
+}
+
 function describeHostedVerificationCapability(
   providerKey: string,
   kind: StoredVerificationIntentRequirement['kind']
 ): HostedVerificationCapabilityDescriptor {
-  const descriptor = getProviderDescriptor(providerKey);
-  if (!descriptor) {
-    throw new Error(`Provider '${providerKey}' is not registered`);
-  }
-
   if (kind === 'existing_entitlement') {
+    if (providerKey === INTERNAL_ENTITLEMENT_PROVIDER_KEY) {
+      return createExistingEntitlementCapability(providerKey);
+    }
+    const descriptor = getProviderDescriptor(providerKey);
+    if (!descriptor) {
+      throw new Error(`Provider '${providerKey}' is not registered`);
+    }
     if (!descriptor.buyerVerificationMethods.includes('account_link')) {
       throw new Error(`Provider '${providerKey}' does not support hosted entitlement verification`);
     }
@@ -144,6 +164,10 @@ function describeHostedVerificationCapability(
   }
 
   if (kind === 'buyer_provider_link') {
+    const descriptor = getProviderDescriptor(providerKey);
+    if (!descriptor) {
+      throw new Error(`Provider '${providerKey}' is not registered`);
+    }
     if (!descriptor.buyerVerificationMethods.includes('account_link')) {
       throw new Error(`Provider '${providerKey}' does not support buyer account linking`);
     }
@@ -211,14 +235,13 @@ export function normalizeHostedVerificationRequirements(
 
 export function buildVerificationUrl(frontendBaseUrl: string, intentId: string): string {
   const base = frontendBaseUrl.replace(/\/$/, '');
-  return `${base}/account/verify?intent=${encodeURIComponent(intentId)}`;
+  return `${base}/verify/purchase?intent=${encodeURIComponent(intentId)}`;
 }
 
 export function decorateHostedVerificationRequirement(
   requirement: StoredVerificationIntentRequirement
 ): VerificationIntentRequirementResponse {
-  const descriptor = getProviderDescriptor(requirement.providerKey);
-  const providerLabel = descriptor?.label ?? requirement.providerKey;
+  const providerLabel = getHostedProviderLabel(requirement.providerKey);
   const capability = describeHostedVerificationCapability(
     requirement.providerKey,
     requirement.kind

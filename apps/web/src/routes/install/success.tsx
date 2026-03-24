@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import '@/styles/install-result.css';
 
 export const Route = createFileRoute('/install/success')({
@@ -22,7 +21,6 @@ function InstallSuccessPage() {
 
   return (
     <div className="install-result-page">
-      <BackgroundCanvasRoot />
       <div className={`install-result-content${isVisible ? ' is-visible' : ''}`}>
         <div className="install-result-card">
           <img

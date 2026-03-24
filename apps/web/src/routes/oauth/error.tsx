@@ -22,12 +22,6 @@ function OAuthErrorPage() {
 
   return (
     <div className="oauth-error-page">
-      {/* background blobs */}
-      <div className="blobs">
-        <div className="blob blob-1"></div>
-        <div className="blob blob-2"></div>
-      </div>
-
       <div className="error-card">
         {/* icon */}
         <div className="icon-ring">

@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/verify/success')({
@@ -99,7 +98,6 @@ function VerifySuccessPage() {
 
   return (
     <div className="verify-success-page-wrapper">
-      <BackgroundCanvasRoot />
       <main
         className={`verify-success-page text-center max-w-2xl w-full px-4 sm:px-6 relative z-10${isVisible ? ' is-visible' : ''}`}
       >

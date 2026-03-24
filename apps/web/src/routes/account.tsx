@@ -1,6 +1,5 @@
 import { createFileRoute, Link, Outlet, redirect, useRouterState } from '@tanstack/react-router';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
-import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { dashboardShellQueryOptions } from '@/lib/dashboardQueryOptions';
 import { primeDashboardShellCaches } from '@/lib/dashboardShellCache';
@@ -218,8 +217,6 @@ function AccountLayout() {
           aria-hidden="true"
           onClick={toggleAccountSidebar}
         />
-
-        <CloudBackground variant="default" />
 
         <aside id="sidebar" className="sidebar" aria-label="Account navigation">
           <div className="sidebar-logo-area">

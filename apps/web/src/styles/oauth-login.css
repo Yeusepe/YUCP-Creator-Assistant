@@ -5,7 +5,7 @@
 }
 
 .oauth-login-page {
-  background-color: var(--bg-color);
+  background-color: transparent;
   color: var(--text-primary);
   font-family: "DM Sans", sans-serif;
   display: flex;
@@ -13,6 +13,24 @@
   justify-content: center;
   min-height: 100dvh;
   padding: 1.25rem;
+}
+
+.oauth-login-page #page-content {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  opacity: 0;
+  transform: translateY(18px) scale(0.97);
+  transition:
+    opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.oauth-login-page #page-content.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 .login-card {
@@ -28,18 +46,6 @@
   max-width: 380px;
   width: 100%;
   text-align: center;
-  animation: card-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-@keyframes card-in {
-  from {
-    opacity: 0;
-    transform: translateY(18px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
 }
 
 /* ── Loading state ───────────────────────────────────────────────── */

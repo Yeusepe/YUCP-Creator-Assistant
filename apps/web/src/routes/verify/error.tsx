@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/verify/error')({
@@ -59,7 +58,6 @@ function VerifyErrorPage() {
 
   return (
     <div className="verify-error-page-wrapper">
-      <BackgroundCanvasRoot />
       <main
         className={`verify-error-page text-center max-w-2xl w-full px-4 sm:px-6 relative z-10${isVisible ? ' is-visible' : ''}`}
       >

@@ -4,7 +4,6 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import { ApiError, apiClient } from '@/api/client';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
-import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAuth } from '@/hooks/useAuth';
 import { DashboardSessionProvider } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
@@ -372,7 +371,6 @@ function DashboardLayout() {
           <div className="app-shell">
             <SidebarOverlay />
             <ServerDropdownBackdrop />
-            <CloudBackground variant="default" />
             <Sidebar hasBootstrapPending={hasBootstrapPending} pendingGuild={pendingGuild} />
             {hasBootstrapPending ? (
               <DashboardBootstrapState pendingGuild={displayGuild} />
@@ -1072,7 +1070,6 @@ function DashboardRouteErrorComponent({ error }: { error: Error }) {
   return (
     <div className="dashboard-page">
       <div className="app-shell">
-        <CloudBackground variant="default" />
         <main className="content-area">
           <section className="section-card bento-col-12 p-6 sm:p-7 md:p-8">
             <div className="content-header-eyebrow">Dashboard Error</div>
