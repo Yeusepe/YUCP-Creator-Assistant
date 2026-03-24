@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -83,11 +83,13 @@ vi.mock('@/lib/dashboard', () => {
     buildProviderConnectUrl: vi.fn(
       (provider: { connectPath?: string }) => provider.connectPath ?? null
     ),
+    disconnectDashboardConnection: vi.fn(),
     disconnectUserAccount: vi.fn(),
     getDashboardSettings: vi.fn(),
     getProviderIconPath: vi.fn((provider: { icon?: string | null }) =>
       provider.icon ? `/Icons/${provider.icon}` : null
     ),
+    listDashboardConnections: vi.fn(),
     listDashboardProviders: vi.fn(),
     listGuildChannels: vi.fn(),
     listUserAccounts: vi.fn(),
@@ -131,19 +133,24 @@ describe('dashboard connected platforms', () => {
       },
     ]);
 
+    vi.mocked((dashboardApi as { listDashboardConnections: typeof vi.fn }).listDashboardConnections)
+      .mockResolvedValue([
+        {
+          connectionType: 'setup',
+          createdAt: 1,
+          hasAccessToken: true,
+          hasApiKey: false,
+          id: 'connection-1',
+          label: 'Creator storefront',
+          provider: 'jinxxy',
+          status: 'active',
+          updatedAt: 2,
+          webhookConfigured: true,
+        },
+      ]);
+
     vi.mocked(dashboardApi.listUserAccounts).mockResolvedValue([
-      {
-        connectionType: 'oauth',
-        createdAt: 1,
-        hasAccessToken: true,
-        hasApiKey: false,
-        id: 'connection-1',
-        label: 'Creator storefront',
-        provider: 'jinxxy',
-        status: 'active',
-        updatedAt: 2,
-        webhookConfigured: true,
-      },
+      // The personal account route should not drive dashboard storefront cards.
     ]);
   });
 
@@ -156,9 +163,38 @@ describe('dashboard connected platforms', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     await waitFor(() => expect(dashboardApi.listDashboardProviders).toHaveBeenCalled());
-    await waitFor(() => expect(dashboardApi.listUserAccounts).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        vi.mocked(
+          (dashboardApi as { listDashboardConnections: typeof vi.fn }).listDashboardConnections
+        )
+      ).toHaveBeenCalled()
+    );
 
     await waitFor(() => expect(screen.getByText('Creator storefront')).toBeInTheDocument());
     expect(screen.getAllByText('Jinxxy').length).toBeGreaterThan(0);
+  });
+
+  it('disconnects creator storefronts through the creator connection endpoint', async () => {
+    const Component = DashboardIndexRoute.options.component;
+    if (!Component) {
+      throw new Error('Dashboard index route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Creator storefront')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /^disconnect$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^disconnect$/i }));
+
+    await waitFor(() =>
+      expect(
+        vi.mocked(
+          (dashboardApi as { disconnectDashboardConnection: typeof vi.fn })
+            .disconnectDashboardConnection
+        )
+      ).toHaveBeenCalledWith('connection-1', 'user-123')
+    );
   });
 });

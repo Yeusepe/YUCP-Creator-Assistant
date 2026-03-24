@@ -437,6 +437,72 @@ describe('GET /api/connect/settings (setup-session path)', () => {
   });
 });
 
+describe('GET /api/connect/user/connections', () => {
+  it('returns creator provider connections for the authenticated owner session', async () => {
+    queryImpl = async (fn, args) => {
+      expect(fn).toBe(apiMock.providerConnections.listConnectionsForUser);
+      expect(args).toEqual({
+        apiSecret: 'test-convex-secret',
+        authUserId: 'user-dashboard-001',
+      });
+      return [
+        {
+          id: 'conn-1',
+          provider: 'gumroad',
+          label: 'Gumroad Connection',
+          connectionType: 'setup',
+          status: 'active',
+          webhookConfigured: true,
+          hasApiKey: false,
+          hasAccessToken: true,
+          authUserId: 'user-dashboard-001',
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ];
+    };
+
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({
+        user: {
+          id: 'user-dashboard-001',
+        },
+      }),
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig) as typeof routes & {
+      getUserConnections?: (request: Request) => Promise<Response>;
+    };
+
+    expect(isolatedRoutes.getUserConnections).toBeDefined();
+
+    const res = await isolatedRoutes.getUserConnections!(
+      new Request('http://localhost:3001/api/connect/user/connections', {
+        headers: { 'x-auth-token': 'viewer-token' },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      connections: [
+        {
+          id: 'conn-1',
+          provider: 'gumroad',
+          label: 'Gumroad Connection',
+          connectionType: 'setup',
+          status: 'active',
+          webhookConfigured: true,
+          hasApiKey: false,
+          hasAccessToken: true,
+          authUserId: 'user-dashboard-001',
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+    });
+  });
+});
+
 describe('DELETE /api/connections (disconnect) - setup-session path', () => {
   it('returns 401 when no auth is present', async () => {
     const req = new Request('http://localhost:3001/api/connections?id=conn-1&authUserId=user-1', {

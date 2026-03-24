@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
+import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { useCloudReady } from '@/hooks/useCloudReady';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
@@ -34,7 +35,7 @@ function SignInRedirectPage() {
 
   useEffect(() => {
     if (bgReady) showPage();
-  }, [bgReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bgReady, showPage]);
 
   const showError = useCallback(() => {
     setViewState('error');
@@ -111,6 +112,7 @@ function SignInRedirectPage() {
 
   return (
     <div className="sign-in-redirect-page">
+      <PageLoadingOverlay />
       <div
         id="page-content"
         className={isVisible ? 'is-visible' : ''}

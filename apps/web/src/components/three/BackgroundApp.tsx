@@ -1,9 +1,13 @@
-import { Clouds, Sky as SkyImpl } from '@react-three/drei';
+import { Clouds, Preload, Sky as SkyImpl, useTexture } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
-import { useEffect } from 'react';
 import * as THREE from 'three';
 import cloudTextureUrl from '@/assets/cloud.png';
+import { FirstFrameReadySignal } from './FirstFrameReadySignal';
 import { MovingCloud } from './MovingCloud';
+
+if (typeof window !== 'undefined') {
+  useTexture.preload(cloudTextureUrl);
+}
 
 function BackgroundSky() {
   return (
@@ -78,16 +82,6 @@ function BackgroundSky() {
   );
 }
 
-function BackgroundReadySignal({ onReady }: { onReady?: () => void }) {
-  useEffect(() => {
-    if (!onReady) return;
-    const frameId = requestAnimationFrame(() => onReady());
-    return () => cancelAnimationFrame(frameId);
-  }, [onReady]);
-
-  return null;
-}
-
 export default function BackgroundApp({ onReady }: { onReady?: () => void }) {
   return (
     <Canvas
@@ -98,8 +92,9 @@ export default function BackgroundApp({ onReady }: { onReady?: () => void }) {
       }}
       style={{ background: 'transparent' }}
     >
-      <BackgroundReadySignal onReady={onReady} />
+      <FirstFrameReadySignal onReady={onReady} />
       <BackgroundSky />
+      <Preload all />
       <ambientLight intensity={Math.PI / 1.5} />
       <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffffff" />
       <spotLight

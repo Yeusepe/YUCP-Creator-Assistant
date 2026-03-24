@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { useCloudReady } from '@/hooks/useCloudReady';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
@@ -64,7 +65,7 @@ function OAuthLoginPage() {
 
   useEffect(() => {
     if (bgReady) showPage();
-  }, [bgReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bgReady, showPage]);
 
   useEffect(() => {
     retryPathRef.current = `${window.location.pathname}${window.location.search}`;
@@ -128,6 +129,7 @@ function OAuthLoginPage() {
 
   return (
     <div className="oauth-login-page">
+      <PageLoadingOverlay />
       <div id="page-content" className={isVisible ? 'visible' : ''}>
         <main>
           <div className="login-card">

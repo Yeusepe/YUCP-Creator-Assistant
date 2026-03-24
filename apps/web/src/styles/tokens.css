@@ -1,6 +1,8 @@
 :root {
   /* Base Colors */
   --bg-color: #0a3d9e;
+  --cloud-fallback-sky: linear-gradient(180deg, #67b7ec 0%, #8ec9ef 44%, #deeffb 100%);
+  --cloud-fallback-sky-dark: linear-gradient(180deg, #2d567c 0%, #41678d 46%, #6885a3 100%);
   --text-primary: rgba(255, 255, 255, 0.95);
   --text-secondary: rgba(255, 255, 255, 0.85);
   --border-color: rgba(255, 255, 255, 0.15);

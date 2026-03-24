@@ -8,9 +8,9 @@ import {
   useRef,
   useState,
 } from 'react';
+import BackgroundApp from './BackgroundApp';
+import ForegroundApp from './ForegroundApp';
 
-const BackgroundApp = lazy(() => import('./BackgroundApp'));
-const ForegroundApp = lazy(() => import('./ForegroundApp'));
 const Cloud404App = lazy(() => import('./Cloud404App'));
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -27,38 +27,20 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   }
 }
 
-function useDeferredReady() {
+function useClientReady() {
   const [ready, setReady] = useState(false);
+
   useEffect(() => {
-    if ('requestIdleCallback' in window) {
-      const id = requestIdleCallback(() => setReady(true), { timeout: 2000 });
-      return () => cancelIdleCallback(id);
-    }
-    const timer = setTimeout(() => setReady(true), 100);
-    return () => clearTimeout(timer);
+    setReady(true);
   }, []);
+
   return ready;
 }
 
-function useDeferredFade() {
-  const ready = useDeferredReady();
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (!ready) {
-      setVisible(false);
-      return;
-    }
-
-    const frameId = requestAnimationFrame(() => setVisible(true));
-    return () => cancelAnimationFrame(frameId);
-  }, [ready]);
-
-  return { ready, visible };
-}
-
-function CloudBackgroundSurface() {
-  return <div aria-hidden="true" className="cloud-background-surface" />;
+function CloudBackgroundSurface({ hidden = false }: { hidden?: boolean }) {
+  return (
+    <div aria-hidden="true" className={`cloud-background-surface${hidden ? ' is-hidden' : ''}`} />
+  );
 }
 
 function useOneShotCallback(callback?: () => void) {
@@ -76,25 +58,20 @@ function useOneShotCallback(callback?: () => void) {
  * Renders into the bg-canvas-root div that pages provide.
  */
 export function CloudBackgroundLayer({ onReady }: { onReady?: () => void }) {
-  const { ready, visible } = useDeferredFade();
+  const ready = useClientReady();
   const [sceneReady, setSceneReady] = useState(false);
   const reportReady = useOneShotCallback(onReady);
 
   useEffect(() => {
-    if (ready) return;
-    setSceneReady(false);
-  }, [ready]);
-
-  useEffect(() => {
-    if (!sceneReady || !visible) return;
+    if (!sceneReady) return;
     reportReady();
-  }, [reportReady, sceneReady, visible]);
+  }, [reportReady, sceneReady]);
 
   return (
     <div className="cloud-layer-shell">
-      <CloudBackgroundSurface />
+      <CloudBackgroundSurface hidden={sceneReady} />
       {ready ? (
-        <div className={`cloud-layer-fade${visible ? ' is-visible' : ''}`}>
+        <div className={`cloud-scene-layer${sceneReady ? ' is-ready' : ''}`}>
           <ErrorBoundary>
             <Suspense fallback={null}>
               <BackgroundApp onReady={() => setSceneReady(true)} />
@@ -110,13 +87,16 @@ export function CloudBackgroundLayer({ onReady }: { onReady?: () => void }) {
  * Foreground clouds canvas (z-index: 1, transparent, pointer-events: none).
  */
 export function CloudForegroundLayer() {
-  const { ready, visible } = useDeferredFade();
+  const ready = useClientReady();
+  const [sceneReady, setSceneReady] = useState(false);
+
   if (!ready) return null;
+
   return (
-    <div className={`cloud-layer-fade${visible ? ' is-visible' : ''}`}>
+    <div className={`cloud-scene-layer${sceneReady ? ' is-ready' : ''}`}>
       <ErrorBoundary>
         <Suspense fallback={null}>
-          <ForegroundApp />
+          <ForegroundApp onReady={() => setSceneReady(true)} />
         </Suspense>
       </ErrorBoundary>
     </div>
@@ -127,10 +107,10 @@ export function CloudForegroundLayer() {
  * 404 3D text canvas (z-index: 2, transparent).
  */
 export function Cloud404Layer() {
-  const { ready, visible } = useDeferredFade();
+  const ready = useClientReady();
   if (!ready) return null;
   return (
-    <div className={`cloud-layer-fade${visible ? ' is-visible' : ''}`}>
+    <div className="cloud-scene-layer is-ready">
       <ErrorBoundary>
         <Suspense fallback={null}>
           <Cloud404App />

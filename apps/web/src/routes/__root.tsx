@@ -12,7 +12,6 @@ import {
 } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { type ReactNode, useEffect, useState } from 'react';
-import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { ToastProvider } from '@/components/ui/Toast';
 import { CloudReadyContext } from '@/hooks/useCloudReady';
@@ -125,20 +124,19 @@ function RootComponent() {
   const [bgReady, setBgReady] = useState(false);
   return (
     <RootDocument>
-      <ConvexBetterAuthProvider
-        client={context.convexQueryClient.convexClient}
-        authClient={authClient}
-        initialToken={context.token}
-      >
-        <CloudReadyContext.Provider value={bgReady}>
-          <PageLoadingOverlay />
-          <CloudBackground variant="default" onReady={() => setBgReady(true)} />
+      <CloudReadyContext.Provider value={bgReady}>
+        <CloudBackground variant="default" onReady={() => setBgReady(true)} />
+        <ConvexBetterAuthProvider
+          client={context.convexQueryClient.convexClient}
+          authClient={authClient}
+          initialToken={context.token}
+        >
           <ToastProvider>
             <AppEffects />
             <Outlet />
           </ToastProvider>
-        </CloudReadyContext.Provider>
-      </ConvexBetterAuthProvider>
+        </ConvexBetterAuthProvider>
+      </CloudReadyContext.Provider>
     </RootDocument>
   );
 }

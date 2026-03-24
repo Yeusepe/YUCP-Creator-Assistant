@@ -43,21 +43,113 @@
 .cloud-background-surface {
   position: absolute;
   inset: 0;
-  background: #7da4c9;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--cloud-fallback-sky);
+  opacity: 1;
+  transition: opacity 0.18s ease-out;
 }
 
 .dark .cloud-background-surface {
-  background: #658db6;
+  background: var(--cloud-fallback-sky-dark);
 }
 
-.cloud-layer-fade {
+.cloud-background-surface::before,
+.cloud-background-surface::after {
+  content: "";
+  position: absolute;
+  inset: -8%;
+  pointer-events: none;
+}
+
+.cloud-background-surface::before {
+  background:
+    radial-gradient(
+      circle at 20% 54%,
+      rgba(255, 255, 255, 0.42) 0,
+      rgba(255, 255, 255, 0.42) 10%,
+      rgba(255, 255, 255, 0.18) 16%,
+      transparent 24%
+    ),
+    radial-gradient(
+      circle at 76% 28%,
+      rgba(255, 255, 255, 0.34) 0,
+      rgba(255, 255, 255, 0.34) 8%,
+      rgba(255, 255, 255, 0.12) 14%,
+      transparent 21%
+    ),
+    radial-gradient(
+      circle at 48% 78%,
+      rgba(255, 255, 255, 0.28) 0,
+      rgba(255, 255, 255, 0.28) 12%,
+      rgba(255, 255, 255, 0.1) 18%,
+      transparent 26%
+    );
+  filter: blur(28px);
+  opacity: 0.95;
+  transform: translateZ(0);
+}
+
+.dark .cloud-background-surface::before {
+  background:
+    radial-gradient(
+      circle at 20% 54%,
+      rgba(234, 243, 255, 0.24) 0,
+      rgba(234, 243, 255, 0.24) 10%,
+      rgba(234, 243, 255, 0.08) 16%,
+      transparent 24%
+    ),
+    radial-gradient(
+      circle at 76% 28%,
+      rgba(234, 243, 255, 0.2) 0,
+      rgba(234, 243, 255, 0.2) 8%,
+      rgba(234, 243, 255, 0.06) 14%,
+      transparent 21%
+    ),
+    radial-gradient(
+      circle at 48% 78%,
+      rgba(234, 243, 255, 0.18) 0,
+      rgba(234, 243, 255, 0.18) 12%,
+      rgba(234, 243, 255, 0.05) 18%,
+      transparent 26%
+    );
+}
+
+.cloud-background-surface::after {
+  background-image:
+    url("../assets/cloud.png"), url("../assets/cloud.png"), url("../assets/cloud.png");
+  background-repeat: no-repeat;
+  background-position:
+    14% 46%,
+    74% 24%,
+    44% 72%;
+  background-size:
+    460px auto,
+    280px auto,
+    720px auto;
+  filter: blur(10px);
+  opacity: 0.32;
+  transform: scale(1.08);
+}
+
+.dark .cloud-background-surface::after {
+  opacity: 0.18;
+  filter: blur(12px);
+}
+
+.cloud-background-surface.is-hidden {
+  opacity: 0;
+}
+
+.cloud-scene-layer {
   position: relative;
+  z-index: 0;
   width: 100%;
   height: 100%;
-  opacity: 0;
-  transition: opacity 0.6s ease;
+  visibility: hidden;
 }
 
-.cloud-layer-fade.is-visible {
-  opacity: 1;
+.cloud-scene-layer.is-ready {
+  visibility: visible;
 }

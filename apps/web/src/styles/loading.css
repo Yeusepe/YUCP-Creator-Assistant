@@ -1,5 +1,5 @@
 /* ── Loading Screen ─────────────────────────────────────────────────
-   Dark background, bag icon with animated blobs inside, and an
+   Sky-matched background, bag icon with animated blobs inside, and an
    indeterminate loading bar. On hide: bag grows to fill the viewport
    while the overlay fades out over the already-visible page.
    ──────────────────────────────────────────────────────────────────── */
@@ -12,9 +12,95 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #09090f;
+  background: var(--cloud-fallback-sky);
   overflow: hidden;
   transition: opacity 0.5s ease;
+}
+
+.dark #page-loading-overlay {
+  background: var(--cloud-fallback-sky-dark);
+}
+
+#page-loading-overlay::before,
+#page-loading-overlay::after {
+  content: "";
+  position: absolute;
+  inset: -8%;
+  pointer-events: none;
+}
+
+#page-loading-overlay::before {
+  background:
+    radial-gradient(
+      circle at 20% 54%,
+      rgba(255, 255, 255, 0.42) 0,
+      rgba(255, 255, 255, 0.42) 10%,
+      rgba(255, 255, 255, 0.18) 16%,
+      transparent 24%
+    ),
+    radial-gradient(
+      circle at 76% 28%,
+      rgba(255, 255, 255, 0.34) 0,
+      rgba(255, 255, 255, 0.34) 8%,
+      rgba(255, 255, 255, 0.12) 14%,
+      transparent 21%
+    ),
+    radial-gradient(
+      circle at 48% 78%,
+      rgba(255, 255, 255, 0.28) 0,
+      rgba(255, 255, 255, 0.28) 12%,
+      rgba(255, 255, 255, 0.1) 18%,
+      transparent 26%
+    );
+  filter: blur(28px);
+  opacity: 0.95;
+}
+
+.dark #page-loading-overlay::before {
+  background:
+    radial-gradient(
+      circle at 20% 54%,
+      rgba(234, 243, 255, 0.24) 0,
+      rgba(234, 243, 255, 0.24) 10%,
+      rgba(234, 243, 255, 0.08) 16%,
+      transparent 24%
+    ),
+    radial-gradient(
+      circle at 76% 28%,
+      rgba(234, 243, 255, 0.2) 0,
+      rgba(234, 243, 255, 0.2) 8%,
+      rgba(234, 243, 255, 0.06) 14%,
+      transparent 21%
+    ),
+    radial-gradient(
+      circle at 48% 78%,
+      rgba(234, 243, 255, 0.18) 0,
+      rgba(234, 243, 255, 0.18) 12%,
+      rgba(234, 243, 255, 0.05) 18%,
+      transparent 26%
+    );
+}
+
+#page-loading-overlay::after {
+  background-image:
+    url("../assets/cloud.png"), url("../assets/cloud.png"), url("../assets/cloud.png");
+  background-repeat: no-repeat;
+  background-position:
+    14% 46%,
+    74% 24%,
+    44% 72%;
+  background-size:
+    460px auto,
+    280px auto,
+    720px auto;
+  filter: blur(10px);
+  opacity: 0.28;
+  transform: scale(1.08);
+}
+
+.dark #page-loading-overlay::after {
+  opacity: 0.16;
+  filter: blur(12px);
 }
 
 #page-loading-overlay.is-hiding,
@@ -26,6 +112,7 @@
 /* ── Bag container ───────────────────────────────────────────────── */
 .plo-bag-scene {
   position: relative;
+  z-index: 1;
   width: 80px;
   height: 91px; /* 80 × (66/58) */
   flex-shrink: 0;

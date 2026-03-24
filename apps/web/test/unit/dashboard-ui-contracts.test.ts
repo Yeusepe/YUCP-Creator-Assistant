@@ -25,6 +25,10 @@ const cloudBackgroundSource = readFileSync(
   resolve(__dirname, '../../src/components/three/CloudBackground.tsx'),
   'utf8'
 );
+const backgroundAppSource = readFileSync(
+  resolve(__dirname, '../../src/components/three/BackgroundApp.tsx'),
+  'utf8'
+);
 const brandingAssetsSource = readFileSync(
   resolve(__dirname, '../../src/lib/brandingAssets.ts'),
   'utf8'
@@ -146,15 +150,12 @@ describe('dashboard UI contracts', () => {
     expect(dashboardComponentsCss).toContain('text-align: center;');
   });
 
-  it('fades cloud layers in after they become ready', () => {
-    const globalsCss = readFileSync(resolve(__dirname, '../../src/styles/globals.css'), 'utf8');
-    expect(cloudBackgroundSource).toContain('requestAnimationFrame');
-    expect(cloudBackgroundSource).toContain('cloud-layer-fade');
-    // cloud-layer-fade must live in globals.css so it applies on every page,
-    // not just dashboard (sign-in, legal, collab-invite all use CloudBackground)
-    expect(globalsCss).toContain('.cloud-layer-fade');
-    expect(globalsCss).toContain('transition: opacity 0.6s ease;');
-    // dashboard.css must NOT redefine it (globals.css is the single source of truth)
+  it('reveals the cloud background from a real first frame instead of fading it in later', () => {
+    expect(cloudBackgroundSource).not.toContain('requestIdleCallback');
+    expect(cloudBackgroundSource).not.toContain('cloud-layer-fade');
+    expect(backgroundAppSource).toContain('FirstFrameReadySignal');
+    expect(backgroundAppSource).toContain('useTexture.preload(cloudTextureUrl)');
+    expect(backgroundAppSource).toContain('<Preload all />');
     expect(dashboardCss).not.toContain('.cloud-layer-fade');
   });
 

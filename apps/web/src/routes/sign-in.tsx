@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
+import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { useCloudReady } from '@/hooks/useCloudReady';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
@@ -48,7 +49,7 @@ export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null
 
   useEffect(() => {
     if (bgReady) showPage();
-  }, [bgReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bgReady, showPage]);
 
   const showError = useCallback(
     (msg?: string) => {
@@ -83,6 +84,7 @@ export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null
 
   return (
     <div className="sign-in-page">
+      <PageLoadingOverlay />
       <div id="page-content" className={isVisible ? 'visible' : ''}>
         <div className="logo-wrap">
           <img src="/Icons/MainLogo.png" alt="Creator Assistant" />

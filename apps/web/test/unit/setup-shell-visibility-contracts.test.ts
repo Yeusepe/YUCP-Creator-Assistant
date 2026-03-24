@@ -3,6 +3,32 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const globalsCss = readFileSync(resolve(__dirname, '../../src/styles/globals.css'), 'utf8');
+const loadingCss = readFileSync(resolve(__dirname, '../../src/styles/loading.css'), 'utf8');
+const signInRedirectCss = readFileSync(
+  resolve(__dirname, '../../src/styles/sign-in-redirect.css'),
+  'utf8'
+);
+const jinxxySetupCss = readFileSync(
+  resolve(__dirname, '../../src/styles/jinxxy-setup.css'),
+  'utf8'
+);
+const lemonSqueezySetupCss = readFileSync(
+  resolve(__dirname, '../../src/styles/lemonsqueezy-setup.css'),
+  'utf8'
+);
+const verifyErrorCss = readFileSync(
+  resolve(__dirname, '../../src/styles/verify-error.css'),
+  'utf8'
+);
+const verifySuccessCss = readFileSync(
+  resolve(__dirname, '../../src/styles/verify-success.css'),
+  'utf8'
+);
+const verifyPurchaseCss = readFileSync(
+  resolve(__dirname, '../../src/styles/verify-purchase.css'),
+  'utf8'
+);
+const connectCss = readFileSync(resolve(__dirname, '../../src/styles/connect.css'), 'utf8');
 
 const jinxxySetupSource = readFileSync(
   resolve(__dirname, '../../src/routes/setup/jinxxy.tsx'),
@@ -39,13 +65,19 @@ describe('globals.css cascade layer contract', () => {
     );
   });
 
-  it('defines cloud-layer-fade globally so all pages get the cloud fade-in transition', () => {
-    // CloudBackgroundLayer uses cloud-layer-fade on every page that has clouds
-    // (sign-in, legal, collab-invite, dashboard, setup pages).
-    // If this CSS only exists in dashboard.css, clouds flash in on all other pages.
-    expect(globalsCss).toContain('.cloud-layer-fade {');
-    expect(globalsCss).toContain('.cloud-layer-fade.is-visible {');
-    expect(globalsCss).toContain('transition: opacity 0.6s ease;');
+  it('defines the shared cloud fallback surface and instant scene visibility styles globally', () => {
+    expect(globalsCss).toContain('.cloud-background-surface {');
+    expect(globalsCss).toContain('background: var(--cloud-fallback-sky);');
+    expect(globalsCss).toContain('.cloud-background-surface.is-hidden');
+    expect(globalsCss).toContain('.cloud-scene-layer {');
+    expect(globalsCss).toContain('.cloud-scene-layer.is-ready {');
+    expect(globalsCss).not.toContain('.cloud-layer-fade {');
+  });
+
+  it('reuses the sky fallback visual for the page loading overlay', () => {
+    expect(loadingCss).toContain('#page-loading-overlay {');
+    expect(loadingCss).toContain('background: var(--cloud-fallback-sky);');
+    expect(loadingCss).toContain('#page-loading-overlay::after');
   });
 });
 
@@ -86,5 +118,29 @@ describe('setup shell visibility contracts', () => {
     );
     expect(payhipSetupSource).toContain('<BackgroundCanvasRoot position="absolute" />');
     expect(payhipSetupSource).not.toContain('if (!isVisible) return null;');
+  });
+
+  it('keeps cloud-backed route wrappers transparent so the shared background stays visible', () => {
+    expect(signInRedirectCss).not.toMatch(
+      /\.sign-in-redirect-page\s*\{[^}]*background-color:\s*var\(--bg-color\);/s
+    );
+    expect(jinxxySetupCss).not.toMatch(
+      /\.jinxxy-setup\s*\{[^}]*background-color:\s*var\(--bg-color\);/s
+    );
+    expect(lemonSqueezySetupCss).not.toMatch(
+      /\.lemonsqueezy-setup\s*\{[^}]*background-color:\s*var\(--bg-color\);/s
+    );
+    expect(verifyErrorCss).not.toMatch(
+      /\.verify-error-page-wrapper\s*\{[^}]*background-color:\s*var\(--bg-color\);/s
+    );
+    expect(verifySuccessCss).not.toMatch(
+      /\.verify-success-page-wrapper\s*\{[^}]*background-color:\s*var\(--bg-color\);/s
+    );
+    expect(verifyPurchaseCss).not.toMatch(
+      /\.vp-wrapper\s*\{[^}]*background-color:\s*var\(--bg-color\);/s
+    );
+    expect(connectCss).not.toMatch(
+      /\.connect-page\s*\{[^}]*background-color:\s*var\(--bg-color\);/s
+    );
   });
 });

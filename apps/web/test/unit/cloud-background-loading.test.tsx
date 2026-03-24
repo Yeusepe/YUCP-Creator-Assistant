@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { act, render } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const canvasSpy = vi.hoisted(() =>
   vi.fn(
@@ -18,13 +18,33 @@ const canvasSpy = vi.hoisted(() =>
   )
 );
 
+const frameCallbacks = vi.hoisted(() => [] as Array<() => void>);
+const preloadAllSpy = vi.hoisted(() => vi.fn());
+const preloadTextureSpy = vi.hoisted(() => vi.fn());
+const useTextureMock = vi.hoisted(() =>
+  Object.assign(
+    vi.fn(() => null),
+    {
+      preload: preloadTextureSpy,
+    }
+  )
+);
+
 vi.mock('@react-three/fiber', () => ({
   Canvas: (props: { children?: React.ReactNode; gl?: { alpha?: boolean } }) => canvasSpy(props),
+  useFrame: (callback: (state: unknown, delta: number) => void) => {
+    frameCallbacks.push(() => callback({}, 0));
+  },
 }));
 
 vi.mock('@react-three/drei', () => ({
   Clouds: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  Preload: ({ all }: { all?: boolean }) => {
+    preloadAllSpy(all);
+    return null;
+  },
   Sky: () => <div data-testid="background-sky" />,
+  useTexture: useTextureMock,
 }));
 
 vi.mock('@/assets/cloud.png', () => ({
@@ -39,60 +59,62 @@ import BackgroundApp from '@/components/three/BackgroundApp';
 import { CloudBackgroundLayer } from '@/components/three/CloudBackground';
 
 describe('Cloud background loading', () => {
-  let originalRequestAnimationFrame: typeof globalThis.requestAnimationFrame | undefined;
-  let originalCancelAnimationFrame: typeof globalThis.cancelAnimationFrame | undefined;
-
   beforeEach(() => {
-    vi.useFakeTimers();
     canvasSpy.mockClear();
-    originalRequestAnimationFrame = globalThis.requestAnimationFrame;
-    originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
-    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
-      setTimeout(() => callback(0), 0)) as typeof globalThis.requestAnimationFrame;
-    globalThis.cancelAnimationFrame = ((handle: number) =>
-      clearTimeout(handle)) as typeof globalThis.cancelAnimationFrame;
+    preloadAllSpy.mockClear();
+    frameCallbacks.length = 0;
   });
 
-  afterEach(() => {
-    vi.runOnlyPendingTimers();
-    vi.useRealTimers();
-    if (originalRequestAnimationFrame) {
-      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
-    } else {
-      delete (globalThis as Record<string, unknown>).requestAnimationFrame;
-    }
-    if (originalCancelAnimationFrame) {
-      globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
-    } else {
-      delete (globalThis as Record<string, unknown>).cancelAnimationFrame;
-    }
-  });
-
-  it('keeps a static sky surface mounted while the deferred canvas is still warming up', async () => {
+  it('keeps a static sky surface mounted while the background scene is still hidden', () => {
     const { container } = render(<CloudBackgroundLayer />);
 
     expect(container.querySelector('.cloud-background-surface')).toBeTruthy();
-    expect(container.querySelector('.cloud-layer-fade')).toBeNull();
-    expect(container.querySelector('.cloud-background-surface')).toBeTruthy();
+    expect(
+      container.querySelector('.cloud-background-surface')?.classList.contains('is-hidden')
+    ).toBe(false);
+    expect(container.querySelector('.cloud-scene-layer')?.classList.contains('is-ready')).toBe(
+      false
+    );
   });
 
-  it('renders the background scene on a transparent canvas', () => {
+  it('reveals the live cloud scene after the first rendered frame', async () => {
+    const { container } = render(<CloudBackgroundLayer />);
+
+    await act(async () => {
+      for (const callback of frameCallbacks.splice(0)) {
+        callback();
+      }
+    });
+
+    expect(
+      container.querySelector('.cloud-background-surface')?.classList.contains('is-hidden')
+    ).toBe(true);
+    expect(container.querySelector('.cloud-scene-layer')?.classList.contains('is-ready')).toBe(
+      true
+    );
+  });
+
+  it('renders the background scene on a transparent canvas and preloads visible assets', () => {
     render(<BackgroundApp />);
 
     expect(canvasSpy).toHaveBeenCalled();
     expect(canvasSpy.mock.calls[0]?.[0]?.gl).toMatchObject({ alpha: true });
+    expect(preloadAllSpy).toHaveBeenCalledWith(true);
+    expect(preloadTextureSpy).toHaveBeenCalledWith('/cloud.png');
   });
 
-  it('uses the requested solid fallback colors for light and dark mode', () => {
+  it('uses the shared sky fallback surface instead of fading the live scene in', () => {
     const globalsCss = readFileSync('src/styles/globals.css', 'utf8');
 
     expect(globalsCss).toContain('.cloud-background-surface');
-    expect(globalsCss).toContain('background: #7da4c9;');
+    expect(globalsCss).toContain('background: var(--cloud-fallback-sky);');
     expect(globalsCss).toContain('.dark .cloud-background-surface');
-    expect(globalsCss).toContain('background: #658db6;');
+    expect(globalsCss).toContain('.cloud-background-surface.is-hidden');
+    expect(globalsCss).toContain('.cloud-scene-layer.is-ready');
+    expect(globalsCss).not.toContain('.cloud-layer-fade');
   });
 
-  it('does not report the background as ready until the next animation frame', async () => {
+  it('does not report the background as ready until a rendered frame occurs', async () => {
     const onReady = vi.fn();
 
     render(<BackgroundApp onReady={onReady} />);
@@ -100,7 +122,9 @@ describe('Cloud background loading', () => {
     expect(onReady).not.toHaveBeenCalled();
 
     await act(async () => {
-      await vi.runAllTimersAsync();
+      for (const callback of frameCallbacks.splice(0)) {
+        callback();
+      }
     });
 
     expect(onReady).toHaveBeenCalledTimes(1);

@@ -6,7 +6,6 @@
 /* === Page shell === */
 
 .vp-wrapper {
-  background-color: var(--bg-color);
   color: var(--text-primary);
   font-family: "DM Sans", sans-serif;
   min-height: 100dvh;

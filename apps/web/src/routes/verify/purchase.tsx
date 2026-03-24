@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, redirect, useSearch } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import {
   getUserVerificationIntent,
   type UserVerificationIntent,
@@ -477,7 +476,6 @@ function VerifyPurchasePage() {
   if (!intentId) {
     return (
       <div className={wrapperClass}>
-        <BackgroundCanvasRoot />
         <main className={mainClass}>
           <div className="vp-card vp-card--error fade-up" style={{ animationDelay: '0.15s' }}>
             <h1 className="vp-package-name">No verification intent</h1>
@@ -495,7 +493,6 @@ function VerifyPurchasePage() {
   if (intentQuery.isPending) {
     return (
       <div className={wrapperClass}>
-        <BackgroundCanvasRoot />
         <main className={mainClass}>
           <div className="vp-card fade-up" style={{ animationDelay: '0.1s' }}>
             <div className="vp-loading-state">
@@ -512,7 +509,6 @@ function VerifyPurchasePage() {
   if (intentQuery.isError || !intent) {
     return (
       <div className={wrapperClass}>
-        <BackgroundCanvasRoot />
         <main className={mainClass}>
           <div className="vp-card vp-card--error fade-up" style={{ animationDelay: '0.1s' }}>
             <h1 className="vp-package-name">Verification not found</h1>
@@ -530,7 +526,6 @@ function VerifyPurchasePage() {
   if (intent.status === 'expired' || intent.status === 'cancelled') {
     return (
       <div className={wrapperClass}>
-        <BackgroundCanvasRoot />
         <main className={mainClass}>
           <div className="vp-card vp-card--error fade-up" style={{ animationDelay: '0.1s' }}>
             <h1 className="vp-package-name">Verification expired</h1>
@@ -547,7 +542,6 @@ function VerifyPurchasePage() {
   if (intent.status === 'verified') {
     return (
       <div className={wrapperClass}>
-        <BackgroundCanvasRoot />
         <main className={mainClass}>
           <div className="vp-card vp-card--success" style={{ textAlign: 'center' }}>
             <div className="vp-success-icon fade-up" style={{ animationDelay: '0.1s' }}>
@@ -606,7 +600,6 @@ function VerifyPurchasePage() {
   // ---- pending: main verification panel
   return (
     <div className={wrapperClass}>
-      <BackgroundCanvasRoot />
       <main className={mainClass}>
         <div className="vp-card fade-up" style={{ animationDelay: '0.1s' }}>
           <div className="vp-card-header">
