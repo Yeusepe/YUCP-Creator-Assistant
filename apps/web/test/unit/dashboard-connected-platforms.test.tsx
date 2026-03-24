@@ -133,8 +133,11 @@ describe('dashboard connected platforms', () => {
       },
     ]);
 
-    vi.mocked((dashboardApi as { listDashboardConnections: typeof vi.fn }).listDashboardConnections)
-      .mockResolvedValue([
+    vi.mocked(
+      (dashboardApi as unknown as {
+        listDashboardConnections: ReturnType<typeof vi.fn>;
+      }).listDashboardConnections
+    ).mockResolvedValue([
         {
           connectionType: 'setup',
           createdAt: 1,
@@ -166,7 +169,9 @@ describe('dashboard connected platforms', () => {
     await waitFor(() =>
       expect(
         vi.mocked(
-          (dashboardApi as { listDashboardConnections: typeof vi.fn }).listDashboardConnections
+          (dashboardApi as unknown as {
+            listDashboardConnections: ReturnType<typeof vi.fn>;
+          }).listDashboardConnections
         )
       ).toHaveBeenCalled()
     );
@@ -185,13 +190,27 @@ describe('dashboard connected platforms', () => {
 
     await waitFor(() => expect(screen.getByText('Creator storefront')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole('button', { name: /^disconnect$/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^disconnect$/i }));
+    const creatorRow = screen.getByText('Creator storefront').closest('.platform-row');
+    const disconnectButton = creatorRow?.querySelector('button.platform-row-btn.disconnect');
+    if (!(disconnectButton instanceof HTMLButtonElement)) {
+      throw new Error('Disconnect button was not rendered for the creator storefront row');
+    }
+
+    fireEvent.click(disconnectButton);
+
+    const confirmButton = document.getElementById('jinxxy-confirm-btn');
+    if (!(confirmButton instanceof HTMLButtonElement)) {
+      throw new Error('Disconnect confirmation button was not rendered');
+    }
+
+    fireEvent.click(confirmButton);
 
     await waitFor(() =>
       expect(
         vi.mocked(
-          (dashboardApi as { disconnectDashboardConnection: typeof vi.fn })
+          (dashboardApi as unknown as {
+            disconnectDashboardConnection: ReturnType<typeof vi.fn>;
+          })
             .disconnectDashboardConnection
         )
       ).toHaveBeenCalledWith('connection-1', 'user-123')

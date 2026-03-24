@@ -9,7 +9,6 @@ import {
   useState,
 } from 'react';
 import BackgroundApp from './BackgroundApp';
-import ForegroundApp from './ForegroundApp';
 
 const Cloud404App = lazy(() => import('./Cloud404App'));
 
@@ -84,26 +83,6 @@ export function CloudBackgroundLayer({ onReady }: { onReady?: () => void }) {
 }
 
 /**
- * Foreground clouds canvas (z-index: 1, transparent, pointer-events: none).
- */
-export function CloudForegroundLayer() {
-  const ready = useClientReady();
-  const [sceneReady, setSceneReady] = useState(false);
-
-  if (!ready) return null;
-
-  return (
-    <div className={`cloud-scene-layer${sceneReady ? ' is-ready' : ''}`}>
-      <ErrorBoundary>
-        <Suspense fallback={null}>
-          <ForegroundApp onReady={() => setSceneReady(true)} />
-        </Suspense>
-      </ErrorBoundary>
-    </div>
-  );
-}
-
-/**
  * 404 3D text canvas (z-index: 2, transparent).
  */
 export function Cloud404Layer() {
@@ -144,14 +123,7 @@ export function CloudBackground({
         <div id="canvas-404-root" style={{ position: 'relative', zIndex: 2 }}>
           <Cloud404Layer />
         </div>
-      ) : (
-        <div
-          id="fg-canvas-root"
-          style={{ position: 'fixed', inset: 0, zIndex: 1, pointerEvents: 'none' }}
-        >
-          <CloudForegroundLayer />
-        </div>
-      )}
+      ) : null}
     </>
   );
 }

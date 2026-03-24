@@ -69,7 +69,7 @@ describe('dashboard shell cache priming', () => {
       shell.home?.providers
     );
     expect(queryClient.setQueryData).toHaveBeenCalledWith(
-      ['dashboard-user-accounts'],
+      ['dashboard-user-connections', 'auth-user-1'],
       shell.home?.userAccounts
     );
     expect(queryClient.setQueryData).toHaveBeenCalledWith(
