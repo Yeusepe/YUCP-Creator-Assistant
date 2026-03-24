@@ -14,6 +14,9 @@ describe('connect user-verify contracts', () => {
     expect(connectRouteSource).toContain("const beginUrl = new URL('/api/verification/begin'");
     expect(connectRouteSource).toContain("beginUrl.searchParams.set('mode', providerKey);");
     expect(connectRouteSource).toContain(
+      "beginUrl.searchParams.set('verificationMethod', 'account_link');"
+    );
+    expect(connectRouteSource).toContain(
       "beginUrl.searchParams.set('redirectUri', frontendReturnUrl);"
     );
   });
@@ -22,5 +25,6 @@ describe('connect user-verify contracts', () => {
     expect(sessionManagerSource).toContain("session.verificationMethod === 'account_link'");
     expect(sessionManagerSource).toContain('api.subjects.upsertBuyerProviderLink');
     expect(sessionManagerSource).toContain('verificationSessionId: session._id');
+    expect(sessionManagerSource).toContain('verificationMethod: input.verificationMethod');
   });
 });

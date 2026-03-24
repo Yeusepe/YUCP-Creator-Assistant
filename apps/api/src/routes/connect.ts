@@ -2816,6 +2816,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const beginUrl = new URL('/api/verification/begin', config.frontendBaseUrl);
       beginUrl.searchParams.set('authUserId', session.user.id);
       beginUrl.searchParams.set('mode', providerKey);
+      beginUrl.searchParams.set('verificationMethod', 'account_link');
       beginUrl.searchParams.set('redirectUri', frontendReturnUrl);
 
       // Look up the buyer's Discord userId so the verification session can link

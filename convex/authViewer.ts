@@ -2,7 +2,10 @@ import { ConvexError, v } from 'convex/values';
 import { components } from './_generated/api';
 import { type QueryCtx, query } from './_generated/server';
 import { getAuthenticatedAuthUser } from './lib/authUser';
-import { buildBetterAuthUserProviderLookupWhere } from './lib/betterAuthAdapter';
+import {
+  buildBetterAuthUserLookupWhere,
+  buildBetterAuthUserProviderLookupWhere,
+} from './lib/betterAuthAdapter';
 import { requireApiSecret } from './lib/apiAuth';
 
 const ViewerValue = v.object({
@@ -17,6 +20,14 @@ interface DiscordAccountRecord {
   accountId?: string;
 }
 
+interface BetterAuthUserRecord {
+  _id?: string;
+  id?: string;
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+}
+
 function serializeAuthViewerError(error: unknown): Record<string, string> {
   if (error instanceof Error) {
     return {
@@ -28,6 +39,37 @@ function serializeAuthViewerError(error: unknown): Record<string, string> {
   return {
     message: String(error),
   };
+}
+
+function getNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeBetterAuthUserId(user: BetterAuthUserRecord | null, fallbackId: string): string | null {
+  return getNonEmptyString(user?.id) ?? getNonEmptyString(user?._id) ?? getNonEmptyString(fallbackId);
+}
+
+async function resolveDiscordUserId(ctx: QueryCtx, authUserId: string): Promise<string | null> {
+  try {
+    const discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'account',
+      where: buildBetterAuthUserProviderLookupWhere(authUserId, 'discord'),
+      select: ['accountId'],
+    })) as DiscordAccountRecord | null;
+    return discordAccount?.accountId ?? null;
+  } catch (error) {
+    console.error('[convex] authViewer discord lookup failed', {
+      phase: 'convex-authviewer-discord-lookup',
+      authUserId,
+      error: serializeAuthViewerError(error),
+    });
+    throw error;
+  }
 }
 
 async function resolveViewer(ctx: QueryCtx) {
@@ -45,28 +87,14 @@ async function resolveViewer(ctx: QueryCtx) {
     return null;
   }
 
-  let discordAccount: DiscordAccountRecord | null;
-  try {
-    discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: 'account',
-      where: buildBetterAuthUserProviderLookupWhere(authUser.authUserId, 'discord'),
-      select: ['accountId'],
-    })) as DiscordAccountRecord | null;
-  } catch (error) {
-    console.error('[convex] authViewer discord lookup failed', {
-      phase: 'convex-authviewer-discord-lookup',
-      authUserId: authUser.authUserId,
-      error: serializeAuthViewerError(error),
-    });
-    throw error;
-  }
+  const discordUserId = await resolveDiscordUserId(ctx, authUser.authUserId);
 
   const viewer = {
     authUserId: authUser.authUserId,
     name: authUser.name ?? null,
     email: authUser.email ?? null,
     image: authUser.image ?? null,
-    discordUserId: discordAccount?.accountId ?? null,
+    discordUserId,
   };
 
   console.info('[convex] authViewer resolve completed', {
@@ -83,6 +111,40 @@ export const getViewer = query({
   returns: v.union(v.null(), ViewerValue),
   handler: async (ctx) => {
     return resolveViewer(ctx);
+  },
+});
+
+export const getViewerByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  returns: v.union(v.null(), ViewerValue),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'user',
+      where: buildBetterAuthUserLookupWhere(args.authUserId),
+      select: ['id', 'name', 'email', 'image'],
+    })) as BetterAuthUserRecord | null;
+    if (!user) {
+      return null;
+    }
+
+    const normalizedAuthUserId = normalizeBetterAuthUserId(user, args.authUserId);
+    if (!normalizedAuthUserId) {
+      return null;
+    }
+
+    const discordUserId = await resolveDiscordUserId(ctx, normalizedAuthUserId);
+    return {
+      authUserId: normalizedAuthUserId,
+      name: user?.name ?? null,
+      email: user?.email ?? null,
+      image: user?.image ?? null,
+      discordUserId,
+    };
   },
 });
 

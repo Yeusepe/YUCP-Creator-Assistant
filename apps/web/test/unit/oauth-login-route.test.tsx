@@ -23,6 +23,11 @@ vi.mock('@/lib/auth-client', () => ({
 
 import { Route } from '@/routes/oauth/login';
 
+const CREATOR_LOGIN_QUERY =
+  '/oauth/login?response_type=code&client_id=yucp-unity-creator&redirect_uri=https%3A%2F%2Frare-squid-409.convex.site%2Fapi%2Fyucp%2Foauth%2Fcallback&scope=cert%3Aissue%20profile%3Aread&state=test-state&code_challenge=test-challenge&code_challenge_method=S256&exp=1774135005&sig=test';
+const USER_LOGIN_QUERY =
+  '/oauth/login?response_type=code&client_id=yucp-unity-user&redirect_uri=https%3A%2F%2Frare-squid-409.convex.site%2Fapi%2Fyucp%2Foauth%2Fcallback&scope=verification%3Aread&state=user-state&code_challenge=user-challenge&code_challenge_method=S256&exp=1774135005&sig=test';
+
 describe('oauth login route', () => {
   beforeEach(() => {
     getSessionMock.mockReset();
@@ -33,11 +38,7 @@ describe('oauth login route', () => {
     });
     signInSocialMock.mockResolvedValue(undefined);
     globalThis.fetch = vi.fn();
-    window.history.replaceState(
-      {},
-      '',
-      '/oauth/login?response_type=code&client_id=yucp-unity-editor&redirect_uri=https%3A%2F%2Frare-squid-409.convex.site%2Fapi%2Fyucp%2Foauth%2Fcallback&scope=cert%3Aissue&state=test-state&code_challenge=test-challenge&code_challenge_method=S256&exp=1774135005&sig=test'
-    );
+    window.history.replaceState({}, '', CREATOR_LOGIN_QUERY);
   });
 
   it('starts social sign-in with the current oauth login page as callbackURL', async () => {
@@ -51,8 +52,25 @@ describe('oauth login route', () => {
     await waitFor(() => {
       expect(signInSocialMock).toHaveBeenCalledWith({
         provider: 'discord',
-        callbackURL:
-          'http://localhost:3000/oauth/login?response_type=code&client_id=yucp-unity-editor&redirect_uri=https%3A%2F%2Frare-squid-409.convex.site%2Fapi%2Fyucp%2Foauth%2Fcallback&scope=cert%3Aissue&state=test-state&code_challenge=test-challenge&code_challenge_method=S256&exp=1774135005&sig=test',
+        callbackURL: `http://localhost:3000${CREATOR_LOGIN_QUERY}`,
+      });
+    });
+  });
+
+  it('preserves user-domain authorize params when starting social sign-in', async () => {
+    window.history.replaceState({}, '', USER_LOGIN_QUERY);
+
+    const Component = Route.options.component;
+    if (!Component) {
+      throw new Error('OAuth login route component is not defined');
+    }
+
+    render(<Component />);
+
+    await waitFor(() => {
+      expect(signInSocialMock).toHaveBeenCalledWith({
+        provider: 'discord',
+        callbackURL: `http://localhost:3000${USER_LOGIN_QUERY}`,
       });
     });
   });
@@ -96,7 +114,7 @@ describe('oauth login route', () => {
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/auth/oauth2/authorize?response_type=code&client_id=yucp-unity-editor&redirect_uri=https%3A%2F%2Frare-squid-409.convex.site%2Fapi%2Fyucp%2Foauth%2Fcallback&scope=cert%3Aissue&state=test-state&code_challenge=test-challenge&code_challenge_method=S256',
+        '/api/auth/oauth2/authorize?response_type=code&client_id=yucp-unity-creator&redirect_uri=https%3A%2F%2Frare-squid-409.convex.site%2Fapi%2Fyucp%2Foauth%2Fcallback&scope=cert%3Aissue+profile%3Aread&state=test-state&code_challenge=test-challenge&code_challenge_method=S256',
         {
           headers: {
             accept: 'application/json',

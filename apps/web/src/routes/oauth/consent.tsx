@@ -48,6 +48,17 @@ const SCOPE_INFO: Record<string, ScopeInfo> = {
       </svg>
     ),
   },
+  'profile:read': {
+    label: 'Read basic profile',
+    desc: 'View your YUCP display name and avatar so Package Exporter can show your account properly',
+    badge: 'Profile',
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 20a8 8 0 0 1 16 0" />
+      </svg>
+    ),
+  },
 };
 
 const DEFAULT_SCOPE_ICON = (

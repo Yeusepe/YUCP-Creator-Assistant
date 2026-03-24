@@ -79,6 +79,16 @@ const OPENAPI_SPEC = {
           expiresAt: { type: 'integer', nullable: true, description: 'Unix ms timestamp.' },
         },
       },
+      Profile: {
+        type: 'object',
+        properties: {
+          object: { type: 'string', enum: ['profile'] },
+          authUserId: { type: 'string' },
+          name: { type: 'string', nullable: true },
+          image: { type: 'string', nullable: true, format: 'uri' },
+        },
+        required: ['object', 'authUserId', 'name', 'image'],
+      },
       Subject: {
         type: 'object',
         properties: {
@@ -579,6 +589,34 @@ const OPENAPI_SPEC = {
             },
           },
           '401': { $ref: '#/components/responses/Unauthorized' },
+        },
+      },
+    },
+    '/me/profile': {
+      get: {
+        operationId: 'getMyProfile',
+        summary: 'Get current user profile',
+        description:
+          'Returns the authenticated user profile used across YUCP account surfaces. Requires the `profile:read` scope.',
+        tags: ['Identity'],
+        security: [{ bearerAuth: ['profile:read'] }, { apiKeyHeader: [] }],
+        responses: {
+          '200': {
+            description: 'Authenticated user profile.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/Profile' },
+              },
+            },
+          },
+          '401': { $ref: '#/components/responses/Unauthorized' },
+          '403': { $ref: '#/components/responses/Forbidden' },
+          '404': {
+            description: 'Profile not found.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/Error' } },
+            },
+          },
         },
       },
     },

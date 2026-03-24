@@ -44,13 +44,14 @@ describe('oauth consent route', () => {
     Object.defineProperty(window.location, 'href', {
       configurable: true,
       writable: true,
-      value: 'http://localhost:3000/oauth/consent?client_id=yucp-unity-editor&scope=cert%3Aissue',
+      value:
+        'http://localhost:3000/oauth/consent?client_id=yucp-unity-creator&scope=cert%3Aissue%20profile%3Aread',
     });
 
     window.history.replaceState(
       {},
       '',
-      '/oauth/consent?client_id=yucp-unity-editor&scope=cert%3Aissue'
+      '/oauth/consent?client_id=yucp-unity-creator&scope=cert%3Aissue%20profile%3Aread'
     );
   });
 

@@ -176,7 +176,7 @@ function OAuthMethodButton({
         </div>
         {providerLinkMut.isError ? (
           <p className="vp-method-error vp-method-error--full">
-            Purchase not found — make sure you bought on this account
+            Uh oh, we didn't find a purchase. Make sure you bought on this account.
           </p>
         ) : null}
       </div>

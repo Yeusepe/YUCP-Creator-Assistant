@@ -206,6 +206,8 @@ export interface CreateSessionInput {
   authUserId: string;
   /** Verification mode */
   mode: string;
+  /** Optional verification method override, e.g. account_link */
+  verificationMethod?: string;
   /** Redirect URI after completion */
   redirectUri: string;
   /** Discord user ID when started from Discord (for Gumroad→Discord link) */
@@ -430,6 +432,7 @@ export function createVerificationSessionManager(
 
       logger.info('Verification session started', {
         mode: input.mode,
+        verificationMethod: input.verificationMethod ?? input.mode,
         authUserId: input.authUserId,
         statePrefix: `${state.slice(0, 8)}...`,
       });
@@ -449,6 +452,7 @@ export function createVerificationSessionManager(
             apiSecret: config.convexApiSecret,
             authUserId: input.authUserId,
             mode: input.mode,
+            verificationMethod: input.verificationMethod,
             state,
             pkceVerifierHash: verifierHash,
             redirectUri: input.redirectUri,
@@ -1169,6 +1173,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
         body = {
           authUserId: url.searchParams.get('authUserId') ?? '',
           mode: (url.searchParams.get('mode') ?? 'gumroad') as CreateSessionInput['mode'],
+          verificationMethod: url.searchParams.get('verificationMethod') ?? undefined,
           redirectUri: url.searchParams.get('redirectUri') ?? `${config.baseUrl}/verify-success`,
           discordUserId: url.searchParams.get('discordUserId') ?? undefined,
         };
