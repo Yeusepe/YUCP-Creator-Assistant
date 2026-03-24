@@ -98,6 +98,22 @@ const VerificationSessionStatus = v.union(
   v.literal('cancelled')
 );
 
+/** Verification intent status */
+const VerificationIntentStatus = v.union(
+  v.literal('pending'),
+  v.literal('verified'),
+  v.literal('redeemed'),
+  v.literal('failed'),
+  v.literal('expired'),
+  v.literal('cancelled')
+);
+
+/** Verification intent requirement kind */
+const VerificationIntentRequirementKind = v.union(
+  v.literal('existing_entitlement'),
+  v.literal('manual_license')
+);
+
 /** Entitlement status values */
 const EntitlementStatus = v.union(
   v.literal('active'),
@@ -428,6 +444,60 @@ const verification_sessions = defineTable({
   .index('by_subject', ['subjectId'])
   .index('by_status_expires', ['status', 'expiresAt'])
   .index('by_nonce', ['nonce']);
+
+/**
+ * Verification Intents - Buyer-facing hosted verification state machine
+ * Used by public clients such as Unity to launch a hosted verification flow
+ * and later redeem a one-time signed completion grant for a machine-bound token.
+ */
+const verification_intents = defineTable({
+  // Buyer scope (Better Auth user ID)
+  authUserId: v.string(),
+  // Subject is attached when one can be resolved for the signed-in buyer
+  subjectId: v.optional(v.id('subjects')),
+  // Unity / package context
+  packageId: v.string(),
+  packageName: v.optional(v.string()),
+  machineFingerprint: v.string(),
+  // PKCE-style challenge so public clients can redeem safely without holding a secret
+  codeChallenge: v.string(),
+  // Where the hosted verification hub should return the user after completion
+  returnUrl: v.string(),
+  // Provider-agnostic verification requirements rendered by the hosted flow
+  requirements: v.array(
+    v.object({
+      methodKey: v.string(),
+      providerKey: Provider,
+      kind: VerificationIntentRequirementKind,
+      title: v.string(),
+      description: v.optional(v.string()),
+      creatorAuthUserId: v.optional(v.string()),
+      productId: v.optional(v.string()),
+      providerProductRef: v.optional(v.string()),
+    })
+  ),
+  // Lifecycle
+  status: VerificationIntentStatus,
+  verifiedMethodKey: v.optional(v.string()),
+  // One-time completion grant state
+  verificationGrantJti: v.optional(v.string()),
+  verificationGrantExpiresAt: v.optional(v.number()),
+  verificationGrantUsedAt: v.optional(v.number()),
+  // Safe retry support
+  idempotencyKey: v.optional(v.string()),
+  // Failure state
+  errorCode: v.optional(v.string()),
+  errorMessage: v.optional(v.string()),
+  // Expiration
+  expiresAt: v.number(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_status', ['authUserId', 'status'])
+  .index('by_auth_user_package', ['authUserId', 'packageId'])
+  .index('by_auth_user_idempotency', ['authUserId', 'idempotencyKey'])
+  .index('by_status_expires', ['status', 'expiresAt']);
 
 /**
  * Entitlements - Creator-approved rights derived from provider evidence
@@ -1770,6 +1840,7 @@ export default defineSchema({
   creator_profiles,
   bindings,
   verification_sessions,
+  verification_intents,
   entitlements,
   guild_links,
   role_rules,

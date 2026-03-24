@@ -1,10 +1,12 @@
 /**
- * One-time seed: register the YUCP Unity Editor OAuth2 public client.
+ * Ensure the YUCP Unity Editor OAuth2 public client exists with the expected config.
  *
- * Run once with:
+ * Manual repair:
  *   npx convex run seedYucpOAuthClient:seedUnityOAuthClient
  *
- * This is safe to run again, it checks for an existing client first.
+ * This is safe to run again. The Convex-owned /api/yucp/oauth/authorize route
+ * also calls this idempotently so deployments self-heal without a separate
+ * production-only seed step.
  *
  * References:
  *   - Better Auth oauthProvider plugin docs:

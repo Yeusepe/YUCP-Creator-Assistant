@@ -400,6 +400,10 @@ http.route({
       return errorResponse('redirect_uri and state are required', 400);
     }
 
+    // Keep the Unity native-app public client in sync at authorize time so
+    // deployments do not depend on a separate manual seed step.
+    await ctx.runMutation(internal.seedYucpOAuthClient.seedUnityOAuthClient, {});
+
     // Enforce minimum state entropy: at least 32 URL-safe characters (≥128 bits
     // of entropy when randomly generated), preventing predictable CSRF tokens.
     const STATE_RE = /^[A-Za-z0-9\-_.~]{32,512}$/;

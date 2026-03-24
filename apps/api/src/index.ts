@@ -5,10 +5,9 @@
 import path from 'node:path';
 import { createLogger, getInternalRpcSharedSecret } from '@yucp/shared';
 import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
-import { internal } from '../../../convex/_generated/api';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
-import { getConvexApiSecret, getConvexClientFromUrl } from './lib/convex';
+import { getConfiguredConvexSiteUrlForProxy } from './lib/convexSiteProxy';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import {
   createLegacyFrontendMovedResponse,
@@ -16,7 +15,6 @@ import {
   isLegacyFrontendAsset,
 } from './lib/legacyFrontend';
 import { detectTunnelUrl } from './lib/tunnel';
-import { handleYucpOAuthAuthorize } from './lib/yucpOAuthProxy';
 import {
   createConnectRoutes,
   createProviderPlatformRoutes,
@@ -495,29 +493,6 @@ async function routeRequest(request: Request): Promise<Response> {
     if (response) return response;
   }
 
-  if (pathname === '/api/yucp/oauth/authorize' && request.method === 'GET') {
-    const env = loadEnv();
-    const raw = getConfiguredConvexUrl(env);
-    const cloudUrl = raw.startsWith('http')
-      ? raw
-      : `https://${raw.includes(':') ? raw.split(':')[1] : raw}.convex.cloud`;
-    const convexSiteUrl = (
-      process.env.CONVEX_SITE_URL ||
-      (cloudUrl ? cloudUrl.replace('.convex.cloud', '.convex.site') : '')
-    ).replace(/\/$/, '');
-    const convex = getConvexClientFromUrl(raw) as {
-      setAdminAuth?: (token: string) => void;
-      mutation: (functionReference: unknown, args?: unknown) => Promise<unknown>;
-    };
-    convex.setAdminAuth?.(getConvexApiSecret());
-    return handleYucpOAuthAuthorize(request, {
-      convexSiteUrl,
-      storeSession: async (session) => {
-        await convex.mutation(internal.oauthLoopback.storeSession, session);
-      },
-    });
-  }
-
   if (
     pathname === '/.well-known/oauth-authorization-server/api/auth' ||
     pathname.startsWith('/api/auth/') ||
@@ -525,14 +500,7 @@ async function routeRequest(request: Request): Promise<Response> {
     pathname.startsWith('/v1/')
   ) {
     const env = loadEnv();
-    const raw = getConfiguredConvexUrl(env);
-    const cloudUrl = raw.startsWith('http')
-      ? raw
-      : `https://${raw.includes(':') ? raw.split(':')[1] : raw}.convex.cloud`;
-    const convexSiteUrl = (
-      process.env.CONVEX_SITE_URL ||
-      (cloudUrl ? cloudUrl.replace('.convex.cloud', '.convex.site') : '')
-    ).replace(/\/$/, '');
+    const convexSiteUrl = getConfiguredConvexSiteUrlForProxy(env);
     if (convexSiteUrl) {
       const targetUrl = `${convexSiteUrl}${pathname}${url.search}`;
       const proxyHeaders = new Headers(request.headers);

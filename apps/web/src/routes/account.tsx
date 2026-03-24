@@ -4,7 +4,7 @@ import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { dashboardShellQueryOptions } from '@/lib/dashboardQueryOptions';
 import { primeDashboardShellCaches } from '@/lib/dashboardShellCache';
-import { fetchDashboardShell, type DashboardShellData } from '@/lib/server/dashboard';
+import { type DashboardShellData, fetchDashboardShell } from '@/lib/server/dashboard';
 import '@/styles/dashboard.css';
 import '@/styles/dashboard-components.css';
 import '@/styles/account.css';

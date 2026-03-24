@@ -72,6 +72,7 @@ import type * as subjects from "../subjects.js";
 import type * as tenantHelpers from "../tenantHelpers.js";
 import type * as testHelpers from "../testHelpers.js";
 import type * as userPortal from "../userPortal.js";
+import type * as verificationIntents from "../verificationIntents.js";
 import type * as verificationSessions from "../verificationSessions.js";
 import type * as webhookCron from "../webhookCron.js";
 import type * as webhookDeliveries from "../webhookDeliveries.js";
@@ -159,6 +160,7 @@ declare const fullApi: ApiFromModules<{
   tenantHelpers: typeof tenantHelpers;
   testHelpers: typeof testHelpers;
   userPortal: typeof userPortal;
+  verificationIntents: typeof verificationIntents;
   verificationSessions: typeof verificationSessions;
   webhookCron: typeof webhookCron;
   webhookDeliveries: typeof webhookDeliveries;
