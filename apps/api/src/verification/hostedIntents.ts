@@ -5,6 +5,7 @@ import type { ConvexServerClient } from '../lib/convex';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { getProvider } from '../providers';
 import type { BuyerVerificationCapabilityDescriptor } from '../providers/types';
+import { getVerificationConfig } from './sessionManager';
 
 export interface VerificationIntentRequirementInput {
   methodKey?: string;
@@ -121,6 +122,11 @@ function createBuyerProviderLinkCapability(
   };
 }
 
+function supportsHostedBuyerAccountLink(providerKey: string): boolean {
+  const provider = getProvider(providerKey);
+  return Boolean(provider?.displayMeta?.userSetupPath || getVerificationConfig(providerKey));
+}
+
 function describeHostedVerificationCapability(
   providerKey: string,
   kind: StoredVerificationIntentRequirement['kind']
@@ -140,6 +146,11 @@ function describeHostedVerificationCapability(
   if (kind === 'buyer_provider_link') {
     if (!descriptor.buyerVerificationMethods.includes('account_link')) {
       throw new Error(`Provider '${providerKey}' does not support buyer account linking`);
+    }
+    if (!supportsHostedBuyerAccountLink(providerKey)) {
+      throw new Error(
+        `Provider '${providerKey}' does not support buyer account linking in the hosted flow`
+      );
     }
     return createBuyerProviderLinkCapability(providerKey);
   }

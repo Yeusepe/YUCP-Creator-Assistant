@@ -13,7 +13,9 @@ describe('connect user-verify contracts', () => {
     expect(connectRouteSource).toContain('getVerificationConfig(p.id) !== null');
     expect(connectRouteSource).toContain("const beginUrl = new URL('/api/verification/begin'");
     expect(connectRouteSource).toContain("beginUrl.searchParams.set('mode', providerKey);");
-    expect(connectRouteSource).toContain("beginUrl.searchParams.set('redirectUri', frontendReturnUrl);");
+    expect(connectRouteSource).toContain(
+      "beginUrl.searchParams.set('redirectUri', frontendReturnUrl);"
+    );
   });
 
   it('stores buyer provider links after a successful account-link callback', () => {

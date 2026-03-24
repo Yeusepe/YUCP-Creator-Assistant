@@ -62,6 +62,18 @@ describe('hostedIntents', () => {
     });
   });
 
+  it('rejects buyer-linked account requirements for providers without a hosted link flow', () => {
+    expect(() =>
+      normalizeHostedVerificationRequirements([
+        {
+          methodKey: 'lemonsqueezy-link',
+          providerKey: 'lemonsqueezy',
+          kind: 'buyer_provider_link',
+        },
+      ])
+    ).toThrow("Provider 'lemonsqueezy' does not support buyer account linking in the hosted flow");
+  });
+
   it('rejects hosted manual license methods for providers without buyer adapters', () => {
     expect(() =>
       normalizeHostedVerificationRequirements([
