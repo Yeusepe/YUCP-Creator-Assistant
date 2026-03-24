@@ -1799,6 +1799,41 @@ const used_nonces = defineTable({
   usedAt: v.number(),
 }).index('by_nonce', ['nonce']);
 
+const protected_assets = defineTable({
+  packageId: v.string(),
+  protectedAssetId: v.string(),
+  wrappedContentKey: v.string(),
+  displayName: v.optional(v.string()),
+  contentHash: v.string(),
+  packageVersion: v.optional(v.string()),
+  publisherId: v.string(),
+  yucpUserId: v.string(),
+  certNonce: v.string(),
+  registeredAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_package_and_asset', ['packageId', 'protectedAssetId'])
+  .index('by_package_id', ['packageId'])
+  .index('by_yucp_user_id', ['yucpUserId']);
+
+const protected_asset_unlocks = defineTable({
+  packageId: v.string(),
+  protectedAssetId: v.string(),
+  licenseSubject: v.string(),
+  machineFingerprint: v.string(),
+  projectId: v.string(),
+  firstUnlockedAt: v.number(),
+  lastIssuedAt: v.number(),
+  issueCount: v.number(),
+})
+  .index('by_package_asset_machine_project', [
+    'packageId',
+    'protectedAssetId',
+    'machineFingerprint',
+    'projectId',
+  ])
+  .index('by_package_asset_subject', ['packageId', 'protectedAssetId', 'licenseSubject']);
+
 // ============================================================================
 // PUBLIC API V2 TABLES
 // ============================================================================
@@ -1932,6 +1967,8 @@ export default defineSchema({
   cert_issuance_log,
   oauth_loopback_sessions,
   used_nonces,
+  protected_assets,
+  protected_asset_unlocks,
 
   // HTTP rate limiting for unauthenticated public endpoints
   http_rate_limits,

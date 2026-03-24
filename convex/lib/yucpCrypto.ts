@@ -187,6 +187,14 @@ function base64urlEncode(data: Uint8Array | string): string {
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
+function base64urlDecode(input: string): Uint8Array {
+  let padded = input.replace(/-/g, '+').replace(/_/g, '/');
+  while (padded.length % 4 !== 0) {
+    padded += '=';
+  }
+  return base64ToBytes(padded);
+}
+
 /**
  * Create a signed license JWT (EdDSA / Ed25519).
  * The client can parse the payload without signature verification, security
@@ -195,6 +203,36 @@ function base64urlEncode(data: Uint8Array | string): string {
  */
 export async function signLicenseJwt(
   claims: LicenseClaims,
+  privateKeyBase64: string,
+  keyId: string
+): Promise<string> {
+  return signJwt(claims, privateKeyBase64, keyId);
+}
+
+export interface ProtectedUnlockClaims {
+  iss: string;
+  aud: 'yucp-protected-unlock';
+  sub: string;
+  jti: string;
+  package_id: string;
+  protected_asset_id: string;
+  machine_fingerprint: string;
+  project_id: string;
+  wrapped_content_key: string;
+  iat: number;
+  exp: number;
+}
+
+export async function signProtectedUnlockJwt(
+  claims: ProtectedUnlockClaims,
+  privateKeyBase64: string,
+  keyId: string
+): Promise<string> {
+  return signJwt(claims, privateKeyBase64, keyId);
+}
+
+async function signJwt(
+  claims: LicenseClaims | ProtectedUnlockClaims,
   privateKeyBase64: string,
   keyId: string
 ): Promise<string> {
@@ -208,4 +246,43 @@ export async function signLicenseJwt(
   const signatureBytes = await ed.signAsync(messageBytes, privateKeyBytes);
 
   return `${signingInput}.${base64urlEncode(signatureBytes)}`;
+}
+
+async function verifyJwt<T extends { iss: string; aud: string; iat: number; exp: number }>(
+  jwt: string,
+  publicKeyBase64: string,
+  expectedIssuer: string,
+  expectedAudience: string
+): Promise<T | null> {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+
+    const headerJson = new TextDecoder().decode(base64urlDecode(parts[0]));
+    const payloadJson = new TextDecoder().decode(base64urlDecode(parts[1]));
+    const header = JSON.parse(headerJson) as { alg?: string; kid?: string };
+    if (header.alg !== 'EdDSA' || !header.kid) return null;
+
+    const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+    const signatureBytes = base64urlDecode(parts[2]);
+    const publicKeyBytes = base64ToBytes(publicKeyBase64);
+    const valid = await ed.verifyAsync(signatureBytes, signingInput, publicKeyBytes);
+    if (!valid) return null;
+
+    const claims = JSON.parse(payloadJson) as T;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (claims.iss !== expectedIssuer || claims.aud !== expectedAudience) return null;
+    if (claims.exp <= nowSeconds || claims.iat > nowSeconds + 300) return null;
+    return claims;
+  } catch {
+    return null;
+  }
+}
+
+export async function verifyLicenseJwt(
+  jwt: string,
+  publicKeyBase64: string,
+  expectedIssuer: string
+): Promise<LicenseClaims | null> {
+  return verifyJwt<LicenseClaims>(jwt, publicKeyBase64, expectedIssuer, 'yucp-license-gate');
 }
