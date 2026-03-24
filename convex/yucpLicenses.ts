@@ -34,9 +34,26 @@ import { symmetricDecrypt } from 'better-auth/crypto';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import { internalAction, internalMutation, internalQuery } from './_generated/server';
-import { type LicenseClaims, signLicenseJwt } from './lib/yucpCrypto';
+import {
+  getPublicKeyFromPrivate,
+  type LicenseClaims,
+  type ProtectedUnlockClaims,
+  signLicenseJwt,
+  signProtectedUnlockJwt,
+  verifyLicenseJwt,
+} from './lib/yucpCrypto';
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
+const PROTECTED_UNLOCK_TTL_SECONDS = 30 * 24 * 60 * 60;
+const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
+const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
+const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_\-]{16,256}$/i;
+const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
+const PROTECTED_ASSET_REGISTRATION = v.object({
+  protectedAssetId: v.string(),
+  wrappedContentKey: v.string(),
+  displayName: v.optional(v.string()),
+});
 
 // =============================================================================
 // Internal queries (callable from internalAction via ctx.runQuery)
@@ -603,6 +620,139 @@ export const checkAndConsumeNonce = internalMutation({
   },
 });
 
+export const upsertProtectedAssets = internalMutation({
+  args: {
+    packageId: v.string(),
+    contentHash: v.string(),
+    packageVersion: v.optional(v.string()),
+    publisherId: v.string(),
+    yucpUserId: v.string(),
+    certNonce: v.string(),
+    protectedAssets: v.array(PROTECTED_ASSET_REGISTRATION),
+  },
+  handler: async (ctx, args) => {
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
+    }
+
+    const now = Date.now();
+    for (const asset of args.protectedAssets) {
+      if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
+        throw new ConvexError(`Invalid protectedAssetId format: ${asset.protectedAssetId}`);
+      }
+      if (!asset.wrappedContentKey) {
+        throw new ConvexError('wrappedContentKey is required');
+      }
+
+      const existing = await ctx.db
+        .query('protected_assets')
+        .withIndex('by_package_and_asset', (q) =>
+          q.eq('packageId', args.packageId).eq('protectedAssetId', asset.protectedAssetId)
+        )
+        .first();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          wrappedContentKey: asset.wrappedContentKey,
+          displayName: asset.displayName,
+          contentHash: args.contentHash,
+          packageVersion: args.packageVersion,
+          publisherId: args.publisherId,
+          yucpUserId: args.yucpUserId,
+          certNonce: args.certNonce,
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.insert('protected_assets', {
+          packageId: args.packageId,
+          protectedAssetId: asset.protectedAssetId,
+          wrappedContentKey: asset.wrappedContentKey,
+          displayName: asset.displayName,
+          contentHash: args.contentHash,
+          packageVersion: args.packageVersion,
+          publisherId: args.publisherId,
+          yucpUserId: args.yucpUserId,
+          certNonce: args.certNonce,
+          registeredAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  },
+});
+
+export const getProtectedAsset = internalQuery({
+  args: {
+    packageId: v.string(),
+    protectedAssetId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id('protected_assets'),
+      wrappedContentKey: v.string(),
+      yucpUserId: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query('protected_assets')
+      .withIndex('by_package_and_asset', (q) =>
+        q.eq('packageId', args.packageId).eq('protectedAssetId', args.protectedAssetId)
+      )
+      .first();
+    if (!row) return null;
+    return {
+      _id: row._id,
+      wrappedContentKey: row.wrappedContentKey,
+      yucpUserId: row.yucpUserId,
+    };
+  },
+});
+
+export const recordProtectedUnlockIssuance = internalMutation({
+  args: {
+    packageId: v.string(),
+    protectedAssetId: v.string(),
+    licenseSubject: v.string(),
+    machineFingerprint: v.string(),
+    projectId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const existing = await ctx.db
+      .query('protected_asset_unlocks')
+      .withIndex('by_package_asset_machine_project', (q) =>
+        q
+          .eq('packageId', args.packageId)
+          .eq('protectedAssetId', args.protectedAssetId)
+          .eq('machineFingerprint', args.machineFingerprint)
+          .eq('projectId', args.projectId)
+      )
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        licenseSubject: args.licenseSubject,
+        lastIssuedAt: now,
+        issueCount: existing.issueCount + 1,
+      });
+      return;
+    }
+
+    await ctx.db.insert('protected_asset_unlocks', {
+      packageId: args.packageId,
+      protectedAssetId: args.protectedAssetId,
+      licenseSubject: args.licenseSubject,
+      machineFingerprint: args.machineFingerprint,
+      projectId: args.projectId,
+      firstUnlockedAt: now,
+      lastIssuedAt: now,
+      issueCount: 1,
+    });
+  },
+});
+
 // =============================================================================
 // Main action (called from http.ts httpAction for POST /v1/licenses/verify)
 // =============================================================================
@@ -740,5 +890,102 @@ export const verifyLicense = internalAction({
     );
 
     return { success: true, token, expiresAt: exp };
+  },
+});
+
+export const issueProtectedUnlock = internalAction({
+  args: {
+    packageId: v.string(),
+    protectedAssetId: v.string(),
+    machineFingerprint: v.string(),
+    projectId: v.string(),
+    licenseToken: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    unlockToken: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      return { success: false, error: 'Invalid packageId format' };
+    }
+    if (!PROTECTED_ASSET_ID_RE.test(args.protectedAssetId)) {
+      return { success: false, error: 'Invalid protected asset identifier' };
+    }
+    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
+      return { success: false, error: 'Invalid machine fingerprint' };
+    }
+    if (!PROJECT_ID_RE.test(args.projectId)) {
+      return { success: false, error: 'Invalid project identifier' };
+    }
+    if (!args.licenseToken) {
+      return { success: false, error: 'licenseToken is required' };
+    }
+
+    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
+    if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+
+    const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '') ?? '';
+    const rootPublicKey = process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
+    const licenseClaims = await verifyLicenseJwt(
+      args.licenseToken,
+      rootPublicKey,
+      `${siteUrl}/api/auth`
+    );
+
+    if (!licenseClaims) {
+      return { success: false, error: 'License token is invalid or expired' };
+    }
+    if (licenseClaims.package_id !== args.packageId) {
+      return { success: false, error: 'License token package mismatch' };
+    }
+    if (licenseClaims.machine_fingerprint !== args.machineFingerprint) {
+      return { success: false, error: 'License token machine mismatch' };
+    }
+
+    const protectedAsset = await ctx.runQuery(internal.yucpLicenses.getProtectedAsset, {
+      packageId: args.packageId,
+      protectedAssetId: args.protectedAssetId,
+    });
+    if (!protectedAsset) {
+      return { success: false, error: 'Protected asset registration not found' };
+    }
+
+    const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId: args.packageId,
+    });
+    if (!packageReg || packageReg.yucpUserId !== protectedAsset.yucpUserId) {
+      return { success: false, error: 'Protected asset owner mismatch' };
+    }
+
+    await ctx.runMutation(internal.yucpLicenses.recordProtectedUnlockIssuance, {
+      packageId: args.packageId,
+      protectedAssetId: args.protectedAssetId,
+      licenseSubject: licenseClaims.sub,
+      machineFingerprint: args.machineFingerprint,
+      projectId: args.projectId,
+    });
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const exp = nowSeconds + PROTECTED_UNLOCK_TTL_SECONDS;
+    const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
+    const claims: ProtectedUnlockClaims = {
+      iss: `${siteUrl}/api/auth`,
+      aud: 'yucp-protected-unlock',
+      sub: licenseClaims.sub,
+      jti: crypto.randomUUID(),
+      package_id: args.packageId,
+      protected_asset_id: args.protectedAssetId,
+      machine_fingerprint: args.machineFingerprint,
+      project_id: args.projectId,
+      wrapped_content_key: protectedAsset.wrappedContentKey,
+      iat: nowSeconds,
+      exp,
+    };
+
+    const unlockToken = await signProtectedUnlockJwt(claims, rootPrivateKey, keyId);
+    return { success: true, unlockToken, expiresAt: exp };
   },
 });

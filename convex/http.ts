@@ -108,6 +108,9 @@ async function sha256HexHttp(input: string): Promise<string> {
     .join('');
 }
 
+const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
+const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
+
 const http = httpRouter();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -713,20 +716,20 @@ http.route({
   path: '/v1/keys',
   handler: httpAction(async (_ctx, _request) => {
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    const keyId = process.env.YUCP_KEY_ID ?? 'yucp-root-2025';
     if (!rootPrivateKey) return errorResponse('Service not configured', 503);
 
     const publicKeyBase64 = await getPublicKeyFromPrivate(rootPrivateKey);
+    const primaryKeyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
+    const legacyKeyId = process.env.YUCP_KEY_ID ?? 'yucp-root-2025';
+    const keyIds = Array.from(new Set([primaryKeyId, legacyKeyId]));
 
     return jsonResponse({
-      keys: [
-        {
-          kty: 'OKP',
-          crv: 'Ed25519',
-          kid: keyId,
-          x: publicKeyBase64,
-        },
-      ],
+      keys: keyIds.map((keyId) => ({
+        kty: 'OKP',
+        crv: 'Ed25519',
+        kid: keyId,
+        x: publicKeyBase64,
+      })),
     });
   }),
 });
@@ -1018,6 +1021,11 @@ http.route({
       requestNonce?: string;
       requestTimestamp?: number;
       requestSignature?: string;
+      protectedAssets?: Array<{
+        protectedAssetId: string;
+        wrappedContentKey: string;
+        displayName?: string;
+      }>;
     };
     try {
       body = (await request.json()) as typeof body;
@@ -1115,6 +1123,27 @@ http.route({
         },
         409
       );
+    }
+
+    if (body.protectedAssets && body.protectedAssets.length > 0) {
+      for (const asset of body.protectedAssets) {
+        if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
+          return errorResponse('Invalid protectedAssetId format', 400);
+        }
+        if (!asset.wrappedContentKey) {
+          return errorResponse('wrappedContentKey is required for protected assets', 400);
+        }
+      }
+
+      await ctx.runMutation(internal.yucpLicenses.upsertProtectedAssets, {
+        packageId: body.packageId,
+        contentHash: body.contentHash,
+        packageVersion: body.packageVersion,
+        publisherId,
+        yucpUserId,
+        certNonce: envelope.cert.nonce,
+        protectedAssets: body.protectedAssets,
+      });
     }
 
     if (certificateEntitlements.workspaceKey) {
@@ -1271,17 +1300,9 @@ http.route({
       return errorResponse('Too many verification attempts. Please wait before retrying.', 429);
     }
 
-    const licenseKeyDigest = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(licenseKey)
-    );
-    const licenseKeyHash = Array.from(new Uint8Array(licenseKeyDigest))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-
     const result = await ctx.runAction(internal.yucpLicenses.verifyLicense, {
       packageId,
-      licenseKey: licenseKeyHash,
+      licenseKey,
       provider,
       productPermalink,
       machineFingerprint,
@@ -1439,6 +1460,59 @@ http.route({
     );
 
     return jsonResponse({ success: true, token: licenseToken, expiresAt: exp });
+  }),
+});
+
+http.route({
+  method: 'POST',
+  path: '/v1/licenses/unlock-protected',
+  handler: httpAction(async (ctx, request) => {
+    let body: {
+      packageId: string;
+      protectedAssetId: string;
+      projectId: string;
+      machineFingerprint: string;
+      licenseToken: string;
+    };
+
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+
+    const { packageId, protectedAssetId, projectId, machineFingerprint, licenseToken } = body ?? {};
+    if (!packageId || !protectedAssetId || !projectId || !machineFingerprint || !licenseToken) {
+      return errorResponse(
+        'packageId, protectedAssetId, projectId, machineFingerprint, and licenseToken are required',
+        400
+      );
+    }
+
+    if (!PROTECTED_ASSET_ID_RE.test(protectedAssetId)) {
+      return errorResponse('Invalid protectedAssetId format', 400);
+    }
+    if (!PROJECT_ID_RE.test(projectId)) {
+      return errorResponse('Invalid projectId format', 400);
+    }
+
+    const result = await ctx.runAction(internal.yucpLicenses.issueProtectedUnlock, {
+      packageId,
+      protectedAssetId,
+      machineFingerprint,
+      projectId,
+      licenseToken,
+    });
+
+    if (!result.success) {
+      return jsonResponse({ error: result.error }, 422);
+    }
+
+    return jsonResponse({
+      success: true,
+      unlockToken: result.unlockToken,
+      expiresAt: result.expiresAt,
+    });
   }),
 });
 
