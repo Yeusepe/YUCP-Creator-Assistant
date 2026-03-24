@@ -29,7 +29,7 @@
   position: relative;
   z-index: 10;
   width: 100%;
-  max-width: 580px;
+  max-width: 540px;
   opacity: 0;
   transition: opacity 0.35s ease 0.05s;
 }
@@ -113,18 +113,279 @@
   line-height: 1.45;
 }
 
+/* === OAuth sign-in section === */
+
+.vp-oauth-section {
+  padding: 1.75rem 2rem 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .vp-oauth-section {
+    padding: 1.5rem 1.25rem 0.5rem;
+  }
+}
+
+.vp-section-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+  margin: 0 0 0.35rem;
+}
+
+.vp-section-desc {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 0 1.25rem;
+  line-height: 1.5;
+}
+
+.vp-oauth-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* === Branded OAuth sign-in button (not connected) === */
+
+.vp-oauth-signin-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.vp-oauth-signin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.875rem 1.5rem;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: var(--brand, rgba(255, 255, 255, 0.12));
+  color: #ffffff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition:
+    filter 0.18s ease,
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    opacity 0.18s ease;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.vp-oauth-signin-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0);
+  transition: background 0.18s ease;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.vp-oauth-signin-btn:hover:not(:disabled)::before {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.vp-oauth-signin-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 36px rgba(0, 0, 0, 0.4);
+}
+
+.vp-oauth-signin-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+.vp-oauth-signin-btn:disabled,
+.vp-oauth-signin-btn.btn-loading {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.vp-oauth-signin-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.vp-oauth-signin-spinner {
+  width: 16px;
+  height: 16px;
+}
+
+/* === OAuth row (connected / verified states) === */
+
+.vp-oauth-row {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  flex-wrap: wrap;
+}
+
+.vp-oauth-row--verified {
+  background: rgba(0, 230, 118, 0.06);
+  border-color: rgba(0, 230, 118, 0.25);
+}
+
+.vp-oauth-row-left {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.vp-oauth-icon {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.vp-oauth-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.vp-oauth-label {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+}
+
+.vp-oauth-account {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vp-oauth-row-right {
+  flex-shrink: 0;
+}
+
+.vp-oauth-verify-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--brand, rgba(255, 255, 255, 0.25));
+  background: color-mix(in srgb, var(--brand, rgba(255, 255, 255, 0.1)) 20%, transparent);
+  color: #ffffff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.2s ease,
+    filter 0.18s ease,
+    transform 0.15s ease,
+    opacity 0.18s ease;
+}
+
+.vp-oauth-verify-btn:hover:not(:disabled) {
+  filter: brightness(1.2);
+  transform: translateY(-1px);
+}
+
+.vp-oauth-verify-btn:disabled,
+.vp-oauth-verify-btn.btn-loading {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* === Skeleton loader for OAuth buttons while providers load === */
+
+.vp-oauth-btn-skeleton {
+  width: 100%;
+  height: 54px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  animation: vp-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes vp-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* === Section divider ("or enter license key") === */
+
+.vp-methods-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 2rem;
+  margin: 0.25rem 0;
+}
+
+.vp-methods-divider::before,
+.vp-methods-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.vp-methods-divider-label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.28);
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .vp-methods-divider {
+    padding: 0 1.25rem;
+  }
+}
+
 /* === Sections === */
 
 .vp-section {
-  padding: 1.5rem 2rem;
+  padding: 1rem 2rem 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.875rem;
 }
 
+.vp-section--top {
+  padding-top: 1.75rem;
+}
+
 @media (max-width: 480px) {
   .vp-section {
-    padding: 1.25rem 1.25rem;
+    padding: 1rem 1.25rem 1.25rem;
   }
 }
 
@@ -145,7 +406,7 @@
   padding: 2.5rem 2rem;
 }
 
-/* === Method row === */
+/* === Method row (license key / entitlement) === */
 
 .vp-method-row {
   background: rgba(255, 255, 255, 0.04);
@@ -164,8 +425,6 @@
   background: rgba(0, 230, 118, 0.06);
   border-color: rgba(0, 230, 118, 0.25);
 }
-
-/* === Provider info inside row === */
 
 .vp-method-row-info {
   display: flex;
@@ -216,6 +475,11 @@
   color: rgba(255, 120, 120, 0.95);
   margin: 0.25rem 0 0;
   line-height: 1.4;
+}
+
+.vp-method-error--full {
+  width: 100%;
+  flex-basis: 100%;
 }
 
 /* === Action area === */

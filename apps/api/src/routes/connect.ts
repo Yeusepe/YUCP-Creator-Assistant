@@ -2808,6 +2808,29 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       beginUrl.searchParams.set('authUserId', session.user.id);
       beginUrl.searchParams.set('mode', providerKey);
       beginUrl.searchParams.set('redirectUri', frontendReturnUrl);
+
+      // Look up the buyer's Discord userId so the verification session can link
+      // provider accounts (e.g. Gumroad) back to the correct YUCP subject.
+      // Non-fatal: if the lookup fails the session proceeds without the binding.
+      try {
+        const convex = getConvexClientFromUrl(config.convexUrl);
+        const discordUserId = await convex.query(api.authViewer.getDiscordUserIdByAuthUser, {
+          apiSecret: config.convexApiSecret,
+          authUserId: session.user.id,
+        });
+        if (discordUserId) {
+          beginUrl.searchParams.set('discordUserId', discordUserId);
+        }
+      } catch (lookupErr) {
+        logger.warn(
+          'Could not resolve discordUserId for verification begin; subject linking may be degraded',
+          {
+            authUserId: session.user.id,
+            error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+          }
+        );
+      }
+
       return Response.json({
         redirectUrl: `${beginUrl.pathname}${beginUrl.search}`,
       });
@@ -2827,6 +2850,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
+      logger.info('Hosted verification intent fetch requested', {
+        intentId,
+        authUserId: session.user.id,
+      });
       const convex = getConvexClientFromUrl(config.convexUrl);
       const intent = await convex.action(api.verificationIntents.getVerificationIntent, {
         apiSecret: config.convexApiSecret,
@@ -2834,8 +2861,58 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         intentId: intentId as Id<'verification_intents'>,
       });
       if (!intent) {
-        return Response.json({ error: 'Verification intent not found' }, { status: 404 });
+        const diagnostic = await convex.query(api.verificationIntents.getIntentAccessDiagnostic, {
+          apiSecret: config.convexApiSecret,
+          intentId: intentId as Id<'verification_intents'>,
+        });
+
+        if (!diagnostic) {
+          logger.warn('Hosted verification intent fetch missed missing record', {
+            intentId,
+            authUserId: session.user.id,
+          });
+          return Response.json(
+            { error: 'Verification intent not found', code: 'verification_intent_missing' },
+            { status: 404 }
+          );
+        }
+
+        if (diagnostic.authUserId !== session.user.id) {
+          logger.warn('Hosted verification intent belongs to different user', {
+            intentId,
+            authUserId: session.user.id,
+            ownerAuthUserId: diagnostic.authUserId,
+            status: diagnostic.status,
+            expiresAt: diagnostic.expiresAt,
+            packageId: diagnostic.packageId,
+          });
+          return Response.json(
+            {
+              error:
+                'This verification link was created for a different YUCP account. Sign out here, then continue with the same YUCP account you used in Unity.',
+              code: 'verification_intent_wrong_user',
+            },
+            { status: 409 }
+          );
+        }
+
+        logger.warn('Hosted verification intent fetch returned null despite matching owner', {
+          intentId,
+          authUserId: session.user.id,
+          status: diagnostic.status,
+          expiresAt: diagnostic.expiresAt,
+          packageId: diagnostic.packageId,
+        });
+        return Response.json(
+          { error: 'Verification intent not found', code: 'verification_intent_missing' },
+          { status: 404 }
+        );
       }
+      logger.info('Hosted verification intent fetch succeeded', {
+        intentId,
+        authUserId: session.user.id,
+        status: intent.status,
+      });
       return Response.json(
         mapHostedVerificationIntentResponse(
           intent as HostedVerificationIntentRecord,
@@ -2874,6 +2951,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
+      logger.info('Hosted entitlement verification requested', {
+        intentId,
+        authUserId: session.user.id,
+        methodKey: body.methodKey,
+      });
       const convex = getConvexClientFromUrl(config.convexUrl);
       const result = await convex.action(
         api.verificationIntents.verifyIntentWithExistingEntitlement,
@@ -2885,6 +2967,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         }
       );
       if (!result.success) {
+        logger.warn('Hosted entitlement verification rejected', {
+          intentId,
+          authUserId: session.user.id,
+          methodKey: body.methodKey,
+          code: result.errorCode,
+        });
         return Response.json(
           {
             error: result.errorMessage ?? 'Entitlement verification failed',
@@ -2893,6 +2981,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           { status: 422 }
         );
       }
+      logger.info('Hosted entitlement verification succeeded', {
+        intentId,
+        authUserId: session.user.id,
+        methodKey: body.methodKey,
+      });
       return Response.json({ success: true });
     } catch (err) {
       logger.error('Failed to verify hosted entitlement intent', {
@@ -2975,6 +3068,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
+      logger.info('Hosted provider link verification requested', {
+        intentId,
+        authUserId: session.user.id,
+        methodKey: body.methodKey,
+      });
       const convex = getConvexClientFromUrl(config.convexUrl);
       const result = await verifyHostedBuyerProviderLinkIntent({
         convex,
@@ -2984,6 +3082,12 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         methodKey: body.methodKey,
       });
       if (!result.success) {
+        logger.warn('Hosted provider link verification rejected', {
+          intentId,
+          authUserId: session.user.id,
+          methodKey: body.methodKey,
+          code: result.errorCode,
+        });
         return Response.json(
           {
             error: result.errorMessage ?? 'Provider link verification failed',
@@ -2992,6 +3096,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           { status: 422 }
         );
       }
+      logger.info('Hosted provider link verification succeeded', {
+        intentId,
+        authUserId: session.user.id,
+        methodKey: body.methodKey,
+      });
       return Response.json({ success: true });
     } catch (err) {
       logger.error('Failed to verify hosted buyer provider link intent', {
