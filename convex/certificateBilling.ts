@@ -17,6 +17,7 @@ import {
   getPlanForProductId,
   resolveWorkspaceKeys,
 } from './lib/certificateBillingConfig';
+import { projectWorkspaceCapabilities } from './lib/certificateCapabilityProjection';
 import { summarizeActiveCertificatesByDevice } from './yucpCertificates';
 
 type BillingStatus = 'active' | 'grace' | 'inactive' | 'suspended';
@@ -270,7 +271,13 @@ async function buildAccountOverview(ctx: QueryCtx, authUserId: string) {
     .collect();
   const devices = summarizeActiveCertificatesByDevice(certificates);
   const workspaceKey = certificateEntitlements?.workspaceKey ?? workspaceKeys[0];
-  const capabilities = await listWorkspaceCapabilities(ctx, workspaceKey);
+  const storedCapabilities = await listWorkspaceCapabilities(ctx, workspaceKey);
+  const activePlan = getPlanForPlanKey(config, certificateEntitlements?.planKey);
+  const capabilities = projectWorkspaceCapabilities({
+    includedCapabilityKeys: activePlan?.capabilities ?? [],
+    entitlementStatus: certificateEntitlements?.status,
+    storedCapabilities,
+  });
 
   return {
     workspaceKey,

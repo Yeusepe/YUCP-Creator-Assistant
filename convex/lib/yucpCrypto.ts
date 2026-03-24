@@ -76,6 +76,19 @@ export interface CertEnvelope {
   signature: CertSignature;
 }
 
+export type PackageCertificateType = 'Root' | 'Intermediate' | 'Publisher';
+
+export interface PackageCertificateData {
+  keyId: string;
+  publicKey: string;
+  signature?: string;
+  issuerKeyId?: string;
+  certificateType: PackageCertificateType;
+  publisherId?: string;
+  notBefore?: string;
+  notAfter?: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Canonicalisation (must stay in sync with CertificateManager.CanonicalizeJson
 // in E:\Unity\YUCP-Dev-Tools\...\CertificateManager.cs)
@@ -96,6 +109,21 @@ function canonicalizeValue(value: unknown): unknown {
 
 export function canonicalizeCert(certData: CertData): string {
   return JSON.stringify(canonicalizeValue(certData));
+}
+
+export function canonicalizePackageCertificate(certData: PackageCertificateData): string {
+  const fields: Array<[string, string]> = [];
+
+  if (certData.keyId) fields.push(['keyId', JSON.stringify(certData.keyId)]);
+  if (certData.publicKey) fields.push(['publicKey', JSON.stringify(certData.publicKey)]);
+  if (certData.issuerKeyId) fields.push(['issuerKeyId', JSON.stringify(certData.issuerKeyId)]);
+  fields.push(['certificateType', JSON.stringify(certData.certificateType)]);
+  if (certData.publisherId) fields.push(['publisherId', JSON.stringify(certData.publisherId)]);
+  if (certData.notBefore) fields.push(['notBefore', JSON.stringify(certData.notBefore)]);
+  if (certData.notAfter) fields.push(['notAfter', JSON.stringify(certData.notAfter)]);
+
+  fields.sort(([a], [b]) => a.localeCompare(b));
+  return `{${fields.map(([key, value]) => `${JSON.stringify(key)}:${value}`).join(',')}}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,6 +155,17 @@ export async function signCertData(
       value: bytesToBase64(signatureBytes),
     },
   };
+}
+
+export async function signPackageCertificateData(
+  certData: PackageCertificateData,
+  privateKeyBase64: string
+): Promise<string> {
+  const canonical = canonicalizePackageCertificate(certData);
+  const messageBytes = new TextEncoder().encode(canonical);
+  const privateKeyBytes = base64ToBytes(privateKeyBase64);
+  const signatureBytes = await ed.signAsync(messageBytes, privateKeyBytes);
+  return bytesToBase64(signatureBytes);
 }
 
 /**

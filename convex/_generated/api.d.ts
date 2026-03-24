@@ -34,6 +34,7 @@ import type * as lib_betterAuthAdapter from "../lib/betterAuthAdapter.js";
 import type * as lib_billingCapabilities from "../lib/billingCapabilities.js";
 import type * as lib_certificateBillingConfig from "../lib/certificateBillingConfig.js";
 import type * as lib_certificateBillingProjection from "../lib/certificateBillingProjection.js";
+import type * as lib_certificateCapabilityProjection from "../lib/certificateCapabilityProjection.js";
 import type * as lib_certificateSigning from "../lib/certificateSigning.js";
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
@@ -127,6 +128,7 @@ declare const fullApi: ApiFromModules<{
   "lib/billingCapabilities": typeof lib_billingCapabilities;
   "lib/certificateBillingConfig": typeof lib_certificateBillingConfig;
   "lib/certificateBillingProjection": typeof lib_certificateBillingProjection;
+  "lib/certificateCapabilityProjection": typeof lib_certificateCapabilityProjection;
   "lib/certificateSigning": typeof lib_certificateSigning;
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;

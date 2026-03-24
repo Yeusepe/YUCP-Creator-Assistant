@@ -79,6 +79,8 @@ import {
   getPublicKeyFromPrivate,
   type LicenseClaims,
   type CouplingRuntimeClaims,
+  type PackageCertificateData,
+  signPackageCertificateData,
   signCouplingRuntimeJwt,
   signLicenseJwt,
   verifyCertEnvelope,
@@ -308,6 +310,40 @@ async function parseBearerCert(
   if (expiresAt < now) return { ok: false, error: 'Certificate expired' };
 
   return { ok: true, envelope };
+}
+
+async function buildManifestCertificateChain(
+  envelope: CertEnvelope,
+  rootPublicKey: string,
+  rootPrivateKey: string
+): Promise<PackageCertificateData[]> {
+  const rootKeyId = envelope.signature.keyId || process.env.YUCP_KEY_ID || 'yucp-root-2025';
+  const publisherCertificateBase: PackageCertificateData = {
+    keyId: `yucp-publisher:${envelope.cert.nonce}`,
+    publicKey: envelope.cert.devPublicKey,
+    issuerKeyId: rootKeyId,
+    certificateType: 'Publisher',
+    publisherId: envelope.cert.publisherId,
+    notBefore: envelope.cert.issuedAt,
+    notAfter: envelope.cert.expiresAt,
+  };
+
+  const publisherSignature = await signPackageCertificateData(
+    publisherCertificateBase,
+    rootPrivateKey
+  );
+
+  return [
+    {
+      ...publisherCertificateBase,
+      signature: publisherSignature,
+    },
+    {
+      keyId: rootKeyId,
+      publicKey: rootPublicKey,
+      certificateType: 'Root',
+    },
+  ];
 }
 
 /**
@@ -1158,10 +1194,20 @@ http.route({
       });
     }
 
+    const certificateChain = await buildManifestCertificateChain(
+      envelope,
+      rootPublicKey,
+      rootPrivateKey
+    );
+
     return jsonResponse({
       success: true,
       packageId: body.packageId,
       publisherId,
+      algorithm: 'Ed25519',
+      keyId: certificateChain[0]?.keyId ?? '',
+      certificateIndex: 0,
+      certificateChain,
     });
   }),
 });
