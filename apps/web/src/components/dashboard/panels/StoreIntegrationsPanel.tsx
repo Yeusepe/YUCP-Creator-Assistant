@@ -8,8 +8,8 @@ import {
   buildProviderConnectUrl,
   getConnectionStatus,
   getProviderIconPath,
+  listDashboardConnections,
   listDashboardProviders,
-  listUserAccounts,
 } from '@/lib/dashboard';
 import { dashboardPanelQueryOptions } from '@/lib/dashboardQueryOptions';
 import { type DashboardProvider } from '@/lib/server/dashboard';
@@ -112,9 +112,9 @@ export function StoreIntegrationsPanel({
 
   const accountsQuery = useQuery(
     dashboardPanelQueryOptions<UserAccountConnection[]>({
-      queryKey: ['dashboard-user-accounts'],
-      queryFn: listUserAccounts,
-      enabled: canRunPanelQueries,
+      queryKey: ['dashboard-user-connections', authUserId],
+      queryFn: () => listDashboardConnections(authUserId),
+      enabled: canRunPanelQueries && Boolean(authUserId),
     })
   );
   const accounts = accountsQuery.data ?? [];

@@ -305,6 +305,10 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     if (pathname === '/api/connect/dashboard/shell')
       return connectRoutes.getDashboardShell(request);
     if (pathname === '/api/connect/branding') return connectRoutes.getViewerBranding(request);
+    if (pathname === '/api/connect/user/connections') {
+      if (request.method === 'GET') return connectRoutes.getUserConnections(request);
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
     if (pathname === '/api/connect/user/accounts') {
       if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
       if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);

@@ -11,10 +11,10 @@ import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardS
 import type { UserAccountConnection } from '@/lib/dashboard';
 import {
   buildProviderConnectUrl,
-  disconnectUserAccount,
+  disconnectDashboardConnection,
   getProviderIconPath,
+  listDashboardConnections,
   listDashboardProviders,
-  listUserAccounts,
 } from '@/lib/dashboard';
 import { dashboardPanelQueryOptions } from '@/lib/dashboardQueryOptions';
 import type { DashboardProvider } from '@/lib/server/dashboard';
@@ -40,18 +40,19 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
 
   const accountsQuery = useQuery(
     dashboardPanelQueryOptions<UserAccountConnection[]>({
-      queryKey: ['dashboard-user-accounts'],
-      queryFn: listUserAccounts,
-      enabled: canRunPanelQueries,
+      queryKey: ['dashboard-user-connections', activeTenantId],
+      queryFn: () => listDashboardConnections(activeTenantId),
+      enabled: canRunPanelQueries && Boolean(activeTenantId),
     })
   );
 
   const disconnectMutation = useMutation({
-    mutationFn: disconnectUserAccount,
+    mutationFn: (connectionId: string) =>
+      disconnectDashboardConnection(connectionId, activeTenantId),
     onSuccess: async () => {
       setPendingDisconnect(null);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['dashboard-user-accounts'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard-user-connections', activeTenantId] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard-connection-status'] }),
       ]);
     },

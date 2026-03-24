@@ -715,6 +715,10 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/branding' && connectRoutes) {
     return connectRoutes.getViewerBranding(request);
   }
+  if (pathname === '/api/connect/user/connections' && connectRoutes) {
+    if (request.method === 'GET') return connectRoutes.getUserConnections(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   if (pathname === '/api/connect/user/accounts' && connectRoutes) {
     if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
     if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);

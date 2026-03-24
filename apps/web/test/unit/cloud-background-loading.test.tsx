@@ -56,7 +56,7 @@ vi.mock('@/components/three/MovingCloud', () => ({
 }));
 
 import BackgroundApp from '@/components/three/BackgroundApp';
-import { CloudBackgroundLayer } from '@/components/three/CloudBackground';
+import { CloudBackground, CloudBackgroundLayer } from '@/components/three/CloudBackground';
 
 describe('Cloud background loading', () => {
   beforeEach(() => {
@@ -112,6 +112,13 @@ describe('Cloud background loading', () => {
     expect(globalsCss).toContain('.cloud-background-surface.is-hidden');
     expect(globalsCss).toContain('.cloud-scene-layer.is-ready');
     expect(globalsCss).not.toContain('.cloud-layer-fade');
+  });
+
+  it('does not mount a foreground cloud layer above default page content', () => {
+    const { container } = render(<CloudBackground variant="default" />);
+
+    expect(container.querySelector('#bg-canvas-root')).toBeTruthy();
+    expect(container.querySelector('#fg-canvas-root')).toBeNull();
   });
 
   it('does not report the background as ready until a rendered frame occurs', async () => {

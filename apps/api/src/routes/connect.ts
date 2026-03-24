@@ -2580,6 +2580,46 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
+   * GET /api/connect/user/connections
+   * Returns creator-owned provider connections for the authenticated user.
+   */
+  async function getUserConnections(request: Request): Promise<Response> {
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    const url = new URL(request.url);
+    const requestedAuthUserId = url.searchParams.get('authUserId');
+    const authUserId = requestedAuthUserId ?? session.user.id;
+
+    try {
+      if (requestedAuthUserId) {
+        const tenantOwned = await isTenantOwnedBySessionUser(
+          request,
+          session.user.id,
+          requestedAuthUserId
+        );
+        if (!tenantOwned) {
+          return Response.json({ error: 'Forbidden' }, { status: 403 });
+        }
+      }
+
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      const connections = await convex.query(api.providerConnections.listConnectionsForUser, {
+        apiSecret: config.convexApiSecret,
+        authUserId,
+      });
+      return Response.json({ connections });
+    } catch (err) {
+      logger.error('Failed to get user connections', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to fetch connections' }, { status: 500 });
+    }
+  }
+
+  /**
    * GET /api/connect/user/accounts
    * Returns all buyer-linked provider accounts for the authenticated user.
    */
@@ -4322,6 +4362,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     getDashboardShell,
     getViewerBranding,
     getUserGuilds,
+    getUserConnections,
     getUserProviders,
     postUserVerifyStart,
     getUserVerificationIntent,

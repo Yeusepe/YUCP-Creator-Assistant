@@ -233,6 +233,14 @@ export async function listUserAccounts() {
   return data.connections ?? [];
 }
 
+export async function listDashboardConnections(authUserId?: string) {
+  const data = await apiClient.get<{ connections?: UserAccountConnection[] }>(
+    '/api/connect/user/connections',
+    authUserId ? { params: { authUserId } } : undefined
+  );
+  return data.connections ?? [];
+}
+
 export async function listUserGuilds() {
   const data = await apiClient.get<{ guilds?: DashboardGuildResponse[] }>(
     '/api/connect/user/guilds'
@@ -250,6 +258,12 @@ export async function listUserGuilds() {
 export async function disconnectUserAccount(connectionId: string) {
   return apiClient.delete<{ success: boolean }>('/api/connect/user/accounts', {
     params: { id: connectionId },
+  });
+}
+
+export async function disconnectDashboardConnection(connectionId: string, authUserId?: string) {
+  return apiClient.delete<{ success: boolean }>('/api/connections', {
+    params: authUserId ? { id: connectionId, authUserId } : { id: connectionId },
   });
 }
 

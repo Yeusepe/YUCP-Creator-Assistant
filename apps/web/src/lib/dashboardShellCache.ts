@@ -23,7 +23,10 @@ export function primeDashboardShellCaches(
   }
 
   queryClient.setQueryData(['dashboard-providers'], shell.home.providers);
-  queryClient.setQueryData(['dashboard-user-accounts'], shell.home.userAccounts);
+  queryClient.setQueryData(
+    ['dashboard-user-connections', shell.viewer.authUserId],
+    shell.home.userAccounts
+  );
   queryClient.setQueryData(
     ['dashboard-connection-status', shell.home.connectionStatusAuthUserId],
     shell.home.connectionStatusByProvider

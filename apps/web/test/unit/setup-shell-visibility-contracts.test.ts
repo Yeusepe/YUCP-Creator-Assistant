@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const globalsCss = readFileSync(resolve(__dirname, '../../src/styles/globals.css'), 'utf8');
 const loadingCss = readFileSync(resolve(__dirname, '../../src/styles/loading.css'), 'utf8');
+const tokensCss = readFileSync(resolve(__dirname, '../../src/styles/tokens.css'), 'utf8');
 const signInRedirectCss = readFileSync(
   resolve(__dirname, '../../src/styles/sign-in-redirect.css'),
   'utf8'
@@ -78,6 +79,11 @@ describe('globals.css cascade layer contract', () => {
     expect(loadingCss).toContain('#page-loading-overlay {');
     expect(loadingCss).toContain('background: var(--cloud-fallback-sky);');
     expect(loadingCss).toContain('#page-loading-overlay::after');
+  });
+
+  it('defines the cloud placeholder colors with the requested light and dark palette', () => {
+    expect(tokensCss).toContain('--cloud-fallback-sky: #779DC3;');
+    expect(tokensCss).toContain('--cloud-fallback-sky-dark: #6F8CA9;');
   });
 });
 
