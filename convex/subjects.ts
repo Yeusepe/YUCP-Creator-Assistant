@@ -783,6 +783,22 @@ export const upsertBuyerProviderLink = mutation({
   },
 });
 
+/**
+ * Returns just the emailHash for an external account, used during buyer purchase verification
+ * to locate purchase_facts without exposing the full account record.
+ */
+export const getExternalAccountEmailHash = internalQuery({
+  args: {
+    externalAccountId: v.id('external_accounts'),
+  },
+  returns: v.union(v.object({ emailHash: v.optional(v.string()) }), v.null()),
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.externalAccountId);
+    if (!account) return null;
+    return { emailHash: account.emailHash };
+  },
+});
+
 export const revokeBuyerProviderLink = mutation({
   args: {
     apiSecret: v.string(),

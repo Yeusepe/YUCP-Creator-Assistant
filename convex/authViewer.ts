@@ -3,6 +3,7 @@ import { components } from './_generated/api';
 import { type QueryCtx, query } from './_generated/server';
 import { getAuthenticatedAuthUser } from './lib/authUser';
 import { buildBetterAuthUserProviderLookupWhere } from './lib/betterAuthAdapter';
+import { requireApiSecret } from './lib/apiAuth';
 
 const ViewerValue = v.object({
   authUserId: v.string(),
@@ -112,5 +113,27 @@ export const assertViewerOwnsTenant = query({
       viewer,
       ownsTenant: true as const,
     };
+  },
+});
+
+/**
+ * Look up the Discord user ID for the given Better Auth user.
+ * Requires the server API secret for access (not a user-authenticated query).
+ * Used by the Bun API to populate discordUserId in verification begin flows.
+ */
+export const getDiscordUserIdByAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const record = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'account',
+      where: buildBetterAuthUserProviderLookupWhere(args.authUserId, 'discord'),
+      select: ['accountId'],
+    })) as DiscordAccountRecord | null;
+    return record?.accountId ?? null;
   },
 });

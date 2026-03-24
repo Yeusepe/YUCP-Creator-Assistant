@@ -15,10 +15,11 @@
  */
 
 import { v } from 'convex/values';
-import { internal } from './_generated/api';
+import { components, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
-import { internalQuery, mutation, query } from './_generated/server';
+import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
+import { buildBetterAuthUserProviderLookupWhere } from './lib/betterAuthAdapter';
 import { PII_PURPOSES } from './lib/credentialKeys';
 import { encryptPii, normalizeAndEncryptEmail } from './lib/piiCrypto';
 
@@ -216,10 +217,66 @@ export const findExternalAccount = internalQuery({
 // ============================================================================
 
 /**
- * Get or create a subject for a Discord user (retroactive sync).
- * Used when granting entitlements to users who have the source role but haven't verified yet.
- * Creates a minimal subject with primaryDiscordUserId only; authUserId remains unset until they sign in.
+ * Look up the Discord user ID for a given Better Auth user via the component adapter.
+ * Used for lazy subject resolution in verification flows.
  */
+export const getDiscordUserIdByAuthUser = internalQuery({
+  args: { authUserId: v.string() },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, args) => {
+    interface AccountRecord { accountId?: string }
+    const record = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'account',
+      where: buildBetterAuthUserProviderLookupWhere(args.authUserId, 'discord'),
+      select: ['accountId'],
+    })) as AccountRecord | null;
+    return record?.accountId ?? null;
+  },
+});
+
+/**
+ * Find or create a subject for a web buyer using both their auth user ID and Discord user ID.
+ * If a Discord-only subject already exists, links the authUserId onto it.
+ * If no subject exists at all, creates one with both identifiers.
+ * Idempotent: safe to call multiple times.
+ */
+export const ensureSubjectForAuthUserWithDiscord = internalMutation({
+  args: {
+    authUserId: v.string(),
+    discordUserId: v.string(),
+  },
+  returns: v.id('subjects'),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    const byAuth = await ctx.db
+      .query('subjects')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    if (byAuth) return byAuth._id;
+
+    const byDiscord = await ctx.db
+      .query('subjects')
+      .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
+      .first();
+    if (byDiscord) {
+      if (!byDiscord.authUserId) {
+        await ctx.db.patch(byDiscord._id, { authUserId: args.authUserId, updatedAt: now });
+      }
+      return byDiscord._id;
+    }
+
+    return await ctx.db.insert('subjects', {
+      primaryDiscordUserId: args.discordUserId,
+      authUserId: args.authUserId,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+
 export const getOrCreateSubjectForDiscordUser = mutation({
   args: {
     apiSecret: v.string(),

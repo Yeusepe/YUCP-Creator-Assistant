@@ -193,7 +193,20 @@ async function resolveIntentSubjectId(
   const subject = await ctx.runQuery(internal.yucpLicenses.getSubjectByAuthUser, {
     authUserId,
   });
-  return subject?._id ?? null;
+  if (subject) return subject._id;
+
+  // Lazy subject creation: look up the buyer's Discord account from Better Auth,
+  // then find or create a subject linked to both identifiers so verification
+  // succeeds even when syncUserFromAuth was never explicitly called.
+  const discordUserId = await ctx.runQuery(internal.identitySync.getDiscordUserIdByAuthUser, {
+    authUserId,
+  });
+  if (!discordUserId) return null;
+
+  return ctx.runMutation(internal.identitySync.ensureSubjectForAuthUserWithDiscord, {
+    authUserId,
+    discordUserId,
+  });
 }
 
 interface VerificationGrantClaims {
@@ -263,6 +276,35 @@ export const getIntentRecord = query({
       return null;
     }
     return doc;
+  },
+});
+
+export const getIntentAccessDiagnostic = query({
+  args: {
+    apiSecret: v.string(),
+    intentId: v.id('verification_intents'),
+  },
+  returns: v.union(
+    v.object({
+      authUserId: v.string(),
+      status: VerificationIntentStatusV,
+      expiresAt: v.number(),
+      packageId: v.string(),
+    }),
+    v.null()
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const doc = await ctx.db.get(args.intentId);
+    if (!doc) {
+      return null;
+    }
+    return {
+      authUserId: doc.authUserId,
+      status: doc.status,
+      expiresAt: doc.expiresAt,
+      packageId: doc.packageId,
+    };
   },
 });
 
@@ -586,8 +628,22 @@ export const verifyIntentWithExistingEntitlement = action({
         errorMessage: 'Verification method does not support entitlement lookup',
       };
     }
+    console.info('[convex] existing entitlement verification started', {
+      phase: 'convex-verification-intent-existing-entitlement',
+      intentId: args.intentId,
+      methodKey: args.methodKey,
+      authUserId: args.authUserId,
+      creatorAuthUserId: requirement.creatorAuthUserId,
+      productId: requirement.productId,
+    });
     const subjectId = await resolveIntentSubjectId(ctx, intent, args.authUserId);
     if (!subjectId) {
+      console.warn('[convex] existing entitlement subject not found', {
+        phase: 'convex-verification-intent-existing-entitlement',
+        intentId: args.intentId,
+        methodKey: args.methodKey,
+        authUserId: args.authUserId,
+      });
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
         intentId: args.intentId,
         errorCode: 'subject_not_found',
@@ -604,7 +660,22 @@ export const verifyIntentWithExistingEntitlement = action({
       subjectId,
       productId: requirement.productId,
     });
+    console.info('[convex] existing entitlement verification completed', {
+      phase: 'convex-verification-intent-existing-entitlement',
+      intentId: args.intentId,
+      methodKey: args.methodKey,
+      subjectId,
+      hasEntitlement,
+    });
     if (!hasEntitlement) {
+      console.warn('[convex] existing entitlement missing', {
+        phase: 'convex-verification-intent-existing-entitlement',
+        intentId: args.intentId,
+        methodKey: args.methodKey,
+        subjectId,
+        creatorAuthUserId: requirement.creatorAuthUserId,
+        productId: requirement.productId,
+      });
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
         intentId: args.intentId,
         errorCode: 'entitlement_missing',
@@ -678,9 +749,24 @@ export const verifyIntentWithBuyerProviderLink = action({
         errorMessage: 'Verification method does not support linked account proof',
       };
     }
+    console.info('[convex] buyer provider link verification started', {
+      phase: 'convex-verification-intent-buyer-provider-link',
+      intentId: args.intentId,
+      methodKey: args.methodKey,
+      authUserId: args.authUserId,
+      provider: requirement.providerKey,
+      hasProductContext: Boolean(requirement.creatorAuthUserId && requirement.productId),
+    });
 
     const subjectId = await resolveIntentSubjectId(ctx, intent, args.authUserId);
     if (!subjectId) {
+      console.warn('[convex] buyer provider link subject not found', {
+        phase: 'convex-verification-intent-buyer-provider-link',
+        intentId: args.intentId,
+        methodKey: args.methodKey,
+        authUserId: args.authUserId,
+        provider: requirement.providerKey,
+      });
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
         intentId: args.intentId,
         errorCode: 'subject_not_found',
@@ -699,6 +785,13 @@ export const verifyIntentWithBuyerProviderLink = action({
     });
 
     if (!buyerProviderLink) {
+      console.warn('[convex] buyer provider link missing', {
+        phase: 'convex-verification-intent-buyer-provider-link',
+        intentId: args.intentId,
+        methodKey: args.methodKey,
+        subjectId,
+        provider: requirement.providerKey,
+      });
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
         intentId: args.intentId,
         errorCode: 'provider_link_missing',
@@ -712,6 +805,14 @@ export const verifyIntentWithBuyerProviderLink = action({
     }
 
     if (buyerProviderLink.status !== 'active') {
+      console.warn('[convex] buyer provider link expired', {
+        phase: 'convex-verification-intent-buyer-provider-link',
+        intentId: args.intentId,
+        methodKey: args.methodKey,
+        subjectId,
+        provider: requirement.providerKey,
+        linkStatus: buyerProviderLink.status,
+      });
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
         intentId: args.intentId,
         errorCode: 'provider_link_expired',
@@ -724,6 +825,93 @@ export const verifyIntentWithBuyerProviderLink = action({
       };
     }
 
+    // When the requirement carries product context, verify the actual purchase.
+    // This prevents a link-only pass when the buyer has signed in with a Gumroad
+    // account that did not purchase the product.
+    if (requirement.creatorAuthUserId && requirement.productId) {
+      const accountInfo = await ctx.runQuery(internal.subjects.getExternalAccountEmailHash, {
+        externalAccountId: buyerProviderLink.externalAccountId,
+      });
+      console.info('[convex] buyer provider link purchase sync starting', {
+        phase: 'convex-verification-intent-buyer-provider-link',
+        intentId: args.intentId,
+        methodKey: args.methodKey,
+        subjectId,
+        provider: requirement.providerKey,
+        externalAccountId: buyerProviderLink.externalAccountId,
+        hasEmailHash: Boolean(accountInfo?.emailHash),
+        creatorAuthUserId: requirement.creatorAuthUserId,
+        productId: requirement.productId,
+      });
+
+      try {
+        await ctx.runAction(internal.backgroundSync.syncPastPurchasesForSubject, {
+          subjectId,
+          provider: requirement.providerKey,
+          providerUserId: buyerProviderLink.providerUserId,
+          emailHash: accountInfo?.emailHash,
+        });
+      } catch (error) {
+        console.error('[convex] buyer provider link purchase sync failed', {
+          phase: 'convex-verification-intent-buyer-provider-link',
+          intentId: args.intentId,
+          methodKey: args.methodKey,
+          subjectId,
+          provider: requirement.providerKey,
+          externalAccountId: buyerProviderLink.externalAccountId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+
+      const hasEntitlement = await ctx.runQuery(internal.yucpLicenses.checkSubjectEntitlement, {
+        authUserId: requirement.creatorAuthUserId,
+        subjectId,
+        productId: requirement.productId,
+      });
+      console.info('[convex] buyer provider link entitlement lookup completed', {
+        phase: 'convex-verification-intent-buyer-provider-link',
+        intentId: args.intentId,
+        methodKey: args.methodKey,
+        subjectId,
+        provider: requirement.providerKey,
+        creatorAuthUserId: requirement.creatorAuthUserId,
+        productId: requirement.productId,
+        hasEntitlement,
+      });
+
+      if (!hasEntitlement) {
+        console.warn('[convex] buyer provider link purchase not found', {
+          phase: 'convex-verification-intent-buyer-provider-link',
+          intentId: args.intentId,
+          methodKey: args.methodKey,
+          subjectId,
+          provider: requirement.providerKey,
+          creatorAuthUserId: requirement.creatorAuthUserId,
+          productId: requirement.productId,
+        });
+        await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
+          intentId: args.intentId,
+          errorCode: 'purchase_not_found',
+          errorMessage:
+            'No purchase was found for this account. If you just bought, please try again in a moment.',
+        });
+        return {
+          success: false,
+          errorCode: 'purchase_not_found',
+          errorMessage:
+            'No purchase was found for this account. If you just bought, please try again in a moment.',
+        };
+      }
+    }
+
+    console.info('[convex] buyer provider link verification succeeded', {
+      phase: 'convex-verification-intent-buyer-provider-link',
+      intentId: args.intentId,
+      methodKey: args.methodKey,
+      subjectId,
+      provider: requirement.providerKey,
+    });
     await ctx.runMutation(internal.verificationIntents.markIntentVerified, {
       intentId: args.intentId,
       methodKey: args.methodKey,

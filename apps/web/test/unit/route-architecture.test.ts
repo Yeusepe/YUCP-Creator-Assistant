@@ -22,6 +22,13 @@ function collectRouteFiles(dir: string): string[] {
 const routeFiles = collectRouteFiles(ROUTES_DIR);
 
 describe('Route architecture', () => {
+  it('keeps non-route verify helpers ignored by TanStack route generation', () => {
+    const verifyFiles = readdirSync(join(ROUTES_DIR, 'verify'));
+
+    expect(verifyFiles).toContain('-purchaseUiState.ts');
+    expect(verifyFiles).not.toContain('purchaseUiState.ts');
+  });
+
   it('does not globally import page-specific stylesheets from route modules', () => {
     // Routes that intentionally use side-effect CSS imports instead of head-linked route styles.
     // This pattern was adopted for these routes to fix stylesheet hydration mismatches in dev.
