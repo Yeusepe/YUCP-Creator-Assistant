@@ -42,7 +42,7 @@
 }
 
 .sticker-pattern::before,
-.sticker-watermark::before {
+.sticker-coupling::before {
   background: transparent !important;
 }
 

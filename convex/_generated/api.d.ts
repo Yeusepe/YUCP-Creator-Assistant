@@ -17,6 +17,7 @@ import type * as betterAuthApiKeys from "../betterAuthApiKeys.js";
 import type * as bindings from "../bindings.js";
 import type * as certificateBilling from "../certificateBilling.js";
 import type * as collaboratorInvites from "../collaboratorInvites.js";
+import type * as couplingForensics from "../couplingForensics.js";
 import type * as couplingRuntime from "../couplingRuntime.js";
 import type * as couplingRuntimeUpload from "../couplingRuntimeUpload.js";
 import type * as creatorEvents from "../creatorEvents.js";
@@ -116,6 +117,7 @@ declare const fullApi: ApiFromModules<{
   bindings: typeof bindings;
   certificateBilling: typeof certificateBilling;
   collaboratorInvites: typeof collaboratorInvites;
+  couplingForensics: typeof couplingForensics;
   couplingRuntime: typeof couplingRuntime;
   couplingRuntimeUpload: typeof couplingRuntimeUpload;
   creatorEvents: typeof creatorEvents;

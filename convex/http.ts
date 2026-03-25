@@ -117,7 +117,7 @@ async function sha256HexHttp(input: string): Promise<string> {
 
 const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
-const WATERMARK_RUNTIME_TTL_SECONDS = 10 * 60;
+const COUPLING_RUNTIME_TTL_SECONDS = 10 * 60;
 
 const http = httpRouter();
 
@@ -642,7 +642,7 @@ http.route({
     const ownDuration = performance.now() - ownStart;
 
     // Tag own products with owner=null
-    const allProducts: PublicProductRecord[] = ownProducts.map((p) => ({
+    const allProducts: PublicProductRecord[] = ownProducts.map((p: (typeof ownProducts)[number]) => ({
       ...p,
       owner: null,
       configured: true,
@@ -707,7 +707,7 @@ http.route({
         );
 
         return cachedProducts.map(
-          (product): PublicProductRecord => ({
+          (product: (typeof cachedProducts)[number]): PublicProductRecord => ({
             productId: product.productId,
             displayName: product.displayName,
             owner,
@@ -1660,7 +1660,7 @@ http.route({
     }
 
     const nowSeconds = Math.floor(Date.now() / 1000);
-    const exp = nowSeconds + WATERMARK_RUNTIME_TTL_SECONDS;
+    const exp = nowSeconds + COUPLING_RUNTIME_TTL_SECONDS;
     const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
     const publicAuthIssuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
     const claims: CouplingRuntimeClaims = {
@@ -1676,7 +1676,7 @@ http.route({
       artifact_platform: artifact.platform ?? '',
       artifact_version: artifact.version ?? '',
       metadata_version: artifact.metadataVersion ?? 0,
-      delivery_name: artifact.deliveryName ?? 'yucp_watermark.dll',
+      delivery_name: artifact.deliveryName ?? 'yucp_coupling.dll',
       content_type: artifact.contentType ?? 'application/octet-stream',
       envelope_cipher: artifact.envelopeCipher ?? '',
       envelope_iv_b64: artifact.envelopeIvBase64 ?? '',

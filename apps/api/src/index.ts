@@ -17,6 +17,7 @@ import {
 import { detectTunnelUrl } from './lib/tunnel';
 import {
   createConnectRoutes,
+  createForensicsRoutes,
   createProviderPlatformRoutes,
   createVerificationRoutes,
   createWebhookHandler,
@@ -41,6 +42,7 @@ let installRoutes: Map<string, (request: Request) => Promise<Response>> | null =
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
+let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
 let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
@@ -145,6 +147,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     getRequired('INTERNAL_SERVICE_AUTH_SECRET');
     getRequired('VRCHAT_PENDING_STATE_SECRET');
     getRequired('ENCRYPTION_SECRET');
+    getRequired('YUCP_COUPLING_SERVICE_BASE_URL');
+    getRequired('YUCP_COUPLING_SERVICE_SHARED_SECRET');
   }
   const configuredPolarKeys = [
     env.POLAR_ACCESS_TOKEN,
@@ -236,6 +240,15 @@ function initializeAuth(webhookBaseUrl?: string) {
     encryptionSecret,
   } satisfies Parameters<typeof createConnectRoutes>[1];
   connectRoutes = createConnectRoutes(auth, connectConfig);
+
+  forensicsRoutes = createForensicsRoutes(auth, {
+    apiBaseUrl: publicBaseUrl,
+    frontendBaseUrl: frontendUrl,
+    couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
+    couplingServiceSharedSecret: env.YUCP_COUPLING_SERVICE_SHARED_SECRET ?? '',
+    convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    convexUrl,
+  });
 
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
     apiBaseUrl: publicBaseUrl,
@@ -339,6 +352,14 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname.startsWith('/api/connect/')) {
     if (isRateLimited(`connect:${clientAddress}`, 120, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  if (pathname.startsWith('/api/forensics/')) {
+    if (isRateLimited(`forensics:${clientAddress}`, 30, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -755,6 +776,14 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/user/licenses' && connectRoutes) {
     if (request.method === 'GET') return connectRoutes.getUserLicenses(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/forensics/packages' && forensicsRoutes) {
+    if (request.method === 'GET') return forensicsRoutes.listPackages(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/forensics/lookup' && forensicsRoutes) {
+    if (request.method === 'POST') return forensicsRoutes.lookup(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
   const entitlementRevokeMatch = pathname.match(/^\/api\/connect\/user\/entitlements\/([^/]+)$/);

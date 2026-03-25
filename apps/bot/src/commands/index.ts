@@ -98,6 +98,31 @@ export function buildCreatorAdminCommand(isConfigured: boolean) {
           s.setName('manage').setDescription('View and manage liened download routes')
         )
     )
+    .addSubcommandGroup((forensics) =>
+      forensics
+        .setName('forensics')
+        .setDescription('Trace creator-owned coupling matches')
+        .addSubcommand((s) =>
+          s
+            .setName('lookup')
+            .setDescription(
+              'Upload a .unitypackage or .zip and inspect authorized coupling matches'
+            )
+            .addStringOption((o) =>
+              o
+                .setName('package_id')
+                .setDescription('Creator-owned package to search')
+                .setRequired(true)
+                .setAutocomplete(true)
+            )
+            .addAttachmentOption((o) =>
+              o
+                .setName('file')
+                .setDescription('Package archive to inspect for coupling matches')
+                .setRequired(true)
+            )
+        )
+    )
     .addSubcommand((s) => s.setName('stats').setDescription('View verification statistics'))
     .addSubcommand((s) =>
       s

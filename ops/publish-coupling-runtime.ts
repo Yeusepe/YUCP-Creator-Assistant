@@ -1,5 +1,5 @@
 /**
- * Publish the active coupling watermark runtime DLL to Convex.
+ * Publish the active coupling runtime DLL to Convex.
  *
  * Usage:
  *   bun run convex:publish:coupling-runtime
@@ -51,7 +51,7 @@ Usage:
   bun run convex:publish:coupling-runtime
   bun run convex:publish:coupling-runtime -- --version 2026.03.25.153000
   bun run convex:publish:coupling-runtime -- --storageId kg2abc123...
-  bun run convex:publish:coupling-runtime -- --sourcePath E:\\path\\to\\yucp_watermark.dll
+  bun run convex:publish:coupling-runtime -- --sourcePath E:\\path\\to\\yucp_coupling.dll
   bun run convex:publish:coupling-runtime -- --prod --push
 
 Options:

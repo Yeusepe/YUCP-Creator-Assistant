@@ -92,7 +92,9 @@
     "buffer": "^6.0.3",
     "convex": "^1.32.0",
     "dotenv": "^17.3.1",
-    "h3-v2": "npm:h3@2.0.1-rc.19"
+    "fflate": "^0.8.2",
+    "h3-v2": "npm:h3@2.0.1-rc.19",
+    "tar": "^7.5.13"
   },
   "patchedDependencies": {
     "@tanstack/start-server-core@1.167.1": "patches/@tanstack%2Fstart-server-core@1.167.1.patch"
