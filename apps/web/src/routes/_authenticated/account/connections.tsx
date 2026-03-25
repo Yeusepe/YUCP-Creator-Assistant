@@ -76,7 +76,7 @@ function buildProviderCards(
   return Array.from(cards.values());
 }
 
-export const Route = createFileRoute('/account/connections')({
+export const Route = createFileRoute('/_authenticated/account/connections')({
   pendingComponent: AccountConnectionsPending,
   component: AccountConnections,
 });

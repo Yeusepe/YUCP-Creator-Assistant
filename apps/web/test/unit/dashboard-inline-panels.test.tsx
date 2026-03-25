@@ -46,7 +46,7 @@ vi.mock('@/lib/dashboard', async () => {
 });
 
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as IntegrationsRoute } from '@/routes/dashboard/integrations';
+import { Route as IntegrationsRoute } from '@/routes/_authenticated/dashboard/integrations';
 
 function createWrapper() {
   const queryClient = new QueryClient({

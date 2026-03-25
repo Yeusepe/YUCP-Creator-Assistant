@@ -15,7 +15,7 @@ import {
   listCouplingForensicsPackages,
   runCouplingForensicsLookup,
 } from '@/lib/couplingForensics';
-import { BILLING_CAPABILITY_KEYS } from '../../../../../convex/lib/billingCapabilities';
+import { BILLING_CAPABILITY_KEYS } from '../../../../../../convex/lib/billingCapabilities';
 
 function DashboardForensicsPending() {
   return (
@@ -27,7 +27,7 @@ function DashboardForensicsPending() {
   );
 }
 
-export const Route = createFileRoute('/dashboard/forensics')({
+export const Route = createFileRoute('/_authenticated/dashboard/forensics')({
   pendingComponent: DashboardForensicsPending,
   component: DashboardForensics,
 });

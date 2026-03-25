@@ -62,7 +62,7 @@ vi.mock('@/components/ui/Toast', () => {
   };
 });
 
-import { Route as DashboardIndexRoute } from '@/routes/dashboard/index';
+import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index';
 
 describe('dashboard index auth guard', () => {
   it('renders the auth-required state without crashing when viewer auth is unavailable', () => {

@@ -3,11 +3,11 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const dashboardRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/dashboard.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard.tsx'),
   'utf8'
 );
 const dashboardIndexRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/dashboard/index.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/index.tsx'),
   'utf8'
 );
 

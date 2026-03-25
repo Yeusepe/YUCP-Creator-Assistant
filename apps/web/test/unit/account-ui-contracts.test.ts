@@ -2,17 +2,20 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const accountRouteSource = readFileSync(resolve(__dirname, '../../src/routes/account.tsx'), 'utf8');
+const accountRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/account.tsx'),
+  'utf8'
+);
 const accountIndexRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/account/index.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/account/index.tsx'),
   'utf8'
 );
 const accountCertificatesRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/account/certificates.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/account/certificates.tsx'),
   'utf8'
 );
 const dashboardCertificatesRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/dashboard/certificates.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/certificates.tsx'),
   'utf8'
 );
 const dashboardPrefetchSource = readFileSync(
@@ -20,7 +23,7 @@ const dashboardPrefetchSource = readFileSync(
   'utf8'
 );
 const accountVerifyRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/account/verify.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/account/verify.tsx'),
   'utf8'
 );
 const dashboardSource = readFileSync(resolve(__dirname, '../../src/lib/dashboard.ts'), 'utf8');
@@ -70,11 +73,13 @@ describe('account UI contracts', () => {
   it('routes certificate billing through the creator dashboard instead of account space', () => {
     expect(accountRouteSource).not.toContain('/account/certificates');
     expect(accountIndexRouteSource).toContain('/dashboard/certificates');
-    expect(accountCertificatesRouteSource).toContain("createFileRoute('/account/certificates')");
+    expect(accountCertificatesRouteSource).toContain(
+      "createFileRoute('/_authenticated/account/certificates')"
+    );
     expect(accountCertificatesRouteSource).toContain('beforeLoad');
     expect(accountCertificatesRouteSource).toContain("to: '/dashboard/certificates'");
     expect(dashboardCertificatesRouteSource).toContain(
-      "createFileRoute('/dashboard/certificates')"
+      "createFileRoute('/_authenticated/dashboard/certificates')"
     );
     expect(dashboardCertificatesRouteSource).toContain('Manage Billing');
     expect(dashboardCertificatesRouteSource).toContain("queryKey: ['creator-certificates']");

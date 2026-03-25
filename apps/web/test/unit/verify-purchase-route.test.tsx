@@ -37,7 +37,7 @@ vi.mock('@/lib/dashboard', async () => {
 
 import * as accountApi from '@/lib/account';
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as VerifyPurchaseRoute } from '@/routes/verify/purchase';
+import { Route as VerifyPurchaseRoute } from '@/routes/_authenticated/verify/purchase';
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

@@ -26,7 +26,7 @@ function AccountLicensesPending() {
   );
 }
 
-export const Route = createFileRoute('/account/licenses')({
+export const Route = createFileRoute('/_authenticated/account/licenses')({
   pendingComponent: AccountLicensesPending,
   component: AccountLicenses,
 });

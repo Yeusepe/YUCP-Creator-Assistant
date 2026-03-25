@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const ROUTES_DIR = join(__dirname, '../../src/routes/dashboard');
+const ROUTES_DIR = join(__dirname, '../../src/routes/_authenticated/dashboard');
 const LIB_DIR = join(__dirname, '../../src/lib');
 const SERVER_LIB_DIR = join(__dirname, '../../src/lib/server');
 const CONVEX_DIR = join(__dirname, '../../../../convex');
@@ -34,7 +34,10 @@ describe('dashboard parity wiring', () => {
     const helperSource = readLibSource('dashboard.ts');
     const serverHelperSource = readServerLibSource('dashboard.ts');
     const guildLinksSource = readConvexSource('guildLinks.ts');
-    const layoutSource = readFileSync(join(__dirname, '../../src/routes/dashboard.tsx'), 'utf8');
+    const layoutSource = readFileSync(
+      join(__dirname, '../../src/routes/_authenticated/dashboard.tsx'),
+      'utf8'
+    );
 
     expect(source).toContain('id="participating-servers-list"');
     expect(source).toContain('id="dynamic-platform-cards"');
@@ -169,7 +172,10 @@ describe('dashboard parity wiring', () => {
 
   it('uses shared dashboard query defaults instead of raw React Query defaults', () => {
     const indexSource = readRouteSource('index.tsx');
-    const layoutSource = readFileSync(join(__dirname, '../../src/routes/dashboard.tsx'), 'utf8');
+    const layoutSource = readFileSync(
+      join(__dirname, '../../src/routes/_authenticated/dashboard.tsx'),
+      'utf8'
+    );
     const integrationsSource = readRouteSource('integrations.tsx');
     const collaborationSource = readRouteSource('collaboration.tsx');
 

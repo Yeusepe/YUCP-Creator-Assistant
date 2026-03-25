@@ -29,7 +29,7 @@ vi.mock('@/lib/dashboard', async () => {
 });
 
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as AccountConnectionsRoute } from '@/routes/account/connections';
+import { Route as AccountConnectionsRoute } from '@/routes/_authenticated/account/connections';
 
 function createWrapper() {
   const queryClient = new QueryClient({

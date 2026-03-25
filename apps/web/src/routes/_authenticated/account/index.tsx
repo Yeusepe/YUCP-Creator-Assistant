@@ -17,7 +17,7 @@ function AccountProfilePending() {
   );
 }
 
-export const Route = createFileRoute('/account/')({
+export const Route = createFileRoute('/_authenticated/account/')({
   pendingComponent: AccountProfilePending,
   component: AccountProfile,
 });

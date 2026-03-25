@@ -47,7 +47,7 @@ function DashboardIntegrationsPending() {
   );
 }
 
-export const Route = createFileRoute('/dashboard/integrations')({
+export const Route = createFileRoute('/_authenticated/dashboard/integrations')({
   staleTime: Infinity,
   loader: ({ context: { queryClient } }) => {
     warmDashboardIntegrations(queryClient);

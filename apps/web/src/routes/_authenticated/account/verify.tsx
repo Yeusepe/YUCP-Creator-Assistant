@@ -24,7 +24,7 @@ import {
   type UserProvider,
 } from '@/lib/dashboard';
 
-export const Route = createFileRoute('/account/verify')({
+export const Route = createFileRoute('/_authenticated/account/verify')({
   validateSearch: (search: Record<string, unknown>) => ({
     intent: typeof search.intent === 'string' ? search.intent : '',
   }),
@@ -274,7 +274,7 @@ function MethodCard({
 }
 
 function AccountVerifyPage() {
-  const { intent } = useSearch({ from: '/account/verify' });
+  const { intent } = useSearch({ from: '/_authenticated/account/verify' });
   const [redirectCountdown, setRedirectCountdown] = useState(5);
   const toast = useToast();
 

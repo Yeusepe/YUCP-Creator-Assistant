@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const routerSource = readFileSync(resolve(__dirname, '../../src/router.tsx'), 'utf8');
 const dashboardRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/dashboard.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard.tsx'),
   'utf8'
 );
 

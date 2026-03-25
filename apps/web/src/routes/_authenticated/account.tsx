@@ -1,4 +1,4 @@
-import { createFileRoute, Link, Outlet, redirect, useRouterState } from '@tanstack/react-router';
+import { createFileRoute, Link, Outlet, useRouterState } from '@tanstack/react-router';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { dashboardShellQueryOptions } from '@/lib/dashboardQueryOptions';
@@ -10,15 +10,7 @@ import '@/styles/account.css';
 
 let _accountLoaderCache: DashboardShellData | null = null;
 
-export const Route = createFileRoute('/account')({
-  beforeLoad: ({ context, location }) => {
-    if (!context.isAuthenticated) {
-      throw redirect({
-        to: '/sign-in',
-        search: { redirectTo: location.href },
-      });
-    }
-  },
+export const Route = createFileRoute('/_authenticated/account')({
   staleTime: Infinity,
   loader: async ({ context: { queryClient } }) => {
     if (typeof window !== 'undefined' && _accountLoaderCache !== null) {

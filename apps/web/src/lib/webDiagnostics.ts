@@ -19,7 +19,7 @@ export interface ServerAuthClientLike {
   } | null;
 }
 
-export interface LoadRootAuthStateOptions {
+export interface LoadProtectedAuthStateOptions {
   convexQueryClient: ServerAuthClientLike;
   location?: LocationLike | null;
   getAuthToken: () => Promise<string | null | undefined>;
@@ -31,7 +31,7 @@ export interface RootRenderLogOptions {
   env?: WebDiagnosticsEnv;
 }
 
-export interface RootAuthState {
+export interface ProtectedAuthState {
   isAuthenticated: boolean;
   token: string | null;
 }
@@ -150,12 +150,12 @@ export function logWebError(
   console.error(`[web] ${event}`, compactRecord({ ...context, error: serializeError(error) }));
 }
 
-export async function loadRootAuthState({
+export async function loadProtectedAuthState({
   convexQueryClient,
   location,
   getAuthToken,
   env = getDefaultEnv(),
-}: LoadRootAuthStateOptions): Promise<RootAuthState> {
+}: LoadProtectedAuthStateOptions): Promise<ProtectedAuthState> {
   try {
     const token = (await getAuthToken()) ?? null;
 
@@ -169,10 +169,10 @@ export async function loadRootAuthState({
     };
   } catch (error) {
     logWebError(
-      'Root auth bootstrap failed',
+      'Protected auth bootstrap failed',
       error,
       compactRecord({
-        phase: 'root-beforeLoad',
+        phase: 'protected-beforeLoad',
         route: location?.pathname,
         networkHint: getNetworkHint(error, env),
         ...buildEnvSnapshot(env),

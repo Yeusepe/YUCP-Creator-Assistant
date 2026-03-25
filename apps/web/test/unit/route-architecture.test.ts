@@ -23,7 +23,7 @@ const routeFiles = collectRouteFiles(ROUTES_DIR);
 
 describe('Route architecture', () => {
   it('keeps non-route verify helpers ignored by TanStack route generation', () => {
-    const verifyFiles = readdirSync(join(ROUTES_DIR, 'verify'));
+    const verifyFiles = readdirSync(join(ROUTES_DIR, '_authenticated/verify'));
 
     expect(verifyFiles).toContain('-purchaseUiState.ts');
     expect(verifyFiles).not.toContain('purchaseUiState.ts');
@@ -34,7 +34,13 @@ describe('Route architecture', () => {
     // This pattern was adopted for these routes to fix stylesheet hydration mismatches in dev.
     // See: test/unit/setup-shell-visibility-contracts.test.ts
     const SIDE_EFFECT_CSS_ALLOWED = new Set([
-      'dashboard.tsx',
+      '__root.tsx',
+      '_authenticated/account.tsx',
+      '_authenticated/dashboard.tsx',
+      '_authenticated/verify/purchase.tsx',
+      'install/error.tsx',
+      'install/success.tsx',
+      'oauth/consent.tsx',
       'setup/jinxxy.tsx',
       'setup/lemonsqueezy.tsx',
       'setup/payhip.tsx',
@@ -54,7 +60,8 @@ describe('Route architecture', () => {
         (value) =>
           !value.includes('@/styles/tokens.css') &&
           !value.includes('@/styles/loading.css') &&
-          !value.includes('@/styles/globals.css')
+          !value.includes('@/styles/globals.css') &&
+          !value.includes('@/styles/toast.css')
       );
 
       if (disallowed.length > 0) {

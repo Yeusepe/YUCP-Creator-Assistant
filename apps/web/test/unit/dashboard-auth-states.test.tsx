@@ -38,8 +38,8 @@ vi.mock('@/lib/dashboard', async () => {
 
 import { useDashboardSession } from '@/hooks/useDashboardSession';
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as CollaborationRoute } from '@/routes/dashboard/collaboration';
-import { Route as IntegrationsRoute } from '@/routes/dashboard/integrations';
+import { Route as CollaborationRoute } from '@/routes/_authenticated/dashboard/collaboration';
+import { Route as IntegrationsRoute } from '@/routes/_authenticated/dashboard/integrations';
 
 function createWrapper() {
   const queryClient = new QueryClient({

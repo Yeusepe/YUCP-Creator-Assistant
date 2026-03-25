@@ -11,16 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignInRedirectRouteImport } from './routes/sign-in-redirect'
 import { Route as SignInRouteImport } from './routes/sign-in'
-import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as CollabInviteRouteImport } from './routes/collab-invite'
-import { Route as AccountRouteImport } from './routes/account'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
-import { Route as AccountIndexRouteImport } from './routes/account/index'
 import { Route as VerifySuccessRouteImport } from './routes/verify/success'
-import { Route as VerifyPurchaseRouteImport } from './routes/verify/purchase'
 import { Route as VerifyErrorRouteImport } from './routes/verify/error'
 import { Route as SetupVrchatRouteImport } from './routes/setup/vrchat'
 import { Route as SetupPayhipRouteImport } from './routes/setup/payhip'
@@ -34,20 +30,25 @@ import { Route as LegalTermsOfServiceRouteImport } from './routes/legal/terms-of
 import { Route as LegalPrivacyPolicyRouteImport } from './routes/legal/privacy-policy'
 import { Route as InstallSuccessRouteImport } from './routes/install/success'
 import { Route as InstallErrorRouteImport } from './routes/install/error'
-import { Route as DashboardServerRulesRouteImport } from './routes/dashboard/server-rules'
-import { Route as DashboardIntegrationsRouteImport } from './routes/dashboard/integrations'
-import { Route as DashboardForensicsRouteImport } from './routes/dashboard/forensics'
-import { Route as DashboardCollaborationRouteImport } from './routes/dashboard/collaboration'
-import { Route as DashboardCertificatesRouteImport } from './routes/dashboard/certificates'
-import { Route as DashboardAuditLogsRouteImport } from './routes/dashboard/audit-logs'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
-import { Route as AccountVerifyRouteImport } from './routes/account/verify'
-import { Route as AccountPrivacyRouteImport } from './routes/account/privacy'
-import { Route as AccountLicensesRouteImport } from './routes/account/licenses'
-import { Route as AccountConnectionsRouteImport } from './routes/account/connections'
-import { Route as AccountCertificatesRouteImport } from './routes/account/certificates'
-import { Route as AccountAuthorizedAppsRouteImport } from './routes/account/authorized-apps'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
+import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
+import { Route as AuthenticatedAccountIndexRouteImport } from './routes/_authenticated/account/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AuthenticatedVerifyPurchaseRouteImport } from './routes/_authenticated/verify/purchase'
+import { Route as AuthenticatedDashboardServerRulesRouteImport } from './routes/_authenticated/dashboard/server-rules'
+import { Route as AuthenticatedDashboardIntegrationsRouteImport } from './routes/_authenticated/dashboard/integrations'
+import { Route as AuthenticatedDashboardForensicsRouteImport } from './routes/_authenticated/dashboard/forensics'
+import { Route as AuthenticatedDashboardCollaborationRouteImport } from './routes/_authenticated/dashboard/collaboration'
+import { Route as AuthenticatedDashboardCertificatesRouteImport } from './routes/_authenticated/dashboard/certificates'
+import { Route as AuthenticatedDashboardAuditLogsRouteImport } from './routes/_authenticated/dashboard/audit-logs'
+import { Route as AuthenticatedAccountVerifyRouteImport } from './routes/_authenticated/account/verify'
+import { Route as AuthenticatedAccountPrivacyRouteImport } from './routes/_authenticated/account/privacy'
+import { Route as AuthenticatedAccountLicensesRouteImport } from './routes/_authenticated/account/licenses'
+import { Route as AuthenticatedAccountConnectionsRouteImport } from './routes/_authenticated/account/connections'
+import { Route as AuthenticatedAccountCertificatesRouteImport } from './routes/_authenticated/account/certificates'
+import { Route as AuthenticatedAccountAuthorizedAppsRouteImport } from './routes/_authenticated/account/authorized-apps'
 
 const SignInRedirectRoute = SignInRedirectRouteImport.update({
   id: '/sign-in-redirect',
@@ -57,11 +58,6 @@ const SignInRedirectRoute = SignInRedirectRouteImport.update({
 const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConnectRoute = ConnectRouteImport.update({
@@ -74,9 +70,8 @@ const CollabInviteRoute = CollabInviteRouteImport.update({
   path: '/collab-invite',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AccountRoute = AccountRouteImport.update({
-  id: '/account',
-  path: '/account',
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SplatRoute = SplatRouteImport.update({
@@ -89,24 +84,9 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardIndexRoute = DashboardIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const AccountIndexRoute = AccountIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AccountRoute,
-} as any)
 const VerifySuccessRoute = VerifySuccessRouteImport.update({
   id: '/verify/success',
   path: '/verify/success',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const VerifyPurchaseRoute = VerifyPurchaseRouteImport.update({
-  id: '/verify/purchase',
-  path: '/verify/purchase',
   getParentRoute: () => rootRouteImport,
 } as any)
 const VerifyErrorRoute = VerifyErrorRouteImport.update({
@@ -174,99 +154,127 @@ const InstallErrorRoute = InstallErrorRouteImport.update({
   path: '/install/error',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardServerRulesRoute = DashboardServerRulesRouteImport.update({
-  id: '/server-rules',
-  path: '/server-rules',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const DashboardIntegrationsRoute = DashboardIntegrationsRouteImport.update({
-  id: '/integrations',
-  path: '/integrations',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const DashboardForensicsRoute = DashboardForensicsRouteImport.update({
-  id: '/forensics',
-  path: '/forensics',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const DashboardCollaborationRoute = DashboardCollaborationRouteImport.update({
-  id: '/collaboration',
-  path: '/collaboration',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const DashboardCertificatesRoute = DashboardCertificatesRouteImport.update({
-  id: '/certificates',
-  path: '/certificates',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const DashboardAuditLogsRoute = DashboardAuditLogsRouteImport.update({
-  id: '/audit-logs',
-  path: '/audit-logs',
-  getParentRoute: () => DashboardRoute,
-} as any)
 const ApiSplatRoute = ApiSplatRouteImport.update({
   id: '/api/$',
   path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AccountVerifyRoute = AccountVerifyRouteImport.update({
-  id: '/verify',
-  path: '/verify',
-  getParentRoute: () => AccountRoute,
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AccountPrivacyRoute = AccountPrivacyRouteImport.update({
-  id: '/privacy',
-  path: '/privacy',
-  getParentRoute: () => AccountRoute,
+const AuthenticatedAccountRoute = AuthenticatedAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AccountLicensesRoute = AccountLicensesRouteImport.update({
-  id: '/licenses',
-  path: '/licenses',
-  getParentRoute: () => AccountRoute,
-} as any)
-const AccountConnectionsRoute = AccountConnectionsRouteImport.update({
-  id: '/connections',
-  path: '/connections',
-  getParentRoute: () => AccountRoute,
-} as any)
-const AccountCertificatesRoute = AccountCertificatesRouteImport.update({
-  id: '/certificates',
-  path: '/certificates',
-  getParentRoute: () => AccountRoute,
-} as any)
-const AccountAuthorizedAppsRoute = AccountAuthorizedAppsRouteImport.update({
-  id: '/authorized-apps',
-  path: '/authorized-apps',
-  getParentRoute: () => AccountRoute,
-} as any)
+const AuthenticatedDashboardIndexRoute =
+  AuthenticatedDashboardIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
+const AuthenticatedAccountIndexRoute =
+  AuthenticatedAccountIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAccountRoute,
+  } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedVerifyPurchaseRoute =
+  AuthenticatedVerifyPurchaseRouteImport.update({
+    id: '/verify/purchase',
+    path: '/verify/purchase',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedDashboardServerRulesRoute =
+  AuthenticatedDashboardServerRulesRouteImport.update({
+    id: '/server-rules',
+    path: '/server-rules',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
+const AuthenticatedDashboardIntegrationsRoute =
+  AuthenticatedDashboardIntegrationsRouteImport.update({
+    id: '/integrations',
+    path: '/integrations',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
+const AuthenticatedDashboardForensicsRoute =
+  AuthenticatedDashboardForensicsRouteImport.update({
+    id: '/forensics',
+    path: '/forensics',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
+const AuthenticatedDashboardCollaborationRoute =
+  AuthenticatedDashboardCollaborationRouteImport.update({
+    id: '/collaboration',
+    path: '/collaboration',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
+const AuthenticatedDashboardCertificatesRoute =
+  AuthenticatedDashboardCertificatesRouteImport.update({
+    id: '/certificates',
+    path: '/certificates',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
+const AuthenticatedDashboardAuditLogsRoute =
+  AuthenticatedDashboardAuditLogsRouteImport.update({
+    id: '/audit-logs',
+    path: '/audit-logs',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
+const AuthenticatedAccountVerifyRoute =
+  AuthenticatedAccountVerifyRouteImport.update({
+    id: '/verify',
+    path: '/verify',
+    getParentRoute: () => AuthenticatedAccountRoute,
+  } as any)
+const AuthenticatedAccountPrivacyRoute =
+  AuthenticatedAccountPrivacyRouteImport.update({
+    id: '/privacy',
+    path: '/privacy',
+    getParentRoute: () => AuthenticatedAccountRoute,
+  } as any)
+const AuthenticatedAccountLicensesRoute =
+  AuthenticatedAccountLicensesRouteImport.update({
+    id: '/licenses',
+    path: '/licenses',
+    getParentRoute: () => AuthenticatedAccountRoute,
+  } as any)
+const AuthenticatedAccountConnectionsRoute =
+  AuthenticatedAccountConnectionsRouteImport.update({
+    id: '/connections',
+    path: '/connections',
+    getParentRoute: () => AuthenticatedAccountRoute,
+  } as any)
+const AuthenticatedAccountCertificatesRoute =
+  AuthenticatedAccountCertificatesRouteImport.update({
+    id: '/certificates',
+    path: '/certificates',
+    getParentRoute: () => AuthenticatedAccountRoute,
+  } as any)
+const AuthenticatedAccountAuthorizedAppsRoute =
+  AuthenticatedAccountAuthorizedAppsRouteImport.update({
+    id: '/authorized-apps',
+    path: '/authorized-apps',
+    getParentRoute: () => AuthenticatedAccountRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
-  '/account': typeof AccountRouteWithChildren
   '/collab-invite': typeof CollabInviteRoute
   '/connect': typeof ConnectRoute
-  '/dashboard': typeof DashboardRouteWithChildren
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
-  '/account/authorized-apps': typeof AccountAuthorizedAppsRoute
-  '/account/certificates': typeof AccountCertificatesRoute
-  '/account/connections': typeof AccountConnectionsRoute
-  '/account/licenses': typeof AccountLicensesRoute
-  '/account/privacy': typeof AccountPrivacyRoute
-  '/account/verify': typeof AccountVerifyRoute
+  '/account': typeof AuthenticatedAccountRouteWithChildren
+  '/dashboard': typeof AuthenticatedDashboardRouteWithChildren
   '/api/$': typeof ApiSplatRoute
-  '/dashboard/audit-logs': typeof DashboardAuditLogsRoute
-  '/dashboard/certificates': typeof DashboardCertificatesRoute
-  '/dashboard/collaboration': typeof DashboardCollaborationRoute
-  '/dashboard/forensics': typeof DashboardForensicsRoute
-  '/dashboard/integrations': typeof DashboardIntegrationsRoute
-  '/dashboard/server-rules': typeof DashboardServerRulesRoute
   '/install/error': typeof InstallErrorRoute
   '/install/success': typeof InstallSuccessRoute
   '/legal/privacy-policy': typeof LegalPrivacyPolicyRoute
@@ -280,11 +288,23 @@ export interface FileRoutesByFullPath {
   '/setup/payhip': typeof SetupPayhipRoute
   '/setup/vrchat': typeof SetupVrchatRoute
   '/verify/error': typeof VerifyErrorRoute
-  '/verify/purchase': typeof VerifyPurchaseRoute
   '/verify/success': typeof VerifySuccessRoute
-  '/account/': typeof AccountIndexRoute
-  '/dashboard/': typeof DashboardIndexRoute
+  '/account/authorized-apps': typeof AuthenticatedAccountAuthorizedAppsRoute
+  '/account/certificates': typeof AuthenticatedAccountCertificatesRoute
+  '/account/connections': typeof AuthenticatedAccountConnectionsRoute
+  '/account/licenses': typeof AuthenticatedAccountLicensesRoute
+  '/account/privacy': typeof AuthenticatedAccountPrivacyRoute
+  '/account/verify': typeof AuthenticatedAccountVerifyRoute
+  '/dashboard/audit-logs': typeof AuthenticatedDashboardAuditLogsRoute
+  '/dashboard/certificates': typeof AuthenticatedDashboardCertificatesRoute
+  '/dashboard/collaboration': typeof AuthenticatedDashboardCollaborationRoute
+  '/dashboard/forensics': typeof AuthenticatedDashboardForensicsRoute
+  '/dashboard/integrations': typeof AuthenticatedDashboardIntegrationsRoute
+  '/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
+  '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/account/': typeof AuthenticatedAccountIndexRoute
+  '/dashboard/': typeof AuthenticatedDashboardIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -293,19 +313,7 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
-  '/account/authorized-apps': typeof AccountAuthorizedAppsRoute
-  '/account/certificates': typeof AccountCertificatesRoute
-  '/account/connections': typeof AccountConnectionsRoute
-  '/account/licenses': typeof AccountLicensesRoute
-  '/account/privacy': typeof AccountPrivacyRoute
-  '/account/verify': typeof AccountVerifyRoute
   '/api/$': typeof ApiSplatRoute
-  '/dashboard/audit-logs': typeof DashboardAuditLogsRoute
-  '/dashboard/certificates': typeof DashboardCertificatesRoute
-  '/dashboard/collaboration': typeof DashboardCollaborationRoute
-  '/dashboard/forensics': typeof DashboardForensicsRoute
-  '/dashboard/integrations': typeof DashboardIntegrationsRoute
-  '/dashboard/server-rules': typeof DashboardServerRulesRoute
   '/install/error': typeof InstallErrorRoute
   '/install/success': typeof InstallSuccessRoute
   '/legal/privacy-policy': typeof LegalPrivacyPolicyRoute
@@ -319,35 +327,36 @@ export interface FileRoutesByTo {
   '/setup/payhip': typeof SetupPayhipRoute
   '/setup/vrchat': typeof SetupVrchatRoute
   '/verify/error': typeof VerifyErrorRoute
-  '/verify/purchase': typeof VerifyPurchaseRoute
   '/verify/success': typeof VerifySuccessRoute
-  '/account': typeof AccountIndexRoute
-  '/dashboard': typeof DashboardIndexRoute
+  '/account/authorized-apps': typeof AuthenticatedAccountAuthorizedAppsRoute
+  '/account/certificates': typeof AuthenticatedAccountCertificatesRoute
+  '/account/connections': typeof AuthenticatedAccountConnectionsRoute
+  '/account/licenses': typeof AuthenticatedAccountLicensesRoute
+  '/account/privacy': typeof AuthenticatedAccountPrivacyRoute
+  '/account/verify': typeof AuthenticatedAccountVerifyRoute
+  '/dashboard/audit-logs': typeof AuthenticatedDashboardAuditLogsRoute
+  '/dashboard/certificates': typeof AuthenticatedDashboardCertificatesRoute
+  '/dashboard/collaboration': typeof AuthenticatedDashboardCollaborationRoute
+  '/dashboard/forensics': typeof AuthenticatedDashboardForensicsRoute
+  '/dashboard/integrations': typeof AuthenticatedDashboardIntegrationsRoute
+  '/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
+  '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/account': typeof AuthenticatedAccountIndexRoute
+  '/dashboard': typeof AuthenticatedDashboardIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
-  '/account': typeof AccountRouteWithChildren
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/collab-invite': typeof CollabInviteRoute
   '/connect': typeof ConnectRoute
-  '/dashboard': typeof DashboardRouteWithChildren
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
-  '/account/authorized-apps': typeof AccountAuthorizedAppsRoute
-  '/account/certificates': typeof AccountCertificatesRoute
-  '/account/connections': typeof AccountConnectionsRoute
-  '/account/licenses': typeof AccountLicensesRoute
-  '/account/privacy': typeof AccountPrivacyRoute
-  '/account/verify': typeof AccountVerifyRoute
+  '/_authenticated/account': typeof AuthenticatedAccountRouteWithChildren
+  '/_authenticated/dashboard': typeof AuthenticatedDashboardRouteWithChildren
   '/api/$': typeof ApiSplatRoute
-  '/dashboard/audit-logs': typeof DashboardAuditLogsRoute
-  '/dashboard/certificates': typeof DashboardCertificatesRoute
-  '/dashboard/collaboration': typeof DashboardCollaborationRoute
-  '/dashboard/forensics': typeof DashboardForensicsRoute
-  '/dashboard/integrations': typeof DashboardIntegrationsRoute
-  '/dashboard/server-rules': typeof DashboardServerRulesRoute
   '/install/error': typeof InstallErrorRoute
   '/install/success': typeof InstallSuccessRoute
   '/legal/privacy-policy': typeof LegalPrivacyPolicyRoute
@@ -361,36 +370,36 @@ export interface FileRoutesById {
   '/setup/payhip': typeof SetupPayhipRoute
   '/setup/vrchat': typeof SetupVrchatRoute
   '/verify/error': typeof VerifyErrorRoute
-  '/verify/purchase': typeof VerifyPurchaseRoute
   '/verify/success': typeof VerifySuccessRoute
-  '/account/': typeof AccountIndexRoute
-  '/dashboard/': typeof DashboardIndexRoute
+  '/_authenticated/account/authorized-apps': typeof AuthenticatedAccountAuthorizedAppsRoute
+  '/_authenticated/account/certificates': typeof AuthenticatedAccountCertificatesRoute
+  '/_authenticated/account/connections': typeof AuthenticatedAccountConnectionsRoute
+  '/_authenticated/account/licenses': typeof AuthenticatedAccountLicensesRoute
+  '/_authenticated/account/privacy': typeof AuthenticatedAccountPrivacyRoute
+  '/_authenticated/account/verify': typeof AuthenticatedAccountVerifyRoute
+  '/_authenticated/dashboard/audit-logs': typeof AuthenticatedDashboardAuditLogsRoute
+  '/_authenticated/dashboard/certificates': typeof AuthenticatedDashboardCertificatesRoute
+  '/_authenticated/dashboard/collaboration': typeof AuthenticatedDashboardCollaborationRoute
+  '/_authenticated/dashboard/forensics': typeof AuthenticatedDashboardForensicsRoute
+  '/_authenticated/dashboard/integrations': typeof AuthenticatedDashboardIntegrationsRoute
+  '/_authenticated/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
+  '/_authenticated/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_authenticated/account/': typeof AuthenticatedAccountIndexRoute
+  '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/$'
-    | '/account'
     | '/collab-invite'
     | '/connect'
-    | '/dashboard'
     | '/sign-in'
     | '/sign-in-redirect'
-    | '/account/authorized-apps'
-    | '/account/certificates'
-    | '/account/connections'
-    | '/account/licenses'
-    | '/account/privacy'
-    | '/account/verify'
+    | '/account'
+    | '/dashboard'
     | '/api/$'
-    | '/dashboard/audit-logs'
-    | '/dashboard/certificates'
-    | '/dashboard/collaboration'
-    | '/dashboard/forensics'
-    | '/dashboard/integrations'
-    | '/dashboard/server-rules'
     | '/install/error'
     | '/install/success'
     | '/legal/privacy-policy'
@@ -404,11 +413,23 @@ export interface FileRouteTypes {
     | '/setup/payhip'
     | '/setup/vrchat'
     | '/verify/error'
-    | '/verify/purchase'
     | '/verify/success'
+    | '/account/authorized-apps'
+    | '/account/certificates'
+    | '/account/connections'
+    | '/account/licenses'
+    | '/account/privacy'
+    | '/account/verify'
+    | '/dashboard/audit-logs'
+    | '/dashboard/certificates'
+    | '/dashboard/collaboration'
+    | '/dashboard/forensics'
+    | '/dashboard/integrations'
+    | '/dashboard/server-rules'
+    | '/verify/purchase'
+    | '/api/auth/$'
     | '/account/'
     | '/dashboard/'
-    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -417,19 +438,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/sign-in'
     | '/sign-in-redirect'
-    | '/account/authorized-apps'
-    | '/account/certificates'
-    | '/account/connections'
-    | '/account/licenses'
-    | '/account/privacy'
-    | '/account/verify'
     | '/api/$'
-    | '/dashboard/audit-logs'
-    | '/dashboard/certificates'
-    | '/dashboard/collaboration'
-    | '/dashboard/forensics'
-    | '/dashboard/integrations'
-    | '/dashboard/server-rules'
     | '/install/error'
     | '/install/success'
     | '/legal/privacy-policy'
@@ -443,34 +452,35 @@ export interface FileRouteTypes {
     | '/setup/payhip'
     | '/setup/vrchat'
     | '/verify/error'
-    | '/verify/purchase'
     | '/verify/success'
+    | '/account/authorized-apps'
+    | '/account/certificates'
+    | '/account/connections'
+    | '/account/licenses'
+    | '/account/privacy'
+    | '/account/verify'
+    | '/dashboard/audit-logs'
+    | '/dashboard/certificates'
+    | '/dashboard/collaboration'
+    | '/dashboard/forensics'
+    | '/dashboard/integrations'
+    | '/dashboard/server-rules'
+    | '/verify/purchase'
+    | '/api/auth/$'
     | '/account'
     | '/dashboard'
-    | '/api/auth/$'
   id:
     | '__root__'
     | '/'
     | '/$'
-    | '/account'
+    | '/_authenticated'
     | '/collab-invite'
     | '/connect'
-    | '/dashboard'
     | '/sign-in'
     | '/sign-in-redirect'
-    | '/account/authorized-apps'
-    | '/account/certificates'
-    | '/account/connections'
-    | '/account/licenses'
-    | '/account/privacy'
-    | '/account/verify'
+    | '/_authenticated/account'
+    | '/_authenticated/dashboard'
     | '/api/$'
-    | '/dashboard/audit-logs'
-    | '/dashboard/certificates'
-    | '/dashboard/collaboration'
-    | '/dashboard/forensics'
-    | '/dashboard/integrations'
-    | '/dashboard/server-rules'
     | '/install/error'
     | '/install/success'
     | '/legal/privacy-policy'
@@ -484,20 +494,31 @@ export interface FileRouteTypes {
     | '/setup/payhip'
     | '/setup/vrchat'
     | '/verify/error'
-    | '/verify/purchase'
     | '/verify/success'
-    | '/account/'
-    | '/dashboard/'
+    | '/_authenticated/account/authorized-apps'
+    | '/_authenticated/account/certificates'
+    | '/_authenticated/account/connections'
+    | '/_authenticated/account/licenses'
+    | '/_authenticated/account/privacy'
+    | '/_authenticated/account/verify'
+    | '/_authenticated/dashboard/audit-logs'
+    | '/_authenticated/dashboard/certificates'
+    | '/_authenticated/dashboard/collaboration'
+    | '/_authenticated/dashboard/forensics'
+    | '/_authenticated/dashboard/integrations'
+    | '/_authenticated/dashboard/server-rules'
+    | '/_authenticated/verify/purchase'
     | '/api/auth/$'
+    | '/_authenticated/account/'
+    | '/_authenticated/dashboard/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SplatRoute: typeof SplatRoute
-  AccountRoute: typeof AccountRouteWithChildren
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   CollabInviteRoute: typeof CollabInviteRoute
   ConnectRoute: typeof ConnectRoute
-  DashboardRoute: typeof DashboardRouteWithChildren
   SignInRoute: typeof SignInRoute
   SignInRedirectRoute: typeof SignInRedirectRoute
   ApiSplatRoute: typeof ApiSplatRoute
@@ -514,7 +535,6 @@ export interface RootRouteChildren {
   SetupPayhipRoute: typeof SetupPayhipRoute
   SetupVrchatRoute: typeof SetupVrchatRoute
   VerifyErrorRoute: typeof VerifyErrorRoute
-  VerifyPurchaseRoute: typeof VerifyPurchaseRoute
   VerifySuccessRoute: typeof VerifySuccessRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -535,13 +555,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/connect': {
       id: '/connect'
       path: '/connect'
@@ -556,11 +569,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CollabInviteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/account': {
-      id: '/account'
-      path: '/account'
-      fullPath: '/account'
-      preLoaderRoute: typeof AccountRouteImport
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$': {
@@ -577,32 +590,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard/': {
-      id: '/dashboard/'
-      path: '/'
-      fullPath: '/dashboard/'
-      preLoaderRoute: typeof DashboardIndexRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/account/': {
-      id: '/account/'
-      path: '/'
-      fullPath: '/account/'
-      preLoaderRoute: typeof AccountIndexRouteImport
-      parentRoute: typeof AccountRoute
-    }
     '/verify/success': {
       id: '/verify/success'
       path: '/verify/success'
       fullPath: '/verify/success'
       preLoaderRoute: typeof VerifySuccessRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/verify/purchase': {
-      id: '/verify/purchase'
-      path: '/verify/purchase'
-      fullPath: '/verify/purchase'
-      preLoaderRoute: typeof VerifyPurchaseRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/verify/error': {
@@ -696,48 +688,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InstallErrorRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard/server-rules': {
-      id: '/dashboard/server-rules'
-      path: '/server-rules'
-      fullPath: '/dashboard/server-rules'
-      preLoaderRoute: typeof DashboardServerRulesRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/dashboard/integrations': {
-      id: '/dashboard/integrations'
-      path: '/integrations'
-      fullPath: '/dashboard/integrations'
-      preLoaderRoute: typeof DashboardIntegrationsRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/dashboard/forensics': {
-      id: '/dashboard/forensics'
-      path: '/forensics'
-      fullPath: '/dashboard/forensics'
-      preLoaderRoute: typeof DashboardForensicsRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/dashboard/collaboration': {
-      id: '/dashboard/collaboration'
-      path: '/collaboration'
-      fullPath: '/dashboard/collaboration'
-      preLoaderRoute: typeof DashboardCollaborationRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/dashboard/certificates': {
-      id: '/dashboard/certificates'
-      path: '/certificates'
-      fullPath: '/dashboard/certificates'
-      preLoaderRoute: typeof DashboardCertificatesRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/dashboard/audit-logs': {
-      id: '/dashboard/audit-logs'
-      path: '/audit-logs'
-      fullPath: '/dashboard/audit-logs'
-      preLoaderRoute: typeof DashboardAuditLogsRouteImport
-      parentRoute: typeof DashboardRoute
-    }
     '/api/$': {
       id: '/api/$'
       path: '/api/$'
@@ -745,47 +695,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/account/verify': {
-      id: '/account/verify'
-      path: '/verify'
-      fullPath: '/account/verify'
-      preLoaderRoute: typeof AccountVerifyRouteImport
-      parentRoute: typeof AccountRoute
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/account/privacy': {
-      id: '/account/privacy'
-      path: '/privacy'
-      fullPath: '/account/privacy'
-      preLoaderRoute: typeof AccountPrivacyRouteImport
-      parentRoute: typeof AccountRoute
+    '/_authenticated/account': {
+      id: '/_authenticated/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AuthenticatedAccountRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/account/licenses': {
-      id: '/account/licenses'
-      path: '/licenses'
-      fullPath: '/account/licenses'
-      preLoaderRoute: typeof AccountLicensesRouteImport
-      parentRoute: typeof AccountRoute
+    '/_authenticated/dashboard/': {
+      id: '/_authenticated/dashboard/'
+      path: '/'
+      fullPath: '/dashboard/'
+      preLoaderRoute: typeof AuthenticatedDashboardIndexRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
     }
-    '/account/connections': {
-      id: '/account/connections'
-      path: '/connections'
-      fullPath: '/account/connections'
-      preLoaderRoute: typeof AccountConnectionsRouteImport
-      parentRoute: typeof AccountRoute
-    }
-    '/account/certificates': {
-      id: '/account/certificates'
-      path: '/certificates'
-      fullPath: '/account/certificates'
-      preLoaderRoute: typeof AccountCertificatesRouteImport
-      parentRoute: typeof AccountRoute
-    }
-    '/account/authorized-apps': {
-      id: '/account/authorized-apps'
-      path: '/authorized-apps'
-      fullPath: '/account/authorized-apps'
-      preLoaderRoute: typeof AccountAuthorizedAppsRouteImport
-      parentRoute: typeof AccountRoute
+    '/_authenticated/account/': {
+      id: '/_authenticated/account/'
+      path: '/'
+      fullPath: '/account/'
+      preLoaderRoute: typeof AuthenticatedAccountIndexRouteImport
+      parentRoute: typeof AuthenticatedAccountRoute
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -794,63 +730,176 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/verify/purchase': {
+      id: '/_authenticated/verify/purchase'
+      path: '/verify/purchase'
+      fullPath: '/verify/purchase'
+      preLoaderRoute: typeof AuthenticatedVerifyPurchaseRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/dashboard/server-rules': {
+      id: '/_authenticated/dashboard/server-rules'
+      path: '/server-rules'
+      fullPath: '/dashboard/server-rules'
+      preLoaderRoute: typeof AuthenticatedDashboardServerRulesRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
+    '/_authenticated/dashboard/integrations': {
+      id: '/_authenticated/dashboard/integrations'
+      path: '/integrations'
+      fullPath: '/dashboard/integrations'
+      preLoaderRoute: typeof AuthenticatedDashboardIntegrationsRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
+    '/_authenticated/dashboard/forensics': {
+      id: '/_authenticated/dashboard/forensics'
+      path: '/forensics'
+      fullPath: '/dashboard/forensics'
+      preLoaderRoute: typeof AuthenticatedDashboardForensicsRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
+    '/_authenticated/dashboard/collaboration': {
+      id: '/_authenticated/dashboard/collaboration'
+      path: '/collaboration'
+      fullPath: '/dashboard/collaboration'
+      preLoaderRoute: typeof AuthenticatedDashboardCollaborationRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
+    '/_authenticated/dashboard/certificates': {
+      id: '/_authenticated/dashboard/certificates'
+      path: '/certificates'
+      fullPath: '/dashboard/certificates'
+      preLoaderRoute: typeof AuthenticatedDashboardCertificatesRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
+    '/_authenticated/dashboard/audit-logs': {
+      id: '/_authenticated/dashboard/audit-logs'
+      path: '/audit-logs'
+      fullPath: '/dashboard/audit-logs'
+      preLoaderRoute: typeof AuthenticatedDashboardAuditLogsRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
+    '/_authenticated/account/verify': {
+      id: '/_authenticated/account/verify'
+      path: '/verify'
+      fullPath: '/account/verify'
+      preLoaderRoute: typeof AuthenticatedAccountVerifyRouteImport
+      parentRoute: typeof AuthenticatedAccountRoute
+    }
+    '/_authenticated/account/privacy': {
+      id: '/_authenticated/account/privacy'
+      path: '/privacy'
+      fullPath: '/account/privacy'
+      preLoaderRoute: typeof AuthenticatedAccountPrivacyRouteImport
+      parentRoute: typeof AuthenticatedAccountRoute
+    }
+    '/_authenticated/account/licenses': {
+      id: '/_authenticated/account/licenses'
+      path: '/licenses'
+      fullPath: '/account/licenses'
+      preLoaderRoute: typeof AuthenticatedAccountLicensesRouteImport
+      parentRoute: typeof AuthenticatedAccountRoute
+    }
+    '/_authenticated/account/connections': {
+      id: '/_authenticated/account/connections'
+      path: '/connections'
+      fullPath: '/account/connections'
+      preLoaderRoute: typeof AuthenticatedAccountConnectionsRouteImport
+      parentRoute: typeof AuthenticatedAccountRoute
+    }
+    '/_authenticated/account/certificates': {
+      id: '/_authenticated/account/certificates'
+      path: '/certificates'
+      fullPath: '/account/certificates'
+      preLoaderRoute: typeof AuthenticatedAccountCertificatesRouteImport
+      parentRoute: typeof AuthenticatedAccountRoute
+    }
+    '/_authenticated/account/authorized-apps': {
+      id: '/_authenticated/account/authorized-apps'
+      path: '/authorized-apps'
+      fullPath: '/account/authorized-apps'
+      preLoaderRoute: typeof AuthenticatedAccountAuthorizedAppsRouteImport
+      parentRoute: typeof AuthenticatedAccountRoute
+    }
   }
 }
 
-interface AccountRouteChildren {
-  AccountAuthorizedAppsRoute: typeof AccountAuthorizedAppsRoute
-  AccountCertificatesRoute: typeof AccountCertificatesRoute
-  AccountConnectionsRoute: typeof AccountConnectionsRoute
-  AccountLicensesRoute: typeof AccountLicensesRoute
-  AccountPrivacyRoute: typeof AccountPrivacyRoute
-  AccountVerifyRoute: typeof AccountVerifyRoute
-  AccountIndexRoute: typeof AccountIndexRoute
+interface AuthenticatedAccountRouteChildren {
+  AuthenticatedAccountAuthorizedAppsRoute: typeof AuthenticatedAccountAuthorizedAppsRoute
+  AuthenticatedAccountCertificatesRoute: typeof AuthenticatedAccountCertificatesRoute
+  AuthenticatedAccountConnectionsRoute: typeof AuthenticatedAccountConnectionsRoute
+  AuthenticatedAccountLicensesRoute: typeof AuthenticatedAccountLicensesRoute
+  AuthenticatedAccountPrivacyRoute: typeof AuthenticatedAccountPrivacyRoute
+  AuthenticatedAccountVerifyRoute: typeof AuthenticatedAccountVerifyRoute
+  AuthenticatedAccountIndexRoute: typeof AuthenticatedAccountIndexRoute
 }
 
-const AccountRouteChildren: AccountRouteChildren = {
-  AccountAuthorizedAppsRoute: AccountAuthorizedAppsRoute,
-  AccountCertificatesRoute: AccountCertificatesRoute,
-  AccountConnectionsRoute: AccountConnectionsRoute,
-  AccountLicensesRoute: AccountLicensesRoute,
-  AccountPrivacyRoute: AccountPrivacyRoute,
-  AccountVerifyRoute: AccountVerifyRoute,
-  AccountIndexRoute: AccountIndexRoute,
+const AuthenticatedAccountRouteChildren: AuthenticatedAccountRouteChildren = {
+  AuthenticatedAccountAuthorizedAppsRoute:
+    AuthenticatedAccountAuthorizedAppsRoute,
+  AuthenticatedAccountCertificatesRoute: AuthenticatedAccountCertificatesRoute,
+  AuthenticatedAccountConnectionsRoute: AuthenticatedAccountConnectionsRoute,
+  AuthenticatedAccountLicensesRoute: AuthenticatedAccountLicensesRoute,
+  AuthenticatedAccountPrivacyRoute: AuthenticatedAccountPrivacyRoute,
+  AuthenticatedAccountVerifyRoute: AuthenticatedAccountVerifyRoute,
+  AuthenticatedAccountIndexRoute: AuthenticatedAccountIndexRoute,
 }
 
-const AccountRouteWithChildren =
-  AccountRoute._addFileChildren(AccountRouteChildren)
+const AuthenticatedAccountRouteWithChildren =
+  AuthenticatedAccountRoute._addFileChildren(AuthenticatedAccountRouteChildren)
 
-interface DashboardRouteChildren {
-  DashboardAuditLogsRoute: typeof DashboardAuditLogsRoute
-  DashboardCertificatesRoute: typeof DashboardCertificatesRoute
-  DashboardCollaborationRoute: typeof DashboardCollaborationRoute
-  DashboardForensicsRoute: typeof DashboardForensicsRoute
-  DashboardIntegrationsRoute: typeof DashboardIntegrationsRoute
-  DashboardServerRulesRoute: typeof DashboardServerRulesRoute
-  DashboardIndexRoute: typeof DashboardIndexRoute
+interface AuthenticatedDashboardRouteChildren {
+  AuthenticatedDashboardAuditLogsRoute: typeof AuthenticatedDashboardAuditLogsRoute
+  AuthenticatedDashboardCertificatesRoute: typeof AuthenticatedDashboardCertificatesRoute
+  AuthenticatedDashboardCollaborationRoute: typeof AuthenticatedDashboardCollaborationRoute
+  AuthenticatedDashboardForensicsRoute: typeof AuthenticatedDashboardForensicsRoute
+  AuthenticatedDashboardIntegrationsRoute: typeof AuthenticatedDashboardIntegrationsRoute
+  AuthenticatedDashboardServerRulesRoute: typeof AuthenticatedDashboardServerRulesRoute
+  AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
 }
 
-const DashboardRouteChildren: DashboardRouteChildren = {
-  DashboardAuditLogsRoute: DashboardAuditLogsRoute,
-  DashboardCertificatesRoute: DashboardCertificatesRoute,
-  DashboardCollaborationRoute: DashboardCollaborationRoute,
-  DashboardForensicsRoute: DashboardForensicsRoute,
-  DashboardIntegrationsRoute: DashboardIntegrationsRoute,
-  DashboardServerRulesRoute: DashboardServerRulesRoute,
-  DashboardIndexRoute: DashboardIndexRoute,
+const AuthenticatedDashboardRouteChildren: AuthenticatedDashboardRouteChildren =
+  {
+    AuthenticatedDashboardAuditLogsRoute: AuthenticatedDashboardAuditLogsRoute,
+    AuthenticatedDashboardCertificatesRoute:
+      AuthenticatedDashboardCertificatesRoute,
+    AuthenticatedDashboardCollaborationRoute:
+      AuthenticatedDashboardCollaborationRoute,
+    AuthenticatedDashboardForensicsRoute: AuthenticatedDashboardForensicsRoute,
+    AuthenticatedDashboardIntegrationsRoute:
+      AuthenticatedDashboardIntegrationsRoute,
+    AuthenticatedDashboardServerRulesRoute:
+      AuthenticatedDashboardServerRulesRoute,
+    AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
+  }
+
+const AuthenticatedDashboardRouteWithChildren =
+  AuthenticatedDashboardRoute._addFileChildren(
+    AuthenticatedDashboardRouteChildren,
+  )
+
+interface AuthenticatedRouteChildren {
+  AuthenticatedAccountRoute: typeof AuthenticatedAccountRouteWithChildren
+  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRouteWithChildren
+  AuthenticatedVerifyPurchaseRoute: typeof AuthenticatedVerifyPurchaseRoute
 }
 
-const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
-  DashboardRouteChildren,
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAccountRoute: AuthenticatedAccountRouteWithChildren,
+  AuthenticatedDashboardRoute: AuthenticatedDashboardRouteWithChildren,
+  AuthenticatedVerifyPurchaseRoute: AuthenticatedVerifyPurchaseRoute,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
 )
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SplatRoute: SplatRoute,
-  AccountRoute: AccountRouteWithChildren,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
   CollabInviteRoute: CollabInviteRoute,
   ConnectRoute: ConnectRoute,
-  DashboardRoute: DashboardRouteWithChildren,
   SignInRoute: SignInRoute,
   SignInRedirectRoute: SignInRedirectRoute,
   ApiSplatRoute: ApiSplatRoute,
@@ -867,7 +916,6 @@ const rootRouteChildren: RootRouteChildren = {
   SetupPayhipRoute: SetupPayhipRoute,
   SetupVrchatRoute: SetupVrchatRoute,
   VerifyErrorRoute: VerifyErrorRoute,
-  VerifyPurchaseRoute: VerifyPurchaseRoute,
   VerifySuccessRoute: VerifySuccessRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

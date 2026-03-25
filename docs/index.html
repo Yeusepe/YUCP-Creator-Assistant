@@ -65,79 +65,7 @@
             cursor: none;
         }
 
-        /* ── Blob Background (same as docs.html) ───────────────────────────────── */
-        .blobs-container {
-            position: fixed;
-            inset: 0;
-            z-index: 1;
-            pointer-events: none;
-            overflow: hidden;
-        }
-
-        .blob {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 650px;
-            height: 650px;
-            border-radius: 50%;
-            filter: blur(110px);
-            opacity: calc(0.72 * var(--blob-intensity, 1));
-            will-change: transform;
-            transition: opacity 0.2s ease;
-        }
-
-        .blob:nth-child(1) { background: #FF75C3; }
-        .blob:nth-child(2) { background: #FFA647; }
-        .blob:nth-child(3) { background: #FFE83F; }
-        .blob:nth-child(4) { background: #9FFF5B; }
-        .blob:nth-child(5) { background: #70E2FF; }
-
-        .blob.latched {
-            opacity: calc(0.92 * var(--blob-intensity, 1));
-            filter: blur(110px);
-        }
-
-        .scroll-blur-bg {
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            pointer-events: none;
-        }
-        .scroll-blur-overlay {
-            position: fixed;
-            inset: 0;
-            z-index: 1;
-            pointer-events: none;
-            overflow: hidden;
-            isolation: isolate;
-        }
-        .scroll-blur-overlay .lg-filter {
-            position: absolute;
-            inset: 0;
-            -webkit-backdrop-filter: blur(calc(var(--scroll-blur, 0) * 1px)) saturate(160%);
-            backdrop-filter: blur(calc(var(--scroll-blur, 0) * 1px)) saturate(160%);
-            /* filter: url(#lg-dist) removed, displacement caused hero graphic to fade in/out of sharpness */
-            transition: backdrop-filter 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
-        }
-        .scroll-blur-overlay .lg-tint {
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(180deg,
-                rgba(255, 255, 255, calc(var(--scroll-darken, 0) * 0.12)) 0%,
-                transparent 30%,
-                rgba(0, 0, 0, calc(var(--scroll-darken, 0) * 0.5)) 65%,
-                rgba(0, 0, 0, var(--scroll-darken, 0)) 100%);
-            transition: background 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
-        }
-        .scroll-blur-overlay .lg-specular {
-            position: absolute;
-            inset: 0;
-            box-shadow: inset 1px 1px 0 rgba(255, 255, 255, calc(var(--scroll-darken, 0) * 0.35)),
-                inset 0 0 60px rgba(255, 255, 255, calc(var(--scroll-darken, 0) * 0.08));
-            pointer-events: none;
-            transition: box-shadow 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
-        }
+        /* ── Background layers ───────────────────────────────────────────────── */
 
         #bg-canvas-root {
             position: fixed;
@@ -205,8 +133,8 @@
         .cursor-orb {
             width: 38px;
             height: 38px;
-            background: radial-gradient(circle at 35% 35%, #FF75C3 0%, #70E2FF 45%, #FFE83F 85%);
-            opacity: 0.58;
+            background: radial-gradient(circle at 35% 35%, #0ea5e9 0%, #38bdf8 45%, #a78bfa 85%);
+            opacity: 0.45;
             z-index: 9998;
             transform: translate(-50%, -50%);
             transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -396,15 +324,13 @@
             padding: 4px 6px;
             min-height: 36px;
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.10);
-            backdrop-filter: blur(48px) saturate(200%) brightness(1.05);
-            -webkit-backdrop-filter: blur(48px) saturate(200%) brightness(1.05);
-            border: 1px solid rgba(255, 255, 255, 0.22);
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(48px) saturate(180%);
+            -webkit-backdrop-filter: blur(48px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.7);
             box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.30) inset,
-                0 -1px 0 rgba(0, 0, 0, 0.12) inset,
-                0 8px 40px rgba(0, 0, 0, 0.40),
-                0 2px 8px rgba(0, 0, 0, 0.20);
+                0 1px 3px rgba(0, 0, 0, 0.06),
+                0 8px 32px rgba(0, 0, 0, 0.08);
         }
         @media (min-width: 640px) {
             .pill-nav { padding: 5px 8px; min-height: 40px; }
@@ -417,7 +343,7 @@
             width: 1px;
             height: 12px;
             flex-shrink: 0;
-            background: rgba(255, 255, 255, 0.12);
+            background: rgba(0, 0, 0, 0.08);
         }
         @media (min-width: 768px) {
             .pill-nav-divider { height: 14px; }
@@ -425,13 +351,13 @@
 
         .nav-link {
             position: relative;
-            color: rgba(255, 255, 255, 0.5);
+            color: #64748b;
             transition: color 0.2s;
             white-space: nowrap;
         }
 
         .nav-link:hover {
-            color: rgba(255, 255, 255, 0.95);
+            color: #0f172a;
         }
 
         .nav-link::after {
@@ -460,16 +386,13 @@
             letter-spacing: 0.1em;
             color: #fff;
             flex-shrink: 0;
-            border: none;
             display: flex;
             align-items: center;
             gap: 5px;
-            background: rgba(88, 101, 242, 0.75);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(88, 101, 242, 0.9);
+            border: 1px solid rgba(88, 101, 242, 0.3);
             box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.25) inset,
-                0 4px 16px rgba(88, 101, 242, 0.4);
+                0 4px 12px rgba(88, 101, 242, 0.25);
             transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
         }
         @media (min-width: 640px) {
@@ -492,20 +415,20 @@
         /* ── Primary Button ──────────────────────────────────────────────────── */
         .btn-primary {
             position: relative;
-            background: rgba(255, 255, 255, 0.07);
-            backdrop-filter: blur(8px);
-            border: 1.5px solid rgba(255, 255, 255, 0.2);
+            background: rgba(88, 101, 242, 0.9);
+            border: 1.5px solid rgba(88, 101, 242, 0.3);
             transition: all 0.3s ease;
             overflow: hidden;
             border-radius: 999px;
             z-index: 1;
+            box-shadow: 0 4px 16px rgba(88, 101, 242, 0.3);
         }
 
         .btn-primary::before {
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(90deg, #FF75C3, #70E2FF);
+            background: linear-gradient(90deg, #5865F2, #0ea5e9);
             z-index: -1;
             opacity: 0;
             transition: opacity 0.3s ease;
@@ -513,7 +436,7 @@
 
         .btn-primary:hover {
             border-color: transparent;
-            box-shadow: 0 8px 30px rgba(14, 165, 233, 0.4);
+            box-shadow: 0 8px 24px rgba(88, 101, 242, 0.35);
             transform: translateY(-2px);
         }
 
@@ -525,23 +448,19 @@
             transform: scale(0.96);
         }
 
-        /* Hero: dark radial vignette scrim — darkens text area, blobs glow at edges */
-        /* White radial scrim — bright spotlight behind hero text, blobs glow at edges */
+        /* Hero: soft radial scrim — gentle readability over cloud background */
         #hero::before {
             content: '';
             position: absolute;
             inset: 0;
             background: radial-gradient(
                 ellipse 72% 52% at 26% 44%,
-                rgba(255, 255, 255, 0.92)  0%,
-                rgba(255, 255, 255, 0.89) 10%,
-                rgba(255, 255, 255, 0.83) 20%,
-                rgba(255, 255, 255, 0.72) 32%,
-                rgba(255, 255, 255, 0.54) 45%,
-                rgba(255, 255, 255, 0.32) 58%,
-                rgba(255, 255, 255, 0.13) 70%,
-                rgba(255, 255, 255, 0.03) 82%,
-                transparent               94%
+                rgba(255, 255, 255, 0.70)  0%,
+                rgba(255, 255, 255, 0.60) 15%,
+                rgba(255, 255, 255, 0.42) 32%,
+                rgba(255, 255, 255, 0.22) 50%,
+                rgba(255, 255, 255, 0.08) 68%,
+                transparent               85%
             );
             pointer-events: none;
             z-index: 9;
@@ -550,15 +469,12 @@
             #hero::before {
                 background: radial-gradient(
                     ellipse 105% 50% at 50% 26%,
-                    rgba(255, 255, 255, 0.92)  0%,
-                    rgba(255, 255, 255, 0.89) 10%,
-                    rgba(255, 255, 255, 0.83) 20%,
-                    rgba(255, 255, 255, 0.72) 32%,
-                    rgba(255, 255, 255, 0.54) 45%,
-                    rgba(255, 255, 255, 0.32) 58%,
-                    rgba(255, 255, 255, 0.13) 70%,
-                    rgba(255, 255, 255, 0.03) 82%,
-                    transparent               94%
+                    rgba(255, 255, 255, 0.70)  0%,
+                    rgba(255, 255, 255, 0.60) 15%,
+                    rgba(255, 255, 255, 0.42) 32%,
+                    rgba(255, 255, 255, 0.22) 50%,
+                    rgba(255, 255, 255, 0.08) 68%,
+                    transparent               85%
                 );
             }
         }
@@ -579,15 +495,11 @@
 
         /* ── Discord® Mockup ──────────────────────────────────────────────────── */
         .discord-mockup {
-            background: rgba(4, 6, 16, 0.52);
-            backdrop-filter: blur(20px) saturate(170%) contrast(1.06);
-            -webkit-backdrop-filter: blur(20px) saturate(170%) contrast(1.06);
+            background: #1e1f22;
             border-radius: 16px;
             box-shadow:
-                0 40px 90px rgba(0, 0, 0, 0.55),
-                0 0 0 1px rgba(255, 255, 255, 0.13),
-                inset 0 1px 0 rgba(255, 255, 255, 0.16),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+                0 20px 48px rgba(0, 0, 0, 0.18),
+                0 0 0 1px rgba(0, 0, 0, 0.08);
             overflow: hidden;
             border: none;
             position: relative;
@@ -598,8 +510,7 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, transparent 55%);
-            filter: url(#liq-md);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, transparent 55%);
             pointer-events: none;
             z-index: 1;
         }
@@ -633,14 +544,14 @@
 
         /* ── Stat Cards ──────────────────────────────────────────────────────── */
         .stat-card {
-            background: rgba(0, 0, 0, 0.3);
+            background: rgba(255, 255, 255, 0.7);
             backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid #e2e8f0;
             padding: 1.5rem;
             border-radius: 16px;
             text-align: center;
             transition: transform 0.3s;
-            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
         }
 
         .stat-card:hover {
@@ -649,14 +560,13 @@
 
         /* ── Feature Bento Cards ─────────────────────────────────────────────── */
         .bento-card {
-            background: rgba(6, 8, 20, 0.68);
-            backdrop-filter: blur(22px) saturate(140%);
-            -webkit-backdrop-filter: blur(22px) saturate(140%);
-            border: none;
+            background: #ffffff;
+            backdrop-filter: blur(12px) saturate(140%);
+            -webkit-backdrop-filter: blur(12px) saturate(140%);
+            border: 1px solid #e2e8f0;
             box-shadow:
-                0 0 0 1px rgba(255, 255, 255, 0.08),
-                0 24px 48px rgba(0, 0, 0, 0.50),
-                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+                0 1px 3px rgba(0, 0, 0, 0.06),
+                0 4px 16px rgba(0, 0, 0, 0.04);
             border-radius: 20px;
             padding: 28px;
             transition: all 0.25s ease;
@@ -668,17 +578,16 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 60%);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.5), transparent 60%);
             pointer-events: none;
         }
 
         .bento-card:hover {
-            background: rgba(6, 8, 20, 0.82);
+            background: #ffffff;
             transform: translateY(-3px);
             box-shadow:
-                0 0 0 1px rgba(255, 255, 255, 0.13),
-                0 32px 60px rgba(0, 0, 0, 0.60),
-                inset 0 1px 0 rgba(255, 255, 255, 0.11);
+                0 0 0 1px rgba(0, 0, 0, 0.04),
+                0 12px 32px rgba(0, 0, 0, 0.08);
         }
 
         .bento-icon {
@@ -707,7 +616,7 @@
             align-items: center;
             justify-content: center;
             margin-bottom: 28px;
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(0, 0, 0, 0.06);
         }
 
         .feature-icon-box img {
@@ -819,15 +728,11 @@
 
         /* ── Integration Diagram ────────────────────────────────────────────── */
         .int-diagram {
-            background: rgba(6, 8, 20, 0.72);
-            backdrop-filter: blur(22px) saturate(140%);
-            -webkit-backdrop-filter: blur(22px) saturate(140%);
-            border: none;
-            box-shadow:
-                0 0 0 1px rgba(255, 255, 255, 0.08),
-                0 40px 80px rgba(0, 0, 0, 0.60),
-                inset 0 1px 0 rgba(255, 255, 255, 0.09);
+            background: #1e1f22;
             border-radius: 20px;
+            box-shadow:
+                0 20px 48px rgba(0, 0, 0, 0.18),
+                0 0 0 1px rgba(0, 0, 0, 0.08);
             padding: 18px;
             display: flex;
             flex-direction: column;
@@ -965,16 +870,16 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            background: rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.7);
             backdrop-filter: blur(8px);
             padding: 10px 18px;
             border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid #e2e8f0;
             font-size: 11px;
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 0.1em;
-            color: rgba(255, 255, 255, 0.85);
+            color: #334155;
         }
 
         /* ── Feature download mockup ─────────────────────────────────────────── */
@@ -1005,7 +910,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            background: #09090f;
+            background: #e8f4fc;
             overflow: hidden;
             transition: opacity 0.5s ease;
         }
@@ -1026,16 +931,16 @@
             transform: scale(28);
         }
         @keyframes plo-glow {
-            0%   { filter: drop-shadow(0 0 12px rgba(255,117,195,0.5)) drop-shadow(0 0 30px rgba(112,226,255,0.2)); }
-            25%  { filter: drop-shadow(0 0 12px rgba(255,166,71,0.5))  drop-shadow(0 0 30px rgba(159,255,91,0.2)); }
-            50%  { filter: drop-shadow(0 0 12px rgba(112,226,255,0.5)) drop-shadow(0 0 30px rgba(129,140,248,0.2)); }
-            75%  { filter: drop-shadow(0 0 12px rgba(159,255,91,0.5))  drop-shadow(0 0 30px rgba(255,117,195,0.2)); }
-            100% { filter: drop-shadow(0 0 12px rgba(255,117,195,0.5)) drop-shadow(0 0 30px rgba(112,226,255,0.2)); }
+            0%   { filter: drop-shadow(0 0 12px rgba(14,165,233,0.4)) drop-shadow(0 0 30px rgba(56,189,248,0.2)); }
+            25%  { filter: drop-shadow(0 0 12px rgba(167,139,250,0.4)) drop-shadow(0 0 30px rgba(14,165,233,0.2)); }
+            50%  { filter: drop-shadow(0 0 12px rgba(56,189,248,0.4)) drop-shadow(0 0 30px rgba(129,140,248,0.2)); }
+            75%  { filter: drop-shadow(0 0 12px rgba(14,165,233,0.4)) drop-shadow(0 0 30px rgba(167,139,250,0.2)); }
+            100% { filter: drop-shadow(0 0 12px rgba(14,165,233,0.4)) drop-shadow(0 0 30px rgba(56,189,248,0.2)); }
         }
         .plo-bag-color {
             position: absolute;
             inset: 0;
-            background: linear-gradient(135deg, #ff75c3 0%, #ffa647 40%, #70e2ff 100%);
+            background: linear-gradient(135deg, #0ea5e9 0%, #a78bfa 40%, #38bdf8 100%);
             -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 66'%3E%3Cpath fill='white' d='M10.4532 65.9999C3.56938 65.9999 0 62.4297 0 55.5789V22.2894C0 15.4064 3.56938 11.8684 10.4532 11.8684H15.6479C16.3172 5.08187 21.7031 0 28.7781 0C35.885 0 41.271 5.0497 41.9084 11.8684H47.135C53.9869 11.8684 57.5882 15.4386 57.5882 22.2894V55.5789C57.5882 62.4297 54.0188 65.9999 47.9317 65.9999H10.4532ZM28.7781 5.62865C25.0176 5.62865 22.2768 8.13742 21.735 11.8684H35.8532C35.3114 8.13742 32.5706 5.62865 28.7781 5.62865Z'/%3E%3C/svg%3E");
             mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 66'%3E%3Cpath fill='white' d='M10.4532 65.9999C3.56938 65.9999 0 62.4297 0 55.5789V22.2894C0 15.4064 3.56938 11.8684 10.4532 11.8684H15.6479C16.3172 5.08187 21.7031 0 28.7781 0C35.885 0 41.271 5.0497 41.9084 11.8684H47.135C53.9869 11.8684 57.5882 15.4386 57.5882 22.2894V55.5789C57.5882 62.4297 54.0188 65.9999 47.9317 65.9999H10.4532ZM28.7781 5.62865C25.0176 5.62865 22.2768 8.13742 21.735 11.8684H35.8532C35.3114 8.13742 32.5706 5.62865 28.7781 5.62865Z'/%3E%3C/svg%3E");
             -webkit-mask-size: 100% 100%;
@@ -1053,11 +958,11 @@
             animation: plo-pan 22s infinite alternate ease-in-out;
             will-change: transform;
         }
-        .plo-blob-1 { background: #ff75c3; top: -10%; left: -10%; animation-delay:   0s; }
-        .plo-blob-2 { background: #ffa647; top:  10%; left:  55%; animation-delay:  -4s; }
-        .plo-blob-3 { background: #ffe83f; top:  55%; left:  15%; animation-delay:  -9s; }
-        .plo-blob-4 { background: #9fff5b; top:  70%; left:  65%; animation-delay: -14s; }
-        .plo-blob-5 { background: #70e2ff; top:  25%; left:  35%; animation-delay: -19s; }
+        .plo-blob-1 { background: #0ea5e9; top: -10%; left: -10%; animation-delay:   0s; }
+        .plo-blob-2 { background: #38bdf8; top:  10%; left:  55%; animation-delay:  -4s; }
+        .plo-blob-3 { background: #818cf8; top:  55%; left:  15%; animation-delay:  -9s; }
+        .plo-blob-4 { background: #a78bfa; top:  70%; left:  65%; animation-delay: -14s; }
+        .plo-blob-5 { background: #7dd3fc; top:  25%; left:  35%; animation-delay: -19s; }
         @keyframes plo-pan {
             from { transform: translate(-20px, -20px); }
             to   { transform: translate( 45px,  45px); }
@@ -1076,7 +981,7 @@
             width: 80px;
             height: 2px;
             margin-top: 18px;
-            background: rgba(255, 255, 255, 0.06);
+            background: rgba(0, 0, 0, 0.06);
             border-radius: 2px;
             overflow: hidden;
             flex-shrink: 0;
@@ -1088,7 +993,7 @@
             width: 60%;
             height: 100%;
             border-radius: 2px;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+            background: linear-gradient(90deg, transparent, rgba(14,165,233,0.35), transparent);
             animation: plo-bar-sweep 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
         @keyframes plo-bar-sweep {
@@ -1125,7 +1030,7 @@
 
         /* ── Footer ──────────────────────────────────────────────────────────── */
         .footer-link {
-            color: rgba(255, 255, 255, 0.45);
+            color: #64748b;
             font-size: 14px;
             font-weight: 600;
             transition: color 0.2s;
@@ -1133,7 +1038,7 @@
         }
 
         .footer-link:hover {
-            color: rgba(255, 255, 255, 0.9);
+            color: #0f172a;
         }
 
         .footer-col-title {
@@ -1141,7 +1046,7 @@
             font-weight: 900;
             letter-spacing: 0.18em;
             text-transform: uppercase;
-            color: rgba(255, 255, 255, 0.25);
+            color: #94a3b8;
             margin-bottom: 16px;
         }
 
@@ -1230,56 +1135,48 @@
             will-change: opacity;
         }
 
-        /* ── Feature sections glass panel — dark premium ───────────────────────── */
+        /* ── Feature sections glass panel — light frosted (dashboard-aligned) ──── */
         #sections-glass {
-            background: rgba(4, 6, 16, 0.82);
-            background-image: radial-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px);
-            background-size: 28px 28px;
-            backdrop-filter: blur(40px) saturate(160%) brightness(0.88);
-            -webkit-backdrop-filter: blur(40px) saturate(160%) brightness(0.88);
-            border-top: 1px solid rgba(255, 255, 255, 0.13);
+            background: rgba(255, 255, 255, 0.55);
+            backdrop-filter: blur(40px) saturate(160%);
+            -webkit-backdrop-filter: blur(40px) saturate(160%);
+            border-top: 1px solid rgba(255, 255, 255, 0.6);
             border-top-left-radius: 24px;
             border-top-right-radius: 24px;
             box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.10),
-                0 0 0 1px rgba(255, 255, 255, 0.06);
+                inset 0 1px 0 rgba(255, 255, 255, 0.4),
+                0 -8px 32px rgba(0, 0, 0, 0.06);
             position: relative;
             z-index: 20;
         }
 
-        /* Section text: white on dark glass */
+        /* Section text: dark on light glass */
         #sections-glass h2,
-        #sections-glass h3 { color: rgba(255,255,255,0.96) !important; }
+        #sections-glass h3 { color: #0f172a !important; }
 
         #sections-glass p,
-        #sections-glass .text-white\/70,
-        #sections-glass .text-white\/65 { color: rgba(255,255,255,0.68) !important; }
-
-        #sections-glass .text-white\/50,
-        #sections-glass .text-white\/45,
-        #sections-glass .text-white\/40,
-        #sections-glass .text-white\/35 { color: rgba(255,255,255,0.38) !important; }
+        /* Dark mockup containers keep white text naturally; section-level text uses inline styles */
 
         /* Grad-text spans: keep gradient colors */
         #sections-glass .grad-text { color: transparent !important; }
 
-        /* Tag pills: glass style on dark */
+        /* Tag pills: light glass style */
         #sections-glass .tag-pill {
-            background: rgba(255, 255, 255, 0.08) !important;
-            border-color: rgba(255, 255, 255, 0.13) !important;
-            color: rgba(255, 255, 255, 0.82) !important;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08) !important;
+            background: rgba(255, 255, 255, 0.7) !important;
+            border-color: #e2e8f0 !important;
+            color: #334155 !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
             backdrop-filter: blur(8px);
         }
 
-        /* Int-check items: white on dark */
-        #sections-glass .int-check-list span { color: rgba(255,255,255,0.70) !important; }
+        /* Int-check items: dark on light */
+        #sections-glass .int-check-list span { color: #475569 !important; }
 
         /* ── Marquee strip ──────────────────────────────────────────────────────── */
         .section-marquee {
             position: relative;
-            border-top: 1px solid rgba(255,255,255,0.07);
-            border-bottom: 1px solid rgba(255,255,255,0.07);
+            border-top: 1px solid rgba(0,0,0,0.06);
+            border-bottom: 1px solid rgba(0,0,0,0.06);
         }
         .section-marquee-track {
             display: flex;
@@ -1301,7 +1198,7 @@
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 0.13em;
-            color: rgba(255,255,255,0.35);
+            color: #64748b;
             white-space: nowrap;
             flex-shrink: 0;
         }
@@ -1309,14 +1206,13 @@
             width: 14px;
             height: 14px;
             object-fit: contain;
-            opacity: 0.50;
-            filter: brightness(2);
+            opacity: 0.65;
         }
         .section-marquee-sep {
             width: 3px;
             height: 3px;
             border-radius: 50%;
-            background: rgba(255,255,255,0.15);
+            background: #cbd5e1;
             flex-shrink: 0;
         }
 
@@ -1327,20 +1223,20 @@
             position: absolute;
             inset: -16px;
             border-radius: 36px;
-            background: radial-gradient(circle, var(--icon-halo, rgba(14,165,233,0.18)) 0%, transparent 68%);
+            background: radial-gradient(circle, var(--icon-halo, rgba(14,165,233,0.12)) 0%, transparent 68%);
             animation: icon-halo 4s ease-in-out infinite;
             pointer-events: none;
             z-index: -1;
         }
         @keyframes icon-halo {
-            0%, 100% { opacity: 0.50; transform: scale(0.92); }
-            50%       { opacity: 1.00; transform: scale(1.12); }
+            0%, 100% { opacity: 0.40; transform: scale(0.92); }
+            50%       { opacity: 0.80; transform: scale(1.12); }
         }
-        [data-blob-index="1"] .feature-icon-box { --icon-halo: rgba(255,117,195,0.22); }
-        [data-blob-index="2"] .feature-icon-box { --icon-halo: rgba(112,226,255,0.22); }
-        [data-blob-index="3"] .feature-icon-box { --icon-halo: rgba(255,166,71,0.25);  }
-        [data-blob-index="4"] .feature-icon-box { --icon-halo: rgba(159,255,91,0.22);  }
-        [data-blob-index="0"] .feature-icon-box { --icon-halo: rgba(255,232,63,0.22);  }
+        [data-blob-index="1"] .feature-icon-box { --icon-halo: rgba(239,68,68,0.15); }
+        [data-blob-index="2"] .feature-icon-box { --icon-halo: rgba(14,165,233,0.15); }
+        [data-blob-index="3"] .feature-icon-box { --icon-halo: rgba(234,179,8,0.18);  }
+        [data-blob-index="4"] .feature-icon-box { --icon-halo: rgba(22,163,74,0.15);  }
+        [data-blob-index="0"] .feature-icon-box { --icon-halo: rgba(145,70,255,0.15);  }
 
         /* ── Mockup accent orb (glowing bloom behind each visual panel) ──────────── */
         .mobile-mockup-cap { position: relative; }
@@ -1348,21 +1244,21 @@
             content: '';
             position: absolute;
             inset: -30% -18%;
-            background: radial-gradient(ellipse at 50% 52%, var(--orb, rgba(112,226,255,0.22)) 0%, transparent 62%);
+            background: radial-gradient(ellipse at 50% 52%, var(--orb, rgba(14,165,233,0.12)) 0%, transparent 62%);
             pointer-events: none;
             z-index: 0;
             filter: blur(28px);
             animation: orb-breathe 6s ease-in-out infinite;
         }
         @keyframes orb-breathe {
-            0%, 100% { opacity: 0.50; transform: scale(0.96); }
-            50%       { opacity: 1.00; transform: scale(1.05); }
+            0%, 100% { opacity: 0.35; transform: scale(0.96); }
+            50%       { opacity: 0.70; transform: scale(1.05); }
         }
-        [data-blob-index="1"] .mobile-mockup-cap::before { --orb: rgba(255,117,195,0.42); }
-        [data-blob-index="2"] .mobile-mockup-cap::before { --orb: rgba(112,226,255,0.42); }
-        [data-blob-index="3"] .mobile-mockup-cap::before { --orb: rgba(255,166,71,0.44);  }
-        [data-blob-index="4"] .mobile-mockup-cap::before { --orb: rgba(159,255,91,0.40);  }
-        [data-blob-index="0"] .mobile-mockup-cap::before { --orb: rgba(255,232,63,0.40);  }
+        [data-blob-index="1"] .mobile-mockup-cap::before { --orb: rgba(239,68,68,0.18); }
+        [data-blob-index="2"] .mobile-mockup-cap::before { --orb: rgba(14,165,233,0.22); }
+        [data-blob-index="3"] .mobile-mockup-cap::before { --orb: rgba(234,179,8,0.22);  }
+        [data-blob-index="4"] .mobile-mockup-cap::before { --orb: rgba(22,163,74,0.20);  }
+        [data-blob-index="0"] .mobile-mockup-cap::before { --orb: rgba(145,70,255,0.20);  }
         .mobile-mockup-cap > .discord-mockup,
         .mobile-mockup-cap > .int-diagram { position: relative; z-index: 1; }
 
@@ -1372,7 +1268,7 @@
             position: absolute;
             inset: 0;
             border-radius: 20px;
-            background: radial-gradient(circle 200px at var(--bx,50%) var(--by,50%), rgba(255,255,255,0.07) 0%, transparent 60%);
+            background: radial-gradient(circle 200px at var(--bx,50%) var(--by,50%), rgba(14,165,233,0.06) 0%, transparent 60%);
             opacity: 0;
             transition: opacity 0.3s ease;
             pointer-events: none;
@@ -1382,13 +1278,13 @@
         .bento-card:hover {
             transform: translateY(-5px) scale(1.005);
             box-shadow:
-                0 0 0 1px rgba(255,255,255,0.16),
-                0 36px 64px rgba(0,0,0,0.60),
-                inset 0 1px 0 rgba(255,255,255,0.14);
+                0 0 0 1px rgba(0,0,0,0.08),
+                0 20px 48px rgba(0,0,0,0.10),
+                0 1px 3px rgba(0,0,0,0.06);
         }
 
         /* ── Section beam dividers ──────────────────────────────────────────── */
-        /* Thin glowing line + soft radial bloom between every pair of sections  */
+        /* Subtle divider line between sections */
         #sections-glass section[data-blob-index] + section[data-blob-index]::before {
             content: '';
             position: absolute;
@@ -1397,30 +1293,14 @@
             background: linear-gradient(
                 90deg,
                 transparent 0%,
-                var(--beam-line, rgba(255,255,255,0.09)) 50%,
+                var(--beam-line, rgba(0,0,0,0.06)) 50%,
                 transparent 100%
             );
             pointer-events: none;
             z-index: 2;
-            animation: beam-pulse 5s ease-in-out infinite;
         }
         #sections-glass section[data-blob-index] + section[data-blob-index]::after {
-            content: '';
-            position: absolute;
-            top: 0; left: 50%;
-            transform: translateX(-50%);
-            width: 75%; height: 160px;
-            background: radial-gradient(
-                ellipse at 50% 0%,
-                var(--beam-glow, rgba(255,255,255,0.06)) 0%,
-                transparent 68%
-            );
-            pointer-events: none;
-            z-index: 2;
-        }
-        @keyframes beam-pulse {
-            0%, 100% { opacity: 0.55; }
-            50%       { opacity: 1.0;  }
+            content: none;
         }
         /* ── Bigger section h2 typography ───────────────────────────────────── */
         #sections-glass section[data-blob-index] h2 {
@@ -1429,15 +1309,15 @@
         }
 
 
-/* ── Section beam dividers — bolder ────────────────────────────────── */
+/* ── Section beam dividers — light subtle ───────────────────────────── */
         #sections-glass section[data-blob-index] + section[data-blob-index]::before {
-            height: 1.5px;
+            height: 1px;
         }
-        #sections-glass section[data-blob-index="1"] { --beam-line: rgba(255,117,195,0.40); --beam-glow: rgba(255,117,195,0.14); }
-        #sections-glass section[data-blob-index="2"] { --beam-line: rgba(112,226,255,0.40); --beam-glow: rgba(112,226,255,0.14); }
-        #sections-glass section[data-blob-index="3"] { --beam-line: rgba(255,166,71,0.42);  --beam-glow: rgba(255,166,71,0.15);  }
-        #sections-glass section[data-blob-index="4"] { --beam-line: rgba(159,255,91,0.38);  --beam-glow: rgba(159,255,91,0.13);  }
-        #sections-glass section[data-blob-index="0"] { --beam-line: rgba(255,232,63,0.38);  --beam-glow: rgba(255,232,63,0.13);  }
+        #sections-glass section[data-blob-index="1"] { --beam-line: rgba(239,68,68,0.12); }
+        #sections-glass section[data-blob-index="2"] { --beam-line: rgba(14,165,233,0.12); }
+        #sections-glass section[data-blob-index="3"] { --beam-line: rgba(234,179,8,0.14);  }
+        #sections-glass section[data-blob-index="4"] { --beam-line: rgba(22,163,74,0.12);  }
+        #sections-glass section[data-blob-index="0"] { --beam-line: rgba(145,70,255,0.12);  }
 
         /* ── Directional reveal variants (left ↔ right) ──────────────────── */
         /* Override translateY with translateX for featured section columns   */
@@ -1517,26 +1397,11 @@
 
     <div id="page-content" style="display:none;" class="overflow-x-hidden w-full m-0 p-0 relative">
 
-        <!-- Background layer (blur increases on scroll from Philosophy to Integrations) -->
-        <div id="scroll-blur-bg" class="scroll-blur-bg">
-        <!-- Blob background (same as docs.html) -->
-        <div class="blobs-container" id="blobs-container">
-            <div class="blob"></div>
-            <div class="blob"></div>
-            <div class="blob"></div>
-            <div class="blob"></div>
-            <div class="blob"></div>
-        </div>
-
+        <!-- Background layer — cloud canvas only -->
+        <div id="scroll-blur-bg" style="position:fixed;inset:0;z-index:0;pointer-events:none;">
         <!-- Canvas layers (both fixed to span whole page) -->
         <div id="bg-canvas-root" class="w-full"></div>
         <div id="fg-canvas-root" class="w-full"></div>
-        </div>
-
-        <div id="scroll-blur-overlay" class="scroll-blur-overlay">
-            <div class="lg-filter"></div>
-            <div class="lg-tint"></div>
-            <div class="lg-specular"></div>
         </div>
 
         <!-- Custom cursor -->
@@ -1550,8 +1415,8 @@
                 class="pill-nav flex items-center justify-between w-full max-w-4xl px-2 sm:px-3 md:px-4 transition-all duration-300 relative box-border overflow-visible min-w-0">
                 <!-- Mobile Toggle -->
                 <button type="button" id="mobile-menu-btn"
-                    class="md:hidden text-white/70 hover:text-white p-1.5 flex-shrink-0 clickable touch-manipulation cursor-pointer"
-                    style="pointer-events: auto;"
+                    class="md:hidden p-1.5 flex-shrink-0 clickable touch-manipulation cursor-pointer"
+                    style="pointer-events: auto;color:#64748b;"
                     aria-label="Menu"
                     aria-expanded="false"
                     aria-controls="mobile-menu">
@@ -1605,8 +1470,8 @@
 
                 <!-- Mobile Menu Dropdown -->
                 <div id="mobile-menu"
-                    class="absolute top-[calc(100%+10px)] left-0 right-0 p-4 rounded-2xl bg-[#1e1f22]/95 backdrop-blur-xl border border-white/10 shadow-2xl flex flex-col gap-3"
-                    style="display:none;z-index:200;">
+                    class="absolute top-[calc(100%+10px)] left-0 right-0 p-4 rounded-2xl backdrop-blur-xl shadow-lg flex flex-col gap-3"
+                    style="display:none;z-index:200;background:rgba(255,255,255,0.85);border:1px solid #e2e8f0;">
                     <a href="#features" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Features</a>
                     <a href="#integrations" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Integrations</a>
                     <a href="#security" class="mobile-menu-item nav-link clickable text-sm font-bold uppercase tracking-widest text-center py-2">Security</a>
@@ -1668,7 +1533,7 @@
                         </button>
                         <a href="https://api.creators.yucp.club/sign-in"
                             rel="noopener noreferrer"
-                            class="clickable text-sm font-bold uppercase tracking-widest text-white/60 hover:text-white/95 transition-colors flex items-center gap-2">
+                            class="clickable text-sm font-bold uppercase tracking-widest transition-colors flex items-center gap-2" style="color:#64748b;">
                             Sign in to Dashboard
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
@@ -1895,19 +1760,19 @@
             id="features" data-blob-index="1">
             <div class="max-w-6xl mx-auto flex flex-col lg:flex-row items-center gap-10 lg:gap-20">
                 <div class="lg:w-5/12 reveal section-graphic mouse-parallax text-center lg:text-left" data-parallax-speed="0.6">
-                    <p class="text-[var(--accent-sky)] font-bold uppercase tracking-[0.25em] text-xs mb-3">The Philosophy</p>
-                    <h2 class="text-3xl sm:text-4xl md:text-5xl text-white leading-[1.1] text-reveal">
+                    <p class="text-[#0ea5e9] font-bold uppercase tracking-[0.25em] text-xs mb-3">The Philosophy</p>
+                    <h2 class="text-3xl sm:text-4xl md:text-5xl leading-[1.1] text-reveal">
                         <span class="text-reveal-word">Functionality</span> <span class="text-reveal-word">with</span> <span
-                            class="text-reveal-word text-[var(--accent-mustard)] inline-block transform -rotate-2 hover:rotate-2 transition-transform cursor-default">flavor.</span>
+                            class="text-reveal-word text-[#f59e0b] inline-block transform -rotate-2 hover:rotate-2 transition-transform cursor-default">flavor.</span>
                     </h2>
                 </div>
-                <div class="lg:w-7/12 text-base sm:text-lg text-white/65 leading-relaxed reveal reveal-delay-1">
+                <div class="lg:w-7/12 text-base sm:text-lg leading-relaxed reveal reveal-delay-1" style="color:#334155;">
                     A seamless bridge between your
-                    <span class="blob-text border-[#FF90E8] text-[#FF90E8] hover:bg-[#FF90E8] hover:text-white transition-colors cursor-crosshair sticker">STOREFRONT</span>
+                    <span class="blob-text border-[#ec4899] text-[#ec4899] hover:bg-[#ec4899] hover:text-white transition-colors cursor-crosshair sticker">STOREFRONT</span>
                     and your server. Automatically grant
-                    <span class="inline-block relative group mx-1"><span id="hl-roles" class="relative z-10 text-[var(--accent-mustard)] font-bold highlighter-target">ROLES</span><span class="absolute bottom-0 left-0 w-full h-2 bg-[var(--accent-mustard)]/30 group-hover:h-full transition-all duration-300 -z-10 rounded"></span></span>
+                    <span class="inline-block relative group mx-1"><span id="hl-roles" class="relative z-10 text-[#f59e0b] font-bold highlighter-target">ROLES</span><span class="absolute bottom-0 left-0 w-full h-2 bg-[#f59e0b]/30 group-hover:h-full transition-all duration-300 -z-10 rounded"></span></span>
                     based on purchases. Secure your community from
-                    <span class="blob-solid sticker shadow-lg" style="background-color:#f43f5e;color:#fff;">LEAKS</span>
+                    <span class="blob-solid sticker shadow-lg" style="background-color:#ef4444;color:#fff;">LEAKS</span>
                     without sacrificing the experience.
                 </div>
             </div>
@@ -1924,12 +1789,12 @@
                         style="background:rgba(14,165,233,0.15);box-shadow:0 8px 24px rgba(14,165,233,0.2);">
                         <img src="Icons/Link.png" alt="">
                     </div>
-                    <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
+                    <h2 class="text-3xl sm:text-4xl md:text-5xl mb-5 font-extrabold tracking-tight leading-[1.1]" style="color:#0f172a;">
                         Your storefronts,<br class="hidden md:block">
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#FF75C3,#70E2FF);">united.</span>
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#ec4899,#0ea5e9);">united.</span>
                     </h2>
-                    <p class="text-xl text-white/70 leading-relaxed mb-10">
-                        Connect <span class="font-bold text-[#FF90E8]">Gumroad®</span>, <span class="font-bold text-[#9146FF]">Jinxxy™</span>, <span class="font-bold text-[#FFD36E]">Lemon Squeezy®</span>, <span class="font-bold text-[#00e676]">VRChat®</span>, and <span class="font-bold text-[#5865F2]">Discord®</span> in minutes. Customers verify once, the Assistant handles every purchase, past and future, automatically.
+                    <p class="text-xl leading-relaxed mb-10" style="color:#334155;">
+                        Connect <span class="font-bold text-[#ec4899]">Gumroad®</span>, <span class="font-bold text-[#7c3aed]">Jinxxy™</span>, <span class="font-bold text-[#f59e0b]">Lemon Squeezy®</span>, <span class="font-bold text-[#16a34a]">VRChat®</span>, and <span class="font-bold text-[#5865F2]">Discord®</span> in minutes. Customers verify once, the Assistant handles every purchase, past and future, automatically.
                     </p>
 
                     <!-- Feature checklist -->
@@ -1938,44 +1803,44 @@
                             <div class="int-check-icon" style="background:rgba(56,189,248,0.1);border-color:rgba(56,189,248,0.22);">
                                 <img src="Icons/Checkmark.png" alt="">
                             </div>
-                            <span class="text-sm text-white/75 font-medium">OAuth2 &amp; webhook-based store connections</span>
+                            <span class="text-sm font-medium" style="color:#334155;">OAuth2 &amp; webhook-based store connections</span>
                         </div>
                         <div class="int-check-item">
                             <div class="int-check-icon" style="background:rgba(45,212,191,0.1);border-color:rgba(45,212,191,0.22);">
                                 <img src="Icons/Refresh.png" alt="">
                             </div>
-                            <span class="text-sm text-white/75 font-medium">Real-time sync on every new purchase &amp; refund</span>
+                            <span class="text-sm font-medium" style="color:#334155;">Real-time sync on every new purchase &amp; refund</span>
                         </div>
                         <div class="int-check-item">
                             <div class="int-check-icon" style="background:rgba(167,139,250,0.1);border-color:rgba(167,139,250,0.22);">
                                 <img src="Icons/PersonKey.png" alt="">
                             </div>
-                            <span class="text-sm text-white/75 font-medium">Multiple collaborators, one unified server</span>
+                            <span class="text-sm font-medium" style="color:#334155;">Multiple collaborators, one unified server</span>
                         </div>
                     </div>
 
                     <!-- Spec strip -->
                     <div class="flex items-stretch rounded-2xl overflow-hidden"
-                        style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">
+                        style="background:rgba(255,255,255,0.6);border:1px solid #e2e8f0;">
                         <div class="flex items-center gap-3 px-5 py-4 flex-1">
                             <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                                 style="background:rgba(56,189,248,0.14);border:1px solid rgba(56,189,248,0.22);">
                                 <img src="Icons/KeyCloud.png" class="w-4 h-4 object-contain" alt="">
                             </div>
                             <div>
-                                <div class="text-white text-sm font-black leading-none mb-1">OAuth2</div>
-                                <div class="text-white/35 text-[10px] font-bold uppercase tracking-[0.12em]">Secure Connection</div>
+                                <div class="text-sm font-black leading-none mb-1" style="color:#0f172a;">OAuth2</div>
+                                <div class="text-[10px] font-bold uppercase tracking-[0.12em]" style="color:#94a3b8;">Secure Connection</div>
                             </div>
                         </div>
-                        <div class="w-px self-stretch flex-shrink-0" style="background:rgba(255,255,255,0.07);"></div>
+                        <div class="w-px self-stretch flex-shrink-0" style="background:#e2e8f0;"></div>
                         <div class="flex items-center gap-3 px-5 py-4 flex-1">
                             <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                                 style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.22);">
                                 <img src="Icons/Refresh.png" class="w-4 h-4 object-contain" alt="">
                             </div>
                             <div>
-                                <div class="text-white text-sm font-black leading-none mb-1">Real-time</div>
-                                <div class="text-white/35 text-[10px] font-bold uppercase tracking-[0.12em]">Webhook Sync</div>
+                                <div class="text-sm font-black leading-none mb-1" style="color:#0f172a;">Real-time</div>
+                                <div class="text-[10px] font-bold uppercase tracking-[0.12em]" style="color:#94a3b8;">Webhook Sync</div>
                             </div>
                         </div>
                     </div>
@@ -2192,12 +2057,12 @@
                         <img src="Icons/Wrench.png" alt="">
                     </div>
                     <h2
-                        class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
+                        class="text-3xl sm:text-4xl md:text-5xl mb-5 font-extrabold tracking-tight leading-[1.1]" style="color:#0f172a;">
                         Set the rules.<br>
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#FFA647,#FFE83F);">Let the
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#f59e0b,#eab308);">Let the
                             Assistant enforce them.</span>
                     </h2>
-                    <p class="text-xl text-white/70 leading-relaxed mb-8">
+                    <p class="text-xl leading-relaxed mb-8" style="color:#334155;">
                         Map any product to any Discord® role with one command. The moment a purchase lands, the role
                         appears. When a refund hits, it's revoked. Zero manual work, ever.
                     </p>
@@ -2273,15 +2138,15 @@
                         <img src="Icons/Library.png" alt="">
                     </div>
                     <h2
-                        class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
+                        class="text-3xl sm:text-4xl md:text-5xl mb-5 font-extrabold tracking-tight leading-[1.1]" style="color:#0f172a;">
                         Liened <br class="hidden md:block">
                         <span class="grad-text"
-                            style="background-image:linear-gradient(90deg,#9FFF5B,#70E2FF);">Downloads</span>
+                            style="background-image:linear-gradient(90deg,#16a34a,#0ea5e9);">Downloads</span>
                     </h2>
-                    <p class="text-xl text-white/70 leading-relaxed mb-8">
+                    <p class="text-xl leading-relaxed mb-8" style="color:#334155;">
                         Role-gate your files directly in Discord®. When members post assets in configured channels, the
                         Assistant automatically secures them and replaces them with a gated <span
-                            class="text-white font-bold">Download button</span>. Only verified buyers can access the
+                            class="font-bold" style="color:#0f172a;">Download button</span>. Only verified buyers can access the
                         files, delivered privately via ephemeral message.
                     </p>
                     <div class="flex flex-wrap gap-3 mb-8 justify-center lg:justify-start">
@@ -2295,9 +2160,9 @@
                             <div class="w-2 h-2 rounded-full bg-cyan-400"></div>Substance Files
                         </div>
                     </div>
-                    <p class="text-sm text-white/50 font-medium" style="font-family:'DM Sans',sans-serif;">
+                    <p class="text-sm font-medium" style="font-family:'DM Sans',sans-serif;color:#64748b;">
                         Set up with <code
-                            class="bg-white/10 px-2 py-0.5 rounded text-white/70">/creator-admin downloads setup</code>.
+                            class="px-2 py-0.5 rounded" style="background:#f1f5f9;color:#334155;">/creator-admin downloads setup</code>.
                         Backfill secures existing messages automatically.
                     </p>
                 </div>
@@ -2393,14 +2258,14 @@
                         <img src="Icons/PersonKey.png" alt="">
                     </div>
                     <h2
-                        class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight leading-[1.1]">
+                        class="text-3xl sm:text-4xl md:text-5xl mb-5 font-extrabold tracking-tight leading-[1.1]" style="color:#0f172a;">
                         Collaborating <br class="hidden md:block">
                         <span class="grad-text"
-                            style="background-image:linear-gradient(90deg,#FF75C3,#FFA647);">Creators</span>
+                            style="background-image:linear-gradient(90deg,#ec4899,#f59e0b);">Creators</span>
                     </h2>
-                    <p class="text-xl text-white/70 leading-relaxed mb-8">
+                    <p class="text-xl leading-relaxed mb-8" style="color:#334155;">
                         Expand your community's reach. Invite other Jinxxy™ creators to share their store and buyers from
-                        <span class="text-white font-bold">both stores</span> verify in your Discord® automatically. No
+                        <span class="font-bold" style="color:#0f172a;">both stores</span> verify in your Discord® automatically. No
                         manual role granting, no spreadsheets, and no one has to share secrets, API keys, or other
                         credentials.
                     </p>
@@ -2416,9 +2281,9 @@
                             <div class="w-2 h-2 rounded-full bg-violet-400"></div>Real-time Webhook Sync
                         </div>
                     </div>
-                    <p class="text-sm text-white/50" style="font-family:'DM Sans',sans-serif;">
+                    <p class="text-sm" style="font-family:'DM Sans',sans-serif;color:#64748b;">
                         Owner runs <code
-                            class="bg-white/10 px-2 py-0.5 rounded text-white/70">/creator-admin collab invite</code>
+                            class="px-2 py-0.5 rounded" style="background:#f1f5f9;color:#334155;">/creator-admin collab invite</code>
                         &rarr; share link &rarr; collaborator signs in and links their Jinxxy™ store.
                     </p>
                 </div>
@@ -2502,36 +2367,36 @@
 
                 <!-- Text side (left) -->
                 <div class="flex-1 reveal text-center lg:text-left">
-                    <div class="inline-flex items-center gap-2 bg-[#00e676]/10 border border-[#00e676]/25 rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase mb-5" style="color:#00e676;">
+                    <div class="inline-flex items-center gap-2 bg-[#00e676]/10 border border-[#00e676]/25 rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase mb-5" style="color:#16a34a;">
                         ★ Industry First
                     </div>
                     <div class="feature-icon-box sticker"
                         style="background:rgba(0,230,118,0.15);box-shadow:0 8px 24px rgba(0,230,118,0.2);">
                         <img src="Icons/VRC.png" alt="VRChat">
                     </div>
-                    <h2 class="text-3xl sm:text-4xl md:text-5xl mb-5 font-extrabold tracking-tight leading-[1.1]" style="color:#a7f3d0;">
+                    <h2 class="text-3xl sm:text-4xl md:text-5xl mb-5 font-extrabold tracking-tight leading-[1.1]" style="color:#0f172a;">
                         VRChat® <br class="hidden md:block">
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#00e676,#1DE9B6);">Creator Economy</span>
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#16a34a,#0d9488);">Creator Economy</span>
                     </h2>
-                    <p class="text-xl leading-relaxed mb-8" style="color:rgba(167,243,208,0.75);">
-                        We're the <span style="color:#6ee7b7;font-weight:700;">first Discord® bot</span> to support the VRChat® Creator Economy.
+                    <p class="text-xl leading-relaxed mb-8" style="color:#334155;">
+                        We're the <span style="color:#16a34a;font-weight:700;">first Discord® bot</span> to support the VRChat® Creator Economy.
                         Automatically verify avatar and world purchases, active subscriptions, and more.
-                        Roles are granted the <span style="color:#6ee7b7;font-weight:700;">moment a purchase is confirmed</span>.
+                        Roles are granted the <span style="color:#16a34a;font-weight:700;">moment a purchase is confirmed</span>.
                     </p>
                     <div class="flex flex-wrap gap-3 mb-8 justify-center lg:justify-start">
-                        <div class="tag-pill" style="color:#00e676;border-color:rgba(0,230,118,0.2);background:rgba(0,230,118,0.07);">
-                            <div class="w-2 h-2 rounded-full animate-pulse" style="background:#00e676;"></div>Avatar Purchases
+                        <div class="tag-pill" style="color:#16a34a;border-color:rgba(0,230,118,0.25);background:rgba(0,230,118,0.08);">
+                            <div class="w-2 h-2 rounded-full animate-pulse" style="background:#16a34a;"></div>Avatar Purchases
                         </div>
-                        <div class="tag-pill" style="color:#1DE9B6;border-color:rgba(29,233,182,0.2);background:rgba(29,233,182,0.07);">
-                            <div class="w-2 h-2 rounded-full" style="background:#1DE9B6;"></div>World Purchases
+                        <div class="tag-pill" style="color:#0d9488;border-color:rgba(29,233,182,0.25);background:rgba(29,233,182,0.08);">
+                            <div class="w-2 h-2 rounded-full" style="background:#0d9488;"></div>World Purchases
                         </div>
-                        <div class="tag-pill" style="color:#34d399;border-color:rgba(52,211,153,0.2);background:rgba(52,211,153,0.07);">
-                            <div class="w-2 h-2 rounded-full" style="background:#34d399;"></div>Active Subscriptions
+                        <div class="tag-pill" style="color:#059669;border-color:rgba(52,211,153,0.25);background:rgba(52,211,153,0.08);">
+                            <div class="w-2 h-2 rounded-full" style="background:#059669;"></div>Active Subscriptions
                         </div>
                     </div>
-                    <p class="text-sm" style="color:rgba(0,230,118,0.5);font-family:'DM Sans',sans-serif;">
+                    <p class="text-sm" style="color:#64748b;font-family:'DM Sans',sans-serif;">
                         Buyer visits VRChat® &rarr; purchases avatar or world &rarr; receives
-                        <code class="px-2 py-0.5 rounded" style="background:rgba(0,230,118,0.1);color:rgba(29,233,182,0.8);">@Creator Supporter</code> in Discord® instantly.
+                        <code class="px-2 py-0.5 rounded" style="background:rgba(0,230,118,0.1);color:#16a34a;">@Creator Supporter</code> in Discord® instantly.
                     </p>
                 </div>
 
@@ -2634,12 +2499,12 @@
                         style="background:rgba(239,68,68,0.15);box-shadow:0 8px 24px rgba(239,68,68,0.15);">
                         <img src="Icons/Key.png" alt="">
                     </div>
-                    <h2 class="text-3xl sm:text-4xl md:text-5xl text-white mb-5 font-extrabold tracking-tight">
+                    <h2 class="text-3xl sm:text-4xl md:text-5xl mb-5 font-extrabold tracking-tight" style="color:#0f172a;">
                         Built to stay<br>
-                        <span class="grad-text" style="background-image:linear-gradient(90deg,#FFA647,#FF75C3);">locked
+                        <span class="grad-text" style="background-image:linear-gradient(90deg,#f59e0b,#ec4899);">locked
                             down.</span>
                     </h2>
-                    <p class="text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
+                    <p class="text-xl leading-relaxed max-w-2xl mx-auto" style="color:#334155;">
                         Total control over who gets in, how they get in, and what happens when they try to cheat the
                         system.
                     </p>
@@ -2650,14 +2515,14 @@
                         <div class="bento-icon" style="background:rgba(14,165,233,0.15);">
                             <img src="Icons/World.png" alt="">
                         </div>
-                        <h3 class="text-lg font-bold text-white mb-2">Email Flexibility</h3>
-                        <p class="text-sm text-white/60 mb-5 leading-relaxed">Discord® email doesn't match the purchase
+                        <h3 class="text-lg font-bold mb-2" style="color:#0f172a;">Email Flexibility</h3>
+                        <p class="text-sm mb-5 leading-relaxed" style="color:#64748b;">Discord® email doesn't match the purchase
                             email? You decide whether to allow or block mismatches.</p>
                         <div class="flex items-center gap-3 cursor-pointer select-none" onclick="mockupToggle(this)">
                             <div class="w-11 h-6 bg-emerald-500 rounded-full p-0.5 relative shadow-inner">
                                 <div class="w-5 h-5 rounded-full bg-white absolute right-0.5 top-0.5 shadow"></div>
                             </div>
-                            <span class="text-xs font-bold text-emerald-400">Allow Mismatches</span>
+                            <span class="text-xs font-bold text-emerald-600">Allow Mismatches</span>
                         </div>
                     </div>
 
@@ -2665,14 +2530,14 @@
                         <div class="bento-icon" style="background:rgba(74,222,128,0.15);">
                             <img src="Icons/Refresh.png" alt="">
                         </div>
-                        <h3 class="text-lg font-bold text-white mb-2">Auto-Verify on Join</h3>
-                        <p class="text-sm text-white/60 mb-5 leading-relaxed">Returning buyers get their role the moment
+                        <h3 class="text-lg font-bold mb-2" style="color:#0f172a;">Auto-Verify on Join</h3>
+                        <p class="text-sm mb-5 leading-relaxed" style="color:#64748b;">Returning buyers get their role the moment
                             they join. No commands, no waiting, no friction.</p>
                         <div class="flex items-center gap-3 cursor-pointer select-none" onclick="mockupToggle(this)">
                             <div class="w-11 h-6 bg-emerald-500 rounded-full p-0.5 relative shadow-inner">
                                 <div class="w-5 h-5 rounded-full bg-white absolute right-0.5 top-0.5 shadow"></div>
                             </div>
-                            <span class="text-xs font-bold text-emerald-400">Enabled</span>
+                            <span class="text-xs font-bold text-emerald-600">Enabled</span>
                         </div>
                     </div>
 
@@ -2680,58 +2545,55 @@
                         <div class="bento-icon" style="background:rgba(139,92,246,0.15);">
                             <img src="Icons/World.png" alt="">
                         </div>
-                        <h3 class="text-lg font-bold text-white mb-2">Cross-Server Trust</h3>
-                        <p class="text-sm text-white/60 mb-5 leading-relaxed">Verify once in your main server and
+                        <h3 class="text-lg font-bold mb-2" style="color:#0f172a;">Cross-Server Trust</h3>
+                        <p class="text-sm mb-5 leading-relaxed" style="color:#64748b;">Verify once in your main server and
                             sub-servers inherit that trust automatically. One community, one verification.</p>
                         <div class="flex items-center gap-3 cursor-pointer select-none" onclick="mockupToggle(this)">
                             <div class="w-11 h-6 bg-emerald-500 rounded-full p-0.5 relative shadow-inner">
                                 <div class="w-5 h-5 rounded-full bg-white absolute right-0.5 top-0.5 shadow"></div>
                             </div>
-                            <span class="text-xs font-bold text-emerald-400">Global Sync</span>
+                            <span class="text-xs font-bold text-emerald-600">Global Sync</span>
                         </div>
                     </div>
 
-                    <div class="bento-card"
-                        style="background:linear-gradient(135deg,rgba(30,31,34,0.8),rgba(0,0,0,0.4));">
+                    <div class="bento-card">
                         <div class="bento-icon" style="background:rgba(59,130,246,0.15);">
                             <img src="Icons/Key.png" alt="">
                         </div>
-                        <h3 class="text-lg font-bold text-white mb-2">Verification Scope</h3>
-                        <p class="text-sm text-white/60 mb-5 leading-relaxed">Tie verifications to a specific License
+                        <h3 class="text-lg font-bold mb-2" style="color:#0f172a;">Verification Scope</h3>
+                        <p class="text-sm mb-5 leading-relaxed" style="color:#64748b;">Tie verifications to a specific License
                             Key or the entire purchasing Account. Match your product's security requirements.</p>
                         <div class="flex gap-2">
-                            <span class="bento-badge bg-white/10 text-white/70 cursor-pointer" data-badge-group="scope" onclick="mockupBadge(this)">Account</span>
-                            <span class="bento-badge bg-blue-500/20 text-blue-400 border border-blue-500/30 cursor-pointer" data-badge-group="scope" onclick="mockupBadge(this)">License Key</span>
+                            <span class="bento-badge cursor-pointer" style="background:#f1f5f9;color:#64748b;" data-badge-group="scope" onclick="mockupBadge(this)">Account</span>
+                            <span class="bento-badge bg-blue-500/20 text-blue-600 border border-blue-500/30 cursor-pointer" data-badge-group="scope" onclick="mockupBadge(this)">License Key</span>
                         </div>
                     </div>
 
-                    <div class="bento-card"
-                        style="background:linear-gradient(135deg,rgba(30,31,34,0.8),rgba(0,0,0,0.4));">
+                    <div class="bento-card">
                         <div class="bento-icon" style="background:rgba(234,179,8,0.15);">
                             <img src="Icons/Timer.png" alt="">
                         </div>
-                        <h3 class="text-lg font-bold text-white mb-2">Duplicate Prevention</h3>
-                        <p class="text-sm text-white/60 mb-5 leading-relaxed">When a license key is used more than once,
+                        <h3 class="text-lg font-bold mb-2" style="color:#0f172a;">Duplicate Prevention</h3>
+                        <p class="text-sm mb-5 leading-relaxed" style="color:#64748b;">When a license key is used more than once,
                             block the attempt or flag it to your moderation team.</p>
                         <div class="flex gap-2">
                             <span
-                                class="bento-badge bg-yellow-500/20 text-yellow-500 border border-yellow-500/30">BLOCK</span>
-                            <span class="bento-badge bg-white/10 text-white/70">NOTIFY</span>
+                                class="bento-badge bg-yellow-500/20 text-yellow-700 border border-yellow-500/30">BLOCK</span>
+                            <span class="bento-badge" style="background:#f1f5f9;color:#64748b;">NOTIFY</span>
                         </div>
                     </div>
 
-                    <div class="bento-card"
-                        style="background:linear-gradient(135deg,rgba(30,31,34,0.8),rgba(0,0,0,0.4));">
+                    <div class="bento-card">
                         <div class="bento-icon" style="background:rgba(239,68,68,0.15);">
                             <img src="Icons/X.png" alt="">
                         </div>
-                        <h3 class="text-lg font-bold text-white mb-2">Fraud Protection</h3>
-                        <p class="text-sm text-white/60 mb-5 leading-relaxed">Suspicious accounts attempting
+                        <h3 class="text-lg font-bold mb-2" style="color:#0f172a;">Fraud Protection</h3>
+                        <p class="text-sm mb-5 leading-relaxed" style="color:#64748b;">Suspicious accounts attempting
                             unauthorized access can be quarantined or have their verification revoked instantly.</p>
                         <div class="flex gap-2">
                             <span
-                                class="bento-badge bg-rose-500/20 text-rose-500 border border-rose-500/30">QUARANTINE</span>
-                            <span class="bento-badge bg-white/10 text-white/70">REVOKE</span>
+                                class="bento-badge bg-rose-500/20 text-rose-600 border border-rose-500/30">QUARANTINE</span>
+                            <span class="bento-badge" style="background:#f1f5f9;color:#64748b;">REVOKE</span>
                         </div>
                     </div>
                 </div>
@@ -2741,17 +2603,17 @@
         </div><!-- /#sections-glass -->
 
         <!-- ── Footer ────────────────────────────────────────────────────────────── -->
-        <footer class="relative z-20 border-t border-white/10"
-            style="background:rgba(0,0,0,0.65);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);">
+        <footer class="relative z-20 border-t border-black/6"
+            style="background:rgba(255,255,255,0.55);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);">
 
             <!-- CTA -->
             <div class="text-center py-16 px-6">
                 <img src="Icons/ClapStars.png" class="w-8 h-8 mx-auto mb-5 object-contain sticker"
                     style="opacity:0.7;" alt="">
-                <h3 class="text-2xl sm:text-3xl md:text-4xl text-white font-extrabold tracking-tight mb-3 reveal">Stop
+                <h3 class="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight mb-3 reveal" style="color:#0f172a;">Stop
                     verifying by hand.</h3>
-                <p class="text-white/40 text-sm mb-8 reveal reveal-delay-1"
-                    style="font-family:'DM Sans',sans-serif;">Buyers get instant access. You get your time back. Free to
+                <p class="text-sm mb-8 reveal reveal-delay-1"
+                    style="font-family:'DM Sans',sans-serif;color:#64748b;">Buyers get instant access. You get your time back. Free to
                     install.</p>
                 <button
                     class="btn-primary clickable px-10 py-3.5 text-sm font-black uppercase tracking-widest text-white reveal reveal-delay-2"
@@ -2762,13 +2624,13 @@
 
             <!-- Bottom bar -->
             <div
-                class="border-t border-white/8 px-8 py-7 flex flex-col md:flex-row items-center justify-between gap-5 max-w-7xl mx-auto">
+                class="border-t border-black/6 px-8 py-7 flex flex-col md:flex-row items-center justify-between gap-5 max-w-7xl mx-auto">
                 <img src="Icons/MainLogo.png" alt="Creator Assistant" class="h-5 opacity-40">
                 <div class="flex flex-wrap justify-center items-center gap-x-8 gap-y-2">
                     <a href="#features" class="footer-link">Features</a>
                     <a href="#integrations" class="footer-link">Integrations</a>
                     <a href="#security" class="footer-link">Security</a>
-                    <span class="w-px h-3 bg-white/15 hidden md:block"></span>
+                    <span class="w-px h-3 bg-black/10 hidden md:block"></span>
                     <a href="https://verify.creators.yucp.club/legal/terms-of-service" target="_blank" rel="noopener"
                         class="footer-link">Terms</a>
                     <a href="https://verify.creators.yucp.club/legal/privacy-policy" target="_blank" rel="noopener"
@@ -2784,7 +2646,7 @@
                         GitHub
                     </a>
                 </div>
-                <p class="text-xs text-white/20 font-medium whitespace-nowrap">&copy; 2026 Creator Assistant</p>
+                <p class="text-xs font-medium whitespace-nowrap" style="color:#94a3b8;">&copy; 2026 Creator Assistant</p>
             </div>
         </footer>
 
@@ -2971,7 +2833,7 @@
             if (window.matchMedia('(pointer: coarse)').matches) return;
 
             const ctx = canvas.getContext('2d');
-            const TRAIL_COLORS = ['#FF75C3', '#FFA647', '#FFE83F', '#9FFF5B', '#70E2FF'];
+            const TRAIL_COLORS = ['#0ea5e9', '#38bdf8', '#a78bfa', '#00e676', '#818cf8'];
             const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
             function resizeCanvas() {

@@ -6,6 +6,7 @@ import { useCloudReady } from '@/hooks/useCloudReady';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
+import { getAuthSession } from '@/lib/server/auth';
 import { logWebError } from '@/lib/webDiagnostics';
 
 export const Route = createFileRoute('/sign-in')({
@@ -16,8 +17,10 @@ export const Route = createFileRoute('/sign-in')({
     meta: [{ title: 'Sign in | Creator Assistant' }],
     links: routeStylesheetLinks(routeStyleHrefs.signIn),
   }),
-  beforeLoad: ({ context, search }) => {
-    if (context.isAuthenticated) {
+  beforeLoad: async ({ search }) => {
+    const session = await getAuthSession();
+
+    if (session.isAuthenticated) {
       const target = normalizeAuthRedirectTarget(search.redirectTo);
       throw redirect({ to: target });
     }

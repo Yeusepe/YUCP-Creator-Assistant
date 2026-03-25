@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute, redirect, useSearch } from '@tanstack/react-router';
+import { createFileRoute, useSearch } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -25,7 +25,7 @@ import {
 } from './-purchaseUiState';
 import '@/styles/verify-purchase.css';
 
-export const Route = createFileRoute('/verify/purchase')({
+export const Route = createFileRoute('/_authenticated/verify/purchase')({
   validateSearch: (search: Record<string, unknown>) => ({
     intent: typeof search.intent === 'string' ? search.intent : '',
     connected: typeof search.connected === 'string' ? search.connected : undefined,
@@ -33,14 +33,6 @@ export const Route = createFileRoute('/verify/purchase')({
   head: () => ({
     meta: [{ title: 'Verify Purchase | YUCP' }],
   }),
-  beforeLoad: ({ context, location }) => {
-    if (!context.isAuthenticated) {
-      throw redirect({
-        to: '/sign-in',
-        search: { redirectTo: location.href },
-      });
-    }
-  },
   component: VerifyPurchasePage,
 });
 
@@ -483,7 +475,7 @@ function EntitlementRow({
 
 function VerifyPurchasePage() {
   const { intent: intentId, connected: justConnectedProvider } = useSearch({
-    from: '/verify/purchase',
+    from: '/_authenticated/verify/purchase',
   });
 
   const [isVisible, setIsVisible] = useState(false);
