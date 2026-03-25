@@ -14,6 +14,12 @@ export interface CreatorCertificateBillingSummary {
   currentPeriodEnd: number | null;
   graceUntil: number | null;
   reason: string | null;
+  capabilities: CreatorCertificateBillingCapability[];
+}
+
+export interface CreatorCertificateBillingCapability {
+  capabilityKey: string;
+  status: string;
 }
 
 export interface CreatorCertificateDevice {
@@ -91,6 +97,7 @@ export async function listCreatorCertificates() {
       currentPeriodEnd: data.billing.currentPeriodEnd ?? null,
       graceUntil: data.billing.graceUntil ?? null,
       reason: data.billing.reason ?? null,
+      capabilities: Array.isArray(data.billing.capabilities) ? data.billing.capabilities : [],
     },
     availablePlans: data.availablePlans.map((plan) => ({
       ...plan,

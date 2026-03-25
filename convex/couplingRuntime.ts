@@ -52,7 +52,7 @@ type RuntimePublishResult = {
 function getEnvelopeSecret(): string {
   return (
     process.env.YUCP_RELEASE_ENVELOPE_SECRET?.trim() ||
-    process.env.YUCP_WATERMARK_ENVELOPE_SECRET?.trim() ||
+    process.env.YUCP_COUPLING_ENVELOPE_SECRET?.trim() ||
     process.env.YUCP_ROOT_PRIVATE_KEY?.trim() ||
     ''
   );
@@ -145,7 +145,7 @@ async function publishRuntimeArtifact(
 }
 
 /**
- * Publish the active watermark runtime artifact to Convex storage.
+ * Publish the active coupling runtime artifact to Convex storage.
  *
  * Manual publish:
  *   bun run convex:publish:coupling-runtime

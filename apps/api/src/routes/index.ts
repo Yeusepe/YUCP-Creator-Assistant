@@ -12,6 +12,7 @@ export {
   type VerificationRouteHandlers,
 } from '../verification';
 export { type ConnectConfig, createConnectRoutes } from './connect';
+export { createForensicsRoutes, type ForensicsConfig } from './forensics';
 export {
   createInstallRoutes,
   type GuildLinkData,

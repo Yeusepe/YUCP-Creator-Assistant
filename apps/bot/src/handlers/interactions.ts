@@ -219,6 +219,17 @@ async function handleAutocomplete(
         return;
       }
 
+      if (focused.name === 'package_id') {
+        const { handleForensicsPackageAutocomplete } = await import('../commands/forensics');
+        await handleForensicsPackageAutocomplete(
+          interaction,
+          ctx.convex,
+          ctx.apiSecret,
+          guildLink.authUserId as string
+        );
+        return;
+      }
+
       if (focused.name !== 'product_id') {
         await interaction.respond([]);
         return;
@@ -460,6 +471,12 @@ async function handleSlashCommand(
           authUserId,
           guildId,
         });
+      }
+    } else if (subcommandGroup === 'forensics') {
+      const sub = interaction.options.getSubcommand();
+      const { handleForensicsLookup } = await import('../commands/forensics');
+      if (sub === 'lookup') {
+        await handleForensicsLookup(interaction, { authUserId, guildId });
       }
     } else if (subcommand === 'stats') {
       // Single subcommand (not a group) - overview with navigation buttons

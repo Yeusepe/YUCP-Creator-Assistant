@@ -57,6 +57,8 @@ export interface LocalEnv {
   POLAR_WEBHOOK_SECRET?: string;
   POLAR_CERT_PRODUCTS_JSON?: string;
   POLAR_SERVER?: string;
+  YUCP_COUPLING_SERVICE_BASE_URL?: string;
+  YUCP_COUPLING_SERVICE_SHARED_SECRET?: string;
 }
 
 async function fetchFromInfisical(): Promise<Record<string, string>> {
@@ -141,6 +143,8 @@ function loadFromEnv(): LocalEnv {
     POLAR_WEBHOOK_SECRET: process.env.POLAR_WEBHOOK_SECRET,
     POLAR_CERT_PRODUCTS_JSON: process.env.POLAR_CERT_PRODUCTS_JSON,
     POLAR_SERVER: process.env.POLAR_SERVER,
+    YUCP_COUPLING_SERVICE_BASE_URL: process.env.YUCP_COUPLING_SERVICE_BASE_URL,
+    YUCP_COUPLING_SERVICE_SHARED_SECRET: process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET,
   };
 }
 

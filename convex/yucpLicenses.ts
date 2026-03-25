@@ -57,7 +57,7 @@ import {
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
 const PROTECTED_UNLOCK_TTL_SECONDS = 30 * 24 * 60 * 60;
-const WATERMARK_ASSET_PATH_MAX_LENGTH = 512;
+const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
@@ -536,22 +536,22 @@ async function sha256Hex(input: string): Promise<string> {
     .join('');
 }
 
-function normalizeWatermarkAssetPath(input: string): string {
+function normalizeCouplingAssetPath(input: string): string {
   return input.replace(/\\/g, '/').replace(/^\/+/, '').trim();
 }
 
-function isValidWatermarkAssetPath(input: string): boolean {
+function isValidCouplingAssetPath(input: string): boolean {
   return (
     input.length > 0 &&
-    input.length <= WATERMARK_ASSET_PATH_MAX_LENGTH &&
+    input.length <= COUPLING_ASSET_PATH_MAX_LENGTH &&
     !input.includes('|') &&
     !input.includes('\r') &&
     !input.includes('\n')
   );
 }
 
-function getWatermarkTokenLength(assetPath: string): number {
-  const normalized = normalizeWatermarkAssetPath(assetPath).toLowerCase();
+function getCouplingTokenLength(assetPath: string): number {
+  const normalized = normalizeCouplingAssetPath(assetPath).toLowerCase();
   if (normalized.endsWith('.png')) return 32;
   if (normalized.endsWith('.fbx')) return 8;
   return 0;
@@ -1223,13 +1223,13 @@ export const issueCouplingJob = internalAction({
       };
     }
 
-    const watermarkSecret = process.env.YUCP_WATERMARK_HMAC_KEY ?? rootPrivateKey;
+    const couplingSecret = process.env.YUCP_COUPLING_HMAC_KEY ?? rootPrivateKey;
     const jobs: Array<{ assetPath: string; tokenHex: string }> = [];
     const seen = new Set<string>();
 
     for (const rawAssetPath of args.assetPaths) {
-      const assetPath = normalizeWatermarkAssetPath(rawAssetPath ?? '');
-      if (!isValidWatermarkAssetPath(assetPath)) {
+      const assetPath = normalizeCouplingAssetPath(rawAssetPath ?? '');
+      if (!isValidCouplingAssetPath(assetPath)) {
         return { success: false, error: `Invalid coupling asset path: ${rawAssetPath ?? ''}` };
       }
       if (seen.has(assetPath)) {
@@ -1237,7 +1237,7 @@ export const issueCouplingJob = internalAction({
       }
       seen.add(assetPath);
 
-      const tokenLength = getWatermarkTokenLength(assetPath);
+      const tokenLength = getCouplingTokenLength(assetPath);
       if (tokenLength <= 0) {
         continue;
       }
@@ -1249,7 +1249,7 @@ export const issueCouplingJob = internalAction({
         args.projectId,
         assetPath,
       ].join('|');
-      const tokenHex = (await hmacSha256Hex(watermarkSecret, tokenInput)).slice(0, tokenLength);
+      const tokenHex = (await hmacSha256Hex(couplingSecret, tokenInput)).slice(0, tokenLength);
       jobs.push({ assetPath, tokenHex });
     }
 
