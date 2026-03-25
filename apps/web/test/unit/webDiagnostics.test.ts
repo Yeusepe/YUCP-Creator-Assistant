@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  loadRootAuthState,
+  loadProtectedAuthState,
   logRootRenderError,
   resolveRequiredConvexUrl,
 } from '@/lib/webDiagnostics';
@@ -12,10 +12,10 @@ describe('web diagnostics', () => {
     vi.restoreAllMocks();
   });
 
-  it('sets the SSR auth token on the server HTTP client when bootstrap succeeds', async () => {
+  it('sets the SSR auth token on the server HTTP client when protected auth bootstrap succeeds', async () => {
     const setAuth = vi.fn();
 
-    const result = await loadRootAuthState({
+    const result = await loadProtectedAuthState({
       convexQueryClient: {
         serverHttpClient: {
           setAuth,
@@ -39,12 +39,12 @@ describe('web diagnostics', () => {
     });
   });
 
-  it('logs sanitized diagnostics and rethrows when SSR auth bootstrap fails', async () => {
+  it('logs sanitized diagnostics and rethrows when protected auth bootstrap fails', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const error = new Error('Unable to connect. Is the computer able to access the url?');
 
     await expect(
-      loadRootAuthState({
+      loadProtectedAuthState({
         convexQueryClient: {},
         getAuthToken: async () => {
           throw error;
@@ -61,9 +61,9 @@ describe('web diagnostics', () => {
     ).rejects.toThrow(error);
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      '[web] Root auth bootstrap failed',
+      '[web] Protected auth bootstrap failed',
       expect.objectContaining({
-        phase: 'root-beforeLoad',
+        phase: 'protected-beforeLoad',
         route: '/sign-in',
         nodeEnv: 'production',
         hasConvexUrl: true,
@@ -118,7 +118,7 @@ describe('web diagnostics', () => {
     const error = new Error('Unable to connect. Is the computer able to access the url?');
 
     await expect(
-      loadRootAuthState({
+      loadProtectedAuthState({
         convexQueryClient: {},
         getAuthToken: async () => {
           throw error;
@@ -136,9 +136,9 @@ describe('web diagnostics', () => {
     ).rejects.toThrow(error);
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      '[web] Root auth bootstrap failed',
+      '[web] Protected auth bootstrap failed',
       expect.objectContaining({
-        phase: 'root-beforeLoad',
+        phase: 'protected-beforeLoad',
         route: '/sign-in',
         networkHint: 'HTTPS_PROXY is set for the web runtime',
         hasHttpsProxy: true,
@@ -184,6 +184,10 @@ describe('web diagnostics integration', () => {
     'utf8'
   );
   const rootSource = readFileSync(join(__dirname, '../../src/routes/__root.tsx'), 'utf8');
+  const protectedSource = readFileSync(
+    join(__dirname, '../../src/routes/_authenticated.tsx'),
+    'utf8'
+  );
   const routerSource = readFileSync(join(__dirname, '../../src/router.tsx'), 'utf8');
   const signInSource = readFileSync(join(__dirname, '../../src/routes/sign-in.tsx'), 'utf8');
   const signInRedirectSource = readFileSync(
@@ -195,13 +199,13 @@ describe('web diagnostics integration', () => {
     'utf8'
   );
 
-  it('uses the auth bootstrap helper in the root route', () => {
-    expect(rootSource).toContain('loadRootAuthState');
+  it('uses the auth bootstrap helper in the protected layout route', () => {
+    expect(protectedSource).toContain('loadProtectedAuthState');
   });
 
-  it('logs root auth server function execution in the root route', () => {
-    expect(rootSource).toContain('Root auth server function started');
-    expect(rootSource).toContain('Root auth server function failed');
+  it('removes root auth server function logging from the root route', () => {
+    expect(rootSource).not.toContain('Root auth server function started');
+    expect(rootSource).not.toContain('Root auth server function failed');
   });
 
   it('keeps the shared diagnostics module free of server-only auth imports', () => {

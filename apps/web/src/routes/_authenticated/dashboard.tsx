@@ -31,21 +31,13 @@ interface DashboardSearch {
   connect_token?: string;
 }
 
-export const Route = createFileRoute('/dashboard')({
+export const Route = createFileRoute('/_authenticated/dashboard')({
   validateSearch: (search: Record<string, unknown>): DashboardSearch => ({
     guild_id: normalizeDashboardIdentifier(search.guild_id as string | undefined),
     tenant_id: normalizeDashboardIdentifier(search.tenant_id as string | undefined),
     setup_token: typeof search.setup_token === 'string' ? search.setup_token : undefined,
     connect_token: typeof search.connect_token === 'string' ? search.connect_token : undefined,
   }),
-  beforeLoad: ({ context, location }) => {
-    if (!context.isAuthenticated) {
-      throw redirect({
-        to: '/sign-in',
-        search: { redirectTo: location.href },
-      });
-    }
-  },
   staleTime: Infinity,
   loader: async ({ context: { queryClient }, location }) => {
     const locationHref = String(location.href);

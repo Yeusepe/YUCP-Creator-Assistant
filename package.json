@@ -11,6 +11,7 @@
     "fast-xml-parser": ">=5.5.7",
     "h3": "2.0.1-rc.19",
     "kysely": ">=0.28.12",
+    "picomatch": "2.3.2",
     "prismjs": ">=1.30.0",
     "undici": ">=6.23.0",
     "@smithy/config-resolver": ">=4.4.0"

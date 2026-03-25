@@ -25,7 +25,7 @@ function AccountAuthorizedAppsPending() {
   );
 }
 
-export const Route = createFileRoute('/account/authorized-apps')({
+export const Route = createFileRoute('/_authenticated/account/authorized-apps')({
   pendingComponent: AccountAuthorizedAppsPending,
   component: AccountAuthorizedApps,
 });

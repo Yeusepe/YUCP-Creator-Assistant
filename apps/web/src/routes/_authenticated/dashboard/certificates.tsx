@@ -34,7 +34,7 @@ function DashboardCertificatesPending() {
   );
 }
 
-export const Route = createFileRoute('/dashboard/certificates')({
+export const Route = createFileRoute('/_authenticated/dashboard/certificates')({
   validateSearch: (search: Record<string, unknown>): DashboardCertificatesSearch => ({
     plan: typeof search.plan === 'string' ? search.plan : undefined,
     checkout: typeof search.checkout === 'string' ? search.checkout : undefined,

@@ -48,7 +48,7 @@ function DashboardCollaborationPending() {
   );
 }
 
-export const Route = createFileRoute('/dashboard/collaboration')({
+export const Route = createFileRoute('/_authenticated/dashboard/collaboration')({
   staleTime: Infinity,
   loader: ({ context: { queryClient } }) => {
     warmDashboardCollaboration(queryClient);

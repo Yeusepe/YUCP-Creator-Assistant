@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-export const Route = createFileRoute('/dashboard/server-rules')({
+export const Route = createFileRoute('/_authenticated/dashboard/server-rules')({
   component: DashboardServerRules,
 });
 

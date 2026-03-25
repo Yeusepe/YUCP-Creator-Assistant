@@ -17,17 +17,30 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROUTES_DIR = join(__dirname, '../../src/routes');
+const SRC_DIR = join(__dirname, '../../src');
 
 function readRoute(name: string): string {
   return readFileSync(join(ROUTES_DIR, name), 'utf8');
 }
 
-// Routes that MUST have auth guards (creator-authenticated pages)
-const PROTECTED_ROUTES = ['dashboard.tsx', 'account.tsx'];
+function readSource(path: string): string {
+  return readFileSync(join(SRC_DIR, path), 'utf8');
+}
+
+// Routes that MUST have shared auth guards (creator-authenticated subtree)
+const PROTECTED_LAYOUT_ROUTES = ['_authenticated.tsx'];
+
+// Child routes that inherit auth from the protected layout
+const PROTECTED_CHILD_ROUTES = [
+  '_authenticated/dashboard.tsx',
+  '_authenticated/account.tsx',
+  '_authenticated/verify/purchase.tsx',
+];
 
 // Routes that MUST NOT require auth (public-facing pages)
 const PUBLIC_ROUTES = [
   'sign-in.tsx',
+  'sign-in-redirect.tsx',
   'index.tsx',
   'legal/terms-of-service.tsx',
   'legal/privacy-policy.tsx',
@@ -43,8 +56,8 @@ const SETUP_ROUTES = [
   'setup/vrchat.tsx',
 ];
 
-describe('Auth guards: protected routes', () => {
-  for (const route of PROTECTED_ROUTES) {
+describe('Auth guards: protected layout routes', () => {
+  for (const route of PROTECTED_LAYOUT_ROUTES) {
     describe(route, () => {
       const source = readRoute(route);
 
@@ -52,13 +65,8 @@ describe('Auth guards: protected routes', () => {
         expect(source).toContain('beforeLoad');
       });
 
-      it('checks authentication state in beforeLoad', () => {
-        // The guard should check context.isAuthenticated or context.token
-        const hasAuthCheck =
-          source.includes('isAuthenticated') ||
-          source.includes('context.token') ||
-          source.includes('!context.isAuthenticated');
-        expect(hasAuthCheck).toBe(true);
+      it('loads protected auth state in beforeLoad', () => {
+        expect(source).toContain('loadProtectedAuthState');
       });
 
       it('redirects unauthenticated users to /sign-in', () => {
@@ -67,20 +75,36 @@ describe('Auth guards: protected routes', () => {
         const hasRedirect = source.includes('redirect(') || source.includes('throw redirect');
         expect(hasRedirect).toBe(true);
       });
+
+      it('wraps protected routes with ConvexBetterAuthProvider', () => {
+        expect(source).toContain('ConvexBetterAuthProvider');
+      });
+    });
+  }
+});
+
+describe('Auth guards: protected child routes', () => {
+  for (const route of PROTECTED_CHILD_ROUTES) {
+    describe(route, () => {
+      const source = readRoute(route);
+
+      it('does not duplicate the shared sign-in redirect guard', () => {
+        const hasInlineAuthGuard =
+          source.includes('!context.isAuthenticated') ||
+          source.includes('context.isAuthenticated') ||
+          source.includes("to: '/sign-in'") ||
+          source.includes('to: "/sign-in"');
+        expect(hasInlineAuthGuard).toBe(false);
+      });
     });
   }
 });
 
 describe('Auth guards: public routes', () => {
   for (const route of PUBLIC_ROUTES) {
-    let source: string;
-    try {
-      source = readRoute(route);
-    } catch {
-      continue; // Route doesn't exist, skip
-    }
+    const source = readRoute(route);
 
-    it(`${route} does not gate on isAuthenticated as a required guard`, () => {
+    it(`${route} does not gate on a protected-layout auth redirect`, () => {
       // Public routes may check auth state for UI purposes
       // but should not throw redirect when !isAuthenticated
       const hasRequiredAuthGuard =
@@ -99,11 +123,17 @@ describe('Auth guards: sign-in route', () => {
   });
 
   it('redirects AUTHENTICATED users away from sign-in', () => {
-    // The sign-in page should send already-authenticated users away via redirect
-    const checksAuth = source.includes('isAuthenticated') || source.includes('context.token');
+    // The sign-in page should use a lightweight server session check instead of
+    // depending on root route auth context.
+    const checksAuth = source.includes('getAuthSession');
     const throwsRedirect = source.includes('throw redirect');
     expect(checksAuth).toBe(true);
     expect(throwsRedirect).toBe(true);
+  });
+
+  it('does not depend on root route auth context', () => {
+    expect(source).not.toContain('context.isAuthenticated');
+    expect(source).not.toContain('context.token');
   });
 });
 
@@ -159,36 +189,39 @@ describe('Auth configuration: auth proxy route', () => {
 
 describe('Auth configuration: root route SSR auth', () => {
   const source = readFileSync(join(__dirname, '../../src/routes/__root.tsx'), 'utf8');
+  const protectedSource = readFileSync(
+    join(__dirname, '../../src/routes/_authenticated.tsx'),
+    'utf8'
+  );
 
-  it('calls getAuth in beforeLoad for SSR token setup', () => {
-    expect(source).toContain('getAuth');
-    expect(source).toContain('beforeLoad');
+  it('does not call getAuth in beforeLoad from the root route', () => {
+    expect(source).not.toContain('getAuth');
+    expect(source).not.toContain('loadRootAuthState');
   });
 
-  it('sets auth token on serverHttpClient for SSR', () => {
-    const handlesSsrAuthInline = source.includes('serverHttpClient') && source.includes('setAuth');
-    const delegatesToSsrAuthHelper = source.includes('loadRootAuthState');
+  it('moves SSR auth token setup into the protected layout', () => {
+    const handlesSsrAuthInline =
+      protectedSource.includes('serverHttpClient') && protectedSource.includes('setAuth');
+    const delegatesToSsrAuthHelper = protectedSource.includes('loadProtectedAuthState');
     expect(handlesSsrAuthInline || delegatesToSsrAuthHelper).toBe(true);
   });
 
-  it('wraps app with ConvexBetterAuthProvider', () => {
-    expect(source).toContain('ConvexBetterAuthProvider');
+  it('does not wrap the root tree with ConvexBetterAuthProvider', () => {
+    expect(source).not.toContain('ConvexBetterAuthProvider');
   });
 
-  it('keeps HeadContent outside the Better Auth provider tree', () => {
-    const providerIndex = source.indexOf('<ConvexBetterAuthProvider');
-    const rootDocumentIndex = source.indexOf('<RootDocument>');
+  it('keeps HeadContent outside the protected Better Auth provider tree', () => {
+    const providerIndex = protectedSource.indexOf('<ConvexBetterAuthProvider');
     const headContentIndex = source.indexOf('<HeadContent />');
 
     expect(providerIndex).toBeGreaterThan(-1);
-    expect(rootDocumentIndex).toBeGreaterThan(-1);
     expect(headContentIndex).toBeGreaterThan(-1);
-    expect(rootDocumentIndex).toBeLessThan(providerIndex);
+    expect(protectedSource).not.toContain('<HeadContent />');
   });
 
-  it('returns isAuthenticated in route context', () => {
-    const returnsAuthStateInline = source.includes('isAuthenticated');
-    const delegatesToSsrAuthHelper = source.includes('loadRootAuthState');
+  it('returns auth state from the protected layout route context', () => {
+    const returnsAuthStateInline = protectedSource.includes('isAuthenticated');
+    const delegatesToSsrAuthHelper = protectedSource.includes('loadProtectedAuthState');
     expect(returnsAuthStateInline || delegatesToSsrAuthHelper).toBe(true);
   });
 });
@@ -212,8 +245,22 @@ describe('Auth configuration: router uses expectAuth', () => {
     expect(hasRawClient).toBe(false);
   });
 
-  it('does not wrap the tree in a plain ConvexProvider when the root uses ConvexBetterAuthProvider', () => {
-    expect(rootSource).toContain('ConvexBetterAuthProvider');
+  it('does not wrap the tree in a plain ConvexProvider when protected routes use ConvexBetterAuthProvider', () => {
+    expect(rootSource).not.toContain('ConvexBetterAuthProvider');
     expect(source).not.toContain('<ConvexProvider');
+  });
+});
+
+describe('Auth configuration: auth-server token caching', () => {
+  const source = readSource('lib/auth-server.ts');
+
+  it('enables jwtCache for server-side token fetches', () => {
+    expect(source).toContain('jwtCache');
+    expect(source).toContain('enabled: true');
+  });
+
+  it('passes the Better Auth cookie prefix into token caching', () => {
+    expect(source).toContain('cookiePrefix');
+    expect(source).toContain("'yucp'");
   });
 });

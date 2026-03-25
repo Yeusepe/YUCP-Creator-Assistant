@@ -7,7 +7,7 @@ interface AccountCertificatesSearch {
   source?: string;
 }
 
-export const Route = createFileRoute('/account/certificates')({
+export const Route = createFileRoute('/_authenticated/account/certificates')({
   validateSearch: (search: Record<string, unknown>): AccountCertificatesSearch => ({
     plan: typeof search.plan === 'string' ? search.plan : undefined,
     checkout: typeof search.checkout === 'string' ? search.checkout : undefined,

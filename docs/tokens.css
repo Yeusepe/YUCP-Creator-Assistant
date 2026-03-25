@@ -1,17 +1,17 @@
 :root {
   /* Base Colors */
-  --bg-color: #0a3d9e;
-  --text-primary: rgba(255, 255, 255, 0.95);
-  --text-secondary: rgba(255, 255, 255, 0.85);
-  --border-color: rgba(255, 255, 255, 0.15);
+  --bg-color: #e8f4fc;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --border-color: #e2e8f0;
 
   /* Accents */
-  --accent-mustard: #FFA647;
-  --accent-sky: #70E2FF;
-  --accent-blue: #ffffff;
-  --accent-green-dark: #9FFF5B;
-  --accent-red: #c53030;
-  --accent-purple: #9146ff;
+  --accent-mustard: #f59e0b;
+  --accent-sky: #0ea5e9;
+  --accent-blue: #3b82f6;
+  --accent-green-dark: #16a34a;
+  --accent-red: #ef4444;
+  --accent-purple: #7c3aed;
 
   /* Brand Colors */
   --discord-blurple: #5865f2;
@@ -20,8 +20,8 @@
 
   /* Jinxxy Setup */
   --jinxxy-bg: transparent;
-  --jinxxy-sidebar: rgba(255, 255, 255, 0.05);
-  --jinxxy-border: rgba(255, 255, 255, 0.1);
+  --jinxxy-sidebar: rgba(255, 255, 255, 0.5);
+  --jinxxy-border: #e2e8f0;
 }
 
 /* Holographic Sticker Transparency Fix */
@@ -70,8 +70,8 @@
 }
 
 .glass-card {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
 }

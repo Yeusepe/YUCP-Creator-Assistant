@@ -78,7 +78,7 @@ import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { useServerContext } from '@/hooks/useServerContext';
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as DashboardIndexRoute } from '@/routes/dashboard/index';
+import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index';
 
 function createWrapper() {
   const queryClient = new QueryClient({

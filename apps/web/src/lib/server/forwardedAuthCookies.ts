@@ -10,8 +10,16 @@ const FORWARDED_AUTH_COOKIE_NAMES = new Set([
   '__Secure-yucp.session_data',
 ]);
 
-export function filterForwardedAuthCookieHeader(
-  cookieHeader: string | null | undefined
+const FORWARDED_SESSION_COOKIE_NAMES = new Set([
+  'yucp.session_token',
+  'yucp.session_data',
+  '__Secure-yucp.session_token',
+  '__Secure-yucp.session_data',
+]);
+
+function filterCookieHeader(
+  cookieHeader: string | null | undefined,
+  allowedCookieNames: ReadonlySet<string>
 ): string | null {
   if (!cookieHeader) {
     return null;
@@ -21,7 +29,19 @@ export function filterForwardedAuthCookieHeader(
     .split(';')
     .map((part) => part.trim())
     .filter(Boolean)
-    .filter((part) => FORWARDED_AUTH_COOKIE_NAMES.has(part.split('=')[0] ?? ''));
+    .filter((part) => allowedCookieNames.has(part.split('=')[0] ?? ''));
 
   return cookies.length > 0 ? cookies.join('; ') : null;
+}
+
+export function filterForwardedAuthCookieHeader(
+  cookieHeader: string | null | undefined
+): string | null {
+  return filterCookieHeader(cookieHeader, FORWARDED_AUTH_COOKIE_NAMES);
+}
+
+export function filterForwardedSessionCookieHeader(
+  cookieHeader: string | null | undefined
+): string | null {
+  return filterCookieHeader(cookieHeader, FORWARDED_SESSION_COOKIE_NAMES);
 }

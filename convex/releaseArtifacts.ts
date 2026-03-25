@@ -1,4 +1,5 @@
 import { v } from 'convex/values';
+import type { Doc } from './_generated/dataModel';
 import { internalMutation, internalQuery } from './_generated/server';
 
 const signedReleaseArtifactValidator = v.object({
@@ -24,6 +25,15 @@ const signedReleaseArtifactValidator = v.object({
   updatedAt: v.number(),
 });
 
+function toSignedReleaseArtifact(row: Doc<'signed_release_artifacts'> | null) {
+  if (!row) {
+    return null;
+  }
+
+  const { _id: _artifactId, _creationTime: _docCreationTime, ...artifact } = row;
+  return artifact;
+}
+
 export const getActiveArtifact = internalQuery({
   args: {
     artifactKey: v.string(),
@@ -43,7 +53,7 @@ export const getActiveArtifact = internalQuery({
       .filter((row) => row.channel === args.channel && row.platform === args.platform)
       .sort((left, right) => (right.activatedAt ?? right.createdAt) - (left.activatedAt ?? left.createdAt))[0];
 
-    return active ?? null;
+    return toSignedReleaseArtifact(active);
   },
 });
 

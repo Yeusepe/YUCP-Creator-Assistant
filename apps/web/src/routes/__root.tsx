@@ -1,76 +1,20 @@
 /// <reference types="vite/client" />
 
-import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react';
 import type { ConvexQueryClient } from '@convex-dev/react-query';
 import type { QueryClient } from '@tanstack/react-query';
-import {
-  createRootRouteWithContext,
-  HeadContent,
-  Outlet,
-  Scripts,
-  useRouteContext,
-} from '@tanstack/react-router';
-import { createServerFn } from '@tanstack/react-start';
+import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useState } from 'react';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { ToastProvider } from '@/components/ui/Toast';
 import { CloudReadyContext } from '@/hooks/useCloudReady';
-import { authClient } from '@/lib/auth-client';
-import { collectAuthRuntimeDiagnostics, getToken } from '@/lib/auth-server';
 import { installChunkErrorRecovery } from '@/lib/chunkErrorRecovery';
 import { useVersionPoller } from '@/lib/versionPoller';
-import { loadRootAuthState, logRootRenderError, logWebError } from '@/lib/webDiagnostics';
+import { logRootRenderError } from '@/lib/webDiagnostics';
 
 import '@/styles/tokens.css';
 import '@/styles/loading.css';
 import '@/styles/globals.css';
 import '@/styles/toast.css';
-
-/**
- * Server function to retrieve the auth token during SSR.
- * Called in beforeLoad so the initial HTML render is authenticated.
- */
-const getAuth = createServerFn({ method: 'GET' }).handler(async () => {
-  console.info('[web] Root auth server function started', {
-    phase: 'root-getAuth-serverFn',
-  });
-
-  try {
-    const token = await getToken();
-
-    console.info('[web] Root auth server function completed', {
-      phase: 'root-getAuth-serverFn',
-      hasToken: Boolean(token),
-    });
-
-    return token;
-  } catch (error) {
-    try {
-      logWebError('Root auth server function failed', error, {
-        phase: 'root-getAuth-serverFn',
-        ...(await collectAuthRuntimeDiagnostics()),
-      });
-    } catch (diagnosticError) {
-      logWebError('Root auth server function diagnostics failed', diagnosticError, {
-        phase: 'root-getAuth-serverFn',
-      });
-    }
-
-    throw error;
-  }
-});
-
-/**
- * Cached auth state for client-side navigations.
- *
- * beforeLoad has no staleTime — it runs on every navigation. On the server
- * (SSR) we must always fetch a fresh token, but on the client the token is
- * only needed once (for ConvexBetterAuthProvider's initialToken during
- * hydration). After that, better-auth / Convex manage auth state internally
- * via the WebSocket connection. Caching here prevents a server round-trip on
- * every tab switch.
- */
-let _clientRootAuthCache: import('@/lib/webDiagnostics').RootAuthState | null = null;
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -101,41 +45,20 @@ export const Route = createRootRouteWithContext<{
       },
     ],
   }),
-  beforeLoad: async (ctx) => {
-    if (typeof window !== 'undefined' && _clientRootAuthCache !== null) {
-      return _clientRootAuthCache;
-    }
-    const state = await loadRootAuthState({
-      convexQueryClient: ctx.context.convexQueryClient,
-      location: ctx.location,
-      getAuthToken: () => getAuth(),
-    });
-    if (typeof window !== 'undefined') {
-      _clientRootAuthCache = state;
-    }
-    return state;
-  },
   component: RootComponent,
   errorComponent: RootErrorComponent,
 });
 
 function RootComponent() {
-  const context = useRouteContext({ from: Route.id });
   const [bgReady, setBgReady] = useState(false);
   return (
     <RootDocument>
       <CloudReadyContext.Provider value={bgReady}>
         <CloudBackground variant="default" onReady={() => setBgReady(true)} />
-        <ConvexBetterAuthProvider
-          client={context.convexQueryClient.convexClient}
-          authClient={authClient}
-          initialToken={context.token}
-        >
-          <ToastProvider>
-            <AppEffects />
-            <Outlet />
-          </ToastProvider>
-        </ConvexBetterAuthProvider>
+        <ToastProvider>
+          <AppEffects />
+          <Outlet />
+        </ToastProvider>
       </CloudReadyContext.Provider>
     </RootDocument>
   );

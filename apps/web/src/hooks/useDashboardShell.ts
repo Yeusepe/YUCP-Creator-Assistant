@@ -2,7 +2,7 @@ import { getRouteApi } from '@tanstack/react-router';
 import { useMemo } from 'react';
 import type { DashboardShellData } from '@/lib/server/dashboard';
 
-const dashboardRouteApi = getRouteApi('/dashboard');
+const dashboardRouteApi = getRouteApi('/_authenticated/dashboard');
 
 export function useDashboardShellData() {
   return dashboardRouteApi.useLoaderData() as DashboardShellData;

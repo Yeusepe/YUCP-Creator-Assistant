@@ -6,7 +6,7 @@ import { AccountModal, AccountPage, AccountSectionCard } from '@/components/acco
 import { useToast } from '@/components/ui/Toast';
 import { downloadUserDataExport } from '@/lib/account';
 
-export const Route = createFileRoute('/account/privacy')({
+export const Route = createFileRoute('/_authenticated/account/privacy')({
   component: AccountPrivacy,
 });
 

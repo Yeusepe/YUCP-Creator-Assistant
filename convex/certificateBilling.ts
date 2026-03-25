@@ -320,6 +320,33 @@ async function buildAccountOverview(ctx: QueryCtx, authUserId: string) {
   };
 }
 
+async function resolveProjectedCapabilitiesForAuthUser(
+  ctx: QueryCtx,
+  authUserId: string
+): Promise<Array<{ capabilityKey: string; status: string }>> {
+  const config = getCertificateBillingConfig();
+  const creatorProfile = await ctx.db
+    .query('creator_profiles')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+    .first();
+  const workspaceKeys = resolveWorkspaceKeys(authUserId, creatorProfile?._id ?? null);
+  const entitlements = await ctx.db
+    .query('creator_billing_entitlements')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+    .collect();
+  const certificateEntitlement = selectWinningCertificateEntitlement(
+    entitlements.filter((entry) => workspaceKeys.includes(entry.workspaceKey))
+  );
+  const workspaceKey = certificateEntitlement?.workspaceKey ?? workspaceKeys[0];
+  const storedCapabilities = await listWorkspaceCapabilities(ctx, workspaceKey);
+  const activePlan = getPlanForPlanKey(config, certificateEntitlement?.planKey);
+  return projectWorkspaceCapabilities({
+    includedCapabilityKeys: activePlan?.capabilities ?? [],
+    entitlementStatus: certificateEntitlement?.status,
+    storedCapabilities,
+  });
+}
+
 async function resolveCertificateBillingForAuthUser(ctx: QueryCtx, authUserId: string) {
   const config = getCertificateBillingConfig();
   if (!config.enabled) {
@@ -641,14 +668,12 @@ export const hasCapabilityForAuthUser = internalQuery({
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query('creator_billing_capabilities')
-      .withIndex('by_auth_user_capability', (q) =>
-        q.eq('authUserId', args.authUserId).eq('capabilityKey', args.capabilityKey)
-      )
-      .collect();
-
-    return rows.some((row) => row.status === 'active' || row.status === 'grace');
+    const capabilities = await resolveProjectedCapabilitiesForAuthUser(ctx, args.authUserId);
+    return capabilities.some(
+      (row) =>
+        row.capabilityKey === args.capabilityKey &&
+        (row.status === 'active' || row.status === 'grace')
+    );
   },
 });
 
