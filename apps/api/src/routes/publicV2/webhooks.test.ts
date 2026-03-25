@@ -46,6 +46,7 @@ const mockResolveAuth = async (): Promise<AuthResult> => ({
 // --- Shared fixtures ---
 
 const config = {
+  apiBaseUrl: 'https://api.test',
   convexUrl: 'https://test.convex.cloud',
   convexApiSecret: 'test-secret',
   convexSiteUrl: 'https://test.convex.site',

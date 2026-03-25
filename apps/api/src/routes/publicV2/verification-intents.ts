@@ -132,6 +132,7 @@ export async function handleVerificationIntentsRoutes(
       codeVerifier: body.codeVerifier,
       machineFingerprint: body.machineFingerprint,
       grantToken: body.grantToken,
+      issuerBaseUrl: config.apiBaseUrl,
     });
     if (!result.success) {
       return errorResponse(

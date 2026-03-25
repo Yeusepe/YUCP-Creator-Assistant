@@ -35,7 +35,17 @@ import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import { internalAction, internalMutation, internalQuery } from './_generated/server';
 import { BILLING_CAPABILITY_KEYS } from './lib/billingCapabilities';
-import { RELEASE_ARTIFACT_KEYS, RELEASE_CHANNELS, RELEASE_PLATFORMS } from './lib/releaseArtifactKeys';
+import {
+  decryptProtectedBlobContentKey,
+  encryptProtectedBlobContentKey,
+} from './lib/protectedAssetKeyCrypto';
+import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
+import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
+import {
+  RELEASE_ARTIFACT_KEYS,
+  RELEASE_CHANNELS,
+  RELEASE_PLATFORMS,
+} from './lib/releaseArtifactKeys';
 import {
   getPublicKeyFromPrivate,
   type LicenseClaims,
@@ -50,11 +60,13 @@ const PROTECTED_UNLOCK_TTL_SECONDS = 30 * 24 * 60 * 60;
 const WATERMARK_ASSET_PATH_MAX_LENGTH = 512;
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
-const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_\-]{16,256}$/i;
+const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
 const PROTECTED_ASSET_REGISTRATION = v.object({
   protectedAssetId: v.string(),
-  wrappedContentKey: v.string(),
+  unlockMode: v.union(v.literal('wrapped_content_key'), v.literal('content_key_b64')),
+  wrappedContentKey: v.optional(v.string()),
+  contentKeyBase64: v.optional(v.string()),
   displayName: v.optional(v.string()),
 });
 
@@ -473,14 +485,14 @@ export const verifyLicenseProof = internalAction({
         provider: args.provider,
       });
 
-      if (args.provider === 'gumroad' && conn?.credentials['oauth_access_token']) {
-        const token = await decryptCredential(conn.credentials['oauth_access_token']);
+      if (args.provider === 'gumroad' && conn?.credentials.oauth_access_token) {
+        const token = await decryptCredential(conn.credentials.oauth_access_token);
         if (token) {
           verifyResult = await verifyGumroadLicense(args.licenseKey, args.productPermalink, token);
         }
       } else if (args.provider === 'jinxxy') {
-        if (conn?.credentials['api_key']) {
-          const key = await decryptCredential(conn.credentials['api_key']);
+        if (conn?.credentials.api_key) {
+          const key = await decryptCredential(conn.credentials.api_key);
           if (key) {
             verifyResult = await verifyJinxxyLicense(args.licenseKey, args.productPermalink, key);
           }
@@ -678,9 +690,20 @@ export const upsertProtectedAssets = internalMutation({
       if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
         throw new ConvexError(`Invalid protectedAssetId format: ${asset.protectedAssetId}`);
       }
-      if (!asset.wrappedContentKey) {
-        throw new ConvexError('wrappedContentKey is required');
+      if (asset.unlockMode === 'wrapped_content_key') {
+        if (!asset.wrappedContentKey) {
+          throw new ConvexError('wrappedContentKey is required for wrapped_content_key assets');
+        }
+      } else if (asset.unlockMode === 'content_key_b64') {
+        if (!asset.contentKeyBase64) {
+          throw new ConvexError('contentKeyBase64 is required for content_key_b64 assets');
+        }
       }
+
+      const encryptedContentKey =
+        asset.unlockMode === 'content_key_b64' && asset.contentKeyBase64
+          ? await encryptProtectedBlobContentKey(asset.contentKeyBase64)
+          : undefined;
 
       const existing = await ctx.db
         .query('protected_assets')
@@ -691,7 +714,10 @@ export const upsertProtectedAssets = internalMutation({
 
       if (existing) {
         await ctx.db.patch(existing._id, {
-          wrappedContentKey: asset.wrappedContentKey,
+          unlockMode: asset.unlockMode,
+          wrappedContentKey:
+            asset.unlockMode === 'wrapped_content_key' ? asset.wrappedContentKey : undefined,
+          encryptedContentKey,
           displayName: asset.displayName,
           contentHash: args.contentHash,
           packageVersion: args.packageVersion,
@@ -704,7 +730,10 @@ export const upsertProtectedAssets = internalMutation({
         await ctx.db.insert('protected_assets', {
           packageId: args.packageId,
           protectedAssetId: asset.protectedAssetId,
-          wrappedContentKey: asset.wrappedContentKey,
+          unlockMode: asset.unlockMode,
+          wrappedContentKey:
+            asset.unlockMode === 'wrapped_content_key' ? asset.wrappedContentKey : undefined,
+          encryptedContentKey,
           displayName: asset.displayName,
           contentHash: args.contentHash,
           packageVersion: args.packageVersion,
@@ -728,7 +757,9 @@ export const getProtectedAsset = internalQuery({
     v.null(),
     v.object({
       _id: v.id('protected_assets'),
-      wrappedContentKey: v.string(),
+      unlockMode: v.union(v.literal('wrapped_content_key'), v.literal('content_key_b64')),
+      wrappedContentKey: v.optional(v.string()),
+      encryptedContentKey: v.optional(v.string()),
       yucpUserId: v.string(),
     })
   ),
@@ -740,9 +771,12 @@ export const getProtectedAsset = internalQuery({
       )
       .first();
     if (!row) return null;
+    const unlockMode = resolveProtectedAssetUnlockMode(row);
     return {
       _id: row._id,
+      unlockMode,
       wrappedContentKey: row.wrappedContentKey,
+      encryptedContentKey: row.encryptedContentKey,
       yucpUserId: row.yucpUserId,
     };
   },
@@ -873,6 +907,7 @@ export const verifyLicense = internalAction({
     machineFingerprint: v.string(),
     nonce: v.string(),
     timestamp: v.number(),
+    issuerBaseUrl: v.string(),
   },
   returns: v.object({
     success: v.boolean(),
@@ -924,15 +959,15 @@ export const verifyLicense = internalAction({
         provider: args.provider,
       });
 
-      if (args.provider === 'gumroad' && conn?.credentials['oauth_access_token']) {
-        const token = await decryptCredential(conn.credentials['oauth_access_token']);
+      if (args.provider === 'gumroad' && conn?.credentials.oauth_access_token) {
+        const token = await decryptCredential(conn.credentials.oauth_access_token);
         if (token) {
           verifyResult = await verifyGumroadLicense(args.licenseKey, args.productPermalink, token);
         }
       } else if (args.provider === 'jinxxy') {
         // Try primary connection first
-        if (conn?.credentials['api_key']) {
-          const key = await decryptCredential(conn.credentials['api_key']);
+        if (conn?.credentials.api_key) {
+          const key = await decryptCredential(conn.credentials.api_key);
           if (key) {
             verifyResult = await verifyJinxxyLicense(args.licenseKey, args.productPermalink, key);
           }
@@ -967,7 +1002,7 @@ export const verifyLicense = internalAction({
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
     if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
 
-    const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '') ?? '';
+    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
     const iat = nowSeconds;
     const exp = iat + TOKEN_TTL_SECONDS;
 
@@ -978,7 +1013,7 @@ export const verifyLicense = internalAction({
     await ctx.runMutation(internal.yucpLicenses.checkAndConsumeNonce, { nonce: jti });
 
     const claims: LicenseClaims = {
-      iss: `${siteUrl}/api/auth`,
+      iss: issuer,
       aud: 'yucp-license-gate',
       sub: licenseKeyHash,
       jti: jti,
@@ -1007,6 +1042,7 @@ export const issueProtectedUnlock = internalAction({
     machineFingerprint: v.string(),
     projectId: v.string(),
     licenseToken: v.string(),
+    issuerBaseUrl: v.string(),
   },
   returns: v.object({
     success: v.boolean(),
@@ -1034,13 +1070,10 @@ export const issueProtectedUnlock = internalAction({
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
     if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
 
-    const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '') ?? '';
-    const rootPublicKey = process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
-    const licenseClaims = await verifyLicenseJwt(
-      args.licenseToken,
-      rootPublicKey,
-      `${siteUrl}/api/auth`
-    );
+    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
+    const rootPublicKey =
+      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
+    const licenseClaims = await verifyLicenseJwt(args.licenseToken, rootPublicKey, issuer);
 
     if (!licenseClaims) {
       return { success: false, error: 'License token is invalid or expired' };
@@ -1078,8 +1111,12 @@ export const issueProtectedUnlock = internalAction({
     const nowSeconds = Math.floor(Date.now() / 1000);
     const exp = nowSeconds + PROTECTED_UNLOCK_TTL_SECONDS;
     const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
+    const contentKeyB64 =
+      protectedAsset.unlockMode === 'content_key_b64' && protectedAsset.encryptedContentKey
+        ? await decryptProtectedBlobContentKey(protectedAsset.encryptedContentKey)
+        : undefined;
     const claims: ProtectedUnlockClaims = {
-      iss: `${siteUrl}/api/auth`,
+      iss: issuer,
       aud: 'yucp-protected-unlock',
       sub: licenseClaims.sub,
       jti: crypto.randomUUID(),
@@ -1087,7 +1124,12 @@ export const issueProtectedUnlock = internalAction({
       protected_asset_id: args.protectedAssetId,
       machine_fingerprint: args.machineFingerprint,
       project_id: args.projectId,
-      wrapped_content_key: protectedAsset.wrappedContentKey,
+      unlock_mode: protectedAsset.unlockMode,
+      wrapped_content_key:
+        protectedAsset.unlockMode === 'wrapped_content_key'
+          ? protectedAsset.wrappedContentKey
+          : undefined,
+      content_key_b64: protectedAsset.unlockMode === 'content_key_b64' ? contentKeyB64 : undefined,
       iat: nowSeconds,
       exp,
     };
@@ -1104,6 +1146,7 @@ export const issueCouplingJob = internalAction({
     projectId: v.string(),
     licenseToken: v.string(),
     assetPaths: v.array(v.string()),
+    issuerBaseUrl: v.string(),
   },
   returns: v.object({
     success: v.boolean(),
@@ -1116,6 +1159,7 @@ export const issueCouplingJob = internalAction({
         })
       )
     ),
+    skipReason: v.optional(v.string()),
     error: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
@@ -1141,13 +1185,10 @@ export const issueCouplingJob = internalAction({
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
     if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
 
-    const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '') ?? '';
-    const rootPublicKey = process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
-    const licenseClaims = await verifyLicenseJwt(
-      args.licenseToken,
-      rootPublicKey,
-      `${siteUrl}/api/auth`
-    );
+    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
+    const rootPublicKey =
+      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
+    const licenseClaims = await verifyLicenseJwt(args.licenseToken, rootPublicKey, issuer);
 
     if (!licenseClaims) {
       return { success: false, error: 'License token is invalid or expired' };
@@ -1166,14 +1207,19 @@ export const issueCouplingJob = internalAction({
       return { success: false, error: 'Package registration not found' };
     }
 
-    const creatorCanTrace = await ctx.runQuery(internal.certificateBilling.hasCapabilityForAuthUser, {
-      authUserId: packageReg.yucpUserId,
-      capabilityKey: BILLING_CAPABILITY_KEYS.couplingTraceability,
-    });
+    const creatorCanTrace = await ctx.runQuery(
+      internal.certificateBilling.hasCapabilityForAuthUser,
+      {
+        authUserId: packageReg.yucpUserId,
+        capabilityKey: BILLING_CAPABILITY_KEYS.couplingTraceability,
+      }
+    );
     if (!creatorCanTrace) {
       return {
-        success: false,
-        error: 'The creator plan does not allow coupling traceability for this PackageID',
+        success: true,
+        subject: licenseClaims.sub,
+        jobs: [],
+        skipReason: 'capability_disabled',
       };
     }
 

@@ -257,7 +257,9 @@ export interface ProtectedUnlockClaims {
   protected_asset_id: string;
   machine_fingerprint: string;
   project_id: string;
-  wrapped_content_key: string;
+  unlock_mode: 'wrapped_content_key' | 'content_key_b64';
+  wrapped_content_key?: string;
+  content_key_b64?: string;
   iat: number;
   exp: number;
 }

@@ -1,4 +1,5 @@
 export interface PublicV2Config {
+  apiBaseUrl: string;
   convexUrl: string;
   convexApiSecret: string;
   convexSiteUrl: string;

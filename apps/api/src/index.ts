@@ -276,6 +276,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   });
 
   publicV2Routes = createPublicV2Routes({
+    apiBaseUrl: publicBaseUrl,
     convexUrl,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,

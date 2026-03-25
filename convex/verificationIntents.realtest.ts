@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { api } from './_generated/api';
+import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { makeTestConvex, seedSubject } from './testHelpers';
 
@@ -27,9 +27,34 @@ async function seedExternalAccount(
   });
 }
 
+async function computeCodeChallenge(codeVerifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier));
+  return Buffer.from(new Uint8Array(digest))
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function decodeJwtPayload(jwt: string): Record<string, unknown> {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error('JWT must contain exactly three parts');
+  }
+
+  const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=');
+  return JSON.parse(Buffer.from(padded, 'base64').toString('utf-8')) as Record<string, unknown>;
+}
+
 describe('verification intents buyer provider links', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = API_SECRET;
+    process.env.CONVEX_SITE_URL = 'https://rare-squid-409.convex.site';
+    process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
+    process.env.YUCP_ROOT_PRIVATE_KEY = Buffer.from(
+      crypto.getRandomValues(new Uint8Array(32))
+    ).toString('base64');
   });
 
   it('verifies a buyer_provider_link requirement when the buyer has an active link', async () => {
@@ -183,5 +208,85 @@ describe('verification intents buyer provider links', () => {
       authUserId,
     });
     expect(linksAfterRevoke).toHaveLength(0);
+  });
+});
+
+describe('verification intents redemption issuer', () => {
+  beforeEach(() => {
+    process.env.CONVEX_API_SECRET = API_SECRET;
+    process.env.CONVEX_SITE_URL = 'https://rare-squid-409.convex.site';
+    process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
+    process.env.YUCP_ROOT_PRIVATE_KEY = Buffer.from(
+      crypto.getRandomValues(new Uint8Array(32))
+    ).toString('base64');
+  });
+
+  it('mints the license token for the caller public origin instead of the convex site origin', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-redemption-issuer';
+    const codeVerifier = 'code-verifier-redemption-issuer';
+    const codeChallenge = await computeCodeChallenge(codeVerifier);
+    const publicIssuerBaseUrl = 'https://dsktp.tailc472f7.ts.net';
+
+    await seedSubject(t, {
+      authUserId,
+      primaryDiscordUserId: 'discord-redemption-issuer',
+    });
+
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId,
+      packageId: 'pkg-redemption-issuer',
+      packageName: 'Issuer Test Package',
+      machineFingerprint: 'machine-redemption-issuer',
+      codeChallenge,
+      returnUrl: 'http://127.0.0.1:51515/callback',
+      requirements: [
+        {
+          methodKey: 'vrchat-link',
+          providerKey: 'vrchat',
+          kind: 'buyer_provider_link',
+          title: 'Linked VRChat buyer account',
+        },
+      ],
+    });
+
+    await t.mutation(internal.verificationIntents.markIntentVerified, {
+      intentId,
+      methodKey: 'vrchat-link',
+    });
+
+    const intent = await t.action(api.verificationIntents.getVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId,
+      intentId,
+    });
+
+    const grantToken = intent?.grantToken;
+    expect(grantToken).toBeTruthy();
+    if (!grantToken) {
+      throw new Error('Expected verification intent grant token');
+    }
+
+    const redemption = await t.action(api.verificationIntents.redeemVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId,
+      intentId,
+      codeVerifier,
+      machineFingerprint: 'machine-redemption-issuer',
+      grantToken,
+      issuerBaseUrl: publicIssuerBaseUrl,
+    });
+
+    expect(redemption.success).toBe(true);
+    const redemptionToken = redemption.token;
+    expect(redemptionToken).toBeTruthy();
+    if (!redemptionToken) {
+      throw new Error('Expected redeemed verification token');
+    }
+
+    const payload = decodeJwtPayload(redemptionToken);
+    expect(payload.iss).toBe(`${publicIssuerBaseUrl}/api/auth`);
+    expect(payload.iss).not.toBe('https://rare-squid-409.convex.site/api/auth');
   });
 });

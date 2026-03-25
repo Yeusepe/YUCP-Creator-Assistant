@@ -5,11 +5,13 @@
  * - npx convex run migrations:purgeGuildLinkVerifyPromptMessages
  * - npx convex run migrations:purgeLegacyOutboxVerifyPromptRefreshJobs
  * - npx convex run migrations:purgeRoleRuleSourceGuildNames
+ * - npx convex run migrations:backfillProtectedAssetUnlockModes
  * Re-run until the relevant migration returns 0 remaining records.
  */
 
 import { v } from 'convex/values';
 import { internalMutation } from './_generated/server';
+import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
 
 type LegacyMigrationDoc = Record<string, unknown>;
 
@@ -158,6 +160,28 @@ export const purgeRoleRuleSourceGuildNames = internalMutation({
         sourceGuildName: undefined,
       });
       updated++;
+    }
+
+    return { updated };
+  },
+});
+
+/**
+ * Backfill protected_assets.unlockMode for rows created before the unlock-mode split.
+ * Re-run until it returns { updated: 0 }.
+ */
+export const backfillProtectedAssetUnlockModes = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const docs = await ctx.db.query('protected_assets').collect();
+
+    let updated = 0;
+    for (const doc of docs) {
+      const unlockMode = resolveProtectedAssetUnlockMode(doc);
+      if (doc.unlockMode !== unlockMode) {
+        await ctx.db.patch(doc._id, { unlockMode });
+        updated++;
+      }
     }
 
     return { updated };

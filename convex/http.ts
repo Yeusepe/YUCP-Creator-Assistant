@@ -71,18 +71,19 @@ import {
   getBetterAuthPage,
 } from './lib/betterAuthAdapter';
 import { isSigningRequestTimestampFresh, verifySigningProof } from './lib/certificateSigning';
+import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import { type PublicProductRecord } from './lib/publicProducts';
 import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
   base64ToBytes,
   type CertEnvelope,
+  type CouplingRuntimeClaims,
   getPublicKeyFromPrivate,
   type LicenseClaims,
-  type CouplingRuntimeClaims,
   type PackageCertificateData,
-  signPackageCertificateData,
   signCouplingRuntimeJwt,
   signLicenseJwt,
+  signPackageCertificateData,
   verifyCertEnvelope,
   verifyCouplingRuntimeJwt,
 } from './lib/yucpCrypto';
@@ -1063,7 +1064,9 @@ http.route({
       requestSignature?: string;
       protectedAssets?: Array<{
         protectedAssetId: string;
-        wrappedContentKey: string;
+        unlockMode: 'wrapped_content_key' | 'content_key_b64';
+        wrappedContentKey?: string;
+        contentKeyBase64?: string;
         displayName?: string;
       }>;
     };
@@ -1170,8 +1173,16 @@ http.route({
         if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
           return errorResponse('Invalid protectedAssetId format', 400);
         }
-        if (!asset.wrappedContentKey) {
-          return errorResponse('wrappedContentKey is required for protected assets', 400);
+        if (asset.unlockMode === 'wrapped_content_key') {
+          if (!asset.wrappedContentKey) {
+            return errorResponse('wrappedContentKey is required for wrapped protected assets', 400);
+          }
+        } else if (asset.unlockMode === 'content_key_b64') {
+          if (!asset.contentKeyBase64) {
+            return errorResponse('contentKeyBase64 is required for blob protected assets', 400);
+          }
+        } else {
+          return errorResponse('Invalid protected asset unlockMode', 400);
         }
       }
 
@@ -1350,6 +1361,8 @@ http.route({
       return errorResponse('Too many verification attempts. Please wait before retrying.', 429);
     }
 
+    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
     const result = await ctx.runAction(internal.yucpLicenses.verifyLicense, {
       packageId,
       licenseKey,
@@ -1358,6 +1371,7 @@ http.route({
       machineFingerprint,
       nonce,
       timestamp,
+      issuerBaseUrl: publicIssuerBaseUrl,
     });
 
     if (!result.success) {
@@ -1385,6 +1399,9 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const siteUrl = process.env.CONVEX_SITE_URL;
     if (!siteUrl) return errorResponse('Service not configured', 503);
+    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!siteUrl || !publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
+    const publicAuthIssuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
 
     const authHeader = request.headers.get('Authorization');
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -1491,7 +1508,7 @@ http.route({
     const exp = iat + TOKEN_TTL_SECONDS;
 
     const claims: LicenseClaims = {
-      iss: `${siteUrl.replace(/\/$/, '')}/api/auth`,
+      iss: publicAuthIssuer,
       aud: 'yucp-license-gate',
       sub: await sha256HexHttp(discordAccount.accountId),
       jti: nonce,
@@ -1546,12 +1563,15 @@ http.route({
       return errorResponse('Invalid projectId format', 400);
     }
 
+    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
     const result = await ctx.runAction(internal.yucpLicenses.issueProtectedUnlock, {
       packageId,
       protectedAssetId,
       machineFingerprint,
       projectId,
       licenseToken,
+      issuerBaseUrl: publicIssuerBaseUrl,
     });
 
     if (!result.success) {
@@ -1585,7 +1605,13 @@ http.route({
     }
 
     const { packageId, projectId, machineFingerprint, licenseToken, assetPaths } = body ?? {};
-    if (!packageId || !projectId || !machineFingerprint || !licenseToken || !Array.isArray(assetPaths)) {
+    if (
+      !packageId ||
+      !projectId ||
+      !machineFingerprint ||
+      !licenseToken ||
+      !Array.isArray(assetPaths)
+    ) {
       return errorResponse(
         'packageId, projectId, machineFingerprint, licenseToken, and assetPaths are required',
         400
@@ -1596,26 +1622,35 @@ http.route({
       return errorResponse('Invalid projectId format', 400);
     }
 
+    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
     const issued = await ctx.runAction(internal.yucpLicenses.issueCouplingJob, {
       packageId,
       projectId,
       machineFingerprint,
       licenseToken,
       assetPaths,
+      issuerBaseUrl: publicIssuerBaseUrl,
     });
 
     if (!issued.success) {
       return jsonResponse({ error: issued.error }, 422);
     }
 
-    const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '');
-    if (!siteUrl) {
-      return errorResponse('Service not configured', 503);
+    if (!issued.jobs || issued.jobs.length === 0) {
+      return jsonResponse({
+        success: true,
+        files: [],
+        skipReason: issued.skipReason,
+      });
     }
 
     const artifact = await ctx.runAction(internal.couplingRuntime.getActiveRuntimeManifestData, {});
     if (!artifact.success) {
-      return errorResponse(artifact.error ?? 'Coupling runtime is not configured on the server', 503);
+      return errorResponse(
+        artifact.error ?? 'Coupling runtime is not configured on the server',
+        503
+      );
     }
 
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
@@ -1626,8 +1661,9 @@ http.route({
     const nowSeconds = Math.floor(Date.now() / 1000);
     const exp = nowSeconds + WATERMARK_RUNTIME_TTL_SECONDS;
     const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
+    const publicAuthIssuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
     const claims: CouplingRuntimeClaims = {
-      iss: `${siteUrl}/api/auth`,
+      iss: publicAuthIssuer,
       aud: 'yucp-coupling-runtime',
       sub: issued.subject ?? '',
       jti: crypto.randomUUID(),
@@ -1660,6 +1696,7 @@ http.route({
       runtimeToken,
       expiresAt: exp,
       files: issued.jobs ?? [],
+      skipReason: issued.skipReason,
     });
   }),
 });
@@ -1668,12 +1705,8 @@ http.route({
   method: 'GET',
   path: '/v1/licenses/coupling-runtime',
   handler: httpAction(async (ctx, request) => {
-    const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '');
-    if (!siteUrl) {
-      return errorResponse('Service not configured', 503);
-    }
-
-    const token = new URL(request.url).searchParams.get('token');
+    const requestUrl = new URL(request.url);
+    const token = requestUrl.searchParams.get('token');
     if (!token) {
       return errorResponse('token query parameter is required', 400);
     }
@@ -1684,7 +1717,15 @@ http.route({
     }
     const rootPublicKey =
       process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
-    const claims = await verifyCouplingRuntimeJwt(token, rootPublicKey, `${siteUrl}/api/auth`);
+    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!publicIssuerBaseUrl) {
+      return errorResponse('Service not configured', 503);
+    }
+    const claims = await verifyCouplingRuntimeJwt(
+      token,
+      rootPublicKey,
+      buildPublicAuthIssuer(publicIssuerBaseUrl)
+    );
     if (!claims) {
       return errorResponse('Runtime token is invalid or expired', 401);
     }
@@ -1715,7 +1756,7 @@ http.route({
       status: 200,
       headers: {
         'Content-Type': artifact.contentType,
-        'Content-Disposition': 'attachment; filename=\"data.bin\"',
+        'Content-Disposition': 'attachment; filename="data.bin"',
         'Cache-Control': 'no-store, max-age=0',
         'X-YUCP-Runtime-Ciphertext-Sha256': artifact.ciphertextSha256,
       },

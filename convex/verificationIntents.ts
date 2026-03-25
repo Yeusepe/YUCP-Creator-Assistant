@@ -6,6 +6,7 @@ import type { ActionCtx } from './_generated/server';
 import { action, internalMutation, mutation, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
+import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
 import { signLicenseJwt } from './lib/yucpCrypto';
 
 ed.etc.sha512Async = async (...messages: Uint8Array[]) => {
@@ -1015,6 +1016,7 @@ export const redeemVerificationIntent = action({
     codeVerifier: v.string(),
     machineFingerprint: v.string(),
     grantToken: v.string(),
+    issuerBaseUrl: v.string(),
   },
   returns: v.object({
     success: v.boolean(),
@@ -1081,13 +1083,13 @@ export const redeemVerificationIntent = action({
       return { success: false, error: 'Verification intent has no resolved verification method' };
     }
 
-    const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '') ?? '';
+    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
     const nowSeconds = Math.floor(Date.now() / 1000);
     const exp = nowSeconds + 3600;
     const subHash = await sha256Hex(`${intent._id}:${method.methodKey}:${args.authUserId}`);
     const token = await signLicenseJwt(
       {
-        iss: `${siteUrl}/api/auth`,
+        iss: issuer,
         aud: LICENSE_AUDIENCE,
         sub: subHash,
         jti: grantClaims.jti,

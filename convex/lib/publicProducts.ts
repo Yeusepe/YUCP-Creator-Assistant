@@ -1,3 +1,5 @@
+import { resolveConfiguredApiBaseUrl } from '../../packages/shared/src/publicAuthority';
+
 export type PublicProductProviderRef = {
   provider: string;
   providerProductRef: string;
@@ -38,20 +40,7 @@ let hasWarnedAboutMissingApiBaseUrl = false;
 export function resolveLiveProductsApiBaseUrl(
   env: Record<string, string | undefined> = process.env
 ): string {
-  const configured = env.API_BASE_URL?.trim();
-  if (!configured) {
-    return '';
-  }
-
-  try {
-    const url = new URL(configured);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return '';
-    }
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    return '';
-  }
+  return resolveConfiguredApiBaseUrl(env);
 }
 
 export async function fetchLiveProviderProductsForSources({

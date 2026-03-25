@@ -140,6 +140,9 @@ function OAuthMethodButton({
     onSuccess: invalidate,
   });
 
+  // Keep the button loading until the intent refetch confirms verification (Bug 6)
+  const isVerifyLoading = providerLinkMut.isPending || (providerLinkMut.isSuccess && !isVerified);
+
   const connectMut = useMutation({
     mutationFn: async () => {
       const returnUrl = `/verify/purchase?intent=${encodeURIComponent(intentId)}&connected=${encodeURIComponent(requirement.providerKey)}`;
@@ -153,7 +156,7 @@ function OAuthMethodButton({
   const iconSrc = provider ? getProviderIconPath(provider) : null;
   const brandColor = provider?.color ?? null;
 
-  // Verified state — green row
+  // Verified state ΓÇö green row
   if (isVerified) {
     return (
       <div className="vp-oauth-row vp-oauth-row--verified">
@@ -183,7 +186,7 @@ function OAuthMethodButton({
     );
   }
 
-  // Connected — show account info + Verify button
+  // Connected ΓÇö show account info + Verify button
   if (isConnected) {
     return (
       <div className="vp-oauth-row">
@@ -206,12 +209,12 @@ function OAuthMethodButton({
         <div className="vp-oauth-row-right">
           <button
             type="button"
-            className={`vp-oauth-verify-btn${providerLinkMut.isPending ? ' btn-loading' : ''}`}
+            className={`vp-oauth-verify-btn${isVerifyLoading ? ' btn-loading' : ''}`}
             onClick={() => providerLinkMut.mutate()}
-            disabled={providerLinkMut.isPending}
+            disabled={isVerifyLoading}
             style={brandColor ? ({ '--brand': brandColor } as React.CSSProperties) : undefined}
           >
-            {providerLinkMut.isPending ? (
+            {isVerifyLoading ? (
               <>
                 <span className="btn-loading-spinner" aria-hidden="true" />
                 Verifying...
@@ -235,57 +238,52 @@ function OAuthMethodButton({
     return <div className="vp-oauth-btn-skeleton" aria-hidden="true" />;
   }
 
-  // Not connected — show branded Sign in button
+  // Not connected — show row layout matching the connected/verify state
   const isPending = connectMut.isPending;
-  const buttonLabel =
-    expiredLinks.length > 0
-      ? `Reconnect ${requirement.providerLabel}`
-      : `Sign in with ${requirement.providerLabel}`;
+  const ctaLabel = expiredLinks.length > 0 ? 'Reconnect' : 'Sign in';
 
   return (
-    <div className="vp-oauth-signin-wrap">
-      <button
-        type="button"
-        className={`vp-oauth-signin-btn${isPending ? ' btn-loading' : ''}`}
-        onClick={() => connectMut.mutate()}
-        disabled={isPending}
-        style={
-          brandColor
-            ? ({
-                '--brand': brandColor,
-                '--brand-dark': brandColor,
-              } as React.CSSProperties)
-            : undefined
-        }
-      >
-        {isPending ? (
-          <>
-            <span className="btn-loading-spinner vp-oauth-signin-spinner" aria-hidden="true" />
-            <span>{expiredLinks.length > 0 ? 'Reconnecting...' : 'Connecting...'}</span>
-          </>
-        ) : (
-          <>
-            {iconSrc ? (
-              <img src={iconSrc} alt="" className="vp-oauth-signin-icon" aria-hidden="true" />
-            ) : null}
-            <span>{buttonLabel}</span>
-          </>
-        )}
-      </button>
-      {expiredAccountsForDisplay.length > 0 ? (
-        <div className="vp-oauth-account-list" style={{ textAlign: 'center', marginTop: '0.5rem' }}>
-          <span className="vp-oauth-account">
-            Previously linked {expiredAccountsForDisplay.length > 1 ? 'accounts' : 'account'}
-          </span>
-          {expiredAccountsForDisplay.map((account) => (
-            <span key={account.id} className="vp-oauth-account">
-              @{account.label}
-            </span>
-          ))}
+    <div className="vp-oauth-row">
+      <div className="vp-oauth-row-left">
+        {iconSrc ? (
+          <img src={iconSrc} alt="" className="vp-oauth-icon" aria-hidden="true" />
+        ) : null}
+        <div className="vp-oauth-row-text">
+          <span className="vp-oauth-label">{requirement.providerLabel}</span>
+          {expiredAccountsForDisplay.length > 0 ? (
+            <>
+              <span className="vp-oauth-account">
+                Previously linked {expiredAccountsForDisplay.length > 1 ? 'accounts' : 'account'}
+              </span>
+              {expiredAccountsForDisplay.map((account) => (
+                <span key={account.id} className="vp-oauth-account">
+                  @{account.label}
+                </span>
+              ))}
+            </>
+          ) : null}
         </div>
-      ) : null}
+      </div>
+      <div className="vp-oauth-row-right">
+        <button
+          type="button"
+          className={`vp-oauth-verify-btn${isPending ? ' btn-loading' : ''}`}
+          onClick={() => connectMut.mutate()}
+          disabled={isPending}
+          style={brandColor ? ({ '--brand': brandColor } as React.CSSProperties) : undefined}
+        >
+          {isPending ? (
+            <>
+              <span className="btn-loading-spinner" aria-hidden="true" />
+              {expiredLinks.length > 0 ? 'Reconnecting...' : 'Connecting...'}
+            </>
+          ) : (
+            ctaLabel
+          )}
+        </button>
+      </div>
       {connectMut.isError ? (
-        <p className="vp-method-error" style={{ textAlign: 'center', marginTop: '0.4rem' }}>
+        <p className="vp-method-error vp-method-error--full">
           Could not connect — please try again
         </p>
       ) : null}
@@ -468,12 +466,14 @@ function VerifyPurchasePage() {
   const [isVisible, setIsVisible] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [redirectCountdown, setRedirectCountdown] = useState(5);
-  const [successHandled, setSuccessHandled] = useState(false);
+  const successHandledRef = useRef(false);
 
   const [entitlementCheckState, setEntitlementCheckState] = useState<'idle' | 'checking' | 'done'>(
     'idle'
   );
-  const [oauthReturnState, setOauthReturnState] = useState<'idle' | 'checking' | 'done'>('idle');
+  const [oauthReturnState, setOauthReturnState] = useState<'idle' | 'checking' | 'done'>(
+    () => (justConnectedProvider ? 'checking' : 'idle')
+  );
 
   const queryClient = useQueryClient();
   const { signOut } = useAuth();
@@ -566,8 +566,8 @@ function VerifyPurchasePage() {
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!intent || intent.status !== 'verified' || successHandled || !returnToUrl) return;
-    setSuccessHandled(true);
+    if (!intent || intent.status !== 'verified' || successHandledRef.current || !returnToUrl) return;
+    successHandledRef.current = true;
     setRedirectCountdown(5);
 
     countdownRef.current = setInterval(() => {
@@ -584,7 +584,7 @@ function VerifyPurchasePage() {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
-  }, [intent, returnToUrl, successHandled]);
+  }, [intent, returnToUrl]);
 
   const providersByKey = useMemo(
     () => new Map((providersQuery.data ?? []).map((p) => [p.id, p])),
@@ -733,7 +733,7 @@ function VerifyPurchasePage() {
             </h1>
 
             <p className="vp-success-subtitle fade-up" style={{ animationDelay: '0.45s' }}>
-              {intent.packageName || intent.packageId} — purchase confirmed. Return to Unity to
+              {intent.packageName || intent.packageId} ΓÇö purchase confirmed. Return to Unity to
               finish installing.
             </p>
 

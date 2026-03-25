@@ -37,6 +37,7 @@ mock.module('../../../../../convex/_generated/api', () => ({
 const { handleMeRoutes } = await import('./me');
 
 const config = {
+  apiBaseUrl: 'https://api.test',
   convexUrl: 'https://test.convex.cloud',
   convexApiSecret: 'test-secret',
   convexSiteUrl: 'https://test.convex.site',

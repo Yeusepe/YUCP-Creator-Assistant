@@ -28,6 +28,7 @@ mock.module('./auth', () => ({
 const { handleCollaboratorsRoutes } = await import('./collaborators');
 
 const config = {
+  apiBaseUrl: 'https://api.test',
   convexUrl: 'https://test.convex.cloud',
   convexApiSecret: 'test-secret',
   convexSiteUrl: 'https://test.convex.site',

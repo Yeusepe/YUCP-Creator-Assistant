@@ -30,6 +30,7 @@ const { RouteTimingCollector } = await import('../../lib/requestTiming');
 const VALID_API_KEY = `ypsk_${'a'.repeat(48)}`;
 
 const config = {
+  apiBaseUrl: 'https://api.test',
   convexUrl: 'https://test.convex.cloud',
   convexApiSecret: 'test-secret',
   convexSiteUrl: 'https://test.convex.site',

@@ -1868,7 +1868,9 @@ const used_nonces = defineTable({
 const protected_assets = defineTable({
   packageId: v.string(),
   protectedAssetId: v.string(),
-  wrappedContentKey: v.string(),
+  unlockMode: v.optional(v.union(v.literal('wrapped_content_key'), v.literal('content_key_b64'))),
+  wrappedContentKey: v.optional(v.string()),
+  encryptedContentKey: v.optional(v.string()),
   displayName: v.optional(v.string()),
   contentHash: v.string(),
   packageVersion: v.optional(v.string()),
