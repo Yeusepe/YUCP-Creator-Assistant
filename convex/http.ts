@@ -73,6 +73,7 @@ import {
 import { isSigningRequestTimestampFresh, verifySigningProof } from './lib/certificateSigning';
 import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import { type PublicProductRecord } from './lib/publicProducts';
+import { decryptArtifactEnvelope, sha256HexBytes } from './lib/releaseArtifactEnvelope';
 import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
   base64ToBytes,
@@ -1675,7 +1676,7 @@ http.route({
       artifact_platform: artifact.platform ?? '',
       artifact_version: artifact.version ?? '',
       metadata_version: artifact.metadataVersion ?? 0,
-      delivery_name: artifact.deliveryName ?? 'runtime.bin',
+      delivery_name: artifact.deliveryName ?? 'yucp_watermark.dll',
       content_type: artifact.contentType ?? 'application/octet-stream',
       envelope_cipher: artifact.envelopeCipher ?? '',
       envelope_iv_b64: artifact.envelopeIvBase64 ?? '',
@@ -1694,6 +1695,7 @@ http.route({
     return jsonResponse({
       success: true,
       runtimeToken,
+      runtimeSha256: artifact.plaintextSha256,
       expiresAt: exp,
       files: issued.jobs ?? [],
       skipReason: issued.skipReason,
@@ -1752,12 +1754,34 @@ http.route({
       return errorResponse('Coupling runtime artifact is missing from storage', 503);
     }
 
-    return new Response(blob, {
+    if (!claims.envelope_key_b64 || !claims.envelope_iv_b64) {
+      return errorResponse('Runtime token is missing decryption metadata', 401);
+    }
+
+    let plaintextRuntime: Uint8Array;
+    try {
+      plaintextRuntime = await decryptArtifactEnvelope(
+        new Uint8Array(await blob.arrayBuffer()),
+        base64ToBytes(claims.envelope_key_b64),
+        claims.envelope_iv_b64
+      );
+    } catch {
+      return errorResponse('Coupling runtime artifact decryption failed', 503);
+    }
+
+    const plaintextSha256 = await sha256HexBytes(plaintextRuntime);
+    if (plaintextSha256 !== artifact.plaintextSha256) {
+      return errorResponse('Decrypted coupling runtime failed integrity verification', 503);
+    }
+
+    const responseBytes = Uint8Array.from(plaintextRuntime);
+    return new Response(responseBytes.buffer, {
       status: 200,
       headers: {
         'Content-Type': artifact.contentType,
-        'Content-Disposition': 'attachment; filename="data.bin"',
+        'Content-Disposition': `attachment; filename="${artifact.deliveryName}"`,
         'Cache-Control': 'no-store, max-age=0',
+        'X-YUCP-Runtime-Plaintext-Sha256': artifact.plaintextSha256,
         'X-YUCP-Runtime-Ciphertext-Sha256': artifact.ciphertextSha256,
       },
     });

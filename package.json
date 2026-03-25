@@ -48,6 +48,7 @@
     "dev:web:infisical": "bun run --env-file=.env.infisical --filter @yucp/web dev",
     "convex:dev": "npx convex dev",
     "convex:deploy": "npx convex deploy",
+    "convex:publish:coupling-runtime": "bun run ops/publish-coupling-runtime.ts",
     "start:api:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/api start",
     "start:bot:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/bot start",
     "start:web": "bun run --filter @yucp/web preview",

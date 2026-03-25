@@ -18,6 +18,7 @@ import type * as bindings from "../bindings.js";
 import type * as certificateBilling from "../certificateBilling.js";
 import type * as collaboratorInvites from "../collaboratorInvites.js";
 import type * as couplingRuntime from "../couplingRuntime.js";
+import type * as couplingRuntimeUpload from "../couplingRuntimeUpload.js";
 import type * as creatorEvents from "../creatorEvents.js";
 import type * as creatorProfiles from "../creatorProfiles.js";
 import type * as crons from "../crons.js";
@@ -36,6 +37,7 @@ import type * as lib_certificateBillingConfig from "../lib/certificateBillingCon
 import type * as lib_certificateBillingProjection from "../lib/certificateBillingProjection.js";
 import type * as lib_certificateCapabilityProjection from "../lib/certificateCapabilityProjection.js";
 import type * as lib_certificateSigning from "../lib/certificateSigning.js";
+import type * as lib_couplingRuntimeConfig from "../lib/couplingRuntimeConfig.js";
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
 import type * as lib_httpRateLimit from "../lib/httpRateLimit.js";
@@ -116,6 +118,7 @@ declare const fullApi: ApiFromModules<{
   certificateBilling: typeof certificateBilling;
   collaboratorInvites: typeof collaboratorInvites;
   couplingRuntime: typeof couplingRuntime;
+  couplingRuntimeUpload: typeof couplingRuntimeUpload;
   creatorEvents: typeof creatorEvents;
   creatorProfiles: typeof creatorProfiles;
   crons: typeof crons;
@@ -134,6 +137,7 @@ declare const fullApi: ApiFromModules<{
   "lib/certificateBillingProjection": typeof lib_certificateBillingProjection;
   "lib/certificateCapabilityProjection": typeof lib_certificateCapabilityProjection;
   "lib/certificateSigning": typeof lib_certificateSigning;
+  "lib/couplingRuntimeConfig": typeof lib_couplingRuntimeConfig;
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
   "lib/httpRateLimit": typeof lib_httpRateLimit;

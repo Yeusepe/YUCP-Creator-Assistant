@@ -39,6 +39,16 @@ import * as accountApi from '@/lib/account';
 import * as dashboardApi from '@/lib/dashboard';
 import { Route as VerifyPurchaseRoute } from '@/routes/verify/purchase';
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -160,5 +170,27 @@ describe('verify purchase route', () => {
 
     expect(await screen.findByText(/gumroad-main/i)).toBeInTheDocument();
     expect(await screen.findByText(/gumroad-alt/i)).toBeInTheDocument();
+  });
+
+  it('shows a loading button while linked accounts are still loading', async () => {
+    const deferredAccounts =
+      createDeferred<Awaited<ReturnType<typeof dashboardApi.listUserAccounts>>>();
+    vi.mocked(dashboardApi.listUserAccounts).mockReturnValue(deferredAccounts.promise);
+
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(accountApi.getUserVerificationIntent).toHaveBeenCalled());
+    await waitFor(() => expect(dashboardApi.listUserProviders).toHaveBeenCalled());
+    await waitFor(() => expect(dashboardApi.listUserAccounts).toHaveBeenCalled());
+
+    expect(await screen.findByRole('button', { name: /loading/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^sign in$/i })).not.toBeInTheDocument();
+
+    deferredAccounts.resolve([]);
   });
 });

@@ -73,6 +73,7 @@ interface OAuthButtonProps {
   requirement: UserVerificationIntentRequirement;
   linkedAccounts: UserAccountConnection[];
   provider: UserProvider | null;
+  accountsLoading: boolean;
   providersLoading: boolean;
   verifiedMethodKey: string | null;
   onSuccess: () => void;
@@ -87,6 +88,7 @@ function OAuthMethodButton({
   requirement,
   linkedAccounts,
   provider,
+  accountsLoading,
   providersLoading,
   verifiedMethodKey,
   onSuccess,
@@ -233,9 +235,32 @@ function OAuthMethodButton({
     );
   }
 
-  // Loading state (providers query hasn't resolved yet)
-  if (providersLoading && !provider) {
-    return <div className="vp-oauth-btn-skeleton" aria-hidden="true" />;
+  const isLinkStateLoading = accountsLoading || (providersLoading && !provider);
+
+  if (isLinkStateLoading) {
+    return (
+      <div className="vp-oauth-row">
+        <div className="vp-oauth-row-left">
+          {iconSrc ? (
+            <img src={iconSrc} alt="" className="vp-oauth-icon" aria-hidden="true" />
+          ) : null}
+          <div className="vp-oauth-row-text">
+            <span className="vp-oauth-label">{requirement.providerLabel}</span>
+          </div>
+        </div>
+        <div className="vp-oauth-row-right">
+          <button
+            type="button"
+            className="vp-oauth-verify-btn btn-loading"
+            disabled
+            style={brandColor ? ({ '--brand': brandColor } as React.CSSProperties) : undefined}
+          >
+            <span className="btn-loading-spinner" aria-hidden="true" />
+            Loading...
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // Not connected — show row layout matching the connected/verify state
@@ -245,9 +270,7 @@ function OAuthMethodButton({
   return (
     <div className="vp-oauth-row">
       <div className="vp-oauth-row-left">
-        {iconSrc ? (
-          <img src={iconSrc} alt="" className="vp-oauth-icon" aria-hidden="true" />
-        ) : null}
+        {iconSrc ? <img src={iconSrc} alt="" className="vp-oauth-icon" aria-hidden="true" /> : null}
         <div className="vp-oauth-row-text">
           <span className="vp-oauth-label">{requirement.providerLabel}</span>
           {expiredAccountsForDisplay.length > 0 ? (
@@ -471,8 +494,8 @@ function VerifyPurchasePage() {
   const [entitlementCheckState, setEntitlementCheckState] = useState<'idle' | 'checking' | 'done'>(
     'idle'
   );
-  const [oauthReturnState, setOauthReturnState] = useState<'idle' | 'checking' | 'done'>(
-    () => (justConnectedProvider ? 'checking' : 'idle')
+  const [oauthReturnState, setOauthReturnState] = useState<'idle' | 'checking' | 'done'>(() =>
+    justConnectedProvider ? 'checking' : 'idle'
   );
 
   const queryClient = useQueryClient();
@@ -566,7 +589,8 @@ function VerifyPurchasePage() {
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!intent || intent.status !== 'verified' || successHandledRef.current || !returnToUrl) return;
+    if (!intent || intent.status !== 'verified' || successHandledRef.current || !returnToUrl)
+      return;
     successHandledRef.current = true;
     setRedirectCountdown(5);
 
@@ -811,6 +835,7 @@ function VerifyPurchasePage() {
                         requirement={req}
                         linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
                         provider={providersByKey.get(req.providerKey) ?? null}
+                        accountsLoading={accountsQuery.isPending}
                         providersLoading={providersQuery.isPending}
                         verifiedMethodKey={verifiedMethodKey}
                         onSuccess={invalidateIntent}
