@@ -1615,12 +1615,13 @@ export const getPayhipProducts = query({
 });
 
 /**
- * Upsert the display name for a Payhip product into provider_catalog_mappings.
+/**
+ * Stores the scraped product display name in `product_catalog` so it appears
+ * in the product-role mapping list. Called fire-and-forget by the
+ * `onProductCredentialAdded` hook after a Payhip product secret is added.
  *
- * Called after a product-secret-key is added to eagerly populate the product name
- * without waiting for a webhook event to fire. If the mapping already exists, only
- * updates displayName when the existing value is absent so webhook-sourced names
- * (which come from real transaction data) are never overwritten.
+ * Only updates displayName when the existing value is absent so webhook-sourced
+ * names (which come from real transaction data) are never overwritten.
  */
 export const upsertPayhipProductName = mutation({
   args: {
@@ -1633,37 +1634,20 @@ export const upsertPayhipProductName = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
 
-    const conn = await ctx.db
-      .query('provider_connections')
-      .withIndex('by_auth_user_provider', (q) =>
-        q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
-      )
-      .first();
-
-    if (!conn) return { success: false };
-
     const existing = await ctx.db
-      .query('provider_catalog_mappings')
-      .withIndex('by_connection', (q) => q.eq('providerConnectionId', conn._id))
-      .filter((q) => q.eq(q.field('externalProductId'), args.permalink))
+      .query('product_catalog')
+      .withIndex('by_provider_ref', (q) =>
+        q.eq('provider', 'payhip').eq('providerProductRef', args.permalink)
+      )
+      .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
       .first();
 
-    const now = Date.now();
-    if (existing) {
-      if (!existing.displayName) {
-        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
-      }
-    } else {
-      await ctx.db.insert('provider_catalog_mappings', {
-        authUserId: args.authUserId,
-        providerConnectionId: conn._id,
-        providerKey: 'payhip',
-        externalProductId: args.permalink,
+    if (!existing) return { success: false };
+
+    if (!existing.displayName) {
+      await ctx.db.patch(existing._id, {
         displayName: args.displayName,
-        status: 'active',
-        metadata: { productPermalink: `https://payhip.com/b/${args.permalink}` },
-        createdAt: now,
-        updatedAt: now,
+        updatedAt: Date.now(),
       });
     }
 

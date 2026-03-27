@@ -263,3 +263,103 @@ describe('provider connection credential storage', () => {
     ).rejects.toThrow();
   });
 });
+
+describe('upsertPayhipProductName — updates product_catalog displayName', () => {
+  beforeEach(() => {
+    process.env.CONVEX_API_SECRET = API_SECRET;
+  });
+
+  it('given Payhip product added without displayName, when upsertPayhipProductName called, then product_catalog displayName is set', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'payhip-name-test-user';
+    const permalink = 'KZFw0';
+
+    // Insert a product_catalog record with no displayName — mirrors the state
+    // after addProductFromPayhip is called without a displayName (bot add flow)
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: permalink,
+        provider: 'payhip',
+        providerProductRef: permalink,
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    // Verify displayName is absent before the hook fires
+    const before = await t.run(async (ctx) =>
+      ctx.db
+        .query('product_catalog')
+        .withIndex('by_provider_ref', (q) =>
+          q.eq('provider', 'payhip').eq('providerProductRef', permalink)
+        )
+        .first()
+    );
+    expect(before?.displayName).toBeUndefined();
+
+    // Simulate the onProductCredentialAdded hook storing the scraped name
+    await t.mutation(api.providerConnections.upsertPayhipProductName, {
+      apiSecret: API_SECRET,
+      authUserId,
+      permalink,
+      displayName: 'This is a test',
+    });
+
+    // product_catalog must carry the name — getByGuildWithProductNames reads
+    // from product_catalog.displayName, not provider_catalog_mappings.displayName
+    const after = await t.run(async (ctx) =>
+      ctx.db
+        .query('product_catalog')
+        .withIndex('by_provider_ref', (q) =>
+          q.eq('provider', 'payhip').eq('providerProductRef', permalink)
+        )
+        .first()
+    );
+    expect(after?.displayName).toBe('This is a test');
+  });
+
+  it('given product_catalog already has a displayName, when upsertPayhipProductName called, then existing name is preserved', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'payhip-name-preserve-user';
+    const permalink = 'ABC123';
+
+    // Insert with an existing name (simulates webhook-sourced name)
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: permalink,
+        provider: 'payhip',
+        providerProductRef: permalink,
+        displayName: 'Original Name From Webhook',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    // Try to overwrite with scrape-sourced name
+    await t.mutation(api.providerConnections.upsertPayhipProductName, {
+      apiSecret: API_SECRET,
+      authUserId,
+      permalink,
+      displayName: 'New Scraped Name',
+    });
+
+    // Existing name must be preserved — webhook sources are authoritative
+    const after = await t.run(async (ctx) =>
+      ctx.db
+        .query('product_catalog')
+        .withIndex('by_provider_ref', (q) =>
+          q.eq('provider', 'payhip').eq('providerProductRef', permalink)
+        )
+        .first()
+    );
+    expect(after?.displayName).toBe('Original Name From Webhook');
+  });
+});
