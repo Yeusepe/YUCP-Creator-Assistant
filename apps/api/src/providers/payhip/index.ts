@@ -10,6 +10,7 @@
  */
 
 import { api } from '../../../../../convex/_generated/api';
+import { PayhipApiClient } from '../../../../../packages/providers/src/payhip/client';
 import type { ProductRecord, ProviderContext, ProviderPlugin, ProviderPurposes } from '../types';
 import { connect } from './connect';
 import { verification } from './verification';
@@ -49,6 +50,18 @@ const payhipProvider: ProviderPlugin = {
         hasSecretKey: e.hasSecretKey,
       })
     );
+  },
+
+  async onProductCredentialAdded(productId, ctx) {
+    const client = new PayhipApiClient();
+    const name = await client.fetchProductName(productId);
+    if (!name) return;
+    await ctx.convex.mutation(api.providerConnections.upsertPayhipProductName, {
+      apiSecret: ctx.apiSecret,
+      authUserId: ctx.authUserId,
+      permalink: productId,
+      displayName: name,
+    });
   },
 
   displayMeta: {

@@ -4412,6 +4412,23 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         credentialKeyPrefix: descriptor.perProductCredential.credentialKeyPrefix,
         encryptedSecretKey,
       });
+
+      if (plugin.onProductCredentialAdded) {
+        const providerCtx = {
+          convex,
+          apiSecret: config.convexApiSecret,
+          authUserId,
+          encryptionSecret: config.encryptionSecret,
+        };
+        plugin.onProductCredentialAdded(productId, providerCtx).catch((err) => {
+          logger.warn('onProductCredentialAdded hook failed (non-fatal)', {
+            providerKey,
+            productId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
       return Response.json({ success: true });
     } catch (err) {
       logger.error('Product credential store failed', {

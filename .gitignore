@@ -35,6 +35,15 @@ apps/bot/test/e2e/.artifacts/
 .claude
 .cursor
 *.tsbuildinfo
+*.pdb
+*.obj
+*.exp
+*.lib
+*.ilk
+*.idb
+*.ipdb
+*.iobj
+*.pch
 convex/tsconfig.tsbuildinfo
 /apps/api/test-results
 /apps/api/test-results

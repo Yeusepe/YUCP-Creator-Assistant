@@ -31,7 +31,11 @@ export const verification: LicenseVerificationPlugin = {
     const productKeys: Array<{ permalink: string; secretKey: string }> = [];
     for (const { permalink, encryptedSecretKey } of rawKeys) {
       try {
-        const secretKey = await decrypt(encryptedSecretKey, ctx.encryptionSecret, PRODUCT_SECRET_PURPOSE);
+        const secretKey = await decrypt(
+          encryptedSecretKey,
+          ctx.encryptionSecret,
+          PRODUCT_SECRET_PURPOSE
+        );
         productKeys.push({ permalink, secretKey });
       } catch (err) {
         logger.warn('[payhip/verification] Failed to decrypt product secret key', {
