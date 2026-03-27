@@ -1,5 +1,6 @@
 export const RELEASE_ARTIFACT_KEYS = {
   couplingRuntime: 'coupling-runtime',
+  couplingRuntimePackage: 'coupling-runtime-package',
 } as const;
 
 export const RELEASE_CHANNELS = {

@@ -80,14 +80,18 @@ import {
   base64ToBytes,
   type CertEnvelope,
   type CouplingRuntimeClaims,
+  type CouplingRuntimePackageClaims,
   getPublicKeyFromPrivate,
   type LicenseClaims,
   type PackageCertificateData,
   signCouplingRuntimeJwt,
+  signCouplingRuntimePackageJwt,
   signLicenseJwt,
   signPackageCertificateData,
   verifyCertEnvelope,
   verifyCouplingRuntimeJwt,
+  verifyCouplingRuntimePackageJwt,
+  verifyLicenseJwt,
 } from './lib/yucpCrypto';
 import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
 import './polyfills';
@@ -119,6 +123,7 @@ async function sha256HexHttp(input: string): Promise<string> {
 const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
 const COUPLING_RUNTIME_TTL_SECONDS = 10 * 60;
+const COUPLING_RUNTIME_PACKAGE_TTL_SECONDS = 10 * 60;
 
 const http = httpRouter();
 
@@ -135,29 +140,6 @@ function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Respo
 
 function errorResponse(message: string, status: number): Response {
   return jsonResponse({ error: message }, status);
-}
-
-function getProtectedMaterializationBrokerSecret(): string | null {
-  const secret = process.env.YUCP_BROKER_SHARED_SECRET?.trim();
-  return secret ? secret : null;
-}
-
-function isBrokerAuthorized(request: Request): boolean {
-  const configuredSecret = getProtectedMaterializationBrokerSecret();
-  if (!configuredSecret) {
-    return false;
-  }
-
-  const authHeader = request.headers.get('authorization');
-  const headerSecret =
-    (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null) ??
-    request.headers.get('x-yucp-broker-secret');
-
-  if (!headerSecret) {
-    return false;
-  }
-
-  return constantTimeEqual(headerSecret, configuredSecret);
 }
 
 function buildServerTimingHeader(
@@ -1711,10 +1693,6 @@ http.route({
   method: 'POST',
   path: '/v1/licenses/protected-materialization-redeem',
   handler: httpAction(async (ctx, request) => {
-    if (!isBrokerAuthorized(request)) {
-      return errorResponse('Broker authorization is required', 401);
-    }
-
     let body: { grant: string };
     try {
       body = (await request.json()) as typeof body;
@@ -1775,10 +1753,6 @@ http.route({
   method: 'POST',
   path: '/v1/licenses/protected-materialization-receipt',
   handler: httpAction(async (ctx, request) => {
-    if (!isBrokerAuthorized(request)) {
-      return errorResponse('Broker authorization is required', 401);
-    }
-
     let body: { grant: string };
     try {
       body = (await request.json()) as typeof body;
@@ -1814,6 +1788,107 @@ http.route({
     return jsonResponse({
       success: true,
       updatedCount: result.updatedCount,
+    });
+  }),
+});
+
+http.route({
+  method: 'POST',
+  path: '/v1/licenses/runtime-package-token',
+  handler: httpAction(async (ctx, request) => {
+    let body: {
+      packageId: string;
+      projectId: string;
+      machineFingerprint: string;
+      licenseToken: string;
+    };
+
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+
+    const { packageId, projectId, machineFingerprint, licenseToken } = body ?? {};
+    if (!packageId || !projectId || !machineFingerprint || !licenseToken) {
+      return errorResponse(
+        'packageId, projectId, machineFingerprint, and licenseToken are required',
+        400
+      );
+    }
+
+    if (!PROJECT_ID_RE.test(projectId)) {
+      return errorResponse('Invalid projectId format', 400);
+    }
+
+    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
+    if (!rootPrivateKey) {
+      throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+    }
+    const rootPublicKey =
+      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
+    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
+
+    const licenseClaims = await verifyLicenseJwt(
+      licenseToken,
+      rootPublicKey,
+      buildPublicAuthIssuer(publicIssuerBaseUrl)
+    );
+    if (!licenseClaims) {
+      return errorResponse('License token is invalid or expired', 401);
+    }
+    if (
+      licenseClaims.package_id !== packageId ||
+      licenseClaims.machine_fingerprint !== machineFingerprint
+    ) {
+      return errorResponse('License token did not match this package or machine', 401);
+    }
+
+    const artifact = await ctx.runAction(internal.couplingRuntime.getActiveRuntimePackageManifestData, {});
+    if (!artifact.success) {
+      return errorResponse(
+        artifact.error ?? 'Coupling runtime package is not configured on the server',
+        503
+      );
+    }
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const exp = nowSeconds + COUPLING_RUNTIME_PACKAGE_TTL_SECONDS;
+    const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
+    const publicAuthIssuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
+    const claims: CouplingRuntimePackageClaims = {
+      iss: publicAuthIssuer,
+      aud: 'yucp-runtime-package',
+      sub: licenseClaims.sub,
+      jti: crypto.randomUUID(),
+      package_id: packageId,
+      machine_fingerprint: machineFingerprint,
+      project_id: projectId,
+      artifact_key: artifact.artifactKey ?? '',
+      artifact_channel: artifact.channel ?? '',
+      artifact_platform: artifact.platform ?? '',
+      artifact_version: artifact.version ?? '',
+      metadata_version: artifact.metadataVersion ?? 0,
+      delivery_name: artifact.deliveryName ?? 'yucp-coupling-runtime-package.zip',
+      content_type: artifact.contentType ?? 'application/zip',
+      envelope_cipher: artifact.envelopeCipher ?? '',
+      envelope_iv_b64: artifact.envelopeIvBase64 ?? '',
+      ciphertext_sha256: artifact.ciphertextSha256 ?? '',
+      ciphertext_size: artifact.ciphertextSize ?? 0,
+      plaintext_sha256: artifact.plaintextSha256 ?? '',
+      plaintext_size: artifact.plaintextSize ?? 0,
+      code_signing_subject: artifact.codeSigningSubject,
+      code_signing_thumbprint: artifact.codeSigningThumbprint,
+      iat: nowSeconds,
+      exp,
+    };
+
+    const runtimePackageToken = await signCouplingRuntimePackageJwt(claims, rootPrivateKey, keyId);
+    return jsonResponse({
+      success: true,
+      runtimePackageToken,
+      runtimePackageSha256: artifact.plaintextSha256,
+      expiresAt: exp,
     });
   }),
 });
@@ -1929,6 +2004,104 @@ http.route({
       expiresAt: exp,
       files: issued.jobs ?? [],
       skipReason: issued.skipReason,
+    });
+  }),
+});
+
+http.route({
+  method: 'GET',
+  path: '/v1/licenses/runtime-package',
+  handler: httpAction(async (ctx, request) => {
+    const requestUrl = new URL(request.url);
+    const token = requestUrl.searchParams.get('token');
+    if (!token) {
+      return errorResponse('token query parameter is required', 400);
+    }
+
+    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
+    if (!rootPrivateKey) {
+      throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+    }
+    const rootPublicKey =
+      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
+    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!publicIssuerBaseUrl) {
+      return errorResponse('Service not configured', 503);
+    }
+    const claims = await verifyCouplingRuntimePackageJwt(
+      token,
+      rootPublicKey,
+      buildPublicAuthIssuer(publicIssuerBaseUrl)
+    );
+    if (!claims) {
+      return errorResponse('Runtime package token is invalid or expired', 401);
+    }
+
+    const artifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
+      artifactKey: claims.artifact_key,
+      channel: claims.artifact_channel,
+      platform: claims.artifact_platform,
+    });
+    if (!artifact) {
+      return errorResponse('Coupling runtime package is not configured on the server', 503);
+    }
+    if (
+      artifact.version !== claims.artifact_version ||
+      artifact.metadataVersion !== claims.metadata_version ||
+      artifact.ciphertextSha256 !== claims.ciphertext_sha256 ||
+      artifact.plaintextSha256 !== claims.plaintext_sha256
+    ) {
+      return errorResponse('Configured coupling runtime package metadata mismatch', 503);
+    }
+
+    const blob = await ctx.storage.get(artifact.storageId);
+    if (blob === null) {
+      return errorResponse('Coupling runtime package artifact is missing from storage', 503);
+    }
+
+    if (!claims.envelope_iv_b64) {
+      return errorResponse('Runtime package token is missing decryption metadata', 401);
+    }
+
+    let envelopeKey: Uint8Array;
+    try {
+      envelopeKey = await deriveCouplingRuntimeEnvelopeKeyBytes({
+        artifactKey: artifact.artifactKey,
+        channel: artifact.channel,
+        platform: artifact.platform,
+        version: artifact.version,
+        plaintextSha256: artifact.plaintextSha256,
+      });
+    } catch {
+      return errorResponse('Coupling runtime package artifact decryption failed', 503);
+    }
+
+    let plaintextPackage: Uint8Array;
+    try {
+      plaintextPackage = await decryptArtifactEnvelope(
+        new Uint8Array(await blob.arrayBuffer()),
+        envelopeKey,
+        claims.envelope_iv_b64
+      );
+    } catch {
+      return errorResponse('Coupling runtime package artifact decryption failed', 503);
+    }
+
+    const plaintextSha256 = await sha256HexBytes(plaintextPackage);
+    if (plaintextSha256 !== artifact.plaintextSha256) {
+      return errorResponse('Decrypted coupling runtime package failed integrity verification', 503);
+    }
+
+    const responseBytes = Uint8Array.from(plaintextPackage);
+    return new Response(responseBytes.buffer, {
+      status: 200,
+      headers: {
+        'Content-Type': artifact.contentType,
+        'Content-Disposition': `attachment; filename="${artifact.deliveryName}"`,
+        'Cache-Control': 'no-store, max-age=0',
+        'X-YUCP-Runtime-Package-Plaintext-Sha256': artifact.plaintextSha256,
+        'X-YUCP-Runtime-Package-Ciphertext-Sha256': artifact.ciphertextSha256,
+      },
     });
   }),
 });

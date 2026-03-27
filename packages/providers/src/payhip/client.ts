@@ -239,23 +239,34 @@ export class PayhipApiClient {
   // ============================================================================
 
   /**
-   * Fetch the display name of a Payhip product by scraping its public product page.
+   * Fetch the display name of a Payhip product via the iframely metadata API.
    *
-   * Extracts the name from the JSON-LD structured data embedded in the page.
-   * This is a public endpoint — no authentication required.
+   * Payhip's public product pages (payhip.com/b/{permalink}) are protected by
+   * Cloudflare's bot challenge, so direct HTTP fetches return 403. Iframely's
+   * public metadata endpoint bypasses this and returns Open Graph / JSON-LD data
+   * including the product title.
    *
-   * @param permalink - The product permalink (e.g., "RGsF")
-   * @returns The product name, or null if it could not be determined
+   * Endpoint: https://iframely.com/iframely?uri={encodedUrl}&meta=true
+   * Origin: https://debug.iframely.com (required — iframely allows this origin)
+   *
+   * @param permalink - The product permalink (e.g., "KZFw0")
+   * @returns The product name from meta.title, or null if it could not be determined
    */
   async fetchProductName(permalink: string): Promise<string | null> {
-    const url = `https://payhip.com/b/${encodeURIComponent(permalink)}`;
+    const productUrl = `https://payhip.com/b/${encodeURIComponent(permalink)}`;
+    const iframelyUrl = `https://iframely.com/iframely?uri=${encodeURIComponent(productUrl)}&meta=true`;
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(url, {
+      const response = await fetch(iframelyUrl, {
         method: 'GET',
-        headers: { Accept: 'text/html' },
+        headers: {
+          Accept: 'application/json',
+          Origin: 'https://debug.iframely.com',
+          Referer: 'https://debug.iframely.com/',
+        },
         signal: controller.signal,
       });
 
@@ -263,27 +274,10 @@ export class PayhipApiClient {
 
       if (!response.ok) return null;
 
-      const html = await response.text();
-
-      // Extract from JSON-LD structured data (most reliable source)
-      const ldJsonMatch = html.match(
-        /<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/
-      );
-      if (ldJsonMatch) {
-        try {
-          const data = JSON.parse(ldJsonMatch[1]) as { name?: unknown };
-          if (typeof data.name === 'string' && data.name) {
-            return data.name;
-          }
-        } catch {
-          // fall through to og:title
-        }
-      }
-
-      // Fallback: og:title meta tag
-      const ogTitleMatch = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/);
-      if (ogTitleMatch?.[1]) {
-        return ogTitleMatch[1];
+      const data = (await response.json()) as { meta?: { title?: unknown } };
+      const title = data?.meta?.title;
+      if (typeof title === 'string' && title) {
+        return title;
       }
 
       return null;

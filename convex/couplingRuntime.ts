@@ -7,6 +7,7 @@ import type { Id } from './_generated/dataModel';
 import { type ActionCtx, internalAction } from './_generated/server';
 import { deriveCouplingRuntimeEnvelopeKeyBytes } from './lib/couplingRuntimeEnvelope';
 import { DEFAULT_COUPLING_RUNTIME_DELIVERY_NAME } from './lib/couplingRuntimeConfig';
+import { DEFAULT_COUPLING_RUNTIME_PACKAGE_DELIVERY_NAME } from './lib/couplingRuntimePackageConfig';
 import { encryptArtifactEnvelope, sha256HexBytes } from './lib/releaseArtifactEnvelope';
 import {
   RELEASE_ARTIFACT_KEYS,
@@ -16,6 +17,7 @@ import {
 
 const COUPLING_RUNTIME_METADATA_VERSION = 1;
 const COUPLING_RUNTIME_CONTENT_TYPE = 'application/octet-stream';
+const COUPLING_RUNTIME_PACKAGE_CONTENT_TYPE = 'application/zip';
 const COUPLING_RUNTIME_ENVELOPE_CIPHER = 'aes-256-gcm';
 
 const runtimePublishResultValidator = v.object({
@@ -45,19 +47,57 @@ type RuntimePublishResult = {
   error?: string;
 };
 
-async function publishRuntimeArtifact(
+type ReleaseArtifactDetails = {
+  artifactKey: string;
+  defaultDeliveryName: string;
+  contentType: string;
+};
+
+const COUPLING_RUNTIME_ARTIFACT: ReleaseArtifactDetails = {
+  artifactKey: RELEASE_ARTIFACT_KEYS.couplingRuntime,
+  defaultDeliveryName: DEFAULT_COUPLING_RUNTIME_DELIVERY_NAME,
+  contentType: COUPLING_RUNTIME_CONTENT_TYPE,
+};
+
+const COUPLING_RUNTIME_PACKAGE_ARTIFACT: ReleaseArtifactDetails = {
+  artifactKey: RELEASE_ARTIFACT_KEYS.couplingRuntimePackage,
+  defaultDeliveryName: DEFAULT_COUPLING_RUNTIME_PACKAGE_DELIVERY_NAME,
+  contentType: COUPLING_RUNTIME_PACKAGE_CONTENT_TYPE,
+};
+
+const runtimeManifestDataValidator = v.object({
+  success: v.boolean(),
+  artifactKey: v.optional(v.string()),
+  channel: v.optional(v.string()),
+  platform: v.optional(v.string()),
+  version: v.optional(v.string()),
+  metadataVersion: v.optional(v.number()),
+  deliveryName: v.optional(v.string()),
+  contentType: v.optional(v.string()),
+  envelopeCipher: v.optional(v.string()),
+  envelopeIvBase64: v.optional(v.string()),
+  ciphertextSha256: v.optional(v.string()),
+  ciphertextSize: v.optional(v.number()),
+  plaintextSha256: v.optional(v.string()),
+  plaintextSize: v.optional(v.number()),
+  codeSigningSubject: v.optional(v.string()),
+  codeSigningThumbprint: v.optional(v.string()),
+  error: v.optional(v.string()),
+});
+
+async function publishReleaseArtifact(
   ctx: ActionCtx,
   args: RuntimePublishArgs,
   plaintext: Uint8Array,
-  sourcePath: string
+  sourcePath: string,
+  details: ReleaseArtifactDetails
 ): Promise<RuntimePublishResult> {
-  const artifactKey = RELEASE_ARTIFACT_KEYS.couplingRuntime;
   const channel = (args.channel || '').trim() || RELEASE_CHANNELS.stable;
   const platform = (args.platform || '').trim() || RELEASE_PLATFORMS.winX64;
-  const deliveryName = (args.deliveryName || '').trim() || DEFAULT_COUPLING_RUNTIME_DELIVERY_NAME;
+  const deliveryName = (args.deliveryName || '').trim() || details.defaultDeliveryName;
   const plaintextSha256 = await sha256HexBytes(plaintext);
   const envelopeKey = await deriveCouplingRuntimeEnvelopeKeyBytes({
-    artifactKey,
+    artifactKey: details.artifactKey,
     channel,
     platform,
     version: args.version,
@@ -66,17 +106,17 @@ async function publishRuntimeArtifact(
   const encrypted = await encryptArtifactEnvelope(plaintext, envelopeKey);
   const ciphertextBuffer = Uint8Array.from(encrypted.ciphertext).buffer;
   const storageId = await ctx.storage.store(
-    new Blob([ciphertextBuffer], { type: COUPLING_RUNTIME_CONTENT_TYPE })
+    new Blob([ciphertextBuffer], { type: details.contentType })
   );
 
   const artifactId = await ctx.runMutation(internal.releaseArtifacts.publishArtifact, {
-    artifactKey,
+    artifactKey: details.artifactKey,
     channel,
     platform,
     version: args.version,
     metadataVersion: COUPLING_RUNTIME_METADATA_VERSION,
     storageId,
-    contentType: COUPLING_RUNTIME_CONTENT_TYPE,
+    contentType: details.contentType,
     deliveryName,
     envelopeCipher: COUPLING_RUNTIME_ENVELOPE_CIPHER,
     envelopeIvBase64: encrypted.ivBase64,
@@ -89,7 +129,7 @@ async function publishRuntimeArtifact(
   });
 
   await ctx.runMutation(internal.releaseArtifacts.recordArtifactPublishedAudit, {
-    artifactKey,
+    artifactKey: details.artifactKey,
     channel,
     platform,
     version: args.version,
@@ -103,6 +143,119 @@ async function publishRuntimeArtifact(
     plaintextSha256: encrypted.plaintextSha256,
     ciphertextSha256: encrypted.ciphertextSha256,
     sourcePath,
+  };
+}
+
+function readPlaintextFromArgs(
+  args: { plaintextBase64?: string; sourcePath?: string },
+  invalidBase64Error: string,
+  sourceNotFoundLabel: string,
+  missingPayloadError: string
+): RuntimePublishResult & { plaintext?: Uint8Array; sourcePath: string } {
+  const sourcePath = (args.sourcePath || '').trim();
+  const plaintextBase64 = (args.plaintextBase64 || '').trim();
+
+  if (plaintextBase64) {
+    try {
+      return {
+        success: true,
+        plaintext: Uint8Array.from(Buffer.from(plaintextBase64, 'base64')),
+        sourcePath: '[inline payload]',
+      };
+    } catch {
+      return {
+        success: false,
+        error: invalidBase64Error,
+        sourcePath,
+      };
+    }
+  }
+
+  if (sourcePath) {
+    if (!existsSync(sourcePath)) {
+      return {
+        success: false,
+        error: `${sourceNotFoundLabel} not found: ${sourcePath}`,
+        sourcePath,
+      };
+    }
+    return {
+      success: true,
+      plaintext: new Uint8Array(readFileSync(sourcePath)),
+      sourcePath,
+    };
+  }
+
+  return {
+    success: false,
+    error: missingPayloadError,
+    sourcePath,
+  };
+}
+
+async function getActiveArtifactManifestData(
+  ctx: ActionCtx,
+  args: { channel?: string; platform?: string },
+  details: ReleaseArtifactDetails,
+  missingError: string
+): Promise<{
+  success: boolean;
+  artifactKey?: string;
+  channel?: string;
+  platform?: string;
+  version?: string;
+  metadataVersion?: number;
+  deliveryName?: string;
+  contentType?: string;
+  envelopeCipher?: string;
+  envelopeIvBase64?: string;
+  ciphertextSha256?: string;
+  ciphertextSize?: number;
+  plaintextSha256?: string;
+  plaintextSize?: number;
+  codeSigningSubject?: string;
+  codeSigningThumbprint?: string;
+  error?: string;
+}> {
+  const channel = (args.channel || '').trim() || RELEASE_CHANNELS.stable;
+  const platform = (args.platform || '').trim() || RELEASE_PLATFORMS.winX64;
+  const artifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
+    artifactKey: details.artifactKey,
+    channel,
+    platform,
+  });
+  if (!artifact) {
+    return {
+      success: false,
+      error: missingError,
+    };
+  }
+
+  await deriveCouplingRuntimeEnvelopeKeyBytes({
+    artifactKey: artifact.artifactKey,
+    channel: artifact.channel,
+    platform: artifact.platform,
+    version: artifact.version,
+    plaintextSha256: artifact.plaintextSha256,
+  });
+
+  return {
+    success: true,
+    artifactKey: artifact.artifactKey,
+    channel: artifact.channel,
+    platform: artifact.platform,
+    version: artifact.version,
+    metadataVersion: artifact.metadataVersion,
+    deliveryName: artifact.deliveryName,
+    contentType: artifact.contentType,
+    envelopeCipher: artifact.envelopeCipher,
+    envelopeIvBase64: artifact.envelopeIvBase64,
+    ciphertextSha256: artifact.ciphertextSha256,
+    ciphertextSize: artifact.ciphertextSize,
+    plaintextSha256: artifact.plaintextSha256,
+    plaintextSize: artifact.plaintextSize,
+    codeSigningSubject: artifact.codeSigningSubject,
+    codeSigningThumbprint: artifact.codeSigningThumbprint,
   };
 }
 
@@ -128,36 +281,23 @@ export const publishRuntimeFromLocalSource = internalAction({
   },
   returns: runtimePublishResultValidator,
   handler: async (ctx, args): Promise<RuntimePublishResult> => {
-    const sourcePath = (args.sourcePath || '').trim();
-    const plaintextBase64 = (args.plaintextBase64 || '').trim();
-
-    let plaintext: Uint8Array;
-    if (plaintextBase64) {
-      try {
-        plaintext = Uint8Array.from(Buffer.from(plaintextBase64, 'base64'));
-      } catch {
-        return {
-          success: false,
-          error: 'Coupling runtime payload is not valid base64',
-        };
-      }
-    } else if (sourcePath) {
-      if (!existsSync(sourcePath)) {
-        return {
-          success: false,
-          error: `Coupling runtime source not found: ${sourcePath}`,
-        };
-      }
-      plaintext = new Uint8Array(readFileSync(sourcePath));
-    } else {
-      return {
-        success: false,
-        error:
-          'Coupling runtime payload is required. Use bun run convex:publish:coupling-runtime or provide sourcePath explicitly.',
-      };
+    const payload = readPlaintextFromArgs(
+      args,
+      'Coupling runtime payload is not valid base64',
+      'Coupling runtime source',
+      'Coupling runtime payload is required. Use bun run convex:publish:coupling-runtime or provide sourcePath explicitly.'
+    );
+    if (!payload.success || !payload.plaintext) {
+      return payload;
     }
 
-    return await publishRuntimeArtifact(ctx, args, plaintext, sourcePath || '[inline payload]');
+    return await publishReleaseArtifact(
+      ctx,
+      args,
+      payload.plaintext,
+      payload.sourcePath,
+      COUPLING_RUNTIME_ARTIFACT
+    );
   },
 });
 
@@ -183,7 +323,13 @@ export const publishUploadedRuntime = internalAction({
     }
 
     const plaintext = new Uint8Array(await uploaded.arrayBuffer());
-    const result = await publishRuntimeArtifact(ctx, args, plaintext, `storage:${args.storageId}`);
+    const result = await publishReleaseArtifact(
+      ctx,
+      args,
+      plaintext,
+      `storage:${args.storageId}`,
+      COUPLING_RUNTIME_ARTIFACT
+    );
     if (!result.success) {
       return result;
     }
@@ -201,87 +347,104 @@ export const getActiveRuntimeManifestData = internalAction({
     channel: v.optional(v.string()),
     platform: v.optional(v.string()),
   },
-  returns: v.object({
-    success: v.boolean(),
-    artifactKey: v.optional(v.string()),
+  returns: runtimeManifestDataValidator,
+  handler: async (ctx, args) => {
+    return await getActiveArtifactManifestData(
+      ctx,
+      args,
+      COUPLING_RUNTIME_ARTIFACT,
+      'Coupling runtime is not configured on the server'
+    );
+  },
+});
+
+export const publishRuntimePackageFromLocalSource = internalAction({
+  args: {
+    version: v.string(),
     channel: v.optional(v.string()),
     platform: v.optional(v.string()),
-    version: v.optional(v.string()),
-    metadataVersion: v.optional(v.number()),
     deliveryName: v.optional(v.string()),
-    contentType: v.optional(v.string()),
-    envelopeCipher: v.optional(v.string()),
-    envelopeIvBase64: v.optional(v.string()),
-    ciphertextSha256: v.optional(v.string()),
-    ciphertextSize: v.optional(v.number()),
-    plaintextSha256: v.optional(v.string()),
-    plaintextSize: v.optional(v.number()),
+    plaintextBase64: v.optional(v.string()),
+    sourcePath: v.optional(v.string()),
     codeSigningSubject: v.optional(v.string()),
     codeSigningThumbprint: v.optional(v.string()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (
-    ctx,
-    args
-  ): Promise<{
-    success: boolean;
-    artifactKey?: string;
-    channel?: string;
-    platform?: string;
-    version?: string;
-    metadataVersion?: number;
-    deliveryName?: string;
-    contentType?: string;
-    envelopeCipher?: string;
-    envelopeIvBase64?: string;
-    ciphertextSha256?: string;
-    ciphertextSize?: number;
-    plaintextSha256?: string;
-    plaintextSize?: number;
-    codeSigningSubject?: string;
-    codeSigningThumbprint?: string;
-    error?: string;
-  }> => {
-    const channel = (args.channel || '').trim() || RELEASE_CHANNELS.stable;
-    const platform = (args.platform || '').trim() || RELEASE_PLATFORMS.winX64;
-    const artifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
-      artifactKey: RELEASE_ARTIFACT_KEYS.couplingRuntime,
-      channel,
-      platform,
-    });
-    if (!artifact) {
+  },
+  returns: runtimePublishResultValidator,
+  handler: async (ctx, args): Promise<RuntimePublishResult> => {
+    const payload = readPlaintextFromArgs(
+      args,
+      'Coupling runtime package payload is not valid base64',
+      'Coupling runtime package source',
+      'Coupling runtime package payload is required. Use bun run convex:publish:coupling-runtime-package or provide sourcePath explicitly.'
+    );
+    if (!payload.success || !payload.plaintext) {
+      return payload;
+    }
+
+    return await publishReleaseArtifact(
+      ctx,
+      args,
+      payload.plaintext,
+      payload.sourcePath,
+      COUPLING_RUNTIME_PACKAGE_ARTIFACT
+    );
+  },
+});
+
+export const publishUploadedRuntimePackage = internalAction({
+  args: {
+    storageId: v.id('_storage'),
+    version: v.string(),
+    channel: v.optional(v.string()),
+    platform: v.optional(v.string()),
+    deliveryName: v.optional(v.string()),
+    codeSigningSubject: v.optional(v.string()),
+    codeSigningThumbprint: v.optional(v.string()),
+    deleteSourceAfterPublish: v.optional(v.boolean()),
+  },
+  returns: runtimePublishResultValidator,
+  handler: async (ctx, args): Promise<RuntimePublishResult> => {
+    const uploaded = await ctx.storage.get(args.storageId);
+    if (!uploaded) {
       return {
         success: false,
-        error: 'Coupling runtime is not configured on the server',
+        error: `Uploaded coupling runtime package not found: ${args.storageId}`,
       };
     }
 
-    await deriveCouplingRuntimeEnvelopeKeyBytes({
-      artifactKey: artifact.artifactKey,
-      channel: artifact.channel,
-      platform: artifact.platform,
-      version: artifact.version,
-      plaintextSha256: artifact.plaintextSha256,
-    });
+    const plaintext = new Uint8Array(await uploaded.arrayBuffer());
+    const result = await publishReleaseArtifact(
+      ctx,
+      args,
+      plaintext,
+      `storage:${args.storageId}`,
+      COUPLING_RUNTIME_PACKAGE_ARTIFACT
+    );
+    if (!result.success) {
+      return result;
+    }
 
-    return {
-      success: true,
-      artifactKey: artifact.artifactKey,
-      channel: artifact.channel,
-      platform: artifact.platform,
-      version: artifact.version,
-      metadataVersion: artifact.metadataVersion,
-      deliveryName: artifact.deliveryName,
-      contentType: artifact.contentType,
-      envelopeCipher: artifact.envelopeCipher,
-      envelopeIvBase64: artifact.envelopeIvBase64,
-      ciphertextSha256: artifact.ciphertextSha256,
-      ciphertextSize: artifact.ciphertextSize,
-      plaintextSha256: artifact.plaintextSha256,
-      plaintextSize: artifact.plaintextSize,
-      codeSigningSubject: artifact.codeSigningSubject,
-      codeSigningThumbprint: artifact.codeSigningThumbprint,
-    };
+    if (args.deleteSourceAfterPublish ?? true) {
+      await ctx.storage.delete(args.storageId);
+    }
+
+    return result;
+  },
+});
+
+export const getActiveRuntimePackageManifestData = internalAction({
+  args: {
+    channel: v.optional(v.string()),
+    platform: v.optional(v.string()),
+  },
+  returns: runtimeManifestDataValidator,
+  handler: async (ctx, args) => {
+    return await getActiveArtifactManifestData(
+      ctx,
+      args,
+      COUPLING_RUNTIME_PACKAGE_ARTIFACT,
+      'Coupling runtime package is not configured on the server'
+    );
   },
 });
 

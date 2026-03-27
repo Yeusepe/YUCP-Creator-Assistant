@@ -1,11 +1,12 @@
 /**
  * PayhipApiClient unit tests
  *
- * Tests for fetchProductName, which scrapes the public Payhip product page
- * to resolve a human-readable name from a product permalink.
+ * Tests for fetchProductName, which resolves a human-readable product name
+ * from a Payhip permalink via the iframely metadata API.
  *
- * Reference: https://payhip.com/b/{permalink}
- * The page embeds a JSON-LD block with "name" and an og:title meta tag.
+ * Reference: https://iframely.com/iframely?uri=https://payhip.com/b/{permalink}&meta=true
+ * The iframely response includes a `meta.title` field with the product name.
+ * This bypasses Cloudflare's bot protection on payhip.com/b/{permalink}.
  */
 
 import { afterEach, describe, expect, it, mock } from 'bun:test';
@@ -17,53 +18,31 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-// Minimal Payhip product page HTML (matches the real shape from https://payhip.com/b/KZFw0)
-function makeProductPage(opts: {
-  ldJsonName?: string;
-  ogTitle?: string;
-  malformedLdJson?: boolean;
-  omitLdJson?: boolean;
-  omitOgTitle?: boolean;
-}): string {
-  const ldJsonBlock = opts.omitLdJson
-    ? ''
-    : opts.malformedLdJson
-      ? `<script type="application/ld+json">{ invalid json }</script>`
-      : `<script type="application/ld+json">
-            {
-                "@context": "https:\\/\\/schema.org\\/",
-                "@type": "Product",
-                "name": "${opts.ldJsonName ?? 'Test Product'}",
-                "description": ""
-            }</script>`;
-
-  const ogTitleBlock = opts.omitOgTitle
-    ? ''
-    : `<meta property="og:title" content="${opts.ogTitle ?? 'Test Product'}"/>`;
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <title>${opts.ldJsonName ?? opts.ogTitle ?? 'Test Product'} - Payhip</title>
-  ${ldJsonBlock}
-  ${ogTitleBlock}
-</head>
-<body></body>
-</html>`;
+// Minimal iframely JSON response (matches the real shape from
+// https://iframely.com/iframely?uri=https://payhip.com/b/KZFw0&meta=true)
+function makeIframelyResponse(title: string | null): string {
+  if (title === null) {
+    return JSON.stringify({ meta: {}, links: [], rel: [] });
+  }
+  return JSON.stringify({
+    meta: { title, medium: 'product', site: 'Payhip' },
+    links: [],
+    rel: [],
+  });
 }
 
-function mockFetchWithHtml(html: string, status = 200): void {
+function mockFetchWithJson(body: string, status = 200): void {
   globalThis.fetch = mock(async (_url: string, _init?: RequestInit) => {
-    return new Response(html, {
+    return new Response(body, {
       status,
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'application/json' },
     });
   }) as unknown as typeof fetch;
 }
 
 describe('PayhipApiClient.fetchProductName', () => {
-  it('extracts the product name from JSON-LD structured data', async () => {
-    mockFetchWithHtml(makeProductPage({ ldJsonName: 'This is a test' }));
+  it('extracts the product name from iframely meta.title', async () => {
+    mockFetchWithJson(makeIframelyResponse('This is a test'));
 
     const client = new PayhipApiClient();
     const name = await client.fetchProductName('KZFw0');
@@ -71,35 +50,8 @@ describe('PayhipApiClient.fetchProductName', () => {
     expect(name).toBe('This is a test');
   });
 
-  it('falls back to og:title when JSON-LD is absent', async () => {
-    mockFetchWithHtml(makeProductPage({ omitLdJson: true, ogTitle: 'My Fallback Product' }));
-
-    const client = new PayhipApiClient();
-    const name = await client.fetchProductName('KZFw0');
-
-    expect(name).toBe('My Fallback Product');
-  });
-
-  it('falls back to og:title when JSON-LD is malformed', async () => {
-    mockFetchWithHtml(makeProductPage({ malformedLdJson: true, ogTitle: 'Product From OG Title' }));
-
-    const client = new PayhipApiClient();
-    const name = await client.fetchProductName('KZFw0');
-
-    expect(name).toBe('Product From OG Title');
-  });
-
-  it('prefers JSON-LD over og:title when both are present', async () => {
-    mockFetchWithHtml(makeProductPage({ ldJsonName: 'From JSON-LD', ogTitle: 'From OG Title' }));
-
-    const client = new PayhipApiClient();
-    const name = await client.fetchProductName('KZFw0');
-
-    expect(name).toBe('From JSON-LD');
-  });
-
-  it('returns null when neither JSON-LD name nor og:title are present', async () => {
-    mockFetchWithHtml(makeProductPage({ omitLdJson: true, omitOgTitle: true }));
+  it('returns null when iframely meta.title is absent', async () => {
+    mockFetchWithJson(makeIframelyResponse(null));
 
     const client = new PayhipApiClient();
     const name = await client.fetchProductName('KZFw0');
@@ -108,7 +60,7 @@ describe('PayhipApiClient.fetchProductName', () => {
   });
 
   it('returns null on a non-OK HTTP response', async () => {
-    mockFetchWithHtml('', 404);
+    mockFetchWithJson('', 403);
 
     const client = new PayhipApiClient();
     const name = await client.fetchProductName('nonexistent');
@@ -127,13 +79,13 @@ describe('PayhipApiClient.fetchProductName', () => {
     expect(name).toBeNull();
   });
 
-  it('constructs the correct product page URL from the permalink', async () => {
-    const calls: string[] = [];
-    globalThis.fetch = mock(async (url: string) => {
-      calls.push(url);
-      return new Response(makeProductPage({ ldJsonName: 'Test' }), {
+  it('calls the iframely endpoint with the correct URI for the permalink', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    globalThis.fetch = mock(async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return new Response(makeIframelyResponse('Test Product'), {
         status: 200,
-        headers: { 'Content-Type': 'text/html' },
+        headers: { 'Content-Type': 'application/json' },
       });
     }) as unknown as typeof fetch;
 
@@ -141,6 +93,11 @@ describe('PayhipApiClient.fetchProductName', () => {
     await client.fetchProductName('RGsF');
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toBe('https://payhip.com/b/RGsF');
+    const [calledUrl, calledInit] = calls[0] as [string, RequestInit];
+    expect(calledUrl).toContain('iframely.com/iframely');
+    expect(calledUrl).toContain(encodeURIComponent('https://payhip.com/b/RGsF'));
+    expect((calledInit?.headers as Record<string, string>)?.Origin).toBe(
+      'https://debug.iframely.com'
+    );
   });
 });

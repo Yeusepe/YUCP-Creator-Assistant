@@ -40,6 +40,7 @@ import type * as lib_certificateCapabilityProjection from "../lib/certificateCap
 import type * as lib_certificateSigning from "../lib/certificateSigning.js";
 import type * as lib_couplingRuntimeConfig from "../lib/couplingRuntimeConfig.js";
 import type * as lib_couplingRuntimeEnvelope from "../lib/couplingRuntimeEnvelope.js";
+import type * as lib_couplingRuntimePackageConfig from "../lib/couplingRuntimePackageConfig.js";
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
 import type * as lib_httpRateLimit from "../lib/httpRateLimit.js";
@@ -142,6 +143,7 @@ declare const fullApi: ApiFromModules<{
   "lib/certificateSigning": typeof lib_certificateSigning;
   "lib/couplingRuntimeConfig": typeof lib_couplingRuntimeConfig;
   "lib/couplingRuntimeEnvelope": typeof lib_couplingRuntimeEnvelope;
+  "lib/couplingRuntimePackageConfig": typeof lib_couplingRuntimePackageConfig;
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
   "lib/httpRateLimit": typeof lib_httpRateLimit;
