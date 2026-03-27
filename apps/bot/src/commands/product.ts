@@ -1323,12 +1323,27 @@ export async function handleProductConfirmAdd(
         throw new Error(credResult.error ?? 'Failed to save Payhip product secret key');
       }
 
+      // Resolve display name via iframely metadata (non-fatal — continues without name on failure).
+      const { resolvePayhipProduct } = await import('@yucp/providers');
+      let payhipDisplayName: string | undefined;
+      try {
+        const resolved = await resolvePayhipProduct(permalink);
+        payhipDisplayName = resolved.name;
+      } catch (err) {
+        logger.warn('Payhip product name lookup failed — continuing without display name', {
+          authUserId,
+          permalink,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
       const result = await convex.mutation(api.role_rules.addProductForProvider, {
         apiSecret,
         authUserId,
         productId: permalink,
         providerProductRef: permalink,
         provider: 'payhip',
+        displayName: payhipDisplayName,
         productUrl: buildCatalogProductUrl('payhip', permalink) ?? undefined,
       });
       productId = result.productId;

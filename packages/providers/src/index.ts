@@ -96,7 +96,13 @@ export type {
   PayhipWebhookItem,
   PayhipWebhookPayload,
 } from './payhip';
-export { PayhipAdapter, PayhipApiClient, PayhipApiError, PayhipRateLimitError } from './payhip';
+export {
+  PayhipAdapter,
+  PayhipApiClient,
+  PayhipApiError,
+  PayhipRateLimitError,
+  resolvePayhipProduct,
+} from './payhip';
 
 import { LemonSqueezyAdapter, type LemonSqueezyAdapterConfig } from './lemonsqueezy';
 

@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 import type {
   ButtonInteraction,
   ChatInputCommandInteraction,
+  RoleSelectMenuInteraction,
   StringSelectMenuInteraction,
 } from 'discord.js';
 
@@ -25,10 +26,24 @@ mock.module('../../src/lib/posthog', () => ({
   track: mock(() => {}),
 }));
 
+// Mock @yucp/providers so resolvePayhipProduct and resolveGumroadProduct don't make real HTTP calls
+const mockResolvePayhipProduct = mock((_permalink: string) =>
+  Promise.resolve({ id: _permalink, name: 'This is a test' })
+);
+
+mock.module('@yucp/providers', () => ({
+  resolvePayhipProduct: mockResolvePayhipProduct,
+  resolveGumroadProduct: mock((urlOrSlug: string) =>
+    Promise.resolve({ id: urlOrSlug, name: 'Gumroad Product' })
+  ),
+}));
+
 import {
   handleProductAddInteractive,
   handleProductCancelAdd,
+  handleProductConfirmAdd,
   handleProductPayhipModal,
+  handleProductRoleSelect,
   handleProductTypeSelect,
 } from '../../src/commands/product';
 import type { MockFn } from '../helpers/mockInteraction';
@@ -645,5 +660,110 @@ describe('handleProductPayhipModal — permalink normalization', () => {
     expect(modal.reply.mock.calls).toHaveLength(1);
     const replyPayload = modal.reply.mock.calls[0]?.[0];
     expect(replyPayload?.content).not.toContain('Step 3 of 3');
+  });
+});
+
+describe('handleProductConfirmAdd — Payhip displayName', () => {
+  /** Seed a full Payhip product session up to the role-select step. */
+  async function seedPayhipConfirmSession(
+    userId: string,
+    authUserId: string,
+    guildId: string,
+    permalink: string,
+    secretKey: string,
+    roleId: string
+  ) {
+    type Ctx = Parameters<typeof handleProductAddInteractive>[1];
+    const slashInteraction = mockSlashCommand({
+      userId,
+      guildId,
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+    await handleProductAddInteractive(
+      slashInteraction as unknown as ChatInputCommandInteraction,
+      { authUserId, guildLinkId: `link_${authUserId}` as Ctx['guildLinkId'], guildId },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
+
+    const typeSelectInteraction = mockStringSelect({
+      userId,
+      guildId,
+      customId: `creator_product:type_select:${authUserId}`,
+      values: ['payhip'],
+    });
+    typeSelectInteraction.showModal = mock(() => Promise.resolve(undefined)) as unknown as MockFn;
+    await handleProductTypeSelect(
+      typeSelectInteraction as unknown as StringSelectMenuInteraction,
+      authUserId,
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
+    );
+
+    const modalInteraction = mockModalSubmit({
+      userId,
+      guildId,
+      customId: `creator_product:payhip_modal:${userId}:${authUserId}`,
+      textInputValues: { permalink, product_secret_key: secretKey },
+    });
+    await handleProductPayhipModal(
+      modalInteraction as unknown as import('discord.js').ModalSubmitInteraction,
+      userId,
+      authUserId
+    );
+
+    const roleSelectInteraction = {
+      user: { id: userId },
+      guildId,
+      guild: null,
+      values: [roleId],
+      editReply: mock(() => Promise.resolve({ id: 'mock_msg_id' })),
+    } as unknown as RoleSelectMenuInteraction;
+    await handleProductRoleSelect(roleSelectInteraction, userId, authUserId);
+  }
+
+  it('calls addProductForProvider with displayName fetched via iframely', async () => {
+    const userId = 'user_ph_dname';
+    const authUserId = 'auth_ph_dname';
+    const guildId = 'guild_ph_dname';
+
+    await seedPayhipConfirmSession(userId, authUserId, guildId, 'KZFw0', 'secret123', 'role_dname');
+
+    let callCount = 0;
+    const mutationArgs: unknown[][] = [];
+    const mockConvex = {
+      mutation: mock((...args: unknown[]) => {
+        mutationArgs.push(args);
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ productId: 'KZFw0', catalogProductId: 'cat_ph_dname' });
+        }
+        return Promise.resolve({ ruleId: 'rule_ph_dname' });
+      }),
+      query: mock(() => Promise.resolve(undefined)),
+      action: mock(() => Promise.resolve(undefined)),
+    } as unknown as import('convex/browser').ConvexHttpClient;
+
+    const confirmInteraction = mockButton({
+      userId,
+      guildId,
+      customId: `creator_product:confirm_add:${userId}:${authUserId}`,
+    });
+    await handleProductConfirmAdd(
+      confirmInteraction as unknown as ButtonInteraction,
+      mockConvex,
+      TEST_API_SECRET,
+      userId,
+      authUserId
+    );
+
+    expect(mutationArgs.length).toBeGreaterThanOrEqual(1);
+    const addProductArgs = mutationArgs[0]?.[1] as Record<string, unknown>;
+    expect(addProductArgs?.provider).toBe('payhip');
+    expect(addProductArgs?.productId).toBe('KZFw0');
+    expect(addProductArgs?.displayName).toBe('This is a test');
   });
 });

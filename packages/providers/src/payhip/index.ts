@@ -159,3 +159,21 @@ export class PayhipAdapter implements ProviderAdapter {
     return this.client;
   }
 }
+
+/**
+ * Resolves the display name of a Payhip product from its permalink.
+ *
+ * Uses the iframely metadata API to bypass Cloudflare bot protection on
+ * payhip.com/b/{permalink}. Returns the product name alongside the permalink
+ * so callers can pass both to `addProductForProvider`.
+ *
+ * @param permalink - The product permalink (e.g., "KZFw0")
+ * @returns Object with `id` (the permalink) and `name` (display name, or undefined)
+ */
+export async function resolvePayhipProduct(
+  permalink: string
+): Promise<{ id: string; name: string | undefined }> {
+  const client = new PayhipApiClient();
+  const name = await client.fetchProductName(permalink);
+  return { id: permalink, name: name ?? undefined };
+}
