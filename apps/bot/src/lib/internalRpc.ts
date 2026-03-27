@@ -207,6 +207,7 @@ export async function completeLicenseVerification(params: {
   discordUserId?: string;
   licenseKey: string;
   productId?: string;
+  provider?: string;
   subjectId: string;
   authUserId: string;
 }): Promise<VerificationResultResponse> {

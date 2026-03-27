@@ -127,6 +127,14 @@ interface BaseProviderPlugin {
     ctx: ProviderContext
   ): Promise<{ name: string; error?: string }>;
   /**
+   * Called after a per-product credential is successfully stored via the
+   * generic product-credential endpoint.
+   *
+   * Allows providers to eagerly fetch and persist product metadata (e.g. display name)
+   * without waiting for a webhook. Failures are non-fatal — the credential is already stored.
+   */
+  onProductCredentialAdded?(productId: string, ctx: ProviderContext): Promise<void>;
+  /**
    * Validate a collaborator API credential (throw on failure).
    * Only providers with supportsCollab=true need to implement this.
    */

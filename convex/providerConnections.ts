@@ -1615,6 +1615,63 @@ export const getPayhipProducts = query({
 });
 
 /**
+ * Upsert the display name for a Payhip product into provider_catalog_mappings.
+ *
+ * Called after a product-secret-key is added to eagerly populate the product name
+ * without waiting for a webhook event to fire. If the mapping already exists, only
+ * updates displayName when the existing value is absent so webhook-sourced names
+ * (which come from real transaction data) are never overwritten.
+ */
+export const upsertPayhipProductName = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    permalink: v.string(),
+    displayName: v.string(),
+  },
+  returns: v.object({ success: v.boolean() }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const conn = await ctx.db
+      .query('provider_connections')
+      .withIndex('by_auth_user_provider', (q) =>
+        q.eq('authUserId', args.authUserId).eq('provider', 'payhip')
+      )
+      .first();
+
+    if (!conn) return { success: false };
+
+    const existing = await ctx.db
+      .query('provider_catalog_mappings')
+      .withIndex('by_connection', (q) => q.eq('providerConnectionId', conn._id))
+      .filter((q) => q.eq(q.field('externalProductId'), args.permalink))
+      .first();
+
+    const now = Date.now();
+    if (existing) {
+      if (!existing.displayName) {
+        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+      }
+    } else {
+      await ctx.db.insert('provider_catalog_mappings', {
+        authUserId: args.authUserId,
+        providerConnectionId: conn._id,
+        providerKey: 'payhip',
+        externalProductId: args.permalink,
+        displayName: args.displayName,
+        status: 'active',
+        metadata: { productPermalink: `https://payhip.com/b/${args.permalink}` },
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    return { success: true };
+  },
+});
+
+/**
  * Get connection status for a user across all providers.
  * Checks user-scoped connections and falls back to legacy tenant-scoped ones.
  */

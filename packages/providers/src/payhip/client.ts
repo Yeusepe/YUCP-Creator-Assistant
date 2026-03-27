@@ -233,6 +233,65 @@ export class PayhipApiClient {
     );
     return result?.data ?? null;
   }
+
+  // ============================================================================
+  // PRODUCT PAGE METADATA
+  // ============================================================================
+
+  /**
+   * Fetch the display name of a Payhip product by scraping its public product page.
+   *
+   * Extracts the name from the JSON-LD structured data embedded in the page.
+   * This is a public endpoint — no authentication required.
+   *
+   * @param permalink - The product permalink (e.g., "RGsF")
+   * @returns The product name, or null if it could not be determined
+   */
+  async fetchProductName(permalink: string): Promise<string | null> {
+    const url = `https://payhip.com/b/${encodeURIComponent(permalink)}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'text/html' },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) return null;
+
+      const html = await response.text();
+
+      // Extract from JSON-LD structured data (most reliable source)
+      const ldJsonMatch = html.match(
+        /<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/
+      );
+      if (ldJsonMatch) {
+        try {
+          const data = JSON.parse(ldJsonMatch[1]) as { name?: unknown };
+          if (typeof data.name === 'string' && data.name) {
+            return data.name;
+          }
+        } catch {
+          // fall through to og:title
+        }
+      }
+
+      // Fallback: og:title meta tag
+      const ogTitleMatch = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/);
+      if (ogTitleMatch?.[1]) {
+        return ogTitleMatch[1];
+      }
+
+      return null;
+    } catch {
+      clearTimeout(timeoutId);
+      return null;
+    }
+  }
 }
 
 export * from './types';
