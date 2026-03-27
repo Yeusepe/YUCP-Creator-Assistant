@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
+import { ApiError } from '@/api/client';
 import { listCreatorCertificates } from '@/lib/certificates';
 import {
   type CouplingForensicsLookupResponse,
@@ -46,6 +47,11 @@ function countMatchedAssets(result: CouplingForensicsLookupResponse | null) {
   return result?.results.filter((entry) => entry.matched).length ?? 0;
 }
 
+function noRetryOn4xx(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false;
+  return failureCount < 2;
+}
+
 export default function DashboardForensics() {
   const toast = useToast();
   const { isPersonalDashboard } = useActiveDashboardContext();
@@ -56,16 +62,27 @@ export default function DashboardForensics() {
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [lookupResult, setLookupResult] = useState<CouplingForensicsLookupResponse | null>(null);
 
-  const packagesQuery = useQuery({
-    queryKey: ['coupling-forensics', 'packages'],
-    queryFn: listCouplingForensicsPackages,
-    enabled: canRunPanelQueries && isPersonalDashboard,
-  });
-
+  // certificatesQuery must come first — capabilityEnabled is derived from it before packagesQuery
   const certificatesQuery = useQuery({
     queryKey: ['creator-certificates'],
     queryFn: listCreatorCertificates,
     enabled: canRunPanelQueries && isPersonalDashboard,
+    retry: noRetryOn4xx,
+  });
+
+  const capabilityEnabled =
+    certificatesQuery.data?.billing.capabilities.some(
+      (capability) =>
+        capability.capabilityKey === BILLING_CAPABILITY_KEYS.couplingTraceability &&
+        (capability.status === 'active' || capability.status === 'grace')
+    ) ?? false;
+
+  // Only fire once capability check resolves — prevents 400 spam for non-Studio+ users
+  const packagesQuery = useQuery({
+    queryKey: ['coupling-forensics', 'packages'],
+    queryFn: listCouplingForensicsPackages,
+    enabled: canRunPanelQueries && isPersonalDashboard && capabilityEnabled,
+    retry: noRetryOn4xx,
   });
 
   useEffect(() => {
@@ -88,22 +105,13 @@ export default function DashboardForensics() {
 
   useEffect(() => {
     if (packageOptions.length === 0) {
-      if (selectedPackageId) {
-        setSelectedPackageId('');
-      }
+      if (selectedPackageId) setSelectedPackageId('');
       return;
     }
     if (!packageOptions.some((option) => option.value === selectedPackageId)) {
       setSelectedPackageId(packageOptions[0]?.value ?? '');
     }
   }, [packageOptions, selectedPackageId]);
-
-  const capabilityEnabled =
-    certificatesQuery.data?.billing.capabilities.some(
-      (capability) =>
-        capability.capabilityKey === BILLING_CAPABILITY_KEYS.couplingTraceability &&
-        (capability.status === 'active' || capability.status === 'grace')
-    ) ?? false;
 
   const lookupMutation = useMutation({
     mutationFn: ({ packageId, file }: { packageId: string; file: File }) =>
@@ -144,13 +152,13 @@ export default function DashboardForensics() {
 
   const isLoading =
     !isAuthResolved ||
-    (canRunPanelQueries &&
-      isPersonalDashboard &&
-      (packagesQuery.isLoading || certificatesQuery.isLoading));
+    (canRunPanelQueries && isPersonalDashboard && certificatesQuery.isLoading);
   const hasQueryError =
     (packagesQuery.isError && !isDashboardAuthError(packagesQuery.error)) ||
     (certificatesQuery.isError && !isDashboardAuthError(certificatesQuery.error));
   const matchedAssets = countMatchedAssets(lookupResult);
+
+  /* ── Guards ── */
 
   if (status === 'signed_out' || status === 'expired') {
     return (
@@ -171,12 +179,7 @@ export default function DashboardForensics() {
           <section className="intg-card animate-in bento-col-12">
             <div className="intg-header">
               <div className="intg-icon">
-                <img
-                  src="/Icons/Shield.png"
-                  alt=""
-                  aria-hidden="true"
-                  style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                />
+                <img src="/Icons/Shield.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
               </div>
               <div className="intg-copy" style={{ flex: 1 }}>
                 <h1 className="intg-title">Creator scope required</h1>
@@ -200,6 +203,18 @@ export default function DashboardForensics() {
     );
   }
 
+  if (isLoading) {
+    return (
+      <div id="tab-panel-forensics" className="dashboard-tab-panel is-active" role="tabpanel">
+        <div className="bento-grid">
+          <DashboardGridSkeleton cards={3} />
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Main ── */
+
   return (
     <div id="tab-panel-forensics" className="dashboard-tab-panel is-active" role="tabpanel">
       <div className="bento-grid">
@@ -215,20 +230,16 @@ export default function DashboardForensics() {
           </div>
         )}
 
+        {/* Scan Form */}
         <section className="intg-card animate-in bento-col-8">
           <div className="intg-header">
             <div className="intg-icon">
-              <img
-                src="/Icons/Shield.png"
-                alt=""
-                aria-hidden="true"
-                style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-              />
+              <img src="/Icons/Shield.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
             </div>
             <div className="intg-copy" style={{ flex: 1 }}>
               <h1 className="intg-title">Coupling Forensics</h1>
               <p className="intg-desc">
-                Upload a `.unitypackage` or `.zip`, restrict the lookup to one of your packages, and
+                Upload a .unitypackage or .zip, restrict the lookup to one of your packages, and
                 resolve only authorized coupling matches.
               </p>
             </div>
@@ -237,39 +248,24 @@ export default function DashboardForensics() {
             </span>
           </div>
 
-          {!capabilityEnabled && !isLoading ? (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1fr)',
-                gap: '16px',
-              }}
-            >
-              <div className="account-empty">
-                <div className="account-empty-icon">
-                  <img
-                    src="/Icons/BagPlus.png"
-                    alt=""
-                    aria-hidden="true"
-                    style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.5 }}
-                  />
-                </div>
-                <p className="account-empty-title">Creator Studio+ required</p>
-                <p className="account-empty-desc">
-                  Coupling traceability is locked to Creator Studio+. Upgrade billing to inspect
-                  coupling matches for your packages.
-                </p>
+          {!capabilityEnabled ? (
+            <div className="account-empty">
+              <div className="account-empty-icon">
+                <img src="/Icons/BagPlus.png" alt="" aria-hidden="true" style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.5 }} />
               </div>
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <Link
-                  to="/dashboard/certificates"
-                  search={(prev) => ({ ...prev, guild_id: undefined, tenant_id: undefined })}
-                  className="account-btn account-btn--primary"
-                  style={{ borderRadius: '999px' }}
-                >
-                  Upgrade billing
-                </Link>
-              </div>
+              <p className="account-empty-title">Creator Studio+ required</p>
+              <p className="account-empty-desc">
+                Coupling traceability is locked to Creator Studio+. Upgrade your billing plan to
+                inspect coupling matches for your packages.
+              </p>
+              <Link
+                to="/dashboard/certificates"
+                search={(prev) => ({ ...prev, guild_id: undefined, tenant_id: undefined })}
+                className="account-btn account-btn--primary"
+                style={{ borderRadius: '999px', marginTop: '4px' }}
+              >
+                Upgrade billing
+              </Link>
             </div>
           ) : (
             <form
@@ -284,26 +280,9 @@ export default function DashboardForensics() {
                 lookupMutation.mutate({ packageId: selectedPackageId, file: selectedFile });
               }}
             >
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                  gap: '16px',
-                }}
-              >
+              <div className="account-form-field-group">
                 <div>
-                  <label
-                    htmlFor="forensics-package"
-                    style={{
-                      display: 'block',
-                      marginBottom: '8px',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      color: '#64748b',
-                    }}
-                  >
+                  <label htmlFor="forensics-package" className="account-form-label">
                     Package scope
                   </label>
                   <Select
@@ -311,108 +290,76 @@ export default function DashboardForensics() {
                     value={selectedPackageId}
                     options={packageOptions}
                     onChange={setSelectedPackageId}
-                    disabled={lookupMutation.isPending || packageOptions.length === 0 || isLoading}
+                    disabled={lookupMutation.isPending || packageOptions.length === 0}
                   />
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="forensics-file"
-                    style={{
-                      display: 'block',
-                      marginBottom: '8px',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      color: '#64748b',
-                    }}
-                  >
+                  <label htmlFor="forensics-file" className="account-form-label">
                     Upload package
                   </label>
                   <input
                     id="forensics-file"
                     type="file"
                     accept=".unitypackage,.zip"
-                    disabled={lookupMutation.isPending || isLoading}
+                    className="account-file-input"
+                    disabled={lookupMutation.isPending}
                     onChange={(event) => {
                       const file = event.target.files?.[0] ?? null;
                       setSelectedFile(file);
                       setInlineError(null);
                     }}
-                    style={{
-                      width: '100%',
-                      padding: '12px 14px',
-                      borderRadius: '10px',
-                      border: '1px solid rgba(148,163,184,0.22)',
-                      background: 'rgba(255,255,255,0.9)',
-                      color: '#0f172a',
-                    }}
                   />
                 </div>
               </div>
 
-              <div
-                style={{
-                  marginTop: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  flexWrap: 'wrap',
-                }}
-              >
+              <div className="account-form-actions">
                 <button
                   type="submit"
                   className={`account-btn account-btn--primary${lookupMutation.isPending ? ' btn-loading' : ''}`}
                   style={{ borderRadius: '999px' }}
                   disabled={
                     lookupMutation.isPending ||
-                    isLoading ||
                     !selectedPackageId ||
                     !selectedFile ||
                     packageOptions.length === 0
                   }
                 >
-                  {lookupMutation.isPending && (
-                    <span className="btn-loading-spinner" aria-hidden="true" />
-                  )}
-                  <span className="btn-label">
-                    {lookupMutation.isPending ? 'Scanning...' : 'Scan upload'}
-                  </span>
+                  {lookupMutation.isPending && <span className="btn-loading-spinner" aria-hidden="true" />}
+                  <span>{lookupMutation.isPending ? 'Scanning...' : 'Scan upload'}</span>
                 </button>
-
-                <div style={{ color: '#64748b', fontSize: '13px' }}>
+                <span className="account-form-hint">
                   {selectedFile
-                    ? `Selected file: ${selectedFile.name}`
-                    : 'Supported upload types: .unitypackage and .zip'}
-                </div>
+                    ? `Selected: ${selectedFile.name}`
+                    : 'Supported: .unitypackage and .zip'}
+                </span>
               </div>
             </form>
           )}
         </section>
 
+        {/* Lookup Summary */}
         <section className="intg-card animate-in animate-in-delay-1 bento-col-4">
           <div className="intg-header">
             <div className="intg-icon">
-              <img
-                src="/Icons/Laptop.png"
-                alt=""
-                aria-hidden="true"
-                style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-              />
+              <img src="/Icons/Wrench.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
             </div>
             <div className="intg-copy" style={{ flex: 1 }}>
               <h2 className="intg-title">Lookup Summary</h2>
-              <p className="intg-desc">
-                Remote coupling scan, creator-owned package scope, and redacted match output only.
-              </p>
+              <p className="intg-desc">Creator-scoped scan with redacted match output only.</p>
             </div>
           </div>
 
           <dl className="account-kv-list">
             <div className="account-kv-row">
               <dt className="account-kv-label">Capability</dt>
-              <dd className="account-kv-value">{capabilityEnabled ? 'Enabled' : 'Locked'}</dd>
+              <dd className="account-kv-value">
+                {capabilityEnabled ? (
+                  <span className="account-badge account-badge--active">Enabled</span>
+                ) : (
+                  <span className="account-badge account-badge--provider">Locked</span>
+                )}
+              </dd>
             </div>
             <div className="account-kv-row">
               <dt className="account-kv-label">Owned packages</dt>
@@ -420,33 +367,28 @@ export default function DashboardForensics() {
             </div>
             <div className="account-kv-row">
               <dt className="account-kv-label">Candidates scanned</dt>
-              <dd className="account-kv-value">{lookupResult?.candidateAssetCount ?? '-'}</dd>
+              <dd className="account-kv-value">{lookupResult?.candidateAssetCount ?? '—'}</dd>
             </div>
             <div className="account-kv-row">
               <dt className="account-kv-label">Decoded assets</dt>
-              <dd className="account-kv-value">{lookupResult?.decodedAssetCount ?? '-'}</dd>
+              <dd className="account-kv-value">{lookupResult?.decodedAssetCount ?? '—'}</dd>
             </div>
             <div className="account-kv-row">
               <dt className="account-kv-label">Matched assets</dt>
-              <dd className="account-kv-value">{lookupResult ? matchedAssets : '-'}</dd>
+              <dd className="account-kv-value">{lookupResult ? matchedAssets : '—'}</dd>
             </div>
             <div className="account-kv-row">
               <dt className="account-kv-label">Status</dt>
               <dd className="account-kv-value">
-                {lookupResult ? lookupResult.lookupStatus.replace(/_/g, ' ') : '-'}
+                {lookupResult ? lookupResult.lookupStatus.replace(/_/g, ' ') : '—'}
               </dd>
             </div>
           </dl>
 
-          {!lookupResult && !isLoading && (
+          {!lookupResult && (
             <div className="account-empty" style={{ marginTop: '18px' }}>
               <div className="account-empty-icon">
-                <img
-                  src="/Icons/Wrench.png"
-                  alt=""
-                  aria-hidden="true"
-                  style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.45 }}
-                />
+                <img src="/Icons/Wrench.png" alt="" aria-hidden="true" style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.45 }} />
               </div>
               <p className="account-empty-title">No lookup yet</p>
               <p className="account-empty-desc">
@@ -456,16 +398,12 @@ export default function DashboardForensics() {
           )}
         </section>
 
+        {/* Match Results */}
         {lookupResult && (
           <section className="intg-card animate-in animate-in-delay-2 bento-col-12">
             <div className="intg-header">
               <div className="intg-icon">
-                <img
-                  src="/Icons/Shield.png"
-                  alt=""
-                  aria-hidden="true"
-                  style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                />
+                <img src="/Icons/Shield.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
               </div>
               <div className="intg-copy" style={{ flex: 1 }}>
                 <h2 className="intg-title">Authorized Match Results</h2>
@@ -485,30 +423,14 @@ export default function DashboardForensics() {
                   .filter((entry) => entry.matched)
                   .map((entry) => (
                     <div key={`${entry.assetPath}:${entry.assetType}`} className="account-list-row">
-                      <div
-                        className="account-list-row-icon"
-                        style={{
-                          background:
-                            entry.assetType === 'fbx'
-                              ? 'rgba(59,130,246,0.1)'
-                              : 'rgba(16,185,129,0.1)',
-                        }}
-                      >
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            fontSize: '11px',
-                            fontWeight: 800,
-                            color: entry.assetType === 'fbx' ? '#2563eb' : '#059669',
-                          }}
-                        >
+                      <div className="account-list-row-icon">
+                        <span className={`account-asset-type-badge account-asset-type-badge--${entry.assetType}`}>
                           {entry.assetType.toUpperCase()}
                         </span>
                       </div>
-
                       <div className="account-list-row-info">
                         <p className="account-list-row-name">{entry.assetPath}</p>
-                        <div className="account-list-row-meta" style={{ flexWrap: 'wrap' }}>
+                        <div className="account-list-row-meta">
                           <span className="account-reference-chip">{entry.decoderKind}</span>
                           <span>{entry.tokenLength} hex chars</span>
                           <span aria-hidden="true">·</span>
@@ -516,55 +438,28 @@ export default function DashboardForensics() {
                             {entry.matches.length} record{entry.matches.length === 1 ? '' : 's'}
                           </span>
                         </div>
-                        <div
-                          style={{
-                            display: 'grid',
-                            gap: '8px',
-                            marginTop: '10px',
-                          }}
-                        >
+                        <div style={{ display: 'grid', gap: '8px', marginTop: '10px' }}>
                           {entry.matches.map((match) => (
                             <div
                               key={`${entry.assetPath}:${match.correlationId ?? match.licenseSubject}`}
-                              style={{
-                                padding: '12px 14px',
-                                borderRadius: '10px',
-                                border: '1px solid rgba(148,163,184,0.18)',
-                                background: 'rgba(15,23,42,0.03)',
-                              }}
+                              className="account-match-record"
                             >
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '10px',
-                                  flexWrap: 'wrap',
-                                }}
-                              >
+                              <div className="account-match-record-header">
                                 <span className="account-badge account-badge--connected">
                                   {match.licenseSubject}
                                 </span>
-                                <span style={{ color: '#64748b', fontSize: '12px' }}>
+                                <span className="account-form-hint">
                                   Issued {formatForensicsDate(match.createdAt)}
                                 </span>
                               </div>
-                              <div
-                                style={{
-                                  marginTop: '8px',
-                                  display: 'flex',
-                                  gap: '8px',
-                                  flexWrap: 'wrap',
-                                  color: '#64748b',
-                                  fontSize: '12px',
-                                }}
-                              >
+                              <div className="account-match-record-meta">
                                 <span>Trace asset: {match.assetPath}</span>
-                                {match.correlationId ? (
+                                {match.correlationId && (
                                   <span>Correlation: {match.correlationId}</span>
-                                ) : null}
-                                {match.runtimeArtifactVersion ? (
+                                )}
+                                {match.runtimeArtifactVersion && (
                                   <span>Runtime: {match.runtimeArtifactVersion}</span>
-                                ) : null}
+                                )}
                               </div>
                             </div>
                           ))}
@@ -576,12 +471,7 @@ export default function DashboardForensics() {
             ) : (
               <div className="account-empty">
                 <div className="account-empty-icon">
-                  <img
-                    src="/Icons/Wrench.png"
-                    alt=""
-                    aria-hidden="true"
-                    style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.45 }}
-                  />
+                  <img src="/Icons/Wrench.png" alt="" aria-hidden="true" style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.45 }} />
                 </div>
                 <p className="account-empty-title">No authorized match found</p>
                 <p className="account-empty-desc">

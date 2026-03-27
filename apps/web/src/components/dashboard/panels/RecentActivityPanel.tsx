@@ -126,9 +126,9 @@ export function RecentActivityPanel() {
           </div>
         ) : (
           <div className="flex flex-col" style={{ maxHeight: 380, overflowY: 'auto' }}>
-            {activity.map((event) => (
+            {activity.map((event, index) => (
               <ActivityItem
-                key={`${event.eventType}-${String(event.createdAt)}`}
+                key={`${event.eventType}-${String(event.createdAt)}-${String(index)}`}
                 eventType={event.eventType}
                 description={describeEvent(event)}
                 timestamp={event.createdAt}

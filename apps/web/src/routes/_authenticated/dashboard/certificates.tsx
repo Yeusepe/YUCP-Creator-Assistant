@@ -49,18 +49,7 @@ function formatQuota(value: number | null) {
   return value === null ? 'Unlimited' : value.toLocaleString();
 }
 
-/* ── Icons ── */
-
-function PolarIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="none" />
-      <path d="M10 8l6 4-6 4V8z" fill="currentColor" />
-    </svg>
-  );
-}
-
-/* ── Plan Card ── */
+/* Plan Card */
 
 function PlanCard({
   plan,
@@ -89,63 +78,35 @@ function PlanCard({
         <div>
           <h3 className="account-plan-name">{plan.displayName}</h3>
           {plan.description && (
-            <p className="account-plan-meta" style={{ fontFamily: 'inherit' }}>
-              {plan.description}
-            </p>
+            <p className="account-plan-meta">{plan.description}</p>
           )}
         </div>
-        {isCurrentPlan && <span className="account-badge account-badge--connected">Active</span>}
+        {isCurrentPlan && (
+          <span className="account-badge account-badge--connected">Active</span>
+        )}
       </div>
 
-      <ul
-        className="account-plan-feature-list"
-        style={{ listStyle: 'none', paddingLeft: 0, flex: 1 }}
-      >
+      {/* CSS ::before pseudo-element adds checkmarks — no inline SVG needed */}
+      <ul className="account-plan-feature-list">
         {highlights.map((h) => (
-          <li
-            key={`${plan.planKey}-${h}`}
-            style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 12 12"
-              fill="none"
-              aria-hidden="true"
-              style={{
-                flexShrink: 0,
-                marginTop: '3px',
-                color: isCurrentPlan ? '#0ea5e9' : '#94a3b8',
-              }}
-            >
-              <circle cx="6" cy="6" r="5" fill="currentColor" opacity="0.15" />
-              <path
-                d="M3.5 6l1.8 1.8L8.5 4"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            {h}
-          </li>
+          <li key={`${plan.planKey}-${h}`}>{h}</li>
         ))}
       </ul>
 
       <button
         type="button"
-        className={`account-btn account-btn--${isCurrentPlan ? 'secondary' : 'primary'} ${isPending ? 'btn-loading' : ''}`}
+        className={`account-btn account-btn--${isCurrentPlan ? 'secondary' : 'primary'}${isPending ? ' btn-loading' : ''}`}
         style={{ width: '100%', justifyContent: 'center', borderRadius: '999px' }}
         onClick={() => onCheckout(plan)}
         disabled={isPending || isCurrentPlan}
       >
         {isPending ? (
-          <span className="btn-loading-spinner" />
+          <span className="btn-loading-spinner" aria-hidden="true" />
         ) : isCurrentPlan ? (
           'Current Plan'
         ) : (
           <>
-            <PolarIcon />
+            <img src="/Icons/Polar.svg" alt="" aria-hidden="true" className="cert-polar-btn-icon" />
             Subscribe via Polar
           </>
         )}
@@ -154,7 +115,7 @@ function PlanCard({
   );
 }
 
-/* ── Device Row ── */
+/* Device Row */
 
 function CertificateDeviceRow({
   device,
@@ -178,12 +139,7 @@ function CertificateDeviceRow({
           src="/Icons/Laptop.png"
           alt=""
           aria-hidden="true"
-          style={{
-            width: '18px',
-            height: '18px',
-            objectFit: 'contain',
-            opacity: isActive ? 1 : 0.4,
-          }}
+          style={{ opacity: isActive ? 1 : 0.4 }}
         />
       </div>
 
@@ -191,10 +147,7 @@ function CertificateDeviceRow({
         <p className="account-list-row-name">{device.publisherName}</p>
         <div className="account-list-row-meta">
           <span className="account-reference-chip">{device.devPublicKey.slice(0, 20)}…</span>
-          <span
-            className={`account-badge account-badge--${isActive ? 'active' : 'revoked'}`}
-            style={{ textTransform: 'capitalize' }}
-          >
+          <span className={`account-badge account-badge--${isActive ? 'active' : 'revoked'}`}>
             {device.status}
           </span>
           <span>Issued {formatCertificateDate(device.issuedAt)}</span>
@@ -238,11 +191,11 @@ function CertificateDeviceRow({
             </button>
             <button
               type="button"
-              className={`account-btn account-btn--danger ${isRevoking ? 'btn-loading' : ''}`}
+              className={`account-btn account-btn--danger${isRevoking ? ' btn-loading' : ''}`}
               onClick={() => onRevoke(device.certNonce)}
               disabled={isRevoking}
             >
-              {isRevoking ? <span className="btn-loading-spinner" /> : 'Confirm Revocation'}
+              {isRevoking ? <span className="btn-loading-spinner" aria-hidden="true" /> : 'Confirm Revocation'}
             </button>
           </div>
         </AccountModal>
@@ -251,7 +204,7 @@ function CertificateDeviceRow({
   );
 }
 
-/* ── Page ── */
+/* Page */
 
 export default function DashboardCertificates() {
   const search = Route.useSearch();
@@ -370,7 +323,7 @@ export default function DashboardCertificates() {
     revokeMut.mutate(certNonce);
   };
 
-  /* ── Guards ── */
+  /* Guards */
 
   if (status === 'signed_out' || status === 'expired') {
     return (
@@ -391,12 +344,7 @@ export default function DashboardCertificates() {
           <section className="intg-card animate-in bento-col-12">
             <div className="intg-header">
               <div className="intg-icon">
-                <img
-                  src="/Icons/Shield.png"
-                  alt=""
-                  aria-hidden="true"
-                  style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                />
+                <img src="/Icons/Shield.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
               </div>
               <div className="intg-copy" style={{ flex: 1 }}>
                 <h1 className="intg-title">Creator scope required</h1>
@@ -420,7 +368,17 @@ export default function DashboardCertificates() {
     );
   }
 
-  /* ── Main ── */
+  if (isLoading) {
+    return (
+      <div id="tab-panel-certificates" className="dashboard-tab-panel is-active" role="tabpanel">
+        <div className="bento-grid">
+          <DashboardCertificatesSkeleton />
+        </div>
+      </div>
+    );
+  }
+
+  /* Main */
 
   return (
     <div id="tab-panel-certificates" className="dashboard-tab-panel is-active" role="tabpanel">
@@ -431,21 +389,13 @@ export default function DashboardCertificates() {
           </div>
         )}
 
-        {/* ══════════════════════════════════════════
-            Active subscription — 8 / 4 split
-        ══════════════════════════════════════════ */}
-        {hasActiveSubscription && !isLoading && (
+        {/* Active subscription: device list + billing sidebar + plans */}
+        {hasActiveSubscription && (
           <>
-            {/* Left: device list */}
             <section className="intg-card animate-in bento-col-8">
               <div className="intg-header">
                 <div className="intg-icon">
-                  <img
-                    src="/Icons/Laptop.png"
-                    alt=""
-                    aria-hidden="true"
-                    style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                  />
+                  <img src="/Icons/Laptop.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
                 </div>
                 <div className="intg-copy" style={{ flex: 1 }}>
                   <h2 className="intg-title">Authorized Machines</h2>
@@ -472,17 +422,7 @@ export default function DashboardCertificates() {
                 ) : (
                   <div className="account-empty">
                     <div className="account-empty-icon">
-                      <img
-                        src="/Icons/Laptop.png"
-                        alt=""
-                        aria-hidden="true"
-                        style={{
-                          width: '20px',
-                          height: '20px',
-                          objectFit: 'contain',
-                          opacity: 0.45,
-                        }}
-                      />
+                      <img src="/Icons/Laptop.png" alt="" aria-hidden="true" style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.45 }} />
                     </div>
                     <p className="account-empty-title">No devices enrolled yet</p>
                     <p className="account-empty-desc">
@@ -493,16 +433,10 @@ export default function DashboardCertificates() {
               </div>
             </section>
 
-            {/* Right: subscription sidebar */}
             <section className="intg-card animate-in animate-in-delay-1 bento-col-4">
               <div className="intg-header">
                 <div className="intg-icon">
-                  <img
-                    src="/Icons/Shield.png"
-                    alt=""
-                    aria-hidden="true"
-                    style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                  />
+                  <img src="/Icons/Shield.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
                 </div>
                 <div className="intg-copy" style={{ flex: 1 }}>
                   <h2 className="intg-title">{currentPlan?.displayName ?? 'Subscription'}</h2>
@@ -557,37 +491,29 @@ export default function DashboardCertificates() {
                 )}
               </dl>
 
-              <div
-                style={{
-                  marginTop: 'auto',
-                  paddingTop: '16px',
-                  borderTop: '1px solid rgba(148,163,184,0.18)',
-                }}
-              >
+              <div className="account-card-footer">
                 <button
                   type="button"
-                  className={`account-btn account-btn--secondary ${portalMut.isPending ? 'btn-loading' : ''}`}
+                  className={`account-btn account-btn--secondary${portalMut.isPending ? ' btn-loading' : ''}`}
                   style={{ width: '100%', justifyContent: 'center', borderRadius: '999px' }}
                   onClick={() => portalMut.mutate()}
-                  disabled={portalMut.isPending || isLoading}
+                  disabled={portalMut.isPending}
                 >
-                  {portalMut.isPending ? <span className="btn-loading-spinner" /> : <PolarIcon />}
-                  Manage Billing
+                  {portalMut.isPending ? (
+                    <span className="btn-loading-spinner" aria-hidden="true" />
+                  ) : (
+                    <img src="/Icons/Polar.svg" alt="" aria-hidden="true" className="cert-polar-btn-icon" />
+                  )}
+                  {portalMut.isPending ? 'Opening...' : 'Manage Billing'}
                 </button>
               </div>
             </section>
 
-            {/* Plans — full width */}
             {overview && overview.availablePlans.length > 0 && (
               <section className="intg-card animate-in animate-in-delay-2 bento-col-12">
                 <div className="intg-header">
                   <div className="intg-icon">
-                    <img
-                      src="/Icons/BagPlus.png"
-                      alt=""
-                      aria-hidden="true"
-                      style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                    />
+                    <img src="/Icons/BagPlus.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
                   </div>
                   <div className="intg-copy" style={{ flex: 1 }}>
                     <h2 className="intg-title">Available Plans</h2>
@@ -595,28 +521,13 @@ export default function DashboardCertificates() {
                       Upgrade or change your plan. Changes apply immediately via Polar checkout.
                     </p>
                   </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      color: '#94a3b8',
-                      fontSize: '12px',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <PolarIcon size={12} />
-                    <span>Polar</span>
-                  </div>
+                  <span className="account-polar-badge">
+                    <img src="/Icons/Polar.svg" alt="" aria-hidden="true" />
+                    Polar
+                  </span>
                 </div>
 
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                    gap: '16px',
-                  }}
-                >
+                <div className="account-plan-grid">
                   {overview.availablePlans.map((plan) => (
                     <PlanCard
                       key={plan.planKey}
@@ -635,21 +546,13 @@ export default function DashboardCertificates() {
           </>
         )}
 
-        {/* ══════════════════════════════════════════
-            No subscription — focused upsell
-        ══════════════════════════════════════════ */}
-        {!hasActiveSubscription && !isLoading && (
+        {/* No subscription: feature overview + get started + plans */}
+        {!hasActiveSubscription && (
           <>
-            {/* Left: what you get */}
             <section className="intg-card animate-in bento-col-8">
               <div className="intg-header">
                 <div className="intg-icon">
-                  <img
-                    src="/Icons/Shield.png"
-                    alt=""
-                    aria-hidden="true"
-                    style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                  />
+                  <img src="/Icons/Shield.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
                 </div>
                 <div className="intg-copy">
                   <h2 className="intg-title">Code Signing Certificates</h2>
@@ -659,13 +562,7 @@ export default function DashboardCertificates() {
                 </div>
               </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: '10px',
-                }}
-              >
+              <div className="cert-features-grid">
                 {(
                   [
                     {
@@ -690,35 +587,23 @@ export default function DashboardCertificates() {
                     },
                   ] as const
                 ).map(({ icon, title, desc }) => (
-                  <div key={title} className="acct-provider-card">
-                    <div
-                      className="acct-provider-icon"
-                      style={{
-                        background: 'rgba(15,23,42,0.04)',
-                        border: '1px solid rgba(148,163,184,0.15)',
-                      }}
-                    >
+                  <div key={title} className="cert-feature-item">
+                    <div className="cert-feature-icon">
                       <img src={icon} alt="" aria-hidden="true" />
                     </div>
-                    <div className="acct-provider-info">
-                      <p className="acct-provider-name">{title}</p>
-                      <p className="acct-provider-meta">{desc}</p>
+                    <div className="cert-feature-copy">
+                      <p className="cert-feature-title">{title}</p>
+                      <p className="cert-feature-desc">{desc}</p>
                     </div>
                   </div>
                 ))}
               </div>
             </section>
 
-            {/* Right: status + CTA */}
             <section className="intg-card animate-in animate-in-delay-1 bento-col-4">
               <div className="intg-header">
                 <div className="intg-icon">
-                  <img
-                    src="/Icons/BagPlus.png"
-                    alt=""
-                    aria-hidden="true"
-                    style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                  />
+                  <img src="/Icons/BagPlus.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
                 </div>
                 <div className="intg-copy">
                   <h2 className="intg-title">Get Started</h2>
@@ -743,49 +628,22 @@ export default function DashboardCertificates() {
                 </div>
               </dl>
 
-              <div
-                style={{
-                  marginTop: 'auto',
-                  paddingTop: '16px',
-                  borderTop: '1px solid rgba(148,163,184,0.18)',
-                }}
-              >
-                <p
-                  style={{
-                    margin: '0 0 12px',
-                    fontSize: '12px',
-                    color: '#64748b',
-                    lineHeight: 1.5,
-                  }}
-                >
+              <div className="account-card-footer">
+                <p className="account-form-hint">
                   Choose a plan below to activate certificate signing for your account.
                 </p>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    fontSize: '11px',
-                    color: '#94a3b8',
-                  }}
-                >
-                  <PolarIcon size={11} />
-                  <span>Billing managed by Polar</span>
-                </div>
+                <span className="account-polar-badge" style={{ marginTop: '10px', display: 'inline-flex' }}>
+                  <img src="/Icons/Polar.svg" alt="" aria-hidden="true" />
+                  Billing managed by Polar
+                </span>
               </div>
             </section>
 
-            {/* Plans — full width */}
             {overview && overview.availablePlans.length > 0 && (
               <section className="intg-card animate-in animate-in-delay-2 bento-col-12">
                 <div className="intg-header">
                   <div className="intg-icon">
-                    <img
-                      src="/Icons/BagPlus.png"
-                      alt=""
-                      aria-hidden="true"
-                      style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                    />
+                    <img src="/Icons/BagPlus.png" alt="" aria-hidden="true" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
                   </div>
                   <div className="intg-copy" style={{ flex: 1 }}>
                     <h2 className="intg-title">Choose a Plan</h2>
@@ -794,28 +652,13 @@ export default function DashboardCertificates() {
                       {overview.availablePlans[0]?.billingGraceDays ?? 3}-day grace period.
                     </p>
                   </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      color: '#94a3b8',
-                      fontSize: '12px',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <PolarIcon size={12} />
-                    <span>Polar</span>
-                  </div>
+                  <span className="account-polar-badge">
+                    <img src="/Icons/Polar.svg" alt="" aria-hidden="true" />
+                    Polar
+                  </span>
                 </div>
 
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                    gap: '16px',
-                  }}
-                >
+                <div className="account-plan-grid">
                   {overview.availablePlans.map((plan) => (
                     <PlanCard
                       key={plan.planKey}
@@ -830,9 +673,6 @@ export default function DashboardCertificates() {
             )}
           </>
         )}
-
-        {/* Loading */}
-        {isLoading && <DashboardCertificatesSkeleton />}
       </div>
     </div>
   );

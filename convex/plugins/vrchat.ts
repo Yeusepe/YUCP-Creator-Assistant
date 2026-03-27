@@ -6,7 +6,7 @@
 import type { BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthEndpoint, sessionMiddleware } from 'better-auth/api';
 import { setSessionCookie } from 'better-auth/cookies';
-import { createLogger } from '../../packages/shared/src/logging';
+import { createConvexLogger } from '../lib/logger';
 import {
   canonicalizeJson,
   constantTimeEqual,
@@ -21,7 +21,7 @@ const INTERNAL_AUTH_SIG_HEADER = 'x-yucp-internal-auth-sig';
 const INTERNAL_AUTH_MAX_AGE_MS = 5 * 60 * 1000;
 const PROVIDER_SESSION_PURPOSE = 'vrchat-provider-session';
 const ENCRYPTED_TOKEN_PREFIX = 'enc:v1:';
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+const logger = createConvexLogger();
 
 interface VrchatCurrentUser {
   id: string;

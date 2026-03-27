@@ -485,9 +485,7 @@ export const ensureSubjectForDiscord = mutation({
     isNew: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    if (process.env.CONVEX_API_SECRET !== args.apiSecret) {
-      throw new Error('Unauthorized');
-    }
+    requireApiSecret(args.apiSecret);
     const existing = await ctx.db
       .query('subjects')
       .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))

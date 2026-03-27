@@ -1,9 +1,9 @@
 import { components } from '../_generated/api';
 import type { MutationCtx, QueryCtx } from '../_generated/server';
-import { createLogger } from '../../packages/shared/src/logging';
+import { createConvexLogger } from './logger';
 
 type AuthResolverCtx = Pick<QueryCtx, 'auth' | 'runQuery'> | Pick<MutationCtx, 'auth' | 'runQuery'>;
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+const logger = createConvexLogger();
 
 interface BetterAuthUserRecord {
   _id?: string;
