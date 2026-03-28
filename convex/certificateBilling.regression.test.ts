@@ -269,4 +269,119 @@ describe('certificateBilling regressions', () => {
 
     expect(hasCapability).toBe(true);
   });
+
+  it('hides stale renewal and limit fields from the overview when a workspace becomes inactive', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'creator-auth-user-inactive-cleanup';
+    const creatorProfileId = await seedCreatorProfile(t, {
+      authUserId,
+      name: 'Inactive Cleanup Creator',
+    });
+    const workspaceKey = buildCreatorProfileWorkspaceKey(creatorProfileId);
+    const now = Date.now();
+
+    await seedCertificateBillingCatalog(t, {
+      productId: 'prod_creator_suite_plus',
+      slug: 'creator-suite-plus',
+      displayName: 'Creator Suite+',
+      benefitMetadata: {
+        device_cap: 3,
+        audit_retention_days: 30,
+        support_tier: 'standard',
+        tier_rank: 1,
+      },
+      deviceCap: 3,
+      auditRetentionDays: 30,
+      supportTier: 'standard',
+      tierRank: 1,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('creator_billing_accounts', {
+        workspaceKey,
+        authUserId,
+        creatorProfileId,
+        polarCustomerId: 'polar-customer-inactive-cleanup',
+        polarExternalId: authUserId,
+        planKey: 'creator-suite-plus',
+        productId: 'prod_creator_suite_plus',
+        status: 'active',
+        customerEmail: 'cleanup@example.com',
+        currentPeriodEnd: now + 86_400_000,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('creator_billing_entitlements', {
+        workspaceKey,
+        authUserId,
+        creatorProfileId,
+        planKey: 'creator-suite-plus',
+        productId: 'prod_creator_suite_plus',
+        status: 'active',
+        allowEnrollment: true,
+        allowSigning: true,
+        deviceCap: 3,
+        signQuotaPerPeriod: 1000,
+        auditRetentionDays: 30,
+        supportTier: 'standard',
+        currentPeriodEnd: now + 86_400_000,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await t.mutation(api.certificateBilling.projectCustomerStateForApi, {
+      apiSecret: 'test-convex-secret',
+      authUserId,
+      polarCustomerId: 'polar-customer-inactive-cleanup',
+      customerEmail: 'cleanup@example.com',
+      activeSubscriptions: [],
+      grantedBenefits: [],
+      activeMeters: [],
+    });
+
+    const state = await t.run(async (ctx) => {
+      const account = await ctx.db
+        .query('creator_billing_accounts')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+        .first();
+      const entitlement = await ctx.db
+        .query('creator_billing_entitlements')
+        .withIndex('by_workspace_key', (q) => q.eq('workspaceKey', workspaceKey))
+        .first();
+
+      return { account, entitlement };
+    });
+    const overview = await t.query(api.certificateBilling.getAccountOverview, {
+      apiSecret: 'test-convex-secret',
+      authUserId,
+    });
+
+    expect(state.account).toMatchObject({
+      workspaceKey,
+      status: 'inactive',
+    });
+    expect(state.account?.currentPeriodEnd).toBeUndefined();
+    expect(state.entitlement).toMatchObject({
+      workspaceKey,
+      status: 'inactive',
+      allowEnrollment: false,
+      allowSigning: false,
+    });
+    expect(state.entitlement?.currentPeriodEnd).toBeUndefined();
+    expect(overview.billing).toMatchObject({
+      status: 'inactive',
+      allowEnrollment: false,
+      allowSigning: false,
+      activeDeviceCount: 0,
+      reason: 'Certificate subscription required',
+    });
+    expect(overview.billing.planKey).toBeUndefined();
+    expect(overview.billing.productId).toBeUndefined();
+    expect(overview.billing.deviceCap).toBeUndefined();
+    expect(overview.billing.signQuotaPerPeriod).toBeUndefined();
+    expect(overview.billing.auditRetentionDays).toBeUndefined();
+    expect(overview.billing.supportTier).toBeUndefined();
+    expect(overview.billing.currentPeriodEnd).toBeUndefined();
+  });
 });

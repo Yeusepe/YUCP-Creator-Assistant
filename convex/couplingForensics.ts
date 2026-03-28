@@ -1,5 +1,6 @@
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
+import type { Doc } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { BILLING_CAPABILITY_KEYS } from './lib/billingCapabilities';
@@ -31,6 +32,12 @@ function normalizeTokenHashes(tokenHashes: string[]): string[] {
   return normalized;
 }
 
+function isArchivedPackage(
+  registration: Pick<Doc<'package_registry'>, 'status'> | null | undefined
+): boolean {
+  return registration?.status === 'archived';
+}
+
 export const listOwnedPackagesForAuthUser = query({
   args: {
     apiSecret: v.string(),
@@ -41,7 +48,7 @@ export const listOwnedPackagesForAuthUser = query({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const registrations: Array<{ packageId: string }> = await ctx.runQuery(
+    const registrations: Doc<'package_registry'>[] = await ctx.runQuery(
       internal.packageRegistry.getRegistrationsByYucpUser,
       {
         yucpUserId: args.authUserId,
@@ -49,8 +56,63 @@ export const listOwnedPackagesForAuthUser = query({
     );
     return {
       packages: registrations
-        .map((entry: { packageId: string }) => entry.packageId)
+        .filter((registration) => !isArchivedPackage(registration))
+        .map((entry) => entry.packageId)
         .sort((left: string, right: string) => left.localeCompare(right)),
+    };
+  },
+});
+
+export const listOwnedPackageSummariesForAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+  },
+  returns: v.object({
+    packages: v.array(
+      v.object({
+        packageId: v.string(),
+        packageName: v.optional(v.string()),
+        registeredAt: v.number(),
+        updatedAt: v.number(),
+      })
+    ),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    packages: Array<{
+      packageId: string;
+      packageName?: string;
+      registeredAt: number;
+      updatedAt: number;
+    }>;
+  }> => {
+    requireApiSecret(args.apiSecret);
+    const registrations: Doc<'package_registry'>[] = await ctx.runQuery(
+      internal.packageRegistry.getRegistrationsByYucpUser,
+      {
+        yucpUserId: args.authUserId,
+      }
+    );
+
+    return {
+      packages: registrations
+        .filter((registration) => !isArchivedPackage(registration))
+        .map((registration) => ({
+          packageId: registration.packageId,
+          packageName: registration.packageName,
+          registeredAt: registration.registeredAt,
+          updatedAt: registration.updatedAt,
+        }))
+        .sort((left, right) => {
+          const leftLabel = (left.packageName ?? left.packageId).toLowerCase();
+          const rightLabel = (right.packageName ?? right.packageId).toLowerCase();
+          return (
+            leftLabel.localeCompare(rightLabel) || left.packageId.localeCompare(right.packageId)
+          );
+        }),
     };
   },
 });
@@ -102,7 +164,7 @@ export const lookupTraceMatchesForAuthUser = query({
     const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
       packageId: args.packageId,
     });
-    if (!registration || registration.yucpUserId !== args.authUserId) {
+    if (!registration || registration.yucpUserId !== args.authUserId || isArchivedPackage(registration)) {
       return {
         capabilityEnabled: true,
         packageOwned: false,

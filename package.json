@@ -43,6 +43,8 @@
     "dev:infisical": "bun run ops/dev-supervisor.ts --infisical",
     "sync:convex:env": "bun run --env-file=.env.infisical ops/sync-convex-env.ts",
     "sync:convex:env:prod": "bun run --env-file=.env.infisical ops/sync-convex-env.ts --prod",
+    "infisical:convex": "bun run --env-file=.env.infisical ops/infisical-convex-run.ts",
+    "infisical:convex:prod": "bun run --env-file=.env.infisical ops/infisical-convex-run.ts --prod",
     "dev:api": "cross-env FRONTEND_URL=http://localhost:3000 bun run --watch apps/api/src/index.ts",
     "dev:api:infisical": "bun run --env-file=.env.infisical dev:api",
     "dev:bot": "bun run --watch apps/bot/src/index.ts",

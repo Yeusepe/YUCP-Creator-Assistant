@@ -40,7 +40,7 @@
  *   POST /v1/signatures
  *        Transparency log: register a signed package manifest (Layer 2).
  *        Auth: Authorization: Bearer <base64(JSON cert envelope)>
- *        Body: { packageId, contentHash, packageVersion? }
+ *        Body: { packageId, packageName?, contentHash, packageVersion? }
  *
  * Admin routes (Authorization: Bearer <CONVEX_API_SECRET>):
  *
@@ -1064,6 +1064,7 @@ http.route({
 
     let body: {
       packageId: string;
+      packageName?: string;
       contentHash: string;
       packageVersion?: string;
       requestNonce?: string;
@@ -1140,6 +1141,7 @@ http.route({
     // Layer 1: enforce package namespace ownership
     const regResult = await ctx.runMutation(internal.packageRegistry.registerPackage, {
       packageId: body.packageId,
+      packageName: body.packageName,
       publisherId,
       yucpUserId,
     });
@@ -1150,6 +1152,15 @@ http.route({
           error: 'PACKAGE_OWNERSHIP_CONFLICT',
           message: `Package "${body.packageId}" is owned by a different YUCP account`,
           registeredOwnerYucpUserId: regResult.ownedBy,
+        },
+        409
+      );
+    }
+    if (!regResult.registered && regResult.archived) {
+      return jsonResponse(
+        {
+          error: 'PACKAGE_ARCHIVED',
+          message: regResult.reason,
         },
         409
       );

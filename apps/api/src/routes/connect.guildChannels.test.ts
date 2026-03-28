@@ -684,6 +684,171 @@ describe('GET /api/connect/user/certificates', () => {
     expect(body.devices[0]?.certNonce).toBe('cert_nonce_1');
   });
 
+  it('recovers an inactive overview by reconciling customer state from Polar once', async () => {
+    let projected = false;
+    queryImpl = async (reference: unknown) => {
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        if (!projected) {
+          return {
+            workspaceKey: 'creator-profile:recover-1',
+            creatorProfileId: 'recover-1',
+            billing: {
+              billingEnabled: true,
+              status: 'inactive',
+              allowEnrollment: false,
+              allowSigning: false,
+              activeDeviceCount: 0,
+            },
+            devices: [],
+            availablePlans: [
+              {
+                planKey: 'creator-studio-plus',
+                slug: 'creator-studio-plus',
+                productId: 'prod_creator_studio_plus',
+                displayName: 'Creator Studio+',
+                description: 'Everything in one plan',
+                highlights: ['Moderation Lookup', 'Protected Exports'],
+                priority: 1,
+                deviceCap: 5,
+                auditRetentionDays: 90,
+                supportTier: 'premium',
+                billingGraceDays: 0,
+                capabilities: ['moderation_lookup', 'protected_exports', 'coupling_traceability'],
+                meteredPrices: [],
+              },
+            ],
+            meters: [],
+          };
+        }
+
+        return {
+          workspaceKey: 'creator-profile:recover-1',
+          creatorProfileId: 'recover-1',
+          billing: {
+            billingEnabled: true,
+            status: 'active',
+            allowEnrollment: true,
+            allowSigning: true,
+            planKey: 'creator-studio-plus',
+            productId: 'prod_creator_studio_plus',
+            deviceCap: 5,
+            activeDeviceCount: 0,
+            signQuotaPerPeriod: 1000,
+            auditRetentionDays: 90,
+            supportTier: 'premium',
+            capabilities: [
+              { capabilityKey: 'moderation_lookup', status: 'active' },
+              { capabilityKey: 'protected_exports', status: 'active' },
+              { capabilityKey: 'coupling_traceability', status: 'active' },
+            ],
+          },
+          devices: [],
+          availablePlans: [
+            {
+              planKey: 'creator-studio-plus',
+              slug: 'creator-studio-plus',
+              productId: 'prod_creator_studio_plus',
+              displayName: 'Creator Studio+',
+              description: 'Everything in one plan',
+              highlights: ['Moderation Lookup', 'Protected Exports'],
+              priority: 1,
+              deviceCap: 5,
+              auditRetentionDays: 90,
+              supportTier: 'premium',
+              billingGraceDays: 0,
+              capabilities: ['moderation_lookup', 'protected_exports', 'coupling_traceability'],
+              meteredPrices: [],
+            },
+          ],
+          meters: [],
+        };
+      }
+      return null;
+    };
+
+    polarCustomerStateImpl = async (externalId: string) => {
+      expect(externalId).toBe('session-user-recover');
+      return {
+        id: 'cus_recover_1',
+        email: 'creator@example.com',
+        externalId: 'session-user-recover',
+        activeSubscriptions: [
+          {
+            id: 'sub_recover_1',
+            status: 'active',
+            recurringInterval: 'month',
+            currentPeriodStart: new Date('2026-03-23T00:00:00.000Z'),
+            currentPeriodEnd: new Date('2026-04-23T00:00:00.000Z'),
+            cancelAtPeriodEnd: false,
+            productId: 'prod_creator_studio_plus',
+            metadata: {
+              workspace_key: 'creator-profile:recover-1',
+            },
+          },
+        ],
+        grantedBenefits: [
+          {
+            id: 'grant_limits',
+            benefitId: 'benefit_limits',
+            benefitType: 'feature_flag',
+            benefitMetadata: {
+              device_cap: '5',
+              sign_quota_per_period: '1000',
+              audit_retention_days: '90',
+              support_tier: 'premium',
+              tier_rank: '100',
+            },
+          },
+          {
+            id: 'grant_moderation',
+            benefitId: 'benefit_moderation',
+            benefitType: 'feature_flag',
+            benefitMetadata: {
+              moderation_lookup: 'true',
+            },
+          },
+        ],
+        activeMeters: [],
+      };
+    };
+
+    mutationImpl = async (reference: unknown, args: unknown) => {
+      expect(reference).toBe(apiMock.certificateBilling.projectCustomerStateForApi);
+      expect(args).toMatchObject({
+        apiSecret: 'test-convex-secret',
+        authUserId: 'session-user-recover',
+        polarCustomerId: 'cus_recover_1',
+        customerEmail: 'creator@example.com',
+      });
+      projected = true;
+      return { updated: true, workspaceCount: 1 };
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-recover',
+        },
+      }),
+      createPolarCheckout: async () => null,
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates');
+    const res = await isolatedRoutes.getUserCertificates(req);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      billing: { status: string; planKey?: string; productId?: string; deviceCap?: number };
+    };
+    expect(projected).toBe(true);
+    expect(body.billing.status).toBe('active');
+    expect(body.billing.planKey).toBe('creator-studio-plus');
+    expect(body.billing.productId).toBe('prod_creator_studio_plus');
+    expect(body.billing.deviceCap).toBe(5);
+  });
+
   it('reconciles certificate billing through the explicit Polar recovery endpoint', async () => {
     let projected = false;
     queryImpl = async (reference: unknown) => {
@@ -1048,8 +1213,8 @@ describe('POST /api/connect/user/certificates/checkout', () => {
       referenceId: 'creator-profile:checkout-1',
       externalCustomerId: 'session-user-2',
       embedOrigin: 'http://localhost:3000',
-      successUrl: 'http://localhost:3000/dashboard/certificates',
-      returnUrl: 'http://localhost:3000/dashboard/certificates',
+      successUrl: 'http://localhost:3000/dashboard/billing',
+      returnUrl: 'http://localhost:3000/dashboard/billing',
       metadata: {
         workspace_key: 'creator-profile:checkout-1',
         product_id: 'prod_starter',

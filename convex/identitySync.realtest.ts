@@ -11,6 +11,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
+import type { Doc } from './_generated/dataModel';
 import { makeTestConvex } from './testHelpers';
 
 async function getIdentityCounts(t: ReturnType<typeof makeTestConvex>) {
@@ -268,7 +269,7 @@ describe('suspicious subjects', () => {
       authUserId: 'auth-tenant-a',
     });
 
-    expect(tenantAList.map((entry) => entry.discordUserId)).toEqual([
+    expect(tenantAList.map((entry: { discordUserId: string }) => entry.discordUserId)).toEqual([
       'discord-tenant-a-suspicious',
     ]);
   });
@@ -300,7 +301,7 @@ describe('external account', () => {
       externalAccountId: extAccountId,
     });
 
-    const account = await t.run(async (ctx) => ctx.db.get(extAccountId));
+    const account = (await t.run(async (ctx) => ctx.db.get(extAccountId))) as Doc<'external_accounts'> | null;
     expect(account?.status).toBe('disconnected');
   });
 });

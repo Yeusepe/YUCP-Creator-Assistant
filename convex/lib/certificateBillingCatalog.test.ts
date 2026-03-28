@@ -145,4 +145,80 @@ describe('certificateBillingCatalog', () => {
       },
     });
   });
+
+  it('accepts recurring Polar suite products that expose recognizable entitlement benefits even without yucp_domain metadata', () => {
+    const product = normalizeCertificateBillingCatalogProduct({
+      id: 'prod_creator_suite_plus',
+      name: 'Creator Suite+',
+      description: 'Everything in one plan',
+      recurringInterval: 'month',
+      prices: [
+        {
+          id: 'price_creator_suite_plus_monthly',
+          amountType: 'fixed',
+        },
+      ],
+      benefits: [
+        {
+          id: 'benefit_default_limits',
+          type: 'custom',
+          description: 'Default limits',
+          metadata: {
+            device_cap: 3,
+            audit_retention_days: 30,
+            support_tier: 'standard',
+            tier_rank: 1,
+          },
+        },
+        {
+          id: 'benefit_coupling_traceability',
+          type: 'feature_flag',
+          description: 'Coupling Traceability',
+          metadata: {
+            coupling_traceability: true,
+          },
+        },
+      ],
+    });
+
+    expect(product).toEqual({
+      productId: 'prod_creator_suite_plus',
+      slug: 'prod_creator_suite_plus',
+      displayName: 'Creator Suite+',
+      description: 'Everything in one plan',
+      status: 'active',
+      sortOrder: Number.MAX_SAFE_INTEGER,
+      displayBadge: undefined,
+      recurringInterval: 'month',
+      recurringPriceIds: ['price_creator_suite_plus_monthly'],
+      meteredPrices: [],
+      benefitIds: ['benefit_default_limits', 'benefit_coupling_traceability'],
+      highlights: ['Default limits', 'Coupling Traceability'],
+      metadata: {},
+    });
+  });
+
+  it('parses numeric limit metadata when Polar serializes benefit values as strings', () => {
+    const benefit = normalizeCertificateBillingCatalogBenefit({
+      id: 'benefit_default_limits',
+      type: 'feature_flag',
+      description: 'Default Limits',
+      metadata: {
+        device_cap: '5',
+        sign_quota_per_period: '1000',
+        audit_retention_days: '90',
+        support_tier: 'premium',
+        tier_rank: '100',
+      },
+    });
+
+    expect(benefit).toMatchObject({
+      benefitId: 'benefit_default_limits',
+      deviceCap: 5,
+      signQuotaPerPeriod: 1000,
+      auditRetentionDays: 90,
+      supportTier: 'premium',
+      tierRank: 100,
+    });
+  });
 });

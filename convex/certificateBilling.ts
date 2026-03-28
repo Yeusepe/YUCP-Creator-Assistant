@@ -201,6 +201,10 @@ function compareBillingStatus(left: BillingStatus, right: BillingStatus): number
   return order[left] - order[right];
 }
 
+function isLiveBillingStatus(status: BillingStatus | string | undefined): boolean {
+  return status === 'active' || status === 'grace';
+}
+
 async function listWorkspaceCapabilities(
   ctx: QueryCtx | MutationCtx,
   workspaceKey: string
@@ -600,6 +604,7 @@ async function buildAccountOverview(ctx: QueryCtx, authUserId: string) {
     entitlementStatus: certificateEntitlements?.status,
     storedCapabilities,
   });
+  const hasLiveAccess = isLiveBillingStatus(certificateEntitlements?.status);
 
   return {
     workspaceKey,
@@ -611,15 +616,15 @@ async function buildAccountOverview(ctx: QueryCtx, authUserId: string) {
         (config.enabled ? ('inactive' as const) : ('unmanaged' as const)),
       allowEnrollment: certificateEntitlements?.allowEnrollment ?? !config.enabled,
       allowSigning: certificateEntitlements?.allowSigning ?? !config.enabled,
-      planKey: certificateEntitlements?.planKey,
-      productId: certificateEntitlements?.productId,
-      deviceCap: certificateEntitlements?.deviceCap,
+      planKey: hasLiveAccess ? certificateEntitlements?.planKey : undefined,
+      productId: hasLiveAccess ? certificateEntitlements?.productId : undefined,
+      deviceCap: hasLiveAccess ? certificateEntitlements?.deviceCap : undefined,
       activeDeviceCount: devices.length,
-      signQuotaPerPeriod: certificateEntitlements?.signQuotaPerPeriod,
-      auditRetentionDays: certificateEntitlements?.auditRetentionDays,
-      supportTier: certificateEntitlements?.supportTier,
-      currentPeriodEnd: certificateEntitlements?.currentPeriodEnd,
-      graceUntil: certificateEntitlements?.graceUntil,
+      signQuotaPerPeriod: hasLiveAccess ? certificateEntitlements?.signQuotaPerPeriod : undefined,
+      auditRetentionDays: hasLiveAccess ? certificateEntitlements?.auditRetentionDays : undefined,
+      supportTier: hasLiveAccess ? certificateEntitlements?.supportTier : undefined,
+      currentPeriodEnd: hasLiveAccess ? certificateEntitlements?.currentPeriodEnd : undefined,
+      graceUntil: hasLiveAccess ? certificateEntitlements?.graceUntil : undefined,
       reason:
         certificateEntitlements?.allowSigning || !config.enabled
           ? undefined
@@ -726,14 +731,16 @@ async function resolveCertificateBillingForAuthUser(ctx: QueryCtx, authUserId: s
     status: winner.status,
     allowEnrollment: winner.allowEnrollment,
     allowSigning: winner.allowSigning,
-    planKey: winner.planKey,
-    productId: winner.productId,
-    deviceCap: winner.deviceCap,
-    signQuotaPerPeriod: winner.signQuotaPerPeriod ?? undefined,
-    auditRetentionDays: winner.auditRetentionDays,
-    supportTier: winner.supportTier,
-    currentPeriodEnd: winner.currentPeriodEnd ?? undefined,
-    graceUntil: winner.graceUntil ?? undefined,
+    planKey: isLiveBillingStatus(winner.status) ? winner.planKey : undefined,
+    productId: isLiveBillingStatus(winner.status) ? winner.productId : undefined,
+    deviceCap: isLiveBillingStatus(winner.status) ? winner.deviceCap : undefined,
+    signQuotaPerPeriod:
+      isLiveBillingStatus(winner.status) ? winner.signQuotaPerPeriod ?? undefined : undefined,
+    auditRetentionDays: isLiveBillingStatus(winner.status) ? winner.auditRetentionDays : undefined,
+    supportTier: isLiveBillingStatus(winner.status) ? winner.supportTier : undefined,
+    currentPeriodEnd:
+      isLiveBillingStatus(winner.status) ? winner.currentPeriodEnd ?? undefined : undefined,
+    graceUntil: isLiveBillingStatus(winner.status) ? winner.graceUntil ?? undefined : undefined,
     reason: winner.allowSigning ? undefined : 'Certificate subscription required',
   };
 }
@@ -993,6 +1000,7 @@ async function projectCustomerStateIntoBilling(
 
     await ctx.db.patch(existing._id, {
       status: 'inactive',
+      currentPeriodEnd: undefined,
       graceUntil: undefined,
       updatedAt: now,
     });
@@ -1006,6 +1014,7 @@ async function projectCustomerStateIntoBilling(
         status: 'inactive',
         allowEnrollment: false,
         allowSigning: false,
+        currentPeriodEnd: undefined,
         graceUntil: undefined,
         updatedAt: now,
       });

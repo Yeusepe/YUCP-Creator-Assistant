@@ -34,14 +34,19 @@ export type ProtectedMaterializationGrantPayload = {
     jobs: Array<{
       assetPath: string;
       tokenHex: string;
+      /** 16 hex chars (8-byte CSPRNG). Required in v2 grants; absent in legacy v1 grants. */
+      materializationNonce?: string;
     }>;
+    /** Convex storage ID for the pack blob associated with this grant.
+     *  Populated once pack delivery is implemented (Phase 4+). */
+    packBlobId?: string;
   };
 };
 
 function getGrantSecret(): string {
-  const secret = process.env.ENCRYPTION_SECRET;
+  const secret = process.env.YUCP_GRANT_SEAL_KEY;
   if (!secret) {
-    throw new Error('ENCRYPTION_SECRET is required for protected materialization grants');
+    throw new Error('YUCP_GRANT_SEAL_KEY is required for protected materialization grants');
   }
   return secret;
 }

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentPropsWithoutRef, PropsWithChildren, ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/api/client';
 import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
 
@@ -90,6 +90,16 @@ import * as certificateApi from '@/lib/certificates';
 import * as forensicsApi from '@/lib/couplingForensics';
 import { Route as ForensicsRoute } from '@/routes/_authenticated/dashboard/forensics';
 
+const listCreatorCertificatesMock = certificateApi.listCreatorCertificates as ReturnType<
+  typeof vi.fn
+>;
+const listCouplingForensicsPackagesMock = forensicsApi.listCouplingForensicsPackages as ReturnType<
+  typeof vi.fn
+>;
+const runCouplingForensicsLookupMock = forensicsApi.runCouplingForensicsLookup as ReturnType<
+  typeof vi.fn
+>;
+
 function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -141,13 +151,25 @@ function createCertificatesOverview(enabled: boolean) {
 describe('dashboard forensics route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(forensicsApi.listCouplingForensicsPackages).mockResolvedValue({
-      packages: ['pkg.creator.bundle'],
+    listCreatorCertificatesMock.mockResolvedValue(createCertificatesOverview(true));
+    listCouplingForensicsPackagesMock.mockResolvedValue({
+      packages: [
+        {
+          packageId: 'pkg.creator.bundle',
+          packageName: 'Creator Bundle',
+          registeredAt: 1,
+          updatedAt: 2,
+        },
+      ],
     });
   });
 
+  afterEach(() => {
+    cleanup();
+  });
+
   it('shows a retry UI instead of the upgrade gate when the entitlement query fails', async () => {
-    vi.mocked(certificateApi.listCreatorCertificates).mockRejectedValue(
+    listCreatorCertificatesMock.mockRejectedValue(
       new ApiError(400, { error: 'certificate lookup failed' })
     );
 
@@ -167,10 +189,8 @@ describe('dashboard forensics route', () => {
   it('keeps the selected file immutable while a scan is pending', async () => {
     let resolveLookup: ((value: unknown) => void) | null = null;
 
-    vi.mocked(certificateApi.listCreatorCertificates).mockResolvedValue(
-      createCertificatesOverview(true)
-    );
-    vi.mocked(forensicsApi.runCouplingForensicsLookup).mockImplementation(
+    listCreatorCertificatesMock.mockResolvedValue(createCertificatesOverview(true));
+    runCouplingForensicsLookupMock.mockImplementation(
       () =>
         new Promise((resolve) => {
           resolveLookup = resolve;
@@ -230,5 +250,19 @@ describe('dashboard forensics route', () => {
       decodedAssetCount: 0,
       results: [],
     });
+  });
+
+  it('renders the human package name instead of a raw package id in the selector', async () => {
+    listCreatorCertificatesMock.mockResolvedValue(createCertificatesOverview(true));
+
+    const Component = ForensicsRoute.options.component;
+    if (!Component) {
+      throw new Error('Forensics route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Creator Bundle')).toBeInTheDocument());
+    expect(screen.getByText('Package ID: pkg.creator.bundle')).toBeInTheDocument();
   });
 });

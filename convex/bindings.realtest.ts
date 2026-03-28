@@ -10,7 +10,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import { makeTestConvex, seedEntitlement, seedSubject } from './testHelpers';
 
 const API_SECRET = 'test-secret';
@@ -75,7 +75,7 @@ describe('activateBinding lifecycle', () => {
     expect(result.isNew).toBe(true);
     expect(result.conflict).toBeUndefined();
 
-    const binding = await t.run(async (ctx) => ctx.db.get(result.bindingId));
+    const binding = (await t.run(async (ctx) => ctx.db.get(result.bindingId))) as Doc<'bindings'> | null;
     expect(binding?.status).toBe('active');
     expect(binding?.bindingType).toBe('ownership');
   });
@@ -143,10 +143,10 @@ describe('activateBinding lifecycle', () => {
     expect(revokeResult.success).toBe(true);
     expect(revokeResult.entitlementsRevoked).toBeGreaterThan(0);
 
-    const binding = await t.run(async (ctx) => ctx.db.get(activateResult.bindingId));
+    const binding = (await t.run(async (ctx) => ctx.db.get(activateResult.bindingId))) as Doc<'bindings'> | null;
     expect(binding?.status).toBe('revoked');
 
-    const entitlement = await t.run(async (ctx) => ctx.db.get(entitlementId));
+    const entitlement = (await t.run(async (ctx) => ctx.db.get(entitlementId))) as Doc<'entitlements'> | null;
     expect(entitlement?.status).toBe('revoked');
   });
 
@@ -175,7 +175,7 @@ describe('activateBinding lifecycle', () => {
     expect(quarantineResult.success).toBe(true);
     expect(quarantineResult.previousStatus).toBe('active');
 
-    const binding = await t.run(async (ctx) => ctx.db.get(activateResult.bindingId));
+    const binding = (await t.run(async (ctx) => ctx.db.get(activateResult.bindingId))) as Doc<'bindings'> | null;
     expect(binding?.status).toBe('quarantined');
   });
 
@@ -212,7 +212,7 @@ describe('activateBinding lifecycle', () => {
 
     expect(releaseResult.success).toBe(true);
 
-    const binding = await t.run(async (ctx) => ctx.db.get(activateResult.bindingId));
+    const binding = (await t.run(async (ctx) => ctx.db.get(activateResult.bindingId))) as Doc<'bindings'> | null;
     expect(binding?.status).toBe('active');
   });
 
@@ -290,10 +290,10 @@ describe('activateBinding lifecycle', () => {
       })
     ).rejects.toThrow('Unauthorized: not the owner');
 
-    const [binding, entitlement] = await Promise.all([
+    const [binding, entitlement] = (await Promise.all([
       t.run(async (ctx) => ctx.db.get(activateResult.bindingId)),
       t.run(async (ctx) => ctx.db.get(entitlementId)),
-    ]);
+    ])) as [Doc<'bindings'> | null, Doc<'entitlements'> | null];
 
     expect(binding?.status).toBe('active');
     expect(entitlement?.status).toBe('active');

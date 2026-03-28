@@ -10,7 +10,11 @@ class ApiError extends Error {
     public body: unknown,
     public requestId?: string
   ) {
-    super(`API error ${status}`);
+    const message =
+      typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `API error ${status}`;
+    super(message);
     this.name = 'ApiError';
   }
 }
@@ -68,6 +72,17 @@ const apiClient = {
     apiFetch<T>(path, {
       ...opts,
       method: 'PUT',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(opts?.headers as Record<string, string>),
+      },
+    }),
+
+  patch: <T = unknown>(path: string, body?: unknown, opts?: FetchOptions) =>
+    apiFetch<T>(path, {
+      ...opts,
+      method: 'PATCH',
       body: body !== undefined ? JSON.stringify(body) : undefined,
       headers: {
         'Content-Type': 'application/json',

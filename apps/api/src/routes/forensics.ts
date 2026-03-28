@@ -168,10 +168,13 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     }
 
     try {
-      const result = await convex.query(api.couplingForensics.listOwnedPackagesForAuthUser, {
-        apiSecret: config.convexApiSecret,
-        authUserId: viewer.authUserId,
-      });
+      const result = await convex.query(
+        api.couplingForensics.listOwnedPackageSummariesForAuthUser,
+        {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+        }
+      );
       return jsonResponse(result);
     } catch (error) {
       logger.error('Failed to list owned coupling forensics packages', {

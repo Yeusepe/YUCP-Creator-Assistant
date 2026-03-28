@@ -15,18 +15,47 @@ export function formatMeterUnits(value: number) {
   return value.toLocaleString();
 }
 
-export function buildPlanHighlights(plan: CreatorCertificatePlan) {
-  if (plan.highlights.length > 0) {
-    return plan.highlights;
+export function formatCapabilityLabel(capabilityKey: string) {
+  const trimmed = capabilityKey.trim();
+  if (!trimmed) {
+    return 'Unknown capability';
   }
 
-  return [
+  const normalized = trimmed
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((segment) => segment.toLowerCase());
+
+  if (normalized.length === 0) {
+    return 'Unknown capability';
+  }
+
+  const acronymSegments = new Set(['api', 'sdk', 'sso', 'cli']);
+
+  return normalized
+    .map((segment) =>
+      acronymSegments.has(segment)
+        ? segment.toUpperCase()
+        : `${segment[0]?.toUpperCase() ?? ''}${segment.slice(1)}`
+    )
+    .join(' ');
+}
+
+export function buildPlanHighlights(plan: CreatorCertificatePlan) {
+  const defaultHighlights = [
     `${plan.deviceCap} signing machine${plan.deviceCap !== 1 ? 's' : ''}`,
     `${formatQuota(plan.signQuotaPerPeriod)} signatures per period`,
     `${plan.auditRetentionDays}-day audit log retention`,
     `${plan.supportTier === 'premium' ? 'Premium' : 'Standard'} support`,
+    ...plan.capabilities.map((capability) => formatCapabilityLabel(capability)),
     ...plan.meteredPrices.map((price) => `${price.meterName} usage billing`),
   ];
+
+  if (plan.highlights.length > 0) {
+    return Array.from(new Set([...plan.highlights, ...defaultHighlights]));
+  }
+
+  return defaultHighlights;
 }
 
 export function CertificatePlanCard({
@@ -204,6 +233,51 @@ export function CertificateFeatureShowcase() {
             colorClass: 'cert-feature-icon--purple',
             title: 'Audit visibility',
             desc: 'Review limits, retention, and usage directly from Polar-backed billing data.',
+          },
+        ] as const
+      ).map(({ icon, colorClass, title, desc }) => (
+        <div key={title} className="cert-feature-item">
+          <div className={`cert-feature-icon ${colorClass}`}>
+            <img src={icon} alt="" aria-hidden="true" />
+          </div>
+          <div className="cert-feature-copy">
+            <p className="cert-feature-title">{title}</p>
+            <p className="cert-feature-desc">{desc}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function CreatorSuiteFeatureShowcase() {
+  return (
+    <div className="cert-features-grid">
+      {(
+        [
+          {
+            icon: '/Icons/Shield.png',
+            colorClass: 'cert-feature-icon--blue',
+            title: 'Protected exports',
+            desc: 'Gate high-trust releases behind Polar-backed access instead of local plan JSON.',
+          },
+          {
+            icon: '/Icons/Wrench.png',
+            colorClass: 'cert-feature-icon--purple',
+            title: 'Coupling traceability',
+            desc: 'Unlock forensics and package lineage when the Polar benefit grant is active.',
+          },
+          {
+            icon: '/Icons/Key.png',
+            colorClass: 'cert-feature-icon--green',
+            title: 'Moderation lookup',
+            desc: 'Expose trust and moderation tooling directly from the same active Suite subscription.',
+          },
+          {
+            icon: '/Icons/Laptop.png',
+            colorClass: 'cert-feature-icon--amber',
+            title: 'Certificate operations',
+            desc: 'Keep machine enrollment, revocation, and signing controls separate from commerce.',
           },
         ] as const
       ).map(({ icon, colorClass, title, desc }) => (

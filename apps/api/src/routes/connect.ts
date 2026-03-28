@@ -316,11 +316,52 @@ async function ensureCertificateBillingCatalogFresh(
   await ensureCatalog();
 }
 
+async function reconcileCertificateBillingCustomerStateForAuthUser(
+  convex: ReturnType<typeof getConvexClientFromUrl>,
+  apiSecret: string,
+  authUserId: string,
+  timing?: RouteTimingCollector
+): Promise<boolean> {
+  const state = timing
+    ? await timing.measure(
+        'provider_polar_customer_state',
+        () => fetchCertificateBillingCustomerStateByExternalId(authUserId),
+        'fetch Polar customer state'
+      )
+    : await fetchCertificateBillingCustomerStateByExternalId(authUserId);
+
+  if (!state) {
+    return false;
+  }
+
+  const projectCustomerState = () =>
+    convex.mutation(api.certificateBilling.projectCustomerStateForApi, {
+      apiSecret,
+      authUserId,
+      polarCustomerId: state.id,
+      customerEmail: state.email,
+      activeSubscriptions: state.activeSubscriptions.map(
+        toCertificateBillingProjectionSubscription
+      ),
+      grantedBenefits: state.grantedBenefits.map(toCertificateBillingProjectionBenefitGrant),
+      activeMeters: state.activeMeters.map(toCertificateBillingProjectionMeter),
+    });
+
+  if (timing) {
+    await timing.measure(
+      'convex_certificate_project_customer_state',
+      projectCustomerState,
+      'project Polar customer state'
+    );
+  } else {
+    await projectCustomerState();
+  }
+
+  return true;
+}
+
 function buildCertificateDashboardUrl(config: ConnectConfig): string {
-  return new URL(
-    '/dashboard/certificates',
-    `${config.frontendBaseUrl.replace(/\/$/, '')}/`
-  ).toString();
+  return new URL('/dashboard/billing', `${config.frontendBaseUrl.replace(/\/$/, '')}/`).toString();
 }
 
 function getCertificateCheckoutEmbedOrigin(config: ConnectConfig): string {
@@ -3425,23 +3466,49 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   ): Promise<CertificateOverview> {
     const convex = getConvexClientFromUrl(config.convexUrl);
     await ensureCertificateBillingCatalogFresh(convex, config.convexApiSecret, timing);
+    const loadOverview = () =>
+      convex.query(api.certificateBilling.getAccountOverview, {
+        apiSecret: config.convexApiSecret,
+        authUserId,
+      });
     const overview = (
       timing
         ? await timing.measure(
             'convex_certificate_overview',
-            () =>
-              convex.query(api.certificateBilling.getAccountOverview, {
-                apiSecret: config.convexApiSecret,
-                authUserId,
-              }),
+            loadOverview,
             'load certificate overview'
           )
-        : await convex.query(api.certificateBilling.getAccountOverview, {
-            apiSecret: config.convexApiSecret,
-            authUserId,
-          })
+        : await loadOverview()
     ) as CertificateOverview;
-    return overview;
+
+    const shouldAttemptRecovery =
+      overview.billing.billingEnabled &&
+      overview.billing.status === 'inactive' &&
+      overview.availablePlans.length > 0;
+    if (!shouldAttemptRecovery) {
+      return overview;
+    }
+
+    const reconciled = await reconcileCertificateBillingCustomerStateForAuthUser(
+      convex,
+      config.convexApiSecret,
+      authUserId,
+      timing
+    );
+    if (!reconciled) {
+      return overview;
+    }
+
+    const refreshedOverview = (
+      timing
+        ? await timing.measure(
+            'convex_certificate_overview_refresh',
+            loadOverview,
+            'reload certificate overview'
+          )
+        : await loadOverview()
+    ) as CertificateOverview;
+    return refreshedOverview;
   }
 
   async function getUserCertificates(request: Request): Promise<Response> {
@@ -3680,39 +3747,19 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       const convex = getConvexClientFromUrl(config.convexUrl);
       await ensureCertificateBillingCatalogFresh(convex, config.convexApiSecret, timing);
 
-      const state = await timing.measure(
-        'provider_polar_customer_state',
-        () => fetchCertificateBillingCustomerStateByExternalId(session.user.id),
-        'fetch Polar customer state'
+      const reconciled = await reconcileCertificateBillingCustomerStateForAuthUser(
+        convex,
+        config.convexApiSecret,
+        session.user.id,
+        timing
       );
-
-      if (state) {
-        await timing.measure(
-          'convex_certificate_project_customer_state',
-          () =>
-            convex.mutation(api.certificateBilling.projectCustomerStateForApi, {
-              apiSecret: config.convexApiSecret,
-              authUserId: session.user.id,
-              polarCustomerId: state.id,
-              customerEmail: state.email,
-              activeSubscriptions: state.activeSubscriptions.map(
-                toCertificateBillingProjectionSubscription
-              ),
-              grantedBenefits: state.grantedBenefits.map(
-                toCertificateBillingProjectionBenefitGrant
-              ),
-              activeMeters: state.activeMeters.map(toCertificateBillingProjectionMeter),
-            }),
-          'project Polar customer state'
-        );
-      }
 
       const overview = await getUserCertificateOverviewForAuthUser(session.user.id, timing);
       return buildTimedResponse(
         timing,
         () =>
           Response.json({
-            reconciled: Boolean(state),
+            reconciled,
             overview,
           }),
         'serialize certificate response'

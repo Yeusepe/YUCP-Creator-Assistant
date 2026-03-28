@@ -1858,11 +1858,19 @@ const coupling_trace_records = defineTable({
   grantReceiptedAt: v.optional(v.number()),
   correlationId: v.string(),
   createdAt: v.number(),
+  /** 16 hex chars (8 bytes CSPRNG). Prevents carrier position discovery via comparison. */
+  materializationNonce: v.optional(v.string()),
 })
   .index('by_auth_user_created', ['authUserId', 'createdAt'])
   .index('by_package_token', ['packageId', 'tokenHash'])
   .index('by_correlation', ['correlationId'])
   .index('by_grant_id', ['grantId']);
+
+/**
+ * Per-materialization coupling trace record.
+ * Stores opaque token hashes only. Forensic reconstruction is performed
+ * server-side via the private coupling service.
+ */
 
 /**
  * Package Name Registry, Layer 1 defense.
@@ -1872,10 +1880,15 @@ const coupling_trace_records = defineTable({
 const package_registry = defineTable({
   /** Unique package namespace identifier (e.g. "com.yucp.mypackage") */
   packageId: v.string(),
+  /** Human-readable package name chosen by the creator */
+  packageName: v.optional(v.string()),
   /** Publisher who registered the name first */
   publisherId: v.string(),
   /** Better Auth user ID of the registering creator */
   yucpUserId: v.string(),
+  /** Active by default. Archived packages stay in history but are hidden from normal flows. */
+  status: v.optional(v.union(v.literal('active'), v.literal('archived'))),
+  archivedAt: v.optional(v.number()),
   /** Unix ms */
   registeredAt: v.number(),
   /** Populated only on admin-approved ownership transfers */

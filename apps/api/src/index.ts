@@ -18,6 +18,7 @@ import { detectTunnelUrl } from './lib/tunnel';
 import {
   createConnectRoutes,
   createForensicsRoutes,
+  createPackageRoutes,
   createProviderPlatformRoutes,
   createVerificationRoutes,
   createWebhookHandler,
@@ -43,6 +44,7 @@ let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | n
 let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
+let packageRoutes: ReturnType<typeof createPackageRoutes> | null = null;
 let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
@@ -246,6 +248,14 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl,
   });
 
+  packageRoutes = createPackageRoutes(auth, {
+    apiBaseUrl: publicBaseUrl,
+    frontendBaseUrl: frontendUrl,
+    convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    convexSiteUrl,
+    convexUrl,
+  });
+
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
@@ -356,6 +366,14 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname.startsWith('/api/forensics/')) {
     if (isRateLimited(`forensics:${clientAddress}`, 30, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  if (pathname.startsWith('/api/packages')) {
+    if (isRateLimited(`packages:${clientAddress}`, 60, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -788,6 +806,34 @@ async function routeRequest(request: Request): Promise<Response> {
     if (request.method === 'POST') return forensicsRoutes.lookup(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
+  if (pathname === '/api/packages' && packageRoutes) {
+    if (request.method === 'GET') return packageRoutes.listPackages(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const packagesMatch = pathname.match(/^\/api\/packages\/([^/]+)$/);
+  if (packagesMatch && packageRoutes) {
+    if (request.method === 'PATCH') {
+      return packageRoutes.renamePackage(request, packagesMatch[1]);
+    }
+    if (request.method === 'DELETE') {
+      return packageRoutes.deletePackage(request, packagesMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const packageArchiveMatch = pathname.match(/^\/api\/packages\/([^/]+)\/archive$/);
+  if (packageArchiveMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.archivePackage(request, packageArchiveMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const packageRestoreMatch = pathname.match(/^\/api\/packages\/([^/]+)\/restore$/);
+  if (packageRestoreMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.restorePackage(request, packageRestoreMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   const entitlementRevokeMatch = pathname.match(/^\/api\/connect\/user\/entitlements\/([^/]+)$/);
   if (entitlementRevokeMatch && connectRoutes) {
     return connectRoutes.revokeUserEntitlement(request, entitlementRevokeMatch[1]);
@@ -1033,7 +1079,7 @@ async function handleRequest(request: Request): Promise<Response> {
   if (origin && allowedCorsOrigins.has(origin)) {
     corsHeaders['Access-Control-Allow-Origin'] = origin;
     corsHeaders['Access-Control-Allow-Credentials'] = 'true';
-    corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS';
+    corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS';
     corsHeaders['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
     corsHeaders.Vary = 'Origin';
   }

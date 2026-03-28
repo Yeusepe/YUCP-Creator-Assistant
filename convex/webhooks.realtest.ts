@@ -10,6 +10,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
+import type { Doc } from './_generated/dataModel';
 import { makeTestConvex } from './testHelpers';
 
 const API_SECRET = 'test-secret';
@@ -173,7 +174,7 @@ describe('processWebhookEvent pipeline', () => {
     expect(processResult.success).toBe(true);
     expect(processResult.error).toBeUndefined();
 
-    const event = await t.run(async (ctx) => ctx.db.get(eventId));
+    const event = (await t.run(async (ctx) => ctx.db.get(eventId))) as Doc<'webhook_events'> | null;
     expect(event?.status).toBe('processed');
   });
 
@@ -250,7 +251,7 @@ describe('processWebhookEvent pipeline', () => {
 
     expect(processResult.success).toBe(true);
 
-    const event = await t.run(async (ctx) => ctx.db.get(eventId));
+    const event = (await t.run(async (ctx) => ctx.db.get(eventId))) as Doc<'webhook_events'> | null;
     expect(event?.status).toBe('processed');
     // No subject linked — purchase_fact exists but no entitlement
     const facts = await t.run(async (ctx) => ctx.db.query('purchase_facts').collect());
@@ -287,7 +288,9 @@ describe('processWebhookEvent pipeline', () => {
       )
     ).rejects.toThrow('Unauthorized');
 
-    expect(await t.run(async (ctx) => ctx.db.get(eventId))).toMatchObject({ status: 'pending' });
+    expect(
+      (await t.run(async (ctx) => ctx.db.get(eventId))) as Doc<'webhook_events'> | null
+    ).toMatchObject({ status: 'pending' });
     expect(await getWebhookSecurityCounts(t)).toEqual(before);
   });
 });
@@ -413,7 +416,7 @@ describe('verificationMethod trust model', () => {
 
     expect(processResult.success).toBe(true);
 
-    const event = await t.run(async (ctx) => ctx.db.get(eventId));
+    const event = (await t.run(async (ctx) => ctx.db.get(eventId))) as Doc<'webhook_events'> | null;
     expect(event?.status).toBe('processed');
   });
 
@@ -466,7 +469,7 @@ describe('verificationMethod trust model', () => {
       })
     );
 
-    const processed = await t.run(async (ctx) => ctx.db.get(eventId));
+    const processed = (await t.run(async (ctx) => ctx.db.get(eventId))) as Doc<'webhook_events'> | null;
     expect(processed?.status).toBe('processed');
 
     // Now reset for reprocessing
@@ -477,7 +480,7 @@ describe('verificationMethod trust model', () => {
       })
     );
 
-    const reset = await t.run(async (ctx) => ctx.db.get(eventId));
+    const reset = (await t.run(async (ctx) => ctx.db.get(eventId))) as Doc<'webhook_events'> | null;
     expect(reset?.status).toBe('pending');
   });
 });

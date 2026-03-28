@@ -31,6 +31,7 @@
 
 import { symmetricDecrypt } from 'better-auth/crypto';
 import { ConvexError, v } from 'convex/values';
+import type { Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
 import { internalAction, internalMutation, internalQuery } from './_generated/server';
 import { BILLING_CAPABILITY_KEYS } from './lib/billingCapabilities';
@@ -38,11 +39,11 @@ import {
   decryptProtectedBlobContentKey,
   encryptProtectedBlobContentKey,
 } from './lib/protectedAssetKeyCrypto';
+import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
 import {
   sealProtectedMaterializationGrant,
   unsealProtectedMaterializationGrant,
 } from './lib/protectedMaterializationGrant';
-import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
 import {
   RELEASE_ARTIFACT_KEYS,
@@ -557,9 +558,9 @@ function isValidCouplingAssetPath(input: string): boolean {
 }
 
 function getCouplingTokenLength(assetPath: string): number {
-  const normalized = normalizeCouplingAssetPath(assetPath).toLowerCase();
-  if (normalized.endsWith('.png')) return 32;
-  if (normalized.endsWith('.fbx')) return 8;
+  const p = normalizeCouplingAssetPath(assetPath).toLowerCase();
+  if (p.endsWith('.png')) return 64;
+  if (p.endsWith('.fbx')) return 32;
   return 0;
 }
 
@@ -852,6 +853,7 @@ export const recordCouplingTraceIssuance = internalMutation({
       v.object({
         assetPath: v.string(),
         tokenHex: v.string(),
+        materializationNonce: v.optional(v.string()),
       })
     ),
   },
@@ -876,6 +878,7 @@ export const recordCouplingTraceIssuance = internalMutation({
         grantIssuanceStatus: args.grantId ? 'issued' : undefined,
         correlationId: args.correlationId,
         createdAt: now,
+        materializationNonce: job.materializationNonce,
       });
     }
 
@@ -1253,22 +1256,20 @@ type ProtectedMaterializationGrantIssueResult =
       error: string;
     };
 
-type ProtectedUnlockIssueResult =
-  {
-    success: boolean;
-    unlockToken?: string;
-    expiresAt?: number;
-    error?: string;
-  };
+type ProtectedUnlockIssueResult = {
+  success: boolean;
+  unlockToken?: string;
+  expiresAt?: number;
+  error?: string;
+};
 
-type CouplingJobIssueResult =
-  {
-    success: boolean;
-    subject?: string;
-    jobs?: Array<{ assetPath: string; tokenHex: string }>;
-    skipReason?: string;
-    error?: string;
-  };
+type CouplingJobIssueResult = {
+  success: boolean;
+  subject?: string;
+  jobs?: Array<{ assetPath: string; tokenHex: string }>;
+  skipReason?: string;
+  error?: string;
+};
 
 export const issueProtectedMaterializationGrant = internalAction({
   args: {
@@ -1310,7 +1311,8 @@ export const issueProtectedMaterializationGrant = internalAction({
     if (!unlockResult.success || !unlockResult.unlockToken || !unlockResult.expiresAt) {
       return {
         success: false,
-        error: unlockResult.error ?? 'Protected materialization grant could not authorize the asset',
+        error:
+          unlockResult.error ?? 'Protected materialization grant could not authorize the asset',
       };
     }
 
@@ -1330,7 +1332,8 @@ export const issueProtectedMaterializationGrant = internalAction({
     if (!couplingResult.success) {
       return {
         success: false,
-        error: couplingResult.error ?? 'Protected materialization grant could not issue coupling jobs',
+        error:
+          couplingResult.error ?? 'Protected materialization grant could not issue coupling jobs',
       };
     }
 
@@ -1426,7 +1429,8 @@ export const redeemProtectedMaterializationGrant = internalAction({
     if (unlockClaims.unlock_mode !== 'content_key_b64' || !unlockClaims.content_key_b64) {
       return {
         success: false,
-        error: 'Protected materialization grant does not permit brokered content-key materialization',
+        error:
+          'Protected materialization grant does not permit brokered content-key materialization',
       };
     }
 
@@ -1658,8 +1662,17 @@ export const issueCouplingJob = internalAction({
       };
     }
 
-    const couplingSecret = process.env.YUCP_COUPLING_HMAC_KEY ?? rootPrivateKey;
-    const jobs: Array<{ assetPath: string; tokenHex: string }> = [];
+    const couplingHmacKey = process.env.YUCP_COUPLING_HMAC_KEY;
+    if (!couplingHmacKey) {
+      throw new Error('YUCP_COUPLING_HMAC_KEY is required for coupling token derivation');
+    }
+
+    type JobRecord = {
+      assetPath: string;
+      tokenHex: string;
+      materializationNonce: string;
+    };
+    const jobs: JobRecord[] = [];
     const seen = new Set<string>();
 
     for (const rawAssetPath of args.assetPaths) {
@@ -1677,15 +1690,27 @@ export const issueCouplingJob = internalAction({
         continue;
       }
 
+      // Per-materialization carrier nonce: prevents carrier position discovery via comparison attack
+      const materializationNonceBytes = crypto.getRandomValues(new Uint8Array(8));
+      const materializationNonce = Array.from(materializationNonceBytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      // Derive HMAC-SHA256 coupling token bound to grant, recipient, asset, and materialization nonce.
+      // Input binds all uniqueness dimensions — same inputs never produce same token across re-issuance.
       const tokenInput = [
+        args.grantId ?? '',
         args.packageId,
         licenseClaims.sub,
         args.machineFingerprint,
         args.projectId,
         assetPath,
+        materializationNonce,
       ].join('|');
-      const tokenHex = (await hmacSha256Hex(couplingSecret, tokenInput)).slice(0, tokenLength);
-      jobs.push({ assetPath, tokenHex });
+      const fullTokenHex = await hmacSha256Hex(couplingHmacKey, tokenInput);
+      const tokenHex = fullTokenHex.slice(0, tokenLength);
+
+      jobs.push({ assetPath, tokenHex, materializationNonce });
     }
 
     const activeRuntimeArtifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
@@ -1714,7 +1739,12 @@ export const issueCouplingJob = internalAction({
     return {
       success: true,
       subject: licenseClaims.sub,
-      jobs,
+      // Return only what the caller (grant sealer) needs; nonce flows into the grant payload
+      jobs: jobs.map(({ assetPath, tokenHex, materializationNonce }) => ({
+        assetPath,
+        tokenHex,
+        materializationNonce,
+      })),
     };
   },
 });

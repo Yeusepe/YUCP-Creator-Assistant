@@ -12,6 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
+import type { Doc } from './_generated/dataModel';
 import { makeTestConvex, seedCreatorProfile, seedEntitlement, seedSubject } from './testHelpers';
 
 async function getEntitlementState(t: ReturnType<typeof makeTestConvex>, entitlementId: string) {
@@ -207,7 +208,7 @@ describe('revokeEntitlement lifecycle', () => {
     expect(revokeResult.previousStatus).toBe('active');
 
     // Verify DB: status changed to 'refunded' (refund reason → refunded status)
-    const entitlement = await t.run((ctx) => ctx.db.get(grantResult.entitlementId));
+    const entitlement = (await t.run((ctx) => ctx.db.get(grantResult.entitlementId))) as Doc<'entitlements'> | null;
     expect(entitlement?.status).toBe('refunded');
     expect(entitlement?.revokedAt).toBeDefined();
   });

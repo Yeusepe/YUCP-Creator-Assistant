@@ -38,6 +38,7 @@ import { Route as AuthenticatedAccountIndexRouteImport } from './routes/_authent
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AuthenticatedVerifyPurchaseRouteImport } from './routes/_authenticated/verify/purchase'
 import { Route as AuthenticatedDashboardServerRulesRouteImport } from './routes/_authenticated/dashboard/server-rules'
+import { Route as AuthenticatedDashboardPackagesRouteImport } from './routes/_authenticated/dashboard/packages'
 import { Route as AuthenticatedDashboardIntegrationsRouteImport } from './routes/_authenticated/dashboard/integrations'
 import { Route as AuthenticatedDashboardForensicsRouteImport } from './routes/_authenticated/dashboard/forensics'
 import { Route as AuthenticatedDashboardCollaborationRouteImport } from './routes/_authenticated/dashboard/collaboration'
@@ -199,6 +200,12 @@ const AuthenticatedDashboardServerRulesRoute =
     path: '/server-rules',
     getParentRoute: () => AuthenticatedDashboardRoute,
   } as any)
+const AuthenticatedDashboardPackagesRoute =
+  AuthenticatedDashboardPackagesRouteImport.update({
+    id: '/packages',
+    path: '/packages',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
 const AuthenticatedDashboardIntegrationsRoute =
   AuthenticatedDashboardIntegrationsRouteImport.update({
     id: '/integrations',
@@ -308,6 +315,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/collaboration': typeof AuthenticatedDashboardCollaborationRoute
   '/dashboard/forensics': typeof AuthenticatedDashboardForensicsRoute
   '/dashboard/integrations': typeof AuthenticatedDashboardIntegrationsRoute
+  '/dashboard/packages': typeof AuthenticatedDashboardPackagesRoute
   '/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
   '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -348,6 +356,7 @@ export interface FileRoutesByTo {
   '/dashboard/collaboration': typeof AuthenticatedDashboardCollaborationRoute
   '/dashboard/forensics': typeof AuthenticatedDashboardForensicsRoute
   '/dashboard/integrations': typeof AuthenticatedDashboardIntegrationsRoute
+  '/dashboard/packages': typeof AuthenticatedDashboardPackagesRoute
   '/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
   '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -392,6 +401,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/collaboration': typeof AuthenticatedDashboardCollaborationRoute
   '/_authenticated/dashboard/forensics': typeof AuthenticatedDashboardForensicsRoute
   '/_authenticated/dashboard/integrations': typeof AuthenticatedDashboardIntegrationsRoute
+  '/_authenticated/dashboard/packages': typeof AuthenticatedDashboardPackagesRoute
   '/_authenticated/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
   '/_authenticated/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -436,6 +446,7 @@ export interface FileRouteTypes {
     | '/dashboard/collaboration'
     | '/dashboard/forensics'
     | '/dashboard/integrations'
+    | '/dashboard/packages'
     | '/dashboard/server-rules'
     | '/verify/purchase'
     | '/api/auth/$'
@@ -476,6 +487,7 @@ export interface FileRouteTypes {
     | '/dashboard/collaboration'
     | '/dashboard/forensics'
     | '/dashboard/integrations'
+    | '/dashboard/packages'
     | '/dashboard/server-rules'
     | '/verify/purchase'
     | '/api/auth/$'
@@ -519,6 +531,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/collaboration'
     | '/_authenticated/dashboard/forensics'
     | '/_authenticated/dashboard/integrations'
+    | '/_authenticated/dashboard/packages'
     | '/_authenticated/dashboard/server-rules'
     | '/_authenticated/verify/purchase'
     | '/api/auth/$'
@@ -757,6 +770,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardServerRulesRouteImport
       parentRoute: typeof AuthenticatedDashboardRoute
     }
+    '/_authenticated/dashboard/packages': {
+      id: '/_authenticated/dashboard/packages'
+      path: '/packages'
+      fullPath: '/dashboard/packages'
+      preLoaderRoute: typeof AuthenticatedDashboardPackagesRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
     '/_authenticated/dashboard/integrations': {
       id: '/_authenticated/dashboard/integrations'
       path: '/integrations'
@@ -875,6 +895,7 @@ interface AuthenticatedDashboardRouteChildren {
   AuthenticatedDashboardCollaborationRoute: typeof AuthenticatedDashboardCollaborationRoute
   AuthenticatedDashboardForensicsRoute: typeof AuthenticatedDashboardForensicsRoute
   AuthenticatedDashboardIntegrationsRoute: typeof AuthenticatedDashboardIntegrationsRoute
+  AuthenticatedDashboardPackagesRoute: typeof AuthenticatedDashboardPackagesRoute
   AuthenticatedDashboardServerRulesRoute: typeof AuthenticatedDashboardServerRulesRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
 }
@@ -890,6 +911,7 @@ const AuthenticatedDashboardRouteChildren: AuthenticatedDashboardRouteChildren =
     AuthenticatedDashboardForensicsRoute: AuthenticatedDashboardForensicsRoute,
     AuthenticatedDashboardIntegrationsRoute:
       AuthenticatedDashboardIntegrationsRoute,
+    AuthenticatedDashboardPackagesRoute: AuthenticatedDashboardPackagesRoute,
     AuthenticatedDashboardServerRulesRoute:
       AuthenticatedDashboardServerRulesRoute,
     AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,

@@ -8,7 +8,6 @@ import {
   normalizeCertificateBillingCatalogBenefit,
   normalizeCertificateBillingCatalogProduct,
   POLAR_CERTIFICATE_BILLING_DOMAIN,
-  POLAR_CERTIFICATE_DOMAIN_METADATA_KEY,
   type CertificateBillingCatalogProduct,
 } from './lib/certificateBillingCatalog';
 import { getCertificateBillingConfig } from './lib/certificateBillingConfig';
@@ -212,20 +211,34 @@ export const syncCatalog = internalAction({
 
     try {
       const polar = getPolarClient();
-      const rawProducts = await collectPageItems(
+      // Polar product listing docs: https://docs.polar.sh/api-reference/products/list
+      // We fetch the full recurring catalog and classify locally so live Suite products do not
+      // disappear when metadata is incomplete.
+      const listedProducts = await collectPageItems(
         await polar.products.list({
           limit: 100,
-          metadata: {
-            [POLAR_CERTIFICATE_DOMAIN_METADATA_KEY]: POLAR_CERTIFICATE_BILLING_DOMAIN,
-          },
         })
+      );
+      const rawProducts = await Promise.all(
+        listedProducts.map((product) =>
+          // Polar product detail reference: https://docs.polar.sh/api-reference/products/get
+          // The list payload omits entitlement metadata for some accounts, so hydrate the full
+          // product document before normalizing the catalog.
+          polar.products.get({
+            id: product.id,
+          })
+        )
       );
 
       const products = rawProducts
         .map((product) => normalizeCertificateBillingCatalogProduct(product))
         .filter((product): product is CertificateBillingCatalogProduct => product !== null);
+      const includedProductIds = new Set(products.map((product) => product.productId));
       const benefitById = new Map<string, CertificateBillingCatalogBenefit>();
       for (const product of rawProducts) {
+        if (!includedProductIds.has(product.id)) {
+          continue;
+        }
         for (const benefit of product.benefits ?? []) {
           const normalized = normalizeCertificateBillingCatalogBenefit(benefit);
           benefitById.set(normalized.benefitId, normalized);

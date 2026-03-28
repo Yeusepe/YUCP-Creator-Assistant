@@ -9,6 +9,7 @@ import {
   CertificateFeatureShowcase,
 } from '@/components/dashboard/CertificateWorkspacePanels';
 import { DashboardCertificatesSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { PackageRegistryPanel } from '@/components/dashboard/PackageRegistryPanel';
 import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { useCreatorCertificateWorkspace } from '@/hooks/useCreatorCertificateWorkspace';
@@ -301,6 +302,11 @@ export default function DashboardCertificates() {
             )}
           </div>
         </section>
+
+        <PackageRegistryPanel
+          className="intg-card animate-in animate-in-delay-3 bento-col-12"
+          description="Package identity lives beside certificates. Keep stable package IDs, rename them for humans, and reuse them across Unity projects."
+        />
       </div>
     </div>
   );

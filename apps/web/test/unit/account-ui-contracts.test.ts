@@ -81,17 +81,20 @@ describe('account UI contracts', () => {
       "createFileRoute('/_authenticated/account/certificates')"
     );
     expect(accountCertificatesRouteSource).toContain('beforeLoad');
-    expect(accountCertificatesRouteSource).toContain("to: '/dashboard/certificates'");
+    expect(accountCertificatesRouteSource).toContain(
+      "to: hasBillingSearch ? '/dashboard/billing' : '/dashboard/certificates'"
+    );
     expect(dashboardCertificatesRouteSource).toContain(
       "createFileRoute('/_authenticated/dashboard/certificates')"
     );
     expect(dashboardCertificatesRouteSource).toContain('Open Billing');
+    expect(dashboardCertificatesRouteSource).toContain('PackageRegistryPanel');
     expect(dashboardCertificatesRouteSource).toContain("queryKey: ['creator-certificates']");
     expect(dashboardCertificatesRouteSource).not.toContain('ensureQueryData(');
     expect(dashboardBillingRouteSource).toContain(
       "createFileRoute('/_authenticated/dashboard/billing')"
     );
-    expect(dashboardBillingRouteSource).toContain('Open Polar Portal');
+    expect(dashboardBillingRouteSource).toContain('Polar Portal');
     expect(dashboardPrefetchSource).toContain("queryKey: ['creator-certificates']");
     expect(dashboardPrefetchSource).toContain('prefetchQuery(');
   });
@@ -103,6 +106,11 @@ describe('account UI contracts', () => {
     expect(dashboardBillingRouteSource).toContain('checkoutMut.mutate(target)');
     expect(dashboardBillingRouteSource).toContain('portalMut.mutate()');
     expect(dashboardBillingRouteSource).toContain('dashboard-tab-panel');
+  });
+
+  it('keeps package management inside certificates instead of a separate sidebar tab', () => {
+    expect(dashboardSource).not.toContain('id="tab-btn-packages"');
+    expect(dashboardSource).not.toContain('aria-controls="tab-panel-packages"');
   });
 
   it('keeps buyer provider linking inside the hosted verification flow', () => {

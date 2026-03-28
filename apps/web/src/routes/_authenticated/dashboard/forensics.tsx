@@ -130,11 +130,18 @@ export default function DashboardForensics() {
 
   const packageOptions = useMemo(
     () =>
-      (packagesQuery.data?.packages ?? []).map((packageId) => ({
-        value: packageId,
-        label: packageId,
+      (packagesQuery.data?.packages ?? []).map((pkg) => ({
+        value: pkg.packageId,
+        label: pkg.packageName ?? pkg.packageId,
       })),
     [packagesQuery.data?.packages]
+  );
+
+  const selectedPackageSummary = useMemo(
+    () =>
+      (packagesQuery.data?.packages ?? []).find((pkg) => pkg.packageId === selectedPackageId) ??
+      null,
+    [packagesQuery.data?.packages, selectedPackageId]
   );
 
   useEffect(() => {
@@ -324,7 +331,7 @@ export default function DashboardForensics() {
                 coupling matches for your packages.
               </p>
               <Link
-                to="/dashboard/certificates"
+                to="/dashboard/billing"
                 search={(prev) => ({ ...prev, guild_id: undefined, tenant_id: undefined })}
                 className="account-btn account-btn--primary"
                 style={{ borderRadius: '999px' }}
@@ -346,7 +353,7 @@ export default function DashboardForensics() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
                   <label htmlFor="forensics-package" className="account-form-label">
-                    Package scope
+                    Package
                   </label>
                   <Select
                     id="forensics-package"
@@ -355,6 +362,11 @@ export default function DashboardForensics() {
                     onChange={setSelectedPackageId}
                     disabled={lookupMutation.isPending || packageOptions.length === 0}
                   />
+                  {selectedPackageSummary ? (
+                    <p className="account-form-hint" style={{ marginTop: '6px' }}>
+                      Package ID: {selectedPackageSummary.packageId}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div>

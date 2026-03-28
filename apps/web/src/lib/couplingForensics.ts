@@ -1,5 +1,12 @@
 import { ApiError, apiClient, apiFetch } from '@/api/client';
 
+export interface CouplingForensicsPackageSummary {
+  packageId: string;
+  packageName?: string;
+  registeredAt: number;
+  updatedAt: number;
+}
+
 export interface CouplingForensicsMatchSummary {
   licenseSubject: string;
   assetPath: string;
@@ -29,7 +36,7 @@ export interface CouplingForensicsLookupResponse {
 }
 
 export interface CouplingForensicsPackageList {
-  packages: string[];
+  packages: CouplingForensicsPackageSummary[];
 }
 
 export async function listCouplingForensicsPackages() {

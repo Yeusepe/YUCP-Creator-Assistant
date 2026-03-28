@@ -21,6 +21,7 @@ export {
   type InstallRouteHandlers,
   mountInstallRoutes,
 } from './install';
+export { createPackageRoutes, type PackagesConfig } from './packages';
 export { createProviderPlatformRoutes } from './providerPlatform';
 export { createPublicRoutes, type PublicRouteConfig } from './public';
 export { createWebhookHandler } from './webhooks';

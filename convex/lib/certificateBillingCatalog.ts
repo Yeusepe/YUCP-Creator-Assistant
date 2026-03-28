@@ -125,7 +125,38 @@ function readFiniteNumber(
   key: string
 ): number | undefined {
   const value = metadata[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
+}
+
+function isGrantedFeatureFlagValue(value: CertificateBillingMetadataValue): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return !['0', 'false', 'no', 'off', 'disabled'].includes(normalized);
 }
 
 function readPositiveInteger(
@@ -142,6 +173,17 @@ function normalizeDescription(value: string | null | undefined): string | undefi
 
 function isFeatureFlagBenefit(type: string | undefined): boolean {
   return (type ?? '').trim().toLowerCase() === 'feature_flag';
+}
+
+function hasRecognizedEntitlementMetadata(benefit: CertificateBillingCatalogBenefit): boolean {
+  return (
+    benefit.capabilityKeys.length > 0 ||
+    benefit.deviceCap !== undefined ||
+    benefit.signQuotaPerPeriod !== undefined ||
+    benefit.auditRetentionDays !== undefined ||
+    Boolean(benefit.supportTier) ||
+    benefit.tierRank !== undefined
+  );
 }
 
 function deriveLegacyCapabilityKey(metadata: CertificateBillingMetadataRecord): string | undefined {
@@ -188,7 +230,7 @@ export function deriveCertificateBillingCapabilityKeys(
   featureFlags: CertificateBillingMetadataRecord
 ): string[] {
   return Object.entries(featureFlags)
-    .filter(([, value]) => value !== false)
+    .filter(([, value]) => isGrantedFeatureFlagValue(value))
     .map(([key]) => key)
     .sort((left, right) => left.localeCompare(right));
 }
@@ -234,13 +276,6 @@ export function normalizeCertificateBillingCatalogProduct(
   product: ProductLike
 ): CertificateBillingCatalogProduct | null {
   const metadata = normalizeCertificateBillingMetadata(product.metadata);
-  if (
-    readTrimmedString(metadata, POLAR_CERTIFICATE_DOMAIN_METADATA_KEY) !==
-    POLAR_CERTIFICATE_BILLING_DOMAIN
-  ) {
-    return null;
-  }
-
   const activePrices = Array.isArray(product.prices)
     ? product.prices.filter((price) => !price.isArchived)
     : [];
@@ -256,6 +291,18 @@ export function normalizeCertificateBillingCatalogProduct(
     }))
     .filter((price) => price.meterId && price.meterName);
   const benefits = Array.isArray(product.benefits) ? product.benefits : [];
+  const normalizedBenefits = benefits.map((benefit) =>
+    normalizeCertificateBillingCatalogBenefit(benefit)
+  );
+  const hasExplicitCertificateDomain =
+    readTrimmedString(metadata, POLAR_CERTIFICATE_DOMAIN_METADATA_KEY) ===
+    POLAR_CERTIFICATE_BILLING_DOMAIN;
+  const hasRecognizedEntitlements = normalizedBenefits.some((benefit) =>
+    hasRecognizedEntitlementMetadata(benefit)
+  );
+  if (!hasExplicitCertificateDomain && (!hasRecognizedEntitlements || recurringPriceIds.length === 0)) {
+    return null;
+  }
   const highlights = Array.from(
     new Set(
       benefits

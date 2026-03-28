@@ -5,7 +5,7 @@ import type { Auth } from '../auth';
 
 const apiMock = {
   couplingForensics: {
-    listOwnedPackagesForAuthUser: 'couplingForensics.listOwnedPackagesForAuthUser',
+    listOwnedPackageSummariesForAuthUser: 'couplingForensics.listOwnedPackageSummariesForAuthUser',
     lookupTraceMatchesForAuthUser: 'couplingForensics.lookupTraceMatchesForAuthUser',
     recordLookupAudit: 'couplingForensics.recordLookupAudit',
   },
@@ -197,13 +197,20 @@ describe('forensics routes', () => {
 
     try {
       queryMock.mockImplementation(async (ref: unknown, args: unknown) => {
-        if (ref === apiMock.couplingForensics.listOwnedPackagesForAuthUser) {
+        if (ref === apiMock.couplingForensics.listOwnedPackageSummariesForAuthUser) {
           expect(args).toEqual({
             apiSecret: 'convex-secret',
             authUserId: 'creator-user',
           });
           return {
-            packages: ['creator.package'],
+            packages: [
+              {
+                packageId: 'creator.package',
+                packageName: 'Creator Suite+',
+                registeredAt: 1_739_000_000_000,
+                updatedAt: 1_739_500_000_000,
+              },
+            ],
           };
         }
         throw new Error(`Unexpected query ${String(ref)}`);
@@ -221,7 +228,14 @@ describe('forensics routes', () => {
 
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({
-        packages: ['creator.package'],
+        packages: [
+          {
+            packageId: 'creator.package',
+            packageName: 'Creator Suite+',
+            registeredAt: 1_739_000_000_000,
+            updatedAt: 1_739_500_000_000,
+          },
+        ],
       });
     } finally {
       if (previousInternalRpcSecret === undefined) {

@@ -73,7 +73,16 @@ vi.mock('@/lib/certificates', () => ({
   revokeCreatorCertificate: vi.fn(),
 }));
 
+vi.mock('@/lib/packages', () => ({
+  archiveCreatorPackage: vi.fn(),
+  deleteCreatorPackage: vi.fn(),
+  listCreatorPackages: vi.fn(),
+  renameCreatorPackage: vi.fn(),
+  restoreCreatorPackage: vi.fn(),
+}));
+
 import * as certificateApi from '@/lib/certificates';
+import * as packagesApi from '@/lib/packages';
 import DashboardBilling from '@/routes/_authenticated/dashboard/billing';
 import DashboardCertificates from '@/routes/_authenticated/dashboard/certificates';
 
@@ -217,6 +226,34 @@ describe('dashboard billing and certificates routes', () => {
       },
     });
     vi.mocked(certificateApi.revokeCreatorCertificate).mockResolvedValue({ success: true });
+    vi.mocked(packagesApi.listCreatorPackages).mockResolvedValue({
+      packages: [
+        {
+          packageId: 'pkg.creator.bundle',
+          packageName: 'Creator Bundle',
+          registeredAt: 1_710_000_000_000,
+          updatedAt: 1_710_000_100_000,
+          status: 'active',
+          archivedAt: undefined,
+          canDelete: false,
+          deleteBlockedReason: 'Package has signing or license history and cannot be deleted.',
+          canArchive: true,
+          canRestore: false,
+        },
+        {
+          packageId: 'pkg.creator.legacy',
+          packageName: 'Legacy Bundle',
+          registeredAt: 1_709_000_000_000,
+          updatedAt: 1_709_000_100_000,
+          status: 'archived',
+          archivedAt: 1_710_500_000_000,
+          canDelete: false,
+          deleteBlockedReason: 'Archived packages keep their audit history.',
+          canArchive: false,
+          canRestore: true,
+        },
+      ],
+    });
   });
 
   it('disables all plan actions while any embed checkout is active', async () => {
@@ -258,6 +295,16 @@ describe('dashboard billing and certificates routes', () => {
     });
   });
 
+  it('keeps the billing route branded for the creator suite instead of only code signing', async () => {
+    render(<DashboardBilling />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Plans & Billing')).toBeInTheDocument());
+
+    expect(screen.queryByText('Code Signing Billing')).not.toBeInTheDocument();
+    expect(screen.getByText('Protected exports')).toBeInTheDocument();
+    expect(screen.getByText('Moderation lookup')).toBeInTheDocument();
+  });
+
   it('keeps billing purchase actions off the certificates route', async () => {
     render(<DashboardCertificates />, { wrapper: createWrapper() });
 
@@ -266,5 +313,19 @@ describe('dashboard billing and certificates routes', () => {
     expect(screen.queryByRole('button', { name: /subscribe via polar/i })).not.toBeInTheDocument();
     expect(screen.queryByText('Choose a Plan')).not.toBeInTheDocument();
     expect(screen.queryByText('Available Plans')).not.toBeInTheDocument();
+  });
+
+  it('renders the package registry inside the certificates route', async () => {
+    render(<DashboardCertificates />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Package Registry')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(packagesApi.listCreatorPackages).toHaveBeenCalledWith({ includeArchived: true })
+    );
+    await waitFor(() => expect(screen.getByDisplayValue('Creator Bundle')).toBeInTheDocument());
+    expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument();
+    expect(screen.getByText('Archived Packages')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Legacy Bundle')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument();
   });
 });
