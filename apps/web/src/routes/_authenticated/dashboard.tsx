@@ -505,6 +505,38 @@ function Sidebar({
             <div className="sidebar-nav-group">
               <span className="sidebar-nav-label">Developer</span>
               <Link
+                id="tab-btn-billing"
+                to="/dashboard/billing"
+                search={(prev) => ({
+                  ...prev,
+                  guild_id: undefined,
+                  tenant_id: undefined,
+                })}
+                className="sidebar-nav-btn"
+                activeProps={{ className: 'sidebar-nav-btn is-active' }}
+                role="tab"
+                aria-selected={false}
+                aria-controls="tab-panel-billing"
+              >
+                <svg
+                  className="sidebar-nav-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 7h18" />
+                  <path d="M6 3h12" />
+                  <path d="M6 11h12" />
+                  <path d="M7 15h10" />
+                  <path d="M8 19h8" />
+                </svg>
+                Billing
+              </Link>
+              <Link
                 id="tab-btn-certificates"
                 to="/dashboard/certificates"
                 search={(prev) => ({
@@ -531,7 +563,7 @@ function Sidebar({
                   <path d="M12 2l7 4v6c0 5-3.2 9.4-7 10-3.8-.6-7-5-7-10V6z" />
                   <path d="M9 12l2 2 4-4" />
                 </svg>
-                Certificates &amp; Billing
+                Certificates
               </Link>
               {hasForensicsCapability && (
                 <Link

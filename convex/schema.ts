@@ -1774,6 +1774,8 @@ const creator_billing_catalog_benefits = defineTable({
   type: v.string(),
   description: v.optional(v.string()),
   metadata: v.record(v.string(), v.union(v.string(), v.number(), v.boolean())),
+  featureFlags: v.record(v.string(), v.union(v.string(), v.number(), v.boolean())),
+  capabilityKeys: v.array(v.string()),
   capabilityKey: v.optional(v.string()),
   deviceCap: v.optional(v.number()),
   signQuotaPerPeriod: v.optional(v.number()),

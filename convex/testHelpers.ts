@@ -137,3 +137,84 @@ export async function seedRoleRule(
     });
   });
 }
+
+export async function seedCertificateBillingCatalog(
+  t: ConvexTestInstance,
+  input: {
+    productId?: string;
+    slug?: string;
+    displayName?: string;
+    description?: string;
+    sortOrder?: number;
+    recurringInterval?: string;
+    recurringPriceIds?: string[];
+    displayBadge?: string;
+    highlights?: string[];
+    meteredPrices?: Array<{
+      priceId: string;
+      meterId: string;
+      meterName: string;
+    }>;
+    benefitId?: string;
+    benefitType?: string;
+    benefitDescription?: string;
+    benefitMetadata?: Record<string, string | number | boolean>;
+    featureFlags?: Record<string, string | number | boolean>;
+    capabilityKeys?: string[];
+    capabilityKey?: string;
+    deviceCap?: number;
+    signQuotaPerPeriod?: number;
+    auditRetentionDays?: number;
+    supportTier?: string;
+    tierRank?: number;
+    metadata?: Record<string, string | number | boolean>;
+  } = {}
+): Promise<{ productId: string; benefitId: string }> {
+  const now = Date.now();
+  const productId = input.productId ?? 'prod_test_certificate';
+  const benefitId = input.benefitId ?? 'benefit_test_certificate';
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert('creator_billing_catalog_products', {
+      productId,
+      slug: input.slug ?? 'test-certificate',
+      displayName: input.displayName ?? 'Test Certificate',
+      description: input.description ?? 'Test certificate billing product',
+      status: 'active',
+      sortOrder: input.sortOrder ?? 1,
+      displayBadge: input.displayBadge,
+      recurringInterval: input.recurringInterval ?? 'month',
+      recurringPriceIds: input.recurringPriceIds ?? ['price_test_certificate_monthly'],
+      meteredPrices: input.meteredPrices ?? [],
+      benefitIds: [benefitId],
+      highlights: input.highlights ?? ['Test certificate plan'],
+      metadata: {
+        yucp_domain: 'certificate_billing',
+        ...(input.metadata ?? {}),
+      },
+      syncedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.db.insert('creator_billing_catalog_benefits', {
+      benefitId,
+      type: input.benefitType ?? 'feature_flag',
+      description: input.benefitDescription ?? 'Test certificate features',
+      metadata: input.benefitMetadata ?? {},
+      featureFlags: input.featureFlags ?? {},
+      capabilityKeys: input.capabilityKeys ?? [],
+      capabilityKey: input.capabilityKey,
+      deviceCap: input.deviceCap,
+      signQuotaPerPeriod: input.signQuotaPerPeriod,
+      auditRetentionDays: input.auditRetentionDays,
+      supportTier: input.supportTier,
+      tierRank: input.tierRank,
+      syncedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+
+  return { productId, benefitId };
+}

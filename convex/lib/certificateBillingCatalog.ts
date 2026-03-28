@@ -1,21 +1,14 @@
-import { BILLING_CAPABILITY_KEYS } from './billingCapabilities';
-
 export type CertificateBillingMetadataValue = string | number | boolean;
 
-export type CertificateBillingMetadataRecord = Record<
-  string,
-  CertificateBillingMetadataValue
->;
-
-const CERTIFICATE_BILLING_CAPABILITY_KEYS = new Set<string>(
-  Object.values(BILLING_CAPABILITY_KEYS)
-);
+export type CertificateBillingMetadataRecord = Record<string, CertificateBillingMetadataValue>;
 
 export type CertificateBillingCatalogBenefit = {
   benefitId: string;
   type: string;
   description?: string;
   metadata: CertificateBillingMetadataRecord;
+  featureFlags: CertificateBillingMetadataRecord;
+  capabilityKeys: string[];
   capabilityKey?: string;
   deviceCap?: number;
   signQuotaPerPeriod?: number;
@@ -89,10 +82,17 @@ export const POLAR_CERTIFICATE_BENEFIT_SUPPORT_TIER_METADATA_KEY = 'support_tier
 export const POLAR_CERTIFICATE_BENEFIT_TIER_RANK_METADATA_KEY = 'tier_rank';
 export const POLAR_CERTIFICATE_BILLING_DOMAIN = 'certificate_billing';
 
+const POLAR_CERTIFICATE_BENEFIT_RESERVED_METADATA_KEYS = new Set<string>([
+  ...POLAR_CERTIFICATE_BENEFIT_CAPABILITY_METADATA_KEYS,
+  POLAR_CERTIFICATE_BENEFIT_DEVICE_CAP_METADATA_KEY,
+  POLAR_CERTIFICATE_BENEFIT_SIGN_QUOTA_METADATA_KEY,
+  POLAR_CERTIFICATE_BENEFIT_AUDIT_RETENTION_METADATA_KEY,
+  POLAR_CERTIFICATE_BENEFIT_SUPPORT_TIER_METADATA_KEY,
+  POLAR_CERTIFICATE_BENEFIT_TIER_RANK_METADATA_KEY,
+]);
+
 function isMetadataValue(value: unknown): value is CertificateBillingMetadataValue {
-  return (
-    typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-  );
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
 
 export function normalizeCertificateBillingMetadata(
@@ -140,12 +140,14 @@ function normalizeDescription(value: string | null | undefined): string | undefi
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function deriveCapabilityKey(
-  metadata: CertificateBillingMetadataRecord
-): string | undefined {
+function isFeatureFlagBenefit(type: string | undefined): boolean {
+  return (type ?? '').trim().toLowerCase() === 'feature_flag';
+}
+
+function deriveLegacyCapabilityKey(metadata: CertificateBillingMetadataRecord): string | undefined {
   for (const key of POLAR_CERTIFICATE_BENEFIT_CAPABILITY_METADATA_KEYS) {
     const value = readTrimmedString(metadata, key);
-    if (value && CERTIFICATE_BILLING_CAPABILITY_KEYS.has(value)) {
+    if (value) {
       return value;
     }
   }
@@ -153,29 +155,68 @@ function deriveCapabilityKey(
   return undefined;
 }
 
-export function isCertificateBillingProduct(product: {
-  metadata?: MetadataInput;
-}): boolean {
+/**
+ * Polar feature-flag benefits expose application flags through benefit metadata.
+ * Docs: https://polar.sh/docs/api-reference/benefits/list
+ */
+export function deriveCertificateBillingFeatureFlags(
+  benefitType: string | undefined,
+  metadata: CertificateBillingMetadataRecord
+): CertificateBillingMetadataRecord {
+  if (!isFeatureFlagBenefit(benefitType)) {
+    return {};
+  }
+
+  const featureFlags: CertificateBillingMetadataRecord = {};
+  const legacyCapabilityKey = deriveLegacyCapabilityKey(metadata);
+  if (legacyCapabilityKey) {
+    featureFlags[legacyCapabilityKey] = true;
+  }
+
+  for (const [rawKey, value] of Object.entries(metadata)) {
+    const key = rawKey.trim();
+    if (!key || POLAR_CERTIFICATE_BENEFIT_RESERVED_METADATA_KEYS.has(key)) {
+      continue;
+    }
+    featureFlags[key] = value;
+  }
+
+  return featureFlags;
+}
+
+export function deriveCertificateBillingCapabilityKeys(
+  featureFlags: CertificateBillingMetadataRecord
+): string[] {
+  return Object.entries(featureFlags)
+    .filter(([, value]) => value !== false)
+    .map(([key]) => key)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+export function isCertificateBillingProduct(product: { metadata?: MetadataInput }): boolean {
   const metadata = normalizeCertificateBillingMetadata(product.metadata);
-  return readTrimmedString(metadata, POLAR_CERTIFICATE_DOMAIN_METADATA_KEY) ===
-    POLAR_CERTIFICATE_BILLING_DOMAIN;
+  return (
+    readTrimmedString(metadata, POLAR_CERTIFICATE_DOMAIN_METADATA_KEY) ===
+    POLAR_CERTIFICATE_BILLING_DOMAIN
+  );
 }
 
 export function normalizeCertificateBillingCatalogBenefit(
   benefit: BenefitLike
 ): CertificateBillingCatalogBenefit {
   const metadata = normalizeCertificateBillingMetadata(benefit.metadata);
+  const featureFlags = deriveCertificateBillingFeatureFlags(benefit.type, metadata);
+  const capabilityKeys = deriveCertificateBillingCapabilityKeys(featureFlags);
 
   return {
     benefitId: benefit.id,
     type: typeof benefit.type === 'string' ? benefit.type : 'unknown',
     description: normalizeDescription(benefit.description),
     metadata,
-    capabilityKey: deriveCapabilityKey(metadata),
-    deviceCap: readPositiveInteger(
-      metadata,
-      POLAR_CERTIFICATE_BENEFIT_DEVICE_CAP_METADATA_KEY
-    ),
+    featureFlags,
+    capabilityKeys,
+    capabilityKey: capabilityKeys[0],
+    deviceCap: readPositiveInteger(metadata, POLAR_CERTIFICATE_BENEFIT_DEVICE_CAP_METADATA_KEY),
     signQuotaPerPeriod: readPositiveInteger(
       metadata,
       POLAR_CERTIFICATE_BENEFIT_SIGN_QUOTA_METADATA_KEY
@@ -184,10 +225,7 @@ export function normalizeCertificateBillingCatalogBenefit(
       metadata,
       POLAR_CERTIFICATE_BENEFIT_AUDIT_RETENTION_METADATA_KEY
     ),
-    supportTier: readTrimmedString(
-      metadata,
-      POLAR_CERTIFICATE_BENEFIT_SUPPORT_TIER_METADATA_KEY
-    ),
+    supportTier: readTrimmedString(metadata, POLAR_CERTIFICATE_BENEFIT_SUPPORT_TIER_METADATA_KEY),
     tierRank: readFiniteNumber(metadata, POLAR_CERTIFICATE_BENEFIT_TIER_RANK_METADATA_KEY),
   };
 }
@@ -228,13 +266,13 @@ export function normalizeCertificateBillingCatalogProduct(
 
   return {
     productId: product.id,
-    slug:
-      readTrimmedString(metadata, POLAR_CERTIFICATE_PRODUCT_SLUG_METADATA_KEY) ?? product.id,
+    slug: readTrimmedString(metadata, POLAR_CERTIFICATE_PRODUCT_SLUG_METADATA_KEY) ?? product.id,
     displayName: product.name.trim(),
     description: normalizeDescription(product.description),
     status: product.isArchived ? 'archived' : 'active',
     sortOrder:
-      readFiniteNumber(metadata, POLAR_CERTIFICATE_PRODUCT_SORT_METADATA_KEY) ?? Number.MAX_SAFE_INTEGER,
+      readFiniteNumber(metadata, POLAR_CERTIFICATE_PRODUCT_SORT_METADATA_KEY) ??
+      Number.MAX_SAFE_INTEGER,
     displayBadge: readTrimmedString(metadata, POLAR_CERTIFICATE_PRODUCT_BADGE_METADATA_KEY),
     recurringInterval:
       typeof product.recurringInterval === 'string' && product.recurringInterval.trim()
@@ -252,6 +290,7 @@ export function aggregateCertificateBillingBenefitEntitlements(
   benefits: CertificateBillingCatalogBenefit[]
 ): {
   capabilityKeys: string[];
+  featureFlags: CertificateBillingMetadataRecord;
   deviceCap?: number;
   signQuotaPerPeriod?: number;
   auditRetentionDays?: number;
@@ -263,11 +302,11 @@ export function aggregateCertificateBillingBenefitEntitlements(
   let auditRetentionDays: number | undefined;
   let supportTier: string | undefined;
   let tierRank: number | undefined;
-  const capabilityKeys = new Set<string>();
+  const featureFlags: CertificateBillingMetadataRecord = {};
 
   for (const benefit of benefits) {
-    if (benefit.capabilityKey) {
-      capabilityKeys.add(benefit.capabilityKey);
+    for (const [key, value] of Object.entries(benefit.featureFlags)) {
+      featureFlags[key] = value;
     }
     if (
       benefit.deviceCap !== undefined &&
@@ -277,22 +316,17 @@ export function aggregateCertificateBillingBenefitEntitlements(
     }
     if (
       benefit.signQuotaPerPeriod !== undefined &&
-      (signQuotaPerPeriod === undefined ||
-        benefit.signQuotaPerPeriod > signQuotaPerPeriod)
+      (signQuotaPerPeriod === undefined || benefit.signQuotaPerPeriod > signQuotaPerPeriod)
     ) {
       signQuotaPerPeriod = benefit.signQuotaPerPeriod;
     }
     if (
       benefit.auditRetentionDays !== undefined &&
-      (auditRetentionDays === undefined ||
-        benefit.auditRetentionDays > auditRetentionDays)
+      (auditRetentionDays === undefined || benefit.auditRetentionDays > auditRetentionDays)
     ) {
       auditRetentionDays = benefit.auditRetentionDays;
     }
-    if (
-      benefit.tierRank !== undefined &&
-      (tierRank === undefined || benefit.tierRank > tierRank)
-    ) {
+    if (benefit.tierRank !== undefined && (tierRank === undefined || benefit.tierRank > tierRank)) {
       tierRank = benefit.tierRank;
       supportTier = benefit.supportTier ?? supportTier;
     } else if (!supportTier && benefit.supportTier) {
@@ -301,7 +335,8 @@ export function aggregateCertificateBillingBenefitEntitlements(
   }
 
   return {
-    capabilityKeys: [...capabilityKeys].sort((left, right) => left.localeCompare(right)),
+    capabilityKeys: deriveCertificateBillingCapabilityKeys(featureFlags),
+    featureFlags,
     deviceCap,
     signQuotaPerPeriod,
     auditRetentionDays,

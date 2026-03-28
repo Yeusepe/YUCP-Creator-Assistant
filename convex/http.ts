@@ -1641,15 +1641,6 @@ http.route({
 
     const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
     if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
-    console.log(
-      '[DELETE ME][http.protected-materialization-grant] request',
-      JSON.stringify({
-        packageId,
-        protectedAssetId,
-        projectId,
-        assetCount: assetPaths.length,
-      })
-    );
 
     const result = await ctx.runAction(internal.yucpLicenses.issueProtectedMaterializationGrant, {
       packageId,
@@ -1662,25 +1653,9 @@ http.route({
     });
 
     if (!result.success) {
-      console.log(
-        '[DELETE ME][http.protected-materialization-grant] failed',
-        JSON.stringify({
-          packageId,
-          protectedAssetId,
-          error: result.error ?? 'unknown',
-        })
-      );
       return jsonResponse({ error: result.error }, 422);
     }
 
-    console.log(
-      '[DELETE ME][http.protected-materialization-grant] succeeded',
-      JSON.stringify({
-        packageId,
-        protectedAssetId,
-        expiresAt: result.expiresAt ?? null,
-      })
-    );
     return jsonResponse({
       success: true,
       grant: result.grant,
@@ -1706,7 +1681,6 @@ http.route({
 
     const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
     if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
-    console.log('[DELETE ME][http.protected-materialization-redeem] request', JSON.stringify({ hasGrant: true }));
 
     const result = await ctx.runAction(internal.yucpLicenses.redeemProtectedMaterializationGrant, {
       grant: body.grant,
@@ -1714,24 +1688,9 @@ http.route({
     });
 
     if (!result.success) {
-      console.log(
-        '[DELETE ME][http.protected-materialization-redeem] failed',
-        JSON.stringify({
-          error: result.error ?? 'unknown',
-        })
-      );
       return jsonResponse({ error: result.error }, 422);
     }
 
-    console.log(
-      '[DELETE ME][http.protected-materialization-redeem] succeeded',
-      JSON.stringify({
-        grantId: result.grantId ?? null,
-        packageId: result.packageId ?? null,
-        protectedAssetId: result.protectedAssetId ?? null,
-        couplingJobCount: result.couplingJobs?.length ?? 0,
-      })
-    );
     return jsonResponse({
       success: true,
       grantId: result.grantId,
@@ -1763,28 +1722,15 @@ http.route({
     if (!body?.grant) {
       return errorResponse('grant is required', 400);
     }
-    console.log('[DELETE ME][http.protected-materialization-receipt] request', JSON.stringify({ hasGrant: true }));
 
     const result = await ctx.runMutation(internal.yucpLicenses.receiptProtectedMaterializationGrant, {
       grant: body.grant,
     });
 
     if (!result.success) {
-      console.log(
-        '[DELETE ME][http.protected-materialization-receipt] failed',
-        JSON.stringify({
-          error: result.error ?? 'unknown',
-        })
-      );
       return jsonResponse({ error: result.error }, 422);
     }
 
-    console.log(
-      '[DELETE ME][http.protected-materialization-receipt] succeeded',
-      JSON.stringify({
-        updatedCount: result.updatedCount,
-      })
-    );
     return jsonResponse({
       success: true,
       updatedCount: result.updatedCount,

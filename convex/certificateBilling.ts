@@ -14,6 +14,8 @@ import {
   aggregateCertificateBillingBenefitEntitlements,
   type CertificateBillingCatalogBenefit,
   type CertificateBillingCatalogProduct,
+  deriveCertificateBillingCapabilityKeys,
+  deriveCertificateBillingFeatureFlags,
 } from './lib/certificateBillingCatalog';
 import {
   buildAuthUserWorkspaceKey,
@@ -22,6 +24,7 @@ import {
   resolveWorkspaceKeys,
 } from './lib/certificateBillingConfig';
 import { projectWorkspaceCapabilities } from './lib/certificateCapabilityProjection';
+import { createConvexLogger } from './lib/logger';
 import { summarizeActiveCertificatesByDevice } from './yucpCertificates';
 
 type BillingStatus = 'active' | 'grace' | 'inactive' | 'suspended';
@@ -51,6 +54,8 @@ type ProjectionSubscription = {
   cancelAtPeriodEnd: boolean;
   metadata: Record<string, string | number | boolean>;
 };
+
+const logger = createConvexLogger();
 
 const resolveForAuthUserReturnValidator = v.object({
   billingEnabled: v.boolean(),
@@ -239,9 +244,7 @@ async function listWorkspaceMeters(
     .sort((left, right) => left.meterId.localeCompare(right.meterId));
 }
 
-async function loadCatalog(
-  ctx: QueryCtx | MutationCtx
-): Promise<{
+async function loadCatalog(ctx: QueryCtx | MutationCtx): Promise<{
   products: CertificateBillingCatalogProduct[];
   productsById: Map<string, CertificateBillingCatalogProduct>;
   benefitsById: Map<string, CertificateBillingCatalogBenefit>;
@@ -270,21 +273,35 @@ async function loadCatalog(
     .sort((left, right) => left.sortOrder - right.sortOrder);
 
   const benefitsById = new Map<string, CertificateBillingCatalogBenefit>(
-    benefitRows.map((row) => [
-      row.benefitId,
-      {
-        benefitId: row.benefitId,
-        type: row.type,
-        description: row.description,
-        metadata: { ...row.metadata },
-        capabilityKey: row.capabilityKey,
-        deviceCap: row.deviceCap,
-        signQuotaPerPeriod: row.signQuotaPerPeriod,
-        auditRetentionDays: row.auditRetentionDays,
-        supportTier: row.supportTier,
-        tierRank: row.tierRank,
-      },
-    ])
+    benefitRows.map((row) => {
+      const metadata = { ...row.metadata };
+      const featureFlags =
+        row.featureFlags && typeof row.featureFlags === 'object'
+          ? { ...row.featureFlags }
+          : deriveCertificateBillingFeatureFlags(row.type, metadata);
+      const capabilityKeys =
+        Array.isArray(row.capabilityKeys) && row.capabilityKeys.length > 0
+          ? [...row.capabilityKeys]
+          : deriveCertificateBillingCapabilityKeys(featureFlags);
+
+      return [
+        row.benefitId,
+        {
+          benefitId: row.benefitId,
+          type: row.type,
+          description: row.description,
+          metadata,
+          featureFlags,
+          capabilityKeys,
+          capabilityKey: row.capabilityKey ?? capabilityKeys[0],
+          deviceCap: row.deviceCap,
+          signQuotaPerPeriod: row.signQuotaPerPeriod,
+          auditRetentionDays: row.auditRetentionDays,
+          supportTier: row.supportTier,
+          tierRank: row.tierRank,
+        },
+      ];
+    })
   );
 
   return {
@@ -295,24 +312,16 @@ async function loadCatalog(
 }
 
 function requireEntitlementMetadata(
-  workspaceKey: string,
-  productId: string,
+  _workspaceKey: string,
+  _productId: string,
   entitlements: ReturnType<typeof aggregateCertificateBillingBenefitEntitlements>
 ) {
-  if (entitlements.deviceCap === undefined) {
-    throw new ConvexError(
-      `Polar benefit metadata missing device_cap for workspace ${workspaceKey} and product ${productId}`
-    );
-  }
-  if (entitlements.auditRetentionDays === undefined) {
-    throw new ConvexError(
-      `Polar benefit metadata missing audit_retention_days for workspace ${workspaceKey} and product ${productId}`
-    );
-  }
-  if (!entitlements.supportTier) {
-    throw new ConvexError(
-      `Polar benefit metadata missing support_tier for workspace ${workspaceKey} and product ${productId}`
-    );
+  if (
+    entitlements.deviceCap === undefined ||
+    entitlements.auditRetentionDays === undefined ||
+    !entitlements.supportTier
+  ) {
+    return null;
   }
 
   return {
@@ -320,6 +329,16 @@ function requireEntitlementMetadata(
     auditRetentionDays: entitlements.auditRetentionDays,
     supportTier: entitlements.supportTier,
   };
+}
+
+function listMissingEntitlementMetadataFields(
+  entitlements: ReturnType<typeof aggregateCertificateBillingBenefitEntitlements>
+) {
+  const missingFields: string[] = [];
+  if (entitlements.deviceCap === undefined) missingFields.push('device_cap');
+  if (entitlements.auditRetentionDays === undefined) missingFields.push('audit_retention_days');
+  if (!entitlements.supportTier) missingFields.push('support_tier');
+  return missingFields;
 }
 
 function deriveCatalogBenefitsForProduct(
@@ -330,9 +349,7 @@ function deriveCatalogBenefitsForProduct(
   return product.benefitIds
     .filter((benefitId) => !activeGrantedBenefitIds || activeGrantedBenefitIds.has(benefitId))
     .map((benefitId) => benefitsById.get(benefitId))
-    .filter(
-      (benefit): benefit is CertificateBillingCatalogBenefit => benefit !== undefined
-    );
+    .filter((benefit): benefit is CertificateBillingCatalogBenefit => benefit !== undefined);
 }
 
 function buildAvailablePlans(
@@ -344,14 +361,18 @@ function buildAvailablePlans(
     .map((product) => {
       const benefits = deriveCatalogBenefitsForProduct(product, benefitsById);
       const entitlements = aggregateCertificateBillingBenefitEntitlements(benefits);
-      const required = requireEntitlementMetadata(
-        'catalog',
-        product.productId,
-        entitlements
-      );
+      const required = requireEntitlementMetadata('catalog', product.productId, entitlements);
+      if (!required) {
+        logger.warn('Skipping certificate billing product with malformed metadata', {
+          workspaceKey: 'catalog',
+          productId: product.productId,
+          missingFields: listMissingEntitlementMetadataFields(entitlements),
+        });
+        return null;
+      }
 
       return {
-        planKey: product.productId,
+        planKey: product.slug,
         slug: product.slug,
         productId: product.productId,
         displayName: product.displayName,
@@ -368,7 +389,34 @@ function buildAvailablePlans(
         meteredPrices: product.meteredPrices,
       };
     })
+    .filter((product): product is NonNullable<typeof product> => product !== null)
     .sort((left, right) => left.priority - right.priority);
+}
+
+function resolveCatalogProductForEntitlement(
+  products: CertificateBillingCatalogProduct[],
+  productsById: Map<string, CertificateBillingCatalogProduct>,
+  entitlement:
+    | {
+        productId?: string;
+        planKey?: string;
+      }
+    | null
+    | undefined
+): CertificateBillingCatalogProduct | null {
+  const productId = entitlement?.productId?.trim();
+  if (productId) {
+    return productsById.get(productId) ?? null;
+  }
+
+  const planKey = entitlement?.planKey?.trim();
+  if (!planKey) {
+    return null;
+  }
+
+  return (
+    products.find((product) => product.slug === planKey || product.productId === planKey) ?? null
+  );
 }
 
 function selectWinningCertificateEntitlement<
@@ -537,10 +585,12 @@ async function buildAccountOverview(ctx: QueryCtx, authUserId: string) {
   const workspaceKey = certificateEntitlements?.workspaceKey ?? workspaceKeys[0];
   const storedCapabilities = await listWorkspaceCapabilities(ctx, workspaceKey);
   const storedMeters = await listWorkspaceMeters(ctx, workspaceKey);
-  const { products, benefitsById } = await loadCatalog(ctx);
-  const activeProduct = certificateEntitlements?.productId
-    ? products.find((product) => product.productId === certificateEntitlements.productId) ?? null
-    : null;
+  const { products, productsById, benefitsById } = await loadCatalog(ctx);
+  const activeProduct = resolveCatalogProductForEntitlement(
+    products,
+    productsById,
+    certificateEntitlements
+  );
   const activeBenefits = activeProduct
     ? deriveCatalogBenefitsForProduct(activeProduct, benefitsById)
     : [];
@@ -609,9 +659,11 @@ async function resolveProjectedCapabilitiesForAuthUser(
   const workspaceKey = certificateEntitlement?.workspaceKey ?? workspaceKeys[0];
   const storedCapabilities = await listWorkspaceCapabilities(ctx, workspaceKey);
   const { productsById, benefitsById } = await loadCatalog(ctx);
-  const activeProduct = certificateEntitlement?.productId
-    ? productsById.get(certificateEntitlement.productId) ?? null
-    : null;
+  const activeProduct = resolveCatalogProductForEntitlement(
+    [...productsById.values()],
+    productsById,
+    certificateEntitlement
+  );
   const activeBenefits = activeProduct
     ? deriveCatalogBenefitsForProduct(activeProduct, benefitsById)
     : [];
@@ -742,6 +794,7 @@ async function projectCustomerStateIntoBilling(
     .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
     .collect();
   const existingByWorkspace = new Map(existingAccounts.map((entry) => [entry.workspaceKey, entry]));
+  const projectedWorkspaceKeys = new Set<string>();
 
   for (const [workspaceKey, subscriptions] of activeByWorkspace.entries()) {
     const perProduct = subscriptions
@@ -758,6 +811,14 @@ async function projectCustomerStateIntoBilling(
         );
         const entitlements = aggregateCertificateBillingBenefitEntitlements(benefits);
         const required = requireEntitlementMetadata(workspaceKey, product.productId, entitlements);
+        if (!required) {
+          logger.warn('Skipping projected certificate billing product with malformed metadata', {
+            workspaceKey,
+            productId: product.productId,
+            missingFields: listMissingEntitlementMetadataFields(entitlements),
+          });
+          return null;
+        }
 
         return {
           subscription,
@@ -801,15 +862,17 @@ async function projectCustomerStateIntoBilling(
       continue;
     }
 
+    const projectedSubscriptions = perProduct.map((entry) => entry.subscription);
     const currentPeriodEnd = Math.max(
-      ...subscriptions.map((subscription) => subscription.currentPeriodEnd)
+      ...projectedSubscriptions.map((subscription) => subscription.currentPeriodEnd)
     );
     const account = existingByWorkspace.get(workspaceKey);
-    const planKey = winning.product.productId;
+    const planKey = winning.product.slug;
+    projectedWorkspaceKeys.add(workspaceKey);
     const capabilityBenefitIds = new Map<string, string>();
     for (const benefit of winning.benefits) {
-      if (benefit.capabilityKey) {
-        capabilityBenefitIds.set(benefit.capabilityKey, benefit.benefitId);
+      for (const capabilityKey of benefit.capabilityKeys) {
+        capabilityBenefitIds.set(capabilityKey, benefit.benefitId);
       }
     }
 
@@ -902,7 +965,7 @@ async function projectCustomerStateIntoBilling(
       .collect();
     await Promise.all(existingSubscriptions.map((entry) => ctx.db.delete(entry._id)));
 
-    for (const subscription of subscriptions) {
+    for (const subscription of projectedSubscriptions) {
       await ctx.db.insert('creator_billing_subscriptions', {
         workspaceKey,
         authUserId: args.authUserId,
@@ -924,7 +987,7 @@ async function projectCustomerStateIntoBilling(
   }
 
   for (const existing of existingAccounts) {
-    if (activeByWorkspace.has(existing.workspaceKey)) {
+    if (projectedWorkspaceKeys.has(existing.workspaceKey)) {
       continue;
     }
 
@@ -973,7 +1036,7 @@ async function projectCustomerStateIntoBilling(
     await Promise.all(staleSubscriptions.map((row) => ctx.db.delete(row._id)));
   }
 
-  return { updated: true, workspaceCount: activeByWorkspace.size };
+  return { updated: true, workspaceCount: projectedWorkspaceKeys.size };
 }
 
 export const getAccountOverview = query({

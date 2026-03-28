@@ -19,6 +19,7 @@ describe('Route Tree', () => {
     '_authenticated/dashboard/index.tsx',
     '_authenticated/dashboard/integrations.tsx',
     '_authenticated/dashboard/collaboration.tsx',
+    '_authenticated/dashboard/billing.tsx',
     '_authenticated/dashboard/server-rules.tsx',
     '_authenticated/dashboard/audit-logs.tsx',
     '_authenticated/account.tsx',

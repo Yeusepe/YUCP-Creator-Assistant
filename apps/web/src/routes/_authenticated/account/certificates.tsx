@@ -15,9 +15,15 @@ export const Route = createFileRoute('/_authenticated/account/certificates')({
     source: typeof search.source === 'string' ? search.source : undefined,
   }),
   beforeLoad: ({ search }) => {
+    const hasBillingSearch =
+      Boolean(search.checkout) ||
+      Boolean(search.portal) ||
+      Boolean(search.plan) ||
+      Boolean(search.source);
+
     throw redirect({
-      to: '/dashboard/certificates',
-      search,
+      to: hasBillingSearch ? '/dashboard/billing' : '/dashboard/certificates',
+      search: hasBillingSearch ? search : undefined,
       replace: true,
     });
   },

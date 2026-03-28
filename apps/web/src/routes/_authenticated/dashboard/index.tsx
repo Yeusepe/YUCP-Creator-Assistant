@@ -17,6 +17,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
+import type { DashboardShellData } from '@/lib/server/dashboard';
 import { api } from '../../../../../../convex/_generated/api';
 import type { Id } from '../../../../../../convex/_generated/dataModel';
 
@@ -41,6 +42,26 @@ const ANONYMOUS_ONBOARDING_STORAGE_SUFFIX = 'anonymous';
 
 interface OnboardingState {
   docsRead: boolean;
+}
+
+function getInitialConnectedPlatformCounts(home: DashboardShellData['home']): {
+  connected: number;
+  total: number;
+} {
+  const platformProviders = (home?.providers ?? []).filter(
+    (provider) => provider.key !== 'discord' && provider.connectPath
+  );
+  const platformProviderKeys = new Set(platformProviders.map((provider) => provider.key));
+  const connectedProviderKeys = new Set(
+    (home?.userAccounts ?? [])
+      .map((account) => account.provider)
+      .filter((providerKey) => platformProviderKeys.has(providerKey))
+  );
+
+  return {
+    connected: 1 + connectedProviderKeys.size,
+    total: 1 + platformProviders.length,
+  };
 }
 
 function buildOnboardingStorageKeys(authUserId: string | null | undefined) {
@@ -96,13 +117,14 @@ function readOnboardingState(stateKey: string): OnboardingState {
 
 function DashboardIndex() {
   const { isPersonalDashboard, activeGuildId, activeTenantId } = useActiveDashboardContext();
-  const { canRunPanelQueries, markSessionExpired, status } = useDashboardSession();
-  const { guilds, viewer } = useDashboardShell();
+  const { canRunPanelQueries, hasHydrated, markSessionExpired, status } = useDashboardSession();
+  const { guilds, home, viewer } = useDashboardShell();
   const toast = useToast();
   const onboardingStorageKeys = useMemo(
     () => buildOnboardingStorageKeys(viewer?.authUserId),
     [viewer?.authUserId]
   );
+  const initialPlatformCounts = useMemo(() => getInitialConnectedPlatformCounts(home), [home]);
 
   // Admin notifications (Convex real-time)
   const adminNotifications = useConvexQuery(api.adminNotifications.listUnseen) ?? [];
@@ -142,8 +164,13 @@ function DashboardIndex() {
   }, [adminNotifications, toast, markSeenMutation]);
 
   // Platform counts for onboarding + stats
-  const [connectedPlatforms, setConnectedPlatforms] = useState(0);
-  const [_totalPlatforms, setTotalPlatforms] = useState(0);
+  const [connectedPlatforms, setConnectedPlatforms] = useState(initialPlatformCounts.connected);
+  const [_totalPlatforms, setTotalPlatforms] = useState(initialPlatformCounts.total);
+
+  useEffect(() => {
+    setConnectedPlatforms(initialPlatformCounts.connected);
+    setTotalPlatforms(initialPlatformCounts.total);
+  }, [initialPlatformCounts.connected, initialPlatformCounts.total]);
 
   const handleCountsChange = useCallback((connected: number, total: number) => {
     setConnectedPlatforms(connected);
@@ -152,22 +179,21 @@ function DashboardIndex() {
 
   // Onboarding dismiss — always start as false to match SSR, then read localStorage after mount
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [onboardingPreferencesReady, setOnboardingPreferencesReady] = useState(false);
+  // Always start with default state (SSR-safe), then sync from localStorage after mount
+  const [onboardingState, setOnboardingState] = useState<OnboardingState>({ docsRead: false });
 
   useEffect(() => {
+    setOnboardingPreferencesReady(false);
     setOnboardingDismissed(safeGetLocalStorageItem(onboardingStorageKeys.dismissedKey) === 'true');
-  }, [onboardingStorageKeys.dismissedKey]);
+    setOnboardingState(readOnboardingState(onboardingStorageKeys.stateKey));
+    setOnboardingPreferencesReady(true);
+  }, [onboardingStorageKeys.dismissedKey, onboardingStorageKeys.stateKey]);
 
   const handleDismissOnboarding = useCallback(() => {
     setOnboardingDismissed(true);
     safeSetLocalStorageItem(onboardingStorageKeys.dismissedKey, 'true');
   }, [onboardingStorageKeys.dismissedKey]);
-
-  // Always start with default state (SSR-safe), then sync from localStorage after mount
-  const [onboardingState, setOnboardingState] = useState<OnboardingState>({ docsRead: false });
-
-  useEffect(() => {
-    setOnboardingState(readOnboardingState(onboardingStorageKeys.stateKey));
-  }, [onboardingStorageKeys.stateKey]);
 
   const markDocsRead = useCallback(() => {
     setOnboardingState((current) => {
@@ -228,6 +254,8 @@ function DashboardIndex() {
   }
 
   const allOnboardingComplete = onboardingSteps.every((s) => s.completed);
+  const showOnboardingPanel =
+    hasHydrated && onboardingPreferencesReady && !onboardingDismissed && !allOnboardingComplete;
 
   if (isPersonalDashboard) {
     return (
@@ -247,7 +275,7 @@ function DashboardIndex() {
           </div>
 
           {/* Onboarding (conditional) */}
-          {!onboardingDismissed && !allOnboardingComplete && (
+          {showOnboardingPanel && (
             <div className="col-span-12">
               <OnboardingProgressPanel
                 steps={onboardingSteps}

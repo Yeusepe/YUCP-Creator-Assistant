@@ -105,11 +105,44 @@ describe('certificateBillingCatalog', () => {
 
     expect(aggregateCertificateBillingBenefitEntitlements(benefits)).toEqual({
       capabilityKeys: ['protected_exports'],
+      featureFlags: {
+        protected_exports: true,
+      },
       deviceCap: 5,
       signQuotaPerPeriod: 1000,
       auditRetentionDays: 90,
       supportTier: 'premium',
       tierRank: 2,
+    });
+  });
+
+  it('treats native Polar feature-flag metadata entries as granted features', () => {
+    const benefit = normalizeCertificateBillingCatalogBenefit({
+      id: 'benefit_forensics',
+      type: 'feature_flag',
+      description: 'Coupling traceability',
+      metadata: {
+        coupling_traceability: true,
+        moderation_lookup: 'premium',
+      },
+    });
+
+    expect(benefit).toMatchObject({
+      benefitId: 'benefit_forensics',
+      type: 'feature_flag',
+      capabilityKeys: ['coupling_traceability', 'moderation_lookup'],
+      featureFlags: {
+        coupling_traceability: true,
+        moderation_lookup: 'premium',
+      },
+    });
+
+    expect(aggregateCertificateBillingBenefitEntitlements([benefit])).toEqual({
+      capabilityKeys: ['coupling_traceability', 'moderation_lookup'],
+      featureFlags: {
+        coupling_traceability: true,
+        moderation_lookup: 'premium',
+      },
     });
   });
 });

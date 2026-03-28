@@ -1,12 +1,7 @@
 import { Polar } from '@polar-sh/sdk';
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import {
-  action,
-  internalAction,
-  internalMutation,
-  internalQuery,
-} from './_generated/server';
+import { action, internalAction, internalMutation, internalQuery } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import {
   type CertificateBillingCatalogBenefit,
@@ -102,6 +97,8 @@ export const replaceCatalogSnapshot = internalMutation({
         type: v.string(),
         description: v.optional(v.string()),
         metadata: v.record(v.string(), v.union(v.string(), v.number(), v.boolean())),
+        featureFlags: v.record(v.string(), v.union(v.string(), v.number(), v.boolean())),
+        capabilityKeys: v.array(v.string()),
         capabilityKey: v.optional(v.string()),
         deviceCap: v.optional(v.number()),
         signQuotaPerPeriod: v.optional(v.number()),
@@ -226,9 +223,7 @@ export const syncCatalog = internalAction({
 
       const products = rawProducts
         .map((product) => normalizeCertificateBillingCatalogProduct(product))
-        .filter(
-          (product): product is CertificateBillingCatalogProduct => product !== null
-        );
+        .filter((product): product is CertificateBillingCatalogProduct => product !== null);
       const benefitById = new Map<string, CertificateBillingCatalogBenefit>();
       for (const product of rawProducts) {
         for (const benefit of product.benefits ?? []) {
@@ -279,9 +274,7 @@ export const ensureCatalogFresh = action({
     const maxAgeMs = args.maxAgeMs ?? CATALOG_STALE_MS;
     const now = Date.now();
     const needsSync =
-      state.productCount === 0 ||
-      !state.lastSyncedAt ||
-      now - state.lastSyncedAt > maxAgeMs;
+      state.productCount === 0 || !state.lastSyncedAt || now - state.lastSyncedAt > maxAgeMs;
 
     if (!needsSync) {
       return {
@@ -482,7 +475,7 @@ export const ingestUsageEvent = internalAction({
         {
           name: 'signature.recorded',
           externalCustomerId: args.authUserId,
-          externalId: `signature.recorded:${args.certNonce}`,
+          externalId: `signature.recorded:${args.certNonce}:${crypto.randomUUID()}`,
           metadata: {
             quantity: 1,
             workspace_key: args.workspaceKey,

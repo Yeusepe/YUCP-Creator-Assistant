@@ -3722,6 +3722,21 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         authUserId: session.user.id,
         error: err instanceof Error ? err.message : String(err),
       });
+      const polarErrorCode =
+        err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined;
+      if (
+        isPolarAccessTokenFailure(err) ||
+        (err instanceof Error &&
+          (err.name === 'PolarAuthError' ||
+            polarErrorCode === 'polar_access_token_invalid' ||
+            /expired|invalid.*polar/i.test(err.message)))
+      ) {
+        return buildTimedResponse(
+          timing,
+          () => Response.json({ error: 'polar_access_token_invalid' }, { status: 503 }),
+          'serialize certificate response'
+        );
+      }
       return buildTimedResponse(
         timing,
         () =>

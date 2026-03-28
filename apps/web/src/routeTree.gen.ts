@@ -42,6 +42,7 @@ import { Route as AuthenticatedDashboardIntegrationsRouteImport } from './routes
 import { Route as AuthenticatedDashboardForensicsRouteImport } from './routes/_authenticated/dashboard/forensics'
 import { Route as AuthenticatedDashboardCollaborationRouteImport } from './routes/_authenticated/dashboard/collaboration'
 import { Route as AuthenticatedDashboardCertificatesRouteImport } from './routes/_authenticated/dashboard/certificates'
+import { Route as AuthenticatedDashboardBillingRouteImport } from './routes/_authenticated/dashboard/billing'
 import { Route as AuthenticatedDashboardAuditLogsRouteImport } from './routes/_authenticated/dashboard/audit-logs'
 import { Route as AuthenticatedAccountVerifyRouteImport } from './routes/_authenticated/account/verify'
 import { Route as AuthenticatedAccountPrivacyRouteImport } from './routes/_authenticated/account/privacy'
@@ -222,6 +223,12 @@ const AuthenticatedDashboardCertificatesRoute =
     path: '/certificates',
     getParentRoute: () => AuthenticatedDashboardRoute,
   } as any)
+const AuthenticatedDashboardBillingRoute =
+  AuthenticatedDashboardBillingRouteImport.update({
+    id: '/billing',
+    path: '/billing',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
 const AuthenticatedDashboardAuditLogsRoute =
   AuthenticatedDashboardAuditLogsRouteImport.update({
     id: '/audit-logs',
@@ -296,6 +303,7 @@ export interface FileRoutesByFullPath {
   '/account/privacy': typeof AuthenticatedAccountPrivacyRoute
   '/account/verify': typeof AuthenticatedAccountVerifyRoute
   '/dashboard/audit-logs': typeof AuthenticatedDashboardAuditLogsRoute
+  '/dashboard/billing': typeof AuthenticatedDashboardBillingRoute
   '/dashboard/certificates': typeof AuthenticatedDashboardCertificatesRoute
   '/dashboard/collaboration': typeof AuthenticatedDashboardCollaborationRoute
   '/dashboard/forensics': typeof AuthenticatedDashboardForensicsRoute
@@ -335,6 +343,7 @@ export interface FileRoutesByTo {
   '/account/privacy': typeof AuthenticatedAccountPrivacyRoute
   '/account/verify': typeof AuthenticatedAccountVerifyRoute
   '/dashboard/audit-logs': typeof AuthenticatedDashboardAuditLogsRoute
+  '/dashboard/billing': typeof AuthenticatedDashboardBillingRoute
   '/dashboard/certificates': typeof AuthenticatedDashboardCertificatesRoute
   '/dashboard/collaboration': typeof AuthenticatedDashboardCollaborationRoute
   '/dashboard/forensics': typeof AuthenticatedDashboardForensicsRoute
@@ -378,6 +387,7 @@ export interface FileRoutesById {
   '/_authenticated/account/privacy': typeof AuthenticatedAccountPrivacyRoute
   '/_authenticated/account/verify': typeof AuthenticatedAccountVerifyRoute
   '/_authenticated/dashboard/audit-logs': typeof AuthenticatedDashboardAuditLogsRoute
+  '/_authenticated/dashboard/billing': typeof AuthenticatedDashboardBillingRoute
   '/_authenticated/dashboard/certificates': typeof AuthenticatedDashboardCertificatesRoute
   '/_authenticated/dashboard/collaboration': typeof AuthenticatedDashboardCollaborationRoute
   '/_authenticated/dashboard/forensics': typeof AuthenticatedDashboardForensicsRoute
@@ -421,6 +431,7 @@ export interface FileRouteTypes {
     | '/account/privacy'
     | '/account/verify'
     | '/dashboard/audit-logs'
+    | '/dashboard/billing'
     | '/dashboard/certificates'
     | '/dashboard/collaboration'
     | '/dashboard/forensics'
@@ -460,6 +471,7 @@ export interface FileRouteTypes {
     | '/account/privacy'
     | '/account/verify'
     | '/dashboard/audit-logs'
+    | '/dashboard/billing'
     | '/dashboard/certificates'
     | '/dashboard/collaboration'
     | '/dashboard/forensics'
@@ -502,6 +514,7 @@ export interface FileRouteTypes {
     | '/_authenticated/account/privacy'
     | '/_authenticated/account/verify'
     | '/_authenticated/dashboard/audit-logs'
+    | '/_authenticated/dashboard/billing'
     | '/_authenticated/dashboard/certificates'
     | '/_authenticated/dashboard/collaboration'
     | '/_authenticated/dashboard/forensics'
@@ -772,6 +785,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardCertificatesRouteImport
       parentRoute: typeof AuthenticatedDashboardRoute
     }
+    '/_authenticated/dashboard/billing': {
+      id: '/_authenticated/dashboard/billing'
+      path: '/billing'
+      fullPath: '/dashboard/billing'
+      preLoaderRoute: typeof AuthenticatedDashboardBillingRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
     '/_authenticated/dashboard/audit-logs': {
       id: '/_authenticated/dashboard/audit-logs'
       path: '/audit-logs'
@@ -850,6 +870,7 @@ const AuthenticatedAccountRouteWithChildren =
 
 interface AuthenticatedDashboardRouteChildren {
   AuthenticatedDashboardAuditLogsRoute: typeof AuthenticatedDashboardAuditLogsRoute
+  AuthenticatedDashboardBillingRoute: typeof AuthenticatedDashboardBillingRoute
   AuthenticatedDashboardCertificatesRoute: typeof AuthenticatedDashboardCertificatesRoute
   AuthenticatedDashboardCollaborationRoute: typeof AuthenticatedDashboardCollaborationRoute
   AuthenticatedDashboardForensicsRoute: typeof AuthenticatedDashboardForensicsRoute
@@ -861,6 +882,7 @@ interface AuthenticatedDashboardRouteChildren {
 const AuthenticatedDashboardRouteChildren: AuthenticatedDashboardRouteChildren =
   {
     AuthenticatedDashboardAuditLogsRoute: AuthenticatedDashboardAuditLogsRoute,
+    AuthenticatedDashboardBillingRoute: AuthenticatedDashboardBillingRoute,
     AuthenticatedDashboardCertificatesRoute:
       AuthenticatedDashboardCertificatesRoute,
     AuthenticatedDashboardCollaborationRoute:

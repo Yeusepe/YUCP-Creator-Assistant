@@ -18,6 +18,10 @@ const dashboardCertificatesRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/dashboard/certificates.tsx'),
   'utf8'
 );
+const dashboardBillingRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/billing.tsx'),
+  'utf8'
+);
 const dashboardPrefetchSource = readFileSync(
   resolve(__dirname, '../../src/lib/dashboardPrefetch.ts'),
   'utf8'
@@ -81,20 +85,24 @@ describe('account UI contracts', () => {
     expect(dashboardCertificatesRouteSource).toContain(
       "createFileRoute('/_authenticated/dashboard/certificates')"
     );
-    expect(dashboardCertificatesRouteSource).toContain('Manage Billing');
+    expect(dashboardCertificatesRouteSource).toContain('Open Billing');
     expect(dashboardCertificatesRouteSource).toContain("queryKey: ['creator-certificates']");
     expect(dashboardCertificatesRouteSource).not.toContain('ensureQueryData(');
+    expect(dashboardBillingRouteSource).toContain(
+      "createFileRoute('/_authenticated/dashboard/billing')"
+    );
+    expect(dashboardBillingRouteSource).toContain('Open Polar Portal');
     expect(dashboardPrefetchSource).toContain("queryKey: ['creator-certificates']");
     expect(dashboardPrefetchSource).toContain('prefetchQuery(');
   });
 
   it('supports creator-scoped plan and portal deep links for Unity billing handoff', () => {
-    expect(dashboardCertificatesRouteSource).toContain('validateSearch:');
-    expect(dashboardCertificatesRouteSource).toContain("search.checkout === '1'");
-    expect(dashboardCertificatesRouteSource).toContain("search.portal === '1'");
-    expect(dashboardCertificatesRouteSource).toContain('checkoutMut.mutate(target.planKey)');
-    expect(dashboardCertificatesRouteSource).toContain('portalMut.mutate()');
-    expect(dashboardCertificatesRouteSource).toContain('dashboard-tab-panel');
+    expect(dashboardBillingRouteSource).toContain('validateSearch:');
+    expect(dashboardBillingRouteSource).toContain("search.checkout === '1'");
+    expect(dashboardBillingRouteSource).toContain("search.portal === '1'");
+    expect(dashboardBillingRouteSource).toContain('checkoutMut.mutate(target)');
+    expect(dashboardBillingRouteSource).toContain('portalMut.mutate()');
+    expect(dashboardBillingRouteSource).toContain('dashboard-tab-panel');
   });
 
   it('keeps buyer provider linking inside the hosted verification flow', () => {

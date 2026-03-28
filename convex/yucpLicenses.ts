@@ -9,7 +9,6 @@
  *   1. Look up product in product_catalog by providerProductRef -> get owner authUserId
  *   2. Decrypt owner's credentials from provider_connections via Better Auth symmetricDecrypt
  *   3. For Jinxxy: fall through to collaborator_connections if primary credential missing/invalid
- *   4. Fall back to global env vars (GUMROAD_ACCESS_TOKEN / JINXXY_API_KEY) for YUCP's own products
  *
  * Flow:
  *   Unity client  ->  POST /v1/licenses/verify  ->  Gumroad/Jinxxy API
@@ -1293,26 +1292,8 @@ export const issueProtectedMaterializationGrant = internalAction({
       packageId: args.packageId,
     });
     if (!packageReg) {
-      console.log(
-        '[DELETE ME][yucpLicenses.issueProtectedMaterializationGrant] package-registration-missing',
-        JSON.stringify({
-          grantId,
-          packageId: args.packageId,
-          protectedAssetId: args.protectedAssetId,
-        })
-      );
       return { success: false, error: 'Package registration not found' };
     }
-    console.log(
-      '[DELETE ME][yucpLicenses.issueProtectedMaterializationGrant] request',
-      JSON.stringify({
-        grantId,
-        packageId: args.packageId,
-        protectedAssetId: args.protectedAssetId,
-        projectId: args.projectId,
-        assetCount: args.assetPaths.length,
-      })
-    );
 
     const unlockResult: ProtectedUnlockIssueResult = await ctx.runAction(
       internal.yucpLicenses.issueProtectedUnlock,
@@ -1327,29 +1308,11 @@ export const issueProtectedMaterializationGrant = internalAction({
     );
 
     if (!unlockResult.success || !unlockResult.unlockToken || !unlockResult.expiresAt) {
-      console.log(
-        '[DELETE ME][yucpLicenses.issueProtectedMaterializationGrant] unlock-failed',
-        JSON.stringify({
-          grantId,
-          packageId: args.packageId,
-          protectedAssetId: args.protectedAssetId,
-          error: unlockResult.error ?? 'unknown',
-        })
-      );
       return {
         success: false,
         error: unlockResult.error ?? 'Protected materialization grant could not authorize the asset',
       };
     }
-    console.log(
-      '[DELETE ME][yucpLicenses.issueProtectedMaterializationGrant] unlock-authorized',
-      JSON.stringify({
-        grantId,
-        packageId: args.packageId,
-        protectedAssetId: args.protectedAssetId,
-        expiresAt: unlockResult.expiresAt,
-      })
-    );
 
     const couplingResult: CouplingJobIssueResult = await ctx.runAction(
       internal.yucpLicenses.issueCouplingJob,
@@ -1365,30 +1328,11 @@ export const issueProtectedMaterializationGrant = internalAction({
     );
 
     if (!couplingResult.success) {
-      console.log(
-        '[DELETE ME][yucpLicenses.issueProtectedMaterializationGrant] coupling-failed',
-        JSON.stringify({
-          grantId,
-          packageId: args.packageId,
-          protectedAssetId: args.protectedAssetId,
-          error: couplingResult.error ?? 'unknown',
-        })
-      );
       return {
         success: false,
         error: couplingResult.error ?? 'Protected materialization grant could not issue coupling jobs',
       };
     }
-    console.log(
-      '[DELETE ME][yucpLicenses.issueProtectedMaterializationGrant] coupling-issued',
-      JSON.stringify({
-        grantId,
-        packageId: args.packageId,
-        protectedAssetId: args.protectedAssetId,
-        couplingJobCount: couplingResult.jobs?.length ?? 0,
-        skipReason: couplingResult.skipReason ?? null,
-      })
-    );
 
     const nowSeconds = Math.floor(Date.now() / 1000);
     const grant = await sealProtectedMaterializationGrant({
@@ -1410,15 +1354,6 @@ export const issueProtectedMaterializationGrant = internalAction({
         jobs: couplingResult.jobs ?? [],
       },
     });
-    console.log(
-      '[DELETE ME][yucpLicenses.issueProtectedMaterializationGrant] grant-sealed',
-      JSON.stringify({
-        grantId,
-        packageId: args.packageId,
-        protectedAssetId: args.protectedAssetId,
-        expiresAt: unlockResult.expiresAt,
-      })
-    );
 
     return {
       success: true,
@@ -1469,37 +1404,12 @@ export const redeemProtectedMaterializationGrant = internalAction({
     const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
     const payload = await unsealProtectedMaterializationGrant(args.grant);
     const nowSeconds = Math.floor(Date.now() / 1000);
-    console.log(
-      '[DELETE ME][yucpLicenses.redeemProtectedMaterializationGrant] request',
-      JSON.stringify({
-        grantId: payload.grantId,
-        packageId: payload.packageId,
-        protectedAssetId: payload.protectedAssetId,
-        projectId: payload.projectId,
-      })
-    );
     if (payload.expiresAt <= nowSeconds) {
-      console.log(
-        '[DELETE ME][yucpLicenses.redeemProtectedMaterializationGrant] expired',
-        JSON.stringify({
-          grantId: payload.grantId,
-          packageId: payload.packageId,
-          protectedAssetId: payload.protectedAssetId,
-        })
-      );
       return { success: false, error: 'Protected materialization grant is expired' };
     }
 
     const unlockClaims = await verifyProtectedUnlockJwt(payload.unlockToken, rootPublicKey, issuer);
     if (!unlockClaims) {
-      console.log(
-        '[DELETE ME][yucpLicenses.redeemProtectedMaterializationGrant] invalid-unlock-token',
-        JSON.stringify({
-          grantId: payload.grantId,
-          packageId: payload.packageId,
-          protectedAssetId: payload.protectedAssetId,
-        })
-      );
       return { success: false, error: 'Protected materialization grant unlock token is invalid' };
     }
 
@@ -1510,27 +1420,10 @@ export const redeemProtectedMaterializationGrant = internalAction({
       unlockClaims.project_id !== payload.projectId ||
       unlockClaims.sub !== payload.licenseSubject
     ) {
-      console.log(
-        '[DELETE ME][yucpLicenses.redeemProtectedMaterializationGrant] claim-mismatch',
-        JSON.stringify({
-          grantId: payload.grantId,
-          packageId: payload.packageId,
-          protectedAssetId: payload.protectedAssetId,
-        })
-      );
       return { success: false, error: 'Protected materialization grant claims did not match' };
     }
 
     if (unlockClaims.unlock_mode !== 'content_key_b64' || !unlockClaims.content_key_b64) {
-      console.log(
-        '[DELETE ME][yucpLicenses.redeemProtectedMaterializationGrant] unsupported-unlock-mode',
-        JSON.stringify({
-          grantId: payload.grantId,
-          packageId: payload.packageId,
-          protectedAssetId: payload.protectedAssetId,
-          unlockMode: unlockClaims.unlock_mode,
-        })
-      );
       return {
         success: false,
         error: 'Protected materialization grant does not permit brokered content-key materialization',
@@ -1545,15 +1438,6 @@ export const redeemProtectedMaterializationGrant = internalAction({
       licenseSubject: payload.licenseSubject,
       couplingJobCount: payload.coupling.jobs.length,
     });
-    console.log(
-      '[DELETE ME][yucpLicenses.redeemProtectedMaterializationGrant] success',
-      JSON.stringify({
-        grantId: payload.grantId,
-        packageId: payload.packageId,
-        protectedAssetId: payload.protectedAssetId,
-        couplingJobCount: payload.coupling.jobs.length,
-      })
-    );
 
     return {
       success: true,
@@ -1588,14 +1472,6 @@ export const receiptProtectedMaterializationGrant = internalMutation({
     }
 
     const payload = await unsealProtectedMaterializationGrant(args.grant);
-    console.log(
-      '[DELETE ME][yucpLicenses.receiptProtectedMaterializationGrant] request',
-      JSON.stringify({
-        grantId: payload.grantId,
-        packageId: payload.packageId,
-        protectedAssetId: payload.protectedAssetId,
-      })
-    );
     const machineFingerprintHash = await sha256Hex(payload.machineFingerprint);
     const projectIdHash = await sha256Hex(payload.projectId);
     const grantRows = await ctx.db
@@ -1632,14 +1508,6 @@ export const receiptProtectedMaterializationGrant = internalMutation({
         };
       }
 
-      console.log(
-        '[DELETE ME][yucpLicenses.receiptProtectedMaterializationGrant] no-matching-traces',
-        JSON.stringify({
-          grantId: payload.grantId,
-          packageId: payload.packageId,
-          protectedAssetId: payload.protectedAssetId,
-        })
-      );
       return {
         success: false,
         updatedCount: 0,
@@ -1668,15 +1536,6 @@ export const receiptProtectedMaterializationGrant = internalMutation({
       correlationId: matchingRows[0]?.correlationId ?? crypto.randomUUID(),
       createdAt: now,
     });
-    console.log(
-      '[DELETE ME][yucpLicenses.receiptProtectedMaterializationGrant] success',
-      JSON.stringify({
-        grantId: payload.grantId,
-        packageId: payload.packageId,
-        protectedAssetId: payload.protectedAssetId,
-        updatedCount: matchingRows.length,
-      })
-    );
 
     return {
       success: true,

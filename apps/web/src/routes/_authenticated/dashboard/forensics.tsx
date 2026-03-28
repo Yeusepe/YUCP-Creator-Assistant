@@ -71,6 +71,7 @@ export default function DashboardForensics() {
   const dragCounterRef = useRef(0);
 
   const handleFilePick = (file: File | null) => {
+    if (lookupMutation.isPending) return;
     setSelectedFile(file);
     setInlineError(null);
   };
@@ -185,9 +186,9 @@ export default function DashboardForensics() {
 
   const isLoading =
     !isAuthResolved || (canRunPanelQueries && isPersonalDashboard && certificatesQuery.isLoading);
-  const hasQueryError =
-    (packagesQuery.isError && !isDashboardAuthError(packagesQuery.error)) ||
-    (certificatesQuery.isError && !isDashboardAuthError(certificatesQuery.error));
+  const hasCapabilityQueryError =
+    certificatesQuery.isError && !isDashboardAuthError(certificatesQuery.error);
+  const hasQueryError = packagesQuery.isError && !isDashboardAuthError(packagesQuery.error);
   const matchedAssets = countMatchedAssets(lookupResult);
 
   /* ── Guards ── */
@@ -290,7 +291,29 @@ export default function DashboardForensics() {
             </span>
           </div>
 
-          {!capabilityEnabled ? (
+          {hasCapabilityQueryError ? (
+            <div className="forensics-upgrade-gate">
+              <div className="forensics-upgrade-gate-icon">
+                <img src="/Icons/Wrench.png" alt="" aria-hidden="true" />
+              </div>
+              <p className="forensics-upgrade-gate-title">
+                Could not verify Creator Studio+ access
+              </p>
+              <p className="forensics-upgrade-gate-desc">
+                Refresh your billing state and try again before starting a coupling scan.
+              </p>
+              <button
+                type="button"
+                className="account-btn account-btn--primary"
+                style={{ borderRadius: '999px' }}
+                onClick={() => {
+                  void certificatesQuery.refetch();
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : certificatesQuery.isSuccess && capabilityEnabled === false ? (
             <div className="forensics-upgrade-gate">
               <div className="forensics-upgrade-gate-icon">
                 <img src="/Icons/BagPlus.png" alt="" aria-hidden="true" />
@@ -365,7 +388,9 @@ export default function DashboardForensics() {
                       <button
                         type="button"
                         className="forensics-dropzone-clear"
+                        disabled={lookupMutation.isPending}
                         onClick={() => {
+                          if (lookupMutation.isPending) return;
                           handleFilePick(null);
                           if (fileInputRef.current) fileInputRef.current.value = '';
                         }}
@@ -390,8 +415,12 @@ export default function DashboardForensics() {
                         id="forensics-file"
                         type="file"
                         accept=".unitypackage,.zip"
+                        disabled={lookupMutation.isPending}
                         style={{ display: 'none' }}
-                        onChange={(e) => handleFilePick(e.target.files?.[0] ?? null)}
+                        onChange={(e) => {
+                          if (lookupMutation.isPending) return;
+                          handleFilePick(e.target.files?.[0] ?? null);
+                        }}
                       />
                     </div>
                   ) : (
@@ -410,7 +439,10 @@ export default function DashboardForensics() {
                         accept=".unitypackage,.zip"
                         className="forensics-dropzone-input"
                         disabled={lookupMutation.isPending}
-                        onChange={(e) => handleFilePick(e.target.files?.[0] ?? null)}
+                        onChange={(e) => {
+                          if (lookupMutation.isPending) return;
+                          handleFilePick(e.target.files?.[0] ?? null);
+                        }}
                       />
                       <div className="forensics-dropzone-idle">
                         <div className="forensics-dropzone-icon">

@@ -848,6 +848,36 @@ describe('GET /api/connect/user/certificates', () => {
     expect(body.overview.billing.planKey).toBe('starter');
     expect(body.overview.billing.allowSigning).toBe(true);
   });
+
+  it('returns 503 when reconcile detects a Polar credential failure', async () => {
+    polarCustomerStateImpl = async () => {
+      const error = new Error('The configured Polar access token is expired.');
+      Object.assign(error, {
+        code: 'polar_access_token_invalid',
+      });
+      throw error;
+    };
+
+    const fakeAuth = {
+      getSession: async () => ({
+        user: {
+          id: 'session-user-sync',
+        },
+      }),
+      createPolarCheckout: async () => null,
+      createPolarPortal: async () => null,
+    } as unknown as Auth;
+
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+    const req = new Request('http://localhost:3001/api/connect/user/certificates/reconcile', {
+      method: 'POST',
+    });
+    const res = await isolatedRoutes.reconcileUserCertificateBilling(req);
+
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body).toEqual({ error: 'polar_access_token_invalid' });
+  });
 });
 
 describe('GET /api/connect/public-api/keys', () => {

@@ -748,7 +748,7 @@
   display: inline-block;
   width: 12px;
   height: 12px;
-  border: 2px solid currentColor;
+  border: 2px solid currentcolor;
   border-right-color: transparent;
   border-radius: 50%;
   animation: account-spin 0.6s linear infinite;
@@ -1553,6 +1553,190 @@
   color: #f8fafc;
 }
 
+.cert-billing-hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.2), transparent 34%),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(12, 74, 110, 0.94));
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  color: #f8fafc;
+}
+.dark .cert-billing-hero {
+  background:
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(2, 6, 23, 0.98), rgba(8, 47, 73, 0.95));
+  border-color: rgba(56, 189, 248, 0.16);
+  color: #f8fafc;
+}
+
+.cert-billing-hero-backdrop {
+  position: absolute;
+  inset: auto -90px -110px auto;
+  width: 220px;
+  height: 220px;
+  border-radius: 28px;
+  transform: rotate(18deg);
+  background: linear-gradient(135deg, rgba(125, 211, 252, 0.18), rgba(14, 165, 233, 0.05));
+  pointer-events: none;
+}
+.dark .cert-billing-hero-backdrop {
+  background: linear-gradient(135deg, rgba(125, 211, 252, 0.14), rgba(14, 165, 233, 0.05));
+}
+
+.cert-billing-hero-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  z-index: 1;
+}
+
+.cert-billing-hero-copy {
+  min-width: 0;
+}
+
+.cert-billing-kicker {
+  display: inline-flex;
+  margin-bottom: 10px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(186, 230, 253, 0.86);
+}
+.dark .cert-billing-kicker {
+  color: rgba(186, 230, 253, 0.86);
+}
+
+.cert-billing-title {
+  margin: 0;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: clamp(1.55rem, 2vw, 2.15rem);
+  font-weight: 800;
+  line-height: 1.05;
+  color: #f8fafc;
+}
+.dark .cert-billing-title {
+  color: #f8fafc;
+}
+
+.cert-billing-desc {
+  max-width: 56ch;
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(226, 232, 240, 0.86);
+}
+.dark .cert-billing-desc {
+  color: rgba(226, 232, 240, 0.86);
+}
+
+.cert-billing-hero-actions {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  z-index: 1;
+}
+
+.cert-billing-chip-row {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+  z-index: 1;
+}
+
+.cert-billing-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(241, 245, 249, 0.92);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.dark .cert-billing-chip {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(241, 245, 249, 0.92);
+}
+
+.cert-billing-footnote {
+  position: relative;
+  margin: 16px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgba(191, 219, 254, 0.82);
+  z-index: 1;
+}
+.dark .cert-billing-footnote {
+  color: rgba(191, 219, 254, 0.82);
+}
+
+.cert-billing-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.cert-billing-metric-grid--compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cert-billing-metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.72));
+}
+.dark .cert-billing-metric-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(15, 23, 42, 0.4));
+}
+
+.cert-billing-metric-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.dark .cert-billing-metric-label {
+  color: #94a3b8;
+}
+
+.cert-billing-metric-value {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #0f172a;
+}
+.dark .cert-billing-metric-value {
+  color: #f8fafc;
+}
+
+.cert-billing-metric-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+.dark .cert-billing-metric-note {
+  color: rgba(226, 232, 240, 0.72);
+}
+
 /* ── Forensics file dropzone ─────────────────────────────────────────── */
 .forensics-dropzone {
   display: block;
@@ -1817,6 +2001,9 @@
   .cert-stat-row {
     grid-template-columns: repeat(2, 1fr);
   }
+  .cert-billing-metric-grid--compact {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 767px) {
@@ -1859,5 +2046,14 @@
 
   .acct-provider-card {
     flex-direction: column;
+  }
+
+  .cert-billing-hero-row {
+    flex-direction: column;
+  }
+
+  .cert-billing-hero-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
