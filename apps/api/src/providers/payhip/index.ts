@@ -9,8 +9,8 @@
  * because it matches the `product_link` returned by the Payhip license-key verify API.
  */
 
+import { PayhipApiClient } from '@yucp/providers/payhip/client';
 import { api } from '../../../../../convex/_generated/api';
-import { PayhipApiClient } from '../../../../../packages/providers/src/payhip/client';
 import type { ProductRecord, ProviderContext, ProviderPlugin, ProviderPurposes } from '../types';
 import { connect } from './connect';
 import { verification } from './verification';

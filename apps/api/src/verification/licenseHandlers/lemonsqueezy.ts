@@ -4,7 +4,7 @@ import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
 import { decrypt, encrypt } from '../../lib/encrypt';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
-import { PURPOSES as LEMONSQUEEZY } from '../../providers/lemonsqueezy';
+import { PURPOSES as LEMONSQUEEZY } from '../../providers/lemonsqueezy/index';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
 import type { VerificationConfig } from '../sessionManager';
 import type { LicenseVerificationHandler } from './index';

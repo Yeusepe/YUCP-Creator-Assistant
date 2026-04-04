@@ -24,83 +24,40 @@ import { getStateStore } from '../lib/stateStore';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { createApiVerificationSupportError } from '../lib/verificationSupport';
 import {
+  buildVerificationCallbackUri,
+  createPkceBundle,
+  createVerificationState,
+  generateSecureRandom,
+  getPkceVerifierStoreKey,
+  PKCE_CODE_CHALLENGE_METHOD,
+  parseVerificationState,
+  SESSION_EXPIRY_MS,
+} from './verificationSessionPrimitives';
+import {
   clearPendingVrchatState,
   createPendingVrchatState,
   readPendingVrchatState,
 } from './vrchatPending';
 
+export {
+  computeCodeChallenge,
+  generateCodeVerifier,
+  generateState,
+  hashVerifier,
+  SESSION_EXPIRY_MS,
+} from './verificationSessionPrimitives';
+
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
-// Session expiry: 15 minutes
-export const SESSION_EXPIRY_MS = 15 * 60 * 1000;
 const VRCHAT_VERIFY_ATTEMPTS = new Map<string, { count: number; resetAt: number }>();
 const VERIFY_PANEL_PREFIX = 'verify_panel:';
 const VERIFY_PANEL_TTL_MS = 15 * 60 * 1000;
-// Prefix for PKCE verifiers stored in the state store (never stored in Convex)
-const PKCE_VERIFIER_PREFIX = 'pkce_verifier:';
 const INTERACTION_TOKEN_PURPOSE = 'verify-panel-interaction-token';
-
-// ============================================================================
-// CRYPTO UTILITIES
-// ============================================================================
-
-/**
- * Generates a cryptographically secure random string
- */
-export function generateSecureRandom(length: number): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-/**
- * Generates a cryptographically secure state parameter
- */
-export function generateState(): string {
-  return generateSecureRandom(32);
-}
-
-/**
- * Generates a PKCE code verifier (43-128 characters)
- * RFC 7636 recommends 43-128 characters
- */
-export function generateCodeVerifier(): string {
-  return generateSecureRandom(64);
-}
 
 async function sha256Hex(input: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(input);
   const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-/**
- * Computes PKCE code challenge from verifier
- * code_challenge = BASE64URL(SHA256(code_verifier))
- */
-export async function computeCodeChallenge(verifier: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  // Base64url encode (no padding)
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-}
-
-/**
- * Hashes the PKCE verifier for storage
- * We store the hash, not the plaintext verifier
- */
-export async function hashVerifier(verifier: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  // Return hex string
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
@@ -382,30 +339,21 @@ export function createVerificationSessionManager(
         };
       }
 
-      // Generate PKCE parameters
-      const codeVerifier = generateCodeVerifier();
-      const codeChallenge = await computeCodeChallenge(codeVerifier);
-      const verifierHash = await hashVerifier(codeVerifier);
-
-      // Generate state for callback lookup
-      // Use verify_gumroad: prefix to distinguish from connect_gumroad:
-      const state =
-        input.mode === 'gumroad'
-          ? `verify_gumroad:${input.authUserId}:${generateSecureRandom(48)}`
-          : `${input.authUserId}:${generateSecureRandom(48)}`;
+      const { codeVerifier, codeChallenge, verifierHash } = await createPkceBundle();
+      const state = createVerificationState(input.authUserId, input.mode);
 
       // Build OAuth URL
       const authUrl = new URL(modeConfig.authUrl);
       authUrl.searchParams.set('response_type', 'code');
       authUrl.searchParams.set('state', state);
       authUrl.searchParams.set('code_challenge', codeChallenge);
-      authUrl.searchParams.set('code_challenge_method', 'S256');
+      authUrl.searchParams.set('code_challenge_method', PKCE_CODE_CHALLENGE_METHOD);
 
-      // For Gumroad, use the unified callback URI to comply with Gumroad's single redirect URI limit
-      const redirectUri =
-        input.mode === 'gumroad'
-          ? `${config.baseUrl}/api/connect/gumroad/callback`
-          : `${config.baseUrl}${modeConfig.callbackPath}`;
+      const redirectUri = buildVerificationCallbackUri(
+        config.baseUrl,
+        input.mode,
+        modeConfig.callbackPath
+      );
       authUrl.searchParams.set('redirect_uri', redirectUri);
 
       // Derive client ID from mode config (falls back to generic providerClientIds)
@@ -445,7 +393,7 @@ export function createVerificationSessionManager(
           const convex = getConvexClientFromUrl(config.convexUrl);
           // Store the plaintext PKCE verifier in the ephemeral state store (never in Convex)
           const store = getStateStore();
-          await store.set(`${PKCE_VERIFIER_PREFIX}${state}`, codeVerifier, SESSION_EXPIRY_MS);
+          await store.set(getPkceVerifierStoreKey(state), codeVerifier, SESSION_EXPIRY_MS);
           // redirectUri = user's destination after verification (e.g. /verify-success?returnTo=...)
           // OAuth redirect_uri for token exchange is always baseUrl + callbackPath
           const result = await convex.mutation(api.verificationSessions.createVerificationSession, {
@@ -535,17 +483,11 @@ export function createVerificationSessionManager(
         };
       }
 
-      // Parse authUserId from state. Format can be:
-      // - {authUserId}:{random}
-      // - {prefix}:{authUserId}:{random} (e.g., verify_gumroad:{authUserId}:{random})
-      const parts = state.split(':');
-      if (parts.length < 2) {
+      const parsedState = parseVerificationState(state);
+      if (!parsedState) {
         return { success: false, error: 'Invalid state parameter' };
       }
-
-      // If 3 parts, the middle one is authUserId (e.g., prefix:authUserId:random)
-      // If 2 parts, the first one is authUserId (e.g., authUserId:random)
-      const authUserId = parts.length >= 3 ? parts[1] : parts[0];
+      const { authUserId } = parsedState;
 
       const convex = getConvexClientFromUrl(config.convexUrl);
       const apiSecret = config.convexApiSecret;
@@ -566,18 +508,20 @@ export function createVerificationSessionManager(
       const sessionMode = session.mode;
       // Retrieve the PKCE verifier from the ephemeral state store (never stored in Convex)
       const store = getStateStore();
-      const codeVerifier = await store.get(`${PKCE_VERIFIER_PREFIX}${state}`);
+      const verifierStoreKey = getPkceVerifierStoreKey(state);
+      const codeVerifier = await store.get(verifierStoreKey);
       // Delete immediately after reading to enforce single-use
-      await store.delete(`${PKCE_VERIFIER_PREFIX}${state}`);
+      await store.delete(verifierStoreKey);
       if (!codeVerifier) {
         return { success: false, error: 'Session missing PKCE verifier' };
       }
 
       // Exchange code for tokens
-      const redirectUri =
-        mode === 'gumroad'
-          ? `${config.baseUrl}/api/connect/gumroad/callback`
-          : `${config.baseUrl}${modeConfig.callbackPath}`;
+      const redirectUri = buildVerificationCallbackUri(
+        config.baseUrl,
+        mode,
+        modeConfig.callbackPath
+      );
       const tokenParams = new URLSearchParams({
         grant_type: 'authorization_code',
         code,

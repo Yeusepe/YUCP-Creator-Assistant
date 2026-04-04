@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const connectRouteSource = readFileSync(resolve(import.meta.dir, './connect.ts'), 'utf8');
+const providerDisplaySource = readFileSync(
+  resolve(import.meta.dir, '../providers/display.ts'),
+  'utf8'
+);
 const sessionManagerSource = readFileSync(
   resolve(import.meta.dir, '../verification/sessionManager.ts'),
   'utf8'
@@ -10,7 +14,8 @@ const sessionManagerSource = readFileSync(
 
 describe('connect user-verify contracts', () => {
   it('supports OAuth-capable buyer-link providers through the shared verification begin route', () => {
-    expect(connectRouteSource).toContain('getVerificationConfig(p.id) !== null');
+    expect(connectRouteSource).toContain('listUserLinkProviderDisplays()');
+    expect(providerDisplaySource).toContain('getVerificationConfig(provider.id) !== null');
     expect(connectRouteSource).toContain("const beginUrl = new URL('/api/verification/begin'");
     expect(connectRouteSource).toContain("beginUrl.searchParams.set('mode', providerKey);");
     expect(connectRouteSource).toContain(

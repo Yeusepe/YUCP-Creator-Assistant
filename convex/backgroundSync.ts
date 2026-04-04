@@ -8,7 +8,7 @@
  */
 
 import { ConvexError, v } from 'convex/values';
-import { PROVIDER_KEYS } from '../packages/shared/src/providers';
+import { PROVIDER_KEYS } from '@yucp/shared/providers';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import {

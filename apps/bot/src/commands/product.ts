@@ -1,4 +1,4 @@
-﻿/**
+/**
  * /creator-admin product - Product-role mapping commands
  *
  * add: Interactive guided flow (type select → URL modal → role select → confirm)

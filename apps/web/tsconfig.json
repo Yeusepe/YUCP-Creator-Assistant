@@ -14,7 +14,9 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@yucp/shared": ["../../packages/shared/src"],
+      "@yucp/shared/*": ["../../packages/shared/src/*"]
     }
   },
   "include": [

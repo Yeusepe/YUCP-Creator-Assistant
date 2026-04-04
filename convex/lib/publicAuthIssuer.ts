@@ -1,7 +1,7 @@
 import {
   buildPublicAuthIssuer as buildPublicAuthIssuerFromApiBaseUrl,
   resolveConfiguredApiBaseUrl,
-} from '../../packages/shared/src/publicAuthority';
+} from '@yucp/shared/publicAuthority';
 
 export const buildPublicAuthIssuer = buildPublicAuthIssuerFromApiBaseUrl;
 

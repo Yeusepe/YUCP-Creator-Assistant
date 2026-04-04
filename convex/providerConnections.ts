@@ -6,7 +6,7 @@
  */
 
 import { v } from 'convex/values';
-import { providerLabel } from '../packages/shared/src/providers';
+import { providerLabel } from '@yucp/shared/providers';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';

@@ -12,7 +12,7 @@
  */
 
 import { ConvexError, v } from 'convex/values';
-import { canReactivate } from '../packages/shared/src/entitlement/service';
+import { canReactivate } from '@yucp/shared/entitlement/service';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';

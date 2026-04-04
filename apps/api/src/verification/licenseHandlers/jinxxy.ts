@@ -4,7 +4,7 @@ import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
 import { decrypt } from '../../lib/encrypt';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
-import { PURPOSES as JINXXY } from '../../providers/jinxxy';
+import { PURPOSES as JINXXY } from '../../providers/jinxxy/index';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
 import type { VerificationConfig } from '../sessionManager';
 import type { LicenseVerificationHandler } from './index';

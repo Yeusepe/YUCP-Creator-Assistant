@@ -2,7 +2,7 @@
  * Provider registry
  *
  * To add a new provider:
- * 1. Create apps/api/src/providers/{name}.ts implementing ProviderPlugin
+ * 1. Create apps/api/src/providers/{name}/index.ts implementing ProviderPlugin
  * 2. Add an import below and include it in ALL_PROVIDERS
  * That's it — route handlers require no changes.
  */

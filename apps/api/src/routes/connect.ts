@@ -13,7 +13,6 @@ import {
   createLogger,
   getProviderDescriptor,
   getSafeRelativeRedirectTarget,
-  PROVIDER_KEYS,
   timingSafeStringEqual,
 } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
@@ -42,6 +41,11 @@ import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
+import {
+  getConnectedAccountProviderDisplay,
+  listDashboardProviderDisplays,
+  listUserLinkProviderDisplays,
+} from '../providers/display';
 import { PROVIDERS } from '../providers/index';
 import type { ConnectConfig, ConnectContext } from '../providers/types';
 import {
@@ -77,14 +81,6 @@ const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 const PUBLIC_API_KEY_METADATA_KIND = 'public-api';
 const DEFAULT_PUBLIC_API_SCOPES = ['verification:read', 'subjects:read'];
 const DEFAULT_OAUTH_APP_SCOPES = ['verification:read'];
-
-// Display metadata for providers that use VERIFICATION_CONFIGS for OAuth buyer linking but have
-// no marketplace plugin in PROVIDERS (e.g. Discord). Keyed by canonical provider key.
-const VERIFICATION_ONLY_PROVIDER_DISPLAY: Partial<
-  Record<string, { icon: string | null; color: string | null }>
-> = {
-  discord: { icon: 'Discord.png', color: '#5865F2' },
-};
 
 const DISCORD_ROLE_SETUP_PREFIX = 'discord_role_setup:';
 const DISCORD_ROLE_OAUTH_STATE_PREFIX = 'discord_role_oauth:';
@@ -2601,19 +2597,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
     try {
-      const getProviderDisplay = (providerKey: string) => {
-        const provider = PROVIDERS.get(providerKey);
-        const displayMeta = provider?.displayMeta;
-        const descriptor = getProviderDescriptor(providerKey);
-
-        return {
-          id: providerKey,
-          label: displayMeta?.label ?? descriptor?.label ?? providerKey,
-          icon: displayMeta?.icon ?? null,
-          color: displayMeta?.color ?? null,
-          description: displayMeta?.description ?? null,
-        };
-      };
       const convex = getConvexClientFromUrl(config.convexUrl);
       const links = await convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
         apiSecret: config.convexApiSecret,
@@ -2632,7 +2615,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           providerUserId: link.providerUserId,
           providerUsername: link.providerUsername ?? null,
           verificationMethod: link.verificationMethod ?? null,
-          providerDisplay: getProviderDisplay(link.provider),
+          providerDisplay: getConnectedAccountProviderDisplay(link.provider),
           linkedAt: link.linkedAt,
           lastValidatedAt: link.lastValidatedAt ?? null,
           expiresAt: link.expiresAt ?? null,
@@ -2690,51 +2673,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Public — no credentials, no session required.
    */
   function getUserProviders(_request: Request): Response {
-    const seenIds = new Set<string>();
-    const providers: Array<{
-      id: string;
-      label: string;
-      icon: string | null;
-      color: string | null;
-      description: string | null;
-    }> = [];
-
-    // Plugin-backed providers: full display metadata comes from the plugin.
-    for (const p of PROVIDERS.values()) {
-      const displayMeta = p.displayMeta;
-      const descriptor = getProviderDescriptor(p.id);
-      const supportsOAuthLink =
-        descriptor?.supportsOAuth === true && getVerificationConfig(p.id) !== null;
-      if (!displayMeta || !supportsOAuthLink) continue;
-      seenIds.add(p.id);
-      providers.push({
-        id: p.id,
-        label: displayMeta.label,
-        icon: displayMeta.icon,
-        color: displayMeta.color,
-        description: displayMeta.description,
-      });
-    }
-
-    // Verification-only providers: OAuth-capable via VERIFICATION_CONFIGS but have no PROVIDERS
-    // plugin. These handle buyer identity (e.g. Discord) rather than marketplace product listings.
-    for (const key of PROVIDER_KEYS) {
-      if (seenIds.has(key)) continue;
-      if (getVerificationConfig(key) === null) continue;
-      const descriptor = getProviderDescriptor(key);
-      if (!descriptor?.supportsOAuth) continue;
-      seenIds.add(key);
-      const display = VERIFICATION_ONLY_PROVIDER_DISPLAY[key];
-      providers.push({
-        id: key,
-        label: descriptor.label,
-        icon: display?.icon ?? null,
-        color: display?.color ?? null,
-        description: null,
-      });
-    }
-
-    return Response.json({ providers });
+    return Response.json({ providers: listUserLinkProviderDisplays() });
   }
 
   /**
@@ -3088,19 +3027,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   function listDashboardProvidersForShell(): NonNullable<
     DashboardShellResponse['home']
   >['providers'] {
-    return Array.from(PROVIDERS.values())
-      .filter((provider) => provider.displayMeta?.dashboardConnectPath)
-      .map((provider) => ({
-        key: provider.id,
-        label: provider.displayMeta?.label,
-        icon: provider.displayMeta?.icon,
-        iconBg: provider.displayMeta?.dashboardIconBg,
-        quickStartBg: provider.displayMeta?.dashboardQuickStartBg,
-        quickStartBorder: provider.displayMeta?.dashboardQuickStartBorder,
-        serverTileHint: provider.displayMeta?.dashboardServerTileHint,
-        connectPath: provider.displayMeta?.dashboardConnectPath,
-        connectParamStyle: provider.displayMeta?.dashboardConnectParamStyle,
-      }));
+    return listDashboardProviderDisplays();
   }
 
   async function loadUserAccountsForAuthUser(
