@@ -14,6 +14,19 @@ export type CouplingForensicsFinding = {
   tokenLength: number;
 };
 
+export type ForensicPreclassification = 'decoded' | 'likely-stripped' | 'no-signal';
+
+export type ForensicsScoreResult = {
+  assetPath: string;
+  assetType: 'png' | 'fbx';
+  decoderKind: string;
+  preclassification: ForensicPreclassification;
+  tokenHex?: string;
+  tokenLength?: number;
+  nativeCode?: number;
+  decodeError?: string;
+};
+
 type CouplingServiceResponse = {
   error?: string;
   results?: Array<{
@@ -22,6 +35,21 @@ type CouplingServiceResponse = {
     decoderKind?: string;
     tokenHex?: string;
     tokenLength?: number;
+  }>;
+};
+
+type ForensicScoreServiceResponse = {
+  error?: string;
+  requestId?: string;
+  results?: Array<{
+    assetPath?: string;
+    assetType?: string;
+    decoderKind?: string;
+    preclassification?: string;
+    tokenHex?: string;
+    tokenLength?: number;
+    nativeCode?: number;
+    decodeError?: string;
   }>;
 };
 
@@ -126,6 +154,123 @@ function parseResponsePayload(responseText: string): CouplingServiceResponse | n
   }
 }
 
+function buildForensicScoreUrl(baseUrl: string): string {
+  const normalizedBaseUrl = baseUrl.trim();
+  if (!normalizedBaseUrl) {
+    throw new CouplingServiceConfigurationError('Coupling service base URL is not configured');
+  }
+  return new URL(
+    'v1/coupling/forensic-score',
+    `${normalizedBaseUrl.replace(/\/$/, '')}/`
+  ).toString();
+}
+
+function validateForensicsScoreResult(
+  input: ExtractedForensicsAsset[],
+  payload: ForensicScoreServiceResponse
+): ForensicsScoreResult[] {
+  const assetByPath = new Map(input.map((entry) => [entry.assetPath, entry]));
+  const results = payload.results ?? [];
+  return results.map((entry) => {
+    const assetPath = entry.assetPath?.trim() || '';
+    const inputEntry = assetByPath.get(assetPath);
+    if (!inputEntry) {
+      throw new CouplingServiceRequestError(
+        `Coupling service returned an unknown asset path: ${assetPath || '[missing]'}`,
+        502
+      );
+    }
+
+    const preclassificationRaw = entry.preclassification?.trim() ?? '';
+    const preclassification: ForensicPreclassification =
+      preclassificationRaw === 'decoded' ||
+      preclassificationRaw === 'likely-stripped' ||
+      preclassificationRaw === 'no-signal'
+        ? (preclassificationRaw as ForensicPreclassification)
+        : 'no-signal';
+
+    const result: ForensicsScoreResult = {
+      assetPath,
+      assetType: normalizeAssetType(entry.assetType || inputEntry.assetType),
+      decoderKind: entry.decoderKind?.trim() || inputEntry.assetType,
+      preclassification,
+    };
+
+    if (preclassification === 'decoded' && entry.tokenHex) {
+      const tokenHex = entry.tokenHex.trim().toLowerCase();
+      const tokenLength = Number(entry.tokenLength ?? 0);
+      if (HEX_RE.test(tokenHex) && tokenLength > 0 && tokenHex.length === tokenLength) {
+        result.tokenHex = tokenHex;
+        result.tokenLength = tokenLength;
+      }
+    }
+
+    if (entry.nativeCode !== undefined) {
+      result.nativeCode = entry.nativeCode;
+    }
+
+    if (entry.decodeError) {
+      result.decodeError = entry.decodeError.trim();
+    }
+
+    return result;
+  });
+}
+
+export async function runCouplingForensicsScore(
+  assets: ExtractedForensicsAsset[],
+  config: CouplingForensicsServiceConfig
+): Promise<ForensicsScoreResult[]> {
+  if (assets.length === 0) {
+    return [];
+  }
+
+  const sharedSecret = config.sharedSecret.trim();
+  if (!sharedSecret) {
+    throw new CouplingServiceConfigurationError('Coupling service shared secret is not configured');
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(buildForensicScoreUrl(config.baseUrl), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${sharedSecret}`,
+        'Cache-Control': 'no-store',
+        'Content-Type': 'application/json',
+      },
+      body: await buildRequestBody(assets),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new CouplingServiceRequestError(`Coupling service is unreachable: ${message}`, 503);
+  }
+
+  const responseText = await response.text();
+  const payload = parseResponsePayload(responseText) as ForensicScoreServiceResponse | null;
+
+  if (!response.ok) {
+    const detail =
+      (payload as CouplingServiceResponse)?.error?.trim() ||
+      responseText.trim() ||
+      response.statusText.trim();
+    throw new CouplingServiceRequestError(
+      `Coupling forensic-score failed with status ${response.status}${detail ? `: ${detail}` : ''}`,
+      response.status
+    );
+  }
+
+  if (!payload) {
+    throw new CouplingServiceRequestError(
+      'Coupling service returned invalid JSON',
+      response.status
+    );
+  }
+
+  return validateForensicsScoreResult(assets, payload);
+}
+
 export async function runCouplingForensicsScan(
   assets: ExtractedForensicsAsset[],
   config: CouplingForensicsServiceConfig
@@ -153,10 +298,7 @@ export async function runCouplingForensicsScan(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new CouplingServiceRequestError(
-      `Coupling service is unreachable: ${message}`,
-      503
-    );
+    throw new CouplingServiceRequestError(`Coupling service is unreachable: ${message}`, 503);
   }
 
   const responseText = await response.text();

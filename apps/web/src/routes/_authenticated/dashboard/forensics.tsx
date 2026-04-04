@@ -168,6 +168,15 @@ export default function DashboardForensics() {
         toast.success('Authorized matches found', {
           description: `${matchedAssets} asset${matchedAssets === 1 ? '' : 's'} matched creator-owned coupling records.`,
         });
+      } else if (result.lookupStatus === 'tampered_suspected') {
+        toast.info('No coupling signals found', {
+          description:
+            'The uploaded assets contain no coupling markers. They may be original unprotected files, or coupling signals were stripped.',
+        });
+      } else if (result.lookupStatus === 'no_candidate_assets') {
+        toast.info('No eligible assets found', {
+          description: 'No PNG or FBX assets were found in the uploaded archive.',
+        });
       } else {
         toast.info('No authorized match found', {
           description: 'The upload did not resolve to a creator-owned coupling record.',
@@ -278,24 +287,21 @@ export default function DashboardForensics() {
         {/* Scan Form */}
         <section className="intg-card animate-in bento-col-8">
           <div className="intg-header">
-            <div className="intg-copy">
-              <h1 className="intg-title">Coupling Forensics</h1>
-              <p className="intg-desc">
-                Scan a .unitypackage or .zip against your owned packages to verify authorized
-                coupling records.
-              </p>
+            <div className="intg-title-row">
+              <div className="intg-icon">
+                <img src="/Icons/Shield.png" alt="" aria-hidden="true" />
+              </div>
+              <div className="intg-copy">
+                <h2 className="intg-title">Coupling Forensics</h2>
+                <p className="intg-desc">
+                  Scan a .unitypackage or .zip against your owned packages to verify authorized
+                  coupling records.
+                </p>
+              </div>
             </div>
             <span className="account-badge account-badge--provider" style={{ flexShrink: 0 }}>
               Creator-only
             </span>
-            <div className="intg-icon" style={{ flexShrink: 0 }}>
-              <img
-                src="/Icons/Shield.png"
-                alt=""
-                aria-hidden="true"
-                style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-              />
-            </div>
           </div>
 
           {hasCapabilityQueryError ? (
@@ -649,10 +655,29 @@ export default function DashboardForensics() {
                     style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.45 }}
                   />
                 </div>
-                <p className="account-empty-title">No authorized match found</p>
-                <p className="account-empty-desc">
-                  The upload did not resolve to a coupling token under the selected package.
-                </p>
+                {lookupResult?.lookupStatus === 'tampered_suspected' ? (
+                  <>
+                    <p className="account-empty-title">No coupling signals found</p>
+                    <p className="account-empty-desc">
+                      The uploaded assets contain no coupling markers. They may be original
+                      unprotected files, or coupling signals were stripped.
+                    </p>
+                  </>
+                ) : lookupResult?.lookupStatus === 'no_candidate_assets' ? (
+                  <>
+                    <p className="account-empty-title">No eligible assets found</p>
+                    <p className="account-empty-desc">
+                      No PNG or FBX assets were found in the uploaded archive.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="account-empty-title">No authorized match found</p>
+                    <p className="account-empty-desc">
+                      The upload did not resolve to a coupling token under the selected package.
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </section>

@@ -142,13 +142,17 @@ async function extractUnityPackageCandidates(
     file: archivePath,
     cwd: extractedDir,
     gzip: true,
-    strict: true,
     preservePaths: false,
+    noMtime: true,
     filter: (entryPath) => {
       if (!isSafeRelativeArchivePath(entryPath)) {
         return false;
       }
-      return true;
+      // Only extract the entries we actually read: the asset bytes and its declared path.
+      // Skipping asset.meta, preview.png, etc. avoids Windows chmod/utimes failures on
+      // tar entries with non-standard mode bits and keeps the temp directory lean.
+      const basename = path.posix.basename(entryPath);
+      return basename === 'asset' || basename === 'pathname';
     },
   });
 

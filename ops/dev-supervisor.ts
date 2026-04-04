@@ -17,6 +17,7 @@ const PREFIX_COLORS = {
   green: '\u001B[32m',
   yellow: '\u001B[33m',
   cyan: '\u001B[36m',
+  red: '\u001B[31m',
 } as const;
 
 export type PrefixColor = keyof typeof PREFIX_COLORS;
@@ -33,11 +34,14 @@ interface DevSupervisorOptions {
   prefixOutput?: boolean;
 }
 
+const COUPLING_SERVICE_DIR = path.join(ROOT_DIR, 'Verify', 'Native', 'coupling-service');
+
 const DEFAULT_COMMANDS: readonly DevCommandSpec[] = [
   { name: 'convex', color: 'blue', command: 'npx convex dev' },
   { name: 'api', color: 'magenta', command: 'bun run dev:api' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot' },
   { name: 'web', color: 'yellow', command: 'bun run dev:web' },
+  { name: 'coupling', color: 'red', command: 'bun run dev', cwd: COUPLING_SERVICE_DIR },
   { name: 'tunnel', color: 'cyan', command: 'tailscale funnel 3001' },
 ];
 
@@ -46,6 +50,7 @@ const INFISICAL_COMMANDS: readonly DevCommandSpec[] = [
   { name: 'api', color: 'magenta', command: 'bun run dev:api:infisical' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot:infisical' },
   { name: 'web', color: 'yellow', command: 'bun run dev:web:infisical' },
+  { name: 'coupling', color: 'red', command: 'bun run dev:infisical', cwd: COUPLING_SERVICE_DIR },
   { name: 'tunnel', color: 'cyan', command: 'tailscale funnel 3001' },
 ];
 

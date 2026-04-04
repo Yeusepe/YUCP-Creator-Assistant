@@ -444,8 +444,8 @@ export default function DashboardBilling() {
               </div>
             </div>
 
-            <div className="billing-stats-grid">
-              <article className="billing-stat-tile">
+            <div className="billing-stats-grid billing-stats-grid--access">
+              <article className="billing-stat-tile billing-stat-tile--primary">
                 <span className="billing-stat-label">Sign Quota</span>
                 <strong className="billing-stat-value">
                   {formatQuota(billing?.signQuotaPerPeriod ?? null)}
@@ -453,7 +453,7 @@ export default function DashboardBilling() {
                 <span className="billing-stat-sub">per billing period</span>
               </article>
 
-              <article className="billing-stat-tile">
+              <article className="billing-stat-tile billing-stat-tile--primary billing-stat-tile--metered">
                 <span className="billing-stat-label">Active Devices</span>
                 <strong className="billing-stat-value">
                   {billing?.activeDeviceCount ?? 0}
@@ -474,7 +474,7 @@ export default function DashboardBilling() {
               </article>
 
               {activeCapabilityLabels.length > 0 && (
-                <article className="billing-stat-tile">
+                <article className="billing-stat-tile billing-stat-tile--wide">
                   <span className="billing-stat-label">Capabilities</span>
                   <strong className="billing-stat-value">{activeCapabilityLabels.length}</strong>
                   <div className="billing-stat-chips">
@@ -499,7 +499,10 @@ export default function DashboardBilling() {
                 const total = meter.consumedUnits + meter.balance;
                 const pct = total > 0 ? (meter.consumedUnits / total) * 100 : 0;
                 return (
-                  <article key={meter.meterId} className="billing-stat-tile">
+                  <article
+                    key={meter.meterId}
+                    className="billing-stat-tile billing-stat-tile--metered"
+                  >
                     <span className="billing-stat-label">{meter.meterName ?? meter.meterId}</span>
                     <strong className="billing-stat-value">
                       {formatMeterUnits(meter.consumedUnits)}

@@ -528,11 +528,9 @@ function Sidebar({
                   strokeLinejoin="round"
                   aria-hidden="true"
                 >
-                  <path d="M3 7h18" />
-                  <path d="M6 3h12" />
-                  <path d="M6 11h12" />
-                  <path d="M7 15h10" />
-                  <path d="M8 19h8" />
+                  <rect x="2.5" y="5" width="19" height="14" rx="3" />
+                  <path d="M2.5 10h19" />
+                  <path d="M6.5 15h4" />
                 </svg>
                 Billing
               </Link>

@@ -317,6 +317,7 @@ const AuditEventType = v.union(
   v.literal('protected.materialization.grant.issued'),
   v.literal('protected.materialization.grant.redeemed'),
   v.literal('protected.materialization.grant.receipted'),
+  v.literal('protected.materialization.grant.revoked'),
   v.literal('coupling.lookup.performed')
 );
 
@@ -1860,10 +1861,63 @@ const coupling_trace_records = defineTable({
   createdAt: v.number(),
   /** 16 hex chars (8 bytes CSPRNG). Prevents carrier position discovery via comparison. */
   materializationNonce: v.optional(v.string()),
+  /** Coupling pack family identifier. Populated when pack delivery is active. */
+  packFamily: v.optional(v.string()),
+  /** Coupling pack version within the family. */
+  packVersion: v.optional(v.string()),
+  /** ID of the Tardos probability vector used for this materialization. */
+  pVectorId: v.optional(v.string()),
 })
   .index('by_auth_user_created', ['authUserId', 'createdAt'])
   .index('by_package_token', ['packageId', 'tokenHash'])
   .index('by_correlation', ['correlationId'])
+  .index('by_grant_id', ['grantId']);
+
+/**
+ * Revoked protected materialization grants.
+ * Revocation is forward-looking only — it blocks future redeem calls but
+ * cannot claw back plaintext that was already materialized.
+ */
+const revoked_grants = defineTable({
+  grantId: v.string(),
+  /** Unix ms when the grant was revoked */
+  revokedAt: v.number(),
+  /** Human-readable reason for revocation */
+  reason: v.string(),
+  /** authUserId of the creator who initiated revocation */
+  revokedByUserId: v.string(),
+  createdAt: v.number(),
+})
+  .index('by_grant_id', ['grantId'])
+  .index('by_revoked_at', ['revokedAt']);
+
+/**
+ * C2PA-inspired Layer A authenticity manifests (one per package+asset version).
+ * Manifests are stable across all buyers of the same package version and are
+ * created before any recipient-specific tracing mutations are applied.
+ */
+const yucp_manifests = defineTable({
+  packageId: v.string(),
+  protectedAssetId: v.string(),
+  assetPath: v.string(),
+  /** SHA-256 of the asset's canonical pre-trace form (hex string) */
+  canonicalSha256: v.string(),
+  /** Manifest schema version string (e.g. "2") */
+  manifestVersion: v.string(),
+  /** Base64url Ed25519 signature over the canonical claim */
+  edSignature: v.string(),
+  /** Base64url RFC 3161 timestamp token (omitted until TSA is wired) */
+  tsaToken: v.optional(v.string()),
+  /** Signer certificate thumbprint as hex */
+  signerThumbprint: v.optional(v.string()),
+  /** grantId when the manifest was issued in context of a specific grant */
+  grantId: v.optional(v.string()),
+  /** Unix ms when the manifest was issued */
+  issuedAt: v.number(),
+  createdAt: v.number(),
+})
+  .index('by_package_asset', ['packageId', 'assetPath'])
+  .index('by_protected_asset', ['packageId', 'protectedAssetId'])
   .index('by_grant_id', ['grantId']);
 
 /**
@@ -2157,6 +2211,8 @@ export default defineSchema({
   creator_billing_reconciliation_targets,
   signed_release_artifacts,
   coupling_trace_records,
+  revoked_grants,
+  yucp_manifests,
   yucp_certificates,
   package_registry,
   signing_log,

@@ -1749,6 +1749,42 @@ http.route({
   }),
 });
 
+// POST /v1/licenses/revoke-grant — revoke a protected materialization grant (admin/CONVEX_API_SECRET)
+// NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
+http.route({
+  method: 'POST',
+  path: '/v1/licenses/revoke-grant',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+
+    let body: { grantId: string; reason: string; revokedByUserId: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    if (!body?.grantId || !body?.reason || !body?.revokedByUserId) {
+      return errorResponse('grantId, reason, and revokedByUserId are required', 400);
+    }
+
+    const result = await ctx.runMutation(internal.yucpLicenses.revokeGrant, {
+      grantId: body.grantId,
+      reason: body.reason,
+      revokedByUserId: body.revokedByUserId,
+    });
+
+    if (!result.success) {
+      return jsonResponse({ error: result.error }, 422);
+    }
+
+    return jsonResponse({ success: true });
+  }),
+});
+
 http.route({
   method: 'POST',
   path: '/v1/licenses/runtime-package-token',

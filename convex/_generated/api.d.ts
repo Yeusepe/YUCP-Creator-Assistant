@@ -35,6 +35,7 @@ import type * as lib_apiAuth from "../lib/apiAuth.js";
 import type * as lib_authUser from "../lib/authUser.js";
 import type * as lib_betterAuthAdapter from "../lib/betterAuthAdapter.js";
 import type * as lib_billingCapabilities from "../lib/billingCapabilities.js";
+import type * as lib_canonicalDescriptor from "../lib/canonicalDescriptor.js";
 import type * as lib_certificateBillingCatalog from "../lib/certificateBillingCatalog.js";
 import type * as lib_certificateBillingConfig from "../lib/certificateBillingConfig.js";
 import type * as lib_certificateBillingProjection from "../lib/certificateBillingProjection.js";
@@ -142,6 +143,7 @@ declare const fullApi: ApiFromModules<{
   "lib/authUser": typeof lib_authUser;
   "lib/betterAuthAdapter": typeof lib_betterAuthAdapter;
   "lib/billingCapabilities": typeof lib_billingCapabilities;
+  "lib/canonicalDescriptor": typeof lib_canonicalDescriptor;
   "lib/certificateBillingCatalog": typeof lib_certificateBillingCatalog;
   "lib/certificateBillingConfig": typeof lib_certificateBillingConfig;
   "lib/certificateBillingProjection": typeof lib_certificateBillingProjection;

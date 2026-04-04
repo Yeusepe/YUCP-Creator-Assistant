@@ -511,6 +511,10 @@
   min-width: 0;
 }
 
+.intg-title-row .intg-copy {
+  gap: 6px;
+}
+
 .intg-copy {
   display: flex;
   flex: 1;
@@ -551,6 +555,7 @@
   margin: 0;
   letter-spacing: -0.02em;
   line-height: 1.2;
+  text-align: left;
 }
 
 .intg-add-btn {
@@ -586,6 +591,10 @@
   line-height: 1.45;
   margin: 0;
   max-width: 36rem;
+}
+
+.intg-title-row .intg-desc {
+  max-width: 32rem;
 }
 
 .intg-desc a {
@@ -868,6 +877,18 @@
 
 .intg-card .empty-state .intg-add-btn {
   margin-top: 16px;
+}
+
+.developer-intg-copy {
+  min-height: 3.75rem;
+}
+
+.developer-intg-empty {
+  min-height: 264px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .intg-card .api-key-row {

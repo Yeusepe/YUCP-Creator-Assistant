@@ -143,20 +143,17 @@ export default function DashboardCertificates() {
 
         <section className="intg-card animate-in bento-col-8">
           <div className="intg-header">
-            <div className="intg-copy">
-              <h1 className="intg-title">Code Signing Certificates</h1>
-              <p className="intg-desc">
-                Certificate lifecycle stays here. Billing, plan changes, and checkout now live on
-                the dedicated Polar billing page.
-              </p>
-            </div>
-            <div className="intg-icon">
-              <img
-                src="/Icons/Shield.png"
-                alt=""
-                aria-hidden="true"
-                style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-              />
+            <div className="intg-title-row">
+              <div className="intg-icon">
+                <img src="/Icons/Shield.png" alt="" aria-hidden="true" />
+              </div>
+              <div className="intg-copy">
+                <h2 className="intg-title">Code Signing Certificates</h2>
+                <p className="intg-desc">
+                  Certificate lifecycle stays here. Billing, plan changes, and checkout now live on
+                  the dedicated Polar billing page.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -167,17 +164,28 @@ export default function DashboardCertificates() {
                 <span className="cert-stat-value">
                   {billing?.activeDeviceCount ?? 0}&thinsp;/&thinsp;{billing?.deviceCap ?? '∞'}
                 </span>
+                <span className="cert-stat-meta">Enrolled machines using your current plan.</span>
               </div>
               <div className="cert-stat-item">
                 <span className="cert-stat-label">Enrollment</span>
                 <span className="cert-stat-value">
                   {billing?.allowEnrollment ? 'Open' : 'Closed'}
                 </span>
+                <span className="cert-stat-meta">
+                  {billing?.allowEnrollment
+                    ? 'New devices can request a certificate now.'
+                    : 'Pause new enrollments until you reopen access.'}
+                </span>
               </div>
               <div className="cert-stat-item">
                 <span className="cert-stat-label">Signing</span>
                 <span className="cert-stat-value">
                   {billing?.allowSigning ? 'Active' : 'Paused'}
+                </span>
+                <span className="cert-stat-meta">
+                  {billing?.allowSigning
+                    ? 'Signing requests are accepted for protected builds.'
+                    : 'Signing is paused until billing access resumes.'}
                 </span>
               </div>
             </div>

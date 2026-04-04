@@ -248,7 +248,13 @@ function OAuthAppsSection({
               </svg>
             </div>
           ) : null}
-          <h2 className="intg-title">OAuth Applications</h2>
+          <div className="intg-copy developer-intg-copy">
+            <h2 className="intg-title">OAuth Applications</h2>
+            <p className="intg-desc">
+              Register apps that use the OAuth 2.0 flow to access user verification data on their
+              behalf.
+            </p>
+          </div>
         </div>
         <button
           id="create-oauth-app-btn"
@@ -271,9 +277,6 @@ function OAuthAppsSection({
           Add app
         </button>
       </div>
-      <p className="intg-desc" style={isLoading ? { paddingLeft: 0 } : undefined}>
-        Register apps that use the OAuth 2.0 flow to access user verification data on their behalf.
-      </p>
 
       <InlineOAuthAppForm
         open={createPanelOpen}
@@ -447,7 +450,7 @@ function OAuthAppsSection({
         </div>
 
         {apps.length === 0 ? (
-          <div id="oauth-apps-empty" className="empty-state">
+          <div id="oauth-apps-empty" className="empty-state developer-intg-empty">
             <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
               <svg
                 aria-hidden="true"
@@ -586,7 +589,13 @@ function ApiKeysSection({
               </svg>
             </div>
           ) : null}
-          <h2 className="intg-title">API Keys</h2>
+          <div className="intg-copy developer-intg-copy">
+            <h2 className="intg-title">API Keys</h2>
+            <p className="intg-desc">
+              Call the verification API from your integrations. Pass as <code>x-api-key</code>{' '}
+              header.
+            </p>
+          </div>
         </div>
         <button
           id="create-api-key-btn"
@@ -609,9 +618,6 @@ function ApiKeysSection({
           Add key
         </button>
       </div>
-      <p className="intg-desc" style={isLoading ? { paddingLeft: 0 } : undefined}>
-        Call the verification API from your integrations. Pass as <code>x-api-key</code> header.
-      </p>
 
       <InlineApiKeyForm
         open={createPanelOpen}
@@ -726,7 +732,7 @@ function ApiKeysSection({
         </div>
 
         {keys.length === 0 ? (
-          <div id="api-keys-empty" className="empty-state">
+          <div id="api-keys-empty" className="empty-state developer-intg-empty">
             <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
               <svg
                 aria-hidden="true"

@@ -10,7 +10,8 @@ import { extractCouplingForensicsArchive } from '../lib/couplingForensicsArchive
 import {
   CouplingServiceConfigurationError,
   CouplingServiceRequestError,
-  runCouplingForensicsScan,
+  type ForensicsScoreResult,
+  runCouplingForensicsScore,
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 
@@ -38,6 +39,13 @@ type ForensicsLookupStatus =
   | 'hostile_unknown'
   | 'no_candidate_assets';
 
+type LayerBClassification =
+  | 'trace-recovered'
+  | 'tamper-suspected'
+  | 'trace-likely-stripped'
+  | 'unsupported-transform'
+  | 'no-signal-found';
+
 function buildLookupMessage(status: ForensicsLookupStatus): string {
   switch (status) {
     case 'attributed':
@@ -45,7 +53,7 @@ function buildLookupMessage(status: ForensicsLookupStatus): string {
     case 'tampered_suspected':
       return 'Candidate assets were found, but no valid coupling signals could be decoded';
     case 'hostile_unknown':
-      return 'Coupling signals were decoded, but none matched an authorized trace record';
+      return 'The uploaded archive did not resolve to an authorized trace record';
     case 'no_candidate_assets':
       return 'No coupling candidate assets were found';
   }
@@ -158,6 +166,92 @@ function normalizeDeclaredPackageIds(values: string[]): string[] {
   );
 }
 
+function classifyLayerB(
+  scoreResult: ForensicsScoreResult,
+  matchedTokenHashes: Set<string>
+): LayerBClassification {
+  if (scoreResult.preclassification === 'decoded') {
+    if (!scoreResult.tokenHex) {
+      return 'no-signal-found';
+    }
+    const tokenHash = sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex));
+    return matchedTokenHashes.has(tokenHash) ? 'trace-recovered' : 'tamper-suspected';
+  }
+  if (scoreResult.preclassification === 'likely-stripped') {
+    return 'trace-likely-stripped';
+  }
+  return 'no-signal-found';
+}
+
+type InvestigationReport = {
+  totalAssets: number;
+  decodedCount: number;
+  attributedCount: number;
+  unattributedCount: number;
+  strippedCount: number;
+  noSignalCount: number;
+  topCandidates: Array<{
+    licenseSubject: string;
+    assetCount: number;
+  }>;
+};
+
+function buildInvestigationReport(
+  results: Array<{
+    layerBClassification: LayerBClassification;
+    matches: Array<{ licenseSubject: string }>;
+  }>,
+  totalAssets: number
+): InvestigationReport {
+  let decodedCount = 0;
+  let attributedCount = 0;
+  let unattributedCount = 0;
+  let strippedCount = 0;
+  let noSignalCount = 0;
+
+  const candidateCounts = new Map<string, number>();
+
+  for (const result of results) {
+    switch (result.layerBClassification) {
+      case 'trace-recovered':
+        decodedCount++;
+        attributedCount++;
+        for (const match of result.matches) {
+          candidateCounts.set(
+            match.licenseSubject,
+            (candidateCounts.get(match.licenseSubject) ?? 0) + 1
+          );
+        }
+        break;
+      case 'tamper-suspected':
+        decodedCount++;
+        unattributedCount++;
+        break;
+      case 'trace-likely-stripped':
+        strippedCount++;
+        break;
+      default:
+        noSignalCount++;
+        break;
+    }
+  }
+
+  const topCandidates = Array.from(candidateCounts.entries())
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 10)
+    .map(([licenseSubject, assetCount]) => ({ licenseSubject, assetCount }));
+
+  return {
+    totalAssets,
+    decodedCount,
+    attributedCount,
+    unattributedCount,
+    strippedCount,
+    noSignalCount,
+    topCandidates,
+  };
+}
+
 export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
   const convex = getConvexClientFromUrl(config.convexUrl);
 
@@ -245,7 +339,8 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
         return jsonResponse({
           packageId,
-          message: 'No authorized match found',
+          lookupStatus: 'hostile_unknown' satisfies ForensicsLookupStatus,
+          message: buildLookupMessage('hostile_unknown'),
           candidateAssetCount: extraction.assets.length,
           decodedAssetCount: 0,
           results: [],
@@ -274,12 +369,18 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const findings = await runCouplingForensicsScan(extraction.assets, {
+      const scoreResults = await runCouplingForensicsScore(extraction.assets, {
         baseUrl: config.couplingServiceBaseUrl,
         sharedSecret: config.couplingServiceSharedSecret,
       });
-      if (findings.length === 0) {
-        const lookupStatus: ForensicsLookupStatus = 'tampered_suspected';
+
+      const decodedResults = scoreResults.filter(
+        (r) => r.preclassification === 'decoded' && r.tokenHex
+      );
+
+      if (decodedResults.length === 0) {
+        const lookupStatus: ForensicsLookupStatus =
+          scoreResults.length > 0 ? 'tampered_suspected' : 'no_candidate_assets';
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
@@ -290,18 +391,32 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           matchedTokenCount: 0,
           uploadSha256,
         });
+
+        const results = scoreResults.map((scoreResult) => ({
+          assetPath: scoreResult.assetPath,
+          assetType: scoreResult.assetType,
+          decoderKind: scoreResult.decoderKind,
+          tokenLength: scoreResult.tokenLength,
+          layerBClassification: classifyLayerB(scoreResult, new Set()) as LayerBClassification,
+          matched: false,
+          matches: [],
+        }));
+
         return jsonResponse({
           packageId,
           lookupStatus,
           message: buildLookupMessage(lookupStatus),
           candidateAssetCount: extraction.assets.length,
           decodedAssetCount: 0,
-          results: [],
+          results,
+          investigationReport: buildInvestigationReport(results, extraction.assets.length),
         });
       }
-      const tokenHashes = findings.map((finding) =>
-        sha256HexFromBytes(new TextEncoder().encode(finding.tokenHex))
-      );
+
+      const tokenHashes = decodedResults
+        .filter((r) => r.tokenHex !== undefined)
+        .map((r) => sha256HexFromBytes(new TextEncoder().encode(r.tokenHex as string)));
+
       const lookupResult = await convex.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
         apiSecret: config.convexApiSecret,
         authUserId: viewer.authUserId,
@@ -342,10 +457,12 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
         return jsonResponse({
           packageId,
-          message: 'No authorized match found',
+          lookupStatus: 'hostile_unknown' satisfies ForensicsLookupStatus,
+          message: buildLookupMessage('hostile_unknown'),
           candidateAssetCount: extraction.assets.length,
-          decodedAssetCount: findings.length,
+          decodedAssetCount: decodedResults.length,
           results: [],
+          investigationReport: buildInvestigationReport([], extraction.assets.length),
         });
       }
 
@@ -356,16 +473,23 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         matchesByTokenHash.set(match.tokenHash, bucket);
       }
 
-      const results = findings.map((finding) => {
-        const tokenHash = sha256HexFromBytes(new TextEncoder().encode(finding.tokenHex));
-        const matches = matchesByTokenHash.get(tokenHash) ?? [];
+      const matchedTokenHashSet = new Set<string>(
+        lookupResult.matches.map((m: { tokenHash: string }) => m.tokenHash)
+      );
+
+      const results = scoreResults.map((scoreResult) => {
+        const tokenHash = scoreResult.tokenHex
+          ? sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex))
+          : null;
+        const matches = tokenHash ? (matchesByTokenHash.get(tokenHash) ?? []) : [];
+        const layerBClassification = classifyLayerB(scoreResult, matchedTokenHashSet);
         return {
-          assetPath: finding.assetPath,
-          assetType: finding.assetType,
-          decoderKind: finding.decoderKind,
-          tokenLength: finding.tokenLength,
+          assetPath: scoreResult.assetPath,
+          assetType: scoreResult.assetType,
+          decoderKind: scoreResult.decoderKind,
+          tokenLength: scoreResult.tokenLength,
+          layerBClassification,
           matched: matches.length > 0,
-          classification: matches.length > 0 ? 'attributed' : 'hostile_unknown',
           matches: matches.map((match: (typeof matches)[number]) => ({
             licenseSubject: match.licenseSubject,
             assetPath: match.assetPath,
@@ -396,8 +520,9 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         lookupStatus,
         message: buildLookupMessage(lookupStatus),
         candidateAssetCount: extraction.assets.length,
-        decodedAssetCount: findings.length,
+        decodedAssetCount: decodedResults.length,
         results,
+        investigationReport: buildInvestigationReport(results, extraction.assets.length),
       });
     } catch (error) {
       if (auditContext) {

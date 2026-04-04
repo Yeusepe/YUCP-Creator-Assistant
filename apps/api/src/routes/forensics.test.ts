@@ -110,7 +110,7 @@ describe('forensics routes', () => {
     const fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      expect(url).toBe('https://coupling.internal/v1/coupling/scan');
+      expect(url).toBe('https://coupling.internal/v1/coupling/forensic-score');
       expect(init?.method).toBe('POST');
       const headers = new Headers(init?.headers);
       expect(headers.get('authorization')).toBe('Bearer coupling-secret');
@@ -130,11 +130,13 @@ describe('forensics routes', () => {
 
       return new Response(
         JSON.stringify({
+          requestId: 'req-1',
           results: [
             {
               assetPath: 'Assets/Character/body.png',
               assetType: 'png',
               decoderKind: 'png',
+              preclassification: 'decoded',
               tokenHex: 'deadbeef',
               tokenLength: 8,
             },
@@ -172,7 +174,7 @@ describe('forensics routes', () => {
         {
           assetPath: 'Assets/Character/body.png',
           matched: true,
-          classification: 'attributed',
+          layerBClassification: 'trace-recovered',
           matches: [
             {
               licenseSubject: 'license-subject-1',
@@ -253,10 +255,25 @@ describe('forensics routes', () => {
     mutationMock.mockResolvedValue(undefined);
 
     const fetchMock = mock(async () => {
-      return new Response(JSON.stringify({ results: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({
+          requestId: 'req-2',
+          results: [
+            {
+              assetPath: 'Assets/Character/body.png',
+              assetType: 'png',
+              decoderKind: 'png',
+              preclassification: 'likely-stripped',
+              nativeCode: -10,
+              decodeError: 'quorum not reached',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -281,7 +298,13 @@ describe('forensics routes', () => {
       candidateAssetCount: 1,
       decodedAssetCount: 0,
       message: 'Candidate assets were found, but no valid coupling signals could be decoded',
-      results: [],
+      results: [
+        {
+          assetPath: 'Assets/Character/body.png',
+          layerBClassification: 'trace-likely-stripped',
+          matched: false,
+        },
+      ],
     });
     expect(queryMock).not.toHaveBeenCalled();
     expect(mutationMock).toHaveBeenCalledTimes(1);
@@ -317,11 +340,13 @@ describe('forensics routes', () => {
     const fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
+          requestId: 'req-3',
           results: [
             {
               assetPath: 'Assets/Character/body.png',
               assetType: 'png',
               decoderKind: 'png',
+              preclassification: 'decoded',
               tokenHex: 'deadbeef',
               tokenLength: 8,
             },
@@ -355,12 +380,12 @@ describe('forensics routes', () => {
       lookupStatus: 'hostile_unknown',
       candidateAssetCount: 1,
       decodedAssetCount: 1,
-      message: 'Coupling signals were decoded, but none matched an authorized trace record',
+      message: 'The uploaded archive did not resolve to an authorized trace record',
       results: [
         {
           assetPath: 'Assets/Character/body.png',
           matched: false,
-          classification: 'hostile_unknown',
+          layerBClassification: 'tamper-suspected',
           matches: [],
         },
       ],

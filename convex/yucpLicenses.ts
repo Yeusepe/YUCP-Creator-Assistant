@@ -1412,6 +1412,14 @@ export const redeemProtectedMaterializationGrant = internalAction({
       return { success: false, error: 'Protected materialization grant is expired' };
     }
 
+    // NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
+    const isRevoked = await ctx.runQuery(internal.yucpLicenses.isGrantRevoked, {
+      grantId: payload.grantId,
+    });
+    if (isRevoked) {
+      return { success: false, error: 'Protected materialization grant has been revoked' };
+    }
+
     const unlockClaims = await verifyProtectedUnlockJwt(payload.unlockToken, rootPublicKey, issuer);
     if (!unlockClaims) {
       return { success: false, error: 'Protected materialization grant unlock token is invalid' };
@@ -1748,5 +1756,73 @@ export const issueCouplingJob = internalAction({
         materializationNonce,
       })),
     };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 9 — Grant revocation (forward-looking only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Check whether a grant has been revoked.
+ * NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
+ */
+export const isGrantRevoked = internalQuery({
+  args: {
+    grantId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const record = await ctx.db
+      .query('revoked_grants')
+      .withIndex('by_grant_id', (q) => q.eq('grantId', args.grantId))
+      .first();
+    return record !== null;
+  },
+});
+
+/**
+ * Revoke a protected materialization grant.
+ * NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
+ */
+export const revokeGrant = internalMutation({
+  args: {
+    grantId: v.string(),
+    reason: v.string(),
+    revokedByUserId: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    // NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
+    const existing = await ctx.db
+      .query('revoked_grants')
+      .withIndex('by_grant_id', (q) => q.eq('grantId', args.grantId))
+      .first();
+    if (existing) {
+      return { success: false, error: 'Grant is already revoked' };
+    }
+    const now = Date.now();
+    await ctx.db.insert('revoked_grants', {
+      grantId: args.grantId,
+      revokedAt: now,
+      reason: args.reason,
+      revokedByUserId: args.revokedByUserId,
+      createdAt: now,
+    });
+    await ctx.db.insert('audit_events', {
+      authUserId: args.revokedByUserId,
+      eventType: 'protected.materialization.grant.revoked',
+      actorType: 'admin',
+      metadata: {
+        grantId: args.grantId,
+        reason: args.reason,
+      },
+      correlationId: crypto.randomUUID(),
+      createdAt: now,
+    });
+    return { success: true };
   },
 });
