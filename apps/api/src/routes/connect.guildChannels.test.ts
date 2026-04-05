@@ -617,6 +617,99 @@ describe('POST /api/connect/settings (setup-session path)', () => {
   });
 });
 
+describe('discord role setup routes', () => {
+  it('creates and exchanges a Discord role setup session', async () => {
+    const createRes = await routes.createDiscordRoleSession(
+      new Request('http://localhost:3001/api/setup/discord-role-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authUserId: 'creator-auth-user',
+          guildId: 'guild-123',
+          adminDiscordUserId: 'discord-admin-123',
+          apiSecret: 'test-convex-secret',
+        }),
+      })
+    );
+
+    expect(createRes.status).toBe(200);
+    const createBody = (await createRes.json()) as { token: string };
+    expect(createBody.token.length).toBeGreaterThan(0);
+
+    const exchangeRes = await routes.exchangeDiscordRoleSetupSession(
+      new Request('http://localhost:3001/api/setup/discord-role-session/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: createBody.token }),
+      })
+    );
+
+    expect(exchangeRes.status).toBe(200);
+    expect(exchangeRes.headers.get('Set-Cookie')).toContain(
+      `yucp_discord_role_setup=${createBody.token}`
+    );
+  });
+
+  it('saves a Discord role selection and returns it to the bot result poller', async () => {
+    const createRes = await routes.createDiscordRoleSession(
+      new Request('http://localhost:3001/api/setup/discord-role-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authUserId: 'creator-auth-user',
+          guildId: 'guild-123',
+          adminDiscordUserId: 'discord-admin-123',
+          apiSecret: 'test-convex-secret',
+        }),
+      })
+    );
+    const { token } = (await createRes.json()) as { token: string };
+
+    const saveRes = await routes.saveDiscordRoleSelection(
+      new Request('http://localhost:3001/api/setup/discord-role-save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: `yucp_discord_role_setup=${token}`,
+        },
+        body: JSON.stringify({
+          sourceGuildId: 'source-guild-1',
+          sourceGuildName: 'Source Guild',
+          sourceRoleId: '123456789012345678',
+        }),
+      })
+    );
+
+    expect(saveRes.status).toBe(200);
+
+    const resultRes = await routes.getDiscordRoleResult(
+      new Request('http://localhost:3001/api/setup/discord-role-result', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+    );
+
+    expect(resultRes.status).toBe(200);
+    const resultBody = (await resultRes.json()) as {
+      completed: boolean;
+      sourceGuildId: string;
+      sourceGuildName: string;
+      sourceRoleId: string;
+      sourceRoleIds: string[];
+      requiredRoleMatchMode: 'any' | 'all';
+    };
+    expect(resultBody).toEqual({
+      completed: true,
+      sourceGuildId: 'source-guild-1',
+      sourceGuildName: 'Source Guild',
+      sourceRoleId: '123456789012345678',
+      sourceRoleIds: ['123456789012345678'],
+      requiredRoleMatchMode: 'any',
+    });
+  });
+});
+
 describe('GET /api/connect/user/certificates', () => {
   it('returns 401 without an authenticated account session', async () => {
     const req = new Request('http://localhost:3001/api/connect/user/certificates');

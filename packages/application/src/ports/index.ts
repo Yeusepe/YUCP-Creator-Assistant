@@ -14,6 +14,12 @@ export type {
   DashboardUserAccount,
 } from './connection';
 export type {
+  DashboardOwnershipPort,
+  DashboardPolicyPort,
+  DashboardShellSelectionInput,
+} from './dashboardShell';
+
+export type {
   DashboardGuildRecord,
   GuildDirectoryRepositoryPort,
   GuildMetadataRecord,

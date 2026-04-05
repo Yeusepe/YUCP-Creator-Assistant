@@ -12,6 +12,11 @@ export {
 } from './backfillService';
 export type { DashboardHomeInput, DashboardHomeResult } from './connectionService';
 export { ConnectionService } from './connectionService';
+export type {
+  DashboardSelectedServer,
+  DashboardShellSelectionResult,
+} from './dashboardShellService';
+export { DashboardShellService } from './dashboardShellService';
 export type { ListDashboardGuildsInput, ListDashboardGuildsResult } from './guildDirectoryService';
 export { GuildDirectoryService } from './guildDirectoryService';
 export { HostedVerificationService } from './hostedVerificationService';
