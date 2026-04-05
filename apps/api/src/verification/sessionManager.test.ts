@@ -9,15 +9,17 @@ import {
   computeCodeChallenge,
   createVerificationRoutes,
   createVerificationSessionManager,
-  DISCORD_ROLE_CONFIG,
-  GUMROAD_CONFIG,
   generateCodeVerifier,
   generateState,
-  getVerificationConfig,
   hashVerifier,
   SESSION_EXPIRY_MS,
-  type VerificationConfig,
 } from './sessionManager';
+import {
+  DISCORD_ROLE_CONFIG,
+  GUMROAD_CONFIG,
+  getVerificationConfig,
+  type VerificationConfig,
+} from './verificationConfig';
 
 // ============================================================================
 // CRYPTO UTILITIES TESTS

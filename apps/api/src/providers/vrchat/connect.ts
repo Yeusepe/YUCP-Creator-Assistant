@@ -12,6 +12,7 @@
  */
 
 import { VrchatApiClient } from '@yucp/providers/vrchat';
+import { VRCHAT_PURPOSES } from '@yucp/providers/vrchat/module';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
@@ -32,7 +33,7 @@ const CONNECT_TOKEN_TTL_MS = 15 * 60 * 1000;
  * HKDF purpose for encrypting the VRChat creator session before storing in Convex.
  * Domain-separated from the buyer session ('vrchat-provider-session').
  */
-const SESSION_PURPOSE = 'vrchat-creator-session' as const;
+const SESSION_PURPOSE = VRCHAT_PURPOSES.credential;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // GET /api/connect/vrchat/begin

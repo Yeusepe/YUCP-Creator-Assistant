@@ -1,7 +1,7 @@
 import { createApplicationServices } from '@yucp/application';
 import type { ProviderLinkFallbackDisplay } from '@yucp/application/ports';
-import { getVerificationConfig } from '../verification/sessionManager';
-import { ALL_PROVIDERS } from './index';
+import { getVerificationConfig } from '../verification/verificationConfig';
+import { ALL_PROVIDER_RUNTIMES } from './index';
 import type { ConnectDisplayMeta } from './types';
 
 export interface ProviderDisplaySummary {
@@ -47,7 +47,7 @@ function buildRuntimeConnectSurface(provider: { id: string; displayMeta?: Connec
   };
 }
 
-const runtimeConnectSurfaces = ALL_PROVIDERS.flatMap((provider) => {
+const runtimeConnectSurfaces = ALL_PROVIDER_RUNTIMES.flatMap((provider) => {
   const runtimeSurface = buildRuntimeConnectSurface(provider);
   return runtimeSurface ? [runtimeSurface] : [];
 });

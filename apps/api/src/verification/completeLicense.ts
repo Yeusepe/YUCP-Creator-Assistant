@@ -14,7 +14,7 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { getHandler } from './licenseHandlers/index';
-import type { VerificationConfig } from './sessionManager';
+import type { VerificationConfig } from './verificationConfig';
 
 export interface CompleteLicenseInput {
   /** License key to verify */

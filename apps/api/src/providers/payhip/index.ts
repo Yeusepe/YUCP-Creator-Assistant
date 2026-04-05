@@ -1,90 +1,46 @@
-/**
- * Payhip provider plugin
- *
- * Products: read from Convex (no external API call needed).
- *   Sources: manually added product-secret-keys + provider_catalog_mappings from webhook events.
- * Backfill: not supported (Payhip does not expose a purchase history API).
- *
- * The `permalink` (product_key, e.g., "RGsF") is the canonical product identifier
- * because it matches the `product_link` returned by the Payhip license-key verify API.
- */
-
-import { PayhipApiClient } from '@yucp/providers/payhip/client';
+import { createPayhipProviderModule, PAYHIP_PURPOSES } from '@yucp/providers/payhip/module';
 import { api } from '../../../../../convex/_generated/api';
-import type { ProductRecord, ProviderContext, ProviderPlugin, ProviderPurposes } from '../types';
+import { decrypt } from '../../lib/encrypt';
+import { logger } from '../../lib/logger';
+import { defineApiProviderEntry } from '../types';
 import { connect } from './connect';
-import { verification } from './verification';
 import { webhook } from './webhook';
 
-export const PURPOSES = {
-  credential: 'payhip-api-key',
-  productSecret: 'payhip-product-secret',
-} as const satisfies ProviderPurposes;
+export const PURPOSES = PAYHIP_PURPOSES;
 
-const payhipProvider: ProviderPlugin = {
-  id: 'payhip',
-  needsCredential: false,
-  purposes: PURPOSES,
-  productCredentialPurpose: PURPOSES.productSecret,
-
-  async getCredential(_ctx: ProviderContext) {
-    return null;
-  },
-
-  async fetchProducts(_credential, ctx) {
-    const entries = (await ctx.convex.query(api.providerConnections.getPayhipProducts, {
+const payhipRuntime = createPayhipProviderModule({
+  logger,
+  async listProducts(ctx) {
+    return await ctx.convex.query(api.providerConnections.getPayhipProducts, {
       apiSecret: ctx.apiSecret,
       authUserId: ctx.authUserId,
-    })) as Array<{
-      permalink: string;
-      displayName?: string;
-      productPermalink?: string;
-      hasSecretKey: boolean;
-    }>;
-
-    return entries.map(
-      (e): ProductRecord => ({
-        id: e.permalink,
-        name: e.displayName,
-        productUrl: e.productPermalink ?? `https://payhip.com/b/${e.permalink}`,
-        hasSecretKey: e.hasSecretKey,
-      })
-    );
-  },
-
-  async onProductCredentialAdded(productId, ctx) {
-    const client = new PayhipApiClient();
-    const name = await client.fetchProductName(productId);
-    if (!name) return;
-    await ctx.convex.mutation(api.providerConnections.upsertPayhipProductName, {
-      apiSecret: ctx.apiSecret,
-      authUserId: ctx.authUserId,
-      permalink: productId,
-      displayName: name,
     });
   },
-
-  displayMeta: {
-    label: 'Payhip',
-    icon: 'PayHip.png',
-    color: '#00d1b2',
-    shadowColor: '#00d1b2',
-    textColor: '#ffffff',
-    connectedColor: '#00a896',
-    confettiColors: ['#00d1b2', '#00a896', '#80ffe8', '#ffffff'],
-    description: 'Marketplace',
-    dashboardConnectPath: '/setup/payhip',
-    dashboardConnectParamStyle: 'snakeCase',
-    dashboardIconBg: '#3b82f6',
-    dashboardQuickStartBg: 'rgba(59,130,246,0.12)',
-    dashboardQuickStartBorder: 'rgba(59,130,246,0.32)',
-    dashboardServerTileHint:
-      'Allow users to verify Payhip purchases and license keys in this Discord server.',
+  async upsertProductName({ authUserId, permalink, displayName }, ctx) {
+    await ctx.convex.mutation(api.providerConnections.upsertPayhipProductName, {
+      apiSecret: ctx.apiSecret,
+      authUserId,
+      permalink,
+      displayName,
+    });
   },
-  backfill: undefined,
-  webhook,
-  connect,
-  verification,
-};
+  async listProductSecretKeys(authUserId, ctx) {
+    return await ctx.convex.query(api.providerConnections.getPayhipProductSecretKeys, {
+      apiSecret: ctx.apiSecret,
+      authUserId,
+    });
+  },
+  async decryptProductSecretKey(encryptedSecretKey, ctx) {
+    return await decrypt(encryptedSecretKey, ctx.encryptionSecret, PURPOSES.productSecret);
+  },
+});
+
+const payhipProvider = defineApiProviderEntry({
+  runtime: payhipRuntime,
+  hooks: {
+    connect,
+    webhook,
+  },
+});
 
 export default payhipProvider;

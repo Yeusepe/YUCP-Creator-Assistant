@@ -27,15 +27,18 @@ import type {
   ProviderContext as RuntimeProviderContext,
 } from '@yucp/providers/contracts';
 import { CredentialExpiredError } from '@yucp/providers/contracts';
+import type { RuntimeProviderKey } from '@yucp/providers/types';
 import type { Auth } from '../auth';
 import type { getConvexClientFromUrl } from '../lib/convex';
 
 type ApiProviderRuntimeClient = ReturnType<typeof getConvexClientFromUrl>;
 
+export type ProviderId = RuntimeProviderKey;
 export type ProviderContext = RuntimeProviderContext<ApiProviderRuntimeClient>;
 export type BuyerVerificationContext = RuntimeBuyerVerificationContext<ApiProviderRuntimeClient>;
 export type BuyerVerificationAdapter = RuntimeBuyerVerificationAdapter<ApiProviderRuntimeClient>;
 export type LicenseVerificationPlugin = RuntimeLicenseVerificationPlugin<ApiProviderRuntimeClient>;
+export type ProviderRuntime = ProviderRuntimeModule<BackfillRecord, ApiProviderRuntimeClient>;
 
 export type {
   BackfillRecord,
@@ -54,17 +57,10 @@ export type {
 };
 export { CredentialExpiredError };
 
-/** Optional backfill capability — providers that don't support backfill omit this */
+/** Optional backfill capability — providers that don't support backfill omit this. */
 export type BackfillPlugin = ProviderBackfillPlugin<BackfillRecord>;
 
-interface BaseProviderPlugin
-  extends Omit<
-    ProviderRuntimeModule<BackfillRecord, ApiProviderRuntimeClient>,
-    'backfill' | 'buyerVerification' | 'verification'
-  > {
-  readonly backfill?: BackfillPlugin;
-  readonly buyerVerification?: BuyerVerificationAdapter;
-  readonly verification?: LicenseVerificationPlugin;
+interface BaseApiProviderHooks {
   readonly webhook?: WebhookPlugin;
   readonly connect?: ConnectPlugin;
 }
@@ -76,7 +72,7 @@ interface BaseProviderPlugin
  * MUST implement onDisconnect to clean up those webhooks when the connection
  * is removed, preventing stale webhook traffic.
  */
-interface ProgrammaticWebhookProvider extends BaseProviderPlugin {
+interface ProgrammaticWebhookHooks extends BaseApiProviderHooks {
   readonly programmaticWebhooks: true;
   /** REQUIRED: cleanup external webhooks before the connection is soft-deleted. */
   onDisconnect(ctx: DisconnectContext): Promise<void>;
@@ -86,20 +82,22 @@ interface ProgrammaticWebhookProvider extends BaseProviderPlugin {
  * Provider that either receives webhooks passively (user configures URL manually)
  * or does not use webhooks at all.
  */
-interface PassiveWebhookProvider extends BaseProviderPlugin {
+interface PassiveWebhookHooks extends BaseApiProviderHooks {
   readonly programmaticWebhooks?: false;
   /** Optional cleanup hook. */
   onDisconnect?(ctx: DisconnectContext): Promise<void>;
 }
 
-/**
- * The main contract every provider module must satisfy.
- *
- * Discriminated on `programmaticWebhooks`:
- * - `true`  -> `onDisconnect` is **required** (compile-time enforced)
- * - `false` / omitted -> `onDisconnect` is optional
- */
-export type ProviderPlugin = ProgrammaticWebhookProvider | PassiveWebhookProvider;
+export type ApiProviderHooks = ProgrammaticWebhookHooks | PassiveWebhookHooks;
+
+export interface ApiProviderEntry {
+  readonly runtime: ProviderRuntime;
+  readonly hooks: ApiProviderHooks;
+}
+
+export function defineApiProviderEntry<TEntry extends ApiProviderEntry>(entry: TEntry): TEntry {
+  return entry;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Webhook Plugin

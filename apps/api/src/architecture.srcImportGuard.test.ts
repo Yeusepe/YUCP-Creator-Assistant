@@ -83,15 +83,9 @@ function getScriptKind(filePath: string): ts.ScriptKind {
     case '.jsx':
       return ts.ScriptKind.JSX;
     case '.js':
-      return ts.ScriptKind.JS;
     case '.mjs':
-      return ts.ScriptKind.JS;
     case '.cjs':
       return ts.ScriptKind.JS;
-    case '.mts':
-      return ts.ScriptKind.TS;
-    case '.cts':
-      return ts.ScriptKind.TS;
     default:
       return ts.ScriptKind.TS;
   }
@@ -150,56 +144,157 @@ function resolveImportTarget(importerPath: string, specifier: string): string | 
       ];
 
   for (const candidate of candidates) {
-    if (existsSync(candidate) && statSync(candidate).isFile()) {
-      return candidate;
+    if (!existsSync(candidate)) {
+      continue;
+    }
+
+    const stats = statSync(candidate);
+    if (stats.isFile()) {
+      return resolve(candidate);
     }
   }
 
   return null;
 }
 
-function isCrossPackageSrcImport(importerPath: string, resolvedTargetPath: string): boolean {
+function isSrcInternalCrossWorkspaceImport(importerPath: string, importedPath: string): boolean {
   const importerWorkspace = getWorkspace(importerPath);
-  if (!importerWorkspace) {
+  const importedWorkspace = getWorkspace(importedPath);
+  if (!importerWorkspace || !importedWorkspace) {
     return false;
   }
 
-  const targetRelativePath = relative(repoRoot, resolvedTargetPath);
-  if (targetRelativePath.startsWith('..')) {
+  if (
+    importerWorkspace.kind === importedWorkspace.kind &&
+    importerWorkspace.name === importedWorkspace.name
+  ) {
     return false;
   }
 
-  const [kind, name, srcSegment] = targetRelativePath.split(sep);
-  if (kind !== 'packages' || srcSegment !== 'src') {
-    return false;
-  }
-
-  return importerWorkspace.kind !== 'packages' || importerWorkspace.name !== name;
+  const importedRelativePath = relative(repoRoot, importedPath);
+  return importedRelativePath.includes(`${sep}src${sep}`);
 }
 
-function findCrossPackageSrcImportOffenders(): string[] {
-  const offenders: string[] = [];
-  const runtimeFiles = workspaceRoots.flatMap((root) => collectWorkspaceRuntimeFiles(root));
-
-  for (const runtimeFile of runtimeFiles) {
-    const importerRelativePath = relative(repoRoot, runtimeFile).split(sep).join('/');
-
-    for (const specifier of getImportSpecifiers(runtimeFile)) {
-      const resolvedTargetPath = resolveImportTarget(runtimeFile, specifier);
-      if (!resolvedTargetPath || !isCrossPackageSrcImport(runtimeFile, resolvedTargetPath)) {
-        continue;
-      }
-
-      const resolvedRelativePath = relative(repoRoot, resolvedTargetPath).split(sep).join('/');
-      offenders.push(`${importerRelativePath} -> ${specifier} (${resolvedRelativePath})`);
-    }
+function isCrossWorkspaceProviderKeysSrcImport(
+  importerPath: string,
+  importedPath: string
+): boolean {
+  const importerWorkspace = getWorkspace(importerPath);
+  const importedWorkspace = getWorkspace(importedPath);
+  if (!importerWorkspace || !importedWorkspace) {
+    return false;
   }
 
-  return offenders.sort();
+  if (
+    importerWorkspace.kind === importedWorkspace.kind &&
+    importerWorkspace.name === importedWorkspace.name
+  ) {
+    return false;
+  }
+
+  return importedPath === resolve(repoRoot, 'packages/shared/src/providerKeys.ts');
+}
+
+function isCrossWorkspaceRootProviderDescriptorImport(
+  importerPath: string,
+  importedPath: string
+): boolean {
+  const importerWorkspace = getWorkspace(importerPath);
+  const importedWorkspace = getWorkspace(importedPath);
+  if (!importerWorkspace || !importedWorkspace) {
+    return false;
+  }
+
+  if (
+    importerWorkspace.kind === importedWorkspace.kind &&
+    importerWorkspace.name === importedWorkspace.name
+  ) {
+    return false;
+  }
+
+  return importedPath === resolve(repoRoot, 'packages/providers/src/index.ts');
+}
+
+function isLegacySharedProviderRegistryImport(importerPath: string, importedPath: string): boolean {
+  const importerWorkspace = getWorkspace(importerPath);
+  const importedWorkspace = getWorkspace(importedPath);
+  if (!importerWorkspace || !importedWorkspace) {
+    return false;
+  }
+
+  if (
+    importerWorkspace.kind === importedWorkspace.kind &&
+    importerWorkspace.name === importedWorkspace.name
+  ) {
+    return false;
+  }
+
+  return (
+    importedPath === resolve(repoRoot, 'packages/shared/src/providers.ts') ||
+    importedPath === resolve(repoRoot, 'packages/shared/src/providers/index.ts')
+  );
 }
 
 describe('source import architecture', () => {
+  const runtimeFiles = workspaceRoots.flatMap((root) => collectWorkspaceRuntimeFiles(root));
+
   it('keeps app and package runtime code out of sibling package src internals', () => {
-    expect(findCrossPackageSrcImportOffenders()).toEqual([]);
+    const violations: string[] = [];
+
+    for (const filePath of runtimeFiles) {
+      for (const specifier of getImportSpecifiers(filePath)) {
+        const target = resolveImportTarget(filePath, specifier);
+        if (target && isSrcInternalCrossWorkspaceImport(filePath, target)) {
+          violations.push(`${relative(repoRoot, filePath)} -> ${relative(repoRoot, target)}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps shared provider key internals out of runtime code', () => {
+    const violations: string[] = [];
+
+    for (const filePath of runtimeFiles) {
+      for (const specifier of getImportSpecifiers(filePath)) {
+        const target = resolveImportTarget(filePath, specifier);
+        if (target && isCrossWorkspaceProviderKeysSrcImport(filePath, target)) {
+          violations.push(`${relative(repoRoot, filePath)} -> ${relative(repoRoot, target)}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps shared-root provider descriptor exports out of runtime code', () => {
+    const violations: string[] = [];
+
+    for (const filePath of runtimeFiles) {
+      for (const specifier of getImportSpecifiers(filePath)) {
+        const target = resolveImportTarget(filePath, specifier);
+        if (target && isCrossWorkspaceRootProviderDescriptorImport(filePath, target)) {
+          violations.push(`${relative(repoRoot, filePath)} -> ${relative(repoRoot, target)}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps the legacy shared provider registry out of runtime code', () => {
+    const violations: string[] = [];
+
+    for (const filePath of runtimeFiles) {
+      for (const specifier of getImportSpecifiers(filePath)) {
+        const target = resolveImportTarget(filePath, specifier);
+        if (target && isLegacySharedProviderRegistryImport(filePath, target)) {
+          violations.push(`${relative(repoRoot, filePath)} -> ${relative(repoRoot, target)}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
   });
 });

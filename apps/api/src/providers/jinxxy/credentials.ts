@@ -1,9 +1,10 @@
+import { JINXXY_PURPOSES } from '@yucp/providers/jinxxy/module';
 import { api } from '../../../../../convex/_generated/api';
 import { decrypt } from '../../lib/encrypt';
 import { logger } from '../../lib/logger';
 import type { ProviderContext } from '../types';
 
-export const JINXXY_API_KEY_PURPOSE = 'jinxxy-api-key' as const;
+export const JINXXY_API_KEY_PURPOSE = JINXXY_PURPOSES.credential;
 
 type JinxxyCredentialContext = Pick<ProviderContext, 'convex' | 'apiSecret' | 'encryptionSecret'>;
 

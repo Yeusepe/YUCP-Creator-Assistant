@@ -6,6 +6,7 @@
  *   GET  /api/connect/gumroad/callback  — exchanges the code, stores tokens + registers webhooks
  */
 
+import { GUMROAD_PURPOSES } from '@yucp/providers/gumroad/module';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
@@ -14,9 +15,8 @@ import { getStateStore } from '../../lib/stateStore';
 import type { ConnectContext, ConnectPlugin, ConnectRoute } from '../types';
 import { generateSecureRandom } from '../types';
 
-// HKDF purpose strings — inlined to avoid circular imports with index.ts
-const CREDENTIAL_PURPOSE = 'gumroad-oauth-access-token' as const;
-const REFRESH_TOKEN_PURPOSE = 'gumroad-oauth-refresh-token' as const;
+const CREDENTIAL_PURPOSE = GUMROAD_PURPOSES.credential;
+const REFRESH_TOKEN_PURPOSE = GUMROAD_PURPOSES.refreshToken;
 
 const GUMROAD_STATE_PREFIX = 'connect_gumroad:';
 const GUMROAD_STATE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes

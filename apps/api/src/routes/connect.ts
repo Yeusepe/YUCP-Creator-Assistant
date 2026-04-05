@@ -14,7 +14,8 @@ import {
   DashboardShellService,
   GuildDirectoryService,
 } from '@yucp/application/services';
-import { getProviderDescriptor, timingSafeStringEqual } from '@yucp/shared';
+import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
+import { timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { type Auth } from '../auth';
@@ -34,7 +35,7 @@ import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
 import { listDashboardProviderDisplays } from '../providers/display';
-import { PROVIDERS } from '../providers/index';
+import { getProviderHooks, getProviderRuntime, listConnectPlugins } from '../providers/index';
 import type { ConnectConfig, ConnectContext } from '../providers/types';
 import { createConnectApiAccessRoutes } from './connectApiAccess';
 import { createConnectCertificateRoutes } from './connectCertificateRoutes';
@@ -433,9 +434,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     pathname: string,
     request: Request
   ): Promise<Response> | null {
-    for (const plugin of PROVIDERS.values()) {
-      if (!plugin.connect) continue;
-      for (const route of plugin.connect.routes) {
+    for (const connect of listConnectPlugins()) {
+      for (const route of connect.routes) {
         if (route.method === method && route.path === pathname) {
           return route.handler(request, createConnectContext(request));
         }
@@ -940,10 +940,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       });
       if (!connInfo) return;
 
-      const plugin = PROVIDERS.get(connInfo.provider);
-      if (!plugin?.onDisconnect) return;
+      const onDisconnect = getProviderHooks(connInfo.provider)?.onDisconnect;
+      if (!onDisconnect) return;
 
-      await plugin.onDisconnect({
+      await onDisconnect({
         credentials: connInfo.credentials,
         encryptionSecret: config.encryptionSecret,
         apiBaseUrl: config.apiBaseUrl,
@@ -1597,8 +1597,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     }
 
     try {
-      const plugin = PROVIDERS.get(providerKey);
-      const credentialPurpose = plugin?.productCredentialPurpose;
+      const runtime = getProviderRuntime(providerKey);
+      const credentialPurpose = runtime?.productCredentialPurpose;
       if (!credentialPurpose) {
         logger.error('Provider missing productCredentialPurpose for per-product credential', {
           providerKey,
@@ -1620,14 +1620,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         encryptedSecretKey,
       });
 
-      if (plugin.onProductCredentialAdded) {
+      if (runtime?.onProductCredentialAdded) {
         const providerCtx = {
           convex,
           apiSecret: config.convexApiSecret,
           authUserId,
           encryptionSecret: config.encryptionSecret,
         };
-        plugin.onProductCredentialAdded(productId, providerCtx).catch((err) => {
+        runtime.onProductCredentialAdded(productId, providerCtx).catch((err) => {
           logger.warn('onProductCredentialAdded hook failed (non-fatal)', {
             providerKey,
             productId,
@@ -1760,8 +1760,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       };
     }
     try {
-      const plugin = PROVIDERS.get(params.providerKey);
-      const credentialPurpose = plugin?.productCredentialPurpose;
+      const runtime = getProviderRuntime(params.providerKey);
+      const credentialPurpose = runtime?.productCredentialPurpose;
       if (!credentialPurpose) {
         return {
           success: false,
@@ -1783,14 +1783,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         encryptedSecretKey,
       });
 
-      if (plugin.onProductCredentialAdded) {
+      if (runtime?.onProductCredentialAdded) {
         const providerCtx = {
           convex,
           apiSecret: config.convexApiSecret,
           authUserId: params.authUserId,
           encryptionSecret: config.encryptionSecret,
         };
-        plugin.onProductCredentialAdded(params.productId, providerCtx).catch((err) => {
+        runtime.onProductCredentialAdded(params.productId, providerCtx).catch((err) => {
           logger.warn('onProductCredentialAdded hook failed (non-fatal)', {
             providerKey: params.providerKey,
             productId: params.productId,

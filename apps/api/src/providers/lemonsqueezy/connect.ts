@@ -6,15 +6,15 @@
  */
 
 import { LemonSqueezyApiClient } from '@yucp/providers';
+import { LEMONSQUEEZY_PURPOSES } from '@yucp/providers/lemonsqueezy/module';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
 import { logger } from '../../lib/logger';
 import type { ConnectContext, ConnectPlugin, ConnectRoute } from '../types';
 
-// HKDF purpose strings — inlined to avoid circular imports with index.ts
-const CREDENTIAL_PURPOSE = 'lemonsqueezy-api-token' as const;
-const WEBHOOK_SECRET_PURPOSE = 'lemonsqueezy-webhook-secret' as const;
+const CREDENTIAL_PURPOSE = LEMONSQUEEZY_PURPOSES.credential;
+const WEBHOOK_SECRET_PURPOSE = LEMONSQUEEZY_PURPOSES.webhookSecret;
 
 const LS_WEBHOOK_EVENTS = [
   'order_created',

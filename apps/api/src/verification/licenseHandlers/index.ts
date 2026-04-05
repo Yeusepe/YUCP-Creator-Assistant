@@ -14,9 +14,9 @@ import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
 import { logger } from '../../lib/logger';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
-import { getProvider } from '../../providers/index';
+import { getProviderRuntime } from '../../providers/index';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
-import type { VerificationConfig } from '../sessionManager';
+import type { VerificationConfig } from '../verificationConfig';
 
 export interface LicenseVerificationHandler {
   verify(
@@ -27,8 +27,8 @@ export interface LicenseVerificationHandler {
 }
 
 export function getHandler(provider: string): LicenseVerificationHandler | null {
-  const plugin = getProvider(provider)?.verification;
-  if (!plugin) return null;
+  const verification = getProviderRuntime(provider)?.verification;
+  if (!verification) return null;
 
   return {
     async verify(input, config, convex) {
@@ -40,9 +40,9 @@ export function getHandler(provider: string): LicenseVerificationHandler | null 
         encryptionSecret: config.encryptionSecret ?? '',
       };
 
-      let result: Awaited<ReturnType<typeof plugin.verifyLicense>>;
+      let result: Awaited<ReturnType<typeof verification.verifyLicense>>;
       try {
-        result = await plugin.verifyLicense(licenseKey, productId, authUserId, ctx);
+        result = await verification.verifyLicense(licenseKey, productId, authUserId, ctx);
       } catch (err) {
         logger.error('[licenseHandlers] verifyLicense threw', {
           provider,

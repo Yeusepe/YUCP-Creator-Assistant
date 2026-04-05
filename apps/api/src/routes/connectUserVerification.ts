@@ -1,4 +1,5 @@
-import { getProviderDescriptor, getSafeRelativeRedirectTarget } from '@yucp/shared';
+import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
+import { getSafeRelativeRedirectTarget } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
@@ -15,7 +16,7 @@ import {
   verifyHostedBuyerProviderLinkIntent,
   verifyHostedManualLicenseIntent,
 } from '../verification/hostedIntents';
-import { getVerificationConfig } from '../verification/sessionManager';
+import { getVerificationConfig } from '../verification/verificationConfig';
 
 interface CreateConnectUserVerificationRoutesOptions {
   auth: Auth;

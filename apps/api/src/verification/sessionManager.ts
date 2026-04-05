@@ -24,6 +24,11 @@ import { getStateStore } from '../lib/stateStore';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { createApiVerificationSupportError } from '../lib/verificationSupport';
 import {
+  getVerificationConfig,
+  modeToProvider,
+  type VerificationConfig,
+} from './verificationConfig';
+import {
   buildVerificationCallbackUri,
   createPkceBundle,
   createVerificationState,
@@ -47,6 +52,7 @@ import {
   persistVrchatSession,
 } from './vrchatSession';
 
+export { getVerificationConfig, type VerificationConfig } from './verificationConfig';
 export {
   computeCodeChallenge,
   generateCodeVerifier,
@@ -61,94 +67,6 @@ const VRCHAT_VERIFY_ATTEMPTS = new Map<string, { count: number; resetAt: number 
 const VERIFY_PANEL_PREFIX = 'verify_panel:';
 const VERIFY_PANEL_TTL_MS = 15 * 60 * 1000;
 const INTERACTION_TOKEN_PURPOSE = 'verify-panel-interaction-token';
-
-// ============================================================================
-// VERIFICATION MODE CONFIGURATIONS
-// ============================================================================
-
-/**
- * Verification mode configuration
- */
-export interface VerificationModeConfig {
-  /** OAuth authorization URL */
-  authUrl: string;
-  /** OAuth token URL */
-  tokenUrl: string;
-  /** Required OAuth scopes */
-  scopes: string[];
-  /** Callback path */
-  callbackPath: string;
-  /**
-   * Key in VerificationConfig for the OAuth client ID.
-   * If omitted, falls back to providerClientIds[mode].
-   */
-  clientIdKey?: keyof VerificationConfig;
-  /**
-   * Key in VerificationConfig for the OAuth client secret.
-   * If omitted, falls back to providerClientSecrets[mode].
-   */
-  clientSecretKey?: keyof VerificationConfig;
-  /**
-   * Extra OAuth query params appended to the authorization URL for this mode.
-   * Merged with (and overridden by) providerExtraOAuthParams[mode] from VerificationConfig.
-   */
-  extraOAuthParams?: Record<string, string>;
-}
-
-/**
- * Gumroad OAuth configuration
- */
-export const GUMROAD_CONFIG: VerificationModeConfig = {
-  authUrl: 'https://gumroad.com/oauth/authorize',
-  tokenUrl: 'https://api.gumroad.com/oauth/token',
-  scopes: ['view_profile', 'view_sales'],
-  callbackPath: '/api/verification/callback/gumroad',
-  clientIdKey: 'gumroadClientId',
-  clientSecretKey: 'gumroadClientSecret',
-};
-
-/**
- * Discord role verification configuration
- * Uses Discord OAuth for user identity verification
- */
-export const DISCORD_ROLE_CONFIG: VerificationModeConfig = {
-  authUrl: 'https://discord.com/api/oauth2/authorize',
-  tokenUrl: 'https://discord.com/api/oauth2/token',
-  scopes: ['identify', 'guilds', 'guilds.members.read'],
-  callbackPath: '/api/verification/callback/discord',
-  clientIdKey: 'discordClientId',
-  clientSecretKey: 'discordClientSecret',
-  extraOAuthParams: { prompt: 'consent' },
-};
-
-/**
- * Get configuration for a verification mode.
- * Callback path uses 'discord' but internal mode is 'discord_role'.
- */
-/**
- * Registry mapping verification mode → OAuth config.
- * Add a new entry here when adding a new OAuth provider.
- */
-const VERIFICATION_CONFIGS: Record<string, VerificationModeConfig> = {
-  gumroad: GUMROAD_CONFIG,
-  discord: DISCORD_ROLE_CONFIG,
-  discord_role: DISCORD_ROLE_CONFIG,
-};
-
-export function getVerificationConfig(mode: string): VerificationModeConfig | null {
-  return VERIFICATION_CONFIGS[mode] ?? null;
-}
-
-/** Map callback path mode to Convex/identitySync provider name */
-const MODE_TO_PROVIDER_MAP: Record<string, string> = {
-  gumroad: 'gumroad',
-  discord: 'discord',
-  discord_role: 'discord',
-};
-
-function modeToProvider(mode: string): string | null {
-  return MODE_TO_PROVIDER_MAP[mode] ?? null;
-}
 
 // ============================================================================
 // VERIFICATION SESSION TYPES
@@ -257,50 +175,6 @@ export interface VerificationSessionManager {
    * Links subject to session and marks as completed
    */
   completeSession: (input: CompleteVerificationInput) => Promise<CompleteVerificationResult>;
-}
-
-/**
- * Configuration for verification session manager
- */
-export interface VerificationConfig {
-  /** Base URL for the API */
-  baseUrl: string;
-  /** Frontend URL for redirects */
-  frontendUrl: string;
-  /** Convex URL for backend calls */
-  convexUrl: string;
-  /** Convex API secret for authenticated mutations */
-  convexApiSecret: string;
-  /** Gumroad client ID */
-  gumroadClientId?: string;
-  /** Gumroad client secret */
-  gumroadClientSecret?: string;
-  /** Discord client ID */
-  discordClientId?: string;
-  /** Discord client secret */
-  discordClientSecret?: string;
-  /** Jinxxy client ID */
-  jinxxyClientId?: string;
-  /** Jinxxy client secret */
-  jinxxyClientSecret?: string;
-  /** Secret for decrypting tenant-stored keys (e.g. Jinxxy API key) */
-  encryptionSecret?: string;
-  /**
-   * Generic OAuth client IDs for additional providers.
-   * Keys are verification modes (e.g. 'myprovider'); values are client IDs.
-   * Add new OAuth providers here without changing the interface.
-   */
-  providerClientIds?: Record<string, string>;
-  /**
-   * Generic OAuth client secrets for additional providers.
-   * Keys are verification modes; values are client secrets.
-   * Add new OAuth providers here without changing the interface.
-   */
-  providerClientSecrets?: Record<string, string>;
-  /**
-   * Extra OAuth query params per mode (e.g. { discord_role: { prompt: 'consent' } }).
-   */
-  providerExtraOAuthParams?: Record<string, Record<string, string>>;
 }
 
 /**
@@ -528,12 +402,11 @@ export function createVerificationSessionManager(
         code_verifier: codeVerifier,
       });
 
-      const tokenModeConfig = VERIFICATION_CONFIGS[mode];
-      const clientId = tokenModeConfig?.clientIdKey
-        ? (config[tokenModeConfig.clientIdKey] as string | undefined)
+      const clientId = modeConfig.clientIdKey
+        ? (config[modeConfig.clientIdKey] as string | undefined)
         : config.providerClientIds?.[mode];
-      const clientSecret = tokenModeConfig?.clientSecretKey
-        ? (config[tokenModeConfig.clientSecretKey] as string | undefined)
+      const clientSecret = modeConfig.clientSecretKey
+        ? (config[modeConfig.clientSecretKey] as string | undefined)
         : config.providerClientSecrets?.[mode];
 
       if (clientId) tokenParams.set('client_id', clientId);

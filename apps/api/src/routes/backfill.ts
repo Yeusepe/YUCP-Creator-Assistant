@@ -20,7 +20,7 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { loadEnv } from '../lib/env';
 import { logger } from '../lib/logger';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
-import { getProvider } from '../providers/index';
+import { getProviderRuntime } from '../providers/index';
 import type { BackfillRecord } from '../providers/types';
 
 export type { BackfillRecord };
@@ -40,7 +40,7 @@ export interface BackfillRouteDependencies {
   getConvexUrl(): string;
   getEncryptionSecret(): string | undefined;
   createConvexClient(convexUrl: string): ReturnType<typeof getConvexClientFromUrl>;
-  getProviderById: typeof getProvider;
+  getProviderById: typeof getProviderRuntime;
   ingestBackfillBatch(
     convex: ReturnType<typeof getConvexClientFromUrl>,
     input: {
@@ -58,7 +58,7 @@ const defaultDependencies: BackfillRouteDependencies = {
   getConvexUrl: () => process.env.CONVEX_URL ?? process.env.CONVEX_DEPLOYMENT ?? '',
   getEncryptionSecret: () => loadEnv().ENCRYPTION_SECRET,
   createConvexClient: getConvexClientFromUrl,
-  getProviderById: getProvider,
+  getProviderById: getProviderRuntime,
   ingestBackfillBatch: (convex, input) =>
     convex.mutation(api.backgroundSync.ingestBackfillPurchaseFactsBatch, input),
   sleep: (waitMs) => new Promise((resolve) => setTimeout(resolve, waitMs)),
@@ -134,16 +134,16 @@ export function createBackfillProductHandler(
       const backfillService = new BackfillService({
         providers: {
           getProvider: (providerKey) => {
-            const plugin = dependencies.getProviderById(providerKey);
-            if (!plugin?.backfill) {
+            const runtime = dependencies.getProviderById(providerKey);
+            if (!runtime?.backfill) {
               return undefined;
             }
-            const backfill = plugin.backfill;
+            const backfill = runtime.backfill;
 
             return {
               pageDelayMs: backfill.pageDelayMs,
               getCredential: async () =>
-                plugin.getCredential({
+                runtime.getCredential({
                   convex,
                   apiSecret,
                   authUserId,

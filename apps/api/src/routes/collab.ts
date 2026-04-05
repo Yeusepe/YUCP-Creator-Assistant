@@ -45,7 +45,7 @@ import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
-import { PROVIDERS } from '../providers/index';
+import { getProviderRuntime } from '../providers/index';
 
 // Collab webhook secrets are scoped to collab connections, not shared with per-provider webhooks
 const COLLAB_WEBHOOK_SECRET_PURPOSE = 'collab-webhook-signing-secret' as const;
@@ -848,11 +848,11 @@ export function createCollabRoutes(config: CollabConfig) {
 
     // Validate the API key against the correct provider
     let credentialEncrypted: string;
-    const providerPlugin = PROVIDERS.get(inviteProviderKey);
-    if (!providerPlugin) {
+    const providerRuntime = getProviderRuntime(inviteProviderKey);
+    if (!providerRuntime) {
       return respond(() => Response.json({ error: 'unsupported_provider' }, { status: 400 }));
     }
-    const validateCollaboratorCredential = providerPlugin.collabValidate;
+    const validateCollaboratorCredential = providerRuntime.collabValidate;
     if (validateCollaboratorCredential) {
       try {
         await timing.measure(
@@ -868,13 +868,13 @@ export function createCollabRoutes(config: CollabConfig) {
         );
       }
     }
-    if (!providerPlugin.collabCredentialPurpose) {
+    if (!providerRuntime.collabCredentialPurpose) {
       return respond(() => Response.json({ error: 'provider_not_configurable' }, { status: 400 }));
     }
     credentialEncrypted = await encrypt(
       rawApiKey,
       config.encryptionSecret,
-      providerPlugin.collabCredentialPurpose
+      providerRuntime.collabCredentialPurpose
     );
 
     let webhookSecretRef: string | undefined;
@@ -1039,26 +1039,26 @@ export function createCollabRoutes(config: CollabConfig) {
     let collaboratorIdentity: string;
     let credentialEncrypted: string;
 
-    const providerPlugin = PROVIDERS.get(providerKey);
-    if (!providerPlugin) {
+    const providerRuntime = getProviderRuntime(providerKey);
+    if (!providerRuntime) {
       return Response.json({ error: 'unsupported_provider' }, { status: 400 });
     }
-    if (providerPlugin.collabValidate) {
+    if (providerRuntime.collabValidate) {
       try {
-        await providerPlugin.collabValidate(rawCredential);
+        await providerRuntime.collabValidate(rawCredential);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Invalid credential';
         logger.warn('Manual collab credential validation failed', { providerKey, error: msg });
         return Response.json({ error: 'invalid_credential', details: msg }, { status: 422 });
       }
     }
-    if (!providerPlugin.collabCredentialPurpose) {
+    if (!providerRuntime.collabCredentialPurpose) {
       return Response.json({ error: 'provider_not_configurable' }, { status: 400 });
     }
     credentialEncrypted = await encrypt(
       rawCredential,
       config.encryptionSecret,
-      providerPlugin.collabCredentialPurpose
+      providerRuntime.collabCredentialPurpose
     );
     collaboratorDisplayName = providerKey;
     collaboratorIdentity = `manual:${providerKey}:${Date.now()}`;

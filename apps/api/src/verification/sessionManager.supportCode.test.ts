@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { createVerificationRoutes, type VerificationConfig } from './sessionManager';
+import { createVerificationRoutes } from './sessionManager';
+import type { VerificationConfig } from './verificationConfig';
 
 const originalFetch = globalThis.fetch;
 const originalWarn = console.warn;

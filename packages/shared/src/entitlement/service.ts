@@ -15,7 +15,7 @@
 // TYPES
 // ============================================================================
 
-import type { ProviderKey } from '../providers';
+import type { ProviderKey } from '../providerKeys';
 
 /** Provider types supported by the platform */
 export type Provider = ProviderKey;

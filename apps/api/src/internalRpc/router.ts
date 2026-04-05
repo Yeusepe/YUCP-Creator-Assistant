@@ -37,7 +37,7 @@ import { VrchatApiClient } from '@yucp/providers';
 import { timingSafeStringEqual } from '@yucp/shared';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { createSetupSession } from '../lib/setupSession';
-import { getProvider } from '../providers/index';
+import { getProviderRuntime } from '../providers/index';
 import type { ProviderContext } from '../providers/types';
 import type { VerificationRouteHandlers } from '../routes';
 import type { CollabConfig } from '../routes/collab';
@@ -45,7 +45,7 @@ import { createCollabRoutes } from '../routes/collab';
 import { type ConnectConfig, createConnectRoutes } from '../routes/connect';
 import { handleProviderProducts } from '../routes/products';
 import { handleCompleteVrchat } from '../verification/completeVrchat';
-import type { VerificationConfig } from '../verification/sessionManager';
+import type { VerificationConfig } from '../verification/verificationConfig';
 import { createJsonRequest, readJsonResponse } from './httpAdapter';
 import { InternalRpcTelemetry } from './telemetry';
 
@@ -312,8 +312,8 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
       ): Promise<ResolveProductNameResponse> {
         return withTelemetry('CatalogService.resolveProductName', request, async () => {
           const provider = request.provider ?? '';
-          const plugin = getProvider(provider);
-          if (!plugin?.resolveProductName) {
+          const runtime = getProviderRuntime(provider);
+          if (!runtime?.resolveProductName) {
             return { name: '', error: 'not_supported' };
           }
 
@@ -326,8 +326,8 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
             encryptionSecret: deps.config.encryptionSecret,
           };
 
-          const credential = await plugin.getCredential(ctx);
-          const result = await plugin.resolveProductName(credential, request.urlOrId ?? '', ctx);
+          const credential = await runtime.getCredential(ctx);
+          const result = await runtime.resolveProductName(credential, request.urlOrId ?? '', ctx);
           return { name: result.name ?? '', error: result.error };
         });
       }

@@ -10,8 +10,8 @@ import { api, internal } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexServerClient } from '../lib/convex';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
-import { getProvider } from '../providers';
-import { getVerificationConfig } from './sessionManager';
+import { getProviderRuntime } from '../providers';
+import { getVerificationConfig } from './verificationConfig';
 
 function resolveHostedVerificationProvider(
   providerKey: string
@@ -28,7 +28,8 @@ function resolveHostedVerificationProvider(
       descriptor.supportsOAuth && getVerificationConfig(providerKey)
     ),
     describeManualLicenseCapability: () =>
-      getProvider(providerKey)?.buyerVerification?.describeCapability('manual_license') ?? null,
+      getProviderRuntime(providerKey)?.buyerVerification?.describeCapability('manual_license') ??
+      null,
   };
 }
 
@@ -113,7 +114,7 @@ export async function verifyHostedManualLicenseIntent(input: {
     };
   }
 
-  const adapter = getProvider(requirement.providerKey)?.buyerVerification;
+  const adapter = getProviderRuntime(requirement.providerKey)?.buyerVerification;
   if (!adapter) {
     return {
       success: false,

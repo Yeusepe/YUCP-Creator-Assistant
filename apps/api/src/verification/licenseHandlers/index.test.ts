@@ -9,7 +9,7 @@ const verificationPlugin = {
   })),
 };
 
-const getProvider = mock((providerId: string) => {
+const getProviderRuntime = mock((providerId: string) => {
   if (providerId === 'with-verification') {
     return {
       id: providerId,
@@ -35,7 +35,7 @@ mock.module('../../../../../convex/_generated/api', () => ({
 }));
 
 mock.module('../../providers/index', () => ({
-  getProvider,
+  getProviderRuntime,
 }));
 
 const { getHandler } = await import('./index');
@@ -49,7 +49,7 @@ describe('license verification handler registry', () => {
     expect(productionEntries).toEqual(['index.ts']);
   });
 
-  it('derives handlers directly from the provider plugin registry', async () => {
+  it('derives handlers directly from the provider runtime registry', async () => {
     const convex = {
       mutation: mock(async () => ({
         success: true,
@@ -76,7 +76,7 @@ describe('license verification handler registry', () => {
     );
 
     expect(verificationPlugin.verifyLicense).toHaveBeenCalled();
-    expect(getProvider).toHaveBeenCalledWith('with-verification');
+    expect(getProviderRuntime).toHaveBeenCalledWith('with-verification');
     expect(result).toEqual({
       success: true,
       provider: 'with-verification',
