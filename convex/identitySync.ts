@@ -14,7 +14,7 @@
  * All operations are idempotent - safe to call multiple times.
  */
 
-import { sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { sha256Hex } from '../packages/shared/src/cryptoPrimitives.ts';
 import { v } from 'convex/values';
 import { components, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';

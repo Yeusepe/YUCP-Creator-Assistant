@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { LemonSqueezyApiClient } from '@yucp/providers';
 import { createLogger, getProviderDescriptor, timingSafeStringEqual } from '@yucp/shared';
-import { normalizeEmail, sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';

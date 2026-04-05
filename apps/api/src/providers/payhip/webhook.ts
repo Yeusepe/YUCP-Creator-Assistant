@@ -1,5 +1,5 @@
 import { createLogger, timingSafeStringEqual } from '@yucp/shared';
-import { sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../../convex/_generated/api';
 import { decrypt } from '../../lib/encrypt';
 import { getStateStore } from '../../lib/stateStore';

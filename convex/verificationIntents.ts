@@ -6,7 +6,7 @@ import {
   bytesToBase64,
   sha256Base64Url,
   sha256Hex,
-} from '@yucp/shared/cryptoPrimitives';
+} from '../packages/shared/src/cryptoPrimitives.ts';
 import { v } from 'convex/values';
 import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';

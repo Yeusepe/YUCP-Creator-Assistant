@@ -29,7 +29,7 @@
  */
 
 import { createLogger, getProviderDescriptor, PROVIDER_REGISTRY } from '@yucp/shared';
-import { base64UrlEncode, sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { base64UrlEncode, sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import {

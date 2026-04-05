@@ -1,5 +1,5 @@
 import type { Id } from '../_generated/dataModel';
-export { normalizeEmail, sha256Hex } from '@yucp/shared/cryptoPrimitives';
+export { normalizeEmail, sha256Hex } from '../../packages/shared/src/cryptoPrimitives.ts';
 
 /**
  * Find subjectId by email hash via external_accounts + bindings.

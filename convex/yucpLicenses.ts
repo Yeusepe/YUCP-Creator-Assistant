@@ -29,7 +29,7 @@
  *   RFC 8725 JWT BCP     https://www.rfc-editor.org/rfc/rfc8725
  */
 
-import { sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { sha256Hex } from '../packages/shared/src/cryptoPrimitives.ts';
 import { symmetricDecrypt } from 'better-auth/crypto';
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';

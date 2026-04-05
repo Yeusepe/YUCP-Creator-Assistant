@@ -1,6 +1,6 @@
 import { GumroadAdapter } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
-import { sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { sha256Hex } from '@yucp/shared/crypto';
 import type { LicenseVerificationPlugin, LicenseVerificationResult } from '../types';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');

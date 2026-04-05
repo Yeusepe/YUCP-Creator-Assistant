@@ -2,7 +2,7 @@
  * Shared PKCE, state, and redirect primitives for verification OAuth sessions.
  */
 
-import { base64UrlEncode, bytesToHex, sha256Bytes } from '@yucp/shared/cryptoPrimitives';
+import { base64UrlEncode, bytesToHex, sha256Bytes } from '@yucp/shared/crypto';
 
 export const SESSION_EXPIRY_MS = 15 * 60 * 1000;
 export const PKCE_CODE_CHALLENGE_METHOD = 'S256';

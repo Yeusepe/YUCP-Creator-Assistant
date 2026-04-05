@@ -16,7 +16,7 @@ import {
   base64UrlDecodeToBytes as base64urlDecode,
   base64UrlEncode as base64urlEncode,
   bytesToBase64,
-} from '@yucp/shared/cryptoPrimitives';
+} from '../../packages/shared/src/cryptoPrimitives.ts';
 export { base64ToBytes, bytesToBase64 };
 
 // Wire up Web Crypto SHA-512 so sign()/verify() work in Convex's JS runtime

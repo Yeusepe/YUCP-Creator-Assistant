@@ -7,7 +7,7 @@
  */
 
 import { createLogger, timingSafeStringEqual } from '@yucp/shared';
-import { base64UrlEncode } from '@yucp/shared/cryptoPrimitives';
+import { base64UrlEncode } from '@yucp/shared/crypto';
 import { getStateStore } from './stateStore';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');

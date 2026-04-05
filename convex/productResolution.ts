@@ -5,7 +5,7 @@
  * we normalize it, hash it, and look up in catalog_product_links.
  */
 
-import { sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { sha256Hex } from '../packages/shared/src/cryptoPrimitives.ts';
 import { v } from 'convex/values';
 import { internalQuery, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';

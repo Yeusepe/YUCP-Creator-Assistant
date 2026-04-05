@@ -14,7 +14,7 @@
 
 import { VrchatApiClient } from '@yucp/providers';
 import { createLogger, timingSafeStringEqual } from '@yucp/shared';
-import { sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { createAuth, type VrchatOwnershipPayload } from '../auth';

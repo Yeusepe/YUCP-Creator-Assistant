@@ -10,7 +10,7 @@
  */
 
 import { createLogger } from '@yucp/shared';
-import { sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';

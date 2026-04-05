@@ -8,7 +8,7 @@
 
 import { LemonSqueezyApiClient } from '@yucp/providers/lemonsqueezy';
 import { createLogger } from '@yucp/shared';
-import { normalizeEmail, sha256Hex } from '@yucp/shared/cryptoPrimitives';
+import { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
 import { encrypt } from '../../lib/encrypt';
 import type { BackfillPlugin, BackfillRecord } from '../types';
 
