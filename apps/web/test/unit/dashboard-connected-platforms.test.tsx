@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@tanstack/react-router', () => {
   return {
     createFileRoute: () => (options: unknown) => ({ options }),
+    createLazyFileRoute: () => (options: unknown) => ({ options }),
     useNavigate: vi.fn(() => vi.fn()),
   };
 });
@@ -99,7 +100,7 @@ vi.mock('@/lib/dashboard', () => {
 });
 
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index';
+import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
 
 function createWrapper() {
   const queryClient = new QueryClient({

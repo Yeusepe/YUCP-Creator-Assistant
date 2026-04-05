@@ -35,8 +35,6 @@ describe('Route architecture', () => {
     // See: test/unit/setup-shell-visibility-contracts.test.ts
     const SIDE_EFFECT_CSS_ALLOWED = new Set([
       '__root.tsx',
-      '_authenticated/account.lazy.tsx',
-      '_authenticated/dashboard.lazy.tsx',
       '_authenticated/verify/purchase.lazy.tsx',
       'install/error.lazy.tsx',
       'install/success.lazy.tsx',

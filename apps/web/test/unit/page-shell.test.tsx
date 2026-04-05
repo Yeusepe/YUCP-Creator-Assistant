@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authClient } from '@/lib/auth-client';
 import { SignInPage } from '@/routes/sign-in';
@@ -67,30 +67,15 @@ describe('Page shell boot', () => {
 
     expect(container.querySelector('#page-loading-overlay .plo-bag-scene')).toBeTruthy();
 
-    act(() => {
-      cloudBackgroundReady.callback?.();
-    });
-
     await vi.runAllTimersAsync();
 
     expect(container.querySelector('#page-content')?.classList.contains('visible')).toBe(true);
   });
 
-  it('keeps the loading overlay mounted until the cloud background signals readiness', async () => {
+  it('reveals the sign-in content without waiting for cloud background readiness', async () => {
     const { container } = render(<SignInPage />);
 
-    await vi.advanceTimersByTimeAsync(1000);
-
-    expect(container.querySelector('#page-content')?.classList.contains('visible')).toBe(false);
-    expect(
-      (container.querySelector('#page-loading-overlay') as HTMLDivElement | null)?.style.display
-    ).not.toBe('none');
-
-    act(() => {
-      cloudBackgroundReady.callback?.();
-    });
-
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(10);
 
     expect(container.querySelector('#page-content')?.classList.contains('visible')).toBe(true);
   });

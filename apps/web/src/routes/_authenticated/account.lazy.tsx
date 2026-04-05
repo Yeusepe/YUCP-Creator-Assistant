@@ -2,9 +2,6 @@ import { createLazyFileRoute, Link, Outlet, useRouterState } from '@tanstack/rea
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAccountShell } from '@/hooks/useAccountShell';
-import '@/styles/dashboard.css';
-import '@/styles/dashboard-components.css';
-import '@/styles/account.css';
 
 export const Route = createLazyFileRoute('/_authenticated/account')({
   component: AccountLayout,

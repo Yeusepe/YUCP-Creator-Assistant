@@ -1,7 +1,9 @@
 import notFoundHref from '@/styles/404.css?url';
+import accountHref from '@/styles/account.css?url';
 import collabInviteHref from '@/styles/collab-invite.css?url';
 import connectHref from '@/styles/connect.css?url';
 import dashboardHref from '@/styles/dashboard.css?url';
+import dashboardComponentsHref from '@/styles/dashboard-components.css?url';
 import discordRoleSetupHref from '@/styles/discord-role-setup.css?url';
 import jinxxySetupHref from '@/styles/jinxxy-setup.css?url';
 import legalHref from '@/styles/legal.css?url';
@@ -18,10 +20,12 @@ import verifySuccessHref from '@/styles/verify-success.css?url';
 import vrchatVerifyHref from '@/styles/vrchat-verify.css?url';
 
 export const routeStyleHrefs = {
+  account: accountHref,
   notFound: notFoundHref,
   collabInvite: collabInviteHref,
   connect: connectHref,
   dashboard: dashboardHref,
+  dashboardComponents: dashboardComponentsHref,
   discordRoleSetup: discordRoleSetupHref,
   jinxxySetup: jinxxySetupHref,
   legal: legalHref,

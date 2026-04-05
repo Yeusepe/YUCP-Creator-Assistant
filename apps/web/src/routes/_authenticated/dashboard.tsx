@@ -3,6 +3,7 @@ import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { normalizeDashboardIdentifier } from '@/lib/dashboard';
 import { dashboardShellQueryOptions } from '@/lib/dashboardQueryOptions';
 import { primeDashboardShellCaches } from '@/lib/dashboardShellCache';
+import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { type DashboardShellData, fetchDashboardShell } from '@/lib/server/dashboard';
 
 /**
@@ -22,6 +23,12 @@ interface DashboardSearch {
 
 export const Route = createFileRoute('/_authenticated/dashboard')({
   ssr: 'data-only',
+  head: () => ({
+    links: routeStylesheetLinks(
+      routeStyleHrefs.dashboard,
+      routeStyleHrefs.dashboardComponents
+    ),
+  }),
   validateSearch: (search: Record<string, unknown>): DashboardSearch => ({
     guild_id: normalizeDashboardIdentifier(search.guild_id as string | undefined),
     tenant_id: normalizeDashboardIdentifier(search.tenant_id as string | undefined),

@@ -4,6 +4,10 @@ import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 
+vi.mock('@tanstack/react-router', () => ({
+  createLazyFileRoute: () => (options: unknown) => ({ options }),
+}));
+
 process.env.CONVEX_SITE_URL ??= 'https://example.convex.site';
 process.env.CONVEX_URL ??= 'https://example.convex.cloud';
 
@@ -46,7 +50,7 @@ vi.mock('@/lib/dashboard', async () => {
 });
 
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as IntegrationsRoute } from '@/routes/_authenticated/dashboard/integrations';
+import { Route as IntegrationsRoute } from '@/routes/_authenticated/dashboard/integrations.lazy';
 
 function createWrapper() {
   const queryClient = new QueryClient({

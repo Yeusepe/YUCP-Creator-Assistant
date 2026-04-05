@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@tanstack/react-router', () => {
   return {
     createFileRoute: () => (options: unknown) => ({ options }),
+    createLazyFileRoute: () => (options: unknown) => ({ options }),
   };
 });
 
@@ -88,7 +89,7 @@ vi.mock('@/components/dashboard/panels/StoreIntegrationsPanel', () => {
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
-import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index';
+import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
 
 describe('dashboard onboarding hydration', () => {
   beforeEach(() => {

@@ -3,7 +3,6 @@ import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
-import { CloudReadyContext, useCloudReady } from '@/hooks/useCloudReady';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -22,12 +21,11 @@ export const Route = createFileRoute('/sign-in-redirect')({
 type ViewState = 'loading' | 'error';
 
 function SignInRedirectPage() {
-  const [bgReady, setBgReady] = useState(false);
   return (
-    <CloudReadyContext.Provider value={bgReady}>
-      <CloudBackground variant="default" onReady={() => setBgReady(true)} />
+    <>
+      <CloudBackground variant="default" />
       <SignInRedirectPageContent />
-    </CloudReadyContext.Provider>
+    </>
   );
 }
 
@@ -36,7 +34,6 @@ function SignInRedirectPageContent() {
   const [isVisible, setIsVisible] = useState(false);
   const { redirectTo } = Route.useSearch();
   const postAuthTarget = normalizeAuthRedirectTarget(redirectTo);
-  const bgReady = useCloudReady();
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),
     overlayFadeClass: 'is-hiding',
@@ -45,8 +42,8 @@ function SignInRedirectPageContent() {
   });
 
   useEffect(() => {
-    if (bgReady) showPage();
-  }, [bgReady, showPage]);
+    showPage();
+  }, [showPage]);
 
   const showError = useCallback(() => {
     setViewState('error');

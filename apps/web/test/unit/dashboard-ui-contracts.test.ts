@@ -50,14 +50,12 @@ describe('dashboard UI contracts', () => {
     expect(dashboardLazyRouteSource).toContain('No servers configured yet');
   });
 
-  it('loads dashboard styles from the lazy route file instead of the initial route reference or route head assets', () => {
-    expect(dashboardRouteSource).not.toContain("import '@/styles/dashboard.css';");
-    expect(dashboardRouteSource).not.toContain("import '@/styles/dashboard-components.css';");
-    expect(dashboardLazyRouteSource).toContain("import '@/styles/dashboard.css';");
-    expect(dashboardLazyRouteSource).toContain("import '@/styles/dashboard-components.css';");
-    expect(dashboardRouteSource).not.toContain('routeStylesheetLinks(');
-    expect(dashboardRouteSource).not.toContain('routeStyleHrefs.dashboard');
-    expect(dashboardRouteSource).not.toContain('routeStyleHrefs.dashboardComponents');
+  it('declares dashboard shell styles from the base route head so SSR markup is styled on first paint', () => {
+    expect(dashboardRouteSource).toContain('routeStylesheetLinks(');
+    expect(dashboardRouteSource).toContain('routeStyleHrefs.dashboard');
+    expect(dashboardRouteSource).toContain('routeStyleHrefs.dashboardComponents');
+    expect(dashboardLazyRouteSource).not.toContain("import '@/styles/dashboard.css';");
+    expect(dashboardLazyRouteSource).not.toContain("import '@/styles/dashboard-components.css';");
   });
 
   it('keeps server dropdown CSS selectors aligned with the route class names', () => {

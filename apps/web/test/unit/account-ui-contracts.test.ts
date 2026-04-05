@@ -48,10 +48,11 @@ describe('account UI contracts', () => {
     expect(accountIndexRouteSource).toContain('useAccountShell');
   });
 
-  it('loads dashboard styling as side-effect imports and reuses the shared dashboard header', () => {
-    expect(accountRouteSource).toContain("import '@/styles/dashboard.css';");
-    expect(accountRouteSource).toContain("import '@/styles/dashboard-components.css';");
-    expect(accountRouteSource).toContain("import '@/styles/account.css';");
+  it('declares account shell styles from the base route head and reuses the shared dashboard header', () => {
+    expect(accountRouteSource).toContain('routeStylesheetLinks(');
+    expect(accountRouteSource).toContain('routeStyleHrefs.dashboard');
+    expect(accountRouteSource).toContain('routeStyleHrefs.dashboardComponents');
+    expect(accountRouteSource).toContain('routeStyleHrefs.account');
     expect(accountRouteSource).toContain('DashboardHeader');
   });
 

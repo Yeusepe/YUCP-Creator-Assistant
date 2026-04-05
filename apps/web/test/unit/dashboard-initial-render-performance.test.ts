@@ -29,17 +29,21 @@ describe('dashboard initial render performance contracts', () => {
     expect(dashboardRouteSource).toContain('pendingComponent: DashboardLayoutPending');
   });
 
-  it('keeps route-owned dashboard and account CSS in lazy route files instead of the initial route references', () => {
-    expect(dashboardRouteSource).not.toContain("import '@/styles/dashboard.css';");
-    expect(dashboardRouteSource).not.toContain("import '@/styles/dashboard-components.css';");
-    expect(accountRouteSource).not.toContain("import '@/styles/dashboard.css';");
-    expect(accountRouteSource).not.toContain("import '@/styles/dashboard-components.css';");
-    expect(accountRouteSource).not.toContain("import '@/styles/account.css';");
-    expect(dashboardLazyRouteSource).toContain("import '@/styles/dashboard.css';");
-    expect(dashboardLazyRouteSource).toContain("import '@/styles/dashboard-components.css';");
-    expect(accountLazyRouteSource).toContain("import '@/styles/dashboard.css';");
-    expect(accountLazyRouteSource).toContain("import '@/styles/dashboard-components.css';");
-    expect(accountLazyRouteSource).toContain("import '@/styles/account.css';");
+  it('head-links dashboard and account shell css from the base route references', () => {
+    expect(dashboardRouteSource).toContain('head: () => ({');
+    expect(dashboardRouteSource).toContain('routeStylesheetLinks(');
+    expect(dashboardRouteSource).toContain('routeStyleHrefs.dashboard');
+    expect(dashboardRouteSource).toContain('routeStyleHrefs.dashboardComponents');
+    expect(accountRouteSource).toContain('head: () => ({');
+    expect(accountRouteSource).toContain('routeStylesheetLinks(');
+    expect(accountRouteSource).toContain('routeStyleHrefs.dashboard');
+    expect(accountRouteSource).toContain('routeStyleHrefs.dashboardComponents');
+    expect(accountRouteSource).toContain('routeStyleHrefs.account');
+    expect(dashboardLazyRouteSource).not.toContain("import '@/styles/dashboard.css';");
+    expect(dashboardLazyRouteSource).not.toContain("import '@/styles/dashboard-components.css';");
+    expect(accountLazyRouteSource).not.toContain("import '@/styles/dashboard.css';");
+    expect(accountLazyRouteSource).not.toContain("import '@/styles/dashboard-components.css';");
+    expect(accountLazyRouteSource).not.toContain("import '@/styles/account.css';");
   });
 
   it('does not block first paint on a remote Google Fonts stylesheet', () => {

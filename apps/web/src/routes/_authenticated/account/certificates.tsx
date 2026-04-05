@@ -27,5 +27,4 @@ export const Route = createFileRoute('/_authenticated/account/certificates')({
       replace: true,
     });
   },
-  component: () => null,
 });

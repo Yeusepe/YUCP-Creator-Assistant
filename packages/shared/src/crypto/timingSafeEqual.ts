@@ -1,20 +1,21 @@
-import { timingSafeEqual } from 'node:crypto';
-
 /**
- * Constant-time string comparison using Node's native timingSafeEqual.
+ * Constant-time string comparison without Node-only APIs.
  *
- * Pads both buffers to the same length before comparison so that the
- * comparison always takes the same amount of time regardless of content.
- * The length check is performed after, using the already-constant-time
- * result, to prevent early-exit length leaks.
+ * Uses UTF-8 bytes plus XOR accumulation across the padded max length so
+ * there is no early return based on content. This keeps the helper usable in
+ * browser-like runtimes such as Convex while preserving the same semantics as
+ * the previous Node-only implementation.
  */
 export function timingSafeStringEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a, 'utf8');
-  const bb = Buffer.from(b, 'utf8');
+  const encoder = new TextEncoder();
+  const ab = encoder.encode(a);
+  const bb = encoder.encode(b);
   const maxLen = Math.max(ab.length, bb.length);
-  // Pad both buffers to the same length to avoid short-circuit on length mismatch
-  const ap = Buffer.concat([ab, Buffer.alloc(maxLen - ab.length)]);
-  const bp = Buffer.concat([bb, Buffer.alloc(maxLen - bb.length)]);
-  // timingSafeEqual is constant-time; the length check is done after to avoid leaking
-  return timingSafeEqual(ap, bp) && ab.length === bb.length;
+
+  let diff = ab.length ^ bb.length;
+  for (let index = 0; index < maxLen; index += 1) {
+    diff |= (ab[index] ?? 0) ^ (bb[index] ?? 0);
+  }
+
+  return diff === 0;
 }

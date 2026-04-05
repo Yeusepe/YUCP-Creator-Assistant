@@ -16,6 +16,7 @@ vi.mock('@tanstack/react-router', () => ({
     <a {...props}>{children}</a>
   ),
   createFileRoute: () => (options: unknown) => ({ options }),
+  createLazyFileRoute: () => (options: unknown) => ({ options }),
 }));
 
 vi.mock('@/components/ui/Select', () => ({
@@ -88,7 +89,7 @@ vi.mock('@/lib/couplingForensics', () => ({
 
 import * as certificateApi from '@/lib/certificates';
 import * as forensicsApi from '@/lib/couplingForensics';
-import { Route as ForensicsRoute } from '@/routes/_authenticated/dashboard/forensics';
+import { Route as ForensicsRoute } from '@/routes/_authenticated/dashboard/forensics.lazy';
 
 const listCreatorCertificatesMock = certificateApi.listCreatorCertificates as ReturnType<
   typeof vi.fn

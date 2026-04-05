@@ -11,8 +11,6 @@ import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { ServerContextProvider } from '@/hooks/useServerContext';
 import { listCreatorCertificates } from '@/lib/certificates';
 import { type Guild } from '@/lib/server/dashboard';
-import '@/styles/dashboard.css';
-import '@/styles/dashboard-components.css';
 import { getServerIconUrl } from '@/lib/utils';
 import { BILLING_CAPABILITY_KEYS } from '../../../../../convex/lib/billingCapabilities';
 

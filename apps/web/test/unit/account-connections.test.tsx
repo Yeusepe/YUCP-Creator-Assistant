@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({ options }),
+  createLazyFileRoute: () => (options: unknown) => ({ options }),
 }));
 
 vi.mock('@/components/ui/Toast', () => ({
@@ -29,7 +30,7 @@ vi.mock('@/lib/dashboard', async () => {
 });
 
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as AccountConnectionsRoute } from '@/routes/_authenticated/account/connections';
+import { Route as AccountConnectionsRoute } from '@/routes/_authenticated/account/connections.lazy';
 
 function createWrapper() {
   const queryClient = new QueryClient({

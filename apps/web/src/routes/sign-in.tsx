@@ -3,7 +3,6 @@ import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
-import { CloudReadyContext, useCloudReady } from '@/hooks/useCloudReady';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -37,12 +36,11 @@ function SignInRouteComponent() {
 }
 
 export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null }>) {
-  const [bgReady, setBgReady] = useState(false);
   return (
-    <CloudReadyContext.Provider value={bgReady}>
-      <CloudBackground variant="default" onReady={() => setBgReady(true)} />
+    <>
+      <CloudBackground variant="default" />
       <SignInPageContent redirectTo={redirectTo} />
-    </CloudReadyContext.Provider>
+    </>
   );
 }
 
@@ -52,7 +50,6 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
   const [errorMessage, setErrorMessage] = useState('Something went wrong. Please try again.');
   const redirectTarget = normalizeAuthRedirectTarget(redirectTo);
 
-  const bgReady = useCloudReady();
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),
     visibleClass: 'visible',
@@ -62,8 +59,8 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
   });
 
   useEffect(() => {
-    if (bgReady) showPage();
-  }, [bgReady, showPage]);
+    showPage();
+  }, [showPage]);
 
   const showError = useCallback(
     (msg?: string) => {

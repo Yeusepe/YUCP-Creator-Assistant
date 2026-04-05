@@ -82,6 +82,14 @@ describe('initial load architecture', () => {
     }
   });
 
+  it('does not block auth entry shells on cloud background readiness', () => {
+    for (const source of [signInRouteSource, signInRedirectRouteSource, oauthLoginRouteSource]) {
+      expect(source).not.toContain('useCloudReady');
+      expect(source).not.toContain('CloudReadyContext.Provider');
+      expect(source).not.toContain('if (bgReady) showPage()');
+    }
+  });
+
   it('keeps remaining css-heavy routes in lazy companion files instead of the route references', () => {
     for (const pair of lazyRoutePairs) {
       const routeSource = readFileSync(pair.routeSource, 'utf8');

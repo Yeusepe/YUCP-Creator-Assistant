@@ -29,6 +29,8 @@
     "test:ops": "bun test ./ops/dev-supervisor.test.ts",
     "test:fast": "bun run test:ops && bun run --filter '@yucp/api' test && bun run --filter '@yucp/application' test && bun run --filter '@yucp/policy' test && bun run --filter '@yucp/providers' test && bun run --filter '@yucp/shared' test",
     "test:convex": "npx vitest run --config convex/vitest.config.ts",
+    "test:convex:prepare": "bun run infisical:convex -- bun x convex dev --once",
+    "test:convex:prepare:debug": "bun run infisical:convex -- bun x convex dev --once --debug-node-apis",
     "test:api:integration": "bun test ./apps/api/test/backfill.test.ts ./apps/api/test/collab.test.ts ./apps/api/test/connect.test.ts ./apps/api/test/index.test.ts ./apps/api/test/providerPlatform.test.ts ./apps/api/test/public.test.ts ./apps/api/test/setupSession.security.test.ts ./apps/api/test/verification.test.ts ./apps/api/test/webhooks.test.ts ./apps/api/test/providers",
     "test:bot": "bun test ./apps/bot/test/commands",
     "test:all": "bun run test:fast && bun run test:convex && bun run test:api:integration && bun run test:bot",
