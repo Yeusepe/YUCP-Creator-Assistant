@@ -41,6 +41,7 @@
 
     "paths": {
       "@yucp/shared": ["./packages/shared/src"],
+      "@yucp/shared/crypto": ["./packages/shared/src/crypto/index.ts"],
       "@yucp/shared/*": ["./packages/shared/src/*"],
       "@yucp/application": ["./packages/application/src"],
       "@yucp/application/*": ["./packages/application/src/*"],

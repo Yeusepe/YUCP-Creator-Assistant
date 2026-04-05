@@ -39,25 +39,6 @@ describe('JinxxyApiClient', () => {
     it('should create client with config', () => {
       expect(client).toBeDefined();
     });
-
-    it('should throw error when API key is missing in fromEnv', () => {
-      const originalEnv = process.env.JINXXY_API_KEY;
-      process.env.JINXXY_API_KEY = '';
-
-      expect(() => JinxxyApiClient.fromEnv()).toThrow('JINXXY_API_KEY');
-
-      process.env.JINXXY_API_KEY = originalEnv;
-    });
-
-    it('should create client from environment', () => {
-      const originalEnv = process.env.JINXXY_API_KEY;
-      process.env.JINXXY_API_KEY = 'env-api-key';
-
-      const envClient = JinxxyApiClient.fromEnv();
-      expect(envClient).toBeDefined();
-
-      process.env.JINXXY_API_KEY = originalEnv;
-    });
   });
 });
 
@@ -84,18 +65,6 @@ describe('JinxxyAdapter', () => {
       expect(() => new JinxxyAdapter(invalidConfig)).toThrow('API key is required');
     });
   });
-
-  describe('fromEnv', () => {
-    it('should throw error when environment variable is missing', () => {
-      const originalEnv = process.env.JINXXY_API_KEY;
-      process.env.JINXXY_API_KEY = '';
-
-      expect(() => JinxxyAdapter.fromEnv()).toThrow('JINXXY_API_KEY');
-
-      process.env.JINXXY_API_KEY = originalEnv;
-    });
-  });
-
   describe('verifyLicense', () => {
     it('verifies license with real API when secrets configured', async () => {
       const { loadTestSecrets } = await import('@yucp/shared/test/loadTestSecrets');

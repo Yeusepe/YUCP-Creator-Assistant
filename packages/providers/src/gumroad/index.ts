@@ -15,7 +15,7 @@
 
 import type { Verification } from '@yucp/shared';
 import type { ProviderAdapter, ProviderConfig, PurchaseRecord } from '../index';
-import { createOAuthClientFromEnv, GumroadApiError, GumroadOAuthClient } from './oauth';
+import { GumroadApiError, GumroadOAuthClient } from './oauth';
 import type {
   AuthorizationUrlResult,
   GumroadAdapterConfig,
@@ -159,27 +159,6 @@ export class GumroadAdapter implements ProviderAdapter {
       oauthBaseUrl: config.oauthBaseUrl,
     });
     this.apiBaseUrl = config.apiBaseUrl ?? 'https://api.gumroad.com/v2';
-  }
-
-  /**
-   * Create adapter from environment variables
-   */
-  static fromEnv(
-    tokenStorage?: TokenStorage,
-    encryptionService?: EncryptionService,
-    stateStorage?: StateStorage
-  ): GumroadAdapter {
-    const _oauthClient = createOAuthClientFromEnv();
-    return new GumroadAdapter(
-      {
-        clientId: process.env.GUMROAD_CLIENT_ID ?? '',
-        clientSecret: process.env.GUMROAD_CLIENT_SECRET ?? '',
-        redirectUri: process.env.GUMROAD_REDIRECT_URI ?? '',
-      },
-      tokenStorage,
-      encryptionService,
-      stateStorage
-    );
   }
 
   /**

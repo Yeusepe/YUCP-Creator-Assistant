@@ -5,6 +5,11 @@
  * Backfill: fetches via GET /v2/sales?product_id=X (page-based cursor)
  */
 
+import {
+  ProviderRateLimitError,
+  parseRetryAfterMs,
+  withProviderRateLimitRetries,
+} from '@yucp/providers/core/rateLimit';
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { decrypt } from '../../lib/encrypt';
@@ -68,7 +73,6 @@ const gumroadProvider: ProviderPlugin = {
 
     const products: ProductRecord[] = [];
     let nextPageUrl: string | undefined = `${GUMROAD_API_BASE}/products`;
-    let rateLimitRetries = 0;
 
     while (nextPageUrl && products.length < 5000) {
       // Strip any access_token query param that Gumroad includes in next_page_url —
@@ -76,27 +80,34 @@ const gumroadProvider: ProviderPlugin = {
       const parsedUrl = new URL(nextPageUrl);
       parsedUrl.searchParams.delete('access_token');
 
-      const response = await fetch(parsedUrl.toString(), {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${credential}`,
+      const response = await withProviderRateLimitRetries({
+        providerName: 'Gumroad',
+        operation: async () => {
+          const response = await fetch(parsedUrl.toString(), {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${credential}`,
+            },
+          });
+
+          if (response.status === 429) {
+            throw new ProviderRateLimitError(
+              'Gumroad',
+              parseRetryAfterMs(response.headers.get('Retry-After'), 5_000)
+            );
+          }
+
+          return response;
+        },
+        getRateLimitError: (error) => (error instanceof ProviderRateLimitError ? error : null),
+        onRetry: ({ waitMs, retries }) => {
+          logger.warn('Gumroad rate limit fetching products', {
+            waitMs,
+            rateLimitRetries: retries + 1,
+          });
         },
       });
-
-      if (response.status === 429) {
-        rateLimitRetries++;
-        if (rateLimitRetries > 10) {
-          throw new Error('Gumroad API: rate limit exceeded after 10 consecutive retries');
-        }
-        const retryAfter = response.headers.get('Retry-After');
-        const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 5000;
-        logger.warn('Gumroad rate limit fetching products', { waitMs, rateLimitRetries });
-        await new Promise((r) => setTimeout(r, waitMs));
-        continue;
-      }
-
-      rateLimitRetries = 0;
 
       if (!response.ok) {
         const text = await response.text();

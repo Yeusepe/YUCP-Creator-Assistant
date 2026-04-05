@@ -10,6 +10,7 @@
  * Route handlers (products.ts, backfill.ts) require zero changes.
  */
 
+import type { BackfillRecord } from '@yucp/application/ports';
 import type { Auth } from '../auth';
 import type { getConvexClientFromUrl } from '../lib/convex';
 
@@ -21,22 +22,7 @@ export interface ProviderContext {
   encryptionSecret: string;
 }
 
-/** A single purchase record produced by the backfill pipeline */
-export interface BackfillRecord {
-  /** Set to '' in fetchPage; injected by the backfill runner */
-  authUserId: string;
-  provider: string;
-  externalOrderId: string;
-  externalLineItemId?: string;
-  buyerEmailHash: string | undefined;
-  /** AES-256-GCM encrypted normalized email (encrypted by the API before sending to Convex) */
-  buyerEmailEncrypted?: string | undefined;
-  providerUserId?: string;
-  providerProductId: string;
-  paymentStatus: string;
-  lifecycleStatus: 'active' | 'refunded' | 'cancelled' | 'disputed';
-  purchasedAt: number;
-}
+export type { BackfillRecord };
 
 /** A product returned by the products listing endpoint */
 export interface ProductRecord {

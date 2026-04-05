@@ -4,6 +4,7 @@ import {
   createManualLicenseCapability,
   resolveBuyerVerificationStoreContext,
 } from '../../verification/buyerVerificationHelpers';
+import { getJinxxyProviderRuntimeConfig } from '../runtimeConfig';
 import type { BuyerVerificationAdapter } from '../types';
 import { decryptJinxxyApiKey, resolveJinxxyCreatorApiKey } from './credentials';
 
@@ -14,7 +15,7 @@ async function verifyWithApiKey(
 ): Promise<{ success: boolean; errorMessage?: string }> {
   const client = new JinxxyApiClient({
     apiKey,
-    apiBaseUrl: process.env.JINXXY_API_BASE_URL,
+    apiBaseUrl: getJinxxyProviderRuntimeConfig().apiBaseUrl,
   });
 
   const result = await client.verifyLicenseByKey(licenseKey);

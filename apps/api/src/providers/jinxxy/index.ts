@@ -8,6 +8,7 @@
 import { JinxxyApiClient } from '@yucp/providers/jinxxy';
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
+import { getJinxxyProviderRuntimeConfig } from '../runtimeConfig';
 import type { ProductRecord, ProviderContext, ProviderPlugin, ProviderPurposes } from '../types';
 import { backfill } from './backfill';
 import { buyerVerification } from './buyerVerification';
@@ -47,7 +48,7 @@ const jinxxyProvider: ProviderPlugin = {
     // Fetch from owner's own store
     const client = new JinxxyApiClient({
       apiKey: credential,
-      apiBaseUrl: process.env.JINXXY_API_BASE_URL,
+      apiBaseUrl: getJinxxyProviderRuntimeConfig().apiBaseUrl,
     });
     let page = 1;
     while (page <= HARD_PAGE_LIMIT) {
@@ -83,7 +84,7 @@ const jinxxyProvider: ProviderPlugin = {
           const collabKey = await decryptJinxxyApiKey(encryptedKey, ctx.encryptionSecret);
           const collabClient = new JinxxyApiClient({
             apiKey: collabKey,
-            apiBaseUrl: process.env.JINXXY_API_BASE_URL,
+            apiBaseUrl: getJinxxyProviderRuntimeConfig().apiBaseUrl,
           });
           let collabPage = 1;
           while (collabPage <= HARD_PAGE_LIMIT) {
@@ -149,7 +150,7 @@ const jinxxyProvider: ProviderPlugin = {
   async collabValidate(credential: string): Promise<void> {
     const client = new JinxxyApiClient({
       apiKey: credential,
-      apiBaseUrl: process.env.JINXXY_API_BASE_URL,
+      apiBaseUrl: getJinxxyProviderRuntimeConfig().apiBaseUrl,
     });
     await client.getProducts({ per_page: 1 });
   },

@@ -1,8 +1,5 @@
 import { createApplicationServices } from '@yucp/application';
-import type {
-  ProviderLinkFallbackDisplay,
-  ProviderRuntimeConnectSurface,
-} from '@yucp/application/ports';
+import type { ProviderLinkFallbackDisplay } from '@yucp/application/ports';
 import { getVerificationConfig } from '../verification/sessionManager';
 import { ALL_PROVIDERS } from './index';
 import type { ConnectDisplayMeta } from './types';

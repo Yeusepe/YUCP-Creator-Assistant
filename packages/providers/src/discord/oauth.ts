@@ -16,7 +16,7 @@
  * - Short-lived tokens (verification-session-bound)
  */
 
-import { createAAD, decrypt, type EncryptedPayload, encrypt } from '@yucp/shared';
+import { createAAD, decrypt, type EncryptedPayload, encrypt } from '@yucp/shared/crypto';
 import {
   DEFAULT_SCOPES,
   type DiscordAPIError,
@@ -137,8 +137,8 @@ async function decryptToken(
  * @example
  * ```ts
  * const provider = new DiscordOAuthProvider({
- *   clientId: process.env.DISCORD_CLIENT_ID!,
- *   clientSecret: process.env.DISCORD_CLIENT_SECRET!,
+ *   clientId: 'discord-client-id',
+ *   clientSecret: 'discord-client-secret',
  *   redirectUri: 'https://example.com/auth/discord/callback',
  *   scopes: ['identify', 'guilds.members.read'],
  *   kekBytes: kekFromInfisical,

@@ -1,6 +1,7 @@
 import { GumroadAdapter } from '@yucp/providers';
 import { createLogger } from '@yucp/shared';
 import { sha256Hex } from '@yucp/shared/crypto';
+import { getGumroadProviderRuntimeConfig } from '../runtimeConfig';
 import type { LicenseVerificationPlugin, LicenseVerificationResult } from '../types';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
@@ -16,11 +17,7 @@ export const verification: LicenseVerificationPlugin = {
       return { valid: false, error: 'Product ID is required for Gumroad verification' };
     }
 
-    const gumroadAdapter = new GumroadAdapter({
-      clientId: process.env.GUMROAD_CLIENT_ID ?? '',
-      clientSecret: process.env.GUMROAD_CLIENT_SECRET ?? '',
-      redirectUri: '',
-    });
+    const gumroadAdapter = new GumroadAdapter(getGumroadProviderRuntimeConfig());
 
     logger.info('[gumroad/verification] Calling Gumroad verifyLicense', {
       productId,

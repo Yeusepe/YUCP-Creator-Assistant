@@ -9,6 +9,7 @@
  * 5. Close page, continue setup in Discord
  */
 
+import { ConnectionService, GuildDirectoryService } from '@yucp/application/services';
 import { createLogger, getProviderDescriptor, timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -623,6 +624,65 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     'logChannelId',
     'announcementsChannelId',
   ]);
+
+  const connectionService = new ConnectionService({
+    connections: {
+      async listUserAccounts(authUserId) {
+        return (await getConvexClientFromUrl(config.convexUrl).query(
+          api.providerConnections.listConnectionsForUser,
+          {
+            apiSecret: config.convexApiSecret,
+            authUserId,
+          }
+        )) as DashboardShellResponse['home'] extends { userAccounts: infer T } ? T : never;
+      },
+      async getConnectionStatus(authUserId) {
+        return (await getConvexClientFromUrl(config.convexUrl).query(
+          api.providerConnections.getConnectionStatus,
+          {
+            apiSecret: config.convexApiSecret,
+            authUserId,
+          }
+        )) as Record<string, boolean>;
+      },
+    },
+    providerDisplays: {
+      listDashboardProviderDisplays,
+    },
+  });
+  const guildDirectoryService = new GuildDirectoryService({
+    repository: {
+      async listUserGuilds(authUserId) {
+        return (await getConvexClientFromUrl(config.convexUrl).query(api.guildLinks.getUserGuilds, {
+          apiSecret: config.convexApiSecret,
+          authUserId,
+        })) as DashboardShellResponse['guilds'];
+      },
+      async persistGuildMetadata(input) {
+        await getConvexClientFromUrl(config.convexUrl).mutation(
+          api.guildLinks.updateGuildLinkStatus,
+          {
+            apiSecret: config.convexApiSecret,
+            discordGuildId: input.guildId,
+            status: 'active',
+            botPresent: true,
+            discordGuildName: input.discordGuildName,
+            ...(input.discordGuildIcon ? { discordGuildIcon: input.discordGuildIcon } : {}),
+          }
+        );
+      },
+    },
+    ...(config.discordBotToken
+      ? {
+          metadataResolver: {
+            async getGuildMetadata(guildId) {
+              const metadata = await fetchGuildMeta(guildId);
+              return metadata.discordGuildName ? metadata : null;
+            },
+          },
+        }
+      : {}),
+  });
 
   function hasValidApiSecret(value: string | undefined): boolean {
     return typeof value === 'string' && timingSafeStringEqual(value, config.convexApiSecret);
@@ -1324,14 +1384,9 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     const authUserId = url.searchParams.get('authUserId');
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-
       if (!authUserId) {
         // User-scoped status: check all connections owned by this user
-        const status = await convex.query(api.providerConnections.getConnectionStatus, {
-          apiSecret: config.convexApiSecret,
-          authUserId: session.user.id,
-        });
+        const status = await connectionService.getConnectionStatus(session.user.id);
         return Response.json(status);
       }
 
@@ -1340,10 +1395,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         return Response.json({ error: 'Forbidden' }, { status: 403 });
       }
 
-      const status = await convex.query(api.providerConnections.getConnectionStatus, {
-        apiSecret: config.convexApiSecret,
-        authUserId,
-      });
+      const status = await connectionService.getConnectionStatus(authUserId);
       return Response.json(status);
     } catch (err) {
       logger.error('Get status failed', {
@@ -2547,70 +2599,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     isTenantOwnedBySessionUser,
   });
 
-  function listDashboardProvidersForShell(): NonNullable<
-    DashboardShellResponse['home']
-  >['providers'] {
-    return listDashboardProviderDisplays();
-  }
-
-  async function loadUserAccountsForAuthUser(
-    authUserId: string,
-    timing?: RouteTimingCollector
-  ): Promise<NonNullable<DashboardShellResponse['home']>['userAccounts']> {
-    const convex = getConvexClientFromUrl(config.convexUrl);
-    return (
-      timing
-        ? await timing.measure(
-            'convex_home_connections',
-            () =>
-              convex.query(api.providerConnections.listConnectionsForUser, {
-                apiSecret: config.convexApiSecret,
-                authUserId,
-              }),
-            'load dashboard home connections'
-          )
-        : await convex.query(api.providerConnections.listConnectionsForUser, {
-            apiSecret: config.convexApiSecret,
-            authUserId,
-          })
-    ) as NonNullable<DashboardShellResponse['home']>['userAccounts'];
-  }
-
-  function buildConnectionStatusByProvider(
-    userAccounts: NonNullable<DashboardShellResponse['home']>['userAccounts']
-  ): Record<string, boolean> {
-    const status: Record<string, boolean> = {};
-    for (const connection of userAccounts) {
-      if (connection.provider && connection.status !== 'disconnected') {
-        status[connection.provider] = true;
-      }
-    }
-    return status;
-  }
-
-  async function loadConnectionStatusForAuthUser(
-    authUserId: string,
-    timing?: RouteTimingCollector
-  ): Promise<Record<string, boolean>> {
-    const convex = getConvexClientFromUrl(config.convexUrl);
-    return (
-      timing
-        ? await timing.measure(
-            'convex_selected_status',
-            () =>
-              convex.query(api.providerConnections.getConnectionStatus, {
-                apiSecret: config.convexApiSecret,
-                authUserId,
-              }),
-            'load selected tenant connection status'
-          )
-        : await convex.query(api.providerConnections.getConnectionStatus, {
-            apiSecret: config.convexApiSecret,
-            authUserId,
-          })
-    ) as Record<string, boolean>;
-  }
-
   async function loadDashboardPolicyForAuthUser(
     request: Request,
     authUserId: string,
@@ -2634,60 +2622,21 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     authUserId: string,
     timing?: RouteTimingCollector
   ): Promise<DashboardShellResponse['guilds']> {
-    const convex = getConvexClientFromUrl(config.convexUrl);
-    const userGuilds = (
+    const result = (
       timing
         ? await timing.measure(
-            'convex_guilds',
-            () =>
-              convex.query(api.guildLinks.getUserGuilds, {
-                apiSecret: config.convexApiSecret,
-                authUserId,
-              }),
+            'dashboard_guilds',
+            () => guildDirectoryService.listDashboardGuilds({ authUserId }),
             'load dashboard guilds'
           )
-        : await convex.query(api.guildLinks.getUserGuilds, {
-            apiSecret: config.convexApiSecret,
-            authUserId,
-          })
-    ) as DashboardShellResponse['guilds'];
+        : await guildDirectoryService.listDashboardGuilds({ authUserId })
+    ) as { guilds: DashboardShellResponse['guilds']; backfillFailures: number };
 
-    if (config.discordBotToken) {
-      const missing = userGuilds.filter((g) => !g.name || g.name.startsWith('Creator '));
-
-      if (missing.length > 0) {
-        const results = await Promise.allSettled(
-          missing.map(async (g) => {
-            const meta = await fetchGuildMeta(g.guildId);
-            if (meta.discordGuildName) {
-              g.name = meta.discordGuildName;
-              if (meta.discordGuildIcon) g.icon = meta.discordGuildIcon;
-              convex
-                .mutation(api.guildLinks.updateGuildLinkStatus, {
-                  apiSecret: config.convexApiSecret,
-                  discordGuildId: g.guildId,
-                  status: 'active' as const,
-                  botPresent: true,
-                  discordGuildName: meta.discordGuildName,
-                  ...(meta.discordGuildIcon ? { discordGuildIcon: meta.discordGuildIcon } : {}),
-                })
-                .catch((err) => {
-                  logger.warn('Failed to persist backfilled guild name', {
-                    guildId: g.guildId,
-                    error: err instanceof Error ? err.message : String(err),
-                  });
-                });
-            }
-          })
-        );
-        const failures = results.filter((r) => r.status === 'rejected');
-        if (failures.length > 0) {
-          logger.warn('Some guild name backfills failed', { count: failures.length });
-        }
-      }
+    if (result.backfillFailures > 0) {
+      logger.warn('Some guild name backfills failed', { count: result.backfillFailures });
     }
 
-    return userGuilds;
+    return result.guilds;
   }
 
   async function getUserGuilds(request: Request): Promise<Response> {
@@ -2750,11 +2699,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         url.searchParams.get('guildId') ?? url.searchParams.get('guild_id') ?? undefined;
       const includeHomeData =
         url.searchParams.get('includeHomeData') === 'true' || Boolean(requestedGuildId);
-      const [guilds, userAccounts, branding] = await Promise.all([
+      const [guilds, branding] = await Promise.all([
         loadUserGuildsForAuthUser(session.user.id, timing),
-        includeHomeData
-          ? loadUserAccountsForAuthUser(session.user.id, timing)
-          : Promise.resolve(null),
         timing.measure(
           'convex_shell_branding',
           () =>
@@ -2777,9 +2723,8 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       let home: DashboardShellResponse['home'] | undefined;
       let selectedServer: DashboardShellResponse['selectedServer'] | undefined;
 
-      if (userAccounts) {
+      if (includeHomeData) {
         let connectionStatusAuthUserId = session.user.id;
-        let connectionStatusByProvider = buildConnectionStatusByProvider(userAccounts);
 
         if (selectedTenantAuthUserId && selectedTenantAuthUserId !== session.user.id) {
           const ownsSelectedTenant = await timing.measure(
@@ -2789,10 +2734,6 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           );
           if (ownsSelectedTenant) {
             connectionStatusAuthUserId = selectedTenantAuthUserId;
-            connectionStatusByProvider = await loadConnectionStatusForAuthUser(
-              selectedTenantAuthUserId,
-              timing
-            );
             if (requestedGuildId) {
               selectedServer = {
                 authUserId: selectedTenantAuthUserId,
@@ -2813,11 +2754,21 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           };
         }
 
+        const dashboardHome = await timing.measure(
+          'dashboard_home',
+          () =>
+            connectionService.getDashboardHome({
+              viewerAuthUserId: session.user.id,
+              connectionStatusAuthUserId,
+            }),
+          'load dashboard home'
+        );
+
         home = {
-          providers: listDashboardProvidersForShell(),
-          userAccounts,
-          connectionStatusAuthUserId,
-          connectionStatusByProvider,
+          providers: [...dashboardHome.providers],
+          userAccounts: [...dashboardHome.userAccounts],
+          connectionStatusAuthUserId: dashboardHome.connectionStatusAuthUserId,
+          connectionStatusByProvider: dashboardHome.connectionStatusByProvider,
         };
       }
 

@@ -1,4 +1,5 @@
 import { JinxxyApiClient } from '@yucp/providers';
+import { getJinxxyProviderRuntimeConfig } from '../runtimeConfig';
 import type {
   LicenseVerificationPlugin,
   LicenseVerificationResult,
@@ -23,7 +24,7 @@ export const verification: LicenseVerificationPlugin = {
 
     const client = new JinxxyApiClient({
       apiKey,
-      apiBaseUrl: process.env.JINXXY_API_BASE_URL,
+      apiBaseUrl: getJinxxyProviderRuntimeConfig().apiBaseUrl,
     });
 
     const result = await client.verifyLicenseByKey(licenseKey);

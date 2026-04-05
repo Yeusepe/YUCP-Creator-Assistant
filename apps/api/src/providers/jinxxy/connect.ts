@@ -10,22 +10,22 @@
 import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 
-const JINXXY_PENDING_WEBHOOK_PREFIX = 'jinxxy_webhook_pending:';
-const JINXXY_PENDING_WEBHOOK_TOKEN_PREFIX = 'jinxxy_webhook_pending_token:';
-const JINXXY_PENDING_WEBHOOK_TTL_MS = 30 * 60 * 1000;
-
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
 import { getStateStore } from '../../lib/stateStore';
 import type { ConnectContext, ConnectPlugin, ConnectRoute } from '../types';
+import {
+  getJinxxyWebhookTestStoreKey,
+  getPendingJinxxyWebhookStoreKey,
+  getPendingJinxxyWebhookTokenStoreKey,
+  JINXXY_PENDING_WEBHOOK_TTL_MS,
+} from './pendingWebhookState';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 // HKDF purpose strings — inlined to avoid circular imports with index.ts
 const CREDENTIAL_PURPOSE = 'jinxxy-api-key' as const;
 const WEBHOOK_SECRET_PURPOSE = 'jinxxy-webhook-signing-secret' as const;
-
-const JINXXY_TEST_PREFIX = 'jinxxy_test:';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Handlers
@@ -79,7 +79,7 @@ async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promi
 
     // If no existing token, generate a pending one stored alongside the webhook secret.
     if (!callbackRouteToken) {
-      const pendingRaw = await getStateStore().get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`);
+      const pendingRaw = await getStateStore().get(getPendingJinxxyWebhookStoreKey(routeId));
       if (pendingRaw) {
         const existing = JSON.parse(pendingRaw) as { routeToken?: string };
         callbackRouteToken = existing.routeToken ?? null;
@@ -95,7 +95,7 @@ async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promi
       // look up the wrong state store key during test delivery.
       const callbackUrlForToken = `${config.apiBaseUrl.replace(/\/$/, '')}/webhooks/jinxxy/${callbackRouteToken}`;
       await getStateStore().set(
-        `${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`,
+        getPendingJinxxyWebhookStoreKey(routeId),
         JSON.stringify({ callbackUrl: callbackUrlForToken, routeToken: callbackRouteToken }),
         JINXXY_PENDING_WEBHOOK_TTL_MS
       );
@@ -144,12 +144,12 @@ async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promi
     // Store under authUserId (for jinxxyStore to retrieve) and also under
     // the opaque route token (for the webhook handler to look up during test delivery).
     await store.set(
-      `${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`,
+      getPendingJinxxyWebhookStoreKey(routeId),
       pendingPayload,
       JINXXY_PENDING_WEBHOOK_TTL_MS
     );
     await store.set(
-      `${JINXXY_PENDING_WEBHOOK_TOKEN_PREFIX}${callbackRouteToken}`,
+      getPendingJinxxyWebhookTokenStoreKey(callbackRouteToken),
       pendingPayload,
       JINXXY_PENDING_WEBHOOK_TTL_MS
     );
@@ -205,7 +205,7 @@ async function jinxxyTestWebhook(request: Request, ctx: ConnectContext): Promise
   if (existingToken) {
     flagKey = existingToken;
   } else {
-    const pendingRaw = await getStateStore().get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${routeId}`);
+    const pendingRaw = await getStateStore().get(getPendingJinxxyWebhookStoreKey(routeId));
     if (pendingRaw) {
       const parsed = JSON.parse(pendingRaw) as { routeToken?: string };
       if (parsed.routeToken) flagKey = parsed.routeToken;
@@ -213,7 +213,7 @@ async function jinxxyTestWebhook(request: Request, ctx: ConnectContext): Promise
   }
 
   const store = getStateStore();
-  const raw = await store.get(`${JINXXY_TEST_PREFIX}${flagKey}`);
+  const raw = await store.get(getJinxxyWebhookTestStoreKey(flagKey));
   return Response.json({ received: !!raw });
 }
 
@@ -270,7 +270,7 @@ async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Respo
   try {
     const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret, CREDENTIAL_PURPOSE);
     const store = getStateStore();
-    const pendingWebhookRaw = await store.get(`${JINXXY_PENDING_WEBHOOK_PREFIX}${webhookTarget}`);
+    const pendingWebhookRaw = await store.get(getPendingJinxxyWebhookStoreKey(webhookTarget));
     let webhookSecretRef: string | undefined;
     let webhookEndpoint: string | undefined;
     let webhookRouteToken: string | undefined;
@@ -339,9 +339,9 @@ async function jinxxyStore(request: Request, ctx: ConnectContext): Promise<Respo
     });
     if (pendingWebhookRaw) {
       const pendingWebhook = JSON.parse(pendingWebhookRaw) as { routeToken?: string };
-      await store.delete(`${JINXXY_PENDING_WEBHOOK_PREFIX}${webhookTarget}`);
+      await store.delete(getPendingJinxxyWebhookStoreKey(webhookTarget));
       if (pendingWebhook.routeToken) {
-        await store.delete(`${JINXXY_PENDING_WEBHOOK_TOKEN_PREFIX}${pendingWebhook.routeToken}`);
+        await store.delete(getPendingJinxxyWebhookTokenStoreKey(pendingWebhook.routeToken));
       }
     }
     return Response.json({ success: true });

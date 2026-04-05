@@ -54,24 +54,6 @@ export class JinxxyAdapter implements ProviderAdapter {
     });
   }
 
-  /**
-   * Create adapter from environment variables
-   */
-  static fromEnv(): JinxxyAdapter {
-    const apiKey = process.env.JINXXY_API_KEY;
-    if (!apiKey) {
-      throw new Error('JINXXY_API_KEY environment variable is required');
-    }
-
-    return new JinxxyAdapter({
-      apiKey,
-      apiBaseUrl: process.env.JINXXY_API_BASE_URL,
-      timeout: process.env.JINXXY_API_TIMEOUT
-        ? Number.parseInt(process.env.JINXXY_API_TIMEOUT, 10)
-        : undefined,
-    });
-  }
-
   // ============================================================================
   // PROVIDER ADAPTER INTERFACE
   // ============================================================================

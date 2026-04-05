@@ -40,22 +40,6 @@ export class LemonSqueezyAdapter implements ProviderAdapter {
     });
   }
 
-  static fromEnv(): LemonSqueezyAdapter {
-    const apiToken = process.env.LEMONSQUEEZY_API_TOKEN;
-    if (!apiToken) {
-      throw new Error('LEMONSQUEEZY_API_TOKEN environment variable is required');
-    }
-
-    return new LemonSqueezyAdapter({
-      apiToken,
-      apiBaseUrl: process.env.LEMONSQUEEZY_API_BASE_URL,
-      licenseApiBaseUrl: process.env.LEMONSQUEEZY_LICENSE_API_BASE_URL,
-      timeout: process.env.LEMONSQUEEZY_API_TIMEOUT
-        ? Number.parseInt(process.env.LEMONSQUEEZY_API_TIMEOUT, 10)
-        : undefined,
-    });
-  }
-
   async verifyPurchase(emailOrId: string): Promise<Verification | null> {
     if (!emailOrId.includes('@')) {
       return null;
