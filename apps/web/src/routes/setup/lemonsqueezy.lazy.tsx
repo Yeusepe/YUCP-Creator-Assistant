@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/lemonsqueezy-setup.css';
+import { resolveSetupApiBase } from './lemonsqueezySetupSupport';
 
 export const Route = createLazyFileRoute('/setup/lemonsqueezy')({
   component: LemonSqueezySetupPage,
@@ -38,15 +39,7 @@ function getUrlParams(): {
     value && /^[a-zA-Z0-9_-]{1,128}$/.test(value) ? value : '';
   const resolveApiBase = (raw: string | null) => {
     if (typeof window === 'undefined') return '';
-    const fallbackOrigin = window.location.origin;
-    if (!raw) return fallbackOrigin;
-    try {
-      const parsed = new URL(raw, fallbackOrigin);
-      const isHttp = parsed.protocol === 'https:' || parsed.protocol === 'http:';
-      return isHttp && parsed.host === window.location.host ? parsed.origin : fallbackOrigin;
-    } catch {
-      return fallbackOrigin;
-    }
+    return resolveSetupApiBase(raw, window.location.origin);
   };
   return {
     tenantId: normalizeId(params.get('tenant_id')),

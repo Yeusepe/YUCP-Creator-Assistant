@@ -7,8 +7,6 @@
 const SENSITIVE_PATTERNS = {
   // Generic token patterns (bearer, JWT, etc.)
   bearerToken: /bearer\s+[a-zA-Z0-9\-_.~+/]+=*/gi,
-  // JWT tokens
-  jwt: /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/g,
   // API keys (various formats)
   apiKey: /api[_-]?key["']?\s*[:=]\s*["']?([a-zA-Z0-9\-_]{20,})["']?/gi,
   // Discord tokens
@@ -24,6 +22,56 @@ const SENSITIVE_PATTERNS = {
   // Manual verification codes
   manualCode: /\b\d{4,8}\b/g,
 };
+
+function isJwtTokenChar(char: string): boolean {
+  return (
+    (char >= 'a' && char <= 'z') ||
+    (char >= 'A' && char <= 'Z') ||
+    (char >= '0' && char <= '9') ||
+    char === '_' ||
+    char === '-' ||
+    char === '.'
+  );
+}
+
+function isJwtLikeToken(candidate: string): boolean {
+  if (!candidate.startsWith('eyJ')) return false;
+
+  const parts = candidate.split('.');
+  if (parts.length !== 3) return false;
+
+  return (
+    parts[0].startsWith('eyJ') &&
+    parts[1].startsWith('eyJ') &&
+    parts.every((part) => part.length > 0 && /^[A-Za-z0-9_-]+$/u.test(part))
+  );
+}
+
+function redactJwtTokens(input: string): string {
+  let result = '';
+  let index = 0;
+
+  while (index < input.length) {
+    if (input.startsWith('eyJ', index)) {
+      let end = index;
+      while (end < input.length && isJwtTokenChar(input[end])) {
+        end += 1;
+      }
+
+      const candidate = input.slice(index, end);
+      if (isJwtLikeToken(candidate)) {
+        result += '[JWT_REDACTED]';
+        index = end;
+        continue;
+      }
+    }
+
+    result += input[index];
+    index += 1;
+  }
+
+  return result;
+}
 
 /**
  * Field names that should be redacted
@@ -68,7 +116,7 @@ export function redactString(input: string): string {
   result = result.replace(SENSITIVE_PATTERNS.discordToken, '[DISCORD_TOKEN_REDACTED]');
 
   // Redact JWT tokens
-  result = result.replace(SENSITIVE_PATTERNS.jwt, '[JWT_REDACTED]');
+  result = redactJwtTokens(result);
 
   // Redact bearer tokens
   result = result.replace(SENSITIVE_PATTERNS.bearerToken, 'bearer [TOKEN_REDACTED]');
