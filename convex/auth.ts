@@ -101,10 +101,7 @@ function extractWebhookCustomerRef(payload: unknown): {
   return { authUserId, polarCustomerId };
 }
 
-async function scheduleCustomerReconciliation(
-  ctx: GenericCtx<DataModel>,
-  payload: unknown
-) {
+async function scheduleCustomerReconciliation(ctx: GenericCtx<DataModel>, payload: unknown) {
   const { authUserId, polarCustomerId } = extractWebhookCustomerRef(payload);
   if (!authUserId || !('runMutation' in ctx)) {
     return;
@@ -172,10 +169,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
                 : {}),
             }),
             createCustomerOnSignUp: true,
-            getCustomerCreateParams: async ({ user }) => ({
+            getCustomerCreateParams: async () => ({
               metadata: {
                 certificate_billing: true,
-                yucp_user_id: user.id ?? '',
               },
             }),
             use: [

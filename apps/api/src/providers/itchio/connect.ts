@@ -96,7 +96,7 @@ async function itchioBegin(request: Request, ctx: ConnectContext): Promise<Respo
   authUrl.searchParams.set('client_id', config.itchioClientId);
   authUrl.searchParams.set(
     'redirect_uri',
-    `${config.frontendBaseUrl.replace(/\/$/, '')}/setup/itchio`
+    `${config.frontendBaseUrl.replace(/\/$/, '')}/oauth/callback/itchio`
   );
   authUrl.searchParams.set('response_type', 'token');
   authUrl.searchParams.set('scope', REQUIRED_ITCHIO_SCOPES.join(' '));

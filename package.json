@@ -17,6 +17,7 @@
     "prismjs": ">=1.30.0",
     "defu": ">=6.1.6",
     "undici": ">=6.23.0",
+    "vite": ">=7.3.2",
     "@smithy/config-resolver": ">=4.4.0",
     "srvx": ">=0.11.13"
   },

@@ -8,6 +8,7 @@ describe('createSchemaAuthOptions', () => {
   const originalConvexSiteUrl = process.env.CONVEX_SITE_URL;
   const originalPolarAccessToken = process.env.POLAR_ACCESS_TOKEN;
   const originalPolarWebhookSecret = process.env.POLAR_WEBHOOK_SECRET;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     process.env.BETTER_AUTH_SECRET = 'test-secret';
@@ -19,6 +20,7 @@ describe('createSchemaAuthOptions', () => {
     process.env.CONVEX_SITE_URL = originalConvexSiteUrl;
     process.env.POLAR_ACCESS_TOKEN = originalPolarAccessToken;
     process.env.POLAR_WEBHOOK_SECRET = originalPolarWebhookSecret;
+    globalThis.fetch = originalFetch;
   });
 
   it('aligns the Better Auth JWT plugin with Convex customJwt RS256 signing', () => {
@@ -72,6 +74,124 @@ describe('createSchemaAuthOptions', () => {
     const polarPlugin = options.plugins?.find((plugin) => plugin.id === 'polar');
 
     expect(polarPlugin).toBeDefined();
+  });
+
+  it('omits yucp_user_id metadata until Better Auth has created the user id', async () => {
+    process.env.POLAR_ACCESS_TOKEN = 'polar-token';
+    process.env.POLAR_WEBHOOK_SECRET = 'polar-webhook-secret';
+
+    const options = createAuthOptions({} as never);
+    const polarPlugin = options.plugins?.find((plugin) => plugin.id === 'polar') as
+      | {
+          init?: () => {
+            options?: {
+              databaseHooks?: {
+                user?: {
+                  create?: {
+                    before?: (
+                      user: { email: string; name: string; id?: string },
+                      context: { context: { logger: Console } }
+                    ) => Promise<void>;
+                  };
+                };
+              };
+            };
+          };
+        }
+      | undefined;
+    const beforeCreateHook = polarPlugin?.init?.()?.options?.databaseHooks?.user?.create?.before;
+
+    expect(beforeCreateHook).toBeDefined();
+
+    let customerCreatePayload:
+      | {
+          email?: string;
+          name?: string | null;
+          metadata?: Record<string, unknown>;
+        }
+      | undefined;
+
+    globalThis.fetch = async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init);
+      const body = await request.text();
+
+      if (
+        request.method === 'GET' &&
+        request.url.startsWith('https://api.polar.sh/v1/customers/?')
+      ) {
+        return new Response(
+          JSON.stringify({
+            items: [],
+            pagination: {
+              total_count: 0,
+              max_page: 1,
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          }
+        );
+      }
+
+      if (request.method === 'POST' && request.url === 'https://api.polar.sh/v1/customers/') {
+        customerCreatePayload = JSON.parse(body) as typeof customerCreatePayload;
+
+        return new Response(
+          JSON.stringify({
+            id: 'cust_123',
+            created_at: '2024-01-01T00:00:00Z',
+            modified_at: null,
+            metadata: {
+              certificate_billing: true,
+            },
+            external_id: null,
+            email: 'person@example.com',
+            email_verified: false,
+            type: null,
+            name: 'Person',
+            billing_address: null,
+            tax_id: null,
+            locale: null,
+            organization_id: 'org_123',
+            deleted_at: null,
+            avatar_url: 'https://example.com/avatar.png',
+          }),
+          {
+            status: 201,
+            headers: {
+              'content-type': 'application/json',
+            },
+          }
+        );
+      }
+
+      throw new Error(`Unexpected Polar request: ${request.method} ${request.url}`);
+    };
+
+    await beforeCreateHook!(
+      {
+        email: 'person@example.com',
+        name: 'Person',
+        id: undefined,
+      },
+      {
+        context: {
+          logger: console,
+        },
+      }
+    );
+
+    expect(customerCreatePayload).toMatchObject({
+      email: 'person@example.com',
+      name: 'Person',
+      metadata: {
+        certificate_billing: true,
+      },
+    });
+    expect(customerCreatePayload?.metadata?.yucp_user_id).toBeUndefined();
   });
 
   it('stores jwks signing metadata in the schema mirror', () => {

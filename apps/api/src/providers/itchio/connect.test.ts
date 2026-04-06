@@ -128,7 +128,9 @@ describe('itch.io connect - GET /begin', () => {
     expect(location).toContain('https://itch.io/user/oauth?');
     expect(location).toContain('response_type=token');
     expect(location).toContain('client_id=itchio-client-id');
-    expect(location).toContain('redirect_uri=https%3A%2F%2Fapp.example.com%2Fsetup%2Fitchio');
+    expect(location).toContain(
+      'redirect_uri=https%3A%2F%2Fapp.example.com%2Foauth%2Fcallback%2Fitchio'
+    );
   });
 });
 

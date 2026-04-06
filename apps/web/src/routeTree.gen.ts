@@ -22,7 +22,6 @@ import { Route as SetupVrchatRouteImport } from './routes/setup/vrchat'
 import { Route as SetupPayhipRouteImport } from './routes/setup/payhip'
 import { Route as SetupLemonsqueezyRouteImport } from './routes/setup/lemonsqueezy'
 import { Route as SetupJinxxyRouteImport } from './routes/setup/jinxxy'
-import { Route as SetupItchioRouteImport } from './routes/setup/itchio'
 import { Route as SetupDiscordRoleRouteImport } from './routes/setup/discord-role'
 import { Route as OauthLoginRouteImport } from './routes/oauth/login'
 import { Route as OauthErrorRouteImport } from './routes/oauth/error'
@@ -36,6 +35,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedAccountIndexRouteImport } from './routes/_authenticated/account/index'
+import { Route as OauthCallbackItchioRouteImport } from './routes/oauth/callback/itchio'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AuthenticatedVerifyPurchaseRouteImport } from './routes/_authenticated/verify/purchase'
 import { Route as AuthenticatedDashboardServerRulesRouteImport } from './routes/_authenticated/dashboard/server-rules'
@@ -119,11 +119,6 @@ const SetupJinxxyRoute = SetupJinxxyRouteImport.update({
   path: '/setup/jinxxy',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/setup/jinxxy.lazy').then((d) => d.Route))
-const SetupItchioRoute = SetupItchioRouteImport.update({
-  id: '/setup/itchio',
-  path: '/setup/itchio',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/setup/itchio.lazy').then((d) => d.Route))
 const SetupDiscordRoleRoute = SetupDiscordRoleRouteImport.update({
   id: '/setup/discord-role',
   path: '/setup/discord-role',
@@ -201,6 +196,13 @@ const AuthenticatedAccountIndexRoute =
   } as any).lazy(() =>
     import('./routes/_authenticated/account/index.lazy').then((d) => d.Route),
   )
+const OauthCallbackItchioRoute = OauthCallbackItchioRouteImport.update({
+  id: '/oauth/callback/itchio',
+  path: '/oauth/callback/itchio',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() =>
+  import('./routes/oauth/callback/itchio.lazy').then((d) => d.Route),
+)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -369,7 +371,6 @@ export interface FileRoutesByFullPath {
   '/oauth/error': typeof OauthErrorRoute
   '/oauth/login': typeof OauthLoginRoute
   '/setup/discord-role': typeof SetupDiscordRoleRoute
-  '/setup/itchio': typeof SetupItchioRoute
   '/setup/jinxxy': typeof SetupJinxxyRoute
   '/setup/lemonsqueezy': typeof SetupLemonsqueezyRoute
   '/setup/payhip': typeof SetupPayhipRoute
@@ -392,6 +393,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
   '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/oauth/callback/itchio': typeof OauthCallbackItchioRoute
   '/account/': typeof AuthenticatedAccountIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
 }
@@ -411,7 +413,6 @@ export interface FileRoutesByTo {
   '/oauth/error': typeof OauthErrorRoute
   '/oauth/login': typeof OauthLoginRoute
   '/setup/discord-role': typeof SetupDiscordRoleRoute
-  '/setup/itchio': typeof SetupItchioRoute
   '/setup/jinxxy': typeof SetupJinxxyRoute
   '/setup/lemonsqueezy': typeof SetupLemonsqueezyRoute
   '/setup/payhip': typeof SetupPayhipRoute
@@ -434,6 +435,7 @@ export interface FileRoutesByTo {
   '/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
   '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/oauth/callback/itchio': typeof OauthCallbackItchioRoute
   '/account': typeof AuthenticatedAccountIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
 }
@@ -457,7 +459,6 @@ export interface FileRoutesById {
   '/oauth/error': typeof OauthErrorRoute
   '/oauth/login': typeof OauthLoginRoute
   '/setup/discord-role': typeof SetupDiscordRoleRoute
-  '/setup/itchio': typeof SetupItchioRoute
   '/setup/jinxxy': typeof SetupJinxxyRoute
   '/setup/lemonsqueezy': typeof SetupLemonsqueezyRoute
   '/setup/payhip': typeof SetupPayhipRoute
@@ -480,6 +481,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
   '/_authenticated/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/oauth/callback/itchio': typeof OauthCallbackItchioRoute
   '/_authenticated/account/': typeof AuthenticatedAccountIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
 }
@@ -503,7 +505,6 @@ export interface FileRouteTypes {
     | '/oauth/error'
     | '/oauth/login'
     | '/setup/discord-role'
-    | '/setup/itchio'
     | '/setup/jinxxy'
     | '/setup/lemonsqueezy'
     | '/setup/payhip'
@@ -526,6 +527,7 @@ export interface FileRouteTypes {
     | '/dashboard/server-rules'
     | '/verify/purchase'
     | '/api/auth/$'
+    | '/oauth/callback/itchio'
     | '/account/'
     | '/dashboard/'
   fileRoutesByTo: FileRoutesByTo
@@ -545,7 +547,6 @@ export interface FileRouteTypes {
     | '/oauth/error'
     | '/oauth/login'
     | '/setup/discord-role'
-    | '/setup/itchio'
     | '/setup/jinxxy'
     | '/setup/lemonsqueezy'
     | '/setup/payhip'
@@ -568,6 +569,7 @@ export interface FileRouteTypes {
     | '/dashboard/server-rules'
     | '/verify/purchase'
     | '/api/auth/$'
+    | '/oauth/callback/itchio'
     | '/account'
     | '/dashboard'
   id:
@@ -590,7 +592,6 @@ export interface FileRouteTypes {
     | '/oauth/error'
     | '/oauth/login'
     | '/setup/discord-role'
-    | '/setup/itchio'
     | '/setup/jinxxy'
     | '/setup/lemonsqueezy'
     | '/setup/payhip'
@@ -613,6 +614,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/server-rules'
     | '/_authenticated/verify/purchase'
     | '/api/auth/$'
+    | '/oauth/callback/itchio'
     | '/_authenticated/account/'
     | '/_authenticated/dashboard/'
   fileRoutesById: FileRoutesById
@@ -634,7 +636,6 @@ export interface RootRouteChildren {
   OauthErrorRoute: typeof OauthErrorRoute
   OauthLoginRoute: typeof OauthLoginRoute
   SetupDiscordRoleRoute: typeof SetupDiscordRoleRoute
-  SetupItchioRoute: typeof SetupItchioRoute
   SetupJinxxyRoute: typeof SetupJinxxyRoute
   SetupLemonsqueezyRoute: typeof SetupLemonsqueezyRoute
   SetupPayhipRoute: typeof SetupPayhipRoute
@@ -642,6 +643,7 @@ export interface RootRouteChildren {
   VerifyErrorRoute: typeof VerifyErrorRoute
   VerifySuccessRoute: typeof VerifySuccessRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  OauthCallbackItchioRoute: typeof OauthCallbackItchioRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -737,13 +739,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SetupJinxxyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/setup/itchio': {
-      id: '/setup/itchio'
-      path: '/setup/itchio'
-      fullPath: '/setup/itchio'
-      preLoaderRoute: typeof SetupItchioRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/setup/discord-role': {
       id: '/setup/discord-role'
       path: '/setup/discord-role'
@@ -834,6 +829,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/account/'
       preLoaderRoute: typeof AuthenticatedAccountIndexRouteImport
       parentRoute: typeof AuthenticatedAccountRoute
+    }
+    '/oauth/callback/itchio': {
+      id: '/oauth/callback/itchio'
+      path: '/oauth/callback/itchio'
+      fullPath: '/oauth/callback/itchio'
+      preLoaderRoute: typeof OauthCallbackItchioRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -1041,7 +1043,6 @@ const rootRouteChildren: RootRouteChildren = {
   OauthErrorRoute: OauthErrorRoute,
   OauthLoginRoute: OauthLoginRoute,
   SetupDiscordRoleRoute: SetupDiscordRoleRoute,
-  SetupItchioRoute: SetupItchioRoute,
   SetupJinxxyRoute: SetupJinxxyRoute,
   SetupLemonsqueezyRoute: SetupLemonsqueezyRoute,
   SetupPayhipRoute: SetupPayhipRoute,
@@ -1049,6 +1050,7 @@ const rootRouteChildren: RootRouteChildren = {
   VerifyErrorRoute: VerifyErrorRoute,
   VerifySuccessRoute: VerifySuccessRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  OauthCallbackItchioRoute: OauthCallbackItchioRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

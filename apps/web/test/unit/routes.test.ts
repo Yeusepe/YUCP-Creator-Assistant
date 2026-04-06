@@ -36,6 +36,7 @@ describe('Route Tree', () => {
     'oauth/login.tsx',
     'oauth/consent.tsx',
     'oauth/error.tsx',
+    'oauth/callback/itchio.tsx',
     'legal/terms-of-service.tsx',
     'legal/privacy-policy.tsx',
     '$.tsx',
