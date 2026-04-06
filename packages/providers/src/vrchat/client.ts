@@ -7,6 +7,7 @@
  * session bugs in multi-step login.
  */
 
+import type { StructuredLogger } from '@yucp/shared';
 import { createLogger } from '@yucp/shared';
 import type {
   RequiresTwoFactorAuth,
@@ -25,8 +26,6 @@ const VRCHAT_API_BASE = 'https://api.vrchat.cloud/api/1';
 const VRCHAT_USER_AGENT = 'YUCP Creator Assistant/0.1.0 (https://yucp.app)';
 const AUTH_COOKIE = 'auth';
 const TWO_FACTOR_AUTH_COOKIE = 'twoFactorAuth';
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
-
 interface VrchatApiConfig {
   clientApiKey?: string;
 }
@@ -203,6 +202,11 @@ export function extractVrchatAvatarId(urlOrId: string): string | null {
  */
 export class VrchatApiClient {
   private apiConfigPromise?: Promise<VrchatApiConfig>;
+  private readonly logger: StructuredLogger;
+
+  constructor(options: { logger?: StructuredLogger } = {}) {
+    this.logger = options.logger ?? createLogger();
+  }
 
   private async getApiConfig(): Promise<VrchatApiConfig> {
     if (!this.apiConfigPromise) {
@@ -253,7 +257,7 @@ export class VrchatApiClient {
       },
     });
 
-    logger.info('VRChat client beginLogin', {
+    this.logger.info('VRChat client beginLogin', {
       status: response.status,
       hasAuthCookie: Boolean(extractCookieValue(response.headers, AUTH_COOKIE)),
       hasTwoFactorAuthCookie: Boolean(extractCookieValue(response.headers, TWO_FACTOR_AUTH_COOKIE)),
@@ -330,7 +334,7 @@ export class VrchatApiClient {
         body: JSON.stringify({ code }),
       });
 
-      logger.info('VRChat client completePendingLogin verify', {
+      this.logger.info('VRChat client completePendingLogin verify', {
         method,
         status: response.status,
         verified: isVerifiedResponse(data) ? Boolean(data.verified) : false,
@@ -349,12 +353,12 @@ export class VrchatApiClient {
     }
 
     if (!session) {
-      logger.warn('VRChat client completePendingLogin failed: no verified factor');
+      this.logger.warn('VRChat client completePendingLogin failed: no verified factor');
       throw new Error('Verification failed');
     }
 
     const user = await this.getCurrentUser(session.authToken, session.twoFactorAuthToken);
-    logger.info('VRChat client completePendingLogin current user', {
+    this.logger.info('VRChat client completePendingLogin current user', {
       hasTwoFactorAuthToken: Boolean(session.twoFactorAuthToken),
       isCurrentUser: Boolean(user),
     });
@@ -395,7 +399,7 @@ export class VrchatApiClient {
     });
 
     if (!isCurrentUser(data)) {
-      logger.info('VRChat client getCurrentUser non-user response', {
+      this.logger.info('VRChat client getCurrentUser non-user response', {
         status: response.status,
         requiresTwoFactorAuth: isTwoFactorRequired(data)
           ? sanitizeTwoFactorMethods(data.requiresTwoFactorAuth)

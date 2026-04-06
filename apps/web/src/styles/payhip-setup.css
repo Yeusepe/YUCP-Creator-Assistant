@@ -23,7 +23,7 @@
 .payhip-setup h1,
 .payhip-setup h2,
 .payhip-setup h3 {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 /* ─── Responsive ────────────────────────────────────── */
@@ -295,7 +295,7 @@
   flex-shrink: 0;
 }
 .payhip-setup .ph-logo {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 800;
   font-size: 11px;
   color: var(--ph);
@@ -335,7 +335,7 @@
   font-size: 11px;
   font-weight: 700;
   color: #111827;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 /* Tabs */

@@ -6,7 +6,9 @@
  * The collaborator's identity is verified via Discord OAuth on the consent page.
  */
 
-import { createLogger, PROVIDER_REGISTRY, type ProviderDescriptor } from '@yucp/shared';
+import { PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
+import type { ProviderDescriptor } from '@yucp/providers/types';
+import { createLogger } from '@yucp/shared';
 import {
   ActionRowBuilder,
   ButtonBuilder,

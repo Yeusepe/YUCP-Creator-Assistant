@@ -13,7 +13,7 @@
 
 h1,
 h2 {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 800;
   letter-spacing: -0.04em;
 }
@@ -109,7 +109,7 @@ h2 {
   border: none;
   border-radius: 14px;
   color: #fff;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 0.95rem;
   cursor: pointer;
@@ -217,7 +217,7 @@ h2 {
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 14px;
   color: #fff;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 0.95rem;
   text-decoration: none;

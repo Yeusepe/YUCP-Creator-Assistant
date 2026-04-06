@@ -15,12 +15,16 @@ export {
   createVerificationSessionManager,
   generateCodeVerifier,
   generateState,
-  getVerificationConfig,
   hashVerifier,
   mountVerificationRouteHandlers,
   mountVerificationRoutes,
   SESSION_EXPIRY_MS,
-  type VerificationConfig,
   type VerificationRouteHandlers,
   type VerificationSessionManager,
 } from './sessionManager';
+export {
+  DISCORD_ROLE_CONFIG,
+  GUMROAD_CONFIG,
+  getVerificationConfig,
+  type VerificationConfig,
+} from './verificationConfig';

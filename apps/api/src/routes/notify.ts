@@ -8,12 +8,11 @@
  * Response: 204 on success, 401/400/405 on failure
  */
 
-import { createLogger, getInternalRpcSharedSecret, timingSafeStringEqual } from '@yucp/shared';
+import { getInternalRpcSharedSecret, timingSafeStringEqual } from '@yucp/shared';
 import { internal } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { loadEnv } from '../lib/env';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+import { logger } from '../lib/logger';
 
 type NotificationType = 'success' | 'error' | 'warning' | 'info';
 

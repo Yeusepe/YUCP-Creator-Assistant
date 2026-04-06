@@ -1,6 +1,9 @@
-import { createLogger, timingSafeStringEqual } from '@yucp/shared';
+import { PAYHIP_PURPOSES } from '@yucp/providers/payhip/module';
+import { timingSafeStringEqual } from '@yucp/shared';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../../convex/_generated/api';
 import { decrypt } from '../../lib/encrypt';
+import { logger } from '../../lib/logger';
 import { getStateStore } from '../../lib/stateStore';
 import {
   isWebhookContentLengthTooLarge,
@@ -9,22 +12,9 @@ import {
 } from '../../lib/webhookBody';
 import type { WebhookPlugin } from '../types';
 
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
-
-// HKDF purpose string — inlined to avoid circular imports with index.ts
-const CREDENTIAL_PURPOSE = 'payhip-api-key' as const;
-
 const PAYHIP_TEST_PREFIX = 'payhip_test:';
 const PAYHIP_TEST_TTL_MS = 60 * 1000;
 const WEBHOOK_MAX_AGE_MS = 5 * 60 * 1000;
-
-async function sha256Hex(input: string): Promise<string> {
-  const encoded = new TextEncoder().encode(input);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 export const webhook: WebhookPlugin = {
   async handle(request, routeId, _urlProviderId, ctx) {
@@ -77,7 +67,7 @@ export const webhook: WebhookPlugin = {
         }
       );
       const apiKey = encryptedKey
-        ? await decrypt(encryptedKey, encryptionSecret, CREDENTIAL_PURPOSE)
+        ? await decrypt(encryptedKey, encryptionSecret, PAYHIP_PURPOSES.credential)
         : null;
       let signatureValid = false;
 

@@ -6,13 +6,11 @@
  * entitlements for all matching products.
  */
 
-import { createLogger } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { logger } from '../lib/logger';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
-import type { VerificationConfig } from './sessionManager';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+import type { VerificationConfig } from './verificationConfig';
 
 const GENERIC_ERROR = 'Verification failed. Please try again.';
 

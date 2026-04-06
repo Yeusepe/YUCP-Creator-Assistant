@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createLogger, getInternalRpcSharedSecret, timingSafeStringEqual } from '@yucp/shared';
+import { getInternalRpcSharedSecret, timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
@@ -14,8 +14,8 @@ import {
   runCouplingForensicsScore,
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
+import { logger } from '../lib/logger';
 
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
 

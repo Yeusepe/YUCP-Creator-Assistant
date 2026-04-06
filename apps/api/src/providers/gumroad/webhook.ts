@@ -1,13 +1,12 @@
-import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
+
+import { logger } from '../../lib/logger';
 import {
   isWebhookContentLengthTooLarge,
   PayloadTooLargeError,
   readWebhookTextBody,
 } from '../../lib/webhookBody';
 import type { WebhookPlugin } from '../types';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const WEBHOOK_MAX_AGE_MS = 5 * 60 * 1000;
 

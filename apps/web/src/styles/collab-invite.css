@@ -16,7 +16,7 @@ h1,
 h2,
 h3,
 .font-heading {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 .stage {
@@ -57,7 +57,7 @@ h3,
   backdrop-filter: blur(8px);
   border: 1.5px solid rgba(255, 255, 255, 0.2);
   color: #ffffff;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 800;
   font-size: 14px;
   padding: 12px 28px;
@@ -109,7 +109,7 @@ h3,
   background: #5865f2;
   border: 1.5px solid rgba(255, 255, 255, 0.15);
   color: #ffffff;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 800;
   font-size: 14px;
   padding: 12px 28px;
@@ -149,7 +149,7 @@ h3,
   backdrop-filter: blur(8px);
   border: 1.5px solid rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.85);
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 14px;
   padding: 12px 28px;
@@ -373,7 +373,7 @@ h3,
 }
 
 .ci-access-list h3 {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 0.9375rem;
   margin-bottom: 0.875rem;

@@ -1,0 +1,28 @@
+{
+  "name": "@yucp/application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ports": "./src/ports/index.ts",
+    "./services": "./src/services/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src ./test",
+    "test:ci": "bun test ./src ./test --coverage"
+  },
+  "dependencies": {
+    "@yucp/providers": "workspace:*",
+    "@yucp/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "bun-types": "^1.1.0"
+  }
+}

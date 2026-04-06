@@ -12,10 +12,11 @@
  */
 
 import { VrchatApiClient } from '@yucp/providers/vrchat';
-import { createLogger } from '@yucp/shared';
+import { VRCHAT_PURPOSES } from '@yucp/providers/vrchat/module';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
+import { logger } from '../../lib/logger';
 import { getStateStore } from '../../lib/stateStore';
 import type { ConnectContext, ConnectPlugin, ConnectRoute } from '../types';
 import {
@@ -25,8 +26,6 @@ import {
   readConnectPendingState,
 } from './pending';
 
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
-
 const CONNECT_TOKEN_PREFIX = 'vrchat_connect:';
 const CONNECT_TOKEN_TTL_MS = 15 * 60 * 1000;
 
@@ -34,7 +33,7 @@ const CONNECT_TOKEN_TTL_MS = 15 * 60 * 1000;
  * HKDF purpose for encrypting the VRChat creator session before storing in Convex.
  * Domain-separated from the buyer session ('vrchat-provider-session').
  */
-const SESSION_PURPOSE = 'vrchat-creator-session' as const;
+const SESSION_PURPOSE = VRCHAT_PURPOSES.credential;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // GET /api/connect/vrchat/begin

@@ -84,7 +84,7 @@
 }
 
 .vp-package-name {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 800;
   font-size: clamp(1.35rem, 4vw, 1.75rem);
   letter-spacing: -0.03em;
@@ -606,7 +606,7 @@
 }
 
 .vp-success-title {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 800;
   font-size: clamp(1.75rem, 6vw, 2.5rem);
   letter-spacing: -0.04em;

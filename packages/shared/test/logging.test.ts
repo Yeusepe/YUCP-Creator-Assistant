@@ -116,6 +116,12 @@ describe('redaction', () => {
       expect(result).toBe('[JWT_REDACTED]');
     });
 
+    it('should ignore long eyJ noise that is not a JWT', () => {
+      const input = `prefix ${'eyJ'.repeat(2000)} suffix`;
+      const result = redactString(input);
+      expect(result).toBe(input);
+    });
+
     it('should redact API keys', () => {
       const input = 'api_key=sk_live_abc123def456ghi789';
       const result = redactString(input);

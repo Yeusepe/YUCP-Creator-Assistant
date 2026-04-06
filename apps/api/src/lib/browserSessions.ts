@@ -4,14 +4,31 @@ export const DISCORD_ROLE_SETUP_COOKIE = 'yucp_discord_role_setup';
 export const JINXXY_PENDING_WEBHOOK_PREFIX = 'jinxxy_webhook_pending:';
 export const JINXXY_PENDING_WEBHOOK_TTL_MS = 30 * 60 * 1000;
 
-export function getCookieValue(request: Request, name: string): string | null {
-  const cookieHeader = request.headers.get('cookie');
+export interface BrowserCookieOptions {
+  maxAgeSeconds?: number;
+  path?: string;
+}
+
+function resolveCookieOptions(
+  maxAgeSecondsOrOptions?: number | BrowserCookieOptions
+): BrowserCookieOptions {
+  if (typeof maxAgeSecondsOrOptions === 'number') {
+    return { maxAgeSeconds: maxAgeSecondsOrOptions };
+  }
+  return maxAgeSecondsOrOptions ?? {};
+}
+
+export function getCookieValueFromHeader(cookieHeader: string | null, name: string): string | null {
   if (!cookieHeader) return null;
   for (const part of cookieHeader.split(';')) {
     const [rawName, ...rest] = part.trim().split('=');
     if (rawName === name) return rest.join('=');
   }
   return null;
+}
+
+export function getCookieValue(request: Request, name: string): string | null {
+  return getCookieValueFromHeader(request.headers.get('cookie'), name);
 }
 
 function isSecureRequest(request: Request): boolean {
@@ -32,14 +49,21 @@ export function buildCookie(
   name: string,
   value: string,
   request: Request,
-  maxAgeSeconds?: number
+  maxAgeSecondsOrOptions?: number | BrowserCookieOptions
 ): string {
-  const parts = [`${name}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax'];
+  const options = resolveCookieOptions(maxAgeSecondsOrOptions);
+  const parts = [`${name}=${value}`, `Path=${options.path ?? '/'}`, 'HttpOnly', 'SameSite=Lax'];
   if (isSecureRequest(request)) parts.push('Secure');
-  if (typeof maxAgeSeconds === 'number') parts.push(`Max-Age=${maxAgeSeconds}`);
+  if (typeof options.maxAgeSeconds === 'number') {
+    parts.push(`Max-Age=${options.maxAgeSeconds}`);
+  }
   return parts.join('; ');
 }
 
-export function clearCookie(name: string, request: Request): string {
-  return buildCookie(name, '', request, 0);
+export function clearCookie(
+  name: string,
+  request: Request,
+  options?: Omit<BrowserCookieOptions, 'maxAgeSeconds'>
+): string {
+  return buildCookie(name, '', request, { ...options, maxAgeSeconds: 0 });
 }

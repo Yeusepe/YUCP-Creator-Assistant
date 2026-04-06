@@ -1,11 +1,10 @@
 import { createHash, createHmac } from 'node:crypto';
-import { createLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
+import { logger } from '../lib/logger';
 import { createCertificateBillingPortalSession } from '../lib/polar';
 import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const INTERNAL_AUTH_TS_HEADER = 'x-yucp-internal-auth-ts';
 const INTERNAL_AUTH_SIG_HEADER = 'x-yucp-internal-auth-sig';
 

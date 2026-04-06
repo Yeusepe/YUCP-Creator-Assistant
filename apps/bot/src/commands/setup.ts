@@ -2,7 +2,8 @@
  * /creator-admin setup start - Opens the dashboard for configuration
  */
 
-import { PROVIDER_REGISTRY, type ProviderDescriptor } from '@yucp/shared';
+import { PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
+import type { ProviderDescriptor } from '@yucp/providers/types';
 import type { ConvexHttpClient } from 'convex/browser';
 import {
   ActionRowBuilder,

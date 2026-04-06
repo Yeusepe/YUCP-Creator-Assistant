@@ -49,22 +49,6 @@ export class LemonSqueezyApiClient {
     this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
   }
 
-  static fromEnv(): LemonSqueezyApiClient {
-    const apiToken = process.env.LEMONSQUEEZY_API_TOKEN;
-    if (!apiToken) {
-      throw new Error('LEMONSQUEEZY_API_TOKEN environment variable is required');
-    }
-
-    return new LemonSqueezyApiClient({
-      apiToken,
-      apiBaseUrl: process.env.LEMONSQUEEZY_API_BASE_URL,
-      licenseApiBaseUrl: process.env.LEMONSQUEEZY_LICENSE_API_BASE_URL,
-      timeout: process.env.LEMONSQUEEZY_API_TIMEOUT
-        ? Number.parseInt(process.env.LEMONSQUEEZY_API_TIMEOUT, 10)
-        : undefined,
-    });
-  }
-
   private async request<T>(
     method: string,
     path: string,

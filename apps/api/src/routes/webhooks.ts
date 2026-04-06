@@ -7,11 +7,9 @@
  * Adding a new provider with webhook support requires zero changes here.
  */
 
-import { createLogger } from '@yucp/shared';
 import { getConvexClientFromUrl } from '../lib/convex';
-import { PROVIDERS } from '../providers/index';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+import { logger } from '../lib/logger';
+import { resolveWebhookPlugin } from '../providers/index';
 
 export interface WebhookConfig {
   convexUrl: string;
@@ -45,24 +43,12 @@ export function createWebhookHandler(config: WebhookConfig) {
       routeId,
     });
 
-    // Direct match by provider id
-    let plugin = PROVIDERS.get(urlProvider)?.webhook ? PROVIDERS.get(urlProvider) : undefined;
-
-    // Fallback: check extraProviders (e.g. 'jinxxy-collab' → jinxxy plugin)
-    if (!plugin) {
-      for (const p of PROVIDERS.values()) {
-        if (p.webhook?.extraProviders?.includes(urlProvider)) {
-          plugin = p;
-          break;
-        }
-      }
-    }
-
-    if (!plugin?.webhook) {
+    const resolvedWebhook = resolveWebhookPlugin(urlProvider);
+    if (!resolvedWebhook) {
       logger.warn('Webhook: no handler for provider', { provider: urlProvider, routeId });
       return new Response('Not found', { status: 404 });
     }
 
-    return plugin.webhook.handle(request, routeId, urlProvider, ctx);
+    return resolvedWebhook.webhook.handle(request, routeId, urlProvider, ctx);
   };
 }

@@ -1,5 +1,5 @@
-import type { ProviderDescriptor } from '@yucp/shared';
-import { PROVIDER_REGISTRY } from '@yucp/shared';
+import { PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
+import type { ProviderDescriptor } from '@yucp/providers/types';
 import type {
   ButtonInteraction,
   ModalSubmitInteraction,

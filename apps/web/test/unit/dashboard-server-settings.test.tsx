@@ -7,6 +7,7 @@ import { ApiError } from '@/api/client';
 vi.mock('@tanstack/react-router', () => {
   return {
     createFileRoute: () => (options: unknown) => ({ options }),
+    createLazyFileRoute: () => (options: unknown) => ({ options }),
     useNavigate: vi.fn(() => vi.fn()),
   };
 });
@@ -78,7 +79,7 @@ import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { useServerContext } from '@/hooks/useServerContext';
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index';
+import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -216,8 +217,8 @@ describe('dashboard server settings', () => {
     expect(screen.getByText('Allow Mismatched Emails')).toBeInTheDocument();
     expect(screen.getByText('Verification Scope')).toBeInTheDocument();
     expect(screen.getAllByText('Jinxxy').length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('option', { name: '#logs' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('option', { name: '#announcements' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: '#logs' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: '#announcements' }).length).toBeGreaterThan(0);
   });
 
   it('derives the server settings tenant from the selected guild when route tenant context is missing', async () => {

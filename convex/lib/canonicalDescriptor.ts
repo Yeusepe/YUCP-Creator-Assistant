@@ -16,6 +16,7 @@
  */
 
 import * as ed from '@noble/ed25519';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { base64ToBytes, bytesToBase64 } from './yucpCrypto';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,18 +92,6 @@ function buildSigningMessage(claim: ManifestClaim): Uint8Array {
     '|' +
     claim.issuedAt;
   return new TextEncoder().encode(text);
-}
-
-/**
- * Compute SHA-256 of raw bytes and return as lowercase hex.
- * Uses the Web Crypto API available in Convex's JS runtime.
- */
-export async function sha256Hex(data: Uint8Array | ArrayBuffer): Promise<string> {
-  const buffer = data instanceof ArrayBuffer ? data : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-  const hash = await crypto.subtle.digest('SHA-256', buffer as ArrayBuffer);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

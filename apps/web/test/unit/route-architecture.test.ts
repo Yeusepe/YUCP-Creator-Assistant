@@ -35,16 +35,14 @@ describe('Route architecture', () => {
     // See: test/unit/setup-shell-visibility-contracts.test.ts
     const SIDE_EFFECT_CSS_ALLOWED = new Set([
       '__root.tsx',
-      '_authenticated/account.tsx',
-      '_authenticated/dashboard.tsx',
-      '_authenticated/verify/purchase.tsx',
-      'install/error.tsx',
-      'install/success.tsx',
-      'oauth/consent.tsx',
-      'setup/jinxxy.tsx',
-      'setup/lemonsqueezy.tsx',
-      'setup/payhip.tsx',
-      'setup/vrchat.tsx',
+      '_authenticated/verify/purchase.lazy.tsx',
+      'install/error.lazy.tsx',
+      'install/success.lazy.tsx',
+      'oauth/consent.lazy.tsx',
+      'setup/jinxxy.lazy.tsx',
+      'setup/lemonsqueezy.lazy.tsx',
+      'setup/payhip.lazy.tsx',
+      'setup/vrchat.lazy.tsx',
     ]);
 
     const offenders: string[] = [];

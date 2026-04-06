@@ -1,7 +1,6 @@
 import {
-  encodeVerificationSupportToken,
+  createVerificationSupportContext,
   formatVerificationSupportMessage,
-  getVerificationSupportErrorDetails,
   type StructuredLogger,
 } from '@yucp/shared';
 
@@ -20,8 +19,7 @@ export async function buildBotVerificationErrorMessage(
   logger: StructuredLogger,
   input: BotVerificationSupportInput
 ): Promise<string> {
-  const errorDetails = getVerificationSupportErrorDetails(input.error);
-  const support = await encodeVerificationSupportToken({
+  const support = await createVerificationSupportContext({
     surface: 'bot',
     stage: input.stage,
     authUserId: input.authUserId,
@@ -29,7 +27,7 @@ export async function buildBotVerificationErrorMessage(
     discordUserId: input.discordUserId,
     provider: input.provider,
     hadActivePanel: input.hadActivePanel,
-    ...errorDetails,
+    error: input.error,
   });
 
   logger.error('Verification UI flow failed', {
@@ -41,8 +39,8 @@ export async function buildBotVerificationErrorMessage(
     discordUserId: input.discordUserId,
     provider: input.provider,
     hadActivePanel: input.hadActivePanel,
-    error: input.error instanceof Error ? input.error.message : String(input.error),
-    stack: input.error instanceof Error ? input.error.stack : undefined,
+    error: support.logErrorMessage,
+    stack: support.logErrorStack,
   });
 
   return formatVerificationSupportMessage(input.baseMessage, support.supportCode);

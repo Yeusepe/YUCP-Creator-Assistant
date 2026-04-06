@@ -10,17 +10,13 @@
  * because they are shared infrastructure, not provider-specific flows.
  */
 
-import { createLogger } from '@yucp/shared';
+import { PAYHIP_PURPOSES } from '@yucp/providers/payhip/module';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
+import { logger } from '../../lib/logger';
 import { getStateStore } from '../../lib/stateStore';
 import type { ConnectContext, ConnectPlugin, ConnectRoute } from '../types';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
-
-// HKDF purpose strings — inlined to avoid circular imports with index.ts
-const CREDENTIAL_PURPOSE = 'payhip-api-key' as const;
 
 const PAYHIP_TEST_PREFIX = 'payhip_test:';
 
@@ -80,7 +76,11 @@ async function payhipFinish(request: Request, ctx: ConnectContext): Promise<Resp
   }
 
   try {
-    const apiKeyEncrypted = await encrypt(apiKey, config.encryptionSecret, CREDENTIAL_PURPOSE);
+    const apiKeyEncrypted = await encrypt(
+      apiKey,
+      config.encryptionSecret,
+      PAYHIP_PURPOSES.credential
+    );
     const convex = getConvexClientFromUrl(config.convexUrl);
     const result = await convex.mutation(api.providerConnections.upsertPayhipConnection, {
       apiSecret: config.convexApiSecret,

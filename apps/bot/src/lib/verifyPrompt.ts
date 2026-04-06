@@ -1,4 +1,4 @@
-import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '@yucp/shared';
+import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '@yucp/providers/providerMetadata';
 import {
   ActionRowBuilder,
   ButtonBuilder,

@@ -14,7 +14,7 @@
  */
 
 import { ConvexError, v } from 'convex/values';
-import { canReactivate } from '../packages/shared/src/entitlement/service';
+import { canReactivate } from '@yucp/shared/entitlement/service';
 import type { Id } from './_generated/dataModel';
 import { mutation } from './_generated/server';
 import { LicenseProviderV } from './lib/providers';

@@ -32,6 +32,8 @@ mock.module('../../../../../convex/_generated/api', () => ({
       getViewerByAuthUser: 'authViewer.getViewerByAuthUser',
     },
   },
+  internal: {},
+  components: {},
 }));
 
 const { handleMeRoutes } = await import('./me');

@@ -7,6 +7,7 @@ const mockUseSearch = vi.fn();
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({ options }),
+  createLazyFileRoute: () => (options: unknown) => ({ options }),
   redirect: vi.fn(),
   useSearch: () => mockUseSearch(),
 }));
@@ -37,7 +38,7 @@ vi.mock('@/lib/dashboard', async () => {
 
 import * as accountApi from '@/lib/account';
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as VerifyPurchaseRoute } from '@/routes/_authenticated/verify/purchase';
+import { Route as VerifyPurchaseRoute } from '@/routes/_authenticated/verify/purchase.lazy';
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

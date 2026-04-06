@@ -5,9 +5,7 @@
  * and returns the public URL for webhook endpoints.
  */
 
-import { createLogger } from '@yucp/shared';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+import { logger } from './logger';
 
 interface TunnelResult {
   url: string;

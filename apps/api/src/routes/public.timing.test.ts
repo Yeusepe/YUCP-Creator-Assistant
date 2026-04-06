@@ -10,6 +10,8 @@ mock.module('../../../../convex/_generated/api', () => ({
       getEntitlementsBySubject: 'entitlements.getEntitlementsBySubject',
     },
   },
+  internal: {},
+  components: {},
 }));
 
 const { createPublicRoutes } = await import('./public');

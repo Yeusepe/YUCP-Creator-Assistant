@@ -28,22 +28,27 @@
  * DELETE /api/collab/connections/:id                 – Remove connection (setup session auth)
  */
 
-import { createLogger, getProviderDescriptor, PROVIDER_REGISTRY } from '@yucp/shared';
+import { getProviderDescriptor, PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
+import { base64UrlEncode, sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
-import { SETUP_SESSION_COOKIE } from '../lib/browserSessions';
+import {
+  buildCookie,
+  clearCookie,
+  getCookieValue,
+  SETUP_SESSION_COOKIE,
+} from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { encrypt } from '../lib/encrypt';
+import { logger } from '../lib/logger';
 import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
-import { PROVIDERS } from '../providers/index';
+import { getProviderRuntime } from '../providers/index';
 
 // Collab webhook secrets are scoped to collab connections, not shared with per-provider webhooks
 const COLLAB_WEBHOOK_SECRET_PURPOSE = 'collab-webhook-signing-secret' as const;
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const COLLAB_TEST_PREFIX = 'collab_test:';
@@ -71,43 +76,7 @@ export interface CollabConfig {
 function generateToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  const base64 = btoa(String.fromCharCode(...bytes));
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function sha256Hex(input: string): Promise<string> {
-  const data = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function getCookieValue(request: Request, name: string): string | null {
-  const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) return null;
-  for (const part of cookieHeader.split(';')) {
-    const [rawName, ...rest] = part.trim().split('=');
-    if (rawName === name) return rest.join('=');
-  }
-  return null;
-}
-
-function buildCookie(
-  name: string,
-  value: string,
-  request: Request,
-  maxAgeSeconds?: number
-): string {
-  const isSecure = new URL(request.url).protocol === 'https:';
-  const parts = [`${name}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax'];
-  if (isSecure) parts.push('Secure');
-  if (typeof maxAgeSeconds === 'number') parts.push(`Max-Age=${maxAgeSeconds}`);
-  return parts.join('; ');
-}
-
-function clearCookie(name: string, request: Request): string {
-  return buildCookie(name, '', request, 0);
+  return base64UrlEncode(bytes);
 }
 
 async function resolveSetupToken(
@@ -879,11 +848,11 @@ export function createCollabRoutes(config: CollabConfig) {
 
     // Validate the API key against the correct provider
     let credentialEncrypted: string;
-    const providerPlugin = PROVIDERS.get(inviteProviderKey);
-    if (!providerPlugin) {
+    const providerRuntime = getProviderRuntime(inviteProviderKey);
+    if (!providerRuntime) {
       return respond(() => Response.json({ error: 'unsupported_provider' }, { status: 400 }));
     }
-    const validateCollaboratorCredential = providerPlugin.collabValidate;
+    const validateCollaboratorCredential = providerRuntime.collabValidate;
     if (validateCollaboratorCredential) {
       try {
         await timing.measure(
@@ -899,13 +868,13 @@ export function createCollabRoutes(config: CollabConfig) {
         );
       }
     }
-    if (!providerPlugin.collabCredentialPurpose) {
+    if (!providerRuntime.collabCredentialPurpose) {
       return respond(() => Response.json({ error: 'provider_not_configurable' }, { status: 400 }));
     }
     credentialEncrypted = await encrypt(
       rawApiKey,
       config.encryptionSecret,
-      providerPlugin.collabCredentialPurpose
+      providerRuntime.collabCredentialPurpose
     );
 
     let webhookSecretRef: string | undefined;
@@ -1070,26 +1039,26 @@ export function createCollabRoutes(config: CollabConfig) {
     let collaboratorIdentity: string;
     let credentialEncrypted: string;
 
-    const providerPlugin = PROVIDERS.get(providerKey);
-    if (!providerPlugin) {
+    const providerRuntime = getProviderRuntime(providerKey);
+    if (!providerRuntime) {
       return Response.json({ error: 'unsupported_provider' }, { status: 400 });
     }
-    if (providerPlugin.collabValidate) {
+    if (providerRuntime.collabValidate) {
       try {
-        await providerPlugin.collabValidate(rawCredential);
+        await providerRuntime.collabValidate(rawCredential);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Invalid credential';
         logger.warn('Manual collab credential validation failed', { providerKey, error: msg });
         return Response.json({ error: 'invalid_credential', details: msg }, { status: 422 });
       }
     }
-    if (!providerPlugin.collabCredentialPurpose) {
+    if (!providerRuntime.collabCredentialPurpose) {
       return Response.json({ error: 'provider_not_configurable' }, { status: 400 });
     }
     credentialEncrypted = await encrypt(
       rawCredential,
       config.encryptionSecret,
-      providerPlugin.collabCredentialPurpose
+      providerRuntime.collabCredentialPurpose
     );
     collaboratorDisplayName = providerKey;
     collaboratorIdentity = `manual:${providerKey}:${Date.now()}`;

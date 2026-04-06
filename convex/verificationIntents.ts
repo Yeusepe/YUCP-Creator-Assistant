@@ -1,4 +1,12 @@
 import * as ed from '@noble/ed25519';
+import {
+  base64ToBytes,
+  base64UrlDecodeToBytes,
+  base64UrlEncode,
+  bytesToBase64,
+  sha256Base64Url,
+  sha256Hex,
+} from '@yucp/shared/crypto';
 import { v } from 'convex/values';
 import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
@@ -72,47 +80,8 @@ const VerificationIntentStatusV = v.union(
   v.literal('cancelled')
 );
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-}
-
-function base64urlEncode(data: Uint8Array | string): string {
-  let b64: string;
-  if (typeof data === 'string') {
-    b64 = btoa(data);
-  } else {
-    let binary = '';
-    for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
-    b64 = btoa(binary);
-  }
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function base64urlDecodeToBytes(input: string): Uint8Array {
-  const padded = input
-    .replace(/-/g, '+')
-    .replace(/_/g, '/')
-    .padEnd(Math.ceil(input.length / 4) * 4, '=');
-  return base64ToBytes(padded);
-}
-
-async function sha256Hex(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 async function computeCodeChallenge(verifier: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-  return base64urlEncode(new Uint8Array(digest));
+  return sha256Base64Url(verifier);
 }
 
 function generateHex(bytesLength: number): string {
@@ -228,14 +197,14 @@ async function signVerificationGrantJwt(
   keyId: string
 ): Promise<string> {
   const header = { alg: 'EdDSA', crv: 'Ed25519', kid: keyId, typ: 'JWT' };
-  const headerB64 = base64urlEncode(JSON.stringify(header));
-  const payloadB64 = base64urlEncode(JSON.stringify(claims));
+  const headerB64 = base64UrlEncode(JSON.stringify(header));
+  const payloadB64 = base64UrlEncode(JSON.stringify(claims));
   const signingInput = `${headerB64}.${payloadB64}`;
   const signatureBytes = await ed.signAsync(
     new TextEncoder().encode(signingInput),
     base64ToBytes(privateKeyBase64)
   );
-  return `${signingInput}.${base64urlEncode(signatureBytes)}`;
+  return `${signingInput}.${base64UrlEncode(signatureBytes)}`;
 }
 
 async function verifyVerificationGrantJwt(
@@ -246,7 +215,7 @@ async function verifyVerificationGrantJwt(
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     const signingInput = `${parts[0]}.${parts[1]}`;
-    const signature = base64urlDecodeToBytes(parts[2]);
+    const signature = base64UrlDecodeToBytes(parts[2]);
     const verified = await ed.verifyAsync(
       signature,
       new TextEncoder().encode(signingInput),
@@ -254,7 +223,7 @@ async function verifyVerificationGrantJwt(
     );
     if (!verified) return null;
     const payload = JSON.parse(
-      new TextDecoder().decode(base64urlDecodeToBytes(parts[1]))
+      new TextDecoder().decode(base64UrlDecodeToBytes(parts[1]))
     ) as VerificationGrantClaims;
     if (payload.aud !== GRANT_AUDIENCE) return null;
     if (payload.exp <= Math.floor(Date.now() / 1000)) return null;

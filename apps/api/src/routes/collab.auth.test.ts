@@ -23,6 +23,8 @@ let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: apiMock,
+  internal: apiMock,
+  components: {},
 }));
 
 mock.module('../lib/convex', () => ({

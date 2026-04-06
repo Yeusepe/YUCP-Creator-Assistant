@@ -24,6 +24,7 @@
     "@react-three/fiber": "^9.4.0",
     "@tempojs/cloudflare-worker-router": "^0.0.12",
     "@tempojs/common": "^0.0.12",
+    "@yucp/application": "workspace:*",
     "@yucp/private-rpc": "workspace:*",
     "@yucp/providers": "workspace:*",
     "@yucp/shared": "workspace:*",

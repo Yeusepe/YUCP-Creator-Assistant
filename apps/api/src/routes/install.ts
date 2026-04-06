@@ -17,14 +17,12 @@
  * 6. Redirect to dashboard with success
  */
 
-import { createLogger } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { getConvexApiSecret, getConvexClient } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
+import { logger } from '../lib/logger';
 import { getStateStore } from '../lib/stateStore';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const INSTALL_STATE_PREFIX = 'install:';
 
@@ -91,7 +89,6 @@ export async function storeInstallState(state: string, authUserId: string): Prom
   };
   const store = getStateStore();
   await store.set(`${INSTALL_STATE_PREFIX}${state}`, JSON.stringify(data), STATE_EXPIRY_MS);
-  logger.debug('Install state stored', { statePrefix: `${state.slice(0, 8)}...`, authUserId });
 }
 
 /**
@@ -121,7 +118,6 @@ export async function validateInstallState(state: string): Promise<InstallState 
     return null;
   }
 
-  logger.debug('Install state validated', { statePrefix: `${state.slice(0, 8)}...` });
   return stored;
 }
 
@@ -176,7 +172,7 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
    * Initiates Discord bot installation flow
    *
    * Query params:
-   * - authUserId: The creator profile to link the guild to
+   * - authUserId (optional): The creator profile to link the guild to. Defaults to the authenticated user.
    * - guildId (optional): Pre-select a specific guild
    */
   async function initiateBotInstall(request: Request): Promise<Response> {
@@ -194,19 +190,16 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
     }
 
     const url = new URL(request.url);
-    const authUserId = url.searchParams.get('authUserId');
+    const requestedAuthUserId = url.searchParams.get('authUserId')?.trim() || null;
     const guildId = url.searchParams.get('guildId');
-
-    if (!authUserId) {
-      return Response.json({ error: 'authUserId is required' }, { status: 400 });
-    }
+    const authUserId = requestedAuthUserId ?? session.user.id;
 
     // Verify the authUserId matches the authenticated session user to prevent
     // one authenticated user from installing the bot on behalf of another user.
-    if (session.user.id !== authUserId) {
+    if (requestedAuthUserId && session.user.id !== authUserId) {
       logger.warn('authUserId mismatch in bot install', {
         sessionUserId: session.user.id,
-        requestedAuthUserId: authUserId,
+        requestedAuthUserId,
       });
       return Response.json(
         { error: 'Forbidden: authUserId does not match session' },

@@ -13,7 +13,7 @@
  */
 
 import type { Verification } from '@yucp/shared';
-import type { ProviderAdapter, ProviderConfig, PurchaseRecord } from '../index';
+import type { ProviderAdapter, ProviderConfig, PurchaseRecord } from '../legacyAdapter';
 import { JinxxyApiClient } from './client';
 import type {
   JinxxyAdapterConfig,
@@ -51,24 +51,6 @@ export class JinxxyAdapter implements ProviderAdapter {
       apiBaseUrl: config.apiBaseUrl,
       timeout: config.timeout,
       maxRetries: config.maxRetries,
-    });
-  }
-
-  /**
-   * Create adapter from environment variables
-   */
-  static fromEnv(): JinxxyAdapter {
-    const apiKey = process.env.JINXXY_API_KEY;
-    if (!apiKey) {
-      throw new Error('JINXXY_API_KEY environment variable is required');
-    }
-
-    return new JinxxyAdapter({
-      apiKey,
-      apiBaseUrl: process.env.JINXXY_API_BASE_URL,
-      timeout: process.env.JINXXY_API_TIMEOUT
-        ? Number.parseInt(process.env.JINXXY_API_TIMEOUT, 10)
-        : undefined,
     });
   }
 

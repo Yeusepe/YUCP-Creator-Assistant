@@ -21,7 +21,7 @@ h1,
 h2,
 h3,
 .display-text {
-  font-family: "Airbnb Cereal App Black", "Plus Jakarta Sans", sans-serif;
+  font-family: "Airbnb Cereal App Black", var(--font-display), sans-serif;
   font-weight: 800;
   letter-spacing: -0.04em;
 }
@@ -200,7 +200,7 @@ h3,
 .modal-panel .modal-btn {
   padding: 0.5rem 1.25rem;
   border-radius: 12px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 0.8125rem;
   text-transform: uppercase;

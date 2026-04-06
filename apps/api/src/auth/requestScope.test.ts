@@ -13,6 +13,8 @@ const queryMock = mock(
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: apiMock,
+  internal: apiMock,
+  components: {},
 }));
 
 mock.module('convex/browser', () => ({

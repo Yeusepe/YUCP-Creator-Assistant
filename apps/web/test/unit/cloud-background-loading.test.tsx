@@ -103,6 +103,15 @@ describe('Cloud background loading', () => {
     expect(preloadTextureSpy).toHaveBeenCalledWith('/cloud.png');
   });
 
+  it('lazy-loads the live background scene instead of importing it into the root bundle', () => {
+    const cloudBackgroundSource = readFileSync('src/components/three/CloudBackground.tsx', 'utf8');
+
+    expect(cloudBackgroundSource).toContain(
+      "const BackgroundApp = lazy(() => import('./BackgroundApp'));"
+    );
+    expect(cloudBackgroundSource).not.toContain("import BackgroundApp from './BackgroundApp';");
+  });
+
   it('uses the shared sky fallback surface instead of fading the live scene in', () => {
     const globalsCss = readFileSync('src/styles/globals.css', 'utf8');
 

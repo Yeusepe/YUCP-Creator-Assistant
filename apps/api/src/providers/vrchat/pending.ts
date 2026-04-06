@@ -11,10 +11,12 @@
  */
 
 import type { TwoFactorAuthType } from '@yucp/providers';
+import { buildCookie, clearCookie, getCookieValue } from '../../lib/browserSessions';
 import { decrypt, encrypt } from '../../lib/encrypt';
 import type { StateStore } from '../../lib/stateStore';
 
 const PENDING_COOKIE_NAME = 'yucp_vrchat_connect_pending';
+const PENDING_COOKIE_PATH = '/api/connect/vrchat';
 const PENDING_STATE_PREFIX = 'vrchat_connect_pending:';
 const PENDING_STATE_TTL_MS = 5 * 60 * 1000;
 const HKDF_PURPOSE = 'vrchat-connect-pending-state' as const;
@@ -36,29 +38,11 @@ function getPendingSecret(): string {
   throw new Error('VRCHAT_PENDING_STATE_SECRET is required');
 }
 
-function parseCookieValue(cookieHeader: string | null, name: string): string | null {
-  if (!cookieHeader) return null;
-  for (const entry of cookieHeader.split(';')) {
-    const [rawName, ...rest] = entry.trim().split('=');
-    if (rawName === name) return rest.join('=');
-  }
-  return null;
-}
-
-function buildCookie(request: Request, value: string, maxAgeSeconds: number): string {
-  const parts = [
-    `${PENDING_COOKIE_NAME}=${value}`,
-    'Path=/api/connect/vrchat',
-    'HttpOnly',
-    'SameSite=Lax',
-    `Max-Age=${maxAgeSeconds}`,
-  ];
-  if (new URL(request.url).protocol === 'https:') parts.push('Secure');
-  return parts.join('; ');
-}
-
 export function appendClearedConnectPendingCookie(headers: Headers, request: Request): void {
-  headers.append('Set-Cookie', buildCookie(request, '', 0));
+  headers.append(
+    'Set-Cookie',
+    clearCookie(PENDING_COOKIE_NAME, request, { path: PENDING_COOKIE_PATH })
+  );
 }
 
 export async function createConnectPendingState(
@@ -75,14 +59,17 @@ export async function createConnectPendingState(
   const id = crypto.randomUUID();
   const encrypted = await encrypt(JSON.stringify(state), getPendingSecret(), HKDF_PURPOSE);
   await store.set(`${PENDING_STATE_PREFIX}${id}`, encrypted, PENDING_STATE_TTL_MS);
-  return buildCookie(request, id, Math.floor(PENDING_STATE_TTL_MS / 1000));
+  return buildCookie(PENDING_COOKIE_NAME, id, request, {
+    path: PENDING_COOKIE_PATH,
+    maxAgeSeconds: Math.floor(PENDING_STATE_TTL_MS / 1000),
+  });
 }
 
 export async function readConnectPendingState(
   store: StateStore,
   request: Request
 ): Promise<{ id: string; state: VrchatConnectPendingState } | null> {
-  const pendingId = parseCookieValue(request.headers.get('cookie'), PENDING_COOKIE_NAME);
+  const pendingId = getCookieValue(request, PENDING_COOKIE_NAME);
   if (!pendingId) return null;
 
   const encrypted = await store.get(`${PENDING_STATE_PREFIX}${pendingId}`);
@@ -128,7 +115,11 @@ export async function clearConnectPendingState(
   request: Request,
   headers?: Headers
 ): Promise<void> {
-  const pendingId = parseCookieValue(request.headers.get('cookie'), PENDING_COOKIE_NAME);
-  if (pendingId) await store.delete(`${PENDING_STATE_PREFIX}${pendingId}`);
-  if (headers) appendClearedConnectPendingCookie(headers, request);
+  const pendingId = getCookieValue(request, PENDING_COOKIE_NAME);
+  if (pendingId) {
+    await store.delete(`${PENDING_STATE_PREFIX}${pendingId}`);
+  }
+  if (headers) {
+    appendClearedConnectPendingCookie(headers, request);
+  }
 }

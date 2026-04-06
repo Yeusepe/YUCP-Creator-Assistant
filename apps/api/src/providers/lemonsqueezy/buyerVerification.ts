@@ -1,4 +1,5 @@
 import { LemonSqueezyApiClient } from '@yucp/providers';
+import { LEMONSQUEEZY_PURPOSES } from '@yucp/providers/lemonsqueezy/module';
 import { api } from '../../../../../convex/_generated/api';
 import { decrypt } from '../../lib/encrypt';
 import {
@@ -7,7 +8,7 @@ import {
 } from '../../verification/buyerVerificationHelpers';
 import type { BuyerVerificationAdapter } from '../types';
 
-const CREDENTIAL_PURPOSE = 'lemonsqueezy-api-token' as const;
+const CREDENTIAL_PURPOSE = LEMONSQUEEZY_PURPOSES.credential;
 
 export const buyerVerification: BuyerVerificationAdapter = {
   providerId: 'lemonsqueezy',

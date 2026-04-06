@@ -16,6 +16,8 @@ const mutationMock = mock(async (_ref: unknown, _args?: unknown): Promise<unknow
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: apiMock,
+  internal: apiMock,
+  components: {},
 }));
 
 mock.module('../lib/convex', () => ({

@@ -1,8 +1,10 @@
+import {
+  detectProviderRateLimitError,
+  withProviderRateLimitRetries,
+} from '@yucp/providers/core/rateLimit';
 import { JinxxyApiClient } from '@yucp/providers/jinxxy';
-import { createLogger } from '@yucp/shared';
+import { logger } from '../../lib/logger';
 import type { BackfillPlugin, BackfillRecord } from '../types';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const MAX_RATE_LIMIT_RETRIES = 10;
 
@@ -12,10 +14,11 @@ export const backfill: BackfillPlugin = {
   async fetchPage(apiKey, productRef, cursor, pageSize, _encryptionSecret) {
     const page = cursor ? Number.parseInt(cursor, 10) : 1;
     const client = new JinxxyApiClient({ apiKey });
-    let retries = 0;
 
-    while (true) {
-      try {
+    return withProviderRateLimitRetries({
+      providerName: 'Jinxxy',
+      maxRetries: MAX_RATE_LIMIT_RETRIES,
+      operation: async () => {
         // Jinxxy /licenses does not support product_id filtering — filter client-side
         const { licenses, pagination } = await client.getLicenses({ page, per_page: pageSize });
 
@@ -34,22 +37,15 @@ export const backfill: BackfillPlugin = {
         }));
 
         return { facts, nextCursor: pagination?.has_next ? String(page + 1) : null };
-      } catch (err) {
-        if (
-          err instanceof Error &&
-          (err.message.includes('429') || err.message.toLowerCase().includes('rate limit'))
-        ) {
-          const waitMs = 60_000;
-          logger.warn('Jinxxy rate limit, waiting', { waitMs, retries });
-          await new Promise((r) => setTimeout(r, waitMs));
-          if (retries >= MAX_RATE_LIMIT_RETRIES) {
-            throw new Error(`Jinxxy rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries`);
-          }
-          retries++;
-          continue;
-        }
-        throw err;
-      }
-    }
+      },
+      getRateLimitError: (error) =>
+        detectProviderRateLimitError(error, {
+          providerName: 'Jinxxy',
+          fallbackWaitMs: 60_000,
+        }),
+      onRetry: ({ waitMs, retries }) => {
+        logger.warn('Jinxxy rate limit, waiting', { waitMs, retries });
+      },
+    });
   },
 };

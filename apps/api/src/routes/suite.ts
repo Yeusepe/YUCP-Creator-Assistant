@@ -5,12 +5,10 @@
  * Requires Bearer token with verification:read scope from "Sign in with Creator Suite".
  */
 
-import { createLogger } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const REQUIRED_SCOPE = 'verification:read';
 const MAX_PRODUCT_IDS_PER_CHECK = 50;

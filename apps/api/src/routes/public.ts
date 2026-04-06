@@ -1,13 +1,12 @@
-import { createLogger } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createPublicApiSupportError } from '../lib/verificationSupport';
 
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const VERIFICATION_SCOPE = 'verification:read';
 const SUBJECTS_SCOPE = 'subjects:read';
 const MAX_PRODUCT_IDS_PER_CHECK = 50;

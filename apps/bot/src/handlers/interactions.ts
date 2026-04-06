@@ -5,7 +5,8 @@
  * Domain-specific handlers live in the ./interactions/ subdirectory.
  */
 
-import { createLogger, getProviderDescriptor, providerLabel } from '@yucp/shared';
+import { getProviderDescriptor, providerLabel } from '@yucp/providers/providerMetadata';
+import { createLogger } from '@yucp/shared';
 import {
   type AutocompleteInteraction,
   type ButtonInteraction,

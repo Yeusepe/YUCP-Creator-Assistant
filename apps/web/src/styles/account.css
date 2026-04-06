@@ -49,7 +49,7 @@
 
 .account-surface-card-title {
   margin: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 1.125rem;
   font-weight: 800;
   line-height: 1.25;
@@ -139,7 +139,7 @@
 
 .account-sidebar-title {
   margin: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 18px;
   font-weight: 800;
   color: #f8fafc;
@@ -1645,7 +1645,7 @@
 
 .cert-billing-title {
   margin: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: clamp(1.55rem, 2vw, 2.15rem);
   font-weight: 800;
   line-height: 1.05;
@@ -1751,7 +1751,7 @@
 }
 
 .cert-billing-metric-value {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 18px;
   font-weight: 800;
   line-height: 1.2;
@@ -1999,7 +1999,7 @@
 
 .forensics-upgrade-gate-title {
   margin: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 16px;
   font-weight: 800;
   color: #0f172a;
@@ -2113,7 +2113,7 @@
 
 .suite-billing-hero-title {
   margin: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: clamp(2rem, 3vw, 2.75rem);
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -2148,7 +2148,7 @@
 
 .suite-billing-panel-title {
   margin: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 1.25rem;
   font-weight: 800;
   color: #0f172a;
@@ -2213,7 +2213,7 @@
 
 .suite-plan-title {
   margin: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 1.5rem;
   font-weight: 800;
   color: #0f172a;
@@ -2336,7 +2336,7 @@
 
 .billing-page-title {
   margin: 0 0 4px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 1.15rem;
   font-weight: 800;
   color: #0f172a;
@@ -2492,7 +2492,7 @@
 
 .billing-panel-title {
   margin: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 0.95rem;
   font-weight: 800;
   color: #0f172a;
@@ -2572,7 +2572,7 @@
 }
 
 .billing-stat-value {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 1.6rem;
   font-weight: 800;
   color: #0f172a;
@@ -2720,7 +2720,7 @@
 
 .billing-plans-title {
   margin: 0 0 3px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 0.95rem;
   font-weight: 800;
   color: #0f172a;
@@ -2811,7 +2811,7 @@
 
 .billing-plan-name {
   margin: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 1.2rem;
   font-weight: 800;
   color: #0f172a;
@@ -2983,7 +2983,7 @@
 
 .billing-empty-title {
   margin: 0 0 6px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 0.95rem;
   font-weight: 800;
   color: #0f172a;

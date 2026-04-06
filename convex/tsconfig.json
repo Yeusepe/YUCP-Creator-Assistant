@@ -18,7 +18,12 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "_generated/*": ["./_generated/*"]
+      "_generated/*": ["./_generated/*"],
+      "@yucp/shared": ["../packages/shared/src/index.ts"],
+      "@yucp/shared/*": ["../packages/shared/src/*"],
+      "@yucp/providers": ["../packages/providers/src/index.ts"],
+      "@yucp/providers/*": ["../packages/providers/src/*"],
+      "@yucp/providers/providerMetadata": ["../packages/providers/src/providerMetadata.ts"]
     }
   },
   "include": ["./**/*.ts"],

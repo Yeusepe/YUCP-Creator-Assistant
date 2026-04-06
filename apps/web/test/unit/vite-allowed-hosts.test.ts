@@ -41,4 +41,12 @@ describe('web vite allowed hosts', () => {
       expect.arrayContaining(['localhost', '127.0.0.1'])
     );
   });
+
+  it('does not force the 3D libraries into a manual client chunk', async () => {
+    const config = await loadViteConfig();
+    const clientOutput = config.environments?.client?.build?.rollupOptions?.output;
+    const outputConfig = Array.isArray(clientOutput) ? clientOutput[0] : clientOutput;
+
+    expect(outputConfig?.manualChunks).toBeUndefined();
+  });
 });

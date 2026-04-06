@@ -29,6 +29,7 @@
  *   RFC 8725 JWT BCP     https://www.rfc-editor.org/rfc/rfc8725
  */
 
+import { sha256Hex } from '@yucp/shared/crypto';
 import { symmetricDecrypt } from 'better-auth/crypto';
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
@@ -534,14 +535,6 @@ export const verifyLicenseProof = internalAction({
 // =============================================================================
 // Helpers
 // =============================================================================
-
-async function sha256Hex(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 function normalizeCouplingAssetPath(input: string): string {
   return input.replace(/\\/g, '/').replace(/^\/+/, '').trim();

@@ -1,7 +1,5 @@
-import { createLogger, timingSafeStringEqual } from '@yucp/shared';
+import { timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
-
-const JINXXY_PENDING_WEBHOOK_TOKEN_PREFIX = 'jinxxy_webhook_pending_token:';
 
 import type { getConvexClientFromUrl } from '../../lib/convex';
 import { decrypt } from '../../lib/encrypt';
@@ -12,17 +10,20 @@ import {
   readWebhookTextBody,
 } from '../../lib/webhookBody';
 import type { WebhookPlugin } from '../types';
+import {
+  getJinxxyWebhookTestStoreKey,
+  getPendingJinxxyWebhookTokenStoreKey,
+  JINXXY_TEST_TTL_MS,
+} from './pendingWebhookState';
 
 type ConvexClient = ReturnType<typeof getConvexClientFromUrl>;
 
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+import { logger } from '../../lib/logger';
 
 // HKDF purpose strings — inlined to avoid circular imports with index.ts
 const WEBHOOK_SECRET_PURPOSE = 'jinxxy-webhook-signing-secret' as const;
 const COLLAB_WEBHOOK_SECRET_PURPOSE = 'collab-webhook-signing-secret' as const;
 
-const JINXXY_TEST_PREFIX = 'jinxxy_test:';
-const JINXXY_TEST_TTL_MS = 60 * 1000;
 const COLLAB_TEST_PREFIX = 'collab_test:';
 const COLLAB_TEST_TTL_MS = 60 * 1000;
 const WEBHOOK_MAX_AGE_MS = 5 * 60 * 1000;
@@ -62,7 +63,7 @@ async function getPendingJinxxyWebhookSecret(
 ): Promise<string | null> {
   const store = getStateStore();
   // During test delivery, routeId is the opaque route token — look up under the token prefix.
-  const raw = await store.get(`${JINXXY_PENDING_WEBHOOK_TOKEN_PREFIX}${routeId}`);
+  const raw = await store.get(getPendingJinxxyWebhookTokenStoreKey(routeId));
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as { signingSecretEncrypted: string };
@@ -389,7 +390,7 @@ export const webhook: WebhookPlugin = {
       // Set test webhook flag for connect flow polling (keyed by routeId)
       try {
         const store = getStateStore();
-        await store.set(`${JINXXY_TEST_PREFIX}${routeId}`, '1', JINXXY_TEST_TTL_MS);
+        await store.set(getJinxxyWebhookTestStoreKey(routeId), '1', JINXXY_TEST_TTL_MS);
       } catch {
         // Non-fatal
       }

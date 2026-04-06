@@ -11,6 +11,15 @@
  * - Revocation cascades to entitlements
  */
 
+import {
+  calculateRemainingCooldown,
+  canModifyBinding,
+  canTransferBinding,
+  createBindingAuditMetadata,
+  getEffectivePolicy,
+  isBindingActive,
+  type BindingPolicy as SharedBindingPolicy,
+} from '@yucp/shared/binding/service';
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
@@ -47,24 +56,13 @@ const ActorType = v.union(v.literal('subject'), v.literal('system'), v.literal('
 async function getTenantPolicy(
   ctx: MutationCtx,
   authUserId: string
-): Promise<{
-  maxBindingsPerProduct: number;
-  allowTransfer: boolean;
-  transferCooldownHours: number;
-  allowSharedUse: boolean;
-}> {
+): Promise<Required<SharedBindingPolicy>> {
   const profile = await ctx.db
     .query('creator_profiles')
     .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
     .first();
-  const policy = profile?.policy || {};
 
-  return {
-    maxBindingsPerProduct: policy.maxBindingsPerProduct ?? 1,
-    allowTransfer: policy.allowTransfer ?? true,
-    transferCooldownHours: policy.transferCooldownHours ?? 24,
-    allowSharedUse: policy.allowSharedUse ?? false,
-  };
+  return getEffectivePolicy(profile?.policy ?? undefined);
 }
 
 async function requireActiveSubject(ctx: MutationCtx, subjectId: Id<'subjects'>) {
@@ -85,17 +83,17 @@ async function createAuditEvent(
   ctx: MutationCtx,
   params: {
     authUserId: string;
-    eventType: string;
+    eventType: 'binding.created' | 'binding.activated' | 'binding.revoked' | 'binding.transferred';
     actorType: 'subject' | 'system' | 'admin';
     actorId?: string;
     subjectId?: Id<'subjects'>;
     externalAccountId?: Id<'external_accounts'>;
-    metadata?: any;
+    metadata?: Record<string, unknown>;
   }
 ): Promise<void> {
   await ctx.db.insert('audit_events', {
     authUserId: params.authUserId,
-    eventType: params.eventType as any,
+    eventType: params.eventType,
     actorType: params.actorType,
     actorId: params.actorId,
     subjectId: params.subjectId,
@@ -228,12 +226,8 @@ export const activateBinding = mutation({
       // Reactivate or update existing binding
       const previousStatus = existingBinding.status;
 
-      // Only update if status allows modification
-      if (
-        previousStatus === 'revoked' ||
-        previousStatus === 'transferred' ||
-        previousStatus === 'quarantined'
-      ) {
+      // Reactivate bindings that are no longer in the modifiable active/pending states.
+      if (!canModifyBinding(previousStatus as Parameters<typeof canModifyBinding>[0])) {
         await ctx.db.patch(existingBinding._id, {
           status: 'active',
           bindingType: args.bindingType,
@@ -250,12 +244,11 @@ export const activateBinding = mutation({
           actorId: args.actorId,
           subjectId: args.subjectId,
           externalAccountId: args.externalAccountId,
-          metadata: {
-            bindingId: existingBinding._id,
+          metadata: createBindingAuditMetadata('activate', existingBinding._id, {
             previousStatus,
             bindingType: args.bindingType,
             reason: args.reason,
-          },
+          }),
         });
 
         return {
@@ -392,12 +385,11 @@ export const revokeBinding = mutation({
       actorId: args.actorId,
       subjectId: binding.subjectId,
       externalAccountId: binding.externalAccountId,
-      metadata: {
-        bindingId: args.bindingId,
+      metadata: createBindingAuditMetadata('revoke', args.bindingId, {
         reason: args.reason,
         entitlementsRevoked,
         cascadeToEntitlements,
-      },
+      }),
     });
 
     return {
@@ -449,7 +441,7 @@ export const transferBinding = mutation({
     }
 
     // Check if binding can be transferred
-    if (binding.status !== 'active') {
+    if (!isBindingActive(binding.status as Parameters<typeof isBindingActive>[0])) {
       return {
         success: false,
         oldBindingId: args.bindingId,
@@ -463,7 +455,10 @@ export const transferBinding = mutation({
     const policy = await getTenantPolicy(ctx, binding.authUserId);
 
     // Check if transfers are allowed
-    if (!policy.allowTransfer && !args.bypassCooldown) {
+    if (
+      !args.bypassCooldown &&
+      !canTransferBinding(binding.status as Parameters<typeof canTransferBinding>[0], policy)
+    ) {
       return {
         success: false,
         oldBindingId: args.bindingId,
@@ -475,11 +470,12 @@ export const transferBinding = mutation({
 
     // Check cooldown unless bypassed
     if (!args.bypassCooldown) {
-      const cooldownMs = policy.transferCooldownHours * 60 * 60 * 1000;
-      const timeSinceCreation = now - binding.createdAt;
+      const cooldownRemaining = calculateRemainingCooldown(
+        binding.createdAt,
+        policy.transferCooldownHours
+      );
 
-      if (timeSinceCreation < cooldownMs) {
-        const cooldownRemaining = cooldownMs - timeSinceCreation;
+      if (cooldownRemaining > 0) {
         return {
           success: false,
           oldBindingId: args.bindingId,
@@ -544,13 +540,13 @@ export const transferBinding = mutation({
       actorId: args.actorId,
       subjectId: binding.subjectId,
       externalAccountId: binding.externalAccountId,
-      metadata: {
+      metadata: createBindingAuditMetadata('transfer', args.bindingId, {
         oldBindingId: args.bindingId,
         newBindingId,
         newSubjectId: args.newSubjectId,
         reason: args.reason,
         bypassCooldown: args.bypassCooldown,
-      },
+      }),
     });
 
     return {
@@ -609,7 +605,7 @@ export const quarantineBinding = mutation({
     }
 
     // Only active or pending bindings can be quarantined
-    if (previousStatus !== 'active' && previousStatus !== 'pending') {
+    if (!canModifyBinding(previousStatus as Parameters<typeof canModifyBinding>[0])) {
       return {
         success: false,
         bindingId: args.bindingId,
@@ -633,11 +629,10 @@ export const quarantineBinding = mutation({
       actorId: args.actorId,
       subjectId: binding.subjectId,
       externalAccountId: binding.externalAccountId,
-      metadata: {
-        bindingId: args.bindingId,
+      metadata: createBindingAuditMetadata('quarantine', args.bindingId, {
         quarantineReason: args.reason,
         previousStatus,
-      },
+      }),
     });
 
     return {
@@ -701,11 +696,10 @@ export const releaseFromQuarantine = mutation({
       actorId: args.actorId,
       subjectId: binding.subjectId,
       externalAccountId: binding.externalAccountId,
-      metadata: {
-        bindingId: args.bindingId,
+      metadata: createBindingAuditMetadata('activate', args.bindingId, {
         releasedFromQuarantine: true,
         notes: args.notes,
-      },
+      }),
     });
 
     return {

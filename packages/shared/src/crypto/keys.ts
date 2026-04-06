@@ -8,7 +8,7 @@
 /**
  * Supported token providers for encryption AAD binding
  */
-export type TokenProvider = import('../providers').ProviderKey | 'discord_role';
+export type TokenProvider = import('../providerKeys').ProviderKey | 'discord_role';
 
 /**
  * Supported token types for encryption AAD binding

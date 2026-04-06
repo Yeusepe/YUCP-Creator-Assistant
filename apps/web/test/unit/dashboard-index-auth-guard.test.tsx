@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@tanstack/react-router', () => {
   return {
     createFileRoute: () => (options: unknown) => ({ options }),
+    createLazyFileRoute: () => (options: unknown) => ({ options }),
   };
 });
 
@@ -62,7 +63,7 @@ vi.mock('@/components/ui/Toast', () => {
   };
 });
 
-import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index';
+import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
 
 describe('dashboard index auth guard', () => {
   it('renders the auth-required state without crashing when viewer auth is unavailable', () => {

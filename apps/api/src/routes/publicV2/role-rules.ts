@@ -1,6 +1,6 @@
-import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
+import { logger } from '../../lib/logger';
 import { resolveAuth } from './auth';
 import {
   errorResponse,
@@ -10,8 +10,6 @@ import {
   listResponse,
 } from './helpers';
 import type { PublicV2Config } from './types';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 export async function handleRoleRulesRoutes(
   request: Request,

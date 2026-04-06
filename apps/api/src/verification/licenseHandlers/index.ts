@@ -9,24 +9,14 @@
  * and register the plugin in providers/index.ts. Nothing here changes.
  */
 
-import { createLogger } from '@yucp/shared';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../../convex/_generated/api';
 import type { ConvexServerClient } from '../../lib/convex';
+import { logger } from '../../lib/logger';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
-import { getProvider } from '../../providers/index';
+import { getProviderRuntime } from '../../providers/index';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
-import type { VerificationConfig } from '../sessionManager';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
-
-async function sha256Hex(input: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(input);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+import type { VerificationConfig } from '../verificationConfig';
 
 export interface LicenseVerificationHandler {
   verify(
@@ -36,9 +26,9 @@ export interface LicenseVerificationHandler {
   ): Promise<CompleteLicenseResult>;
 }
 
-export async function getHandler(provider: string): Promise<LicenseVerificationHandler | null> {
-  const plugin = getProvider(provider)?.verification;
-  if (!plugin) return null;
+export function getHandler(provider: string): LicenseVerificationHandler | null {
+  const verification = getProviderRuntime(provider)?.verification;
+  if (!verification) return null;
 
   return {
     async verify(input, config, convex) {
@@ -50,9 +40,9 @@ export async function getHandler(provider: string): Promise<LicenseVerificationH
         encryptionSecret: config.encryptionSecret ?? '',
       };
 
-      let result: Awaited<ReturnType<typeof plugin.verifyLicense>>;
+      let result: Awaited<ReturnType<typeof verification.verifyLicense>>;
       try {
-        result = await plugin.verifyLicense(licenseKey, productId, authUserId, ctx);
+        result = await verification.verifyLicense(licenseKey, productId, authUserId, ctx);
       } catch (err) {
         logger.error('[licenseHandlers] verifyLicense threw', {
           provider,

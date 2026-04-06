@@ -115,7 +115,7 @@
 }
 
 .toast-title {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 13px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.95);
@@ -136,7 +136,7 @@
   display: inline-block;
   margin-top: 8px;
   padding: 4px 12px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 12px;
   font-weight: 600;
   color: #fff;

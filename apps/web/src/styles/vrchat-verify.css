@@ -51,7 +51,7 @@
 .vrchat-verify h1,
 .vrchat-verify h2,
 .vrchat-verify h3 {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 800;
   letter-spacing: -0.04em;
 }
@@ -216,7 +216,7 @@
   transform: translateY(-50%);
   z-index: 2;
   pointer-events: none;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 0.8rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.95);
@@ -382,7 +382,7 @@
   border: none;
   background: var(--vrchat-button, #064b5c);
   color: white;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 1rem;
   cursor: pointer;

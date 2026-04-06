@@ -1,11 +1,10 @@
-import { createLogger } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
+import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 
 export type PackagesConfig = {

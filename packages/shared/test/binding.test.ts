@@ -10,6 +10,7 @@ import {
   calculateRemainingCooldown,
   canModifyBinding,
   canTransferBinding,
+  createBindingAuditMetadata,
   DEFAULT_BINDING_POLICY,
   getEffectivePolicy,
   isBindingActive,
@@ -145,6 +146,27 @@ describe('Binding Service', () => {
       const effective = getEffectivePolicy(fullPolicy);
 
       expect(effective).toEqual(fullPolicy as Required<BindingPolicy>);
+    });
+  });
+
+  describe('createBindingAuditMetadata', () => {
+    it('should attach the operation, binding identifier, and timestamp', () => {
+      const before = Date.now();
+      const metadata = createBindingAuditMetadata('transfer', 'binding123', {
+        newSubjectId: 'subject456',
+      });
+      const after = Date.now();
+
+      expect(metadata).toEqual(
+        expect.objectContaining({
+          operation: 'transfer',
+          bindingId: 'binding123',
+          newSubjectId: 'subject456',
+        })
+      );
+      const timestamp = metadata.timestamp as number;
+      expect(timestamp).toBeGreaterThanOrEqual(before);
+      expect(timestamp).toBeLessThanOrEqual(after);
     });
   });
 

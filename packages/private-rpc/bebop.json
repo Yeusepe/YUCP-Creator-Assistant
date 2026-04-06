@@ -1,11 +1,5 @@
 {
-  "include": [
-    "schema/collaborator.bop",
-    "schema/catalog.bop",
-    "schema/common.bop",
-    "schema/setup.bop",
-    "schema/verification.bop"
-  ],
+  "include": ["schema/combined.bop"],
   "exclude": ["node_modules", "**/node_modules/*"],
   "generators": {
     "ts": {

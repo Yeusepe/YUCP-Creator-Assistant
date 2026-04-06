@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { base64UrlDecodeToBytes, base64UrlEncode } from './crypto';
 import { generateCorrelationId, redactForLogging } from './logging';
 
 const ENCODED_PREFIX = 'VFY1';
@@ -60,18 +61,9 @@ export interface DecodedVerificationSupportTokenResult {
   supportCode: string;
 }
 
-function toBase64Url(bytes: Uint8Array): string {
-  return Buffer.from(bytes)
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-}
-
-function fromBase64Url(value: string): Uint8Array {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padLength = (4 - (normalized.length % 4 || 4)) % 4;
-  return new Uint8Array(Buffer.from(`${normalized}${'='.repeat(padLength)}`, 'base64'));
+export interface VerificationSupportContextResult extends EncodedVerificationSupportTokenResult {
+  logErrorMessage: string;
+  logErrorStack?: string;
 }
 
 async function deriveKey(secret: string): Promise<CryptoKey> {
@@ -198,7 +190,7 @@ export async function encodeVerificationSupportToken(
   return {
     mode: 'encoded',
     payload,
-    supportCode: `${ENCODED_PREFIX}-${toBase64Url(combined)}`,
+    supportCode: `${ENCODED_PREFIX}-${base64UrlEncode(combined)}`,
   };
 }
 
@@ -227,7 +219,7 @@ export async function decodeVerificationSupportToken(
   }
 
   const key = await deriveKey(secret);
-  const combined = fromBase64Url(trimmed.slice(`${ENCODED_PREFIX}-`.length));
+  const combined = base64UrlDecodeToBytes(trimmed.slice(`${ENCODED_PREFIX}-`.length));
   const iv = combined.slice(0, 12);
   const ciphertext = combined.slice(12);
   if (iv.length !== 12 || ciphertext.length === 0) {
@@ -268,6 +260,27 @@ export function getVerificationSupportErrorDetails(error: unknown): {
   return {
     errorName,
     errorSummary: sanitizeVerificationSupportErrorSummary(error),
+  };
+}
+
+export async function createVerificationSupportContext(
+  input: VerificationSupportTokenInput & { error: unknown },
+  options?: { secret?: string | null }
+): Promise<VerificationSupportContextResult> {
+  const { error, ...tokenInput } = input;
+  const errorDetails = getVerificationSupportErrorDetails(error);
+  const support = await encodeVerificationSupportToken(
+    {
+      ...tokenInput,
+      ...errorDetails,
+    },
+    options
+  );
+
+  return {
+    ...support,
+    logErrorMessage: error instanceof Error ? error.message : String(error),
+    logErrorStack: error instanceof Error ? error.stack : undefined,
   };
 }
 

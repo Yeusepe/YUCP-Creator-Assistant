@@ -5,7 +5,7 @@
  * All creator-scoped tables use authUserId (Better Auth user ID string) for isolation.
  */
 
-import type { ProviderKey } from '../packages/shared/src/providers';
+import type { ProviderKey } from '@yucp/providers/types';
 import type { Id } from './_generated/dataModel';
 
 // ============================================================================

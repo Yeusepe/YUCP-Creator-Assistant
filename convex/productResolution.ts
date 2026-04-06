@@ -5,6 +5,7 @@
  * we normalize it, hash it, and look up in catalog_product_links.
  */
 
+import { sha256Hex } from '@yucp/shared/crypto';
 import { v } from 'convex/values';
 import { internalQuery, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
@@ -24,18 +25,6 @@ function normalizeProductUrl(url: string): string {
   } catch {
     return url.trim().toLowerCase();
   }
-}
-
-/**
- * Compute SHA-256 hash of a string (for urlHash).
- * Uses Web Crypto API (available in Convex runtime).
- */
-async function sha256Hex(input: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(input);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**

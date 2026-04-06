@@ -3,7 +3,7 @@
 // This Bun server hosts the app pages, connect flows, and integration routes.
 
 import path from 'node:path';
-import { createLogger, getInternalRpcSharedSecret } from '@yucp/shared';
+import { getInternalRpcSharedSecret } from '@yucp/shared';
 import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
@@ -14,6 +14,7 @@ import {
   HTML_RESPONSE_SECURITY_HEADERS,
   isLegacyFrontendAsset,
 } from './lib/legacyFrontend';
+import { logger } from './lib/logger';
 import { detectTunnelUrl } from './lib/tunnel';
 import {
   createConnectRoutes,
@@ -32,8 +33,6 @@ import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
 import { createSuiteRoutes } from './routes/suite';
 import { createVersionRouteHandler } from './routes/version';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 // Global auth instance
 let auth: Auth | null = null;

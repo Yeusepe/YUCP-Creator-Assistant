@@ -2,7 +2,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router';
 import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
-import { useCloudReady } from '@/hooks/useCloudReady';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -36,12 +36,20 @@ function SignInRouteComponent() {
 }
 
 export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null }>) {
+  return (
+    <>
+      <CloudBackground variant="default" />
+      <SignInPageContent redirectTo={redirectTo} />
+    </>
+  );
+}
+
+function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null }>) {
   const [currentState, setCurrentState] = useState<PageState>('state-signin');
   const [isVisible, setIsVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState('Something went wrong. Please try again.');
   const redirectTarget = normalizeAuthRedirectTarget(redirectTo);
 
-  const bgReady = useCloudReady();
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),
     visibleClass: 'visible',
@@ -51,8 +59,8 @@ export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null
   });
 
   useEffect(() => {
-    if (bgReady) showPage();
-  }, [bgReady, showPage]);
+    showPage();
+  }, [showPage]);
 
   const showError = useCallback(
     (msg?: string) => {

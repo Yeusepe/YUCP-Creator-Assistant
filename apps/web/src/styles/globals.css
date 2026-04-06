@@ -4,6 +4,27 @@
 @source "../routes";
 @source "../components";
 
+/* ── Airbnb Cereal display font ── */
+@font-face {
+  font-family: "AirbnbCereal_W_XBd ExtBd";
+  src: url("https://db.onlinewebfonts.com/t/5319258a505e150ceb169163a3d04dd5.eot");
+  src:
+    url("https://db.onlinewebfonts.com/t/5319258a505e150ceb169163a3d04dd5.eot?#iefix")
+    format("embedded-opentype"),
+    url("https://db.onlinewebfonts.com/t/5319258a505e150ceb169163a3d04dd5.woff2") format("woff2"),
+    url("https://db.onlinewebfonts.com/t/5319258a505e150ceb169163a3d04dd5.woff") format("woff"),
+    url("https://db.onlinewebfonts.com/t/5319258a505e150ceb169163a3d04dd5.ttf") format("truetype"),
+    url("https://db.onlinewebfonts.com/t/5319258a505e150ceb169163a3d04dd5.svg#AirbnbCereal_W_XBd ExtBd")
+    format("svg");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-display: "AirbnbCereal_W_XBd ExtBd", "Plus Jakarta Sans", sans-serif;
+}
+
 @layer base {
   /* Shared resets matching the original HTML pages.
    * Must be in @layer base so @layer utilities (Tailwind) can override them. */
@@ -27,7 +48,7 @@
   h2,
   h3,
   .display-text {
-    font-family: "Plus Jakarta Sans", sans-serif;
+    font-family: var(--font-display);
     font-weight: 800;
     letter-spacing: -0.04em;
   }

@@ -1,7 +1,7 @@
 // Shared types and utilities
 // Re-export common types across the monorepo
 
-import type { ProviderKey } from './providers';
+import type { ProviderKey } from './providerKeys';
 
 export interface EnvConfig {
   NODE_ENV: 'development' | 'production' | 'test';
@@ -42,6 +42,7 @@ export * from './binding';
 export * from './convexSiteUrl';
 // Crypto module exports
 export * from './crypto';
+export { sha256Hex } from './crypto';
 // Entitlement module exports
 export * from './entitlement';
 export * from './internalRpcSecret';
@@ -56,7 +57,7 @@ export {
 export * from './logging/audit';
 export * from './logging/correlation';
 export * from './logging/redaction';
+export * from './product';
 export * from './productParsers';
-export * from './providers';
 export * from './publicAuthority';
 export * from './verificationSupport';

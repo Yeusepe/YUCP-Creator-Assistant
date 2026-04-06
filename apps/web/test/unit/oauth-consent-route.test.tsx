@@ -9,6 +9,9 @@ vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({
     options,
   }),
+  createLazyFileRoute: () => (options: unknown) => ({
+    options,
+  }),
 }));
 
 vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
@@ -23,7 +26,7 @@ vi.mock('@/lib/auth-client', () => ({
   },
 }));
 
-import { Route } from '@/routes/oauth/consent';
+import { Route } from '@/routes/oauth/consent.lazy';
 
 describe('oauth consent route', () => {
   beforeEach(() => {

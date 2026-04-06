@@ -26,7 +26,11 @@ let mutationImpl: (fn: unknown, args: unknown) => Promise<unknown>;
 const queryMock = mock((fn: unknown, args: unknown) => queryImpl(fn, args));
 const mutationMock = mock((fn: unknown, args: unknown) => mutationImpl(fn, args));
 
-mock.module('../../../../../convex/_generated/api', () => ({ api: apiMock }));
+mock.module('../../../../../convex/_generated/api', () => ({
+  api: apiMock,
+  internal: apiMock,
+  components: {},
+}));
 
 mock.module('../../lib/convex', () => ({
   getConvexClientFromUrl: () => ({ query: queryMock, mutation: mutationMock }),

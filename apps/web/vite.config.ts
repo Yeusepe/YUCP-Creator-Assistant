@@ -9,7 +9,7 @@ import tsConfigPaths from 'vite-tsconfig-paths';
  * Bootstrap Infisical secrets into process.env before Vite reads config values.
  * Mirrors the pattern used by apps/api and apps/bot.
  * At build time (Docker) the Infisical credentials are absent, so this is a no-op.
- * At runtime (vite preview) the credentials are injected by Zeabur and secrets load.
+ * In local dev or preview flows, secrets can still be injected before Vite starts.
  */
 async function bootstrapInfisicalSecrets(): Promise<void> {
   try {
@@ -82,18 +82,5 @@ export default defineConfig(async () => {
       }),
       viteReact(),
     ],
-    environments: {
-      client: {
-        build: {
-          rollupOptions: {
-            output: {
-              manualChunks: {
-                three: ['three', '@react-three/fiber', '@react-three/drei'],
-              },
-            },
-          },
-        },
-      },
-    },
   };
 });

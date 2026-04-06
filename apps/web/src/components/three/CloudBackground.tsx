@@ -8,8 +8,8 @@ import {
   useRef,
   useState,
 } from 'react';
-import BackgroundApp from './BackgroundApp';
 
+const BackgroundApp = lazy(() => import('./BackgroundApp'));
 const Cloud404App = lazy(() => import('./Cloud404App'));
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {

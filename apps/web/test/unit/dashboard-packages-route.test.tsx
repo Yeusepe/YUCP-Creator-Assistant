@@ -14,6 +14,7 @@ vi.mock('@tanstack/react-router', () => ({
     <a {...props}>{children}</a>
   ),
   createFileRoute: () => (options: unknown) => ({ options }),
+  createLazyFileRoute: () => (options: unknown) => ({ options }),
 }));
 
 vi.mock('@/components/ui/Toast', () => ({
@@ -52,7 +53,7 @@ vi.mock('@/lib/packages', () => ({
 }));
 
 import * as packagesApi from '@/lib/packages';
-import { Route as PackagesRoute } from '@/routes/_authenticated/dashboard/packages';
+import { Route as PackagesRoute } from '@/routes/_authenticated/dashboard/packages.lazy';
 
 const archiveCreatorPackageMock = packagesApi.archiveCreatorPackage as ReturnType<typeof vi.fn>;
 const listCreatorPackagesMock = packagesApi.listCreatorPackages as ReturnType<typeof vi.fn>;

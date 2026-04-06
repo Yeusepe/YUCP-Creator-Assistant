@@ -26,6 +26,13 @@ vi.mock('@tanstack/react-router', () => {
       };
       return route;
     },
+    createLazyFileRoute: () => (options: unknown) => {
+      const route = {
+        options,
+        useSearch: vi.fn(() => searchState),
+      };
+      return route;
+    },
   };
 });
 
@@ -83,8 +90,8 @@ vi.mock('@/lib/packages', () => ({
 
 import * as certificateApi from '@/lib/certificates';
 import * as packagesApi from '@/lib/packages';
-import DashboardBilling from '@/routes/_authenticated/dashboard/billing';
-import DashboardCertificates from '@/routes/_authenticated/dashboard/certificates';
+import DashboardBilling from '@/routes/_authenticated/dashboard/billing.lazy';
+import DashboardCertificates from '@/routes/_authenticated/dashboard/certificates.lazy';
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -324,7 +331,9 @@ describe('dashboard billing and certificates routes', () => {
     );
     await waitFor(() => expect(screen.getByDisplayValue('Creator Bundle')).toBeInTheDocument());
     expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument();
-    expect(screen.getByText('Archived Packages')).toBeInTheDocument();
+    const archivedPackagesToggle = screen.getByRole('button', { name: /archived packages \(1\)/i });
+    expect(archivedPackagesToggle).toBeInTheDocument();
+    fireEvent.click(archivedPackagesToggle);
     expect(screen.getByDisplayValue('Legacy Bundle')).toBeDisabled();
     expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument();
   });

@@ -72,5 +72,15 @@ export {
   wrapDEK,
   wrapDEKWithGCM,
 } from './keys';
+export type { Sha256Input } from './primitives';
+export {
+  base64UrlDecodeToBytes,
+  base64UrlEncode,
+  bytesToHex,
+  normalizeEmail,
+  sha256Base64Url,
+  sha256Bytes,
+  sha256Hex,
+} from './primitives';
 // Re-export timing-safe comparison
 export { timingSafeStringEqual } from './timingSafeEqual';

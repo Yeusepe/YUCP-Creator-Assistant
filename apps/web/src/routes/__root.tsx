@@ -3,10 +3,8 @@
 import type { ConvexQueryClient } from '@convex-dev/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from '@tanstack/react-router';
-import { type ReactNode, useEffect, useState } from 'react';
-import { CloudBackground } from '@/components/three/CloudBackground';
+import { type ReactNode, useEffect } from 'react';
 import { ToastProvider } from '@/components/ui/Toast';
-import { CloudReadyContext } from '@/hooks/useCloudReady';
 import { installChunkErrorRecovery } from '@/lib/chunkErrorRecovery';
 import { useVersionPoller } from '@/lib/versionPoller';
 import { logRootRenderError } from '@/lib/webDiagnostics';
@@ -31,35 +29,19 @@ export const Route = createRootRouteWithContext<{
           'Manage your Discord server integrations, verification, and creator tools with Creator Assistant.',
       },
     ],
-    links: [
-      { rel: 'icon', href: '/Icons/favicon.ico', type: 'image/x-icon' },
-      { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-      {
-        rel: 'preconnect',
-        href: 'https://fonts.gstatic.com',
-        crossOrigin: 'anonymous',
-      },
-      {
-        rel: 'stylesheet',
-        href: 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap',
-      },
-    ],
+    links: [{ rel: 'icon', href: '/Icons/favicon.ico', type: 'image/x-icon' }],
   }),
   component: RootComponent,
   errorComponent: RootErrorComponent,
 });
 
 function RootComponent() {
-  const [bgReady, setBgReady] = useState(false);
   return (
     <RootDocument>
-      <CloudReadyContext.Provider value={bgReady}>
-        <CloudBackground variant="default" onReady={() => setBgReady(true)} />
-        <ToastProvider>
-          <AppEffects />
-          <Outlet />
-        </ToastProvider>
-      </CloudReadyContext.Provider>
+      <ToastProvider>
+        <AppEffects />
+        <Outlet />
+      </ToastProvider>
     </RootDocument>
   );
 }

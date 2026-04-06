@@ -3,33 +3,36 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { toastErrorMock, toastSuccessMock, toastInfoMock, toastWarningMock } = vi.hoisted(() => ({
+  toastErrorMock: vi.fn(),
+  toastSuccessMock: vi.fn(),
+  toastInfoMock: vi.fn(),
+  toastWarningMock: vi.fn(),
+}));
+
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({ options }),
+  createLazyFileRoute: () => (options: unknown) => ({ options }),
 }));
 
 vi.mock('@/components/ui/Toast', () => ({
   useToast: vi.fn(() => ({
-    error: vi.fn(),
-    info: vi.fn(),
-    success: vi.fn(),
-    warning: vi.fn(),
+    error: toastErrorMock,
+    info: toastInfoMock,
+    success: toastSuccessMock,
+    warning: toastWarningMock,
   })),
 }));
 
-vi.mock('@/lib/dashboard', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/dashboard')>('@/lib/dashboard');
-
-  return {
-    ...actual,
-    disconnectUserAccount: vi.fn(),
-    listUserAccounts: vi.fn(),
-    listUserProviders: vi.fn(),
-    startUserVerify: vi.fn(),
-  };
-});
+vi.mock('@/lib/dashboard', () => ({
+  disconnectUserAccount: vi.fn(),
+  listUserAccounts: vi.fn(),
+  listUserProviders: vi.fn(),
+  startUserVerify: vi.fn(),
+}));
 
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as AccountConnectionsRoute } from '@/routes/_authenticated/account/connections';
+import { Route as AccountConnectionsRoute } from '../../src/routes/_authenticated/account/connections.lazy';
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -114,5 +117,52 @@ describe('account connections route', () => {
     await waitFor(() =>
       expect(dashboardApi.disconnectUserAccount).toHaveBeenCalledWith('buyer-link-vrchat-1')
     );
+  });
+
+  it('shows an inline error without also rendering the empty state when provider loading fails', async () => {
+    vi.mocked(dashboardApi.listUserProviders).mockRejectedValue(new Error('provider fetch failed'));
+    vi.mocked(dashboardApi.listUserAccounts).mockResolvedValue([]);
+
+    const Component = AccountConnectionsRoute.options.component;
+    if (!Component) {
+      throw new Error('Account connections route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(
+      await screen.findByText('Failed to load account connections. Refresh to try again.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No providers available')).toBeNull();
+  });
+
+  it('rejects malformed redirect protocols before navigation', async () => {
+    vi.mocked(dashboardApi.listUserAccounts).mockResolvedValue([]);
+    vi.mocked(dashboardApi.startUserVerify).mockResolvedValue({
+      redirectUrl: 'javascript:alert(1)',
+    });
+
+    const initialHref = window.location.href;
+    const Component = AccountConnectionsRoute.options.component;
+    if (!Component) {
+      throw new Error('Account connections route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    const [connectButton] = await screen.findAllByRole('button', { name: 'Connect' });
+    if (!(connectButton instanceof HTMLButtonElement)) {
+      throw new Error('Connect button was not rendered');
+    }
+
+    fireEvent.click(connectButton);
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith('Could not start connection', {
+        description: 'Please try connecting Gumroad again.',
+      })
+    );
+    expect(window.location.href).toBe(initialHref);
+    expect(connectButton).toBeEnabled();
   });
 });

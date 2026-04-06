@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
-import { useCloudReady } from '@/hooks/useCloudReady';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -21,11 +21,19 @@ export const Route = createFileRoute('/sign-in-redirect')({
 type ViewState = 'loading' | 'error';
 
 function SignInRedirectPage() {
+  return (
+    <>
+      <CloudBackground variant="default" />
+      <SignInRedirectPageContent />
+    </>
+  );
+}
+
+function SignInRedirectPageContent() {
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [isVisible, setIsVisible] = useState(false);
   const { redirectTo } = Route.useSearch();
   const postAuthTarget = normalizeAuthRedirectTarget(redirectTo);
-  const bgReady = useCloudReady();
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),
     overlayFadeClass: 'is-hiding',
@@ -34,8 +42,8 @@ function SignInRedirectPage() {
   });
 
   useEffect(() => {
-    if (bgReady) showPage();
-  }, [bgReady, showPage]);
+    showPage();
+  }, [showPage]);
 
   const showError = useCallback(() => {
     setViewState('error');

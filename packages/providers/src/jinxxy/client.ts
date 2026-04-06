@@ -74,23 +74,6 @@ export class JinxxyApiClient {
   }
 
   /**
-   * Create client from environment variables
-   */
-  static fromEnv(): JinxxyApiClient {
-    const apiKey = process.env.JINXXY_API_KEY;
-    if (!apiKey) {
-      throw new Error('JINXXY_API_KEY environment variable is required');
-    }
-    return new JinxxyApiClient({
-      apiKey,
-      apiBaseUrl: process.env.JINXXY_API_BASE_URL,
-      timeout: process.env.JINXXY_API_TIMEOUT
-        ? Number.parseInt(process.env.JINXXY_API_TIMEOUT, 10)
-        : undefined,
-    });
-  }
-
-  /**
    * Make an authenticated request to the Jinxxy API
    */
   private async request<T>(

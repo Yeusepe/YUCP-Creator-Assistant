@@ -6,8 +6,12 @@ const accountRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/account.tsx'),
   'utf8'
 );
+const accountLazyRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/account.lazy.tsx'),
+  'utf8'
+);
 const accountIndexRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/_authenticated/account/index.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/account/index.lazy.tsx'),
   'utf8'
 );
 const accountCertificatesRouteSource = readFileSync(
@@ -15,11 +19,15 @@ const accountCertificatesRouteSource = readFileSync(
   'utf8'
 );
 const dashboardCertificatesRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/_authenticated/dashboard/certificates.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/certificates.lazy.tsx'),
+  'utf8'
+);
+const dashboardBillingRouteRefSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/billing.tsx'),
   'utf8'
 );
 const dashboardBillingRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/_authenticated/dashboard/billing.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/billing.lazy.tsx'),
   'utf8'
 );
 const dashboardPrefetchSource = readFileSync(
@@ -27,12 +35,12 @@ const dashboardPrefetchSource = readFileSync(
   'utf8'
 );
 const accountVerifyRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/_authenticated/account/verify.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/account/verify.lazy.tsx'),
   'utf8'
 );
 const dashboardSource = readFileSync(resolve(__dirname, '../../src/lib/dashboard.ts'), 'utf8');
-const connectRouteSource = readFileSync(
-  resolve(__dirname, '../../../api/src/routes/connect.ts'),
+const connectUserVerificationRouteSource = readFileSync(
+  resolve(__dirname, '../../../api/src/routes/connectUserVerification.ts'),
   'utf8'
 );
 const accountComponentSource = readFileSync(
@@ -44,15 +52,18 @@ describe('account UI contracts', () => {
   it('uses an account-scoped shell hook instead of the dashboard route hook', () => {
     expect(accountRouteSource).not.toContain('useDashboardShell');
     expect(accountIndexRouteSource).not.toContain('useDashboardShell');
-    expect(accountRouteSource).toContain('useAccountShell');
+    expect(accountLazyRouteSource).toContain('useAccountShell');
     expect(accountIndexRouteSource).toContain('useAccountShell');
   });
 
-  it('loads dashboard styling as side-effect imports and reuses the shared dashboard header', () => {
-    expect(accountRouteSource).toContain("import '@/styles/dashboard.css';");
-    expect(accountRouteSource).toContain("import '@/styles/dashboard-components.css';");
-    expect(accountRouteSource).toContain("import '@/styles/account.css';");
-    expect(accountRouteSource).toContain('DashboardHeader');
+  it('declares account shell styles from the base route head and reuses the shared dashboard header', () => {
+    expect(accountRouteSource).toContain('routeStylesheetLinks(');
+    expect(accountRouteSource).toContain('routeStyleHrefs.dashboard');
+    expect(accountRouteSource).toContain('routeStyleHrefs.dashboardComponents');
+    expect(accountRouteSource).toContain('routeStyleHrefs.account');
+    expect(accountLazyRouteSource).toContain('DashboardHeader');
+    expect(accountLazyRouteSource).toContain('normalizeAccountPath(');
+    expect(accountLazyRouteSource).toContain('onClick={closeAccountSidebar}');
   });
 
   it('uses the shared account page scaffold for the redesigned account landing page', () => {
@@ -67,6 +78,14 @@ describe('account UI contracts', () => {
     expect(accountIndexRouteSource).toContain('authClient.getSession()');
     expect(accountIndexRouteSource).not.toContain('useConvexQuery(api.authViewer.getViewer)');
     expect(accountIndexRouteSource).not.toContain("'Your Account'");
+    expect(accountIndexRouteSource).toContain('enabled: isCreator');
+    expect(accountIndexRouteSource).toContain(
+      '<Link to="/dashboard" className="account-btn account-btn--primary">'
+    );
+    expect(accountIndexRouteSource).not.toContain(
+      '<a href="/dashboard" className="account-btn account-btn--primary">'
+    );
+    expect(accountIndexRouteSource).not.toContain('key={label}');
   });
 
   it('announces inline account errors to assistive technology', () => {
@@ -85,14 +104,14 @@ describe('account UI contracts', () => {
       "to: hasBillingSearch ? '/dashboard/billing' : '/dashboard/certificates'"
     );
     expect(dashboardCertificatesRouteSource).toContain(
-      "createFileRoute('/_authenticated/dashboard/certificates')"
+      "createLazyFileRoute('/_authenticated/dashboard/certificates')"
     );
     expect(dashboardCertificatesRouteSource).toContain('Open Billing');
     expect(dashboardCertificatesRouteSource).toContain('PackageRegistryPanel');
     expect(dashboardCertificatesRouteSource).toContain("queryKey: ['creator-certificates']");
     expect(dashboardCertificatesRouteSource).not.toContain('ensureQueryData(');
     expect(dashboardBillingRouteSource).toContain(
-      "createFileRoute('/_authenticated/dashboard/billing')"
+      "createLazyFileRoute('/_authenticated/dashboard/billing')"
     );
     expect(dashboardBillingRouteSource).toContain('Polar Portal');
     expect(dashboardPrefetchSource).toContain("queryKey: ['creator-certificates']");
@@ -100,7 +119,7 @@ describe('account UI contracts', () => {
   });
 
   it('supports creator-scoped plan and portal deep links for Unity billing handoff', () => {
-    expect(dashboardBillingRouteSource).toContain('validateSearch:');
+    expect(dashboardBillingRouteRefSource).toContain('validateSearch:');
     expect(dashboardBillingRouteSource).toContain("search.checkout === '1'");
     expect(dashboardBillingRouteSource).toContain("search.portal === '1'");
     expect(dashboardBillingRouteSource).toContain('checkoutMut.mutate(target)');
@@ -121,10 +140,10 @@ describe('account UI contracts', () => {
     expect(accountVerifyRouteSource).toContain('Reconnect ' + '$' + '{method.providerLabel}');
     expect(accountVerifyRouteSource).toContain('Open connections');
     expect(dashboardSource).toContain('returnUrl?: string');
-    expect(connectRouteSource).toContain('getSafeRelativeRedirectTarget');
-    expect(connectRouteSource).toContain(
+    expect(connectUserVerificationRouteSource).toContain('getSafeRelativeRedirectTarget');
+    expect(connectUserVerificationRouteSource).toContain(
       'const safeReturnUrl = getSafeRelativeRedirectTarget(body.returnUrl)'
     );
-    expect(connectRouteSource).not.toContain('userSetupPath');
+    expect(connectUserVerificationRouteSource).not.toContain('userSetupPath');
   });
 });

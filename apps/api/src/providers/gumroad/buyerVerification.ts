@@ -1,4 +1,4 @@
-import { GumroadAdapter } from '@yucp/providers';
+import { verifyGumroadLicense } from '@yucp/providers/gumroad/module';
 import {
   createManualLicenseCapability,
   resolveBuyerVerificationStoreContext,
@@ -34,14 +34,7 @@ export const buyerVerification: BuyerVerificationAdapter = {
       return storeContext.result;
     }
 
-    // Gumroad license verify reference: https://gumroad.com/api#licenses
-    const gumroadAdapter = new GumroadAdapter({
-      clientId: process.env.GUMROAD_CLIENT_ID ?? '',
-      clientSecret: process.env.GUMROAD_CLIENT_SECRET ?? '',
-      redirectUri: '',
-    });
-
-    const result = await gumroadAdapter.verifyLicense(input.licenseKey, input.providerProductRef);
+    const result = await verifyGumroadLicense(input.licenseKey, input.providerProductRef, {});
     if (!result.valid) {
       return {
         success: false,

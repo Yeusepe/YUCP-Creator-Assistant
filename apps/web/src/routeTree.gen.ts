@@ -100,22 +100,24 @@ const SetupVrchatRoute = SetupVrchatRouteImport.update({
   id: '/setup/vrchat',
   path: '/setup/vrchat',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/setup/vrchat.lazy').then((d) => d.Route))
 const SetupPayhipRoute = SetupPayhipRouteImport.update({
   id: '/setup/payhip',
   path: '/setup/payhip',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/setup/payhip.lazy').then((d) => d.Route))
 const SetupLemonsqueezyRoute = SetupLemonsqueezyRouteImport.update({
   id: '/setup/lemonsqueezy',
   path: '/setup/lemonsqueezy',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() =>
+  import('./routes/setup/lemonsqueezy.lazy').then((d) => d.Route),
+)
 const SetupJinxxyRoute = SetupJinxxyRouteImport.update({
   id: '/setup/jinxxy',
   path: '/setup/jinxxy',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/setup/jinxxy.lazy').then((d) => d.Route))
 const SetupDiscordRoleRoute = SetupDiscordRoleRouteImport.update({
   id: '/setup/discord-role',
   path: '/setup/discord-role',
@@ -135,7 +137,7 @@ const OauthConsentRoute = OauthConsentRouteImport.update({
   id: '/oauth/consent',
   path: '/oauth/consent',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/oauth/consent.lazy').then((d) => d.Route))
 const LegalTermsOfServiceRoute = LegalTermsOfServiceRouteImport.update({
   id: '/legal/terms-of-service',
   path: '/legal/terms-of-service',
@@ -150,12 +152,14 @@ const InstallSuccessRoute = InstallSuccessRouteImport.update({
   id: '/install/success',
   path: '/install/success',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() =>
+  import('./routes/install/success.lazy').then((d) => d.Route),
+)
 const InstallErrorRoute = InstallErrorRouteImport.update({
   id: '/install/error',
   path: '/install/error',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/install/error.lazy').then((d) => d.Route))
 const ApiSplatRoute = ApiSplatRouteImport.update({
   id: '/api/$',
   path: '/api/$',
@@ -165,24 +169,32 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
-} as any)
+} as any).lazy(() =>
+  import('./routes/_authenticated/dashboard.lazy').then((d) => d.Route),
+)
 const AuthenticatedAccountRoute = AuthenticatedAccountRouteImport.update({
   id: '/account',
   path: '/account',
   getParentRoute: () => AuthenticatedRoute,
-} as any)
+} as any).lazy(() =>
+  import('./routes/_authenticated/account.lazy').then((d) => d.Route),
+)
 const AuthenticatedDashboardIndexRoute =
   AuthenticatedDashboardIndexRouteImport.update({
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/index.lazy').then((d) => d.Route),
+  )
 const AuthenticatedAccountIndexRoute =
   AuthenticatedAccountIndexRouteImport.update({
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedAccountRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/account/index.lazy').then((d) => d.Route),
+  )
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -193,91 +205,145 @@ const AuthenticatedVerifyPurchaseRoute =
     id: '/verify/purchase',
     path: '/verify/purchase',
     getParentRoute: () => AuthenticatedRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/verify/purchase.lazy').then((d) => d.Route),
+  )
 const AuthenticatedDashboardServerRulesRoute =
   AuthenticatedDashboardServerRulesRouteImport.update({
     id: '/server-rules',
     path: '/server-rules',
     getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/server-rules.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedDashboardPackagesRoute =
   AuthenticatedDashboardPackagesRouteImport.update({
     id: '/packages',
     path: '/packages',
     getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/packages.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedDashboardIntegrationsRoute =
   AuthenticatedDashboardIntegrationsRouteImport.update({
     id: '/integrations',
     path: '/integrations',
     getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/integrations.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedDashboardForensicsRoute =
   AuthenticatedDashboardForensicsRouteImport.update({
     id: '/forensics',
     path: '/forensics',
     getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/forensics.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedDashboardCollaborationRoute =
   AuthenticatedDashboardCollaborationRouteImport.update({
     id: '/collaboration',
     path: '/collaboration',
     getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/collaboration.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedDashboardCertificatesRoute =
   AuthenticatedDashboardCertificatesRouteImport.update({
     id: '/certificates',
     path: '/certificates',
     getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/certificates.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedDashboardBillingRoute =
   AuthenticatedDashboardBillingRouteImport.update({
     id: '/billing',
     path: '/billing',
     getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/billing.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedDashboardAuditLogsRoute =
   AuthenticatedDashboardAuditLogsRouteImport.update({
     id: '/audit-logs',
     path: '/audit-logs',
     getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/audit-logs.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedAccountVerifyRoute =
   AuthenticatedAccountVerifyRouteImport.update({
     id: '/verify',
     path: '/verify',
     getParentRoute: () => AuthenticatedAccountRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/account/verify.lazy').then((d) => d.Route),
+  )
 const AuthenticatedAccountPrivacyRoute =
   AuthenticatedAccountPrivacyRouteImport.update({
     id: '/privacy',
     path: '/privacy',
     getParentRoute: () => AuthenticatedAccountRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/account/privacy.lazy').then((d) => d.Route),
+  )
 const AuthenticatedAccountLicensesRoute =
   AuthenticatedAccountLicensesRouteImport.update({
     id: '/licenses',
     path: '/licenses',
     getParentRoute: () => AuthenticatedAccountRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/account/licenses.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedAccountConnectionsRoute =
   AuthenticatedAccountConnectionsRouteImport.update({
     id: '/connections',
     path: '/connections',
     getParentRoute: () => AuthenticatedAccountRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/account/connections.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedAccountCertificatesRoute =
   AuthenticatedAccountCertificatesRouteImport.update({
     id: '/certificates',
     path: '/certificates',
     getParentRoute: () => AuthenticatedAccountRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/account/certificates.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedAccountAuthorizedAppsRoute =
   AuthenticatedAccountAuthorizedAppsRouteImport.update({
     id: '/authorized-apps',
     path: '/authorized-apps',
     getParentRoute: () => AuthenticatedAccountRoute,
-  } as any)
+  } as any).lazy(() =>
+    import('./routes/_authenticated/account/authorized-apps.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute

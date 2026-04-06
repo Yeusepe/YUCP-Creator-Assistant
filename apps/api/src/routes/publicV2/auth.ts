@@ -1,12 +1,10 @@
-import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
+import { logger } from '../../lib/logger';
 import { verifyBetterAuthAccessToken } from '../../lib/oauthAccessToken';
 import { buildTimedResponse, type RouteTimingCollector } from '../../lib/requestTiming';
 import { errorResponse, generateRequestId } from './helpers';
 import type { PublicV2Config } from './types';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const PUBLIC_API_KEY_PATTERN = /^ypsk_[0-9a-f]{48}$/;
 const PUBLIC_API_KEY_PREFIX = 'ypsk_';

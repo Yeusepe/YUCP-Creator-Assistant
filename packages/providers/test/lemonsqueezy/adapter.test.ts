@@ -46,20 +46,6 @@ describe('LemonSqueezyApiClient', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('creates client from environment', () => {
-    const originalEnv = process.env.LEMONSQUEEZY_API_TOKEN;
-    process.env.LEMONSQUEEZY_API_TOKEN = 'env-token';
-    expect(LemonSqueezyApiClient.fromEnv()).toBeDefined();
-    process.env.LEMONSQUEEZY_API_TOKEN = originalEnv;
-  });
-
-  it('throws when env token is missing', () => {
-    const originalEnv = process.env.LEMONSQUEEZY_API_TOKEN;
-    process.env.LEMONSQUEEZY_API_TOKEN = '';
-    expect(() => LemonSqueezyApiClient.fromEnv()).toThrow('LEMONSQUEEZY_API_TOKEN');
-    process.env.LEMONSQUEEZY_API_TOKEN = originalEnv;
-  });
-
   it('lists stores with bearer auth and JSON:API headers', async () => {
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toContain('/stores');

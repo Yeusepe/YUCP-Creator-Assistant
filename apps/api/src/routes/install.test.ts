@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import type { Auth } from '../auth';
 import { createAuth } from '../auth';
 import {
   BOT_PERMISSIONS,
@@ -89,6 +90,36 @@ describe('Install Routes', () => {
       const response = await routes.initiateBotInstall(request);
 
       expect(response.status).toBe(401);
+    });
+
+    it('defaults the install target to the authenticated user when authUserId is omitted', async () => {
+      const authWithSession: Auth = {
+        ...auth,
+        async getSession() {
+          return {
+            user: {
+              id: 'user-456',
+              email: 'user@example.com',
+              image: null,
+              name: 'User',
+            },
+          };
+        },
+      };
+
+      const sessionRoutes = createInstallRoutes(authWithSession, testConfig);
+      const response = await sessionRoutes.initiateBotInstall(
+        new Request('http://localhost:3001/api/install/bot')
+      );
+
+      expect(response.status).toBe(302);
+      const location = response.headers.get('location');
+      expect(location).toContain('https://discord.com/api/oauth2/authorize');
+      expect(location).not.toContain('authUserId=');
+      const state = new URL(location as string).searchParams.get('state');
+      expect(state).toBeTruthy();
+      const installState = await validateInstallState(state as string);
+      expect(installState?.authUserId).toBe('user-456');
     });
   });
 

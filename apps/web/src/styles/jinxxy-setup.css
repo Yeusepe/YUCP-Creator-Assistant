@@ -43,7 +43,7 @@
 .jinxxy-setup h2,
 .jinxxy-setup h3,
 .jinxxy-setup .font-heading {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 .jinxxy-setup .step-content {

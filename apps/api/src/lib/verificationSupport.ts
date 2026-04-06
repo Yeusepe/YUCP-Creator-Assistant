@@ -1,8 +1,4 @@
-import {
-  encodeVerificationSupportToken,
-  getVerificationSupportErrorDetails,
-  type StructuredLogger,
-} from '@yucp/shared';
+import { createVerificationSupportContext, type StructuredLogger } from '@yucp/shared';
 
 export interface PublicApiSupportErrorInput {
   error: unknown;
@@ -10,24 +6,26 @@ export interface PublicApiSupportErrorInput {
   authUserId?: string;
 }
 
-/** Creates an encrypted support code for Public API errors. Same format as verification flow. */
+/**
+ * Creates an encrypted support code for Public API errors.
+ * Same format as verification flow.
+ */
 export async function createPublicApiSupportError(
   logger: StructuredLogger,
   input: PublicApiSupportErrorInput
 ): Promise<{ supportCode: string }> {
-  const errorDetails = getVerificationSupportErrorDetails(input.error);
-  const support = await encodeVerificationSupportToken({
+  const support = await createVerificationSupportContext({
     surface: 'public_api',
     stage: input.stage,
     authUserId: input.authUserId,
-    ...errorDetails,
+    error: input.error,
   });
 
   logger.warn('Public API error', {
     supportCode: support.supportCode,
     stage: input.stage,
     authUserId: input.authUserId,
-    error: input.error instanceof Error ? input.error.message : String(input.error),
+    error: support.logErrorMessage,
   });
 
   return { supportCode: support.supportCode };
@@ -46,15 +44,14 @@ export async function createApiVerificationSupportError(
   logger: StructuredLogger,
   input: ApiVerificationSupportInput
 ): Promise<{ supportCode: string; supportCodeMode: 'encoded' | 'plain' }> {
-  const errorDetails = getVerificationSupportErrorDetails(input.error);
-  const support = await encodeVerificationSupportToken({
+  const support = await createVerificationSupportContext({
     surface: 'api',
     stage: input.stage,
     authUserId: input.authUserId,
     guildId: input.guildId,
     discordUserId: input.discordUserId,
     provider: input.provider,
-    ...errorDetails,
+    error: input.error,
   });
 
   logger.error('Verification API route failed', {
@@ -65,8 +62,8 @@ export async function createApiVerificationSupportError(
     guildId: input.guildId,
     discordUserId: input.discordUserId,
     provider: input.provider,
-    error: input.error instanceof Error ? input.error.message : String(input.error),
-    stack: input.error instanceof Error ? input.error.stack : undefined,
+    error: support.logErrorMessage,
+    stack: support.logErrorStack,
   });
 
   return {

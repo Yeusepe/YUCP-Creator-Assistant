@@ -6,10 +6,10 @@
  * No internal IDs are exposed in URLs.
  */
 
-import { createLogger, timingSafeStringEqual } from '@yucp/shared';
+import { timingSafeStringEqual } from '@yucp/shared';
+import { base64UrlEncode } from '@yucp/shared/crypto';
+import { logger } from './logger';
 import { getStateStore } from './stateStore';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const SETUP_SESSION_PREFIX = 'setup_session:';
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -29,9 +29,7 @@ export interface SetupSessionData {
 function generateToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  // base64url encode (URL-safe, no padding)
-  const base64 = btoa(String.fromCharCode(...bytes));
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return base64UrlEncode(bytes);
 }
 
 /**
@@ -47,9 +45,7 @@ async function hmacSign(token: string, secret: string): Promise<string> {
     ['sign']
   );
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(token));
-  const sigBytes = new Uint8Array(signature);
-  const base64 = btoa(String.fromCharCode(...sigBytes));
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return base64UrlEncode(new Uint8Array(signature));
 }
 
 /**

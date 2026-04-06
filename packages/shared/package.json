@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./crypto": "./src/crypto.ts",
     "./*": "./src/*.ts",
     "./test/loadBotE2ESecrets": "./test/loadBotE2ESecrets.ts",
     "./test/loadTestSecrets": "./test/loadTestSecrets.ts"

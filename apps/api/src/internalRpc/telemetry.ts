@@ -1,6 +1,5 @@
-import { createLogger } from '@yucp/shared';
+import { logger } from '../lib/logger';
 
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const MAX_SAMPLES = 200;
 const LOG_EVERY = 25;
 

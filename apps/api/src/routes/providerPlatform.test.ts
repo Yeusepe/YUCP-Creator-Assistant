@@ -48,6 +48,8 @@ const resolveSetupSessionMock = mock(async () => null);
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: apiMock,
+  internal: apiMock,
+  components: {},
 }));
 
 mock.module('../lib/convex', () => ({
@@ -558,8 +560,8 @@ describe('provider platform routes', () => {
     });
 
     it('includes every provider that has a dashboardConnectPath', async () => {
-      const { ALL_PROVIDERS } = await import('../providers/index');
-      const expected = ALL_PROVIDERS.filter((p) => p.displayMeta?.dashboardConnectPath).map(
+      const { ALL_PROVIDER_RUNTIMES } = await import('../providers/index');
+      const expected = ALL_PROVIDER_RUNTIMES.filter((p) => p.displayMeta?.dashboardConnectPath).map(
         (p) => p.id
       );
 

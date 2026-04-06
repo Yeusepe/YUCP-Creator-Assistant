@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
-import { useCloudReady } from '@/hooks/useCloudReady';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -50,11 +50,19 @@ function buildOAuthResumePath(search: string): string | null {
 }
 
 function OAuthLoginPage() {
+  return (
+    <>
+      <CloudBackground variant="default" />
+      <OAuthLoginPageContent />
+    </>
+  );
+}
+
+function OAuthLoginPageContent() {
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [isVisible, setIsVisible] = useState(false);
   const retryPathRef = useRef('/oauth/login');
 
-  const bgReady = useCloudReady();
   const showPage = usePageLoadingTransition({
     onReveal: () => setIsVisible(true),
     visibleClass: 'visible',
@@ -64,8 +72,8 @@ function OAuthLoginPage() {
   });
 
   useEffect(() => {
-    if (bgReady) showPage();
-  }, [bgReady, showPage]);
+    showPage();
+  }, [showPage]);
 
   useEffect(() => {
     retryPathRef.current = `${window.location.pathname}${window.location.search}`;

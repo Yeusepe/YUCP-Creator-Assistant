@@ -12,6 +12,8 @@ const verifyBetterAuthMock = mock((token: string, opts: unknown) =>
 
 mock.module('../../../../../convex/_generated/api', () => ({
   api: { betterAuthApiKeys: { verifyApiKey: 'mock-verify-key' } },
+  internal: {},
+  components: {},
 }));
 
 mock.module('../../lib/convex', () => ({

@@ -1,5 +1,5 @@
 import type { Verification } from '@yucp/shared';
-import type { ProviderAdapter, ProviderConfig, PurchaseRecord } from '../index';
+import type { ProviderAdapter, ProviderConfig, PurchaseRecord } from '../legacyAdapter';
 import { LemonSqueezyApiClient } from './client';
 import type {
   LemonSqueezyAdapterConfig,
@@ -37,22 +37,6 @@ export class LemonSqueezyAdapter implements ProviderAdapter {
       licenseApiBaseUrl: config.licenseApiBaseUrl,
       timeout: config.timeout,
       maxRetries: config.maxRetries,
-    });
-  }
-
-  static fromEnv(): LemonSqueezyAdapter {
-    const apiToken = process.env.LEMONSQUEEZY_API_TOKEN;
-    if (!apiToken) {
-      throw new Error('LEMONSQUEEZY_API_TOKEN environment variable is required');
-    }
-
-    return new LemonSqueezyAdapter({
-      apiToken,
-      apiBaseUrl: process.env.LEMONSQUEEZY_API_BASE_URL,
-      licenseApiBaseUrl: process.env.LEMONSQUEEZY_LICENSE_API_BASE_URL,
-      timeout: process.env.LEMONSQUEEZY_API_TIMEOUT
-        ? Number.parseInt(process.env.LEMONSQUEEZY_API_TIMEOUT, 10)
-        : undefined,
     });
   }
 

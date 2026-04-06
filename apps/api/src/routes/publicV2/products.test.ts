@@ -11,6 +11,8 @@ mock.module('../../../../../convex/_generated/api', () => ({
       getByIdForAuthUser: 'packageRegistry.getByIdForAuthUser',
     },
   },
+  internal: {},
+  components: {},
 }));
 
 mock.module('../../lib/convex', () => ({

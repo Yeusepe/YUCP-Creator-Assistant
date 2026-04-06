@@ -8,15 +8,14 @@
  * Adding a new provider: zero changes here. See apps/api/src/providers/index.ts.
  */
 
-import { createLogger, timingSafeStringEqual } from '@yucp/shared';
+import { timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { loadEnv } from '../lib/env';
+import { logger } from '../lib/logger';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
-import { getProvider } from '../providers/index';
+import { getProviderRuntime } from '../providers/index';
 import { CredentialExpiredError } from '../providers/types';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 interface ProductsRequest {
   apiSecret: string;
@@ -34,8 +33,8 @@ export async function handleProviderProducts(
     });
   }
 
-  const plugin = getProvider(provider);
-  if (!plugin) {
+  const runtime = getProviderRuntime(provider);
+  if (!runtime) {
     return new Response(JSON.stringify({ error: `Unknown provider: ${provider}` }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' },
@@ -85,9 +84,9 @@ export async function handleProviderProducts(
     convex = getConvexClientFromUrl(convexUrl);
     const ctx = { convex, apiSecret, authUserId, encryptionSecret };
 
-    const credential = await plugin.getCredential(ctx);
+    const credential = await runtime.getCredential(ctx);
 
-    if (plugin.needsCredential && credential === null) {
+    if (runtime.needsCredential && credential === null) {
       return new Response(
         JSON.stringify({
           products: [],
@@ -97,7 +96,7 @@ export async function handleProviderProducts(
       );
     }
 
-    const products = await plugin.fetchProducts(credential, ctx);
+    const products = await runtime.fetchProducts(credential, ctx);
 
     return new Response(JSON.stringify({ products }), {
       status: 200,

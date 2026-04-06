@@ -41,8 +41,12 @@
 
     "paths": {
       "@yucp/shared": ["./packages/shared/src"],
+      "@yucp/shared/crypto": ["./packages/shared/src/crypto/index.ts"],
       "@yucp/shared/*": ["./packages/shared/src/*"],
+      "@yucp/application": ["./packages/application/src"],
+      "@yucp/application/*": ["./packages/application/src/*"],
       "@yucp/providers": ["./packages/providers/src"],
+      "@yucp/providers/providerMetadata": ["./packages/providers/src/providerMetadata.ts"],
       "@yucp/providers/*": ["./packages/providers/src/*"],
       "@yucp/policy": ["./packages/policy/src"],
       "@yucp/policy/*": ["./packages/policy/src/*"],

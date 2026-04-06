@@ -2,9 +2,8 @@
 // Fetches secrets from Infisical when INFISICAL_PROJECT_ID + machine identity are set
 
 import type { EnvConfig } from '@yucp/shared';
-import { createLogger, resolveConvexSiteUrl as resolveSharedConvexSiteUrl } from '@yucp/shared';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+import { resolveConvexSiteUrl as resolveSharedConvexSiteUrl } from '@yucp/shared';
+import { logger } from './logger';
 
 export interface LocalEnv {
   NODE_ENV: 'development' | 'production' | 'test';
@@ -42,6 +41,7 @@ export interface LocalEnv {
   // Legacy aliases (kept for backward compat)
   GUMROAD_API_KEY?: string;
   GUMROAD_SECRET_KEY?: string;
+  JINXXY_API_BASE_URL?: string;
   JINXXY_API_KEY?: string;
   JINXXY_SECRET_KEY?: string;
   // Logging
@@ -131,6 +131,7 @@ function loadFromEnv(): LocalEnv {
     GUMROAD_CLIENT_SECRET: process.env.GUMROAD_CLIENT_SECRET,
     GUMROAD_API_KEY: process.env.GUMROAD_API_KEY,
     GUMROAD_SECRET_KEY: process.env.GUMROAD_SECRET_KEY,
+    JINXXY_API_BASE_URL: process.env.JINXXY_API_BASE_URL,
     JINXXY_API_KEY: process.env.JINXXY_API_KEY,
     JINXXY_SECRET_KEY: process.env.JINXXY_SECRET_KEY,
     LOG_LEVEL: process.env.LOG_LEVEL,

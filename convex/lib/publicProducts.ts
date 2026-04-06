@@ -1,4 +1,4 @@
-import { resolveConfiguredApiBaseUrl } from '../../packages/shared/src/publicAuthority';
+import { resolveConfiguredApiBaseUrl } from '@yucp/shared/publicAuthority';
 
 export type PublicProductProviderRef = {
   provider: string;

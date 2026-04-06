@@ -1,7 +1,7 @@
-import { createLogger } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
+import { logger } from '../../lib/logger';
 import { resolveAuth as _resolveAuthBase } from './auth';
 import {
   errorResponse,
@@ -12,8 +12,6 @@ import {
   parsePagination,
 } from './helpers';
 import type { PublicV2Config } from './types';
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const WEBHOOK_SIGNING_SECRET_PURPOSE = 'yucp-webhook-signing-secret';
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import {
+  createVerificationSupportContext,
   decodeVerificationSupportToken,
   encodeVerificationSupportToken,
   sanitizeVerificationSupportErrorSummary,
@@ -105,5 +106,29 @@ describe('verificationSupport', () => {
     expect(summary).toBeDefined();
     expect(summary?.includes('abcd1234567890')).toBe(false);
     expect(summary?.length).toBeLessThanOrEqual(160);
+  });
+
+  it('builds reusable support context with sanitized payload and log details', async () => {
+    process.env.ERROR_REFERENCE_SECRET = 'test-support-secret';
+    const error = new Error('secret=abcd1234567890 verification failed');
+
+    const support = await createVerificationSupportContext({
+      surface: 'api',
+      stage: 'panel_refresh',
+      authUserId: 'user_test123',
+      error,
+    });
+
+    expect(support.mode).toBe('encoded');
+    expect(support.supportCode.startsWith('VFY1-')).toBe(true);
+    expect(support.payload).toMatchObject({
+      surface: 'api',
+      stage: 'panel_refresh',
+      authUserId: 'user_test123',
+      errorName: 'Error',
+    });
+    expect(support.payload.errorSummary?.includes('abcd1234567890')).toBe(false);
+    expect(support.logErrorMessage).toBe(error.message);
+    expect(support.logErrorStack).toBe(error.stack);
   });
 });

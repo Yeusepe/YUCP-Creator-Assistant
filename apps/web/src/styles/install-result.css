@@ -87,7 +87,7 @@
 }
 
 .install-result-heading {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 24px;
   font-weight: 800;
   color: #ffffff;
@@ -119,7 +119,7 @@
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.85);
   color: #ffffff;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;

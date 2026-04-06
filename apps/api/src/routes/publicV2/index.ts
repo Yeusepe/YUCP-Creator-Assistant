@@ -1,4 +1,4 @@
-import { createLogger } from '@yucp/shared';
+import { logger } from '../../lib/logger';
 import { handleAuditLogRoutes } from './audit-log';
 import { handleBindingsRoutes } from './bindings';
 import { handleCollaboratorsRoutes } from './collaborators';
@@ -23,8 +23,6 @@ import { handleVerificationSessionsRoutes } from './verification-sessions';
 import { handleWebhooksRoutes } from './webhooks';
 
 export type { PublicV2Config };
-
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
 const V2_PREFIX = '/api/public/v2';
 

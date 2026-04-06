@@ -256,13 +256,17 @@ describe('Connect routes — OAuth state boundaries', () => {
     expect(authLocation).toBeTruthy();
     const state = new URL(authLocation as string).searchParams.get('state');
     expect(state).toBeTruthy();
+    expect(state).not.toContain(roleToken);
+    expect(await store.get(`discord_role_oauth:${state as string}`)).toBe(roleToken);
 
     const originalFetch = globalThis.fetch;
     let oauthFetchCalls = 0;
     let tokenExchangeBody = '';
+    const fetchSignals: Array<AbortSignal | null | undefined> = [];
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       oauthFetchCalls += 1;
+      fetchSignals.push(init?.signal);
       const url = String(input);
       if (url.endsWith('/oauth2/token')) {
         tokenExchangeBody = String(init?.body ?? '');
@@ -313,6 +317,7 @@ describe('Connect routes — OAuth state boundaries', () => {
         `${TEST_CONNECT_CONFIG.frontendBaseUrl}/setup/discord-role?error=invalid_state`
       );
       expect(oauthFetchCalls).toBe(3);
+      expect(fetchSignals.every((signal) => signal instanceof AbortSignal)).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -335,5 +340,118 @@ describe('Connect routes — OAuth state boundaries', () => {
     expect(new URL(location as string).origin).toBe(
       new URL(TEST_CONNECT_CONFIG.frontendBaseUrl).origin
     );
+  });
+
+  it('rejects non-object JSON bodies for Discord role setup endpoints', async () => {
+    const routes = createConnectSecurityRoutes();
+    const store = getStateStore();
+    const roleToken = `role_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    await store.set(
+      `discord_role_setup:${roleToken}`,
+      JSON.stringify({
+        authUserId: 'user_json',
+        guildId: 'guild_json',
+        adminDiscordUserId: 'discord_json',
+        completed: false,
+      }),
+      30 * 60 * 1000
+    );
+
+    const createResponse = await routes.createDiscordRoleSession(
+      new Request(`${TEST_CONNECT_CONFIG.apiBaseUrl}/api/connect/discord-role/session`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: 'null',
+      })
+    );
+    expect(createResponse.status).toBe(400);
+
+    const saveResponse = await routes.saveDiscordRoleSelection(
+      new Request(`${TEST_CONNECT_CONFIG.apiBaseUrl}/api/setup/discord-role/save`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: `${DISCORD_ROLE_SETUP_COOKIE}=${roleToken}`,
+        },
+        body: 'null',
+      })
+    );
+    expect(saveResponse.status).toBe(400);
+
+    const exchangeResponse = await routes.exchangeDiscordRoleSetupSession(
+      new Request(`${TEST_CONNECT_CONFIG.apiBaseUrl}/api/setup/discord-role/exchange`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: 'null',
+      })
+    );
+    expect(exchangeResponse.status).toBe(400);
+  });
+
+  it('requires a verified guild and valid match mode before completing Discord role setup', async () => {
+    const routes = createConnectSecurityRoutes();
+    const store = getStateStore();
+    const roleToken = `role_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const roleSessionKey = `discord_role_setup:${roleToken}`;
+
+    await store.set(
+      roleSessionKey,
+      JSON.stringify({
+        authUserId: 'user_roles',
+        guildId: 'guild_roles',
+        adminDiscordUserId: 'discord_roles',
+        guilds: [
+          {
+            id: 'verified_guild',
+            name: 'Verified Guild',
+            icon: null,
+            owner: true,
+            permissions: '8',
+          },
+        ],
+        completed: false,
+      }),
+      30 * 60 * 1000
+    );
+
+    const invalidModeResponse = await routes.saveDiscordRoleSelection(
+      new Request(`${TEST_CONNECT_CONFIG.apiBaseUrl}/api/setup/discord-role/save`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: `${DISCORD_ROLE_SETUP_COOKIE}=${roleToken}`,
+        },
+        body: JSON.stringify({
+          sourceGuildId: 'verified_guild',
+          sourceRoleIds: ['12345678901234567', '22345678901234567'],
+          requiredRoleMatchMode: 'bogus',
+        }),
+      })
+    );
+    expect(invalidModeResponse.status).toBe(400);
+
+    const unverifiedGuildResponse = await routes.saveDiscordRoleSelection(
+      new Request(`${TEST_CONNECT_CONFIG.apiBaseUrl}/api/setup/discord-role/save`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: `${DISCORD_ROLE_SETUP_COOKIE}=${roleToken}`,
+        },
+        body: JSON.stringify({
+          sourceGuildId: 'unverified_guild',
+          sourceRoleIds: ['12345678901234567'],
+        }),
+      })
+    );
+    expect(unverifiedGuildResponse.status).toBe(400);
+
+    const storedSession = JSON.parse((await store.get(roleSessionKey)) as string) as {
+      completed: boolean;
+      sourceGuildId?: string;
+      requiredRoleMatchMode?: string;
+    };
+    expect(storedSession.completed).toBe(false);
+    expect(storedSession.sourceGuildId).toBeUndefined();
+    expect(storedSession.requiredRoleMatchMode).toBeUndefined();
   });
 });

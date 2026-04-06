@@ -29,7 +29,7 @@ import {
   mapJinxxyEventToAction,
   mapReasonToStatus,
   type Provider,
-} from '../packages/shared/src/entitlement';
+} from '@yucp/shared/entitlement';
 
 // ============================================================================
 // VALIDATOR SCHEMA TESTS

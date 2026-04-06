@@ -4,7 +4,7 @@
  * Options: Gumroad OAuth, License key, Discord (other server)
  */
 
-import { getProviderDescriptor } from '@yucp/shared';
+import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
 import type { ConvexHttpClient } from 'convex/browser';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';

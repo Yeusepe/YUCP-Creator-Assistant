@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,7 +42,9 @@ describe('DevSupervisor', () => {
       cwd: process.cwd(),
       stdio: 'ignore',
       windowsHide: true,
+      detached: process.platform !== 'win32',
     });
+    const fixtureClosed = once(fixture, 'close');
 
     expect(fixture.pid).toBeDefined();
 
@@ -59,6 +62,7 @@ describe('DevSupervisor', () => {
     expect(isProcessAlive(info.grandchildPid)).toBe(true);
 
     await killProcessTree(info.parentPid, 'SIGINT');
+    await fixtureClosed;
 
     await waitFor(
       async () => ({

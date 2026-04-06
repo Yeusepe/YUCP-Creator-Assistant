@@ -1,22 +1,24 @@
 import { randomBytes } from 'node:crypto';
 import { LemonSqueezyApiClient } from '@yucp/providers';
-import { createLogger, getProviderDescriptor, timingSafeStringEqual } from '@yucp/shared';
+import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
+import { timingSafeStringEqual } from '@yucp/shared';
+import { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt, encrypt } from '../lib/encrypt';
+import { logger } from '../lib/logger';
 import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 import {
   isWebhookContentLengthTooLarge,
   PayloadTooLargeError,
   readWebhookTextBody,
 } from '../lib/webhookBody';
-import { ALL_PROVIDERS } from '../providers/index';
-import { PURPOSES as LEMONSQUEEZY } from '../providers/lemonsqueezy';
+import { listDashboardProviderDisplays } from '../providers/display';
+import { PURPOSES as LEMONSQUEEZY } from '../providers/lemonsqueezy/index';
 
 const PROVIDER_PLATFORM_CREDENTIAL_PURPOSE = 'provider-platform-credential' as const;
 
-const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 const idempotencyCache = new Map<
   string,
@@ -137,18 +139,6 @@ function storeIdempotentResponse(cacheKey: string | null, response: Response, bo
 
 async function jsonFromRequest<T>(request: Request): Promise<T> {
   return (await request.json()) as T;
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
 }
 
 function parseIsoTimestamp(value: string | null | undefined): number | undefined {
@@ -1230,19 +1220,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       const requestId = newRequestId();
 
       if (request.method === 'GET' && url.pathname === '/api/providers') {
-        const providers = ALL_PROVIDERS.filter((p) => p.displayMeta?.dashboardConnectPath).map(
-          (p) => ({
-            key: p.id,
-            label: p.displayMeta?.label,
-            icon: p.displayMeta?.icon,
-            iconBg: p.displayMeta?.dashboardIconBg,
-            quickStartBg: p.displayMeta?.dashboardQuickStartBg,
-            quickStartBorder: p.displayMeta?.dashboardQuickStartBorder,
-            serverTileHint: p.displayMeta?.dashboardServerTileHint,
-            connectPath: p.displayMeta?.dashboardConnectPath,
-            connectParamStyle: p.displayMeta?.dashboardConnectParamStyle,
-          })
-        );
+        const providers = listDashboardProviderDisplays();
         return new Response(JSON.stringify(providers), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },

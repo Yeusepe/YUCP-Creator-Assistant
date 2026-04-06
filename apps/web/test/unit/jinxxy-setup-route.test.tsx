@@ -9,7 +9,7 @@ vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
   BackgroundCanvasRoot: () => null,
 }));
 
-import { Route } from '@/routes/setup/jinxxy';
+import { Route } from '@/routes/setup/jinxxy.lazy';
 
 describe('Jinxxy setup route', () => {
   beforeEach(() => {

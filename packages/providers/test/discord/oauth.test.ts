@@ -3,7 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { createAAD, decrypt, encrypt } from '@yucp/shared';
+import { createAAD, decrypt, encrypt } from '@yucp/shared/crypto';
 import { DiscordOAuthProvider } from '../../src/discord/oauth';
 import type {
   DiscordOAuthConfig,

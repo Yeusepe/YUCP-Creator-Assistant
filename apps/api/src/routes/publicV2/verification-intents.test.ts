@@ -13,6 +13,7 @@ mock.module('../../../../../convex/_generated/api', () => ({
     },
   },
   internal: {},
+  components: {},
 }));
 
 mock.module('../../lib/convex', () => ({

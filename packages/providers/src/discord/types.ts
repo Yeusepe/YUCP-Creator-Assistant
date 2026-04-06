@@ -6,7 +6,7 @@
  * - `guilds.members.read` scope: Cross-server role verification
  */
 
-import type { EncryptedPayload } from '@yucp/shared';
+import type { EncryptedPayload } from '@yucp/shared/crypto';
 
 /**
  * Discord OAuth configuration.

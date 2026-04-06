@@ -85,7 +85,7 @@
 }
 
 h1 {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 800;
   font-size: 20px;
   letter-spacing: -0.04em;
@@ -200,7 +200,7 @@ h1 {
   border-radius: 14px;
   background: var(--discord-blurple);
   color: #fff;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 14px;
   text-decoration: none;

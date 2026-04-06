@@ -1,4 +1,4 @@
-﻿/**
+/**
  * /creator-admin product - Product-role mapping commands
  *
  * add: Interactive guided flow (type select → URL modal → role select → confirm)
@@ -8,13 +8,12 @@
 
 import {
   buildCatalogProductUrl,
-  createLogger,
   getProviderDescriptor,
   PROVIDER_REGISTRY,
-  type ProviderDescriptor,
-  parseProductId,
   providerLabel,
-} from '@yucp/shared';
+} from '@yucp/providers/providerMetadata';
+import type { ProviderDescriptor } from '@yucp/providers/types';
+import { createLogger, parseProductId } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type {
   ButtonInteraction,

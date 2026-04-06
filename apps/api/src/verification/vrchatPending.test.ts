@@ -25,6 +25,7 @@ describe('vrchatPending', () => {
     });
 
     expect(setCookie).toContain('yucp_vrchat_pending=');
+    expect(setCookie).toContain('Path=/api/verification/vrchat-verify');
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie).not.toContain('cookie');
 
@@ -62,6 +63,7 @@ describe('vrchatPending', () => {
 
     await clearPendingVrchatState(store, followUpRequest, headers);
 
+    expect(headers.get('Set-Cookie')).toContain('Path=/api/verification/vrchat-verify');
     expect(headers.get('Set-Cookie')).toContain('Max-Age=0');
     const pending = await readPendingVrchatState(store, followUpRequest, 'verify-token');
     expect(pending).toBeNull();

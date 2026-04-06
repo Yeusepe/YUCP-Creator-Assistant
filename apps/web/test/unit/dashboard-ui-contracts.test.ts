@@ -6,8 +6,12 @@ const dashboardRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/dashboard.tsx'),
   'utf8'
 );
+const dashboardLazyRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard.lazy.tsx'),
+  'utf8'
+);
 const dashboardIndexRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/_authenticated/dashboard/index.tsx'),
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/index.lazy.tsx'),
   'utf8'
 );
 
@@ -42,16 +46,16 @@ describe('dashboard UI contracts', () => {
 
   it('uses shared dashboard query options for the guild picker and resolves empty server state text', () => {
     expect(dashboardRouteSource).toContain('dashboardShellQueryOptions');
-    expect(dashboardRouteSource).toContain('useDashboardShell');
-    expect(dashboardRouteSource).toContain('No servers configured yet');
+    expect(dashboardLazyRouteSource).toContain('useDashboardShell');
+    expect(dashboardLazyRouteSource).toContain('No servers configured yet');
   });
 
-  it('loads dashboard styles as side-effect imports instead of route head assets', () => {
-    expect(dashboardRouteSource).toContain("import '@/styles/dashboard.css';");
-    expect(dashboardRouteSource).toContain("import '@/styles/dashboard-components.css';");
-    expect(dashboardRouteSource).not.toContain('routeStylesheetLinks(');
-    expect(dashboardRouteSource).not.toContain('routeStyleHrefs.dashboard');
-    expect(dashboardRouteSource).not.toContain('routeStyleHrefs.dashboardComponents');
+  it('declares dashboard shell styles from the base route head so SSR markup is styled on first paint', () => {
+    expect(dashboardRouteSource).toContain('routeStylesheetLinks(');
+    expect(dashboardRouteSource).toContain('routeStyleHrefs.dashboard');
+    expect(dashboardRouteSource).toContain('routeStyleHrefs.dashboardComponents');
+    expect(dashboardLazyRouteSource).not.toContain("import '@/styles/dashboard.css';");
+    expect(dashboardLazyRouteSource).not.toContain("import '@/styles/dashboard-components.css';");
   });
 
   it('keeps server dropdown CSS selectors aligned with the route class names', () => {
@@ -81,30 +85,29 @@ describe('dashboard UI contracts', () => {
     expect(dashboardCss).toContain('width: 100%;');
     expect(dashboardCss).toContain('z-index: 100003;');
     expect(dashboardCss).toContain('justify-content: space-between;');
-    expect(dashboardRouteSource).toContain('<DashboardBodyPortal>');
-    expect(dashboardRouteSource).toContain('server-selector-portal');
+    expect(dashboardLazyRouteSource).toContain('<DashboardBodyPortal>');
+    expect(dashboardLazyRouteSource).toContain('server-selector-portal');
   });
 
   it('uses an aligned content shell instead of overlap offsets in the main dashboard layout', () => {
-    expect(dashboardRouteSource).toContain('content-area-inner');
+    expect(dashboardLazyRouteSource).toContain('content-area-inner');
     expect(dashboardCss).toContain('.content-area-inner {');
     expect(dashboardCss).not.toContain('margin-left: -12px;');
     expect(dashboardCss).not.toContain('margin-right: 16px;');
   });
 
-  it('swaps dashboard tab content to a pending panel instead of leaving stale content visible', () => {
-    expect(dashboardRouteSource).toContain('useRouterState');
-    expect(dashboardRouteSource).toContain('routerState.location.pathname');
-    expect(dashboardRouteSource).toContain('routerState.resolvedLocation.pathname');
-    expect(dashboardRouteSource).toContain('DashboardPendingPanel');
+  it('keeps the dashboard chrome in the lazy route layout instead of baking it into each child route', () => {
+    expect(dashboardLazyRouteSource).toContain('DashboardSessionProvider');
+    expect(dashboardLazyRouteSource).toContain('<Sidebar');
+    expect(dashboardLazyRouteSource).toContain('<Outlet />');
   });
 
   it('uses the home icon for the personal dashboard selector trigger and no longer renders blob backgrounds', () => {
-    expect(dashboardRouteSource).toContain(
+    expect(dashboardLazyRouteSource).toContain(
       '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />'
     );
-    expect(dashboardRouteSource).not.toContain('<BlobBackground />');
-    expect(dashboardRouteSource).not.toContain('function BlobBackground()');
+    expect(dashboardLazyRouteSource).not.toContain('<BlobBackground />');
+    expect(dashboardLazyRouteSource).not.toContain('function BlobBackground()');
   });
 
   it('uses solid light and dark dashboard fallback backgrounds instead of the old blob gradient', () => {

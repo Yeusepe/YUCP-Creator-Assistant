@@ -9,6 +9,8 @@ mock.module('../../../../../convex/_generated/api', () => ({
       getConnectionById: 'collaboratorInvites.getConnectionById',
     },
   },
+  internal: {},
+  components: {},
 }));
 
 mock.module('../../lib/convex', () => ({

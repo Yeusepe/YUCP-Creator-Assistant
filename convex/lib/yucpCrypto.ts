@@ -11,6 +11,13 @@
  */
 
 import * as ed from '@noble/ed25519';
+import {
+  base64ToBytes,
+  base64UrlDecodeToBytes as base64urlDecode,
+  base64UrlEncode as base64urlEncode,
+  bytesToBase64,
+} from '@yucp/shared/crypto';
+export { base64ToBytes, bytesToBase64 };
 
 // Wire up Web Crypto SHA-512 so sign()/verify() work in Convex's JS runtime
 // without needing @noble/hashes as a second dependency.
@@ -24,20 +31,6 @@ ed.etc.sha512Async = async (...messages: Uint8Array[]) => {
   const hash = await crypto.subtle.digest('SHA-512', buffer);
   return new Uint8Array(hash);
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Encoding helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-export function base64ToBytes(b64: string): Uint8Array {
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Certificate types
@@ -212,26 +205,6 @@ export interface LicenseClaims {
   provider: string;
   iat: number;
   exp: number;
-}
-
-function base64urlEncode(data: Uint8Array | string): string {
-  let b64: string;
-  if (typeof data === 'string') {
-    b64 = btoa(data);
-  } else {
-    let binary = '';
-    for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
-    b64 = btoa(binary);
-  }
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function base64urlDecode(input: string): Uint8Array {
-  let padded = input.replace(/-/g, '+').replace(/_/g, '/');
-  while (padded.length % 4 !== 0) {
-    padded += '=';
-  }
-  return base64ToBytes(padded);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { getProviderDescriptor } from '@yucp/shared';
+import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
 import { internal } from '../../../../convex/_generated/api';
 import type {
   BuyerVerificationCapabilityDescriptor,

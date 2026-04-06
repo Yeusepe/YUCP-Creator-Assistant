@@ -8,9 +8,9 @@
 import {
   buildCatalogProductUrl,
   CATALOG_SYNC_PROVIDER_KEYS,
-  createLogger,
   getProviderDescriptor,
-} from '@yucp/shared';
+} from '@yucp/providers/providerMetadata';
+import { createLogger } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type {
   ButtonInteraction,

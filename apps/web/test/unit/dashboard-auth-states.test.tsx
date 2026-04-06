@@ -3,6 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@tanstack/react-router', () => ({
+  createLazyFileRoute: () => (options: unknown) => ({ options }),
+}));
+
 vi.mock('@/hooks/useDashboardShell', () => {
   return {
     useDashboardShell: vi.fn(() => ({
@@ -38,8 +42,8 @@ vi.mock('@/lib/dashboard', async () => {
 
 import { useDashboardSession } from '@/hooks/useDashboardSession';
 import * as dashboardApi from '@/lib/dashboard';
-import { Route as CollaborationRoute } from '@/routes/_authenticated/dashboard/collaboration';
-import { Route as IntegrationsRoute } from '@/routes/_authenticated/dashboard/integrations';
+import { Route as CollaborationRoute } from '@/routes/_authenticated/dashboard/collaboration.lazy';
+import { Route as IntegrationsRoute } from '@/routes/_authenticated/dashboard/integrations.lazy';
 
 function createWrapper() {
   const queryClient = new QueryClient({

@@ -14,6 +14,7 @@
  * All operations are idempotent - safe to call multiple times.
  */
 
+import { sha256Hex } from '@yucp/shared/crypto';
 import { v } from 'convex/values';
 import { components, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
@@ -22,15 +23,6 @@ import { requireApiSecret } from './lib/apiAuth';
 import { buildBetterAuthUserProviderLookupWhere } from './lib/betterAuthAdapter';
 import { PII_PURPOSES } from './lib/credentialKeys';
 import { encryptPii, normalizeAndEncryptEmail } from './lib/piiCrypto';
-
-async function sha256Hex(input: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(input);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 // ============================================================================
 // TYPES

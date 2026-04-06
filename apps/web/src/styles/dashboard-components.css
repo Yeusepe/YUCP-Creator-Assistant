@@ -151,7 +151,7 @@
   border: 1px solid rgba(255, 255, 255, 0.18);
   cursor: pointer;
   transition: all 0.2s ease;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   margin-top: auto;
   align-self: flex-start;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -345,7 +345,7 @@
   transition:
     background 0.15s ease,
     transform 0.1s ease;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 .server-dropdown-item:hover {
@@ -411,7 +411,7 @@
   background: transparent;
   border: none;
   color: #475569;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -548,7 +548,7 @@
 }
 
 .intg-title {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 1rem;
   font-weight: 800;
   color: #0f172a;
@@ -562,7 +562,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 12px;
   font-weight: 700;
   color: #0ea5e9;
@@ -638,7 +638,7 @@
 }
 
 .intg-card .modal-label {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 12px;
   font-weight: 700;
   color: #0f172a;
@@ -1058,7 +1058,7 @@
   font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   margin-bottom: 5px;
 }
 
@@ -1519,7 +1519,7 @@
   font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   margin-bottom: 5px;
   white-space: nowrap;
   overflow: hidden;
@@ -1573,7 +1573,7 @@
   padding: 5px 11px;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 .api-key-action-btn:hover {
@@ -1598,7 +1598,7 @@
   background: #0ea5e9;
   color: #ffffff;
   border: none;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 800;
   font-size: 13px;
   padding: 10px 24px;
@@ -1837,7 +1837,7 @@
 }
 
 .inline-panel-title {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 16px;
   font-weight: 800;
   color: #ffffff;
@@ -1896,7 +1896,7 @@
 }
 
 .reveal-card-title {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 13px;
   font-weight: 700;
   color: #16a34a;
@@ -1919,7 +1919,7 @@
 
 .modal-label {
   display: block;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -2046,7 +2046,7 @@
 }
 
 .scope-toggle-name {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 12px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.85);
@@ -2075,7 +2075,7 @@
   border: 1.5px solid var(--border-color);
   background: transparent;
   color: var(--text-secondary);
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 12px;
   cursor: pointer;
@@ -2107,7 +2107,7 @@
   border: none;
   background: #ef4444;
   color: #ffffff;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 12px;
   cursor: pointer;
@@ -2174,7 +2174,7 @@
 }
 
 .cred-block-label {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -2326,7 +2326,7 @@
   position: relative;
   user-select: none;
   min-width: 140px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 .ui-select-trigger {
@@ -2440,7 +2440,7 @@
   border: none;
   border-radius: 8px;
   color: #475569;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -2522,7 +2522,7 @@
 }
 
 .stat-cell-value {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 28px;
   font-weight: 800;
   color: #0f172a;
@@ -3210,7 +3210,7 @@
   border: 1px solid rgba(16, 163, 74, 0.16);
   white-space: nowrap;
   flex-shrink: 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 /* 2-column tile grid */
@@ -3317,7 +3317,7 @@
   letter-spacing: 0.04em;
   padding: 4px 9px;
   border-radius: 999px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   text-transform: uppercase;
 }
 
@@ -3391,7 +3391,7 @@
   border: none;
   cursor: pointer;
   transition: all 0.15s ease;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 .cp-tile-connect-btn:hover {
@@ -3415,7 +3415,7 @@
   border: 1px solid rgba(0, 0, 0, 0.07);
   cursor: pointer;
   transition: all 0.15s ease;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 .cp-tile-disconnect-btn:hover {
@@ -3432,7 +3432,7 @@
   font-weight: 500;
   color: #94a3b8;
   padding: 6px 0;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   gap: 5px;
 }
 
@@ -3488,7 +3488,7 @@
 }
 
 .setting-row-label {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 13px;
   font-weight: 600;
   color: #0f172a;

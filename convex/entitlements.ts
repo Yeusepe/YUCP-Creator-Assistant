@@ -11,8 +11,13 @@
  * - Emit outbox jobs for side effects (role sync, notifications)
  */
 
+import {
+  calculateGracePeriodEnd,
+  canReactivate,
+  isEntitlementActive,
+  mapReasonToStatus,
+} from '@yucp/shared/entitlement/service';
 import { ConvexError, v } from 'convex/values';
-import { canReactivate } from '../packages/shared/src/entitlement/service';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
@@ -389,7 +394,10 @@ export const getVerifiedUsersPaginated = query({
     }> = [];
     for (const sid of slice) {
       const subject = await ctx.db.get(sid as Id<'subjects'>);
-      const data = bySubject.get(sid)!;
+      const data = bySubject.get(sid);
+      if (!data) {
+        continue;
+      }
       if (subject?.status === 'active') {
         users.push({
           subjectId: subject._id,
@@ -614,7 +622,9 @@ export const grantEntitlement = mutation({
 
     if (existingEntitlement) {
       // Entitlement already exists - check if we need to reactivate
-      if (existingEntitlement.status === 'active') {
+      if (
+        isEntitlementActive(existingEntitlement.status as Parameters<typeof isEntitlementActive>[0])
+      ) {
         // Already active, nothing to do
         return {
           success: true,
@@ -762,7 +772,7 @@ export const revokeEntitlement = mutation({
     const previousStatus = entitlement.status;
 
     // Don't revoke if already in a terminal state
-    if (previousStatus !== 'active') {
+    if (!isEntitlementActive(previousStatus as Parameters<typeof isEntitlementActive>[0])) {
       return {
         success: false,
         entitlementId: args.entitlementId,
@@ -1377,10 +1387,12 @@ export const expireEntitlements = mutation({
       )
       .collect();
 
-    const gracePeriodMs = gracePeriodHours * 3600000;
-
     for (const entitlement of activeEntitlements) {
-      const expiresAt = entitlement.expiresAt ?? entitlement.grantedAt + gracePeriodMs;
+      const computedExpiresAt = calculateGracePeriodEnd(entitlement.grantedAt, gracePeriodHours);
+      if (computedExpiresAt === null) {
+        continue;
+      }
+      const expiresAt = entitlement.expiresAt ?? computedExpiresAt;
 
       if (now > expiresAt) {
         await ctx.db.patch(entitlement._id, {
@@ -1431,24 +1443,6 @@ async function getPolicySnapshotVersion(ctx: MutationCtx, authUserId: string): P
   // Use the count as a simple version increment
   // In production, you'd want a proper policy version field on the tenant
   return existingEntitlements.length + 1;
-}
-
-/**
- * Map revocation reason to entitlement status.
- */
-function mapReasonToStatus(
-  reason: 'refund' | 'dispute' | 'expiration' | 'manual' | 'transfer' | 'policy_violation'
-): 'revoked' | 'expired' | 'refunded' | 'disputed' {
-  switch (reason) {
-    case 'refund':
-      return 'refunded';
-    case 'dispute':
-      return 'disputed';
-    case 'expiration':
-      return 'expired';
-    default:
-      return 'revoked';
-  }
 }
 
 /**
@@ -1557,7 +1551,7 @@ async function createAuditEvent(
     eventType: 'entitlement.granted' | 'entitlement.revoked' | 'discord.role.sync.requested';
     subjectId?: Id<'subjects'>;
     entitlementId?: Id<'entitlements'>;
-    metadata?: any;
+    metadata?: Record<string, unknown>;
     correlationId?: string;
   }
 ): Promise<void> {

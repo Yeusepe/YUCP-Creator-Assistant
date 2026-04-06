@@ -310,22 +310,3 @@ export class GumroadApiError extends Error {
     this.name = 'GumroadApiError';
   }
 }
-
-/**
- * Create a Gumroad OAuth client from environment variables
- */
-export function createOAuthClientFromEnv(): GumroadOAuthClient {
-  const config: GumroadAdapterConfig = {
-    clientId: process.env.GUMROAD_CLIENT_ID ?? '',
-    clientSecret: process.env.GUMROAD_CLIENT_SECRET ?? '',
-    redirectUri: process.env.GUMROAD_REDIRECT_URI ?? '',
-  };
-
-  if (!config.clientId || !config.clientSecret || !config.redirectUri) {
-    throw new Error(
-      'Missing Gumroad OAuth configuration. Set GUMROAD_CLIENT_ID, GUMROAD_CLIENT_SECRET, and GUMROAD_REDIRECT_URI environment variables.'
-    );
-  }
-
-  return new GumroadOAuthClient(config);
-}

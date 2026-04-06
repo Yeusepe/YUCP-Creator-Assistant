@@ -1,0 +1,236 @@
+import type { StructuredLogger } from '@yucp/shared';
+import type {
+  LicenseVerificationPlugin,
+  ProductRecord,
+  ProviderContext,
+  ProviderPurposes,
+  ProviderRuntimeClient,
+  ProviderRuntimeModule,
+} from '../contracts';
+import { LemonSqueezyApiClient } from './client';
+
+export const LEMONSQUEEZY_PURPOSES = {
+  credential: 'lemonsqueezy-api-token',
+  webhookSecret: 'lemonsqueezy-webhook-secret',
+} as const satisfies ProviderPurposes;
+
+export const LEMONSQUEEZY_DISPLAY_META = {
+  label: 'Lemon Squeezy',
+  icon: 'LemonSqueezy.png',
+  color: '#ffd35a',
+  shadowColor: '#ffd35a',
+  textColor: '#000000',
+  connectedColor: '#e6b600',
+  confettiColors: ['#ffd35a', '#e6b600', '#fff0a0', '#ffffff'],
+  description: 'Marketplace',
+  dashboardConnectPath: '/setup/lemonsqueezy',
+  dashboardConnectParamStyle: 'snakeCase',
+  dashboardIconBg: '#f7b84b',
+  dashboardQuickStartBg: 'rgba(247,184,75,0.12)',
+  dashboardQuickStartBorder: 'rgba(247,184,75,0.32)',
+  dashboardServerTileHint:
+    'Allow users to verify Lemon Squeezy purchases and licenses in this Discord server.',
+} as const;
+
+export interface LemonSqueezyCollaboratorConnection {
+  id: string;
+  provider: string;
+  credentialEncrypted?: string;
+  collaboratorDisplayName?: string;
+}
+
+type LemonSqueezyRuntimeLogger = Pick<StructuredLogger, 'warn' | 'error'>;
+
+interface LemonSqueezyClientLike {
+  getProducts(params: { page: number; perPage: number }): Promise<{
+    products: Array<{ id: string; name: string }>;
+    pagination: { nextPage: number | null };
+  }>;
+  getStores(
+    page?: number,
+    perPage?: number
+  ): Promise<{
+    stores: Array<{ id: string }>;
+  }>;
+  validateLicenseKey(licenseKey: string): Promise<{
+    valid: boolean;
+    error?: string | null;
+    license_key?: { id?: number | string | null };
+    meta?: {
+      order_item_id?: number | string | null;
+      product_id?: number | string | null;
+    };
+  }>;
+}
+
+export interface LemonSqueezyRuntimePorts<
+  TClient extends ProviderRuntimeClient = ProviderRuntimeClient,
+> {
+  readonly logger: LemonSqueezyRuntimeLogger;
+  getEncryptedCredential(authUserId: string, ctx: ProviderContext<TClient>): Promise<string | null>;
+  decryptCredential(encryptedCredential: string, ctx: ProviderContext<TClient>): Promise<string>;
+  listCollaboratorConnections(
+    ctx: ProviderContext<TClient>
+  ): Promise<LemonSqueezyCollaboratorConnection[]>;
+  createClient?(apiToken: string): LemonSqueezyClientLike;
+}
+
+export type LemonSqueezyProviderRuntime<
+  TClient extends ProviderRuntimeClient = ProviderRuntimeClient,
+> = Omit<ProviderRuntimeModule<never, TClient>, 'backfill' | 'buyerVerification'> & {
+  readonly buyerVerification?: undefined;
+};
+
+function getClient(ports: LemonSqueezyRuntimePorts, apiToken: string): LemonSqueezyClientLike {
+  return ports.createClient?.(apiToken) ?? new LemonSqueezyApiClient({ apiToken });
+}
+
+async function listProductsForToken(
+  apiToken: string,
+  ports: LemonSqueezyRuntimePorts
+): Promise<Array<{ id: string; name: string }>> {
+  const client = getClient(ports, apiToken);
+  const products: Array<{ id: string; name: string }> = [];
+  let page = 1;
+
+  while (true) {
+    const { products: pageProducts, pagination } = await client.getProducts({
+      page,
+      perPage: 50,
+    });
+    for (const product of pageProducts) {
+      if (product.id && product.name) {
+        products.push({ id: product.id, name: product.name });
+      }
+    }
+    if (!pagination.nextPage) {
+      break;
+    }
+    page = pagination.nextPage;
+  }
+
+  return products;
+}
+
+export function createLemonSqueezyLicenseVerification<
+  TClient extends ProviderRuntimeClient = ProviderRuntimeClient,
+>(ports: LemonSqueezyRuntimePorts<TClient>): LicenseVerificationPlugin<TClient> {
+  return {
+    async verifyLicense(licenseKey, _productId, authUserId, ctx) {
+      const encryptedApiToken = await ports.getEncryptedCredential(authUserId, ctx);
+      if (!encryptedApiToken) {
+        return {
+          valid: false,
+          error: 'Lemon Squeezy API key not configured. Connect your store in `/creator setup`.',
+        };
+      }
+
+      let apiToken: string;
+      try {
+        apiToken = await ports.decryptCredential(encryptedApiToken, ctx);
+      } catch (err) {
+        ports.logger.error('Failed to decrypt Lemon Squeezy API token', {
+          authUserId,
+          err,
+        });
+        return {
+          valid: false,
+          error:
+            'Failed to decrypt stored API token. Re-connect your Lemon Squeezy store in `/creator setup`.',
+        };
+      }
+
+      const validation = await getClient(ports, apiToken).validateLicenseKey(licenseKey);
+
+      const licenseId =
+        validation.license_key?.id != null
+          ? String(validation.license_key.id)
+          : validation.meta?.order_item_id != null
+            ? String(validation.meta.order_item_id)
+            : undefined;
+
+      const providerProductId =
+        validation.meta?.product_id != null ? String(validation.meta.product_id) : undefined;
+
+      return {
+        valid: validation.valid,
+        externalOrderId: licenseId,
+        providerProductId,
+        error: validation.error ?? undefined,
+      };
+    },
+  };
+}
+
+export function createLemonSqueezyProviderModule<
+  TClient extends ProviderRuntimeClient = ProviderRuntimeClient,
+>(ports: LemonSqueezyRuntimePorts<TClient>): LemonSqueezyProviderRuntime<TClient> {
+  return {
+    id: 'lemonsqueezy',
+    needsCredential: true,
+    supportsCollab: true,
+    purposes: LEMONSQUEEZY_PURPOSES,
+    displayMeta: LEMONSQUEEZY_DISPLAY_META,
+    async getCredential(ctx) {
+      const encryptedToken = await ports.getEncryptedCredential(ctx.authUserId, ctx);
+      if (!encryptedToken) {
+        return null;
+      }
+      return await ports.decryptCredential(encryptedToken, ctx);
+    },
+    async fetchProducts(credential, ctx): Promise<ProductRecord[]> {
+      const products: ProductRecord[] = [];
+
+      if (credential) {
+        const ownerProducts = await listProductsForToken(credential, ports);
+        products.push(...ownerProducts);
+      }
+
+      try {
+        const collabConnections = await ports.listCollaboratorConnections(ctx);
+
+        for (const collab of collabConnections) {
+          if (collab.provider !== 'lemonsqueezy' || !collab.credentialEncrypted) {
+            continue;
+          }
+          try {
+            const collabToken = await ports.decryptCredential(collab.credentialEncrypted, ctx);
+            const collabProducts = await listProductsForToken(collabToken, ports);
+            for (const product of collabProducts) {
+              products.push({
+                ...product,
+                collaboratorName: collab.collaboratorDisplayName ?? 'Collaborator',
+              });
+            }
+          } catch (err) {
+            ports.logger.warn('Failed to fetch products for LS collaborator', {
+              collabId: collab.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      } catch (err) {
+        ports.logger.warn('Failed to fetch collaborator connections for LS product list', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      const seen = new Set<string>();
+      return products.filter((product) => {
+        if (seen.has(product.id)) {
+          return false;
+        }
+        seen.add(product.id);
+        return true;
+      });
+    },
+    verification: createLemonSqueezyLicenseVerification(ports),
+    async collabValidate(credential: string): Promise<void> {
+      const result = await getClient(ports, credential).getStores(1, 1);
+      if (!result.stores[0]) {
+        throw new Error('No Lemon Squeezy stores found for this API key');
+      }
+    },
+    collabCredentialPurpose: LEMONSQUEEZY_PURPOSES.credential,
+  };
+}

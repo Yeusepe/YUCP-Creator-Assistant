@@ -2,10 +2,9 @@ import {
   LICENSE_PROVIDER_KEYS,
   PROVIDER_REGISTRY,
   PROVIDER_REGISTRY_BY_KEY,
-  type ProviderDescriptor,
-  type ProviderKey,
   providerLabel,
-} from '@yucp/shared';
+} from '../providerMetadata';
+import type { ProviderDescriptor, ProviderKey } from '../types';
 
 export interface ProviderMeta {
   id: ProviderKey;
