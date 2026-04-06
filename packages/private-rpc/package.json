@@ -8,7 +8,7 @@
     "./generated": "./src/generated.ts"
   },
   "scripts": {
-    "generate": "bebopc -c ./bebop.json build && bun run ./scripts/postprocess-generated.ts",
+    "generate": "bun run ./scripts/preprocess-schemas.ts && bebopc -c ./bebop.json build && bun run ./scripts/postprocess-generated.ts",
     "check:generated": "bun run generate && git diff --exit-code -- src/generated.ts",
     "build": "bun run generate && tsc",
     "lint": "biome check .",
