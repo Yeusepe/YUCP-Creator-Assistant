@@ -7,6 +7,7 @@
  *   POST     /api/connect/jinxxy-store           — store API key + pending webhook secret
  */
 
+import { JINXXY_PURPOSES } from '@yucp/providers/jinxxy/module';
 import { api } from '../../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
@@ -20,9 +21,8 @@ import {
   JINXXY_PENDING_WEBHOOK_TTL_MS,
 } from './pendingWebhookState';
 
-// HKDF purpose strings — inlined to avoid circular imports with index.ts
-const CREDENTIAL_PURPOSE = 'jinxxy-api-key' as const;
-const WEBHOOK_SECRET_PURPOSE = 'jinxxy-webhook-signing-secret' as const;
+const CREDENTIAL_PURPOSE = JINXXY_PURPOSES.credential;
+const WEBHOOK_SECRET_PURPOSE = JINXXY_PURPOSES.webhookSecret;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Handlers

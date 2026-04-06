@@ -764,10 +764,10 @@ function SidebarLogoArea({
   );
 
   const addServer = useCallback(() => {
-    if (!viewer?.authUserId || typeof window === 'undefined') return;
+    if (typeof window === 'undefined') return;
     setDropdownOpen(false);
-    window.location.assign(`/api/install/bot?authUserId=${encodeURIComponent(viewer.authUserId)}`);
-  }, [viewer?.authUserId]);
+    window.location.assign('/api/install/bot');
+  }, []);
 
   const openCreatorHome = useCallback(() => {
     setDropdownOpen(false);

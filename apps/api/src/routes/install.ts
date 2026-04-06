@@ -174,7 +174,7 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
    * Initiates Discord bot installation flow
    *
    * Query params:
-   * - authUserId: The creator profile to link the guild to
+   * - authUserId (optional): The creator profile to link the guild to. Defaults to the authenticated user.
    * - guildId (optional): Pre-select a specific guild
    */
   async function initiateBotInstall(request: Request): Promise<Response> {
@@ -192,16 +192,13 @@ export function createInstallRoutes(auth: Auth, config: InstallConfig) {
     }
 
     const url = new URL(request.url);
-    const authUserId = url.searchParams.get('authUserId');
+    const requestedAuthUserId = url.searchParams.get('authUserId')?.trim() || null;
     const guildId = url.searchParams.get('guildId');
-
-    if (!authUserId) {
-      return Response.json({ error: 'authUserId is required' }, { status: 400 });
-    }
+    const authUserId = requestedAuthUserId ?? session.user.id;
 
     // Verify the authUserId matches the authenticated session user to prevent
     // one authenticated user from installing the bot on behalf of another user.
-    if (session.user.id !== authUserId) {
+    if (requestedAuthUserId && session.user.id !== authUserId) {
       logger.warn('authUserId mismatch in bot install', {
         sessionUserId: session.user.id,
         requestedAuthUserId: authUserId,

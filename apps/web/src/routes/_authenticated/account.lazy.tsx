@@ -133,6 +133,10 @@ const NAV_GROUPS = [
   },
 ] as const;
 
+const ACCOUNT_HEADER_TITLES: Record<string, string> = {
+  '/account/verify': 'Verify Purchase',
+};
+
 function isNavItemActive(item: (typeof NAV_GROUPS)[number]['items'][number], currentPath: string) {
   return item.exact
     ? currentPath === item.to || currentPath === `${item.to}/`
@@ -151,6 +155,15 @@ function findActiveNavItem(currentPath: string) {
   return NAV_GROUPS[0].items[0];
 }
 
+function getAccountHeaderTitle(currentPath: string): string {
+  const activeItem = findActiveNavItem(currentPath);
+  if (activeItem.to === '/account' && currentPath !== '/account' && currentPath !== '/account/') {
+    return ACCOUNT_HEADER_TITLES[currentPath] ?? activeItem.headerTitle;
+  }
+
+  return activeItem.headerTitle;
+}
+
 function toggleAccountSidebar() {
   if (typeof document === 'undefined') return;
   const sidebar = document.getElementById('sidebar');
@@ -166,14 +179,12 @@ function toggleAccountSidebar() {
 }
 
 function AccountLayout() {
-  const { guilds, viewer } = useAccountShell();
+  const { guilds } = useAccountShell();
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
   const activeItem = findActiveNavItem(currentPath);
   const isCreator = guilds.length > 0;
-  const footerHref = isCreator
-    ? '/dashboard'
-    : `/api/install/bot?authUserId=${encodeURIComponent(viewer.authUserId)}`;
+  const footerHref = isCreator ? '/dashboard' : '/api/install/bot';
   const footerLabel = isCreator ? 'Creator Dashboard' : 'Add a Server';
 
   return (
@@ -249,7 +260,7 @@ function AccountLayout() {
         <main className="content-area">
           <div className="content-area-inner">
             <DashboardHeader
-              title={activeItem.headerTitle}
+              title={getAccountHeaderTitle(currentPath)}
               homeHref="/account"
               homeLabel="Back to account home"
             />

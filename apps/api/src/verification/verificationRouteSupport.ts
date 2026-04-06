@@ -48,9 +48,14 @@ export function withNoStore(headers?: unknown): Headers {
 }
 
 export function jsonNoStore(body: unknown, init?: ResponseInit): Response {
+  const headers = withNoStore(init?.headers);
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
   return new Response(JSON.stringify(body), {
     ...init,
-    headers: withNoStore(init?.headers),
+    headers,
   });
 }
 
@@ -63,6 +68,12 @@ export function withSetCookies(headers: Headers, cookies: string[]): Headers {
 
 export function isVrchatRateLimited(token: string, request: Request): boolean {
   const now = Date.now();
+  for (const [candidateKey, candidate] of VRCHAT_VERIFY_ATTEMPTS.entries()) {
+    if (now >= candidate.resetAt) {
+      VRCHAT_VERIFY_ATTEMPTS.delete(candidateKey);
+    }
+  }
+
   const key = `${token}:${getRequestIp(request)}`;
   const existing = VRCHAT_VERIFY_ATTEMPTS.get(key);
   if (!existing || now >= existing.resetAt) {
@@ -78,10 +89,28 @@ export function isVrchatRateLimited(token: string, request: Request): boolean {
   return existing.count > VRCHAT_VERIFY_RATE_LIMIT_MAX;
 }
 
-function isAllowedOrigin(request: Request, config: VerificationConfig): boolean {
+function getRequestOrigin(request: Request): string | null {
   const origin = request.headers.get('origin');
-  if (!origin) {
-    return true;
+  if (origin) {
+    return origin;
+  }
+
+  const referer = request.headers.get('referer');
+  if (!referer) {
+    return null;
+  }
+
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedOrigin(request: Request, config: VerificationConfig): boolean {
+  const requestOrigin = getRequestOrigin(request);
+  if (!requestOrigin) {
+    return false;
   }
 
   try {
@@ -89,7 +118,7 @@ function isAllowedOrigin(request: Request, config: VerificationConfig): boolean 
       new URL(config.baseUrl).origin,
       new URL(config.frontendUrl).origin,
     ]);
-    return allowedOrigins.has(origin);
+    return allowedOrigins.has(requestOrigin);
   } catch {
     return false;
   }

@@ -65,8 +65,12 @@ function AccountPrivacy() {
       const link = document.createElement('a');
       link.href = url;
       link.download = 'yucp-data-export.json';
+      document.body.append(link);
       link.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        link.remove();
+      }, 0);
       toast.success('Data export is ready', {
         description: 'Your browser should begin downloading the JSON export.',
       });

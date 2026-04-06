@@ -200,7 +200,7 @@ export function createConnectDiscordRoleRoutes(options: ConnectDiscordRoleRoutes
       if (!userRes.ok) {
         logger.error('Discord role OAuth user fetch failed', { status: userRes.status });
         return Response.redirect(
-          `${config.frontendBaseUrl}/setup/discord-role?error=guilds_fetch_failed`,
+          `${config.frontendBaseUrl}/setup/discord-role?error=user_fetch_failed`,
           302
         );
       }

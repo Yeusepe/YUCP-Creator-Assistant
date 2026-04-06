@@ -133,4 +133,20 @@ describe('downloads UI builders', () => {
     expect(manageJson.components?.[0]?.components?.[0]?.value).toBe('Route Title');
     expect(manageJson.components?.[1]?.components?.[0]?.value).toBe('Route Body');
   });
+
+  it('does not crash when manage routes are empty', () => {
+    const manageRows = buildManageComponents(
+      'panel_dl_ui',
+      [],
+      'route_missing' as Id<'download_routes'>
+    );
+
+    expect(getComponentCustomIds(manageRows)).toEqual([
+      'creator_downloads:manage_select:panel_dl_ui',
+      'creator_downloads:manage_toggle:panel_dl_ui',
+      'creator_downloads:manage_edit_message:panel_dl_ui',
+      'creator_downloads:manage_remove_prompt:panel_dl_ui',
+    ]);
+    expect(getJsonRow(manageRows[1]).components?.[0]?.label).toBe('Turn On');
+  });
 });

@@ -2,6 +2,93 @@ import { describe, expect, it } from 'bun:test';
 import { createBackfillProductHandler } from './backfill';
 
 describe('handleBackfillProduct', () => {
+  it('returns 400 when the request body shape is invalid', async () => {
+    const handleBackfillProduct = createBackfillProductHandler({
+      getExpectedSecret: () => 'convex-secret',
+      getConvexUrl: () => 'https://convex.invalid',
+      getEncryptionSecret: () => 'test-encryption-secret',
+      createConvexClient: () => ({
+        query: async () => null,
+        mutation: async () => ({ inserted: 0, skipped: 0 }),
+        action: async () => null,
+      }),
+      getProviderById: () => undefined,
+      ingestBackfillBatch: async () => ({ inserted: 0, skipped: 0 }),
+      sleep: async () => {},
+    });
+
+    const response = await handleBackfillProduct(
+      new Request('http://localhost/api/internal/backfill-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiSecret: 'convex-secret', authUserId: 'user-1', productId: 5 }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        'Missing required fields: apiSecret, authUserId, productId, provider, providerProductRef',
+    });
+  });
+
+  it('returns 400 when the request body is not an object', async () => {
+    const handleBackfillProduct = createBackfillProductHandler({
+      getExpectedSecret: () => 'convex-secret',
+      getConvexUrl: () => 'https://convex.invalid',
+      getEncryptionSecret: () => 'test-encryption-secret',
+      createConvexClient: () => ({
+        query: async () => null,
+        mutation: async () => ({ inserted: 0, skipped: 0 }),
+        action: async () => null,
+      }),
+      getProviderById: () => undefined,
+      ingestBackfillBatch: async () => ({ inserted: 0, skipped: 0 }),
+      sleep: async () => {},
+    });
+
+    const response = await handleBackfillProduct(
+      new Request('http://localhost/api/internal/backfill-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'null',
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        'Missing required fields: apiSecret, authUserId, productId, provider, providerProductRef',
+    });
+  });
+
+  it('returns 400 when the request body is invalid JSON', async () => {
+    const handleBackfillProduct = createBackfillProductHandler({
+      getExpectedSecret: () => 'convex-secret',
+      getConvexUrl: () => 'https://convex.invalid',
+      getEncryptionSecret: () => 'test-encryption-secret',
+      createConvexClient: () => ({
+        query: async () => null,
+        mutation: async () => ({ inserted: 0, skipped: 0 }),
+        action: async () => null,
+      }),
+      getProviderById: () => undefined,
+      ingestBackfillBatch: async () => ({ inserted: 0, skipped: 0 }),
+      sleep: async () => {},
+    });
+
+    const response = await handleBackfillProduct(
+      new Request('http://localhost/api/internal/backfill-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{',
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON' });
+  });
+
   it('returns 400 when the provider does not support backfill', async () => {
     const handleBackfillProduct = createBackfillProductHandler({
       getExpectedSecret: () => 'convex-secret',

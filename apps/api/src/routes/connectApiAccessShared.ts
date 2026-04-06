@@ -153,8 +153,11 @@ export function normalizeRedirectUris(redirectUris: unknown): string[] {
         parsed.hostname === 'localhost' ||
         parsed.hostname === '127.0.0.1' ||
         parsed.hostname === '[::1]';
-      if (parsed.protocol !== 'https:' && !isLocalhost) {
-        throw new Error(`Redirect URI must use HTTPS or target localhost: ${redirectUri}`);
+      const isLoopbackHttp = parsed.protocol === 'http:' && isLocalhost;
+      if (parsed.protocol !== 'https:' && !isLoopbackHttp) {
+        throw new Error(
+          `Redirect URI must use HTTPS or target localhost over HTTP: ${redirectUri}`
+        );
       }
     }
   }

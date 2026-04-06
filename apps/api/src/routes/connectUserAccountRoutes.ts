@@ -5,6 +5,10 @@ import type { Auth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import type { ConnectConfig } from '../providers/types';
 import { PUBLIC_API_KEY_METADATA_KIND, parsePublicApiKeyMetadata } from './connectApiAccessShared';
+import {
+  createUserDataExportResponse,
+  disconnectProviderConnectionsOrThrow,
+} from './connectUserAccountSupport';
 
 type ConvexClient = ReturnType<typeof getConvexClientFromUrl>;
 
@@ -274,13 +278,7 @@ export function createConnectUserAccountRoutes(options: ConnectUserAccountRoutes
         authorizedApps: grantsResult,
       };
 
-      const json = JSON.stringify(exportPayload, null, 2);
-      return new Response(json, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Disposition': 'attachment; filename="yucp-data-export.json"',
-        },
-      });
+      return createUserDataExportResponse(exportPayload);
     } catch (err) {
       logger.error('Failed to generate data export', {
         error: err instanceof Error ? err.message : String(err),
@@ -339,22 +337,26 @@ export function createConnectUserAccountRoutes(options: ConnectUserAccountRoutes
         apiSecret: config.convexApiSecret,
         authUserId,
       });
-      for (const connection of (connections as Array<{ id?: string }>) ?? []) {
-        if (!connection.id) continue;
-        try {
-          await runProviderDisconnectHook(convex, connection.id, authUserId);
+      await disconnectProviderConnectionsOrThrow({
+        apiSecret: config.convexApiSecret,
+        authUserId,
+        connections: (connections as Array<{ id?: string }>) ?? [],
+        convex,
+        runProviderDisconnectHook,
+        disconnectConnection: async (connectionId) => {
           await convex.mutation(api.providerConnections.disconnectConnection, {
             apiSecret: config.convexApiSecret,
-            connectionId: connection.id as Id<'provider_connections'>,
+            connectionId: connectionId as Id<'provider_connections'>,
             authUserId,
           });
-        } catch (disconnectErr) {
+        },
+        onDisconnectFailure: ({ connectionId, error }) => {
           logger.warn('Failed to disconnect provider connection during account deletion', {
-            connectionId: connection.id,
-            error: disconnectErr instanceof Error ? disconnectErr.message : String(disconnectErr),
+            connectionId,
+            error,
           });
-        }
-      }
+        },
+      });
 
       await convex.mutation(api.userPortal.requestAccountDeletion, {
         apiSecret: config.convexApiSecret,

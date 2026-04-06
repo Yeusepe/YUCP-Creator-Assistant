@@ -1133,8 +1133,9 @@ describe('GET /api/connect/user/certificates', () => {
     const res = await isolatedRoutes.reconcileUserCertificateBilling(req);
 
     expect(res.status).toBe(503);
-    const body = (await res.json()) as { error: string };
-    expect(body).toEqual({ error: 'polar_access_token_invalid' });
+    const body = (await res.json()) as { error: string; code: string };
+    expect(body.code).toBe('polar_access_token_invalid');
+    expect(body.error).toContain('configured Polar organization access token is invalid');
   });
 });
 

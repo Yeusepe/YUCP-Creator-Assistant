@@ -342,36 +342,47 @@ export function buildManageComponents(
   selectedRouteId: Id<'download_routes'>
 ): Array<ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>> {
   const selectedRoute = routes.find((route) => route._id === selectedRouteId) ?? routes[0];
+  const hasRoutes = routes.length > 0;
 
   return [
     new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(`creator_downloads:manage_select:${panelToken}`)
-        .setPlaceholder('Choose a route')
+        .setPlaceholder(hasRoutes ? 'Choose a route' : 'No routes available')
+        .setDisabled(!hasRoutes)
         .addOptions(
-          routes.slice(0, 25).map((route) =>
-            new StringSelectMenuOptionBuilder()
-              .setLabel(formatRouteOptionLabel(route))
-              .setDescription(truncateLabel(`${route.sourceName} → ${route.archiveName}`, 100))
-              .setValue(route._id)
-              .setDefault(route._id === selectedRoute?._id)
-          )
+          hasRoutes
+            ? routes.slice(0, 25).map((route) =>
+                new StringSelectMenuOptionBuilder()
+                  .setLabel(formatRouteOptionLabel(route))
+                  .setDescription(truncateLabel(`${route.sourceName} → ${route.archiveName}`, 100))
+                  .setValue(route._id)
+                  .setDefault(route._id === selectedRoute?._id)
+              )
+            : [
+                new StringSelectMenuOptionBuilder()
+                  .setLabel('No routes available')
+                  .setValue('__empty__'),
+              ]
         )
     ),
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`creator_downloads:manage_toggle:${panelToken}`)
-        .setLabel(selectedRoute.enabled ? 'Turn Off' : 'Turn On')
-        .setStyle(selectedRoute.enabled ? ButtonStyle.Secondary : ButtonStyle.Success),
+        .setLabel(selectedRoute?.enabled ? 'Turn Off' : 'Turn On')
+        .setStyle(selectedRoute?.enabled ? ButtonStyle.Secondary : ButtonStyle.Success)
+        .setDisabled(!hasRoutes),
       new ButtonBuilder()
         .setCustomId(`creator_downloads:manage_edit_message:${panelToken}`)
         .setLabel('Edit Delivery Message...')
         .setEmoji(Emoji.Assistant)
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!hasRoutes),
       new ButtonBuilder()
         .setCustomId(`creator_downloads:manage_remove_prompt:${panelToken}`)
         .setLabel('Remove Route...')
         .setStyle(ButtonStyle.Danger)
+        .setDisabled(!hasRoutes)
     ),
   ];
 }

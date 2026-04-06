@@ -10,6 +10,10 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { fetchCertificateBillingCustomerStateByExternalId } from '../lib/polar';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import type { ConnectConfig } from '../providers/types';
+import {
+  parseCertificatePlanSelectionBody,
+  parseCertificateRevokeBody,
+} from './connectCertificateRouteSupport';
 
 interface CertificateOverview {
   workspaceKey: string;
@@ -356,19 +360,25 @@ export function createConnectCertificateRoutes(options: ConnectCertificateRoutes
 
     let body: { productId?: string; planKey?: string };
     try {
-      body = (await request.json()) as typeof body;
-    } catch {
+      let parsedBody: unknown;
+      try {
+        parsedBody = await request.json();
+      } catch {
+        return buildTimedResponse(
+          timing,
+          () => Response.json({ error: 'Invalid JSON' }, { status: 400 }),
+          'serialize certificate response'
+        );
+      }
+      body = parseCertificatePlanSelectionBody(parsedBody);
+    } catch (error) {
       return buildTimedResponse(
         timing,
-        () => Response.json({ error: 'Invalid JSON' }, { status: 400 }),
-        'serialize certificate response'
-      );
-    }
-
-    if (!body.productId?.trim() && !body.planKey?.trim()) {
-      return buildTimedResponse(
-        timing,
-        () => Response.json({ error: 'productId is required' }, { status: 400 }),
+        () =>
+          Response.json(
+            { error: error instanceof Error ? error.message : 'Invalid request body' },
+            { status: 400 }
+          ),
         'serialize certificate response'
       );
     }
@@ -526,7 +536,7 @@ export function createConnectCertificateRoutes(options: ConnectCertificateRoutes
       ) {
         return buildTimedResponse(
           timing,
-          () => Response.json({ error: 'polar_access_token_invalid' }, { status: 503 }),
+          createPolarAccessTokenFailureResponse,
           'serialize certificate response'
         );
       }
@@ -633,25 +643,31 @@ export function createConnectCertificateRoutes(options: ConnectCertificateRoutes
       );
     }
 
-    let body: { certNonce?: string };
+    let body: { certNonce: string };
     try {
-      body = (await request.json()) as typeof body;
-    } catch {
+      let parsedBody: unknown;
+      try {
+        parsedBody = await request.json();
+      } catch {
+        return buildTimedResponse(
+          timing,
+          () => Response.json({ error: 'Invalid JSON' }, { status: 400 }),
+          'serialize certificate response'
+        );
+      }
+      body = parseCertificateRevokeBody(parsedBody);
+    } catch (error) {
       return buildTimedResponse(
         timing,
-        () => Response.json({ error: 'Invalid JSON' }, { status: 400 }),
+        () =>
+          Response.json(
+            { error: error instanceof Error ? error.message : 'Invalid request body' },
+            { status: 400 }
+          ),
         'serialize certificate response'
       );
     }
-
-    if (!body.certNonce?.trim()) {
-      return buildTimedResponse(
-        timing,
-        () => Response.json({ error: 'certNonce is required' }, { status: 400 }),
-        'serialize certificate response'
-      );
-    }
-    const certNonce = body.certNonce.trim();
+    const certNonce = body.certNonce;
 
     try {
       await timing.measure(

@@ -107,21 +107,7 @@ export const backfill: BackfillPlugin = {
       for (const item of orderItems) {
         if (!item.orderId) continue;
         await new Promise((r) => setTimeout(r, 250));
-        let order = null;
-        try {
-          order = await client.getOrder(item.orderId);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
-            logger.warn('LemonSqueezy getOrder not found, skipping order item', {
-              orderId: item.orderId,
-              error: msg,
-            });
-          } else {
-            // Transient error — rethrow so the page is not advanced past this order.
-            throw err;
-          }
-        }
+        const order = await client.getOrder(item.orderId);
         if (!order) continue;
         const email = order.userEmail ?? '';
         const normalized = email ? normalizeEmail(email) : undefined;

@@ -159,6 +159,7 @@ export function createVerificationPanelRouteHandlers({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildVerifyPanelRefreshReply()),
+        signal: AbortSignal.timeout(10_000),
       }
     );
 

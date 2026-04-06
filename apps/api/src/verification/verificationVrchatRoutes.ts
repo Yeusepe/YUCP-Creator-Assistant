@@ -187,6 +187,7 @@ async function finalizeVrchatOwnership({
 
 interface SharedVrchatVerificationContext {
   betterAuth: ReturnType<typeof createAuth>;
+  betterAuthCookieHeader: string;
   client: VrchatApiClient;
   config: VerificationConfig;
   discordUserId: string;
@@ -492,7 +493,7 @@ async function handleStoredVrchatSessionStep(
   const storedSessionResult = await getStoredVrchatSession(
     betterAuth,
     requestCookieHeader,
-    requestCookieHeader
+    betterAuthCookieHeader
   );
   logger.info('VRChat verify auto step: stored session lookup result', {
     tokenSuffix,
@@ -518,7 +519,7 @@ async function handleStoredVrchatSessionStep(
     logger.warn('VRChat verify auto step: stored session unusable, clearing', {
       tokenSuffix,
     });
-    await clearStoredVrchatSession(betterAuth, requestCookieHeader, requestCookieHeader);
+    await clearStoredVrchatSession(betterAuth, requestCookieHeader, betterAuthCookieHeader);
     return jsonNoStore(
       {
         success: false,
@@ -640,6 +641,8 @@ export function createVrchatVerificationRouteHandlers({
       ? config.convexUrl.replace('.convex.cloud', '.convex.site')
       : '';
     const requestCookieHeader = request.headers.get('cookie') ?? '';
+    const betterAuthCookieHeader =
+      request.headers.get('better-auth-cookie')?.trim() || requestCookieHeader;
     const betterAuth = createAuth({
       baseUrl: config.baseUrl,
       convexSiteUrl,
@@ -668,6 +671,7 @@ export function createVrchatVerificationRouteHandlers({
 
       const context: SharedVrchatVerificationContext = {
         betterAuth,
+        betterAuthCookieHeader,
         client,
         config,
         discordUserId,

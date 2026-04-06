@@ -38,6 +38,7 @@ const gumroadProvider = defineApiProviderEntry({
     connect,
 
     async onDisconnect(ctx: DisconnectContext) {
+      const timeoutMs = 10_000;
       const encryptedToken = ctx.credentials.oauth_access_token;
       if (!encryptedToken) {
         logger.info('Gumroad onDisconnect: no access token, skipping webhook cleanup');
@@ -51,6 +52,7 @@ const gumroadProvider = defineApiProviderEntry({
       // See https://gumroad.com/api — GET/DELETE /v2/resource_subscriptions
       const listRes = await fetch('https://api.gumroad.com/v2/resource_subscriptions', {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!listRes.ok) {
         logger.warn('Gumroad onDisconnect: failed to list resource_subscriptions', {
@@ -70,6 +72,7 @@ const gumroadProvider = defineApiProviderEntry({
             await fetch(`https://api.gumroad.com/v2/resource_subscriptions/${sub.id}`, {
               method: 'DELETE',
               headers: { Authorization: `Bearer ${accessToken}` },
+              signal: AbortSignal.timeout(timeoutMs),
             });
             logger.info('Gumroad onDisconnect: deleted resource_subscription', {
               id: sub.id,

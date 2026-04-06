@@ -328,7 +328,9 @@ function AccountConnections() {
           </div>
         )}
 
-        {providersQuery.isError || accountsQuery.isError ? (
+        {!providersQuery.isLoading &&
+        !accountsQuery.isLoading &&
+        (providersQuery.isError || accountsQuery.isError) ? (
           <AccountInlineError message="Failed to load account connections. Refresh to try again." />
         ) : null}
       </AccountSectionCard>

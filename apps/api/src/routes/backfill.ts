@@ -53,6 +53,36 @@ export interface BackfillRouteDependencies {
   sleep(waitMs: number): Promise<void>;
 }
 
+function parseBackfillRequest(value: unknown): BackfillRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(
+      'Missing required fields: apiSecret, authUserId, productId, provider, providerProductRef'
+    );
+  }
+
+  const record = value as Record<string, unknown>;
+  const apiSecret = typeof record.apiSecret === 'string' ? record.apiSecret : '';
+  const authUserId = typeof record.authUserId === 'string' ? record.authUserId : '';
+  const productId = typeof record.productId === 'string' ? record.productId : '';
+  const provider = typeof record.provider === 'string' ? record.provider : '';
+  const providerProductRef =
+    typeof record.providerProductRef === 'string' ? record.providerProductRef : '';
+
+  if (!apiSecret || !authUserId || !productId || !provider || !providerProductRef) {
+    throw new Error(
+      'Missing required fields: apiSecret, authUserId, productId, provider, providerProductRef'
+    );
+  }
+
+  return {
+    apiSecret,
+    authUserId,
+    productId,
+    provider,
+    providerProductRef,
+  };
+}
+
 const defaultDependencies: BackfillRouteDependencies = {
   getExpectedSecret: () => process.env.CONVEX_API_SECRET,
   getConvexUrl: () => process.env.CONVEX_URL ?? process.env.CONVEX_DEPLOYMENT ?? '',
@@ -76,25 +106,18 @@ export function createBackfillProductHandler(
     }
 
     try {
-      const body = (await request.json()) as BackfillRequest;
-      const { apiSecret, authUserId, productId, provider, providerProductRef } = body;
-
-      if (!apiSecret || !authUserId || !productId || !provider || !providerProductRef) {
-        logger.warn('Backfill: missing required fields', {
-          hasApiSecret: !!apiSecret,
-          hasAuthUserId: !!authUserId,
-          hasProductId: !!productId,
-          hasProvider: !!provider,
-          hasProviderProductRef: !!providerProductRef,
+      let parsedBody: unknown;
+      try {
+        parsedBody = await request.json();
+      } catch {
+        return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
         });
-        return new Response(
-          JSON.stringify({
-            error:
-              'Missing required fields: apiSecret, authUserId, productId, provider, providerProductRef',
-          }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
       }
+
+      const body = parseBackfillRequest(parsedBody);
+      const { apiSecret, authUserId, productId, provider, providerProductRef } = body;
 
       const expectedSecret = dependencies.getExpectedSecret();
       if (!expectedSecret) {
@@ -188,6 +211,17 @@ export function createBackfillProductHandler(
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message ===
+          'Missing required fields: apiSecret, authUserId, productId, provider, providerProductRef'
+      ) {
+        logger.warn('Backfill: missing required fields');
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (err instanceof BackfillProviderNotSupportedError) {
         return new Response(JSON.stringify({ error: err.message }), {
           status: 400,

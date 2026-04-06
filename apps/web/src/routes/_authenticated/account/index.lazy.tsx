@@ -73,9 +73,7 @@ function AccountProfile() {
     .map((connection) => connection.label || connection.provider)
     .filter(Boolean)
     .slice(0, 3);
-  const workspaceHref = viewer.authUserId
-    ? `/api/install/bot?authUserId=${encodeURIComponent(viewer.authUserId)}`
-    : undefined;
+  const workspaceHref = '/api/install/bot';
 
   const renderMetricValue = (query: { isLoading: boolean; isError: boolean }, value: number) => {
     if (query.isLoading) {

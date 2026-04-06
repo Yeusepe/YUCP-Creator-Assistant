@@ -525,24 +525,52 @@ export function createConnectApiAccessRoutes(options: ConnectApiAccessRoutesOpti
         return Response.json({ error: 'No updates provided' }, { status: 400 });
       }
 
+      const clientUpdate = {
+        ...(nextName !== undefined ? { client_name: nextName } : {}),
+        ...(nextRedirectUris !== undefined ? { redirect_uris: nextRedirectUris } : {}),
+        ...(nextScopes !== undefined ? { scope: nextScopes.join(' ') } : {}),
+      };
+
       await convex.mutation(api.oauthClients.updateOAuthClient, {
         apiSecret: config.convexApiSecret,
         clientId: mapping.clientId,
-        update: {
-          ...(nextName !== undefined ? { client_name: nextName } : {}),
-          ...(nextRedirectUris !== undefined ? { redirect_uris: nextRedirectUris } : {}),
-          ...(nextScopes !== undefined ? { scope: nextScopes.join(' ') } : {}),
-        },
+        update: clientUpdate,
       });
 
-      await convex.mutation(api.oauthApps.updateOAuthAppMapping, {
-        apiSecret: config.convexApiSecret,
-        authUserId,
-        appId,
-        name: nextName,
-        redirectUris: nextRedirectUris,
-        scopes: nextScopes,
-      });
+      try {
+        await convex.mutation(api.oauthApps.updateOAuthAppMapping, {
+          apiSecret: config.convexApiSecret,
+          authUserId,
+          appId,
+          name: nextName,
+          redirectUris: nextRedirectUris,
+          scopes: nextScopes,
+        });
+      } catch (mappingError) {
+        logger.error('OAuth app mapping update failed after OAuth client update', {
+          appId,
+          clientId: mapping.clientId,
+          error: mappingError instanceof Error ? mappingError.message : String(mappingError),
+        });
+        try {
+          await convex.mutation(api.oauthClients.updateOAuthClient, {
+            apiSecret: config.convexApiSecret,
+            clientId: mapping.clientId,
+            update: {
+              ...(nextName !== undefined ? { client_name: mapping.name } : {}),
+              ...(nextRedirectUris !== undefined ? { redirect_uris: mapping.redirectUris } : {}),
+              ...(nextScopes !== undefined ? { scope: mapping.scopes.join(' ') } : {}),
+            },
+          });
+        } catch (rollbackError) {
+          logger.error('OAuth client rollback failed after mapping update error', {
+            appId,
+            clientId: mapping.clientId,
+            error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+          });
+        }
+        throw mappingError;
+      }
 
       return Response.json({ success: true });
     } catch (err) {
@@ -587,11 +615,20 @@ export function createConnectApiAccessRoutes(options: ConnectApiAccessRoutesOpti
         clientId: mapping.clientId,
       });
 
-      await convex.mutation(api.oauthApps.deleteOAuthAppMapping, {
-        apiSecret: config.convexApiSecret,
-        authUserId,
-        appId,
-      });
+      try {
+        await convex.mutation(api.oauthApps.deleteOAuthAppMapping, {
+          apiSecret: config.convexApiSecret,
+          authUserId,
+          appId,
+        });
+      } catch (mappingError) {
+        logger.error('OAuth app mapping delete failed after OAuth client deletion', {
+          appId,
+          clientId: mapping.clientId,
+          error: mappingError instanceof Error ? mappingError.message : String(mappingError),
+        });
+        throw mappingError;
+      }
 
       return Response.json({ success: true });
     } catch (err) {

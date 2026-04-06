@@ -146,6 +146,7 @@ function AccountAuthorizedApps() {
     () => new Set(grants.flatMap((grant) => grant.scopes)).size,
     [grants]
   );
+  const metricsPlaceholder = grantsQuery.isLoading ? '...' : grantsQuery.isError ? '-' : null;
 
   return (
     <AccountPage>
@@ -203,15 +204,11 @@ function AccountAuthorizedApps() {
         <div className="account-kv-list">
           <div className="account-kv-row">
             <span className="account-kv-label">Authorized clients</span>
-            <span className="account-kv-value">
-              {grantsQuery.isLoading ? '...' : grants.length}
-            </span>
+            <span className="account-kv-value">{metricsPlaceholder ?? grants.length}</span>
           </div>
           <div className="account-kv-row">
             <span className="account-kv-label">Unique scopes</span>
-            <span className="account-kv-value">
-              {grantsQuery.isLoading ? '...' : uniqueScopeCount}
-            </span>
+            <span className="account-kv-value">{metricsPlaceholder ?? uniqueScopeCount}</span>
           </div>
         </div>
 
