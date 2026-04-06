@@ -117,7 +117,7 @@ export function createBackfillProductHandler(
       }
 
       const body = parseBackfillRequest(parsedBody);
-      const { apiSecret, authUserId, productId, provider, providerProductRef } = body;
+      const { apiSecret, authUserId, provider, providerProductRef } = body;
 
       const expectedSecret = dependencies.getExpectedSecret();
       if (!expectedSecret) {

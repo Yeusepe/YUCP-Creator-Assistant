@@ -182,7 +182,6 @@ function AccountLayout() {
   const { guilds } = useAccountShell();
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
-  const activeItem = findActiveNavItem(currentPath);
   const isCreator = guilds.length > 0;
   const footerHref = isCreator ? '/dashboard' : '/api/install/bot';
   const footerLabel = isCreator ? 'Creator Dashboard' : 'Add a Server';

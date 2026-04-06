@@ -479,6 +479,7 @@ async function handleStoredVrchatSessionStep(
 ): Promise<Response> {
   const {
     betterAuth,
+    betterAuthCookieHeader,
     client,
     payload,
     requestCookieHeader,

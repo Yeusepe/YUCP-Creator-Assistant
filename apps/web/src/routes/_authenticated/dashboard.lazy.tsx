@@ -710,7 +710,7 @@ function SidebarLogoArea({
   const navigate = useNavigate();
   const { guild_id } = Route.useSearch();
   const { signOut } = useAuth();
-  const { guilds, selectedGuild, viewer } = useDashboardShell();
+  const { guilds, selectedGuild } = useDashboardShell();
   const [selectorRect, setSelectorRect] = useState<{
     top: number;
     left: number;
