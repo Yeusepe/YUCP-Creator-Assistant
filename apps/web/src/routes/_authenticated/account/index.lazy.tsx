@@ -183,47 +183,7 @@ function AccountProfile() {
       </AccountSectionCard>
 
       <AccountSectionCard
-        className="bento-col-7 animate-in animate-in-delay-2"
-        eyebrow="Shortcuts"
-        title="Jump into the right tool"
-        description="The same account shell now powers every part of your personal workspace."
-      >
-        <div className="account-shortcut-grid">
-          <Link to="/account/connections" className="account-shortcut-card">
-            <span className="account-shortcut-title">Connected Accounts</span>
-            <span className="account-shortcut-desc">
-              Link storefronts and identity providers used during verification.
-            </span>
-          </Link>
-          <Link to="/account/licenses" className="account-shortcut-card">
-            <span className="account-shortcut-title">Verified Purchases</span>
-            <span className="account-shortcut-desc">
-              Review active access and deactivate licenses when needed.
-            </span>
-          </Link>
-          <Link to="/dashboard/certificates" className="account-shortcut-card">
-            <span className="account-shortcut-title">Certificates & Billing</span>
-            <span className="account-shortcut-desc">
-              Open the creator certificate workspace, billing plans, and device controls.
-            </span>
-          </Link>
-          <Link to="/account/authorized-apps" className="account-shortcut-card">
-            <span className="account-shortcut-title">Authorized Apps</span>
-            <span className="account-shortcut-desc">
-              Audit which OAuth apps can act on your account.
-            </span>
-          </Link>
-          <Link to="/account/privacy" className="account-shortcut-card">
-            <span className="account-shortcut-title">Privacy & Data</span>
-            <span className="account-shortcut-desc">
-              Export data, review rights, and manage deletion requests.
-            </span>
-          </Link>
-        </div>
-      </AccountSectionCard>
-
-      <AccountSectionCard
-        className="bento-col-5 animate-in animate-in-delay-3"
+        className="bento-col-12 animate-in animate-in-delay-2"
         eyebrow={isCreator ? 'Creator mode' : 'Get started'}
         title={isCreator ? 'Your creator workspace is ready' : 'Unlock the creator dashboard'}
         description={
@@ -238,15 +198,22 @@ function AccountProfile() {
             : 'Once the bot is installed on a server you manage, this account immediately gains access to the dashboard and its setup flows.'}
         </p>
 
-        {isCreator ? (
-          <Link to="/dashboard" className="account-btn account-btn--primary">
-            Open creator dashboard
-          </Link>
-        ) : workspaceHref ? (
-          <a href={workspaceHref} className="account-btn account-btn--primary">
-            Add bot to a server
-          </a>
-        ) : null}
+        <div className="account-inline-actions">
+          {isCreator ? (
+            <Link to="/dashboard" className="account-btn account-btn--primary">
+              Open creator dashboard
+            </Link>
+          ) : workspaceHref ? (
+            <a href={workspaceHref} className="account-btn account-btn--primary">
+              Add bot to a server
+            </a>
+          ) : null}
+          {isCreator ? (
+            <Link to="/dashboard/certificates" className="account-btn account-btn--secondary">
+              Manage billing
+            </Link>
+          ) : null}
+        </div>
       </AccountSectionCard>
     </AccountPage>
   );
