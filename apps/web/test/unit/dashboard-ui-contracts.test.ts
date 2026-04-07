@@ -83,7 +83,7 @@ describe('dashboard UI contracts', () => {
   it('keeps the server switcher full width and above the backdrop', () => {
     expect(dashboardCss).toContain('.sidebar-server-selector');
     expect(dashboardCss).toContain('width: 100%;');
-    expect(dashboardCss).toContain('z-index: 100003;');
+    expect(dashboardCss).toContain('z-index: var(--z-portal);');
     expect(dashboardCss).toContain('justify-content: space-between;');
     expect(dashboardLazyRouteSource).toContain('<DashboardBodyPortal>');
     expect(dashboardLazyRouteSource).toContain('server-selector-portal');
