@@ -129,3 +129,21 @@
   --color-divider: var(--divider);
   --color-focus: var(--focus);
 }
+
+/* HeroUI chip overrides — default chip--sm is too compact (0px vertical padding,
+   20px total height). Give it proper breathing room. */
+.chip--sm {
+  height: auto;
+  min-height: 22px;
+  padding: 2px 8px;
+}
+
+.chip--sm .chip__label {
+  padding: 0;
+  line-height: 1.4;
+}
+
+/* Chip font consistency */
+.chip {
+  font-family: var(--font-display), sans-serif;
+}

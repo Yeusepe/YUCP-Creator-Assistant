@@ -452,7 +452,7 @@ body:not(.state-server-selected) .server-only {
 
 /* Dark-themed select for panels with dark backgrounds (e.g. invite panel) */
 .invite-provider-pick {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: #fff;
@@ -678,7 +678,7 @@ img.collab-avatar {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
 }
 
 /* ── Pending Invite Rows ────────────────────────────────────────────── */
@@ -982,7 +982,6 @@ img.collab-avatar {
 .inline-confirm-label {
   font-size: 14px;
   color: #e2e8f0;
-  font-family: "DM Sans", sans-serif;
   line-height: 1.5;
 }
 
@@ -1621,8 +1620,9 @@ img.collab-avatar {
 
 .sidebar-brand img,
 .sidebar-logo-img {
-  height: 36px;
-  width: 100%;
+  height: 32px;
+  width: auto;
+  max-width: 150px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -1647,6 +1647,8 @@ img.collab-avatar {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.58);
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
   position: relative;
   z-index: var(--z-portal);
 }
@@ -1787,7 +1789,7 @@ img.collab-avatar {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   color: rgba(255, 255, 255, 0.38);
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.1);

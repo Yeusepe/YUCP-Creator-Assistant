@@ -568,6 +568,7 @@
   border-radius: 10px;
   font-size: 13px;
   font-weight: 700;
+  font-family: var(--font-display), sans-serif;
   text-decoration: none;
   cursor: pointer;
   transition:
@@ -2796,9 +2797,10 @@
   margin-top: 22px;
   width: 100%;
   padding: 10px;
-  border-radius: 11px;
+  border-radius: 10px;
   font-size: 13px;
   font-weight: 700;
+  font-family: var(--font-display), sans-serif;
   cursor: pointer;
   transition:
     background 0.15s,
@@ -2809,7 +2811,6 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  font-family: inherit;
 }
 .billing-plan-cta--subscribe {
   background: #0369a1;

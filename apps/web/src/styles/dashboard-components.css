@@ -1315,7 +1315,7 @@
   padding: 10px 14px;
   text-align: left;
   font-size: 13px;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 500;
   color: #475569;
   background: transparent;
@@ -1807,7 +1807,7 @@
 
 .empty-state-title {
   margin: 0;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 14px;
   font-weight: 700;
   text-align: center;
@@ -2135,7 +2135,7 @@
   justify-content: center;
   gap: 8px;
   padding: 10px 16px;
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1.5px solid var(--border-color);
   background: transparent;
   color: var(--text-secondary);
@@ -2167,7 +2167,7 @@
   justify-content: center;
   gap: 8px;
   padding: 10px 16px;
-  border-radius: 12px;
+  border-radius: 10px;
   border: none;
   background: #ef4444;
   color: #ffffff;
@@ -2722,7 +2722,7 @@
 }
 
 .platform-row-label {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 13px;
   font-weight: 700;
   color: #0f172a;
@@ -2754,7 +2754,7 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   background: #e0f2fe;
   color: #0369a1;
   border: 1px solid #bae6fd;
@@ -2768,7 +2768,7 @@
   border-radius: 10px;
   font-size: 12px;
   font-weight: 600;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   border: 1px solid transparent;
   cursor: pointer;
   transition:
@@ -2897,7 +2897,7 @@
 }
 
 .store-row-name {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 13px;
   font-weight: 700;
   color: #0f172a;
@@ -2931,7 +2931,7 @@
   border-radius: 10px;
   font-size: 12px;
   font-weight: 600;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   background: #0f172a;
   color: #ffffff;
   border: none;
@@ -2952,7 +2952,7 @@
   border-radius: 10px;
   font-size: 12px;
   font-weight: 600;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   background: transparent;
   color: #0ea5e9;
   border: 1px solid rgba(14, 165, 233, 0.3);
@@ -3036,7 +3036,7 @@
   align-items: center;
   padding: 4px 12px;
   border-radius: 10px;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 12px;
   font-weight: 700;
   background: #0f172a;
@@ -3072,7 +3072,7 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 11px;
   font-weight: 700;
   background: #f1f5f9;
@@ -3590,7 +3590,7 @@
   border-radius: 10px;
   font-size: 13px;
   font-weight: 500;
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--font-display), sans-serif;
   color: rgba(255, 255, 255, 0.65);
   text-decoration: none;
   transition:
