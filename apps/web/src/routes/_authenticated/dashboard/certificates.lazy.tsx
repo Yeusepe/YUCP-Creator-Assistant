@@ -10,6 +10,7 @@ import {
 } from '@/components/dashboard/CertificateWorkspacePanels';
 import { DashboardCertificatesSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { PackageRegistryPanel } from '@/components/dashboard/PackageRegistryPanel';
+import { StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { useCreatorCertificateWorkspace } from '@/hooks/useCreatorCertificateWorkspace';
@@ -214,9 +215,7 @@ export default function DashboardCertificates() {
             <div className="account-kv-row">
               <dt className="account-kv-label">Status</dt>
               <dd>
-                <span className={`account-badge account-badge--${statusCopy.badgeClass}`}>
-                  {statusCopy.badgeLabel}
-                </span>
+                <StatusChip status={statusCopy.badgeStatus} label={statusCopy.badgeLabel} />
               </dd>
             </div>
             <div className="account-kv-row">

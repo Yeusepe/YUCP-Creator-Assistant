@@ -83,7 +83,7 @@ export function CertificatePlanCard({
           {plan.displayBadge && <p className="account-plan-meta">{plan.displayBadge}</p>}
           {plan.description && <p className="account-plan-meta">{plan.description}</p>}
         </div>
-        {isCurrentPlan && <span className="account-badge account-badge--connected">Active</span>}
+        {isCurrentPlan && <StatusChip status="connected" label="Active" />}
       </div>
 
       <ul className="account-plan-feature-list">
@@ -295,6 +295,7 @@ export function buildBillingStatusCopy(billing: CreatorCertificateBillingSummary
   if (!billing) {
     return {
       badgeClass: 'provider',
+      badgeStatus: 'pending' as BadgeStatus,
       badgeLabel: 'Loading',
       description: 'Resolving your certificate billing state.',
     };
@@ -304,6 +305,7 @@ export function buildBillingStatusCopy(billing: CreatorCertificateBillingSummary
     case 'active':
       return {
         badgeClass: 'active',
+        badgeStatus: 'active' as BadgeStatus,
         badgeLabel: 'Active',
         description: billing.allowSigning
           ? 'Certificates can sign and enroll machines right now.'
@@ -312,12 +314,14 @@ export function buildBillingStatusCopy(billing: CreatorCertificateBillingSummary
     case 'grace':
       return {
         badgeClass: 'warning',
+        badgeStatus: 'warning' as BadgeStatus,
         badgeLabel: 'Grace',
         description: 'Access is limited until Polar confirms the next billing transition.',
       };
     default:
       return {
         badgeClass: 'provider',
+        badgeStatus: 'disconnected' as BadgeStatus,
         badgeLabel: 'Inactive',
         description: billing.reason ?? 'Choose a Polar plan to unlock signing and enrollment.',
       };
