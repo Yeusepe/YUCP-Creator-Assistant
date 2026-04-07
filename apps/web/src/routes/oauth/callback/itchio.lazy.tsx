@@ -160,7 +160,7 @@ function ItchioSetupPage() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, beginUrl, dashboardUrl]);
+  }, [apiBase, beginUrl, dashboardUrl, guildId, tenantId]);
 
   const statusCopy =
     phase === 'processing'

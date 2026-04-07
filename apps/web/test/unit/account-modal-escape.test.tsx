@@ -8,7 +8,7 @@ describe('AccountModal', () => {
     render(
       <AccountModal title="Test Modal" onClose={onClose}>
         <p>content</p>
-      </AccountModal>,
+      </AccountModal>
     );
 
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -21,7 +21,7 @@ describe('AccountModal', () => {
     render(
       <AccountModal title="Test Modal" onClose={onClose}>
         <p>content</p>
-      </AccountModal>,
+      </AccountModal>
     );
 
     fireEvent.keyDown(document, { key: 'Enter' });
@@ -33,7 +33,7 @@ describe('AccountModal', () => {
     render(
       <AccountModal title="My Dialog" onClose={vi.fn()}>
         <p>body</p>
-      </AccountModal>,
+      </AccountModal>
     );
 
     const dialog = screen.getByRole('dialog');

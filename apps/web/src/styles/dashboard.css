@@ -1264,9 +1264,9 @@ img.collab-avatar {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-in {
-    animation: none !important;
-    opacity: 1 !important;
-    transform: none !important;
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
 

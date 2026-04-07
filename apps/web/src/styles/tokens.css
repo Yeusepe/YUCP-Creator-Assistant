@@ -31,11 +31,11 @@
   --vrchat-accent: #0088ff;
 
   /* Typography scale */
-  --font-size-xs: 0.75rem;    /* 12px */
-  --font-size-sm: 0.8125rem;  /* 13px */
+  --font-size-xs: 0.75rem; /* 12px */
+  --font-size-sm: 0.8125rem; /* 13px */
   --font-size-base: 0.875rem; /* 14px */
-  --font-size-lg: 1rem;       /* 16px */
-  --font-size-xl: 1.125rem;   /* 18px */
+  --font-size-lg: 1rem; /* 16px */
+  --font-size-xl: 1.125rem; /* 18px */
 
   /* Line heights */
   --line-height-tight: 1.25;

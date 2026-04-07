@@ -3,7 +3,6 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const tokensCss = readFileSync(resolve(__dirname, '../../src/styles/tokens.css'), 'utf8');
-const globalsCss = readFileSync(resolve(__dirname, '../../src/styles/globals.css'), 'utf8');
 
 describe('typography scale', () => {
   it('defines font-size scale as CSS variables', () => {

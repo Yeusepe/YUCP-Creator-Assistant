@@ -182,7 +182,7 @@ function closeAccountSidebar() {
   }
 }
 
-function toggleAccountSidebar() {
+function _toggleAccountSidebar() {
   if (typeof document === 'undefined') return;
   const sidebar = document.getElementById('sidebar');
   const overlay = document.getElementById('sidebar-overlay');

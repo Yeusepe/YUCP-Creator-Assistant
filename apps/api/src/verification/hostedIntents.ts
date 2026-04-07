@@ -10,8 +10,7 @@ import { api, internal } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexServerClient } from '../lib/convex';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
-import { getProviderHooks } from '../providers';
-import { getProviderRuntime } from '../providers';
+import { getProviderHooks, getProviderRuntime } from '../providers';
 import { getVerificationConfig } from './verificationConfig';
 
 function resolveHostedVerificationProvider(
