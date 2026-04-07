@@ -1,3 +1,4 @@
+import { Skeleton } from '@heroui/react';
 import { type ReactNode } from 'react';
 
 export interface StatCardProps {
@@ -51,8 +52,11 @@ export function StatCard({ label, value, icon: _icon, trend, loading }: StatCard
   if (loading) {
     return (
       <div className="stat-cell" aria-hidden="true">
-        <div className="stat-cell-skeleton-val" />
-        <div className="stat-cell-skeleton-label" style={{ marginTop: '4px' }} />
+        <Skeleton className="stat-cell-skeleton-val" style={{ width: '60px', height: '28px' }} />
+        <Skeleton
+          className="stat-cell-skeleton-label"
+          style={{ width: '80px', height: '12px', marginTop: '4px' }}
+        />
       </div>
     );
   }

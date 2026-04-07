@@ -1,5 +1,14 @@
 import type { CSSProperties } from 'react';
 
+import {
+  SkeletonCircle,
+  SkeletonLine,
+  SkeletonPill,
+  SkeletonSwitch,
+} from '@/components/ui/YucpSkeleton';
+
+const copySectionStyle: CSSProperties = { flex: 1 };
+
 type DashboardActionRowSkeletonProps = {
   count?: number;
   widths?: number[];
@@ -10,22 +19,15 @@ type DashboardListSkeletonProps = {
   showAction?: boolean;
 };
 
-function SkeletonBlock({ className, style }: { className: string; style?: CSSProperties }) {
-  return <div aria-hidden="true" className={className} style={style} />;
-}
-
 function DashboardRowSkeleton({ showAction = true }: { showAction?: boolean }) {
   return (
     <div className="skeleton-row-card" aria-hidden="true">
-      <SkeletonBlock className="skeleton-block skeleton-circle" />
+      <SkeletonCircle />
       <div className="skeleton-copy">
-        <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '38%' }} />
-        <SkeletonBlock
-          className="skeleton-block skeleton-line skeleton-line-muted"
-          style={{ width: '62%' }}
-        />
+        <SkeletonLine width="38%" />
+        <SkeletonLine width="62%" className="skeleton-line-muted" />
       </div>
-      {showAction ? <SkeletonBlock className="skeleton-block skeleton-pill" /> : null}
+      {showAction ? <SkeletonPill /> : null}
     </div>
   );
 }
@@ -41,11 +43,7 @@ export function DashboardActionRowSkeleton({
   return (
     <div className="skeleton-action-row" aria-hidden="true">
       {items.map((item) => (
-        <SkeletonBlock
-          key={item.id}
-          className="skeleton-block skeleton-pill"
-          style={{ width: `${item.width}px` }}
-        />
+        <SkeletonPill key={item.id} width={`${item.width}px`} />
       ))}
     </div>
   );
@@ -80,15 +78,12 @@ export function DashboardSettingsSkeleton({ rows = 5 }: { rows?: number }) {
       {Array.from({ length: rows }, (_, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders never reorder
         <div key={index} className="skeleton-row-card" style={{ minHeight: '56px' }}>
-          <SkeletonBlock className="skeleton-block skeleton-circle" />
-          <div className="skeleton-copy" style={{ flex: 1 }}>
-            <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '42%' }} />
-            <SkeletonBlock
-              className="skeleton-block skeleton-line skeleton-line-muted"
-              style={{ width: '68%' }}
-            />
+          <SkeletonCircle />
+          <div className="skeleton-copy" style={copySectionStyle}>
+            <SkeletonLine width="42%" />
+            <SkeletonLine width="68%" className="skeleton-line-muted" />
           </div>
-          <SkeletonBlock className="skeleton-block skeleton-switch" />
+          <SkeletonSwitch />
         </div>
       ))}
     </div>
@@ -102,16 +97,10 @@ export function DashboardCertificatesSkeleton() {
       {/* Left — 8-col card: header + device rows */}
       <div className="intg-card bento-col-8" aria-hidden="true">
         <div className="intg-header">
-          <SkeletonBlock
-            className="skeleton-block skeleton-circle"
-            style={{ width: '36px', height: '36px', flexShrink: 0 }}
-          />
-          <div className="skeleton-copy" style={{ flex: 1 }}>
-            <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '45%' }} />
-            <SkeletonBlock
-              className="skeleton-block skeleton-line skeleton-line-muted"
-              style={{ width: '70%' }}
-            />
+          <SkeletonCircle size="36px" />
+          <div className="skeleton-copy" style={copySectionStyle}>
+            <SkeletonLine width="45%" />
+            <SkeletonLine width="70%" className="skeleton-line-muted" />
           </div>
         </div>
         <div className="skeleton-stack" style={{ marginTop: '12px' }}>
@@ -125,33 +114,24 @@ export function DashboardCertificatesSkeleton() {
       {/* Right — 4-col card: header + kv rows + button */}
       <div className="intg-card bento-col-4" aria-hidden="true">
         <div className="intg-header">
-          <SkeletonBlock
-            className="skeleton-block skeleton-circle"
-            style={{ width: '36px', height: '36px', flexShrink: 0 }}
-          />
-          <div className="skeleton-copy" style={{ flex: 1 }}>
-            <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '55%' }} />
-            <SkeletonBlock
-              className="skeleton-block skeleton-line skeleton-line-muted"
-              style={{ width: '38%' }}
-            />
+          <SkeletonCircle size="36px" />
+          <div className="skeleton-copy" style={copySectionStyle}>
+            <SkeletonLine width="55%" />
+            <SkeletonLine width="38%" className="skeleton-line-muted" />
           </div>
         </div>
         <div className="skeleton-stack" style={{ marginTop: '12px' }}>
           {Array.from({ length: 3 }, (_, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
             <div key={i} className="skeleton-row-card" style={{ minHeight: '40px' }}>
-              <div className="skeleton-copy" style={{ flex: 1 }}>
-                <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '40%' }} />
+              <div className="skeleton-copy" style={copySectionStyle}>
+                <SkeletonLine width="40%" />
               </div>
-              <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '25%' }} />
+              <SkeletonLine width="25%" />
             </div>
           ))}
         </div>
-        <SkeletonBlock
-          className="skeleton-block skeleton-pill"
-          style={{ width: '100%', height: '36px', borderRadius: '999px', marginTop: 'auto' }}
-        />
+        <SkeletonPill width="100%" />
       </div>
     </>
   );
@@ -168,22 +148,13 @@ export function DashboardIntegrationsSkeleton({ cards = 3 }: { cards?: number })
         // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders never reorder
         <div key={index} className="skeleton-row-card skeleton-intg-card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%' }}>
-            <SkeletonBlock
-              className="skeleton-block skeleton-circle"
-              style={{ width: '40px', height: '40px', flexShrink: 0 }}
-            />
-            <div className="skeleton-copy" style={{ flex: 1 }}>
-              <SkeletonBlock className="skeleton-block skeleton-line" style={{ width: '55%' }} />
-              <SkeletonBlock
-                className="skeleton-block skeleton-line skeleton-line-muted"
-                style={{ width: '38%', height: '10px' }}
-              />
+            <SkeletonCircle size="40px" />
+            <div className="skeleton-copy" style={copySectionStyle}>
+              <SkeletonLine width="55%" />
+              <SkeletonLine width="38%" className="skeleton-line-muted" />
             </div>
           </div>
-          <SkeletonBlock
-            className="skeleton-block skeleton-pill"
-            style={{ width: '80px', height: '24px', marginTop: '12px', borderRadius: '999px' }}
-          />
+          <SkeletonPill width="80px" />
         </div>
       ))}
     </div>
