@@ -42,7 +42,7 @@ export function StoreRow({
   authUserId: string | undefined;
   guildId: string | undefined;
 }) {
-  const status: ProviderStatus = (account?.status as ProviderStatus) ?? 'active';
+  const status: ProviderStatus = (account?.status as ProviderStatus) ?? 'disconnected';
   const iconPath = getProviderIconPath(provider);
   const manageHref = buildProviderConnectUrl(provider, { authUserId, guildId });
   const label = provider.label ?? provider.key;

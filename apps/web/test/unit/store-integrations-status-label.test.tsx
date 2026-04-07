@@ -108,4 +108,18 @@ describe('StoreRow status label', () => {
     expect(screen.getByText('Not connected')).toBeInTheDocument();
     expect(screen.queryByText('Connected')).not.toBeInTheDocument();
   });
+
+  it('shows "Not connected" when no account exists (undefined), not "Connected"', () => {
+    render(
+      <StoreRow
+        provider={provider}
+        account={undefined}
+        authUserId="user-1"
+        guildId="guild-1"
+      />,
+      { wrapper: createWrapper() }
+    );
+    expect(screen.getByText('Not connected')).toBeInTheDocument();
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+  });
 });
