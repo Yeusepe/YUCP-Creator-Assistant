@@ -147,3 +147,10 @@
 .chip {
   font-family: var(--font-display), sans-serif;
 }
+
+/* Default soft chips in dark mode need more contrast vs card surface */
+.dark .chip--default.chip--soft,
+.dark .chip--default.chip--flat {
+  background: oklch(0.38 0.04 240 / 0.9);
+  border: 1px solid oklch(0.45 0.04 240 / 0.6);
+}

@@ -2423,6 +2423,53 @@ img.collab-avatar {
            DARK MODE STYLES
          */
 
+/* ── Light Mode Sidebar ─────────────────────────────────────────────── */
+html:not(.dark) .sidebar-nav-label {
+  color: rgba(15, 23, 42, 0.38);
+}
+
+html:not(.dark) .sidebar-nav-btn {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+html:not(.dark) .sidebar-nav-btn:hover {
+  background: rgba(15, 23, 42, 0.07);
+  color: rgba(15, 23, 42, 0.8);
+}
+
+html:not(.dark) .sidebar-nav-btn.is-active {
+  background: rgba(15, 23, 42, 0.1);
+  color: rgba(15, 23, 42, 0.92);
+}
+
+html:not(.dark) .sidebar-nav-btn.is-active::before {
+  background: #1e293b;
+}
+
+html:not(.dark) .sidebar-nav-btn .sidebar-nav-icon {
+  filter: invert(1) brightness(0.2);
+}
+
+html:not(.dark) .sidebar-nav-soon {
+  color: rgba(15, 23, 42, 0.42);
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+html:not(.dark) .sidebar-server-pill {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.1);
+  color: rgba(15, 23, 42, 0.65);
+}
+
+html:not(.dark) .sidebar-server-name {
+  color: rgba(15, 23, 42, 0.65);
+}
+
+html:not(.dark) .sidebar-server-chevron {
+  color: rgba(15, 23, 42, 0.4);
+}
+
 .dark .content-area {
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;

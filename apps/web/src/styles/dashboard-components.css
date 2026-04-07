@@ -3633,3 +3633,22 @@
 .dark .btn-show-more:hover {
   background: rgba(255, 255, 255, 0.09);
 }
+
+/* ── Light Mode Sidebar Account + Show More ─────────────────────────── */
+html:not(.dark) .sidebar-account-btn {
+  color: rgba(15, 23, 42, 0.62);
+}
+
+html:not(.dark) .sidebar-account-btn:hover {
+  background: rgba(15, 23, 42, 0.08);
+  color: rgba(15, 23, 42, 0.88);
+}
+
+html:not(.dark) .btn-show-more {
+  color: rgba(15, 23, 42, 0.55);
+  background: rgba(15, 23, 42, 0.04);
+}
+
+html:not(.dark) .btn-show-more:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
