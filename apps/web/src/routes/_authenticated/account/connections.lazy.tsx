@@ -8,6 +8,8 @@ import {
   AccountSectionCard,
 } from '@/components/account/AccountPage';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { ProviderChip } from '@/components/ui/ProviderChip';
+import { StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import {
@@ -156,14 +158,8 @@ function ProviderCard({
       <div className="acct-provider-info">
         <div className="acct-provider-title-row">
           <p className="acct-provider-name">{provider.label}</p>
-          {isConnected ? (
-            <span className="account-badge account-badge--connected">Connected</span>
-          ) : null}
-          {connections.length > 1 ? (
-            <span className="account-badge account-badge--provider">
-              {connections.length} links
-            </span>
-          ) : null}
+          {isConnected ? <StatusChip status="connected" /> : null}
+          {connections.length > 1 ? <ProviderChip name={`${connections.length} links`} /> : null}
         </div>
         {isConnected ? (
           <div className="acct-provider-connection-list">
@@ -179,16 +175,10 @@ function ProviderCard({
                         provider.description}
                     </p>
                     <div className="account-pill-row account-pill-row--compact">
-                      <span className="account-badge account-badge--provider">
-                        {connection.connectionType}
-                      </span>
-                      <span className="account-badge account-badge--provider">
-                        {connection.status}
-                      </span>
+                      <ProviderChip name={connection.connectionType} />
+                      <ProviderChip name={connection.status} />
                       {connection.verificationMethod ? (
-                        <span className="account-badge account-badge--provider">
-                          {connection.verificationMethod}
-                        </span>
+                        <ProviderChip name={connection.verificationMethod} />
                       ) : null}
                     </div>
                   </div>

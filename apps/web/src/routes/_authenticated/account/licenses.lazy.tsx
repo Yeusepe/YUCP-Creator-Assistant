@@ -9,6 +9,8 @@ import {
   AccountSectionCard,
 } from '@/components/account/AccountPage';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { ProviderChip } from '@/components/ui/ProviderChip';
+import { type BadgeStatus, StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
 import {
   formatAccountDate,
@@ -81,9 +83,7 @@ function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEnti
       <div className="account-list-row-info">
         <p className="account-list-row-name">{entitlement.productId}</p>
         <p className="account-list-row-meta">
-          <span className="account-badge account-badge--provider">
-            {entitlement.sourceProvider}
-          </span>
+          <ProviderChip name={entitlement.sourceProvider} />
           {entitlement.sourceReference ? (
             <span className="account-reference-chip">
               {entitlement.sourceReference.slice(0, 12)}
@@ -95,9 +95,18 @@ function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEnti
       </div>
 
       <div className="account-list-row-actions">
-        <span className={`account-badge account-badge--${entitlement.status}`}>
-          {entitlement.status.charAt(0).toUpperCase() + entitlement.status.slice(1)}
-        </span>
+        {(['active', 'revoked', 'expired'] as BadgeStatus[]).includes(
+          entitlement.status as BadgeStatus
+        ) ? (
+          <StatusChip
+            status={entitlement.status as BadgeStatus}
+            label={entitlement.status.charAt(0).toUpperCase() + entitlement.status.slice(1)}
+          />
+        ) : (
+          <ProviderChip
+            name={entitlement.status.charAt(0).toUpperCase() + entitlement.status.slice(1)}
+          />
+        )}
         {entitlement.status === 'active' && !confirming ? (
           <button
             type="button"

@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { ProviderChip } from '@/components/ui/ProviderChip';
+import { StatusChip } from '@/components/ui/StatusChip';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { useAuth } from '@/hooks/useAuth';
 import { listUserLicenses, listUserOAuthGrants } from '@/lib/account';
@@ -121,14 +123,10 @@ function AccountProfile() {
         </div>
 
         <div className="account-pill-row">
-          <span className="account-badge account-badge--connected">Discord linked</span>
-          <span className="account-badge account-badge--provider">
-            {isCreator ? 'Creator account' : 'Personal account'}
-          </span>
+          <StatusChip status="connected" label="Discord linked" />
+          <ProviderChip name={isCreator ? 'Creator account' : 'Personal account'} />
           {connectedLabels.map(({ key, label }) => (
-            <span key={key} className="account-badge account-badge--provider">
-              {label}
-            </span>
+            <ProviderChip key={key} name={label} />
           ))}
         </div>
       </AccountSectionCard>

@@ -7,6 +7,8 @@ import {
   AccountSectionCard,
 } from '@/components/account/AccountPage';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { ProviderChip } from '@/components/ui/ProviderChip';
+import { StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
 import { YucpInput } from '@/components/ui/YucpInput';
 import {
@@ -155,11 +157,9 @@ function MethodCard({
       <div className="account-list-row-info">
         <p className="account-list-row-name">{method.title}</p>
         <p className="account-list-row-meta">
-          <span className="account-badge account-badge--provider">{method.providerLabel}</span>
-          <span className="account-badge account-badge--provider">{capability.methodKind}</span>
-          {isVerifiedMethod ? (
-            <span className="account-badge account-badge--connected">Verified</span>
-          ) : null}
+          <ProviderChip name={method.providerLabel} />
+          <ProviderChip name={capability.methodKind} />
+          {isVerifiedMethod ? <StatusChip status="verified" /> : null}
         </p>
         {method.description ? <p className="account-feature-copy">{method.description}</p> : null}
         {method.kind === 'buyer_provider_link' ? (
