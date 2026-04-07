@@ -88,25 +88,39 @@ body:not(.state-server-selected) .server-only {
     gap: 20px;
   }
 
-  .bento-col-12 {
-    grid-column: span 2;
-  }
-
+  .bento-col-12,
   .bento-col-8,
   .bento-col-7,
-  .bento-col-5 {
+  .bento-col-5,
+  .bento-col-4 {
     grid-column: span 2;
   }
 
-  .bento-col-6,
-  .bento-col-4 {
+  .bento-col-6 {
     grid-column: span 1;
   }
 }
 
+/* 3-col grid at 768px: col-8 + col-4 and col-7 + col-5 each fill a row (2+1=3) */
 @media (min-width: 768px) {
   .bento-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 24px;
+  }
+
+  .bento-col-12 {
+    grid-column: span 3;
+  }
+
+  .bento-col-8,
+  .bento-col-7,
+  .bento-col-6 {
+    grid-column: span 2;
+  }
+
+  .bento-col-5,
+  .bento-col-4 {
+    grid-column: span 1;
   }
 }
 
