@@ -1,3 +1,5 @@
+import { YucpButton } from '@/components/ui/YucpButton';
+
 export interface PlatformCardProps {
   providerKey: string;
   label: string;
@@ -11,23 +13,6 @@ export interface PlatformCardProps {
   isAlwaysActive?: boolean;
 }
 
-function LoadingSpinner() {
-  return (
-    <span className="btn-loading-spinner" aria-hidden="true">
-      <svg
-        className="h-3 w-3 animate-spin"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        aria-hidden="true"
-      >
-        <path d="M12 2a10 10 0 0 1 10 10" />
-      </svg>
-    </span>
-  );
-}
 
 export function PlatformCard({
   label,
@@ -73,25 +58,22 @@ export function PlatformCard({
         {isAlwaysActive ? (
           <span className="platform-row-badge">Always active</span>
         ) : isConnected ? (
-          <button
-            type="button"
-            disabled={isDisconnecting}
-            onClick={onDisconnect}
+          <YucpButton
+            yucp="danger"
+            isLoading={isDisconnecting}
+            onPress={onDisconnect}
             className="platform-row-btn disconnect"
           >
-            {isDisconnecting ? (
-              <>
-                <LoadingSpinner />
-                Disconnecting...
-              </>
-            ) : (
-              'Disconnect'
-            )}
-          </button>
+            {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+          </YucpButton>
         ) : (
-          <button type="button" onClick={onConnect} className="platform-row-btn">
+          <YucpButton
+            yucp="primary"
+            onPress={onConnect}
+            className="platform-row-btn"
+          >
             Connect
-          </button>
+          </YucpButton>
         )}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { ProgressBar } from '@heroui/react';
 import { useMemo } from 'react';
 
 interface OnboardingStep {
@@ -61,7 +62,7 @@ function CheckCircle({ completed }: { completed: boolean }) {
   );
 }
 
-function ProgressBar({
+function OnboardingProgressBar({
   completedCount,
   totalCount,
 }: {
@@ -70,30 +71,17 @@ function ProgressBar({
 }) {
   const percentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
   return (
-    <div
-      style={{
-        height: 6,
-        width: '100%',
-        borderRadius: 999,
-        overflow: 'hidden',
-        background: '#f1f5f9',
-      }}
-      role="progressbar"
-      aria-valuenow={completedCount}
-      aria-valuemin={0}
-      aria-valuemax={totalCount}
+    <ProgressBar.Root
+      value={percentage}
+      minValue={0}
+      maxValue={100}
       aria-label={`${String(completedCount)} of ${String(totalCount)} steps complete`}
+      className="w-full"
     >
-      <div
-        style={{
-          height: '100%',
-          borderRadius: 999,
-          background: '#22c55e',
-          width: `${percentage.toFixed(1)}%`,
-          transition: 'width 0.5s ease',
-        }}
-      />
-    </div>
+      <ProgressBar.Track>
+        <ProgressBar.Fill />
+      </ProgressBar.Track>
+    </ProgressBar.Root>
   );
 }
 
@@ -165,7 +153,7 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
 
       {/* Progress bar */}
       <div style={{ marginBottom: 16 }}>
-        <ProgressBar completedCount={completedCount} totalCount={totalCount} />
+        <OnboardingProgressBar completedCount={completedCount} totalCount={totalCount} />
       </div>
 
       {/* Steps */}
