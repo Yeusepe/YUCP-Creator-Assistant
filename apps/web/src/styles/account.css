@@ -332,6 +332,30 @@
   gap: 12px;
 }
 
+/* Redesigned provider list — clean vertical rows */
+.acct-provider-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.acct-provider-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+.dark .acct-provider-row {
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+}
+.acct-provider-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.acct-provider-row:first-child {
+  padding-top: 0;
+}
+
 .acct-provider-card {
   display: flex;
   align-items: flex-start;
@@ -361,6 +385,13 @@
   width: 24px;
   height: 24px;
   object-fit: contain;
+}
+
+.acct-provider-icon-letter {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: var(--font-display), sans-serif;
 }
 
 .acct-provider-info {
@@ -402,6 +433,10 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
+}
+
+.acct-provider-actions--standalone {
+  margin-left: auto;
 }
 
 .acct-provider-connection-list {
@@ -556,6 +591,35 @@
 .dark .account-badge--scope {
   background: rgba(167, 139, 250, 0.16);
   color: #c4b5fd;
+}
+
+/* Neutral scope badge — no purple, matches overall design language */
+.account-badge--scope-neutral {
+  background: rgba(15, 23, 42, 0.06);
+  color: #475569;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.dark .account-badge--scope-neutral {
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(226, 232, 240, 0.8);
+}
+
+/* App icon — letter monogram in a rounded square */
+.account-app-icon {
+  background: rgba(14, 165, 233, 0.14);
+  color: #0369a1;
+}
+.dark .account-app-icon {
+  background: rgba(56, 189, 248, 0.16);
+  color: #38bdf8;
+}
+
+.account-app-icon-letter {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: var(--font-display), sans-serif;
 }
 
 .account-btn {
@@ -1960,7 +2024,8 @@
     flex-direction: column;
   }
 
-  .acct-provider-card {
+  .acct-provider-card,
+  .acct-provider-row {
     flex-direction: column;
   }
 
@@ -2175,7 +2240,7 @@
 .billing-hero {
   border-radius: 20px;
   overflow: hidden;
-  background: linear-gradient(135deg, #4338ca 0%, #7c3aed 55%, #0284c7 100%);
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0c2a4a 100%);
   padding: 52px 48px 44px;
   position: relative;
 }
@@ -2297,10 +2362,10 @@
 /* ── Section headings ── */
 .billing-eyebrow {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #6366f1;
+  color: #64748b;
   margin: 0 0 6px;
 }
 
@@ -2354,8 +2419,10 @@
 }
 
 .billing-unlock-card {
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 16px;
   padding: 20px;
   display: flex;
@@ -2369,15 +2436,15 @@
 }
 
 .dark .billing-unlock-card {
-  background: rgba(15, 23, 42, 0.5);
-  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .billing-unlock-icon {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: #f0f0ff;
+  background: #f1f5f9;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2385,7 +2452,7 @@
 }
 
 .dark .billing-unlock-icon {
-  background: rgba(99, 102, 241, 0.15);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .billing-unlock-title {
@@ -2425,13 +2492,15 @@
 
 .billing-plans-grid-v2 {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 16px;
 }
 
 .billing-plan-card-v2 {
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.07);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 20px;
   padding: 24px;
   display: flex;
@@ -2447,18 +2516,22 @@
 }
 
 .dark .billing-plan-card-v2 {
-  background: rgba(15, 23, 42, 0.5);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .billing-plan-card-v2.is-active {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 1px #6366f1;
+  border-color: rgba(14, 165, 233, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(14, 165, 233, 0.2),
+    0 0 24px rgba(14, 165, 233, 0.08);
 }
 
 .dark .billing-plan-card-v2.is-active {
-  border-color: #818cf8;
-  box-shadow: 0 0 0 1px #818cf8;
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.18),
+    0 0 24px rgba(14, 165, 233, 0.15);
 }
 
 .billing-plan-card-body {
@@ -2490,9 +2563,9 @@
 .billing-current-badge-v2 {
   display: inline-flex;
   align-items: center;
-  background: rgba(99, 102, 241, 0.1);
-  color: #4f46e5;
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: rgba(0, 0, 0, 0.05);
+  color: #475569;
+  border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 999px;
   padding: 2px 9px;
   font-size: 11px;
@@ -2502,16 +2575,17 @@
 }
 
 .dark .billing-current-badge-v2 {
-  background: rgba(129, 140, 248, 0.15);
-  color: #a5b4fc;
-  border-color: rgba(129, 140, 248, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .billing-plan-badge-v2 {
   display: inline-flex;
   align-items: center;
-  background: #f0f0ff;
-  color: #4f46e5;
+  background: rgba(0, 0, 0, 0.04);
+  color: #64748b;
+  border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 999px;
   padding: 3px 10px;
   font-size: 11px;
@@ -2522,8 +2596,9 @@
 }
 
 .dark .billing-plan-badge-v2 {
-  background: rgba(99, 102, 241, 0.15);
-  color: #a5b4fc;
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .billing-plan-desc-v2 {
@@ -2575,8 +2650,8 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #dcfce7;
-  color: #16a34a;
+  background: #e2e8f0;
+  color: #475569;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2584,8 +2659,8 @@
 }
 
 .dark .billing-plan-check-v2 {
-  background: rgba(22, 163, 74, 0.18);
-  color: #86efac;
+  background: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
 }
 
 .billing-plan-cta-v2 {
@@ -2610,14 +2685,15 @@
 }
 
 .billing-plan-cta-v2--subscribe {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  color: #fff;
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 }
 
 .billing-plan-cta-v2--subscribe:hover:not(:disabled) {
+  background: #1e293b;
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
 }
 
 .billing-plan-cta-v2--active {
@@ -2695,8 +2771,10 @@
 
 /* ── Subscribed: Status hero ── */
 .billing-sub-hero {
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 20px;
   padding: 22px 28px;
   display: flex;
@@ -2707,8 +2785,8 @@
 }
 
 .dark .billing-sub-hero {
-  background: rgba(15, 23, 42, 0.5);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .billing-sub-hero-left {
@@ -2718,24 +2796,19 @@
 }
 
 .billing-pulse {
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
-  animation: billing-pulse-anim 2s infinite;
+  background: #475569;
   flex-shrink: 0;
 }
 
 .billing-pulse--warning {
   background: #f59e0b;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
 }
 
 .billing-pulse--inactive {
-  background: #94a3b8;
-  box-shadow: none;
-  animation: none;
+  background: #cbd5e1;
 }
 
 @keyframes billing-pulse-anim {
@@ -2781,13 +2854,15 @@
 /* ── Metrics row ── */
 .billing-metrics-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
 .billing-metric-tile {
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 16px;
   padding: 20px;
   display: flex;
@@ -2796,18 +2871,24 @@
 }
 
 .dark .billing-metric-tile {
-  background: rgba(15, 23, 42, 0.5);
-  border-color: rgba(255, 255, 255, 0.07);
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .billing-metric-tile--featured {
-  background: linear-gradient(135deg, #4338ca 0%, #7c3aed 100%);
-  border-color: transparent;
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(14, 165, 233, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(14, 165, 233, 0.15),
+    0 4px 16px rgba(14, 165, 233, 0.08);
 }
 
 .dark .billing-metric-tile--featured {
-  background: linear-gradient(135deg, #4338ca 0%, #7c3aed 100%);
-  border-color: transparent;
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(14, 165, 233, 0.25);
+  box-shadow:
+    0 0 0 1px rgba(14, 165, 233, 0.12),
+    0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .billing-metric-tile--devices {
@@ -2824,7 +2905,7 @@
 }
 
 .billing-metric-tile--featured .billing-metric-label {
-  color: rgba(255, 255, 255, 0.6);
+  color: #64748b;
 }
 
 .billing-metric-value {
@@ -2840,7 +2921,7 @@
 }
 
 .billing-metric-tile--featured .billing-metric-value {
-  color: #fff;
+  color: #0f172a;
 }
 
 .billing-metric-sub {
@@ -2850,7 +2931,7 @@
 }
 
 .billing-metric-tile--featured .billing-metric-sub {
-  color: rgba(255, 255, 255, 0.6);
+  color: #64748b;
 }
 
 .billing-metric-sub-value {
@@ -2878,18 +2959,18 @@
 }
 
 .billing-metric-tile--featured .billing-meter-v2 {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.07);
 }
 
 .billing-meter-fill-v2 {
   height: 100%;
-  background: #6366f1;
+  background: #0ea5e9;
   border-radius: 99px;
   transition: width 0.4s ease;
 }
 
 .billing-metric-tile--featured .billing-meter-fill-v2 {
-  background: rgba(255, 255, 255, 0.75);
+  background: #0ea5e9;
 }
 
 .billing-meter-fill-v2--warning {
@@ -2898,23 +2979,25 @@
 
 /* ── Capabilities ── */
 .billing-caps-section {
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 20px;
   padding: 20px 24px;
 }
 
 .dark .billing-caps-section {
-  background: rgba(15, 23, 42, 0.5);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .billing-caps-label {
   font-size: 10.5px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #6366f1;
+  color: #64748b;
   margin: 0 0 12px;
 }
 
@@ -2928,8 +3011,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #f0f0ff;
-  color: #4f46e5;
+  background: rgba(0, 0, 0, 0.05);
+  color: #475569;
+  border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 999px;
   padding: 5px 12px;
   font-size: 12px;
@@ -2937,8 +3021,9 @@
 }
 
 .dark .billing-cap-chip {
-  background: rgba(99, 102, 241, 0.14);
-  color: #a5b4fc;
+  background: rgba(255, 255, 255, 0.07);
+  color: #94a3b8;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .billing-cap-dot {

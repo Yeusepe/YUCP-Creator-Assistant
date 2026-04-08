@@ -14,8 +14,8 @@
  *    Fetches secrets from Infisical and injects them as env vars into any command,
  *    exactly like `infisical run --env=dev -- <cmd>`.
  *
- *    bun run infisical:convex -- bun run convex:publish:coupling-runtime-package
- *    bun run infisical:convex --prod -- bun run convex:publish:coupling-runtime-package
+ *    bun run infisical:convex -- bun x convex dev --once
+ *    bun run infisical:convex --prod -- bun x convex deploy
  */
 
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';

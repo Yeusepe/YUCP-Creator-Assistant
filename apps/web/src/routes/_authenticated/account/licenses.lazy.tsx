@@ -1,6 +1,7 @@
 import { Tooltip } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
+import { motion } from 'framer-motion';
 import { useMemo, useState } from 'react';
 import {
   AccountEmptyState,
@@ -35,7 +36,10 @@ export const Route = createLazyFileRoute('/_authenticated/account/licenses')({
   component: AccountLicenses,
 });
 
-function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEntitlement }>) {
+function EntitlementRow({
+  entitlement,
+  index,
+}: Readonly<{ entitlement: UserLicenseEntitlement; index: number }>) {
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -59,7 +63,12 @@ function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEnti
   const iconPath = getAccountProviderIconPath(entitlement.sourceProvider);
 
   return (
-    <div className="account-list-row">
+    <motion.div
+      className="account-list-row"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05, duration: 0.28, ease: [0.25, 0.46, 0.45, 0.94] }}
+    >
       <div className="account-list-row-icon">
         {iconPath ? (
           <img src={iconPath} alt={entitlement.sourceProvider} width="20" height="20" />
@@ -76,8 +85,9 @@ function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEnti
             aria-hidden="true"
             focusable="false"
           >
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <path d="M9 9h6M9 13h4" />
+            <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+            <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+            <circle cx="12" cy="13" r="1" />
           </svg>
         )}
       </div>
@@ -119,7 +129,7 @@ function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEnti
           />
         )}
         {entitlement.status === 'active' && !confirming ? (
-          <YucpButton yucp="danger" onClick={() => setConfirming(true)}>
+          <YucpButton yucp="ghost" onClick={() => setConfirming(true)}>
             Deactivate
           </YucpButton>
         ) : null}
@@ -149,7 +159,7 @@ function EntitlementRow({ entitlement }: Readonly<{ entitlement: UserLicenseEnti
           </AccountModal>
         ) : null}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -220,8 +230,8 @@ function AccountLicenses() {
         ) : null}
 
         {!licensesQuery.isLoading && !licensesQuery.isError && allEntitlements.length > 0
-          ? allEntitlements.map((entitlement) => (
-              <EntitlementRow key={entitlement.id} entitlement={entitlement} />
+          ? allEntitlements.map((entitlement, index) => (
+              <EntitlementRow key={entitlement.id} entitlement={entitlement} index={index} />
             ))
           : null}
       </AccountSectionCard>

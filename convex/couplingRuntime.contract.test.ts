@@ -3,76 +3,45 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const httpSource = readFileSync(resolve(__dirname, './http.ts'), 'utf8');
-const couplingSource = readFileSync(resolve(__dirname, './couplingRuntime.ts'), 'utf8');
-const couplingUploadSource = readFileSync(resolve(__dirname, './couplingRuntimeUpload.ts'), 'utf8');
-const runtimeConfigSource = readFileSync(
-  resolve(__dirname, './lib/couplingRuntimeConfig.ts'),
+const couplingServiceArtifactSource = readFileSync(
+  resolve(__dirname, './lib/couplingServiceRuntimeArtifacts.ts'),
   'utf8'
 );
-const runtimeComBuildSource = readFileSync(
-  resolve(__dirname, '../Verify/Native/coupling-runtime-com/build.ps1'),
-  'utf8'
-);
-const runtimeHelperDefSource = readFileSync(
-  resolve(__dirname, '../Verify/Native/yucp_coupling/yucp_coupling.runtime-helper.def'),
-  'utf8'
-);
+const yucpLicensesSource = readFileSync(resolve(__dirname, './yucpLicenses.ts'), 'utf8');
 
 describe('coupling runtime HTTP contract', () => {
-  it('returns the plaintext runtime hash in coupling job responses', () => {
+  it('returns the plaintext runtime hash and direct runtime URL in coupling job responses', () => {
     expect(httpSource).toContain('runtimeSha256: artifact.plaintextSha256');
+    expect(httpSource).toContain('runtimeUrl: buildRuntimeArtifactDownloadUrl(artifact, runtimeToken)');
   });
 
-  it('decrypts the stored runtime artifact before serving downloads', () => {
-    expect(httpSource).toContain('decryptArtifactEnvelope(');
-    expect(httpSource).toContain('deriveCouplingRuntimeEnvelopeKeyBytes({');
-    expect(httpSource).not.toContain('envelope_key_b64:');
-    expect(httpSource).toContain('X-YUCP-Runtime-Plaintext-Sha256');
+  it('resolves active runtime metadata from the coupling service manifest endpoint', () => {
+    expect(couplingServiceArtifactSource).toContain('v1/runtime-artifacts/manifest?artifactKey=');
+    expect(couplingServiceArtifactSource).toContain('YUCP_COUPLING_SERVICE_BASE_URL');
+    expect(couplingServiceArtifactSource).toContain('YUCP_COUPLING_SERVICE_SHARED_SECRET');
   });
 
-  it('supports activating a manually uploaded storage object as the active runtime artifact', () => {
-    expect(couplingSource).toContain('export const publishUploadedRuntime = internalAction(');
-    expect(couplingSource).toContain('await ctx.storage.delete(args.storageId);');
-  });
-
-  it('mints a dedicated upload URL for runtime publishing instead of sending DLL bytes through convex run args', () => {
-    expect(couplingUploadSource).toContain(
-      'export const generateRuntimeUploadUrl = internalMutation('
-    );
-    expect(couplingUploadSource).toContain('ctx.storage.generateUploadUrl()');
-  });
-
-  it('publishes a separate runtime package artifact and upload URL for clean-machine bootstrap', () => {
-    expect(couplingSource).toContain('RELEASE_ARTIFACT_KEYS.couplingRuntimePackage');
-    expect(couplingSource).toContain(
-      'export const publishUploadedRuntimePackage = internalAction('
-    );
-    expect(couplingSource).toContain(
-      'export const getActiveRuntimePackageManifestData = internalAction('
-    );
-    expect(couplingUploadSource).toContain(
-      'export const generateRuntimePackageUploadUrl = internalMutation('
+  it('records runtime trace issuance against coupling-service manifest metadata', () => {
+    expect(yucpLicensesSource).toContain("fetchRuntimeArtifactManifest('coupling-runtime')");
+    expect(yucpLicensesSource).toContain('runtimeArtifactVersion: activeRuntimeArtifact.version');
+    expect(yucpLicensesSource).toContain(
+      'runtimePlaintextSha256: activeRuntimeArtifact.plaintextSha256'
     );
   });
 
-  it('mints and serves runtime package downloads through dedicated public routes', () => {
+  it('mints runtime package tokens and includes a direct runtime package URL', () => {
     expect(httpSource).toContain("path: '/v1/licenses/runtime-package-token'");
-    expect(httpSource).toContain("path: '/v1/licenses/runtime-package'");
     expect(httpSource).toContain('runtimePackageToken');
-    expect(httpSource).toContain('X-YUCP-Runtime-Package-Plaintext-Sha256');
+    expect(httpSource).toContain(
+      'runtimePackageUrl: buildRuntimeArtifactDownloadUrl(artifact, runtimePackageToken)'
+    );
   });
 
-  it('publishes the runtime helper from a separate runtime-helper build output', () => {
-    expect(runtimeConfigSource).toContain("'runtime-helper'");
-    expect(runtimeComBuildSource).toContain('-ExportProfile "runtime-helper"');
-  });
-
-  it('keeps decode exports out of the shipped runtime helper definition', () => {
-    expect(runtimeHelperDefSource).toContain('xg_0115');
-    expect(runtimeHelperDefSource).toContain('xg_0120');
-    expect(runtimeHelperDefSource).not.toContain('xg_0118');
-    expect(runtimeHelperDefSource).not.toContain('xg_0119');
-    expect(runtimeHelperDefSource).not.toContain('xg_0121');
+  it('redirects legacy Convex download routes to the coupling service', () => {
+    expect(httpSource).toContain("path: '/v1/licenses/runtime-package'");
+    expect(httpSource).toContain("path: '/v1/licenses/coupling-runtime'");
+    expect(httpSource).toContain("redirectToRuntimeArtifact(token, 'coupling-runtime-package')");
+    expect(httpSource).toContain("redirectToRuntimeArtifact(token, 'coupling-runtime')");
   });
 
   it('treats the sealed grant itself as the public authorization for redeem and receipt', () => {

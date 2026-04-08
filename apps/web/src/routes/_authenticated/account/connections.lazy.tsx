@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
+import { motion } from 'framer-motion';
 import { type CSSProperties, useState } from 'react';
 
 function humanizeLabel(raw: string): string {
@@ -103,9 +104,11 @@ export const Route = createLazyFileRoute('/_authenticated/account/connections')(
 function ProviderCard({
   provider,
   connections,
+  index,
 }: Readonly<{
   provider: ProviderCardModel;
   connections: UserAccountConnection[];
+  index: number;
 }>) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -146,11 +149,17 @@ function ProviderCard({
   const providerDescription = provider.description ?? 'Linked provider';
   const iconStyle: CSSProperties = {
     backgroundColor: `${providerColor}20`,
+    color: providerColor,
   };
   const isConnected = connections.length > 0;
 
   return (
-    <div className="acct-provider-card">
+    <motion.div
+      className="acct-provider-row"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.06, duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
+    >
       <div className="acct-provider-icon" style={iconStyle} aria-hidden="true">
         {provider.icon ? (
           <img
@@ -159,7 +168,9 @@ function ProviderCard({
             style={{ borderRadius: '4px' }}
           />
         ) : (
-          <span>{provider.label.slice(0, 1).toUpperCase()}</span>
+          <span className="acct-provider-icon-letter">
+            {provider.label.slice(0, 1).toUpperCase()}
+          </span>
         )}
       </div>
 
@@ -211,7 +222,7 @@ function ProviderCard({
                         </YucpButton>
                       </div>
                     ) : (
-                      <YucpButton yucp="danger" onClick={() => setConfirmingId(connection.id)}>
+                      <YucpButton yucp="ghost" onClick={() => setConfirmingId(connection.id)}>
                         Disconnect
                       </YucpButton>
                     )}
@@ -226,9 +237,10 @@ function ProviderCard({
       </div>
 
       {!isConnected && provider.canConnect ? (
-        <div className="acct-provider-actions">
+        <div className="acct-provider-actions acct-provider-actions--standalone">
           <YucpButton
             yucp="primary"
+            pill
             isLoading={connecting}
             isDisabled={connecting}
             onClick={handleConnect}
@@ -237,7 +249,7 @@ function ProviderCard({
           </YucpButton>
         </div>
       ) : null}
-    </div>
+    </motion.div>
   );
 }
 
@@ -306,12 +318,13 @@ function AccountConnections() {
             description="Check back later for account providers that support direct linking."
           />
         ) : (
-          <div className="acct-provider-grid">
-            {providers.map((provider) => (
+          <div className="acct-provider-list">
+            {providers.map((provider, index) => (
               <ProviderCard
                 key={provider.id}
                 provider={provider}
                 connections={connectionsByProvider.get(provider.id) ?? []}
+                index={index}
               />
             ))}
           </div>

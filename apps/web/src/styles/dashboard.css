@@ -1466,16 +1466,10 @@ img.collab-avatar {
   width: 100%;
   height: 100vh;
   min-height: 100vh;
-  flex-direction: column;
+  flex-direction: row;
   position: relative;
   z-index: 1;
   overflow: hidden;
-}
-
-@media (min-width: 768px) {
-  .app-shell {
-    flex-direction: row;
-  }
 }
 
 /* Liquid glass sidebar no curved corners; goes under content (lower z) */
@@ -1483,45 +1477,55 @@ img.collab-avatar {
 .sidebar {
   display: flex;
   flex-direction: column;
-  z-index: var(--z-sidebar-mobile);
-  background: rgba(8, 16, 38, 0.5);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 4px 0 32px rgba(0, 0, 0, 0.18);
+  /* Liquid glass: ultra-transparent, shows clouds behind */
+  background: linear-gradient(170deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.07) 100%);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  /* Subtle inner top highlight only — no outer shadow */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
   overflow: visible;
-  position: fixed;
-  top: 0;
-  left: 0;
-  height: 100vh;
-  transform: translateX(-100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.sidebar.is-open {
-  transform: translateX(0);
+  position: relative;
+  align-self: stretch;
+  width: 220px;
+  min-width: 220px;
+  height: auto;
+  z-index: 1;
 }
 
 @media (min-width: 768px) {
   .sidebar {
-    position: relative;
-    top: unset;
-    align-self: stretch;
-    transform: translateX(0);
     width: 260px;
-    height: auto;
-    max-width: none;
-    z-index: 1;
+    min-width: 260px;
   }
 }
 
 @media (min-width: 1024px) {
   .sidebar {
     width: 300px;
+    min-width: 300px;
   }
 }
 
-/* Largest breakpoint: sidebar on the back, content-area in front (already handled at 768px) */
+/* On very small screens, narrow the sidebar so content area has room */
+@media (max-width: 479px) {
+  .sidebar {
+    width: 160px;
+    min-width: 160px;
+  }
+
+  .sidebar-brand-name,
+  .sidebar-nav-label {
+    font-size: 9px;
+  }
+
+  .sidebar-nav-btn {
+    font-size: 11px;
+    padding: 7px 10px;
+  }
+}
+
+/* Medium mobile: 480-767px uses default 220px */
 
 /* When server dropdown is open: sidebar stays behind backdrop (same blur as main content) */
 /* Dropdown is moved to body so it renders above backdrop; sidebar is not elevated */
@@ -1533,70 +1537,48 @@ img.collab-avatar {
 }
 
 .sidebar-overlay {
-  display: block;
+  display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
-  z-index: var(--z-sidebar-overlay);
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 199;
 }
 
 .sidebar-overlay.is-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-@media (min-width: 768px) {
-  .sidebar-overlay {
-    display: none;
-  }
+  display: block;
 }
 
 .sidebar-toggle-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #64748b;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition:
-    background 0.2s,
-    color 0.2s;
+  display: none;
 }
 
-.sidebar-toggle-btn:hover {
-  background: #f1f5f9;
-  color: #0f172a;
-}
-
-.dark .sidebar-toggle-btn {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.08);
-  color: #94a3b8;
-}
-
-.dark .sidebar-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #f8fafc;
-}
-
-@media (min-width: 768px) {
+@media (max-width: 767px) {
   .sidebar-toggle-btn {
+    display: inline-flex;
+  }
+
+  .sidebar {
     display: none;
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    width: 280px;
+    min-width: 280px;
+    z-index: 200;
+  }
+
+  .sidebar.is-open {
+    display: flex;
   }
 }
 
 .sidebar-logo-area {
   position: relative;
   z-index: var(--z-portal);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   flex-shrink: 0;
-  padding: 24px 20px 14px;
+  padding: 32px 20px 28px;
 }
 
 .sidebar-brand {
@@ -1612,11 +1594,12 @@ img.collab-avatar {
 .sidebar-brand img,
 .sidebar-logo-img,
 .sidebar-logo-img-light {
-  width: 100%;
-  max-width: 220px;
+  width: 85%;
+  max-width: 85%;
   height: auto;
   display: block;
   flex-shrink: 0;
+  object-fit: contain;
 }
 
 .sidebar-brand-name {
@@ -1636,9 +1619,10 @@ img.collab-avatar {
   width: 100%;
   padding: 7px 10px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.58);
+  /* White glass pill for liquid glass sidebar */
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.9);
   font-family: var(--font-display), sans-serif;
   font-size: 13px;
   position: relative;
@@ -1649,7 +1633,7 @@ img.collab-avatar {
   width: 20px;
   height: 20px;
   border-radius: 8px;
-  background: linear-gradient(135deg, rgba(88, 101, 242, 0.55), rgba(139, 92, 246, 0.55));
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.6), rgba(56, 189, 248, 0.6));
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1678,7 +1662,7 @@ img.collab-avatar {
 .sidebar-server-name {
   font-size: 11px;
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.95);
   letter-spacing: -0.01em;
   flex: 1;
   white-space: nowrap;
@@ -1687,7 +1671,7 @@ img.collab-avatar {
 }
 
 .sidebar-server-chevron {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.7);
   flex-shrink: 0;
 }
 
@@ -1712,7 +1696,7 @@ img.collab-avatar {
   font-weight: 500;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.24);
+  color: rgba(255, 255, 255, 0.75);
   padding: 0 10px;
   margin-bottom: 4px;
   display: block;
@@ -1728,7 +1712,7 @@ img.collab-avatar {
   transition:
     background 0.15s ease,
     color 0.15s ease;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.95);
   font-size: 13px;
   font-weight: 400;
   font-family: var(--font-display), sans-serif;
@@ -1742,12 +1726,12 @@ img.collab-avatar {
 }
 
 .sidebar-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 1);
 }
 
 .sidebar-nav-btn.is-active {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.15);
   color: #fff;
   font-weight: 500;
 }
@@ -1794,8 +1778,47 @@ img.collab-avatar {
 
 .sidebar-footer {
   padding: 14px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
   flex-shrink: 0;
+  /* Subtle dark frost so white "My Account" text stays legible over any bg */
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 0 0 0 16px;
+}
+
+.sidebar-account-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+  font-weight: 400;
+  font-family: var(--font-display), sans-serif;
+  text-decoration: none;
+  width: 100%;
+  user-select: none;
+}
+
+.sidebar-account-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.sidebar-account-btn svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+
+.sidebar-account-btn:hover svg {
+  opacity: 1;
 }
 
 /*  Content Area (fills right of sidebar; scrolls internally) */
@@ -1812,18 +1835,12 @@ img.collab-avatar {
   overflow-y: auto;
   padding: 24px 20px 48px;
 
-  /* Liquid Glass background instead of light #fafaf9 */
-  background: rgba(255, 255, 255, 0.35);
-  /* Different shade than sidebar's 0.06 */
+  /* Liquid Glass background */
+  background: rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(32px) saturate(180%);
   -webkit-backdrop-filter: blur(32px) saturate(180%);
-  border-left: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow:
-    inset 0 0 40px rgba(255, 255, 255, 0.2),
-    inset 0 2px 5px rgba(255, 255, 255, 0.5);
-  /* Radial pattern overlay for texture */
-  background-image: radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px);
-  background-size: 24px 24px;
+  border-left: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
 
   color: #0f172a;
   margin-left: 0;
@@ -1838,7 +1855,7 @@ img.collab-avatar {
 
 .content-area-inner {
   width: 100%;
-  max-width: 1280px;
+  max-width: 100%;
   margin: 0;
   display: flex;
   flex: 1 1 auto;
@@ -1851,9 +1868,14 @@ img.collab-avatar {
     border-top-left-radius: 16px;
     border-bottom-left-radius: 16px;
     box-shadow:
-      -12px 0 40px rgba(0, 0, 0, 0.06),
-      inset 0 0 30px rgba(255, 255, 255, 0.3),
-      inset 1px 1px 2px rgba(255, 255, 255, 0.7);
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 1px 0 0 rgba(255, 255, 255, 0.15);
+  }
+
+  /* Corner gap between sidebar and content-area's rounded corner shows the
+     page body background (blue sky/clouds) — this is the intended liquid glass look */
+  .app-shell {
+    background: transparent;
   }
 }
 
@@ -1962,6 +1984,7 @@ img.collab-avatar {
   margin-bottom: 0;
   font-size: 1.5rem;
   line-height: 1.2;
+  color: #ffffff;
 }
 
 .content-header-actions {
@@ -2417,25 +2440,97 @@ img.collab-avatar {
            DARK MODE STYLES
          */
 
+.dark .sidebar {
+  background: linear-gradient(170deg, rgba(8, 16, 38, 0.55) 0%, rgba(8, 16, 38, 0.42) 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.dark .sidebar-logo-area {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dark .sidebar-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Dark mode: no filter overrides needed since we removed them from light mode too */
+.dark .sidebar-brand img,
+.dark .sidebar-logo-img,
+.dark .sidebar-logo-img-light {
+  filter: none;
+}
+
+.dark .sidebar-brand-name {
+  text-shadow: none;
+}
+
+.dark .sidebar-nav-label {
+  color: rgba(255, 255, 255, 0.45);
+  text-shadow: none;
+}
+
+.dark .sidebar-nav-btn {
+  color: rgba(255, 255, 255, 0.78);
+  text-shadow: none;
+}
+
+.dark .sidebar-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.dark .sidebar-nav-btn.is-active {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+
+.dark .sidebar-server-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.dark .sidebar-server-name {
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: none;
+}
+
+.dark .sidebar-server-chevron {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.dark .sidebar-account-btn {
+  color: rgba(255, 255, 255, 0.78);
+  text-shadow: none;
+}
+
+.dark .sidebar-account-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.dark .sidebar-account-btn svg {
+  filter: none;
+  opacity: 0.7;
+}
+
 .dark .content-area {
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
   --border-color: rgba(255, 255, 255, 0.15);
 
-  background: rgba(15, 23, 42, 0.55);
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow:
-    inset 0 0 40px rgba(0, 0, 0, 0.4),
-    inset 0 2px 5px rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.45);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
 }
 
 @media (min-width: 768px) {
   .dark .content-area {
     box-shadow:
-      -12px 0 40px rgba(0, 0, 0, 0.5),
-      inset 0 0 30px rgba(0, 0, 0, 0.4),
-      inset 1px 1px 2px rgba(255, 255, 255, 0.1);
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 1px 0 0 rgba(255, 255, 255, 0.04);
   }
 }
 
@@ -2764,78 +2859,8 @@ img.collab-avatar {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* ── Light mode sidebar overrides ── */
-
-html:not(.dark) .sidebar {
-  background: rgba(255, 255, 255, 0.48);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  border-right: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.07);
-}
-
-html:not(.dark) .sidebar-logo-area {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
-}
-
-html:not(.dark) .sidebar-brand-name {
-  color: #0f172a;
-}
-
-html:not(.dark) .sidebar-server-pill {
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  color: rgba(0, 0, 0, 0.65);
-}
-
-html:not(.dark) .sidebar-server-name {
-  color: rgba(0, 0, 0, 0.75);
-}
-
-html:not(.dark) .sidebar-server-chevron {
-  color: rgba(0, 0, 0, 0.4);
-}
-
-html:not(.dark) .sidebar-nav-label {
-  color: rgba(0, 0, 0, 0.36);
-}
-
-html:not(.dark) .sidebar-nav-btn {
-  color: rgba(0, 0, 0, 0.62);
-}
-
-html:not(.dark) .sidebar-nav-btn:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.85);
-}
-
-html:not(.dark) .sidebar-nav-btn.is-active {
-  background: rgba(0, 0, 0, 0.07);
-  color: rgba(0, 0, 0, 0.95);
-}
-
-html:not(.dark) .sidebar-nav-btn.is-active::before {
-  background: #0ea5e9;
-}
-
-html:not(.dark) .sidebar-nav-soon {
-  color: rgba(0, 0, 0, 0.5);
-  background: rgba(0, 0, 0, 0.05);
-  border-color: rgba(0, 0, 0, 0.09);
-}
-
-html:not(.dark) .sidebar-footer {
-  border-top: 1px solid rgba(0, 0, 0, 0.07);
-}
-
-html:not(.dark) .sidebar-logo-img {
-  display: none;
-}
-
-html:not(.dark) .sidebar-logo-img-light {
-  display: block;
-}
-
+/* ── Sidebar is always dark regardless of light/dark mode ── */
+/* Single PNG logo used in both modes */
 .sidebar-logo-img-light {
   display: none;
 }
@@ -2923,7 +2948,7 @@ html:not(.dark) .sidebar-logo-img-light {
   right: 0;
   height: 2px;
   border-radius: 999px 999px 0 0;
-  background: linear-gradient(90deg, transparent 0%, rgba(99, 102, 241, 0.9) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(14, 165, 233, 0.9) 50%, transparent 100%);
   animation: sync-slide 1.5s ease-in-out infinite;
   z-index: 10;
   overflow: hidden;

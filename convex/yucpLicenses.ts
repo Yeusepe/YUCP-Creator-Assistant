@@ -36,6 +36,7 @@ import type { Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
 import { internalAction, internalMutation, internalQuery } from './_generated/server';
 import { BILLING_CAPABILITY_KEYS } from './lib/billingCapabilities';
+import { fetchRuntimeArtifactManifest } from './lib/couplingServiceRuntimeArtifacts';
 import {
   decryptProtectedBlobContentKey,
   encryptProtectedBlobContentKey,
@@ -46,11 +47,6 @@ import {
   unsealProtectedMaterializationGrant,
 } from './lib/protectedMaterializationGrant';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
-import {
-  RELEASE_ARTIFACT_KEYS,
-  RELEASE_CHANNELS,
-  RELEASE_PLATFORMS,
-} from './lib/releaseArtifactKeys';
 import {
   getPublicKeyFromPrivate,
   type LicenseClaims,
@@ -1716,13 +1712,12 @@ export const issueCouplingJob = internalAction({
       jobs.push({ assetPath, tokenHex, materializationNonce });
     }
 
-    const activeRuntimeArtifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
-      artifactKey: RELEASE_ARTIFACT_KEYS.couplingRuntime,
-      channel: RELEASE_CHANNELS.stable,
-      platform: RELEASE_PLATFORMS.winX64,
-    });
-    if (!activeRuntimeArtifact) {
-      return { success: false, error: 'Coupling runtime is not configured on the server' };
+    const activeRuntimeArtifact = await fetchRuntimeArtifactManifest('coupling-runtime');
+    if (!activeRuntimeArtifact.success) {
+      return {
+        success: false,
+        error: activeRuntimeArtifact.error ?? 'Coupling runtime is not configured on the server',
+      };
     }
 
     const correlationId = crypto.randomUUID();

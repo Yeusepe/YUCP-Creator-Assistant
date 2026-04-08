@@ -1046,12 +1046,7 @@ function SidebarLogoArea({
   return (
     <div className="sidebar-logo-area">
       <div className="sidebar-brand">
-        <img src="/Icons/MainLogo.svg" alt="Creator Assistant Logo" className="sidebar-logo-img" />
-        <img
-          src="/Icons/MainLogoDark.svg"
-          alt="Creator Assistant Logo"
-          className="sidebar-logo-img sidebar-logo-img-light"
-        />
+        <img src="/Icons/MainLogo.png" alt="Creator Assistant Logo" className="sidebar-logo-img" />
       </div>
       <div className="sidebar-server-selector">
         {renderSelectorTrigger('sidebar-server-selector', {

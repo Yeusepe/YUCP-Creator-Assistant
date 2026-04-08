@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { internal } from './_generated/api';
 import { buildCreatorProfileWorkspaceKey } from './lib/certificateBillingConfig';
-import {
-  RELEASE_ARTIFACT_KEYS,
-  RELEASE_CHANNELS,
-  RELEASE_PLATFORMS,
-} from './lib/releaseArtifactKeys';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
 import * as yucpCrypto from './lib/yucpCrypto';
 import { makeTestConvex, seedCertificateBillingCatalog } from './testHelpers';
@@ -32,6 +27,7 @@ async function sha256Hex(input: string) {
 
 describe('protected blob package-first architecture', () => {
   let rootPrivateKey = '';
+  const originalFetch = globalThis.fetch;
 
   beforeEach(async () => {
     rootPrivateKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
@@ -41,6 +37,9 @@ describe('protected blob package-first architecture', () => {
     process.env.ENCRYPTION_SECRET = 'test-encryption-secret-for-protected-blob-flow';
     process.env.POLAR_ACCESS_TOKEN = 'test-polar-access-token';
     process.env.POLAR_WEBHOOK_SECRET = 'test-polar-webhook-secret';
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling.internal';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = 'coupling-secret';
+    globalThis.fetch = originalFetch;
   });
 
   async function seedPackageRegistration(t: ReturnType<typeof makeTestConvex>) {
@@ -151,29 +150,36 @@ describe('protected blob package-first architecture', () => {
     });
   }
 
-  async function publishRuntimeArtifact(t: ReturnType<typeof makeTestConvex>) {
-    const storageId = await t.run(async (ctx) => {
-      return await ctx.storage.store(
-        new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'application/octet-stream' })
-      );
-    });
-
-    await t.mutation(internal.releaseArtifacts.publishArtifact, {
-      artifactKey: RELEASE_ARTIFACT_KEYS.couplingRuntime,
-      channel: RELEASE_CHANNELS.stable,
-      platform: RELEASE_PLATFORMS.winX64,
-      version: couplingRuntimeVersion,
-      metadataVersion: 1,
-      storageId,
-      contentType: 'application/octet-stream',
-      deliveryName: 'yucp-coupling.dll',
-      envelopeCipher: 'aes-256-gcm',
-      envelopeIvBase64: 'ZmFrZS1pdi1iYXNlNjQ=',
-      ciphertextSha256: 'a'.repeat(64),
-      ciphertextSize: 4,
-      plaintextSha256: couplingRuntimePlaintextSha256,
-      plaintextSize: 4,
-    });
+  function mockRuntimeArtifact() {
+    globalThis.fetch = (async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (
+        url ===
+        'https://coupling.internal/v1/runtime-artifacts/manifest?artifactKey=coupling-runtime'
+      ) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            artifactKey: 'coupling-runtime',
+            channel: 'stable',
+            platform: 'win-x64',
+            version: couplingRuntimeVersion,
+            metadataVersion: 1,
+            deliveryName: 'yucp-coupling.dll',
+            contentType: 'application/octet-stream',
+            envelopeCipher: 'none',
+            envelopeIvBase64: '',
+            ciphertextSha256: couplingRuntimePlaintextSha256,
+            ciphertextSize: 4,
+            plaintextSha256: couplingRuntimePlaintextSha256,
+            plaintextSize: 4,
+            downloadUrl: 'https://coupling.internal/v1/licenses/coupling-runtime',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
   }
 
   it('requires a matching package registration before issuing protected unlock tickets', async () => {
@@ -258,7 +264,7 @@ describe('protected blob package-first architecture', () => {
     await seedPackageRegistration(t);
     await seedProtectedAsset(t);
     await seedActiveCouplingBilling(t);
-    await publishRuntimeArtifact(t);
+    mockRuntimeArtifact();
     const licenseToken = await mintLicenseToken();
 
     const couplingResult = await t.action(internal.yucpLicenses.issueCouplingJob, {

@@ -1,6 +1,7 @@
 import { Tooltip } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
+import { motion } from 'framer-motion';
 import { useMemo, useState } from 'react';
 import {
   AccountEmptyState,
@@ -34,7 +35,7 @@ export const Route = createLazyFileRoute('/_authenticated/account/authorized-app
 
 const USER_OAUTH_GRANTS_QUERY_KEY = ['user-oauth-grants'] as const;
 
-function GrantRow({ grant }: Readonly<{ grant: OAuthGrant }>) {
+function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number }>) {
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -55,23 +56,17 @@ function GrantRow({ grant }: Readonly<{ grant: OAuthGrant }>) {
     },
   });
 
+  const appInitial = grant.appName.slice(0, 1).toUpperCase();
+
   return (
-    <div className="account-list-row">
-      <div className="account-list-row-icon" aria-hidden="true">
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
-        </svg>
+    <motion.div
+      className="account-list-row"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05, duration: 0.28, ease: [0.25, 0.46, 0.45, 0.94] }}
+    >
+      <div className="account-list-row-icon account-app-icon" aria-hidden="true">
+        <span className="account-app-icon-letter">{appInitial}</span>
       </div>
 
       <div className="account-list-row-info">
@@ -98,7 +93,7 @@ function GrantRow({ grant }: Readonly<{ grant: OAuthGrant }>) {
             {grant.scopes.map((scope) => (
               <span
                 key={`${grant.consentId}:${scope}`}
-                className="account-badge account-badge--scope"
+                className="account-badge account-badge--scope-neutral"
               >
                 {scope}
               </span>
@@ -109,7 +104,7 @@ function GrantRow({ grant }: Readonly<{ grant: OAuthGrant }>) {
 
       <div className="account-list-row-actions">
         {!confirming ? (
-          <YucpButton yucp="danger" onClick={() => setConfirming(true)}>
+          <YucpButton yucp="ghost" onClick={() => setConfirming(true)}>
             Revoke
           </YucpButton>
         ) : null}
@@ -139,7 +134,7 @@ function GrantRow({ grant }: Readonly<{ grant: OAuthGrant }>) {
           </AccountModal>
         ) : null}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -199,7 +194,9 @@ function AccountAuthorizedApps() {
         ) : null}
 
         {!grantsQuery.isLoading && !grantsQuery.isError && grants.length > 0
-          ? grants.map((grant) => <GrantRow key={grant.consentId} grant={grant} />)
+          ? grants.map((grant, index) => (
+              <GrantRow key={grant.consentId} grant={grant} index={index} />
+            ))
           : null}
       </AccountSectionCard>
 

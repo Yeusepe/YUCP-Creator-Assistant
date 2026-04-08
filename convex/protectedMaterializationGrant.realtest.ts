@@ -3,11 +3,6 @@ import { internal } from './_generated/api';
 import { buildCreatorProfileWorkspaceKey } from './lib/certificateBillingConfig';
 import { unsealProtectedMaterializationGrant } from './lib/protectedMaterializationGrant';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
-import {
-  RELEASE_ARTIFACT_KEYS,
-  RELEASE_CHANNELS,
-  RELEASE_PLATFORMS,
-} from './lib/releaseArtifactKeys';
 import { getPublicKeyFromPrivate, signLicenseJwt, verifyProtectedUnlockJwt } from './lib/yucpCrypto';
 import { makeTestConvex, seedCertificateBillingCatalog } from './testHelpers';
 
@@ -28,6 +23,7 @@ describe('protected materialization grant issuance', () => {
   const contentKeyBase64 = Buffer.from('protected-grant-content-key').toString('base64');
 
   let rootPrivateKey = '';
+  const originalFetch = globalThis.fetch;
 
   beforeEach(async () => {
     rootPrivateKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
@@ -37,6 +33,9 @@ describe('protected materialization grant issuance', () => {
     process.env.ENCRYPTION_SECRET = 'test-encryption-secret-for-protected-materialization-grant';
     process.env.POLAR_ACCESS_TOKEN = 'test-polar-access-token';
     process.env.POLAR_WEBHOOK_SECRET = 'test-polar-webhook-secret';
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling.internal';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = 'coupling-secret';
+    globalThis.fetch = originalFetch;
   });
 
   async function seedPackageRegistration(t: ReturnType<typeof makeTestConvex>) {
@@ -129,27 +128,36 @@ describe('protected materialization grant issuance', () => {
     });
   }
 
-  async function publishRuntimeArtifact(t: ReturnType<typeof makeTestConvex>) {
-    const storageId = await t.run(async (ctx) => {
-      return await ctx.storage.store(new Blob([Uint8Array.from([1, 2, 3])]));
-    });
-
-    await t.mutation(internal.releaseArtifacts.publishArtifact, {
-      artifactKey: RELEASE_ARTIFACT_KEYS.couplingRuntime,
-      channel: RELEASE_CHANNELS.stable,
-      platform: RELEASE_PLATFORMS.winX64,
-      version: couplingRuntimeVersion,
-      metadataVersion: 1,
-      storageId,
-      contentType: 'application/octet-stream',
-      deliveryName: 'yucp-coupling.dll',
-      envelopeCipher: 'aes-256-gcm',
-      envelopeIvBase64: 'ZmFrZS1pdi1iYXNlNjQ=',
-      ciphertextSha256: 'a'.repeat(64),
-      ciphertextSize: 3,
-      plaintextSha256: couplingRuntimePlaintextSha256,
-      plaintextSize: 3,
-    });
+  function mockRuntimeArtifact() {
+    globalThis.fetch = (async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (
+        url ===
+        'https://coupling.internal/v1/runtime-artifacts/manifest?artifactKey=coupling-runtime'
+      ) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            artifactKey: 'coupling-runtime',
+            channel: 'stable',
+            platform: 'win-x64',
+            version: couplingRuntimeVersion,
+            metadataVersion: 1,
+            deliveryName: 'yucp-coupling.dll',
+            contentType: 'application/octet-stream',
+            envelopeCipher: 'none',
+            envelopeIvBase64: '',
+            ciphertextSha256: couplingRuntimePlaintextSha256,
+            ciphertextSize: 3,
+            plaintextSha256: couplingRuntimePlaintextSha256,
+            plaintextSize: 3,
+            downloadUrl: 'https://coupling.internal/v1/licenses/coupling-runtime',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
   }
 
   async function mintLicenseToken() {
@@ -176,7 +184,7 @@ describe('protected materialization grant issuance', () => {
     await seedPackageRegistration(t);
     await seedProtectedAsset(t);
     await seedActiveCouplingBilling(t);
-    await publishRuntimeArtifact(t);
+    mockRuntimeArtifact();
     const licenseToken = await mintLicenseToken();
 
     const result = await t.action(internal.yucpLicenses.issueProtectedMaterializationGrant, {
@@ -318,7 +326,7 @@ describe('protected materialization grant issuance', () => {
     const t = makeTestConvex();
     await seedPackageRegistration(t);
     await seedProtectedAsset(t);
-    await publishRuntimeArtifact(t);
+    mockRuntimeArtifact();
     const licenseToken = await mintLicenseToken();
 
     const result = await t.action(internal.yucpLicenses.issueProtectedMaterializationGrant, {

@@ -490,18 +490,21 @@
 }
 
 .intg-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 16px;
   padding: 22px 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   transition:
     border-color 0.2s,
     box-shadow 0.2s;
 }
 
 .intg-card:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
 }
 
 /* Flush variant: no padding, grid/list bleeds to card edges */
@@ -591,7 +594,8 @@
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: #f1f5f9;
+  background: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -613,8 +617,8 @@
 
 .intg-title {
   font-family: var(--font-display), sans-serif;
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   color: #0f172a;
   margin: 0;
   letter-spacing: -0.02em;
@@ -675,8 +679,8 @@
 }
 
 .intg-card .inline-panel-body {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: rgba(248, 250, 252, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 14px;
   padding: 18px;
   margin: 12px 0 16px;
@@ -922,8 +926,8 @@
 }
 
 .intg-card .empty-state {
-  background: #f8fafc;
-  border: 1px dashed #e2e8f0;
+  background: rgba(248, 250, 252, 0.6);
+  border: 1px dashed rgba(0, 0, 0, 0.1);
   border-radius: 14px;
   padding: 32px 20px;
 }
@@ -1402,26 +1406,27 @@
 }
 
 .dark .intg-card {
-  background: rgba(15, 23, 42, 0.7);
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow:
-    0 18px 36px rgba(2, 6, 23, 0.22),
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  background: rgba(30, 41, 59, 0.65);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .dark .intg-card:hover {
-  border-color: rgba(148, 163, 184, 0.32);
+  border-color: rgba(255, 255, 255, 0.18);
   box-shadow:
     0 22px 40px rgba(2, 6, 23, 0.26),
     0 0 0 1px rgba(255, 255, 255, 0.05) inset;
 }
 
 .dark .intg-icon {
-  background: rgba(148, 163, 184, 0.14);
+  background: rgba(14, 165, 233, 0.15);
+  border-color: rgba(14, 165, 233, 0.2);
 }
 
 .dark .intg-icon svg {
-  stroke: #cbd5e1;
+  stroke: #38bdf8;
 }
 
 .dark .intg-title,
@@ -2551,12 +2556,12 @@
 .header-context-icon svg {
   width: 22px;
   height: 22px;
-  color: #94a3b8;
+  color: #ffffff;
   flex-shrink: 0;
 }
 
 .dark .header-context-icon svg {
-  color: #64748b;
+  color: #ffffff;
 }
 
 /* ── Stat Grid (StatsOverviewPanel) ───────────────────────────────── */
@@ -2565,7 +2570,7 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1px;
-  background: #e2e8f0;
+  background: rgba(0, 0, 0, 0.06);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -2577,8 +2582,8 @@
 }
 
 .stat-cell {
-  background: #f8fafc;
-  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2587,8 +2592,8 @@
 
 .stat-cell-value {
   font-family: var(--font-display), sans-serif;
-  font-size: 28px;
-  font-weight: 800;
+  font-size: 32px;
+  font-weight: 700;
   color: #0f172a;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -2596,18 +2601,20 @@
 
 .stat-cell-label {
   font-family: "AirbnbCereal", sans-serif;
-  font-size: 12px;
-  color: #64748b;
+  font-size: 11px;
+  color: #94a3b8;
   font-weight: 500;
   line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .stat-cell-trend {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 500;
   margin-top: 2px;
 }
 
@@ -2620,7 +2627,7 @@
 }
 
 .stat-cell-trend.neutral {
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .stat-cell-skeleton-val {
@@ -2654,7 +2661,7 @@
 }
 
 .dark .stat-cell {
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(30, 41, 59, 0.75);
 }
 
 .dark .stat-cell-value {
@@ -2674,7 +2681,7 @@
 }
 
 .dark .stat-cell-trend.neutral {
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .dark .stat-cell-skeleton-val {
@@ -2693,16 +2700,18 @@
   gap: 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.05);
   transition:
     background 0.15s ease,
-    border-color 0.15s ease;
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .platform-row:hover {
-  background: #f1f5f9;
-  border-color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(0, 0, 0, 0.09);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .platform-row-icon {
@@ -2738,7 +2747,7 @@
 }
 
 .platform-row-sub.connected {
-  color: #16a34a;
+  color: #0ea5e9;
 }
 
 .platform-row-actions {
@@ -2755,9 +2764,9 @@
   font-size: 11px;
   font-weight: 600;
   font-family: var(--font-display), sans-serif;
-  background: #e0f2fe;
-  color: #0369a1;
-  border: 1px solid #bae6fd;
+  background: rgba(14, 165, 233, 0.12);
+  color: #0ea5e9;
+  border: 1px solid rgba(14, 165, 233, 0.25);
 }
 
 .platform-row-btn {
@@ -3074,10 +3083,10 @@
   border-radius: 999px;
   font-family: var(--font-display), sans-serif;
   font-size: 11px;
-  font-weight: 700;
-  background: #f1f5f9;
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.06);
   color: #475569;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
   white-space: nowrap;
 }
 
@@ -3131,6 +3140,49 @@
 /* Progress bar track dark mode */
 .dark #onboarding-progress-panel [role="progressbar"] {
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Progress bar — sky blue fill ────────────────────────────────── */
+
+#onboarding-progress-panel [role="progressbar"] {
+  background: rgba(0, 0, 0, 0.07);
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+}
+
+#onboarding-progress-panel [role="progressbar"] > * {
+  background: #0ea5e9;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+/* ── Activity feed scroll container ──────────────────────────────── */
+
+#recent-activity-panel > div > div {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+}
+
+#recent-activity-panel > div > div::-webkit-scrollbar {
+  width: 4px;
+}
+
+#recent-activity-panel > div > div::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#recent-activity-panel > div > div::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+}
+
+.dark #recent-activity-panel > div > div {
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+.dark #recent-activity-panel > div > div::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* Empty circle step indicator dark mode */
@@ -3591,7 +3643,7 @@
   font-size: 13px;
   font-weight: 500;
   font-family: var(--font-display), sans-serif;
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.92);
   text-decoration: none;
   transition:
     background 0.12s ease,
@@ -3599,8 +3651,8 @@
 }
 
 .sidebar-account-btn:hover {
-  background: rgba(255, 255, 255, 0.09);
-  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 1);
 }
 
 .sidebar-account-btn svg {
@@ -3634,23 +3686,22 @@
   background: rgba(255, 255, 255, 0.09);
 }
 
-/* ── Light Mode Sidebar Account + Show More ─────────────────────────── */
-html:not(.dark) .sidebar-account-btn {
-  color: rgba(15, 23, 42, 0.62);
-}
-
-html:not(.dark) .sidebar-account-btn:hover {
-  background: rgba(15, 23, 42, 0.08);
-  color: rgba(15, 23, 42, 0.88);
-}
-
+/* ── Light Mode Show More ─────────────────────────── */
 html:not(.dark) .btn-show-more {
-  color: rgba(15, 23, 42, 0.55);
-  background: rgba(15, 23, 42, 0.04);
+  color: #64748b;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 12px;
+  margin-top: 2px;
 }
 
 html:not(.dark) .btn-show-more:hover {
-  background: rgba(15, 23, 42, 0.08);
+  background: rgba(0, 0, 0, 0.06);
+  color: #475569;
+  border-color: rgba(0, 0, 0, 0.1);
 }
 
 /* ─── Package Registry ─── */

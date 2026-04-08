@@ -218,11 +218,10 @@ function AccountLayout() {
         <aside id="sidebar" className="sidebar" aria-label="Account navigation">
           <div className="sidebar-logo-area">
             <div className="sidebar-brand">
-              <img src="/Icons/MainLogo.svg" alt="Creator Assistant" className="sidebar-logo-img" />
               <img
-                src="/Icons/MainLogoDark.svg"
-                alt="Creator Assistant"
-                className="sidebar-logo-img sidebar-logo-img-light"
+                src="/Icons/MainLogo.png"
+                alt="Creator Assistant Logo"
+                className="sidebar-logo-img"
               />
             </div>
           </div>

@@ -71,10 +71,12 @@ import {
   getBetterAuthPage,
 } from './lib/betterAuthAdapter';
 import { isSigningRequestTimestampFresh, verifySigningProof } from './lib/certificateSigning';
-import { deriveCouplingRuntimeEnvelopeKeyBytes } from './lib/couplingRuntimeEnvelope';
+import {
+  buildRuntimeArtifactDownloadUrl,
+  fetchRuntimeArtifactManifest,
+} from './lib/couplingServiceRuntimeArtifacts';
 import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import { type PublicProductRecord } from './lib/publicProducts';
-import { decryptArtifactEnvelope, sha256HexBytes } from './lib/releaseArtifactEnvelope';
 import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
   base64ToBytes,
@@ -89,8 +91,6 @@ import {
   signLicenseJwt,
   signPackageCertificateData,
   verifyCertEnvelope,
-  verifyCouplingRuntimeJwt,
-  verifyCouplingRuntimePackageJwt,
   verifyLicenseJwt,
 } from './lib/yucpCrypto';
 import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
@@ -140,6 +140,18 @@ function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Respo
 
 function errorResponse(message: string, status: number): Response {
   return jsonResponse({ error: message }, status);
+}
+
+async function redirectToRuntimeArtifact(
+  token: string,
+  artifactKey: 'coupling-runtime' | 'coupling-runtime-package'
+): Promise<Response> {
+  const manifest = await fetchRuntimeArtifactManifest(artifactKey);
+  if (!manifest.success) {
+    return errorResponse(manifest.error, 503);
+  }
+
+  return Response.redirect(buildRuntimeArtifactDownloadUrl(manifest, token), 307);
 }
 
 function buildServerTimingHeader(
@@ -1838,7 +1850,7 @@ http.route({
       return errorResponse('License token did not match this package or machine', 401);
     }
 
-    const artifact = await ctx.runAction(internal.couplingRuntime.getActiveRuntimePackageManifestData, {});
+    const artifact = await fetchRuntimeArtifactManifest('coupling-runtime-package');
     if (!artifact.success) {
       return errorResponse(
         artifact.error ?? 'Coupling runtime package is not configured on the server',
@@ -1881,6 +1893,7 @@ http.route({
       success: true,
       runtimePackageToken,
       runtimePackageSha256: artifact.plaintextSha256,
+      runtimePackageUrl: buildRuntimeArtifactDownloadUrl(artifact, runtimePackageToken),
       expiresAt: exp,
     });
   }),
@@ -1945,7 +1958,7 @@ http.route({
       });
     }
 
-    const artifact = await ctx.runAction(internal.couplingRuntime.getActiveRuntimeManifestData, {});
+    const artifact = await fetchRuntimeArtifactManifest('coupling-runtime');
     if (!artifact.success) {
       return errorResponse(
         artifact.error ?? 'Coupling runtime is not configured on the server',
@@ -1994,6 +2007,7 @@ http.route({
       success: true,
       runtimeToken,
       runtimeSha256: artifact.plaintextSha256,
+      runtimeUrl: buildRuntimeArtifactDownloadUrl(artifact, runtimeToken),
       expiresAt: exp,
       files: issued.jobs ?? [],
       skipReason: issued.skipReason,
@@ -2004,196 +2018,26 @@ http.route({
 http.route({
   method: 'GET',
   path: '/v1/licenses/runtime-package',
-  handler: httpAction(async (ctx, request) => {
+  handler: httpAction(async (_ctx, request) => {
     const requestUrl = new URL(request.url);
     const token = requestUrl.searchParams.get('token');
     if (!token) {
       return errorResponse('token query parameter is required', 400);
     }
-
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) {
-      throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
-    }
-    const rootPublicKey =
-      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
-    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
-    if (!publicIssuerBaseUrl) {
-      return errorResponse('Service not configured', 503);
-    }
-    const claims = await verifyCouplingRuntimePackageJwt(
-      token,
-      rootPublicKey,
-      buildPublicAuthIssuer(publicIssuerBaseUrl)
-    );
-    if (!claims) {
-      return errorResponse('Runtime package token is invalid or expired', 401);
-    }
-
-    const artifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
-      artifactKey: claims.artifact_key,
-      channel: claims.artifact_channel,
-      platform: claims.artifact_platform,
-    });
-    if (!artifact) {
-      return errorResponse('Coupling runtime package is not configured on the server', 503);
-    }
-    if (
-      artifact.version !== claims.artifact_version ||
-      artifact.metadataVersion !== claims.metadata_version ||
-      artifact.ciphertextSha256 !== claims.ciphertext_sha256 ||
-      artifact.plaintextSha256 !== claims.plaintext_sha256
-    ) {
-      return errorResponse('Configured coupling runtime package metadata mismatch', 503);
-    }
-
-    const blob = await ctx.storage.get(artifact.storageId);
-    if (blob === null) {
-      return errorResponse('Coupling runtime package artifact is missing from storage', 503);
-    }
-
-    if (!claims.envelope_iv_b64) {
-      return errorResponse('Runtime package token is missing decryption metadata', 401);
-    }
-
-    let envelopeKey: Uint8Array;
-    try {
-      envelopeKey = await deriveCouplingRuntimeEnvelopeKeyBytes({
-        artifactKey: artifact.artifactKey,
-        channel: artifact.channel,
-        platform: artifact.platform,
-        version: artifact.version,
-        plaintextSha256: artifact.plaintextSha256,
-      });
-    } catch {
-      return errorResponse('Coupling runtime package artifact decryption failed', 503);
-    }
-
-    let plaintextPackage: Uint8Array;
-    try {
-      plaintextPackage = await decryptArtifactEnvelope(
-        new Uint8Array(await blob.arrayBuffer()),
-        envelopeKey,
-        claims.envelope_iv_b64
-      );
-    } catch {
-      return errorResponse('Coupling runtime package artifact decryption failed', 503);
-    }
-
-    const plaintextSha256 = await sha256HexBytes(plaintextPackage);
-    if (plaintextSha256 !== artifact.plaintextSha256) {
-      return errorResponse('Decrypted coupling runtime package failed integrity verification', 503);
-    }
-
-    const responseBytes = Uint8Array.from(plaintextPackage);
-    return new Response(responseBytes.buffer, {
-      status: 200,
-      headers: {
-        'Content-Type': artifact.contentType,
-        'Content-Disposition': `attachment; filename="${artifact.deliveryName}"`,
-        'Cache-Control': 'no-store, max-age=0',
-        'X-YUCP-Runtime-Package-Plaintext-Sha256': artifact.plaintextSha256,
-        'X-YUCP-Runtime-Package-Ciphertext-Sha256': artifact.ciphertextSha256,
-      },
-    });
+    return await redirectToRuntimeArtifact(token, 'coupling-runtime-package');
   }),
 });
 
 http.route({
   method: 'GET',
   path: '/v1/licenses/coupling-runtime',
-  handler: httpAction(async (ctx, request) => {
+  handler: httpAction(async (_ctx, request) => {
     const requestUrl = new URL(request.url);
     const token = requestUrl.searchParams.get('token');
     if (!token) {
       return errorResponse('token query parameter is required', 400);
     }
-
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) {
-      throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
-    }
-    const rootPublicKey =
-      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
-    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
-    if (!publicIssuerBaseUrl) {
-      return errorResponse('Service not configured', 503);
-    }
-    const claims = await verifyCouplingRuntimeJwt(
-      token,
-      rootPublicKey,
-      buildPublicAuthIssuer(publicIssuerBaseUrl)
-    );
-    if (!claims) {
-      return errorResponse('Runtime token is invalid or expired', 401);
-    }
-
-    const artifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
-      artifactKey: claims.artifact_key,
-      channel: claims.artifact_channel,
-      platform: claims.artifact_platform,
-    });
-    if (!artifact) {
-      return errorResponse('Coupling runtime is not configured on the server', 503);
-    }
-    if (
-      artifact.version !== claims.artifact_version ||
-      artifact.metadataVersion !== claims.metadata_version ||
-      artifact.ciphertextSha256 !== claims.ciphertext_sha256 ||
-      artifact.plaintextSha256 !== claims.plaintext_sha256
-    ) {
-      return errorResponse('Configured coupling runtime metadata mismatch', 503);
-    }
-
-    const blob = await ctx.storage.get(artifact.storageId);
-    if (blob === null) {
-      return errorResponse('Coupling runtime artifact is missing from storage', 503);
-    }
-
-    if (!claims.envelope_iv_b64) {
-      return errorResponse('Runtime token is missing decryption metadata', 401);
-    }
-
-    let envelopeKey: Uint8Array;
-    try {
-      envelopeKey = await deriveCouplingRuntimeEnvelopeKeyBytes({
-        artifactKey: artifact.artifactKey,
-        channel: artifact.channel,
-        platform: artifact.platform,
-        version: artifact.version,
-        plaintextSha256: artifact.plaintextSha256,
-      });
-    } catch {
-      return errorResponse('Coupling runtime artifact decryption failed', 503);
-    }
-
-    let plaintextRuntime: Uint8Array;
-    try {
-      plaintextRuntime = await decryptArtifactEnvelope(
-        new Uint8Array(await blob.arrayBuffer()),
-        envelopeKey,
-        claims.envelope_iv_b64
-      );
-    } catch {
-      return errorResponse('Coupling runtime artifact decryption failed', 503);
-    }
-
-    const plaintextSha256 = await sha256HexBytes(plaintextRuntime);
-    if (plaintextSha256 !== artifact.plaintextSha256) {
-      return errorResponse('Decrypted coupling runtime failed integrity verification', 503);
-    }
-
-    const responseBytes = Uint8Array.from(plaintextRuntime);
-    return new Response(responseBytes.buffer, {
-      status: 200,
-      headers: {
-        'Content-Type': artifact.contentType,
-        'Content-Disposition': `attachment; filename="${artifact.deliveryName}"`,
-        'Cache-Control': 'no-store, max-age=0',
-        'X-YUCP-Runtime-Plaintext-Sha256': artifact.plaintextSha256,
-        'X-YUCP-Runtime-Ciphertext-Sha256': artifact.ciphertextSha256,
-      },
-    });
+    return await redirectToRuntimeArtifact(token, 'coupling-runtime');
   }),
 });
 
