@@ -1,6 +1,6 @@
 .connect-page {
   color: var(--text-primary);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   overflow-x: hidden;
   cursor: none;
   width: 100%;
@@ -186,7 +186,7 @@ h3,
 }
 .modal-panel .modal-message {
   color: rgba(255, 255, 255, 0.95);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 0.9375rem;
   line-height: 1.5;
   margin-bottom: 1.25rem;

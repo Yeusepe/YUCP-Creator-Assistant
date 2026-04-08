@@ -113,7 +113,7 @@ function DisconnectStepCard({
           </h3>
           <p
             className="text-[13px] leading-relaxed text-zinc-700 dark:text-white/70"
-            style={{ fontFamily: "'DM Sans', sans-serif" }}
+            style={{ fontFamily: "'AirbnbCereal', sans-serif" }}
           >
             {config.text}
           </p>
@@ -224,7 +224,7 @@ export function DangerZonePanel({ guildId }: DangerZonePanelProps) {
           </span>
           <span
             className="text-xs text-zinc-500 dark:text-zinc-400"
-            style={{ fontFamily: "'DM Sans', sans-serif" }}
+            style={{ fontFamily: "'AirbnbCereal', sans-serif" }}
           >
             Permanently remove this server and delete all verification data.
           </span>

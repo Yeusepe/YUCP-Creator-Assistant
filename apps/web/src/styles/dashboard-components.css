@@ -365,7 +365,7 @@
   background: transparent;
   border: none;
   color: #0f172a;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 13px;
   width: 100%;
   outline: none;
@@ -649,7 +649,7 @@
 }
 
 .intg-desc {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 12px;
   color: #64748b;
   line-height: 1.45;
@@ -718,7 +718,7 @@
 
 .intg-card .modal-input,
 .intg-card .modal-textarea {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 13px;
   color: #0f172a;
   background: #fff;
@@ -1158,7 +1158,7 @@
 .oauth-app-date {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.3);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
 }
 
 .oauth-app-scopes {
@@ -1816,7 +1816,7 @@
 .empty-state-copy {
   max-width: 280px;
   margin: 8px auto 0;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 12px;
   line-height: 1.6;
   text-align: center;
@@ -1968,7 +1968,7 @@
 }
 
 .reveal-card-subtitle {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 11px;
   color: var(--text-secondary);
 }
@@ -2008,7 +2008,7 @@
   border-radius: 12px;
   padding: 11px 13px;
   color: var(--text-primary);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 13px;
   font-weight: 500;
   outline: none;
@@ -2117,7 +2117,7 @@
 }
 
 .scope-toggle-desc {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.35);
   margin-top: 2px;
@@ -2595,7 +2595,7 @@
 }
 
 .stat-cell-label {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 12px;
   color: #64748b;
   font-weight: 500;
@@ -2730,7 +2730,7 @@
 }
 
 .platform-row-sub {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 11px;
   color: #64748b;
   line-height: 1.2;
@@ -2905,7 +2905,7 @@
 }
 
 .store-row-status {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 11px;
   color: #64748b;
   line-height: 1.2;
@@ -3104,7 +3104,7 @@
 }
 
 .intg-empty-state-text {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 13px;
   color: #94a3b8;
 }
@@ -3433,7 +3433,7 @@
   font-size: 12px;
   color: #64748b;
   line-height: 1.4;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3569,7 +3569,7 @@
 }
 
 .setting-row-hint {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 12px;
   color: #64748b;
   line-height: 1.4;

@@ -681,7 +681,7 @@ function ApiKeysSection({
                     marginTop: '10px',
                     fontSize: '12px',
                     color: 'rgba(255,255,255,0.55)',
-                    fontFamily: "'DM Sans',sans-serif",
+                    fontFamily: "'AirbnbCereal',sans-serif",
                   }}
                 >
                   {key.lastUsedAt ? `Last used ${formatDateTime(key.lastUsedAt)}` : 'Never used'}
@@ -1075,7 +1075,7 @@ function CredentialRevealCard({
               margin: '6px 0 0',
               fontSize: '12px',
               color: 'rgba(255,255,255,0.7)',
-              fontFamily: "'DM Sans',sans-serif",
+              fontFamily: "'AirbnbCereal',sans-serif",
             }}
           >
             {subtitle}

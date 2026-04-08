@@ -3,7 +3,7 @@
 .vrchat-verify {
   background: linear-gradient(to bottom, #0a3d9e, #0ea5e9);
   color: white;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   height: 100dvh;
   overflow: hidden;
   overflow-y: auto;
@@ -355,7 +355,7 @@
   border: 1px solid rgba(0, 136, 255, 0.5);
   background: rgba(255, 255, 255, 0.1);
   color: white;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 16px;
   box-sizing: border-box;
 }

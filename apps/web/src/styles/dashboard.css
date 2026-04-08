@@ -6,7 +6,7 @@
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
   color: var(--text-primary);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
 }
 
 .dark .dashboard-page {
@@ -790,7 +790,7 @@ img.collab-avatar {
 .api-key-date {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.3);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
 }
 
 .api-key-status-revoked {
@@ -1092,7 +1092,7 @@ img.collab-avatar {
 }
 
 .reveal-warn p {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 11px;
   color: #713f12;
   margin: 0;
@@ -1198,7 +1198,7 @@ img.collab-avatar {
 .collab-row-meta {
   font-size: 12px;
   color: var(--text-secondary);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   margin-top: 2px;
 }
 
@@ -1484,10 +1484,11 @@ img.collab-avatar {
   display: flex;
   flex-direction: column;
   z-index: var(--z-sidebar-mobile);
+  background: rgba(8, 16, 38, 0.78);
   backdrop-filter: blur(24px) saturate(150%);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
-  border-right: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.06);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 4px 0 32px rgba(0, 0, 0, 0.18);
   overflow: visible;
   position: fixed;
   top: 0;
@@ -1611,7 +1612,7 @@ img.collab-avatar {
 .sidebar-brand {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 10px;
   margin-bottom: 10px;
   flex-shrink: 0;
@@ -1620,9 +1621,9 @@ img.collab-avatar {
 
 .sidebar-brand img,
 .sidebar-logo-img {
-  height: 32px;
+  height: 44px;
   width: auto;
-  max-width: 150px;
+  max-width: 170px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -1685,8 +1686,8 @@ img.collab-avatar {
 
 .sidebar-server-name {
   font-size: 11px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.58);
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.7);
   letter-spacing: -0.01em;
   flex: 1;
   white-space: nowrap;
@@ -1717,7 +1718,7 @@ img.collab-avatar {
 
 .sidebar-nav-label {
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 500;
   letter-spacing: 0.13em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.24);
@@ -1736,9 +1737,9 @@ img.collab-avatar {
   transition:
     background 0.15s ease,
     color 0.15s ease;
-  color: rgba(255, 255, 255, 0.46);
+  color: rgba(255, 255, 255, 0.55);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   font-family: var(--font-display), sans-serif;
   position: relative;
   user-select: none;
@@ -1757,6 +1758,7 @@ img.collab-avatar {
 .sidebar-nav-btn.is-active {
   background: rgba(255, 255, 255, 0.09);
   color: #fff;
+  font-weight: 500;
 }
 
 .sidebar-nav-btn.is-active::before {
@@ -1855,7 +1857,6 @@ img.collab-avatar {
 @media (min-width: 768px) {
   .content-area {
     padding: 32px 40px 64px;
-    border-top-left-radius: 24px;
     box-shadow:
       -12px 0 40px rgba(0, 0, 0, 0.06),
       inset 0 0 30px rgba(255, 255, 255, 0.3),
@@ -1913,7 +1914,7 @@ img.collab-avatar {
 }
 
 .content-header-desc {
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-weight: 500;
   font-size: 1rem;
   max-width: 28rem;
@@ -1946,7 +1947,7 @@ img.collab-avatar {
 .content-hdr-sub {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.48);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   margin: 0;
   max-width: 520px;
 }
@@ -2422,53 +2423,6 @@ img.collab-avatar {
 /* 
            DARK MODE STYLES
          */
-
-/* ── Light Mode Sidebar ─────────────────────────────────────────────── */
-html:not(.dark) .sidebar-nav-label {
-  color: rgba(15, 23, 42, 0.38);
-}
-
-html:not(.dark) .sidebar-nav-btn {
-  color: rgba(15, 23, 42, 0.58);
-}
-
-html:not(.dark) .sidebar-nav-btn:hover {
-  background: rgba(15, 23, 42, 0.07);
-  color: rgba(15, 23, 42, 0.8);
-}
-
-html:not(.dark) .sidebar-nav-btn.is-active {
-  background: rgba(15, 23, 42, 0.1);
-  color: rgba(15, 23, 42, 0.92);
-}
-
-html:not(.dark) .sidebar-nav-btn.is-active::before {
-  background: #1e293b;
-}
-
-html:not(.dark) .sidebar-nav-btn .sidebar-nav-icon {
-  filter: invert(1) brightness(0.2);
-}
-
-html:not(.dark) .sidebar-nav-soon {
-  color: rgba(15, 23, 42, 0.42);
-  background: rgba(15, 23, 42, 0.06);
-  border-color: rgba(15, 23, 42, 0.1);
-}
-
-html:not(.dark) .sidebar-server-pill {
-  background: rgba(15, 23, 42, 0.06);
-  border-color: rgba(15, 23, 42, 0.1);
-  color: rgba(15, 23, 42, 0.65);
-}
-
-html:not(.dark) .sidebar-server-name {
-  color: rgba(15, 23, 42, 0.65);
-}
-
-html:not(.dark) .sidebar-server-chevron {
-  color: rgba(15, 23, 42, 0.4);
-}
 
 .dark .content-area {
   --text-primary: #f8fafc;

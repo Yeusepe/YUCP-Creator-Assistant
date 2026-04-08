@@ -413,7 +413,7 @@ function PayhipSetupPage() {
   return (
     <div
       className="payhip-setup fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
-      style={{ fontFamily: "'DM Sans', sans-serif", color: '#fff' }}
+      style={{ fontFamily: "'AirbnbCereal', sans-serif", color: '#fff' }}
     >
       <div
         className={`page-content fixed inset-0 flex flex-col items-center justify-center overflow-hidden${isVisible ? ' is-visible' : ''}`}
@@ -1003,7 +1003,7 @@ function PayhipSetupPage() {
                                 className="api-key-input product-permalink"
                                 placeholder="e.g. RGsF"
                                 style={{
-                                  fontFamily: "'DM Sans',sans-serif",
+                                  fontFamily: "'AirbnbCereal',sans-serif",
                                   fontSize: '14px',
                                   letterSpacing: 'normal',
                                 }}

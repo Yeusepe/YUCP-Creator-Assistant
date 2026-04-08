@@ -26,10 +26,13 @@ export function DashboardAuthRequiredState({
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
         </div>
-        <p className="text-sm font-semibold" style={{ fontFamily: "'DM Sans',sans-serif" }}>
+        <p className="text-sm font-semibold" style={{ fontFamily: "'AirbnbCereal',sans-serif" }}>
           {title}
         </p>
-        <p className="text-xs mt-2 max-w-xs mx-auto" style={{ fontFamily: "'DM Sans',sans-serif" }}>
+        <p
+          className="text-xs mt-2 max-w-xs mx-auto"
+          style={{ fontFamily: "'AirbnbCereal',sans-serif" }}
+        >
           {description}
         </p>
       </div>

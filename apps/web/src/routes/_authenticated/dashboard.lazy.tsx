@@ -314,7 +314,7 @@ function DashboardBootstrapState({ pendingGuild }: { pendingGuild?: PendingDashb
           <h1 className="content-header-title">
             {pendingGuild?.name ? `Linking ${pendingGuild.name}` : 'Linking your server'}
           </h1>
-          <p className="content-header-desc" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+          <p className="content-header-desc">
             Finalizing the server link and loading the dashboard.
           </p>
         </section>
@@ -1046,7 +1046,7 @@ function SidebarLogoArea({
   return (
     <div className="sidebar-logo-area">
       <div className="sidebar-brand">
-        <img src="/Icons/MainLogo.png" alt="Creator Assistant Logo" className="sidebar-logo-img" />
+        <img src="/Icons/MainLogo.svg" alt="Creator Assistant Logo" className="sidebar-logo-img" />
       </div>
       <div className="sidebar-server-selector">
         {renderSelectorTrigger('sidebar-server-selector', {
@@ -1074,7 +1074,7 @@ function DashboardRouteErrorComponent({ error }: { error: Error }) {
           <section className="section-card bento-col-12 p-6 sm:p-7 md:p-8">
             <div className="content-header-eyebrow">Dashboard Error</div>
             <h1 className="content-header-title">Dashboard unavailable</h1>
-            <p className="content-header-desc" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+            <p className="content-header-desc" style={{ fontFamily: "'AirbnbCereal', sans-serif" }}>
               The dashboard shell could not be loaded. Refresh the page or sign in again if the
               problem persists.
             </p>

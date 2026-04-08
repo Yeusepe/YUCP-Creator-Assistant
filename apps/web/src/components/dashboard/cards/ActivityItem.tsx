@@ -213,7 +213,7 @@ export function ActivityItem({
       <div className="flex min-w-0 flex-1 flex-col">
         <span
           className="text-sm text-zinc-700 dark:text-zinc-300"
-          style={{ fontFamily: "'DM Sans', sans-serif" }}
+          style={{ fontFamily: "'AirbnbCereal', sans-serif" }}
         >
           {description}
         </span>

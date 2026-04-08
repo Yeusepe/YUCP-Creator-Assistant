@@ -459,7 +459,7 @@ function DiscordRoleSetupPage() {
                 color: 'rgba(255,255,255,0.6)',
                 marginBottom: '1.25rem',
                 lineHeight: 1.6,
-                fontFamily: '"DM Sans", sans-serif',
+                fontFamily: '"AirbnbCereal", sans-serif',
               }}
             >
               Your Discord® role requirement has been configured.
@@ -535,7 +535,7 @@ function DiscordRoleSetupPage() {
                 fontSize: '0.875rem',
                 color: 'rgba(255,255,255,0.6)',
                 lineHeight: 1.6,
-                fontFamily: '"DM Sans", sans-serif',
+                fontFamily: '"AirbnbCereal", sans-serif',
               }}
             >
               This setup link has expired or is invalid.

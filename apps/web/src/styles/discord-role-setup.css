@@ -1,7 +1,7 @@
 /* ── Discord Role Setup – scoped styles ─────────────────────────── */
 .discord-role-setup {
   position: relative;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   color: #fff;
   overflow-x: hidden;
   width: 100%;
@@ -117,7 +117,7 @@
 .discord-role-setup .page-header-subtitle {
   font-size: 0.875rem;
   color: rgba(255, 255, 255, 0.6);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
 }
 
 /* ── Card header ─────────────────────────────────────────────────── */
@@ -158,7 +158,7 @@
 .discord-role-setup .card-subtitle {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.5);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
 }
 
 .discord-role-setup .card-desc {
@@ -166,7 +166,7 @@
   color: rgba(255, 255, 255, 0.65);
   line-height: 1.65;
   margin-bottom: 1.5rem;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
 }
 
 /* ── Steps ──────────────────────────────────────────────────────────── */
@@ -314,7 +314,7 @@
   border: 1.5px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
   padding: 12px 16px;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 16px;
   color: #fff;
   outline: none;
@@ -361,7 +361,7 @@
 
 .discord-role-setup textarea::placeholder {
   color: rgba(255, 255, 255, 0.3);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
 }
 
 /* ── Field hint ──────────────────────────────────────────────────── */
@@ -369,7 +369,7 @@
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.5);
   margin-top: 0.25rem;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
 }
 
 /* ── Error Box ──────────────────────────────────────────────────────── */
@@ -383,7 +383,7 @@
   padding: 12px 14px;
   color: #fca5a5;
   font-size: 13px;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   line-height: 1.5;
 }
 
@@ -411,7 +411,7 @@
   gap: 10px;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.65);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   line-height: 1.5;
 }
 
@@ -511,7 +511,7 @@
 .discord-role-setup .success-discord-note-text {
   font-size: 0.875rem;
   color: rgba(255, 255, 255, 0.7);
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   line-height: 1.5;
 }
 
@@ -598,7 +598,7 @@
   border: 1.5px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
   padding: 12px 16px;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 15px;
   color: #fff;
   cursor: pointer;
@@ -673,7 +673,7 @@
   gap: 10px;
   width: 100%;
   padding: 10px 14px;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   font-size: 14px;
   color: rgba(255, 255, 255, 0.8);
   background: transparent;

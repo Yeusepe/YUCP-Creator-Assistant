@@ -20,13 +20,13 @@ export function DashboardPanelErrorState({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-bold text-base mb-1">{title}</h3>
-          <p className="text-xs text-white/60" style={{ fontFamily: "'DM Sans',sans-serif" }}>
+          <p className="text-xs text-white/60" style={{ fontFamily: "'AirbnbCereal',sans-serif" }}>
             {description}
           </p>
           {requestId ? (
             <p
               className="text-xs text-white/50"
-              style={{ fontFamily: "'DM Sans',sans-serif", marginTop: '8px' }}
+              style={{ fontFamily: "'AirbnbCereal',sans-serif", marginTop: '8px' }}
             >
               Request ID: {requestId}
             </p>

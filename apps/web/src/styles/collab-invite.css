@@ -5,7 +5,7 @@
 
 .collab-invite-page {
   position: relative;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   color: var(--text-primary);
   overflow-x: hidden;
   width: 100%;
@@ -183,7 +183,7 @@ h3,
   padding: 12px 16px;
   font-size: 16px;
   width: 100%;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   transition: border-color 0.2s;
 }
 
@@ -221,7 +221,7 @@ h3,
   transition:
     background 0.2s,
     transform 0.1s;
-  font-family: "DM Sans", sans-serif;
+  font-family: "AirbnbCereal", sans-serif;
   white-space: nowrap;
 }
 
