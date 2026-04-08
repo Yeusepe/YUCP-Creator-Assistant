@@ -78,6 +78,7 @@ function AccountProfile() {
       };
     })
     .filter((entry): entry is { key: string; label: string } => entry !== null)
+    .filter((entry, index, arr) => arr.findIndex((e) => e.label === entry.label) === index)
     .slice(0, 3);
   const workspaceHref = '/api/install/bot';
 
