@@ -38,7 +38,7 @@
 .account-surface-card-eyebrow {
   margin-bottom: 8px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #0369a1;
@@ -51,7 +51,7 @@
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-size: 1.125rem;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.25;
   color: #0f172a;
 }
@@ -128,7 +128,7 @@
 
 .account-sidebar-kicker {
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: rgba(191, 219, 254, 0.86);
@@ -141,7 +141,7 @@
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
   color: #f8fafc;
 }
 .dark .account-sidebar-title {
@@ -791,7 +791,7 @@
 
 .account-stat-value {
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
 }
 .dark .account-stat-value {
@@ -861,7 +861,7 @@
 .account-plan-name {
   margin: 0;
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.01em;
 }
@@ -1100,7 +1100,7 @@
 .account-modal-title {
   margin: 0;
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
 }
 .dark .account-modal-title {
@@ -1226,7 +1226,7 @@
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -1453,7 +1453,7 @@
 
 .cert-stat-value {
   font-size: 24px;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
   line-height: 1.05;
 }
@@ -1518,7 +1518,7 @@
   display: inline-flex;
   margin-bottom: 10px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: rgba(186, 230, 253, 0.86);
@@ -1531,7 +1531,7 @@
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-size: clamp(1.55rem, 2vw, 2.15rem);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.05;
   color: #f8fafc;
 }
@@ -1625,7 +1625,7 @@
 
 .cert-billing-metric-label {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #64748b;
@@ -1637,7 +1637,7 @@
 .cert-billing-metric-value {
   font-family: var(--font-display), sans-serif;
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.2;
   color: #0f172a;
 }
@@ -1888,7 +1888,7 @@
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
 }
 .dark .forensics-upgrade-gate-title {
@@ -1998,7 +1998,7 @@
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-size: clamp(2rem, 3vw, 2.75rem);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: #0f172a;
 }
@@ -2033,7 +2033,7 @@
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-size: 1.25rem;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
 }
 .dark .suite-billing-panel-title {
@@ -2098,7 +2098,7 @@
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-size: 1.5rem;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
 }
 .dark .suite-plan-title {
@@ -2145,7 +2145,7 @@
   background: #0ea5e9;
   color: #fff;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   padding: 4px 10px;
   border-radius: 999px;
   text-transform: uppercase;
@@ -2228,7 +2228,7 @@
   margin: 0 0 4px;
   font-family: var(--font-display), sans-serif;
   font-size: 1.15rem;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.01em;
 }
@@ -2384,7 +2384,7 @@
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-size: 0.95rem;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
 }
 .dark .billing-panel-title {
@@ -2452,7 +2452,7 @@
 
 .billing-stat-label {
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: #94a3b8;
@@ -2464,7 +2464,7 @@
 .billing-stat-value {
   font-family: var(--font-display), sans-serif;
   font-size: 1.6rem;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
   line-height: 1;
   letter-spacing: -0.02em;
@@ -2616,7 +2616,7 @@
   margin: 0 0 3px;
   font-family: var(--font-display), sans-serif;
   font-size: 0.95rem;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
 }
 .dark .billing-plans-title {
@@ -2688,7 +2688,7 @@
   padding: 3px 9px;
   border-radius: 99px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   background: rgba(3, 105, 161, 0.09);
@@ -2707,7 +2707,7 @@
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-size: 1.2rem;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.02em;
 }
@@ -2883,7 +2883,7 @@
   margin: 0 0 6px;
   font-family: var(--font-display), sans-serif;
   font-size: 0.95rem;
-  font-weight: 800;
+  font-weight: 700;
   color: #0f172a;
 }
 .dark .billing-empty-title {

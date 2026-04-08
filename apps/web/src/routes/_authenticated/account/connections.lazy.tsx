@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
 import { type CSSProperties, useState } from 'react';
+
+function humanizeLabel(raw: string): string {
+  return raw
+    .split(/[_\s]+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
 import {
   AccountEmptyState,
   AccountInlineError,
@@ -175,10 +183,10 @@ function ProviderCard({
                         provider.description}
                     </p>
                     <div className="account-pill-row account-pill-row--compact">
-                      <ProviderChip name={connection.connectionType} />
-                      <ProviderChip name={connection.status} />
+                      <ProviderChip name={humanizeLabel(connection.connectionType)} />
+                      <ProviderChip name={humanizeLabel(connection.status)} />
                       {connection.verificationMethod ? (
-                        <ProviderChip name={connection.verificationMethod} />
+                        <ProviderChip name={humanizeLabel(connection.verificationMethod)} />
                       ) : null}
                     </div>
                   </div>
