@@ -598,67 +598,106 @@ export default function DashboardBilling() {
               {/* Sales hero */}
               <section className="billing-hero">
                 <div className="billing-hero-inner">
-                  <span className="billing-hero-eyebrow">
-                    <img
-                      src="/Icons/Polar.svg"
-                      alt=""
-                      aria-hidden="true"
-                      width="12"
-                      height="12"
-                      style={{ filter: 'brightness(100)' }}
-                    />
-                    Creator Suite via Polar
-                  </span>
-                  <h1 className="billing-hero-title">Elevate your creator workflow</h1>
-                  <p className="billing-hero-copy">
-                    Certificate signing, protected exports, coupling traceability, and moderation
-                    tooling — all backed by a single Polar subscription.
-                  </p>
-                  <div className="billing-hero-actions">
-                    <button
-                      type="button"
-                      className="billing-hero-cta"
-                      onClick={() => {
-                        document
-                          .getElementById('billing-plans-anchor')
-                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }}
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                  {/* Left: copy */}
+                  <div className="billing-hero-left">
+                    <span className="billing-hero-eyebrow">
+                      <img
+                        src="/Icons/Polar.svg"
+                        alt=""
                         aria-hidden="true"
+                        width="12"
+                        height="12"
+                      />
+                      Creator Suite via Polar
+                    </span>
+                    <h1 className="billing-hero-title">
+                      Your work, protected from studio to shelf.
+                    </h1>
+                    <p className="billing-hero-copy">
+                      Gate exports. Sign every release. Trace couplings back to source. The
+                      complete creator protection stack, activated by one subscription.
+                    </p>
+                    <div className="billing-hero-actions">
+                      <button
+                        type="button"
+                        className="billing-hero-cta"
+                        onClick={() => {
+                          document
+                            .getElementById('billing-plans-anchor')
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
                       >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                      See Plans
-                    </button>
-                    <Link
-                      to="/dashboard/certificates"
-                      search={(prev) => ({ ...prev, guild_id: undefined, tenant_id: undefined })}
-                      className="billing-hero-link"
-                    >
-                      View Certificates
-                    </Link>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                        See Plans
+                      </button>
+                      <Link
+                        to="/dashboard/certificates"
+                        search={(prev) => ({
+                          ...prev,
+                          guild_id: undefined,
+                          tenant_id: undefined,
+                        })}
+                        className="billing-hero-link"
+                      >
+                        View Certificates
+                      </Link>
+                    </div>
                   </div>
-                  <div className="billing-hero-feats">
+
+                  {/* Right: feature tiles */}
+                  <div className="billing-hero-right">
                     {(
                       [
-                        'Protected exports',
-                        'Certificate signing',
-                        'Moderation lookup',
-                        'Coupling traceability',
+                        {
+                          icon: '/Icons/Shield.png',
+                          title: 'Protected exports',
+                          tag: 'Export gating',
+                        },
+                        {
+                          icon: '/Icons/Key.png',
+                          title: 'Certificate signing',
+                          tag: 'Signing & revocation',
+                        },
+                        {
+                          icon: '/Icons/Laptop.png',
+                          title: 'Moderation lookup',
+                          tag: 'Trust tooling',
+                        },
+                        {
+                          icon: '/Icons/Wrench.png',
+                          title: 'Coupling traceability',
+                          tag: 'Forensics & lineage',
+                        },
                       ] as const
-                    ).map((feat) => (
-                      <span key={feat} className="billing-hero-feat-chip">
-                        {feat}
-                      </span>
+                    ).map(({ icon, title, tag }) => (
+                      <div key={title} className="billing-hero-feat-tile">
+                        <div className="billing-hero-feat-icon">
+                          <img
+                            src={icon}
+                            alt=""
+                            aria-hidden="true"
+                            width="16"
+                            height="16"
+                            style={{ objectFit: 'contain' }}
+                          />
+                        </div>
+                        <div>
+                          <p className="billing-hero-feat-title">{title}</p>
+                          <p className="billing-hero-feat-tag">{tag}</p>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -667,8 +706,8 @@ export default function DashboardBilling() {
               {/* What unlocks */}
               <section className="billing-unlocks">
                 <div className="billing-section-hd">
-                  <p className="billing-eyebrow">Feature Breakdown</p>
-                  <h2 className="billing-section-h2">What Suite+ unlocks</h2>
+                  <p className="billing-eyebrow">What you get</p>
+                  <h2 className="billing-section-h2">One subscription. Full control.</h2>
                 </div>
                 <div className="billing-unlocks-grid">
                   {(
@@ -676,22 +715,22 @@ export default function DashboardBilling() {
                       {
                         icon: '/Icons/Shield.png',
                         title: 'Protected exports',
-                        desc: 'Gate high-trust releases behind Polar-backed access instead of local plan JSON.',
+                        desc: 'Gate high-trust releases to verified buyers only. No more hoping your files stay where you send them.',
                       },
                       {
                         icon: '/Icons/Wrench.png',
                         title: 'Coupling traceability',
-                        desc: 'Unlock forensics and package lineage when the Polar benefit grant is active.',
+                        desc: 'Every package linked back to its origin. Forensics and lineage always a click away.',
                       },
                       {
                         icon: '/Icons/Key.png',
                         title: 'Moderation lookup',
-                        desc: 'Expose trust and moderation tooling from the same active Suite subscription.',
+                        desc: 'Surface trust signals and moderation history when you need to make access decisions fast.',
                       },
                       {
                         icon: '/Icons/Laptop.png',
                         title: 'Certificate operations',
-                        desc: 'Keep machine enrollment, revocation, and signing separate from commerce.',
+                        desc: 'Enroll machines, sign releases, and revoke access from one place -- independent of your storefront.',
                       },
                     ] as const
                   ).map(({ icon, title, desc }) => (

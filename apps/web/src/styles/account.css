@@ -2246,23 +2246,57 @@
 .billing-hero {
   border-radius: 20px;
   overflow: hidden;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0c2a4a 100%);
-  padding: 52px 48px 44px;
+  background: linear-gradient(
+    145deg,
+    rgba(129, 140, 248, 0.12) 0%,
+    rgba(255, 255, 255, 0.72) 60%,
+    rgba(14, 165, 233, 0.06) 100%
+  );
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 4px 24px rgba(0, 0, 0, 0.05);
+  padding: 0;
   position: relative;
+}
+
+.dark .billing-hero {
+  background: linear-gradient(
+    145deg,
+    rgba(99, 102, 241, 0.14) 0%,
+    rgba(255, 255, 255, 0.06) 60%,
+    rgba(14, 165, 233, 0.08) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 24px rgba(0, 0, 0, 0.25);
 }
 
 .billing-hero::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse at 80% 20%, rgba(255, 255, 255, 0.08) 0%, transparent 60%);
+  background: radial-gradient(ellipse at 90% 0%, rgba(99, 102, 241, 0.07) 0%, transparent 55%);
   pointer-events: none;
 }
 
 .billing-hero-inner {
   position: relative;
   z-index: 1;
-  max-width: 560px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  align-items: center;
+  padding: 48px;
+}
+
+.billing-hero-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .billing-hero-eyebrow {
@@ -2273,29 +2307,51 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.22);
   border-radius: 999px;
   padding: 4px 12px 4px 10px;
   margin-bottom: 20px;
 }
 
+.dark .billing-hero-eyebrow {
+  color: rgba(165, 180, 252, 0.95);
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.billing-hero-eyebrow img {
+  filter: invert(35%) sepia(80%) saturate(500%) hue-rotate(210deg);
+}
+
+.dark .billing-hero-eyebrow img {
+  filter: invert(75%) sepia(20%) saturate(400%) hue-rotate(210deg) brightness(1.2);
+}
+
 .billing-hero-title {
   font-family: var(--font-display), sans-serif;
-  font-size: 2.15rem;
+  font-size: 2.05rem;
   font-weight: 700;
-  color: #fff;
-  line-height: 1.2;
+  color: #0f172a;
+  line-height: 1.22;
   letter-spacing: -0.03em;
   margin: 0 0 14px;
 }
 
+.dark .billing-hero-title {
+  color: #f1f5f9;
+}
+
 .billing-hero-copy {
-  font-size: 0.975rem;
+  font-size: 0.9rem;
   line-height: 1.65;
-  color: rgba(255, 255, 255, 0.82);
+  color: #475569;
   margin: 0 0 28px;
+}
+
+.dark .billing-hero-copy {
+  color: rgba(203, 213, 225, 0.85);
 }
 
 .billing-hero-actions {
@@ -2309,8 +2365,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: #fff;
-  color: #4338ca;
+  background: #6366f1;
+  color: #fff;
   border: none;
   border-radius: 999px;
   padding: 11px 26px;
@@ -2320,49 +2376,108 @@
   cursor: pointer;
   transition:
     transform 0.15s ease,
-    box-shadow 0.15s ease;
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
 }
 
 .billing-hero-cta:hover {
+  background: #4f46e5;
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
 }
 
 .billing-hero-link {
   font-size: 13px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.82);
+  color: #6366f1;
   text-decoration: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.3);
   padding-bottom: 1px;
   transition:
     color 0.15s,
     border-color 0.15s;
 }
 
+.dark .billing-hero-link {
+  color: rgba(165, 180, 252, 0.9);
+  border-color: rgba(165, 180, 252, 0.35);
+}
+
 .billing-hero-link:hover {
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.7);
+  color: #4f46e5;
+  border-color: #4f46e5;
 }
 
-.billing-hero-feats {
+.dark .billing-hero-link:hover {
+  color: rgba(199, 210, 254, 1);
+  border-color: rgba(199, 210, 254, 0.7);
+}
+
+/* Right column feature tiles */
+.billing-hero-right {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.billing-hero-feat-tile {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 24px;
+  align-items: flex-start;
+  gap: 11px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  padding: 16px;
+  transition: box-shadow 0.15s;
 }
 
-.billing-hero-feat-chip {
-  display: inline-flex;
+.billing-hero-feat-tile:hover {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.05);
+}
+
+.dark .billing-hero-feat-tile {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.billing-hero-feat-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(99, 102, 241, 0.1);
+  display: flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.9);
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dark .billing-hero-feat-icon {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.billing-hero-feat-title {
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 2px;
+  line-height: 1.3;
+}
+
+.dark .billing-hero-feat-title {
+  color: #f1f5f9;
+}
+
+.billing-hero-feat-tag {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.dark .billing-hero-feat-tag {
+  color: rgba(148, 163, 184, 0.8);
 }
 
 /* ── Section headings ── */
@@ -3044,7 +3159,17 @@
 /* ── Responsive ── */
 @media (max-width: 640px) {
   .billing-hero {
-    padding: 36px 24px 32px;
+    padding: 0;
+  }
+
+  .billing-hero-inner {
+    grid-template-columns: 1fr;
+    padding: 32px 24px;
+    gap: 20px;
+  }
+
+  .billing-hero-right {
+    grid-template-columns: 1fr 1fr;
   }
 
   .billing-hero-title {
