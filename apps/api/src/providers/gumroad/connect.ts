@@ -12,13 +12,19 @@ import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
 import { logger } from '../../lib/logger';
 import { getStateStore } from '../../lib/stateStore';
+import { createVerificationRoutes } from '../../verification/sessionManager';
 import type { ConnectContext, ConnectPlugin, ConnectRoute } from '../types';
 import { generateSecureRandom } from '../types';
+import {
+  GUMROAD_CONNECT_STATE_PREFIX,
+  GUMROAD_SHARED_CALLBACK_PATH,
+  isGumroadConnectState,
+  toGumroadVerificationConfig,
+} from './oauth';
 
 const CREDENTIAL_PURPOSE = GUMROAD_PURPOSES.credential;
 const REFRESH_TOKEN_PURPOSE = GUMROAD_PURPOSES.refreshToken;
 
-const GUMROAD_STATE_PREFIX = 'connect_gumroad:';
 const GUMROAD_STATE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -66,10 +72,10 @@ async function gumroadBegin(request: Request, ctx: ConnectContext): Promise<Resp
 
   authUserId = authUserId ?? session?.user?.id ?? null;
 
-  const state = `connect_gumroad:${authUserId ?? 'personal'}:${generateSecureRandom(48)}`;
+  const state = `${GUMROAD_CONNECT_STATE_PREFIX}${authUserId ?? 'personal'}:${generateSecureRandom(48)}`;
   const store = getStateStore();
   await store.set(
-    `${GUMROAD_STATE_PREFIX}${state}`,
+    `${GUMROAD_CONNECT_STATE_PREFIX}${state}`,
     JSON.stringify({
       authUserId: authUserId ?? null,
       guildId: guildId ?? null,
@@ -80,7 +86,10 @@ async function gumroadBegin(request: Request, ctx: ConnectContext): Promise<Resp
 
   const authUrl = new URL('https://gumroad.com/oauth/authorize');
   authUrl.searchParams.set('client_id', cfg.gumroadClientId);
-  authUrl.searchParams.set('redirect_uri', `${config.apiBaseUrl}/api/connect/gumroad/callback`);
+  authUrl.searchParams.set(
+    'redirect_uri',
+    `${config.apiBaseUrl.replace(/\/$/, '')}${GUMROAD_SHARED_CALLBACK_PATH}`
+  );
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('scope', 'view_profile view_sales');
   authUrl.searchParams.set('state', state);
@@ -112,8 +121,16 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
   };
 
   const url = new URL(request.url);
-  const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
+  if (state && !isGumroadConnectState(state)) {
+    const delegatedUrl = new URL(request.url);
+    delegatedUrl.pathname = '/api/verification/callback/gumroad';
+    return createVerificationRoutes(toGumroadVerificationConfig(config)).handleVerificationCallback(
+      new Request(delegatedUrl.toString(), request)
+    );
+  }
+
+  const code = url.searchParams.get('code');
   const error = url.searchParams.get('error');
 
   if (error) {
@@ -126,11 +143,11 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
   }
 
   const store = getStateStore();
-  const raw = await store.get(`${GUMROAD_STATE_PREFIX}${state}`);
+  const raw = await store.get(`${GUMROAD_CONNECT_STATE_PREFIX}${state}`);
   if (!raw) {
     return Response.redirect(buildDashboardRedirect({ error: 'invalid_state' }), 302);
   }
-  await store.delete(`${GUMROAD_STATE_PREFIX}${state}`);
+  await store.delete(`${GUMROAD_CONNECT_STATE_PREFIX}${state}`);
 
   const {
     authUserId,
@@ -166,7 +183,7 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
         client_id: gumroadClientId,
         client_secret: gumroadClientSecret,
         code,
-        redirect_uri: `${config.apiBaseUrl}/api/connect/gumroad/callback`,
+        redirect_uri: `${config.apiBaseUrl.replace(/\/$/, '')}${GUMROAD_SHARED_CALLBACK_PATH}`,
         grant_type: 'authorization_code',
       }).toString(),
     });
@@ -374,7 +391,7 @@ async function gumroadCallback(request: Request, ctx: ConnectContext): Promise<R
 
 const routes: ReadonlyArray<ConnectRoute> = [
   { method: 'GET', path: '/api/connect/gumroad/begin', handler: gumroadBegin },
-  { method: 'GET', path: '/api/connect/gumroad/callback', handler: gumroadCallback },
+  { method: 'GET', path: GUMROAD_SHARED_CALLBACK_PATH, handler: gumroadCallback },
 ];
 
 export const connect: ConnectPlugin = {

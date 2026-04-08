@@ -181,6 +181,7 @@ export interface BuyerLinkOAuthConfig {
   scopes: readonly string[];
   callbackPath: string;
   callbackOrigin?: 'api' | 'frontend';
+  callbackHandler?: 'verification-route' | 'connect-plugin';
   clientIdKey?: string;
   clientSecretKey?: string;
   extraOAuthParams?: Readonly<Record<string, string>>;

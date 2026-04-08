@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { AccountInlineError } from '@/components/account/AccountPage';
+import { DashboardPackageRegistrySkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
-import { YucpButton } from '@/components/ui/YucpButton';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import {
   archiveCreatorPackage,
@@ -13,6 +13,7 @@ import {
   renameCreatorPackage,
   restoreCreatorPackage,
 } from '@/lib/packages';
+import { copyToClipboard } from '@/lib/utils';
 
 interface PackageRegistryPanelProps {
   className?: string;
@@ -37,12 +38,373 @@ function updatePackageListCache(
   };
 }
 
-function formatPackageTimestamp(timestamp: number) {
-  return new Date(timestamp).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
+function formatRelativeTime(timestamp: number): string {
+  const diffMs = Date.now() - timestamp;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 30) return `${diffDays}d ago`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths < 12) return `${diffMonths}mo ago`;
+  return new Date(timestamp).toLocaleDateString(undefined, { year: 'numeric', month: 'short' });
+}
+
+// SVG icon helpers
+function IconPackage() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  );
+}
+
+function IconPencil() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+
+function IconArchive() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="21 8 21 21 3 21 3 8" />
+      <rect x="1" y="3" width="22" height="5" />
+      <line x1="10" y1="12" x2="14" y2="12" />
+    </svg>
+  );
+}
+
+function IconRestore() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="1 4 1 10 7 10" />
+      <path d="M3.51 15a9 9 0 1 0 .49-4.95" />
+    </svg>
+  );
+}
+
+function IconTrash() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4h6v2" />
+    </svg>
+  );
+}
+
+function IconCopy() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function IconChevronDown({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+type PackageRowProps = {
+  pkg: CreatorPackageSummary;
+  isEditing: boolean;
+  editName: string;
+  isSaving: boolean;
+  isDeleting: boolean;
+  isArchiving: boolean;
+  isRestoring: boolean;
+  archived: boolean;
+  onEditStart: () => void;
+  onEditCancel: () => void;
+  onEditChange: (name: string) => void;
+  onSave: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
+  onDelete: () => void;
+  onCopyId: () => void;
+};
+
+function PackageRow({
+  pkg,
+  isEditing,
+  editName,
+  isSaving,
+  isDeleting,
+  isArchiving,
+  isRestoring,
+  archived,
+  onEditStart,
+  onEditCancel,
+  onEditChange,
+  onSave,
+  onArchive,
+  onRestore,
+  onDelete,
+  onCopyId,
+}: PackageRowProps) {
+  const nameChanged = editName.trim() !== (pkg.packageName ?? '').trim();
+  const busy = isSaving || isDeleting || isArchiving || isRestoring;
+
+  return (
+    <div className={`pkg-row${archived ? ' pkg-row--archived' : ''}`}>
+      <div className="pkg-row__icon">
+        <IconPackage />
+      </div>
+
+      <div className="pkg-row__body">
+        {isEditing ? (
+          <input
+            className="pkg-row__name-input"
+            value={editName}
+            // biome-ignore lint/a11y/noAutofocus: inline rename input needs focus to start editing
+            autoFocus
+            disabled={isSaving}
+            onChange={(e) => onEditChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && nameChanged && !isSaving) onSave();
+              if (e.key === 'Escape') onEditCancel();
+            }}
+            aria-label="Package name"
+          />
+        ) : (
+          <span className="pkg-row__name">
+            {pkg.packageName || <em style={{ opacity: 0.5 }}>Unnamed</em>}
+          </span>
+        )}
+
+        <div className="pkg-row__id-row">
+          <span className="pkg-row__id">{pkg.packageId}</span>
+          <button
+            type="button"
+            className="pkg-row__copy-btn"
+            onClick={onCopyId}
+            title="Copy package ID"
+            aria-label="Copy package ID"
+          >
+            <IconCopy />
+          </button>
+          <span className="pkg-row__meta">· Updated {formatRelativeTime(pkg.updatedAt)}</span>
+        </div>
+      </div>
+
+      <span className={`status-pill ${archived ? 'disconnected' : 'connected'}`}>
+        {archived ? 'Archived' : 'Active'}
+      </span>
+
+      <div className="pkg-row__right">
+        {isEditing ? (
+          <>
+            <button
+              type="button"
+              className="pkg-row__action-btn"
+              disabled={!nameChanged || isSaving}
+              onClick={onSave}
+              title={isSaving ? 'Saving…' : 'Save name'}
+              aria-label="Save package name"
+              style={{ color: nameChanged && !isSaving ? '#0ea5e9' : undefined }}
+            >
+              {isSaving ? (
+                <span className="btn-loading-spinner" aria-hidden="true" />
+              ) : (
+                <svg
+                  aria-hidden="true"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              className="pkg-row__action-btn"
+              disabled={isSaving}
+              onClick={onEditCancel}
+              title="Cancel edit"
+              aria-label="Cancel edit"
+            >
+              <svg
+                aria-hidden="true"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </>
+        ) : (
+          <>
+            {!archived && pkg.canArchive !== false ? (
+              <button
+                type="button"
+                className="pkg-row__action-btn"
+                disabled={busy}
+                onClick={onEditStart}
+                title="Rename package"
+                aria-label="Rename package"
+              >
+                <IconPencil />
+              </button>
+            ) : null}
+
+            {archived ? (
+              <button
+                type="button"
+                className="pkg-row__action-btn"
+                disabled={busy || !pkg.canRestore}
+                onClick={onRestore}
+                title={isRestoring ? 'Restoring…' : 'Restore package'}
+                aria-label="Restore package"
+              >
+                {isRestoring ? (
+                  <span
+                    className="btn-loading-spinner"
+                    aria-hidden="true"
+                    style={{ width: '14px', height: '14px' }}
+                  />
+                ) : (
+                  <IconRestore />
+                )}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="pkg-row__action-btn"
+                disabled={busy || !pkg.canArchive}
+                onClick={onArchive}
+                title={isArchiving ? 'Archiving…' : 'Archive package'}
+                aria-label="Archive package"
+              >
+                {isArchiving ? (
+                  <span
+                    className="btn-loading-spinner"
+                    aria-hidden="true"
+                    style={{ width: '14px', height: '14px' }}
+                  />
+                ) : (
+                  <IconArchive />
+                )}
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="pkg-row__action-btn pkg-row__action-btn--danger"
+              disabled={busy || !pkg.canDelete}
+              onClick={onDelete}
+              title={isDeleting ? 'Removing…' : 'Delete package'}
+              aria-label="Delete package"
+            >
+              {isDeleting ? (
+                <span
+                  className="btn-loading-spinner"
+                  aria-hidden="true"
+                  style={{ width: '14px', height: '14px' }}
+                />
+              ) : (
+                <IconTrash />
+              )}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function PackageRegistryPanel({
@@ -53,7 +415,8 @@ export function PackageRegistryPanel({
   const queryClient = useQueryClient();
   const toast = useToast();
   const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
-  const [draftNames, setDraftNames] = useState<Record<string, string>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
   const [pendingSaveId, setPendingSaveId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingArchiveId, setPendingArchiveId] = useState<string | null>(null);
@@ -73,25 +436,11 @@ export function PackageRegistryPanel({
     }
   }, [markSessionExpired, packagesQuery.error]);
 
-  useEffect(() => {
-    if (!packagesQuery.data?.packages) {
-      return;
-    }
-    setDraftNames((current) => {
-      const next = { ...current };
-      for (const pkg of packagesQuery.data.packages) {
-        if (!(pkg.packageId in next)) {
-          next[pkg.packageId] = pkg.packageName ?? '';
-        }
-      }
-      return next;
-    });
-  }, [packagesQuery.data?.packages]);
-
   const renameMutation = useMutation({
     mutationFn: renameCreatorPackage,
     onMutate: ({ packageId }) => setPendingSaveId(packageId),
     onSuccess: async () => {
+      setEditingId(null);
       await queryClient.invalidateQueries({ queryKey: creatorPackagesQueryKey });
       toast.success('Package name saved');
     },
@@ -202,13 +551,20 @@ export function PackageRegistryPanel({
 
   const packages = useMemo(
     () =>
-      [...(packagesQuery.data?.packages ?? [])].sort((left, right) =>
-        (left.packageName ?? left.packageId).localeCompare(right.packageName ?? right.packageId)
+      [...(packagesQuery.data?.packages ?? [])].sort((a, b) =>
+        (a.packageName ?? a.packageId).localeCompare(b.packageName ?? b.packageId)
       ),
     [packagesQuery.data?.packages]
   );
   const activePackages = packages.filter((pkg) => pkg.status === 'active');
   const archivedPackages = packages.filter((pkg) => pkg.status === 'archived');
+
+  function handleCopyId(packageId: string) {
+    copyToClipboard(packageId).then((ok) => {
+      if (ok) toast.success('Package ID copied');
+      else toast.error('Could not copy to clipboard');
+    });
+  }
 
   return (
     <section className={className}>
@@ -222,7 +578,17 @@ export function PackageRegistryPanel({
           />
         </div>
         <div className="intg-copy">
-          <h2 className="intg-title">{title}</h2>
+          <h2 className="intg-title">
+            {title}
+            {activePackages.length > 0 ? (
+              <span
+                className="status-pill connected"
+                style={{ marginLeft: '10px', fontSize: '11px', verticalAlign: 'middle' }}
+              >
+                {activePackages.length} active
+              </span>
+            ) : null}
+          </h2>
           <p className="intg-desc">{description}</p>
         </div>
       </div>
@@ -232,20 +598,7 @@ export function PackageRegistryPanel({
       ) : null}
 
       {packagesQuery.isLoading ? (
-        <div className="account-empty">
-          <div className="account-empty-icon">
-            <img
-              src="/Icons/Library.png"
-              alt=""
-              aria-hidden="true"
-              style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.45 }}
-            />
-          </div>
-          <p className="account-empty-title">Loading package registry...</p>
-          <p className="account-empty-desc">
-            Pulling your current package IDs so certificates and forensics stay aligned.
-          </p>
-        </div>
+        <DashboardPackageRegistrySkeleton rows={3} />
       ) : packages.length === 0 ? (
         <div className="account-empty">
           <div className="account-empty-icon">
@@ -263,182 +616,82 @@ export function PackageRegistryPanel({
           </p>
         </div>
       ) : (
-        <div style={{ display: 'grid', gap: '18px' }}>
-          <div>
-            <div className="account-list-section-title">Active Packages</div>
-            {activePackages.length === 0 ? (
-              <p className="account-form-hint" style={{ marginTop: '10px' }}>
-                No active packages right now. Restore an archived package to reuse it in Unity or
-                forensics.
-              </p>
-            ) : (
-              <div className="account-list">
-                {activePackages.map((pkg) => {
-                  const draftName = draftNames[pkg.packageId] ?? pkg.packageName ?? '';
-                  const isSaving = pendingSaveId === pkg.packageId && renameMutation.isPending;
-                  const isDeleting = pendingDeleteId === pkg.packageId && deleteMutation.isPending;
-                  const isArchiving =
-                    pendingArchiveId === pkg.packageId && archiveMutation.isPending;
-
-                  return (
-                    <div key={pkg.packageId} className="account-list-row">
-                      <div className="account-list-row-info" style={{ width: '100%' }}>
-                        <label
-                          className="account-form-label"
-                          htmlFor={`package-name-${pkg.packageId}`}
-                        >
-                          Package Name
-                        </label>
-                        <input
-                          id={`package-name-${pkg.packageId}`}
-                          className="account-input"
-                          value={draftName}
-                          disabled={isSaving || isDeleting || isArchiving}
-                          onChange={(event) =>
-                            setDraftNames((current) => ({
-                              ...current,
-                              [pkg.packageId]: event.target.value,
-                            }))
-                          }
-                        />
-                        <div className="account-list-row-meta" style={{ marginTop: '8px' }}>
-                          <span>{pkg.packageId}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>Registered {formatPackageTimestamp(pkg.registeredAt)}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>Updated {formatPackageTimestamp(pkg.updatedAt)}</span>
-                        </div>
-                        {!pkg.canDelete && pkg.deleteBlockedReason ? (
-                          <p className="account-form-hint" style={{ marginTop: '8px' }}>
-                            {pkg.deleteBlockedReason}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="account-list-row-actions">
-                        <YucpButton
-                          yucp="secondary"
-                          isLoading={isSaving}
-                          isDisabled={
-                            isSaving ||
-                            isDeleting ||
-                            isArchiving ||
-                            !draftName.trim() ||
-                            draftName.trim() === (pkg.packageName ?? '').trim()
-                          }
-                          onClick={() =>
-                            renameMutation.mutate({
-                              packageId: pkg.packageId,
-                              packageName: draftName.trim(),
-                            })
-                          }
-                        >
-                          {isSaving ? 'Saving...' : 'Save Name'}
-                        </YucpButton>
-                        <YucpButton
-                          yucp="secondary"
-                          isLoading={isArchiving}
-                          isDisabled={isSaving || isDeleting || isArchiving || !pkg.canArchive}
-                          onClick={() => archiveMutation.mutate({ packageId: pkg.packageId })}
-                        >
-                          {isArchiving ? 'Archiving...' : 'Archive'}
-                        </YucpButton>
-                        <YucpButton
-                          yucp="secondary"
-                          isLoading={isDeleting}
-                          isDisabled={isSaving || isDeleting || isArchiving || !pkg.canDelete}
-                          onClick={() => deleteMutation.mutate({ packageId: pkg.packageId })}
-                        >
-                          {isDeleting ? 'Removing...' : 'Delete'}
-                        </YucpButton>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+        <div className="pkg-registry">
+          <div className="pkg-section-title">Active Packages ({activePackages.length})</div>
+          {activePackages.length === 0 ? (
+            <p className="account-form-hint">
+              No active packages. Restore an archived package to reuse it in Unity or forensics.
+            </p>
+          ) : (
+            <div className="pkg-list">
+              {activePackages.map((pkg) => (
+                <PackageRow
+                  key={pkg.packageId}
+                  pkg={pkg}
+                  archived={false}
+                  isEditing={editingId === pkg.packageId}
+                  editName={editingId === pkg.packageId ? editingName : (pkg.packageName ?? '')}
+                  isSaving={pendingSaveId === pkg.packageId && renameMutation.isPending}
+                  isDeleting={pendingDeleteId === pkg.packageId && deleteMutation.isPending}
+                  isArchiving={pendingArchiveId === pkg.packageId && archiveMutation.isPending}
+                  isRestoring={false}
+                  onEditStart={() => {
+                    setEditingId(pkg.packageId);
+                    setEditingName(pkg.packageName ?? '');
+                  }}
+                  onEditCancel={() => setEditingId(null)}
+                  onEditChange={setEditingName}
+                  onSave={() =>
+                    renameMutation.mutate({
+                      packageId: pkg.packageId,
+                      packageName: editingName.trim(),
+                    })
+                  }
+                  onArchive={() => archiveMutation.mutate({ packageId: pkg.packageId })}
+                  onRestore={() => {}}
+                  onDelete={() => deleteMutation.mutate({ packageId: pkg.packageId })}
+                  onCopyId={() => handleCopyId(pkg.packageId)}
+                />
+              ))}
+            </div>
+          )}
 
           {archivedPackages.length > 0 ? (
-            <div>
-              <YucpButton
-                yucp="secondary"
-                className="w-full justify-between"
+            <div className="pkg-archived-section">
+              <button
+                type="button"
+                className="pkg-archive-toggle"
                 aria-expanded={isArchivedExpanded}
-                onClick={() => setIsArchivedExpanded((current) => !current)}
+                onClick={() => setIsArchivedExpanded((v) => !v)}
               >
+                <IconArchive />
                 <span>Archived Packages ({archivedPackages.length})</span>
-                <span aria-hidden="true">{isArchivedExpanded ? 'Hide' : 'Show'}</span>
-              </YucpButton>
+                <IconChevronDown expanded={isArchivedExpanded} />
+              </button>
               {isArchivedExpanded ? (
-                <>
-                  <p
-                    className="account-form-hint"
-                    style={{ marginTop: '10px', marginBottom: '12px' }}
-                  >
-                    Archived packages stay in audit history, disappear from forensics selectors, and
-                    cannot be updated until restored.
-                  </p>
-                  <div className="account-list">
-                    {archivedPackages.map((pkg) => {
-                      const draftName = draftNames[pkg.packageId] ?? pkg.packageName ?? '';
-                      const isDeleting =
-                        pendingDeleteId === pkg.packageId && deleteMutation.isPending;
-                      const isRestoring =
-                        pendingRestoreId === pkg.packageId && restoreMutation.isPending;
-
-                      return (
-                        <div key={pkg.packageId} className="account-list-row">
-                          <div className="account-list-row-info" style={{ width: '100%' }}>
-                            <label
-                              className="account-form-label"
-                              htmlFor={`package-name-${pkg.packageId}`}
-                            >
-                              Package Name
-                            </label>
-                            <input
-                              id={`package-name-${pkg.packageId}`}
-                              className="account-input"
-                              value={draftName}
-                              disabled
-                              readOnly
-                            />
-                            <div className="account-list-row-meta" style={{ marginTop: '8px' }}>
-                              <span>{pkg.packageId}</span>
-                              <span aria-hidden="true">·</span>
-                              <span>
-                                Archived {formatPackageTimestamp(pkg.archivedAt ?? pkg.updatedAt)}
-                              </span>
-                              <span aria-hidden="true">·</span>
-                              <span>Updated {formatPackageTimestamp(pkg.updatedAt)}</span>
-                            </div>
-                            <p className="account-form-hint" style={{ marginTop: '8px' }}>
-                              Archived packages are hidden from forensics and blocked from signing
-                              updates until restored.
-                            </p>
-                          </div>
-                          <div className="account-list-row-actions">
-                            <YucpButton
-                              yucp="secondary"
-                              isLoading={isRestoring}
-                              isDisabled={isDeleting || isRestoring || !pkg.canRestore}
-                              onClick={() => restoreMutation.mutate({ packageId: pkg.packageId })}
-                            >
-                              {isRestoring ? 'Restoring...' : 'Restore'}
-                            </YucpButton>
-                            <YucpButton
-                              yucp="secondary"
-                              isLoading={isDeleting}
-                              isDisabled={isDeleting || isRestoring || !pkg.canDelete}
-                              onClick={() => deleteMutation.mutate({ packageId: pkg.packageId })}
-                            >
-                              {isDeleting ? 'Removing...' : 'Delete'}
-                            </YucpButton>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
+                <div className="pkg-list pkg-list--archived">
+                  {archivedPackages.map((pkg) => (
+                    <PackageRow
+                      key={pkg.packageId}
+                      pkg={pkg}
+                      archived
+                      isEditing={false}
+                      editName={pkg.packageName ?? ''}
+                      isSaving={false}
+                      isDeleting={pendingDeleteId === pkg.packageId && deleteMutation.isPending}
+                      isArchiving={false}
+                      isRestoring={pendingRestoreId === pkg.packageId && restoreMutation.isPending}
+                      onEditStart={() => {}}
+                      onEditCancel={() => {}}
+                      onEditChange={() => {}}
+                      onSave={() => {}}
+                      onArchive={() => {}}
+                      onRestore={() => restoreMutation.mutate({ packageId: pkg.packageId })}
+                      onDelete={() => deleteMutation.mutate({ packageId: pkg.packageId })}
+                      onCopyId={() => handleCopyId(pkg.packageId)}
+                    />
+                  ))}
+                </div>
               ) : null}
             </div>
           ) : null}

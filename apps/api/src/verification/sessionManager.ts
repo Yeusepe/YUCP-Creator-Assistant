@@ -1147,6 +1147,9 @@ export function mountVerificationRouteHandlers(
   routeMap.set('/api/verification/panel/refresh', routes.refreshVerifyPanel);
   for (const plugin of listBuyerLinkPlugins()) {
     const oauth = plugin.oauth;
+    if (oauth.callbackHandler === 'connect-plugin') {
+      continue;
+    }
     if ((oauth.responseType ?? 'code') === 'token') {
       routeMap.set(`/api/verification/finish/${oauth.mode}`, routes.finishImplicitVerification);
       continue;

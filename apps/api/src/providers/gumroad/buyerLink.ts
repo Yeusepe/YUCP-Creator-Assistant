@@ -1,6 +1,7 @@
 import { sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../../convex/_generated/api';
 import type { BuyerLinkPlugin } from '../types';
+import { GUMROAD_SHARED_CALLBACK_PATH } from './oauth';
 
 const GUMROAD_USER_URL = 'https://api.gumroad.com/v2/user';
 
@@ -48,7 +49,8 @@ export function createGumroadBuyerLinkPlugin(): BuyerLinkPlugin {
       authUrl: 'https://gumroad.com/oauth/authorize',
       tokenUrl: 'https://api.gumroad.com/oauth/token',
       scopes: ['view_profile', 'view_sales'],
-      callbackPath: '/api/verification/callback/gumroad',
+      callbackPath: GUMROAD_SHARED_CALLBACK_PATH,
+      callbackHandler: 'connect-plugin',
       clientIdKey: 'gumroadClientId',
       clientSecretKey: 'gumroadClientSecret',
     },

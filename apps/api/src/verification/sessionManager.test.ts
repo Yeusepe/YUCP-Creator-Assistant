@@ -15,6 +15,7 @@ import {
   generateCodeVerifier,
   generateState,
   hashVerifier,
+  mountVerificationRouteHandlers,
   SESSION_EXPIRY_MS,
 } from './sessionManager';
 import { getVerificationConfig, type VerificationConfig } from './verificationConfig';
@@ -264,6 +265,10 @@ describe('VerificationSessionManager', () => {
       expect(result.authUrl).toBeDefined();
       expect(result.authUrl).toContain('gumroad.com/oauth/authorize');
       expect(result.expiresAt).toBeGreaterThan(Date.now());
+      const authUrl = new URL(result.authUrl ?? '');
+      expect(authUrl.searchParams.get('redirect_uri')).toBe(
+        'http://localhost:3001/api/connect/gumroad/callback'
+      );
     });
 
     it('creates session with discord_role mode', async () => {
@@ -380,6 +385,11 @@ describe('Verification Routes', () => {
       expect(routes.handleVerificationCallback).toBeDefined();
       expect(routes.completeVerification).toBeDefined();
       expect(routes.completeLicenseVerification).toBeDefined();
+    });
+
+    it('does not mount Gumroad callback routes that are owned by the connect plugin', () => {
+      const routeMap = mountVerificationRouteHandlers(createVerificationRoutes(testConfig));
+      expect(routeMap.has('/api/connect/gumroad/callback')).toBe(false);
     });
   });
 });
