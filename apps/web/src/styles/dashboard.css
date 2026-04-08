@@ -2775,7 +2775,7 @@ img.collab-avatar {
 
 /* ── Light mode sidebar overrides ── */
 
-:not(.dark) .sidebar {
+html:not(.dark) .sidebar {
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(24px) saturate(160%);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
@@ -2783,61 +2783,61 @@ img.collab-avatar {
   box-shadow: 4px 0 24px rgba(0, 0, 0, 0.07);
 }
 
-:not(.dark) .sidebar-logo-area {
+html:not(.dark) .sidebar-logo-area {
   border-bottom: 1px solid rgba(0, 0, 0, 0.07);
 }
 
-:not(.dark) .sidebar-brand-name {
+html:not(.dark) .sidebar-brand-name {
   color: #0f172a;
 }
 
-:not(.dark) .sidebar-server-pill {
+html:not(.dark) .sidebar-server-pill {
   background: rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(0, 0, 0, 0.08);
   color: rgba(0, 0, 0, 0.65);
 }
 
-:not(.dark) .sidebar-server-name {
+html:not(.dark) .sidebar-server-name {
   color: rgba(0, 0, 0, 0.75);
 }
 
-:not(.dark) .sidebar-server-chevron {
+html:not(.dark) .sidebar-server-chevron {
   color: rgba(0, 0, 0, 0.4);
 }
 
-:not(.dark) .sidebar-nav-label {
+html:not(.dark) .sidebar-nav-label {
   color: rgba(0, 0, 0, 0.36);
 }
 
-:not(.dark) .sidebar-nav-btn {
+html:not(.dark) .sidebar-nav-btn {
   color: rgba(0, 0, 0, 0.62);
 }
 
-:not(.dark) .sidebar-nav-btn:hover {
+html:not(.dark) .sidebar-nav-btn:hover {
   background: rgba(0, 0, 0, 0.05);
   color: rgba(0, 0, 0, 0.85);
 }
 
-:not(.dark) .sidebar-nav-btn.is-active {
+html:not(.dark) .sidebar-nav-btn.is-active {
   background: rgba(0, 0, 0, 0.07);
   color: rgba(0, 0, 0, 0.95);
 }
 
-:not(.dark) .sidebar-nav-btn.is-active::before {
+html:not(.dark) .sidebar-nav-btn.is-active::before {
   background: #0ea5e9;
 }
 
-:not(.dark) .sidebar-nav-soon {
+html:not(.dark) .sidebar-nav-soon {
   color: rgba(0, 0, 0, 0.5);
   background: rgba(0, 0, 0, 0.05);
   border-color: rgba(0, 0, 0, 0.09);
 }
 
-:not(.dark) .sidebar-footer {
+html:not(.dark) .sidebar-footer {
   border-top: 1px solid rgba(0, 0, 0, 0.07);
 }
 
-:not(.dark) .sidebar-logo-img {
+html:not(.dark) .sidebar-logo-img {
   filter: brightness(0);
 }
 
