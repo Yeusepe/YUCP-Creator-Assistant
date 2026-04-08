@@ -8,8 +8,11 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import { decrypt, encrypt } from './encrypt';
-import { createSetupSession, deleteSetupSession, resolveSetupSession } from './setupSession';
+
+const { decrypt, encrypt } = await import('./encrypt');
+const { createSetupSession, deleteSetupSession, resolveSetupSession } = await import(
+  './setupSession'
+);
 
 const originalNow = Date.now;
 const createdTokens = new Set<string>();

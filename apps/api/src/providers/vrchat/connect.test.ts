@@ -6,7 +6,7 @@
  * - POST /api/connect/vrchat/session → validates token, calls VrchatApiClient, stores session
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { InMemoryStateStore } from '../../lib/stateStore';
 import type { ConnectContext } from '../types';
 
@@ -71,6 +71,10 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 const MOCK_CONFIG = {

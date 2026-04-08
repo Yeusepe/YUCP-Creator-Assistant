@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { AuthResult } from './auth';
 
 // --- Module mocks (must appear before any import that transitively uses them) ---
@@ -108,6 +108,10 @@ beforeEach(() => {
     if (fn === apiMock.creatorEvents.emitEvent) return undefined;
     throw new Error(`Unhandled mutation: ${String(fn)}`);
   };
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 describe('handleWebhooksRoutes', () => {

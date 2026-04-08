@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { CredentialExpiredError } from '@yucp/providers/contracts';
 import type { ConvexServerClient } from '../../lib/convex';
 
@@ -108,6 +108,10 @@ afterEach(() => {
   ]);
   encryptMock.mockImplementation(async (value: string) => `enc:${value}`);
   decryptMock.mockImplementation(async (value: string) => value.replace(/^enc:/, ''));
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 function makeCtx() {

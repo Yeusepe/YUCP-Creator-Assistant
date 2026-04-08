@@ -1,8 +1,21 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 import type { VrchatCurrentUser } from '@yucp/providers';
 import type { VrchatSessionTokens } from '@yucp/providers/vrchat';
 import type { VrchatInternalResponse } from '../auth';
-import {
+
+const apiMock = {
+  subjects: {
+    ensureSubjectForDiscord: 'subjects.ensureSubjectForDiscord',
+  },
+} as const;
+
+mock.module('../../../../convex/_generated/api', () => ({
+  api: apiMock,
+  internal: {},
+  components: {},
+}));
+
+const {
   buildSessionFromAuthResult,
   clearStoredVrchatSession,
   ensureVrchatSubjectId,
@@ -10,9 +23,9 @@ import {
   getStoredVrchatSession,
   parseTwoFactorType,
   persistVrchatSession,
-  type VrchatSessionAuthClient,
-  type VrchatSubjectLookupClient,
-} from './vrchatSession';
+} = await import('./vrchatSession');
+type VrchatSessionAuthClient = import('./vrchatSession').VrchatSessionAuthClient;
+type VrchatSubjectLookupClient = import('./vrchatSession').VrchatSubjectLookupClient;
 
 function createAuthResponse(
   response: Response,

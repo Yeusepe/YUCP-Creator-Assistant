@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Auth } from '../auth';
 
 const apiMock = {
@@ -112,6 +112,10 @@ async function signBody(secret: string, body: string) {
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
 }
+
+afterAll(() => {
+  mock.restore();
+});
 
 describe('provider platform routes', () => {
   const originalFetch = globalThis.fetch;
