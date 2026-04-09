@@ -1009,7 +1009,7 @@ http.route({
         publisherName: body.publisherName,
         error: raw || String(err),
       });
-      return errorResponse('Certificate issuance failed', 500);
+      return errorResponse(raw || String(err), 500);
     }
 
     return jsonResponse({ success: true, certificate: envelope });
