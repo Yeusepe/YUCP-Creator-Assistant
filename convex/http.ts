@@ -993,6 +993,22 @@ http.route({
       if (raw.includes('already has an active certificate')) {
         return errorResponse('An active certificate already exists for this key', 409);
       }
+      if (raw.includes('already registered to a different user')) {
+        console.warn('Certificate issuance conflict', {
+          yucpUserId,
+          publisherName: body.publisherName,
+          error: raw,
+        });
+        return errorResponse(
+          'This dev key is already registered to another YUCP account. Restore the existing certificate or rotate the local dev key before requesting a new one.',
+          409
+        );
+      }
+      console.error('Certificate issuance failed', {
+        yucpUserId,
+        publisherName: body.publisherName,
+        error: raw || String(err),
+      });
       return errorResponse('Certificate issuance failed', 500);
     }
 
