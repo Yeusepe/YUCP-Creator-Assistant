@@ -250,9 +250,13 @@ export function bytesToBase64(bytes: Uint8Array): string {
  * Utility: Convert base64 string to Uint8Array.
  */
 export function base64ToBytes(base64: string): Uint8Array {
+  const normalized = base64.trim().replaceAll('-', '+').replaceAll('_', '/');
+  const padLength = (4 - (normalized.length % 4 || 4)) % 4;
+  const padded = `${normalized}${'='.repeat(padLength)}`;
+
   if (typeof Buffer !== 'undefined') {
-    return new Uint8Array(Buffer.from(base64, 'base64'));
+    return new Uint8Array(Buffer.from(padded, 'base64'));
   }
-  const binary = atob(base64);
+  const binary = atob(padded);
   return new Uint8Array([...binary].map((c) => c.charCodeAt(0)));
 }

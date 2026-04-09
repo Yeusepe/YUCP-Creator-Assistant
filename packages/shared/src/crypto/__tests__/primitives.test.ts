@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  base64ToBytes,
   base64UrlDecodeToBytes,
   base64UrlEncode,
   bytesToHex,
@@ -16,6 +17,19 @@ describe('crypto primitives', () => {
 
     expect(encoded).toBe('AAEC-vv8_f7_');
     expect(base64UrlDecodeToBytes(encoded)).toEqual(bytes);
+  });
+
+  it('accepts base64url input in the base64 decoder', () => {
+    const originalBuffer = globalThis.Buffer;
+
+    try {
+      Object.assign(globalThis, { Buffer: undefined });
+      expect(base64ToBytes('AAEC-vv8_f7_')).toEqual(
+        new Uint8Array([0, 1, 2, 250, 251, 252, 253, 254, 255])
+      );
+    } finally {
+      Object.assign(globalThis, { Buffer: originalBuffer });
+    }
   });
 
   it('hashes strings to sha256 hex', async () => {
