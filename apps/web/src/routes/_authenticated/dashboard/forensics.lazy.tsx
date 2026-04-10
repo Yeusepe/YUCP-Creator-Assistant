@@ -584,7 +584,7 @@ export default function DashboardForensics() {
                         )}
 
                         <div className="forensics-buyer-meta-row">
-                          <dt className="forensics-buyer-meta-key">Purchased</dt>
+                          <dt className="forensics-buyer-meta-key">Trace recorded</dt>
                           <dd className="forensics-buyer-meta-val">{formatBuyerDate(buyer.createdAt)}</dd>
                         </div>
 
