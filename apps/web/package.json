@@ -14,6 +14,7 @@
     "test": "vitest run --config vitest.config.ts",
     "test:ci": "vitest run --config vitest.config.ts",
     "test:e2e": "npx playwright test --config playwright.config.ts",
+    "test:e2e:forensics": "npx playwright test --config playwright.forensics.config.ts",
     "test:perf": "npx playwright test --config playwright.config.ts test/performance/"
   },
   "dependencies": {

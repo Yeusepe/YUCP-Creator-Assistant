@@ -88,22 +88,24 @@ async function fetchFromInfisical(): Promise<Record<string, string>> {
 async function loadLocalInfisicalEnvFile(
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd()
-): Promise<number> {
+): Promise<{ count: number; loadedKeys: Set<string> }> {
   const envFilePath = path.join(cwd, '.env.infisical');
   if (!existsSync(envFilePath)) {
-    return 0;
+    return { count: 0, loadedKeys: new Set() };
   }
 
   const envFile = await readFile(envFilePath, 'utf8');
   const parsed = parseDotenv(envFile);
   let loaded = 0;
+  const loadedKeys = new Set<string>();
   for (const [key, value] of Object.entries(parsed)) {
     if (value !== undefined && isEnvValueMissing(env[key])) {
       env[key] = value;
       loaded += 1;
+      loadedKeys.add(key);
     }
   }
-  return loaded;
+  return { count: loaded, loadedKeys };
 }
 
 // Load from process.env
@@ -201,11 +203,21 @@ let infisicalLoaded = false;
  * Call this at startup before any code that needs secrets.
  */
 export async function loadEnvAsync(): Promise<LocalEnv> {
+  const localInfisical = await loadLocalInfisicalEnvFile();
+  if (localInfisical.count > 0) {
+    logger.info('Loaded fallback secrets from local .env.infisical', {
+      count: localInfisical.count,
+    });
+  }
+
   const infisicalSecrets = await fetchFromInfisical();
   if (Object.keys(infisicalSecrets).length > 0 && !infisicalLoaded) {
     infisicalLoaded = true;
     for (const [key, value] of Object.entries(infisicalSecrets)) {
-      if (value !== undefined && isEnvValueMissing(process.env[key])) {
+      if (
+        value !== undefined &&
+        (isEnvValueMissing(process.env[key]) || localInfisical.loadedKeys.has(key))
+      ) {
         process.env[key] = value;
       }
     }
@@ -216,13 +228,6 @@ export async function loadEnvAsync(): Promise<LocalEnv> {
     logger.info('Loaded secrets from Infisical', {
       count: Object.keys(infisicalSecrets).length,
       infisicalEnv: process.env.INFISICAL_ENV ?? 'dev (default)',
-    });
-  }
-
-  const localInfisicalCount = await loadLocalInfisicalEnvFile();
-  if (localInfisicalCount > 0) {
-    logger.info('Loaded fallback secrets from local .env.infisical', {
-      count: localInfisicalCount,
     });
   }
 

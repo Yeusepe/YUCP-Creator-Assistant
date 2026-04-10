@@ -316,6 +316,111 @@ describe('forensics routes', () => {
     });
   });
 
+  it('treats empty forensic-score results as candidate assets with no recovered signals', async () => {
+    queryMock.mockImplementation(async () => {
+      throw new Error('Trace lookup should not run without decoded coupling findings');
+    });
+    mutationMock.mockResolvedValue(undefined);
+
+    const fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          requestId: 'req-empty',
+          results: [],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([10, 11, 12])], 'bundle.zip', { type: 'application/zip' })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      packageId: 'creator.package',
+      lookupStatus: 'tampered_suspected',
+      candidateAssetCount: 1,
+      decodedAssetCount: 0,
+      message: 'Candidate assets were found, but no valid coupling signals could be decoded',
+      results: [
+        {
+          assetPath: 'Assets/Character/body.png',
+          layerBClassification: 'no-signal-found',
+          matched: false,
+        },
+      ],
+    });
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(mutationMock).toHaveBeenCalledTimes(1);
+    expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
+      packageId: 'creator.package',
+      status: 'tampered_suspected',
+    });
+  });
+
+  it('returns a typed lookup failure when forensic-score returns an object error payload', async () => {
+    queryMock.mockImplementation(async () => {
+      throw new Error('Trace lookup should not run when the coupling service rejects the request');
+    });
+    mutationMock.mockResolvedValue(undefined);
+
+    const fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 'native_runtime_unavailable',
+            message: 'Native runtime is unavailable',
+          },
+        }),
+        {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([13, 14, 15])], 'bundle.zip', { type: 'application/zip' })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Coupling forensics lookup failed',
+    });
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(mutationMock).toHaveBeenCalledTimes(1);
+    expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
+      packageId: 'creator.package',
+      status: 'error',
+    });
+  });
+
   it('returns a hostile-unknown response when decoded coupling signals do not match an authorized trace record', async () => {
     const expectedTokenHash = sha256Hex('deadbeef');
 

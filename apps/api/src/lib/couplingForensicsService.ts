@@ -28,7 +28,12 @@ export type ForensicsScoreResult = {
 };
 
 type CouplingServiceResponse = {
-  error?: string;
+  error?:
+    | string
+    | {
+        code?: unknown;
+        message?: unknown;
+      };
   results?: Array<{
     assetPath?: string;
     assetType?: string;
@@ -39,7 +44,12 @@ type CouplingServiceResponse = {
 };
 
 type ForensicScoreServiceResponse = {
-  error?: string;
+  error?:
+    | string
+    | {
+        code?: unknown;
+        message?: unknown;
+      };
   requestId?: string;
   results?: Array<{
     assetPath?: string;
@@ -154,6 +164,38 @@ function parseResponsePayload(responseText: string): CouplingServiceResponse | n
   }
 }
 
+function extractCouplingServiceErrorDetail(
+  payload:
+    | {
+        error?:
+          | string
+          | {
+              code?: unknown;
+              message?: unknown;
+            };
+      }
+    | null
+    | undefined,
+  responseText: string,
+  statusText: string
+): string {
+  const rawError = payload?.error;
+  if (typeof rawError === 'string') {
+    return rawError.trim() || responseText.trim() || statusText.trim();
+  }
+  if (rawError && typeof rawError === 'object') {
+    const message = typeof rawError.message === 'string' ? rawError.message.trim() : '';
+    if (message) {
+      return message;
+    }
+    const code = typeof rawError.code === 'string' ? rawError.code.trim() : '';
+    if (code) {
+      return code;
+    }
+  }
+  return responseText.trim() || statusText.trim();
+}
+
 function buildForensicScoreUrl(baseUrl: string): string {
   const normalizedBaseUrl = baseUrl.trim();
   if (!normalizedBaseUrl) {
@@ -171,12 +213,20 @@ function validateForensicsScoreResult(
 ): ForensicsScoreResult[] {
   const assetByPath = new Map(input.map((entry) => [entry.assetPath, entry]));
   const results = payload.results ?? [];
-  return results.map((entry) => {
+  const validatedResults = new Map<string, ForensicsScoreResult>();
+
+  for (const entry of results) {
     const assetPath = entry.assetPath?.trim() || '';
     const inputEntry = assetByPath.get(assetPath);
     if (!inputEntry) {
       throw new CouplingServiceRequestError(
         `Coupling service returned an unknown asset path: ${assetPath || '[missing]'}`,
+        502
+      );
+    }
+    if (validatedResults.has(assetPath)) {
+      throw new CouplingServiceRequestError(
+        `Coupling service returned a duplicate asset path: ${assetPath}`,
         502
       );
     }
@@ -213,7 +263,20 @@ function validateForensicsScoreResult(
       result.decodeError = entry.decodeError.trim();
     }
 
-    return result;
+    validatedResults.set(assetPath, result);
+  }
+
+  return input.map((asset) => {
+    const existing = validatedResults.get(asset.assetPath);
+    if (existing) {
+      return existing;
+    }
+    return {
+      assetPath: asset.assetPath,
+      assetType: asset.assetType,
+      decoderKind: asset.assetType,
+      preclassification: 'no-signal',
+    };
   });
 }
 
@@ -251,10 +314,7 @@ export async function runCouplingForensicsScore(
   const payload = parseResponsePayload(responseText) as ForensicScoreServiceResponse | null;
 
   if (!response.ok) {
-    const detail =
-      (payload as CouplingServiceResponse)?.error?.trim() ||
-      responseText.trim() ||
-      response.statusText.trim();
+    const detail = extractCouplingServiceErrorDetail(payload, responseText, response.statusText);
     throw new CouplingServiceRequestError(
       `Coupling forensic-score failed with status ${response.status}${detail ? `: ${detail}` : ''}`,
       response.status
@@ -305,7 +365,7 @@ export async function runCouplingForensicsScan(
   const payload = parseResponsePayload(responseText);
 
   if (!response.ok) {
-    const detail = payload?.error?.trim() || responseText.trim() || response.statusText.trim();
+    const detail = extractCouplingServiceErrorDetail(payload, responseText, response.statusText);
     throw new CouplingServiceRequestError(
       `Coupling service scan failed with status ${response.status}${detail ? `: ${detail}` : ''}`,
       response.status

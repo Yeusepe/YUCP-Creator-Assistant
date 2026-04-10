@@ -10,6 +10,7 @@ type ConvexHandler = (
 ) => Promise<unknown> | unknown;
 
 export interface FakeConvexOptions {
+  port?: number;
   query?: Record<string, ConvexHandler>;
   mutation?: Record<string, ConvexHandler>;
   action?: Record<string, ConvexHandler>;
@@ -37,7 +38,7 @@ export function startFakeConvexServer(options: FakeConvexOptions = {}): FakeConv
   const calls: ConvexCall[] = [];
 
   const server = Bun.serve({
-    port: 0,
+    port: options.port ?? 0,
     async fetch(request): Promise<Response> {
       const url = new URL(request.url);
       const kind =
