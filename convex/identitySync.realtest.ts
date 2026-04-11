@@ -293,15 +293,49 @@ describe('external account', () => {
       discord: { discordUserId: 'discord-disc-1', username: 'discuser' },
     });
 
-    expect(syncResult.externalAccountId).toBeDefined();
-    const extAccountId = syncResult.externalAccountId!;
+    const extAccountId = syncResult.externalAccountId;
+    expect(extAccountId).toBeDefined();
+    if (!extAccountId) {
+      throw new Error('Expected external account ID to be defined');
+    }
 
     await t.mutation(api.identitySync.disconnectExternalAccount, {
       apiSecret: 'test-secret',
       externalAccountId: extAccountId,
     });
 
-    const account = (await t.run(async (ctx) => ctx.db.get(extAccountId))) as Doc<'external_accounts'> | null;
+    const account = (await t.run(async (ctx) =>
+      ctx.db.get(extAccountId)
+    )) as Doc<'external_accounts'> | null;
     expect(account?.status).toBe('disconnected');
+  });
+
+  it('given provider callback sync with auth user, then linked buyer accounts are visible for that auth user', async () => {
+    const t = makeTestConvex();
+
+    const syncResult = await t.mutation(api.identitySync.syncUserFromProvider, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-provider-accounts-1',
+      provider: 'discord',
+      providerUserId: 'discord-provider-accounts-1',
+      username: 'provider-user',
+    });
+
+    await t.mutation(api.subjects.upsertBuyerProviderLink, {
+      apiSecret: 'test-secret',
+      subjectId: syncResult.subjectId,
+      provider: 'discord',
+      externalAccountId: syncResult.externalAccountId,
+      verificationMethod: 'account_link',
+    });
+
+    const links = await t.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-provider-accounts-1',
+    });
+
+    expect(links).toHaveLength(1);
+    expect(links[0]?.provider).toBe('discord');
+    expect(links[0]?.providerUserId).toBe('discord-provider-accounts-1');
   });
 });

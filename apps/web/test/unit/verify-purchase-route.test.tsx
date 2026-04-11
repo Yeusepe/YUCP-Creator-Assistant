@@ -215,4 +215,74 @@ describe('verify purchase route', () => {
         .every((element) => element.getAttribute('data-variant') === 'default')
     ).toBe(true);
   });
+
+  it('auto-verifies the returned provider after an OAuth redirect', async () => {
+    mockUseSearch.mockReturnValue({
+      intent: 'intent_discord_oauth_return',
+      connected: 'discord',
+    });
+
+    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
+      object: 'verification_intent',
+      id: 'intent_discord_oauth_return',
+      packageId: 'pkg-discord-1',
+      packageName: 'Discord Package',
+      status: 'pending',
+      verificationUrl: '/verify/purchase?intent=intent_discord_oauth_return',
+      returnUrl: 'https://localhost:3000/callback',
+      requirements: [
+        {
+          methodKey: 'discord-account-link',
+          providerKey: 'discord',
+          providerLabel: 'Discord',
+          kind: 'buyer_provider_link',
+          title: 'Discord account',
+          description: 'Connect the Discord account you used to verify.',
+          creatorAuthUserId: 'creator-1',
+          productId: 'product-discord-1',
+          providerProductRef: 'discord-role',
+          capability: {
+            methodKind: 'buyer_provider_link',
+            completion: 'immediate',
+            actionLabel: 'Sign in with Discord',
+          },
+        },
+      ],
+      verifiedMethodKey: null,
+      errorCode: null,
+      errorMessage: null,
+      grantToken: null,
+      grantAvailable: false,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    vi.mocked(dashboardApi.listUserProviders).mockResolvedValue([
+      {
+        id: 'discord',
+        label: 'Discord',
+        icon: 'Discord.png',
+        color: '#5865F2',
+        description: 'Community',
+      },
+    ]);
+
+    vi.mocked(dashboardApi.listUserAccounts).mockResolvedValue([]);
+    vi.mocked(accountApi.verifyUserVerificationProviderLink).mockResolvedValue({ success: true });
+
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(accountApi.verifyUserVerificationProviderLink).toHaveBeenCalledWith(
+        'intent_discord_oauth_return',
+        'discord-account-link'
+      )
+    );
+  });
 });

@@ -54,4 +54,11 @@ describe('connect user-verify contracts', () => {
     expect(sessionManagerSource).toContain('verificationSessionId: session._id');
     expect(sessionManagerSource).toContain('verificationMethod: input.verificationMethod');
   });
+
+  it('associates account-link callback subjects with the signed-in auth user', () => {
+    expect(sessionManagerSource).toContain('api.identitySync.syncUserFromProvider');
+    expect(sessionManagerSource).toMatch(
+      /syncUserFromProvider,\s*\{\s*apiSecret,\s*authUserId,\s*provider: providerId,/s
+    );
+  });
 });

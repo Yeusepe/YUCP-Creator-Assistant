@@ -490,6 +490,7 @@ export const syncUserFromAuth = mutation({
 export const syncUserFromProvider = mutation({
   args: {
     apiSecret: v.string(),
+    authUserId: v.optional(v.string()),
     provider: v.string(),
     providerUserId: v.string(),
     username: v.optional(v.union(v.string(), v.null())),
@@ -553,6 +554,7 @@ export const syncUserFromProvider = mutation({
     if (existingSubject) {
       subjectId = existingSubject._id;
       await ctx.db.patch(subjectId, {
+        ...(args.authUserId ? { authUserId: args.authUserId } : {}),
         displayName: username ?? existingSubject.displayName,
         avatarUrl: avatarUrl ?? existingSubject.avatarUrl,
         updatedAt: now,
@@ -560,6 +562,7 @@ export const syncUserFromProvider = mutation({
     } else {
       subjectId = await ctx.db.insert('subjects', {
         primaryDiscordUserId: primaryId,
+        ...(args.authUserId ? { authUserId: args.authUserId } : {}),
         status: 'active',
         displayName: username,
         avatarUrl: avatarUrl,
@@ -858,10 +861,11 @@ export const listSuspiciousSubjects = query({
     const limit = Math.min(args.limit ?? 25, 50);
     let subjectIds: Id<'subjects'>[];
     if (args.authUserId) {
+      const authUserId = args.authUserId;
       const events = await ctx.db
         .query('audit_events')
         .withIndex('by_auth_user_event', (q) =>
-          q.eq('authUserId', args.authUserId!).eq('eventType', 'subject.suspicious.marked')
+          q.eq('authUserId', authUserId).eq('eventType', 'subject.suspicious.marked')
         )
         .order('desc')
         .take(limit * 2);

@@ -362,6 +362,7 @@ export function createVerificationSessionManager(
     const resolvedExpiresAt = identity.expiresAt ?? expiresAt;
     const syncResult = await convex.mutation(api.identitySync.syncUserFromProvider, {
       apiSecret,
+      authUserId,
       provider: providerId,
       providerUserId: identity.providerUserId,
       username: identity.username,
