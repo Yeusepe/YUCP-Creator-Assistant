@@ -614,8 +614,8 @@ export default function DashboardBilling() {
                       Your work, protected from studio to shelf.
                     </h1>
                     <p className="billing-hero-copy">
-                      Gate exports. Sign every release. Trace couplings back to source. The
-                      complete creator protection stack, activated by one subscription.
+                      Gate exports. Sign every release. Trace couplings back to source. The complete
+                      creator protection stack, activated by one subscription.
                     </p>
                     <div className="billing-hero-actions">
                       <button

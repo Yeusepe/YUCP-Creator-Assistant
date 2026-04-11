@@ -46,6 +46,9 @@ export const PROVIDER_AUTH_MODES = [
 ] as const;
 export type ProviderAuthMode = (typeof PROVIDER_AUTH_MODES)[number];
 
+export const COLLAB_LINK_MODES = ['api', 'account'] as const;
+export type CollabLinkMode = (typeof COLLAB_LINK_MODES)[number];
+
 export const VERIFICATION_METHOD_KEYS = [
   'account_link',
   'license_key',
@@ -107,11 +110,11 @@ export interface ProviderDescriptorInput {
   supportsCredentialLogin: boolean;
   supportsBuyerOAuthLink?: boolean;
   perProductCredential?: PerProductCredentialDescriptor;
-  supportsCollab?: boolean;
   collabCredential?: {
     label: string;
     placeholder?: string;
   };
+  collabLinkModes?: readonly CollabLinkMode[];
   licenseKey?: {
     inputLabel: string;
     placeholder: string;
@@ -133,4 +136,5 @@ export interface ProviderDescriptor extends ProviderDescriptorInput {
   supportsLicenseVerify: boolean;
   supportsTestMode: boolean;
   supportsDisconnect: boolean;
+  supportsCollab: boolean;
 }

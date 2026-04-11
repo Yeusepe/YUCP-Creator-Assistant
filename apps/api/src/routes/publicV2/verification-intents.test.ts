@@ -37,7 +37,7 @@ const config = {
   convexSiteUrl: 'https://test.convex.site',
   encryptionSecret: 'test-encryption-secret',
   frontendBaseUrl: 'https://creators.test',
-  apiBaseUrl: 'https://dsktp.tailc472f7.ts.net',
+  apiBaseUrl: 'https://public-api.test.example',
 };
 
 beforeEach(() => {
@@ -85,7 +85,7 @@ describe('handleVerificationIntentsRoutes', () => {
       codeVerifier: 'verifier',
       machineFingerprint: 'machine-fingerprint',
       grantToken: 'grant-token',
-      issuerBaseUrl: 'https://dsktp.tailc472f7.ts.net',
+      issuerBaseUrl: 'https://public-api.test.example',
     });
 
     expect(response.status).toBe(200);

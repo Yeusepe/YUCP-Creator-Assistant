@@ -13,17 +13,17 @@ describe('rewriteOAuthAuthorizationServerMetadata', () => {
         revocation_endpoint: 'http://localhost:3000/api/auth/oauth2/revoke',
         jwks_uri: 'http://localhost:3000/api/auth/jwks',
       },
-      new Request('https://dsktp.tailc472f7.ts.net/.well-known/oauth-authorization-server/api/auth')
+      new Request('https://public-api.test.example/.well-known/oauth-authorization-server/api/auth')
     );
 
     expect(metadata).toMatchObject({
       issuer: 'https://rare-squid-409.convex.site/api/auth',
-      authorization_endpoint: 'https://dsktp.tailc472f7.ts.net/api/auth/oauth2/authorize',
-      token_endpoint: 'https://dsktp.tailc472f7.ts.net/api/auth/oauth2/token',
-      registration_endpoint: 'https://dsktp.tailc472f7.ts.net/api/auth/oauth2/register',
-      introspection_endpoint: 'https://dsktp.tailc472f7.ts.net/api/auth/oauth2/introspect',
-      revocation_endpoint: 'https://dsktp.tailc472f7.ts.net/api/auth/oauth2/revoke',
-      jwks_uri: 'https://dsktp.tailc472f7.ts.net/api/auth/jwks',
+      authorization_endpoint: 'https://public-api.test.example/api/auth/oauth2/authorize',
+      token_endpoint: 'https://public-api.test.example/api/auth/oauth2/token',
+      registration_endpoint: 'https://public-api.test.example/api/auth/oauth2/register',
+      introspection_endpoint: 'https://public-api.test.example/api/auth/oauth2/introspect',
+      revocation_endpoint: 'https://public-api.test.example/api/auth/oauth2/revoke',
+      jwks_uri: 'https://public-api.test.example/api/auth/jwks',
     });
   });
 });

@@ -6,7 +6,7 @@ import { getPublicKeyFromPrivate, signLicenseJwt } from './lib/yucpCrypto';
 import { makeTestConvex, seedCertificateBillingCatalog } from './testHelpers';
 
 describe('coupling job capability gating', () => {
-  const issuerBaseUrl = 'https://dsktp.tailc472f7.ts.net';
+  const issuerBaseUrl = 'https://public-api.test.example';
   const packageId = 'pkg-coupling-capability';
   const machineFingerprint =
     'a604eb0948054b9acb9f40da80a6a4c8e711b98c59e54a11089fea3a2b77dc1c';

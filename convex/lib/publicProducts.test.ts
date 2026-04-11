@@ -9,7 +9,7 @@ describe('resolveLiveProductsApiBaseUrl', () => {
     expect(
       resolveLiveProductsApiBaseUrl({
         API_BASE_URL: undefined,
-        SITE_URL: 'https://dsktp.tailc472f7.ts.net',
+        SITE_URL: 'https://creators.test.example',
       })
     ).toBe('');
   });
@@ -40,7 +40,7 @@ describe('fetchLiveProviderProductsForSources', () => {
 
     const products = await fetchLiveProviderProductsForSources({
       env: {
-        SITE_URL: 'https://dsktp.tailc472f7.ts.net',
+        SITE_URL: 'https://creators.test.example',
         CONVEX_API_SECRET: 'test-convex-api-secret',
       },
       sources: [{ authUserId: 'auth-user-1', owner: null }],
@@ -80,7 +80,7 @@ describe('fetchLiveProviderProductsForSources', () => {
     const products = await fetchLiveProviderProductsForSources({
       env: {
         API_BASE_URL: 'https://api.creators.yucp.club/',
-        SITE_URL: 'https://dsktp.tailc472f7.ts.net',
+        SITE_URL: 'https://creators.test.example',
         CONVEX_API_SECRET: 'test-convex-api-secret',
       },
       sources: [{ authUserId: 'auth-user-1', owner: null }],

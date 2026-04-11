@@ -375,7 +375,7 @@
                                     <h3 class="font-heading font-semibold">Account Linking <span
                                             class="text-xs ml-1 px-2 py-0.5 rounded-full"
                                             style="background: #5865F2; color: #ffffff;">Recommended</span></h3>
-                                    <p class="text-sm mt-1" style="color: var(--text-secondary);">API key + webhook.
+                                    <p class="text-sm mt-1" style="color: var(--text-secondary);">Credential + webhook.
                                         Automatic role assignment when purchases are made, plus manual verification.</p>
                                 </div>
                             </div>
@@ -386,8 +386,8 @@
                                 <img src="__API_BASE__/Icons/Key.png" width="20" height="20" alt=""
                                     style="margin-top:2px;flex-shrink:0;opacity:0.85;">
                                 <div>
-                                    <h3 class="font-heading font-semibold">API Linking</h3>
-                                    <p class="text-sm mt-1" style="color: var(--text-secondary);">API key only. Users
+                                    <h3 class="font-heading font-semibold">Credential Linking</h3>
+                                    <p class="text-sm mt-1" style="color: var(--text-secondary);">Credential only. Users
                                         must run /verify manually. No automatic role assignment.</p>
                                 </div>
                             </div>
@@ -960,36 +960,21 @@
             }, 2500);
         }
 
-        // Minimal provider label map for the collab invite page.
-        const PROVIDER_UI = {
-            jinxxy: {
-                label: 'Jinxxy™',
-                placeholder: 'jinxxy_...',
-                apiFormHeading: 'Enter your Jinxxy™ API key',
-                apiFormInstructions: 'In Jinxxy™, go to <strong style="color:white;">Settings → API Keys</strong> and click <strong style="color:white;">New API Key</strong>. Enable scopes: <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>. Then paste it below.',
-                consentDescription: 'Your Jinxxy™ API key is used to verify licenses sold through your store',
-                errorEmpty: 'Please enter your Jinxxy™ API key.',
-                supportsAccountLinking: true,
-            },
-            lemonsqueezy: {
-                label: 'Lemon Squeezy',
-                placeholder: 'eyJ0...',
-                apiFormHeading: 'Enter your Lemon Squeezy API key',
-                apiFormInstructions: 'In Lemon Squeezy, go to <strong style="color:white;">Settings → API</strong> and click <strong style="color:white;">Create new API key</strong>. Then paste it below.',
-                consentDescription: 'Your Lemon Squeezy API key is used to verify licenses sold through your store',
-                errorEmpty: 'Please enter your Lemon Squeezy API key.',
-                supportsAccountLinking: false,
-            },
-        };
-
         function getProviderUI(providerKey) {
-            return PROVIDER_UI[providerKey] || {
-                label: providerKey,
-                placeholder: 'Paste your API key...',
-                apiFormHeading: 'Enter your API key',
-                apiFormInstructions: 'Go to your provider dashboard and create an API key, then paste it below.',
-                consentDescription: 'Your API key is used to verify licenses sold through your store',
-                errorEmpty: 'Please enter your API key.',
+            const label = inviteData?.providerLabel || providerKey || 'store';
+            const credentialLabel = inviteData?.collabCredentialLabel || 'Credential';
+            const credentialPlaceholder = inviteData?.collabCredentialPlaceholder || 'Paste the credential you want to share';
+            const supportsAccountLinking = (inviteData?.collabLinkModes || ['api']).includes('account');
+            const credentialLabelLower = credentialLabel.charAt(0).toLowerCase() + credentialLabel.slice(1);
+
+            return {
+                label,
+                placeholder: credentialPlaceholder,
+                apiFormHeading: `Enter your ${credentialLabel}`,
+                apiFormInstructions: `Paste the ${credentialLabelLower} that gives access to the ${label} store you want to share.`,
+                consentDescription: `Your ${credentialLabelLower} is used to verify purchases from your ${label} store.`,
+                errorEmpty: `Please enter your ${credentialLabelLower}.`,
+                supportsAccountLinking,
             };
         }
 

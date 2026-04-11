@@ -22,6 +22,11 @@ export const itchio = {
   verificationMethods: ['account_link', 'license_key'],
   supportsCredentialLogin: false,
   supportsBuyerOAuthLink: true,
+  collabCredential: {
+    label: 'itch.io API Key',
+    placeholder: 'Paste the itch.io API key the creator shared with you',
+  },
+  collabLinkModes: ['api'],
   supportsAutoDiscovery: true,
   licenseKey: {
     inputLabel: 'Download Key',

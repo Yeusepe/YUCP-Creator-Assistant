@@ -2076,6 +2076,7 @@ const protected_assets = defineTable({
   encryptedContentKey: v.optional(v.string()),
   displayName: v.optional(v.string()),
   contentHash: v.string(),
+  manifestBindingSha256: v.optional(v.string()),
   packageVersion: v.optional(v.string()),
   publisherId: v.string(),
   yucpUserId: v.string(),

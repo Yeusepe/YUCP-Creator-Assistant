@@ -2,7 +2,7 @@ import * as ed from '@noble/ed25519';
 import {
   base64ToBytes,
   base64UrlDecodeToBytes as base64UrlDecode,
-  base64UrlEncode as base64UrlEncode,
+  base64UrlEncode,
   bytesToBase64,
 } from '@yucp/shared/crypto';
 

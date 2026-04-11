@@ -46,7 +46,7 @@ export async function handleCollabInvite(
   authUserId: string
 ): Promise<void> {
   const collabProviders = (PROVIDER_REGISTRY as readonly ProviderDescriptor[]).filter(
-    (p) => p.supportsCollab === true
+    (provider) => provider.collabCredential != null
   );
 
   if (collabProviders.length === 0) {
@@ -119,7 +119,7 @@ export async function handleCollabAdd(
   authUserId: string
 ): Promise<void> {
   const collabProviders = (PROVIDER_REGISTRY as readonly ProviderDescriptor[]).filter(
-    (p) => p.supportsCollab === true
+    (provider) => provider.collabCredential != null
   );
 
   if (collabProviders.length === 0) {

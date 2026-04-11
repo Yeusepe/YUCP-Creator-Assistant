@@ -55,14 +55,17 @@ import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
 import {
   getPublicKeyFromPrivate,
   type LicenseClaims,
+  type ProtectedInstallIntentClaims,
   type ProtectedUnlockClaims,
   signLicenseJwt,
+  signProtectedInstallIntentJwt,
   signProtectedUnlockJwt,
   verifyLicenseJwt,
   verifyProtectedUnlockJwt,
 } from './lib/yucpCrypto';
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
+const PROTECTED_INSTALL_INTENT_TTL_SECONDS = 10 * 60;
 const PROTECTED_UNLOCK_TTL_SECONDS = 10 * 60;
 const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
@@ -81,6 +84,7 @@ const PROTECTED_ASSET_REGISTRATION = v.object({
   wrappedContentKey: v.optional(v.string()),
   contentKeyBase64: v.optional(v.string()),
   contentHash: v.optional(v.string()),
+  manifestBindingSha256: v.optional(v.string()),
   displayName: v.optional(v.string()),
 });
 
@@ -723,6 +727,12 @@ export const upsertProtectedAssets = internalMutation({
       if (!CONTENT_HASH_RE.test(assetContentHash)) {
         throw new ConvexError('contentHash must be 64 lowercase hex characters');
       }
+      if (
+        asset.manifestBindingSha256 !== undefined &&
+        !CONTENT_HASH_RE.test(asset.manifestBindingSha256)
+      ) {
+        throw new ConvexError('manifestBindingSha256 must be 64 lowercase hex characters');
+      }
       if (asset.unlockMode === 'wrapped_content_key') {
         if (!asset.wrappedContentKey) {
           throw new ConvexError('wrappedContentKey is required for wrapped_content_key assets');
@@ -753,6 +763,7 @@ export const upsertProtectedAssets = internalMutation({
           encryptedContentKey,
           displayName: asset.displayName,
           contentHash: assetContentHash,
+          manifestBindingSha256: asset.manifestBindingSha256,
           packageVersion: args.packageVersion,
           publisherId: args.publisherId,
           yucpUserId: args.yucpUserId,
@@ -769,6 +780,7 @@ export const upsertProtectedAssets = internalMutation({
           encryptedContentKey,
           displayName: asset.displayName,
           contentHash: assetContentHash,
+          manifestBindingSha256: asset.manifestBindingSha256,
           packageVersion: args.packageVersion,
           publisherId: args.publisherId,
           yucpUserId: args.yucpUserId,
@@ -794,6 +806,7 @@ export const getProtectedAsset = internalQuery({
       wrappedContentKey: v.optional(v.string()),
       encryptedContentKey: v.optional(v.string()),
       contentHash: v.string(),
+      manifestBindingSha256: v.optional(v.string()),
       yucpUserId: v.string(),
     })
   ),
@@ -812,6 +825,7 @@ export const getProtectedAsset = internalQuery({
       wrappedContentKey: row.wrappedContentKey,
       encryptedContentKey: row.encryptedContentKey,
       contentHash: row.contentHash,
+      manifestBindingSha256: row.manifestBindingSha256,
       yucpUserId: row.yucpUserId,
     };
   },
@@ -1340,6 +1354,13 @@ type ProtectedUnlockIssueResult = {
   error?: string;
 };
 
+type ProtectedInstallIntentIssueResult = {
+  success: boolean;
+  installIntentToken?: string;
+  expiresAt?: number;
+  error?: string;
+};
+
 type CouplingJobIssueResult = {
   success: boolean;
   subject?: string;
@@ -1447,6 +1468,112 @@ export const issueProtectedMaterializationGrant = internalAction({
   },
 });
 
+export const issueProtectedInstallIntent = internalAction({
+  args: {
+    packageId: v.string(),
+    protectedAssetId: v.string(),
+    machineFingerprint: v.string(),
+    projectId: v.string(),
+    manifestBindingSha256: v.string(),
+    licenseToken: v.string(),
+    issuerBaseUrl: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    installIntentToken: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args): Promise<ProtectedInstallIntentIssueResult> => {
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      return { success: false, error: 'Invalid packageId format' };
+    }
+    if (!PROTECTED_ASSET_ID_RE.test(args.protectedAssetId)) {
+      return { success: false, error: 'Invalid protected asset identifier' };
+    }
+    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
+      return { success: false, error: 'Invalid machine fingerprint' };
+    }
+    if (!PROJECT_ID_RE.test(args.projectId)) {
+      return { success: false, error: 'Invalid project identifier' };
+    }
+    if (!CONTENT_HASH_RE.test(args.manifestBindingSha256)) {
+      return { success: false, error: 'Invalid manifest binding hash' };
+    }
+    if (!args.licenseToken) {
+      return { success: false, error: 'licenseToken is required' };
+    }
+
+    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
+    if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+
+    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
+    const rootPublicKey =
+      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
+    const licenseClaims = await verifyLicenseJwt(args.licenseToken, rootPublicKey, issuer);
+
+    if (!licenseClaims) {
+      return { success: false, error: 'License token is invalid or expired' };
+    }
+    if (licenseClaims.package_id !== args.packageId) {
+      return { success: false, error: 'License token package mismatch' };
+    }
+    if (licenseClaims.machine_fingerprint !== args.machineFingerprint) {
+      return { success: false, error: 'License token machine mismatch' };
+    }
+
+    const protectedAsset = await ctx.runQuery(internal.yucpLicenses.getProtectedAsset, {
+      packageId: args.packageId,
+      protectedAssetId: args.protectedAssetId,
+    });
+    if (!protectedAsset) {
+      return { success: false, error: 'Protected asset registration not found' };
+    }
+
+    const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId: args.packageId,
+    });
+    if (!packageReg || packageReg.yucpUserId !== protectedAsset.yucpUserId) {
+      return { success: false, error: 'Protected asset owner mismatch' };
+    }
+    if (!CONTENT_HASH_RE.test(protectedAsset.contentHash)) {
+      return { success: false, error: 'Protected asset content hash is invalid' };
+    }
+    if (!CONTENT_HASH_RE.test(protectedAsset.manifestBindingSha256 ?? '')) {
+      return {
+        success: false,
+        error: 'Protected asset registration is missing a manifest binding hash',
+      };
+    }
+    if (protectedAsset.manifestBindingSha256 !== args.manifestBindingSha256) {
+      return {
+        success: false,
+        error: 'Protected asset registration did not match the manifest-bound payload descriptor',
+      };
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const exp = nowSeconds + PROTECTED_INSTALL_INTENT_TTL_SECONDS;
+    const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
+    const claims: ProtectedInstallIntentClaims = {
+      iss: issuer,
+      aud: 'yucp-protected-install-intent',
+      sub: licenseClaims.sub,
+      jti: crypto.randomUUID(),
+      package_id: args.packageId,
+      protected_asset_id: args.protectedAssetId,
+      machine_fingerprint: args.machineFingerprint,
+      project_id: args.projectId,
+      manifest_binding_sha256: args.manifestBindingSha256,
+      iat: nowSeconds,
+      exp,
+    };
+
+    const installIntentToken = await signProtectedInstallIntentJwt(claims, rootPrivateKey, keyId);
+    return { success: true, installIntentToken, expiresAt: exp };
+  },
+});
+
 export const issueProtectedMaterializationGrantForApi = action({
   args: {
     apiSecret: v.string(),
@@ -1478,6 +1605,37 @@ export const issueProtectedMaterializationGrantForApi = action({
       issuerBaseUrl: args.issuerBaseUrl,
       runtimeArtifactVersion: args.runtimeArtifactVersion,
       runtimePlaintextSha256: args.runtimePlaintextSha256,
+    });
+  },
+});
+
+export const issueProtectedInstallIntentForApi = action({
+  args: {
+    apiSecret: v.string(),
+    packageId: v.string(),
+    protectedAssetId: v.string(),
+    machineFingerprint: v.string(),
+    projectId: v.string(),
+    manifestBindingSha256: v.string(),
+    licenseToken: v.string(),
+    issuerBaseUrl: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    installIntentToken: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args): Promise<ProtectedInstallIntentIssueResult> => {
+    requireApiSecret(args.apiSecret);
+    return await ctx.runAction(internal.yucpLicenses.issueProtectedInstallIntent, {
+      packageId: args.packageId,
+      protectedAssetId: args.protectedAssetId,
+      machineFingerprint: args.machineFingerprint,
+      projectId: args.projectId,
+      manifestBindingSha256: args.manifestBindingSha256,
+      licenseToken: args.licenseToken,
+      issuerBaseUrl: args.issuerBaseUrl,
     });
   },
 });

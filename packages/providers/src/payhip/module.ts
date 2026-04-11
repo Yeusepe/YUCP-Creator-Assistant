@@ -144,7 +144,9 @@ export function createPayhipProviderModule<
   return {
     id: 'payhip',
     needsCredential: false,
+    supportsCollab: true,
     purposes: PAYHIP_PURPOSES,
+    collabCredentialPurpose: PAYHIP_PURPOSES.credential,
     productCredentialPurpose: PAYHIP_PURPOSES.productSecret,
     async getCredential() {
       return null;

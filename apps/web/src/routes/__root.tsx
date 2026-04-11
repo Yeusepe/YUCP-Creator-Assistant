@@ -73,7 +73,7 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
       </head>
       <body>
         {children}
-        <div id="portal-root" />
+        <div id="portal-root" className="portal-root" />
         <Scripts />
       </body>
     </html>

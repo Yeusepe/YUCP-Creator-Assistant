@@ -1111,6 +1111,7 @@ http.route({
         wrappedContentKey?: string;
         contentKeyBase64?: string;
         contentHash?: string;
+        manifestBindingSha256?: string;
         displayName?: string;
       }>;
     };
@@ -1240,6 +1241,9 @@ http.route({
         }
         if (asset.contentHash && !/^[0-9a-f]{64}$/.test(asset.contentHash)) {
           return errorResponse('Invalid protected asset contentHash format', 400);
+        }
+        if (asset.manifestBindingSha256 && !/^[0-9a-f]{64}$/.test(asset.manifestBindingSha256)) {
+          return errorResponse('Invalid protected asset manifestBindingSha256 format', 400);
         }
       }
 

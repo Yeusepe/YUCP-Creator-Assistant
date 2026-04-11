@@ -46,11 +46,18 @@ describe('collab command', () => {
     expect(interaction.reply.mock.calls.length).toBe(1);
     const payload = interaction.reply.mock.calls[0]?.[0];
 
-    // Only jinxxy has supportsCollab:true — the select menu should be shown
     const customIds = extractAllCustomIds(interaction);
     const addSelectId = customIds.find((id) => id.startsWith('creator_collab:add_select:'));
     expect(addSelectId).toBeDefined();
     expect(addSelectId).toBe('creator_collab:add_select:auth_collab_1');
+
+    const options = payload?.components?.[0]?.components?.[0]?.options ?? [];
+    const optionLabels = options.map(
+      (option: { data?: { label?: string }; label?: string }) => option.data?.label ?? option.label
+    );
+    expect(optionLabels).toEqual(
+      expect.arrayContaining(['Jinxxy', 'Lemon Squeezy', 'Payhip', 'itch.io'])
+    );
 
     // Content mentions "Add Collaborator"
     expect(payload?.content).toContain('Add Collaborator');

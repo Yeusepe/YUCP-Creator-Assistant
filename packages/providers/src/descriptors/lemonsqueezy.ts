@@ -30,9 +30,9 @@ export const lemonsqueezy = {
     inputLabel: 'License Key',
     placeholder: 'Enter your license key',
   },
-  supportsCollab: true,
   collabCredential: {
     label: 'Lemon Squeezy API Key',
     placeholder: 'Paste your Lemon Squeezy API key\u2026',
   },
+  collabLinkModes: ['api'],
 } as const satisfies ProviderDescriptorInput;

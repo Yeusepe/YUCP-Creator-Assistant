@@ -148,6 +148,100 @@ describe('createItchioProviderModule', () => {
       CredentialExpiredError
     );
   });
+
+  it('includes collaborator games and deduplicates shared ids', async () => {
+    const module = createItchioProviderModule({
+      logger,
+      async getEncryptedCredential() {
+        return 'owner-encrypted';
+      },
+      async decryptCredential(encryptedCredential) {
+        return encryptedCredential === 'owner-encrypted' ? 'owner-token' : 'collab-token';
+      },
+      async listCollaboratorConnections() {
+        return [
+          {
+            id: 'collab-1',
+            provider: 'itchio',
+            credentialEncrypted: 'collab-encrypted',
+            collaboratorDisplayName: 'Collaborator A',
+          },
+        ];
+      },
+      async fetchImpl(input, init) {
+        const authHeader =
+          input instanceof Request
+            ? input.headers.get('Authorization')
+            : new Headers(init?.headers).get('Authorization');
+        const token = authHeader?.replace('Bearer ', '');
+        if (String(input) !== 'https://itch.io/api/1/key/my-games') {
+          throw new Error(`Unexpected request: ${String(input)}`);
+        }
+        if (token === 'owner-token') {
+          return new Response(
+            JSON.stringify({
+              games: [
+                {
+                  id: 11,
+                  title: 'Owner Game',
+                  url: 'https://owner.itch.io/owner-game',
+                  published: true,
+                },
+                {
+                  id: 22,
+                  title: 'Shared Game',
+                  url: 'https://owner.itch.io/shared-game',
+                  published: true,
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            games: [
+              {
+                id: 22,
+                title: 'Shared Game',
+                url: 'https://collab.itch.io/shared-game',
+                published: true,
+              },
+              {
+                id: 33,
+                title: 'Collab Game',
+                url: 'https://collab.itch.io/collab-game',
+                published: true,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      },
+    });
+
+    await expect(module.fetchProducts('owner-token', makeCtx())).resolves.toEqual([
+      {
+        id: '11',
+        name: 'Owner Game',
+        productUrl: 'https://owner.itch.io/owner-game',
+        published: true,
+      },
+      {
+        id: '22',
+        name: 'Shared Game',
+        productUrl: 'https://owner.itch.io/shared-game',
+        published: true,
+      },
+      {
+        id: '33',
+        name: 'Collab Game',
+        productUrl: 'https://collab.itch.io/collab-game',
+        published: true,
+        collaboratorName: 'Collaborator A',
+      },
+    ]);
+  });
 });
 
 describe('createItchioLicenseVerification', () => {

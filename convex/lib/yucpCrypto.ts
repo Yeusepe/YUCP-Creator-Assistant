@@ -238,8 +238,30 @@ export interface ProtectedUnlockClaims {
   exp: number;
 }
 
+export interface ProtectedInstallIntentClaims {
+  iss: string;
+  aud: 'yucp-protected-install-intent';
+  sub: string;
+  jti: string;
+  package_id: string;
+  protected_asset_id: string;
+  machine_fingerprint: string;
+  project_id: string;
+  manifest_binding_sha256: string;
+  iat: number;
+  exp: number;
+}
+
 export async function signProtectedUnlockJwt(
   claims: ProtectedUnlockClaims,
+  privateKeyBase64: string,
+  keyId: string
+): Promise<string> {
+  return signJwt(claims, privateKeyBase64, keyId);
+}
+
+export async function signProtectedInstallIntentJwt(
+  claims: ProtectedInstallIntentClaims,
   privateKeyBase64: string,
   keyId: string
 ): Promise<string> {
@@ -320,6 +342,7 @@ async function signJwt(
   claims:
     | LicenseClaims
     | ProtectedUnlockClaims
+    | ProtectedInstallIntentClaims
     | CouplingRuntimeClaims
     | CouplingRuntimePackageClaims,
   privateKeyBase64: string,
@@ -386,6 +409,19 @@ export async function verifyProtectedUnlockJwt(
     publicKeyBase64,
     expectedIssuer,
     'yucp-protected-unlock'
+  );
+}
+
+export async function verifyProtectedInstallIntentJwt(
+  jwt: string,
+  publicKeyBase64: string,
+  expectedIssuer: string
+): Promise<ProtectedInstallIntentClaims | null> {
+  return verifyJwt<ProtectedInstallIntentClaims>(
+    jwt,
+    publicKeyBase64,
+    expectedIssuer,
+    'yucp-protected-install-intent'
   );
 }
 

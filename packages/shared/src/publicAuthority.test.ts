@@ -10,7 +10,7 @@ describe('publicAuthority', () => {
     expect(
       resolveConfiguredApiBaseUrl({
         API_BASE_URL: undefined,
-        SITE_URL: 'https://dsktp.tailc472f7.ts.net',
+        SITE_URL: 'https://creators.test.example',
       })
     ).toBe('');
   });

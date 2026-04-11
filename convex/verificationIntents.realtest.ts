@@ -281,7 +281,7 @@ describe('verification intents redemption issuer', () => {
     const authUserId = 'auth-redemption-issuer';
     const codeVerifier = 'code-verifier-redemption-issuer';
     const codeChallenge = await computeCodeChallenge(codeVerifier);
-    const publicIssuerBaseUrl = 'https://dsktp.tailc472f7.ts.net';
+    const publicIssuerBaseUrl = 'https://public-api.test.example';
 
     await seedSubject(t, {
       authUserId,

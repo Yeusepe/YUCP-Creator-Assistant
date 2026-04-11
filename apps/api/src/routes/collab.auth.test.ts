@@ -182,3 +182,18 @@ describe('DELETE /api/collab/connections/:id (auth guard)', () => {
     await expect(res.json()).resolves.toMatchObject({ success: true });
   });
 });
+
+describe('GET /api/collab/providers', () => {
+  it('lists generic collaborator-shareable providers, including itchio and payhip', async () => {
+    const req = new Request('http://localhost:3001/api/collab/providers');
+    const res = await routes.handleCollabRequest(req);
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      providers: expect.arrayContaining([
+        expect.objectContaining({ key: 'itchio', label: 'itch.io' }),
+        expect.objectContaining({ key: 'payhip', label: 'Payhip' }),
+      ]),
+    });
+  });
+});

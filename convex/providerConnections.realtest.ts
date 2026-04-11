@@ -262,6 +262,37 @@ describe('provider connection credential storage', () => {
       })
     ).rejects.toThrow();
   });
+
+  it('marks providers shared through active collaborator connections as available in connection status', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-collab-status';
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('collaborator_connections', {
+        ownerAuthUserId: authUserId,
+        provider: 'payhip',
+        credentialEncrypted: 'enc-collab-payhip',
+        webhookConfigured: false,
+        linkType: 'api',
+        status: 'active',
+        collaboratorDiscordUserId: 'discord-collab-status',
+        collaboratorDisplayName: 'Payhip Collaborator',
+        source: 'invite',
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      t.query(api.providerConnections.getConnectionStatus, {
+        apiSecret: API_SECRET,
+        authUserId,
+      })
+    ).resolves.toMatchObject({
+      payhip: true,
+    });
+  });
 });
 
 describe('upsertPayhipProductName — updates product_catalog displayName', () => {

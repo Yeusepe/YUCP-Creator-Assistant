@@ -23,17 +23,19 @@ mock.module('../src/lib/couplingRuntimeArtifacts', () => ({
     );
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      const errorMessage = (payload as { error?: { message?: string } } | null)?.error?.message?.trim();
+      const errorMessage = (
+        payload as { error?: { message?: string } } | null
+      )?.error?.message?.trim();
       if (errorMessage === 'No route matches GET /v1/runtime-artifacts/manifest') {
         return {
           success: false as const,
-          error:
-            'YUCP_COUPLING_SERVICE_BASE_URL points at a non-coupling service: ' + errorMessage,
+          error: 'YUCP_COUPLING_SERVICE_BASE_URL points at a non-coupling service: ' + errorMessage,
         };
       }
       return {
         success: false as const,
-        error: errorMessage || `Coupling service manifest request failed with status ${response.status}`,
+        error:
+          errorMessage || `Coupling service manifest request failed with status ${response.status}`,
       };
     }
 
@@ -84,7 +86,10 @@ describe('API server — coupling runtime surface', () => {
           });
         }
 
-        return Response.json({ error: { message: `No route matches ${request.method} ${url.pathname}` } }, { status: 404 });
+        return Response.json(
+          { error: { message: `No route matches ${request.method} ${url.pathname}` } },
+          { status: 404 }
+        );
       },
     });
 
@@ -153,9 +158,12 @@ describe('API server — coupling runtime surface', () => {
       downloadUrl: `${healthyApiServer.url}/v1/licenses/coupling-runtime`,
     });
 
-    const redirectResponse = await healthyApiServer.fetch('/v1/licenses/coupling-runtime?token=runtime-token', {
-      redirect: 'manual',
-    });
+    const redirectResponse = await healthyApiServer.fetch(
+      '/v1/licenses/coupling-runtime?token=runtime-token',
+      {
+        redirect: 'manual',
+      }
+    );
     expect(redirectResponse.status).toBe(307);
     expect(redirectResponse.headers.get('location')).toBe(
       `${healthyCouplingBaseUrl}/v1/licenses/coupling-runtime?token=runtime-token`

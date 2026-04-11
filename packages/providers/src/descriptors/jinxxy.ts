@@ -27,9 +27,9 @@ export const jinxxy = {
     inputLabel: 'License Key',
     placeholder: 'Enter your license key',
   },
-  supportsCollab: true,
   collabCredential: {
     label: 'Jinxxy API Key',
     placeholder: 'Paste the API key the creator shared with you',
   },
+  collabLinkModes: ['api', 'account'],
 } as const satisfies ProviderDescriptorInput;

@@ -62,6 +62,16 @@ const COLLAB_OAUTH_TTL_MS = 10 * 60 * 1000;
 const COLLAB_SESSION_COOKIE = 'yucp_collab_session';
 type CreatorProfileRecord = { authUserId?: string } | null;
 
+function isCollaboratorShareableProvider(
+  provider: ReturnType<typeof getProviderDescriptor>
+): provider is NonNullable<ReturnType<typeof getProviderDescriptor>> & {
+  collabCredential: NonNullable<
+    NonNullable<ReturnType<typeof getProviderDescriptor>>['collabCredential']
+  >;
+} {
+  return Boolean(provider?.collabCredential);
+}
+
 export interface CollabConfig {
   auth: Auth;
   apiBaseUrl: string;
@@ -350,7 +360,7 @@ export function createCollabRoutes(config: CollabConfig) {
       return respond(() => Response.json({ error: 'providerKey is required' }, { status: 400 }));
     }
     const providerDescriptor = getProviderDescriptor(providerKey);
-    if (!providerDescriptor?.supportsCollab) {
+    if (!isCollaboratorShareableProvider(providerDescriptor)) {
       return respond(() =>
         Response.json(
           { error: `Provider '${providerKey}' does not support collaborator invites` },
@@ -667,6 +677,9 @@ export function createCollabRoutes(config: CollabConfig) {
     if (!session) return Response.json({ error: 'not_found' }, { status: 404 });
     const err = inviteErrorResponse(session.invite);
     if (err) return err;
+    const providerDescriptor = session.invite.providerKey
+      ? getProviderDescriptor(session.invite.providerKey)
+      : undefined;
 
     return Response.json({
       inviteId: session.invite._id,
@@ -674,6 +687,12 @@ export function createCollabRoutes(config: CollabConfig) {
       ownerGuildId: session.invite.ownerGuildId,
       expiresAt: session.invite.expiresAt,
       providerKey: session.invite.providerKey,
+      providerLabel: providerDescriptor?.label ?? session.invite.providerKey,
+      collabCredentialLabel: providerDescriptor?.collabCredential?.label ?? 'Credential',
+      collabCredentialPlaceholder:
+        providerDescriptor?.collabCredential?.placeholder ??
+        'Paste the credential you want to share',
+      collabLinkModes: providerDescriptor?.collabLinkModes ?? ['api'],
     });
   }
 
@@ -1023,7 +1042,7 @@ export function createCollabRoutes(config: CollabConfig) {
     }
 
     const providerDescriptor = getProviderDescriptor(providerKey);
-    if (!providerDescriptor?.supportsCollab) {
+    if (!isCollaboratorShareableProvider(providerDescriptor)) {
       return Response.json(
         { error: `Provider '${providerKey}' does not support manual collaborator connections` },
         { status: 400 }
@@ -1136,8 +1155,14 @@ export function createCollabRoutes(config: CollabConfig) {
    */
   function listCollabProviders(): Response {
     const providers = (PROVIDER_REGISTRY as ReadonlyArray<(typeof PROVIDER_REGISTRY)[number]>)
-      .filter((p) => p.supportsCollab === true)
-      .map((p) => ({ key: p.providerKey, label: p.label }));
+      .filter((provider) => isCollaboratorShareableProvider(provider))
+      .map((provider) => ({
+        key: provider.providerKey,
+        label: provider.label,
+        collabCredentialLabel: provider.collabCredential.label,
+        collabCredentialPlaceholder: provider.collabCredential.placeholder,
+        collabLinkModes: provider.collabLinkModes ?? ['api'],
+      }));
     return Response.json({ providers });
   }
 

@@ -61,6 +61,14 @@ export interface ItchioRuntimePorts<TClient extends ProviderRuntimeClient = Prov
   readonly logger: ItchioRuntimeLogger;
   getEncryptedCredential(authUserId: string, ctx: ProviderContext<TClient>): Promise<string | null>;
   decryptCredential(encryptedCredential: string, ctx: ProviderContext<TClient>): Promise<string>;
+  listCollaboratorConnections?(ctx: ProviderContext<TClient>): Promise<
+    Array<{
+      id: string;
+      provider: string;
+      credentialEncrypted?: string;
+      collaboratorDisplayName?: string;
+    }>
+  >;
   fetchImpl?: ItchioFetchLike;
 }
 
@@ -365,6 +373,7 @@ export function createItchioProviderModule<
   return {
     id: 'itchio',
     needsCredential: true,
+    supportsCollab: true,
     purposes: ITCHIO_PURPOSES,
     displayMeta: ITCHIO_DISPLAY_META,
     async getCredential(ctx) {
@@ -374,13 +383,55 @@ export function createItchioProviderModule<
       }
       return await ports.decryptCredential(encryptedToken, ctx);
     },
-    async fetchProducts(credential): Promise<ProductRecord[]> {
-      if (!credential) {
-        return [];
+    async fetchProducts(credential, ctx): Promise<ProductRecord[]> {
+      const products: ProductRecord[] = [];
+
+      if (credential) {
+        products.push(...(await listItchioGames(credential, ports)));
       }
 
-      return await listItchioGames(credential, ports);
+      try {
+        const collabConnections = (await ports.listCollaboratorConnections?.(ctx)) ?? [];
+        for (const collab of collabConnections) {
+          if (collab.provider !== 'itchio' || !collab.credentialEncrypted) {
+            continue;
+          }
+          try {
+            const collabCredential = await ports.decryptCredential(collab.credentialEncrypted, ctx);
+            const collabProducts = await listItchioGames(collabCredential, ports);
+            for (const product of collabProducts) {
+              products.push({
+                ...product,
+                collaboratorName: collab.collaboratorDisplayName ?? 'Collaborator',
+              });
+            }
+          } catch (error) {
+            ports.logger.warn('Failed to fetch products for itch.io collaborator', {
+              collabId: collab.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      } catch (error) {
+        ports.logger.warn('Failed to fetch collaborator connections for itch.io product list', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      const seen = new Set<string>();
+      return products.filter((product) => {
+        if (seen.has(product.id)) {
+          return false;
+        }
+        seen.add(product.id);
+        return true;
+      });
     },
     verification: createItchioLicenseVerification(ports),
+    async collabValidate(credential: string): Promise<void> {
+      await fetchItchioCredentialsInfo(credential, ports);
+      await fetchItchioCurrentUser(credential, ports);
+    },
+    collabCredentialPurpose: ITCHIO_PURPOSES.credential,
   };
 }

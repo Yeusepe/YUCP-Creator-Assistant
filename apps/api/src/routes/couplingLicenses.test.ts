@@ -1,15 +1,14 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { buildPublicAuthIssuer } from '@yucp/shared/publicAuthority';
 import type { RuntimeArtifactManifestSuccess } from '../lib/couplingRuntimeArtifacts';
-import {
-  getPublicKeyFromPrivate,
-  type LicenseClaims,
-} from '../lib/yucpRuntimeCrypto';
+import { getPublicKeyFromPrivate, type LicenseClaims } from '../lib/yucpRuntimeCrypto';
 
 const apiMock = {
   yucpLicenses: {
     issueCouplingJobForApi: 'yucpLicenses.issueCouplingJobForApi',
-    issueProtectedMaterializationGrantForApi: 'yucpLicenses.issueProtectedMaterializationGrantForApi',
+    issueProtectedInstallIntentForApi: 'yucpLicenses.issueProtectedInstallIntentForApi',
+    issueProtectedMaterializationGrantForApi:
+      'yucpLicenses.issueProtectedMaterializationGrantForApi',
   },
 } as const;
 
@@ -304,6 +303,49 @@ describe('coupling license routes', () => {
     });
   });
 
+  it('issues protected install intents through the public API surface', async () => {
+    actionMock.mockImplementation(async (ref: unknown, args: unknown) => {
+      expect(ref).toBe(apiMock.yucpLicenses.issueProtectedInstallIntentForApi);
+      expect(args).toEqual({
+        apiSecret: 'convex-secret',
+        packageId: 'pkg.creator.bundle',
+        protectedAssetId: '0123456789abcdef0123456789abcdef',
+        projectId: '0123456789abcdef0123456789abcdef',
+        machineFingerprint: 'machine-fingerprint-1234',
+        manifestBindingSha256: 'f'.repeat(64),
+        licenseToken: 'license-token',
+        issuerBaseUrl: 'https://api.creators.yucp.club',
+      });
+      return {
+        success: true,
+        installIntentToken: 'install-intent-token',
+        expiresAt: 1234567890,
+      };
+    });
+
+    const response = await routes.handleRequest(
+      new Request(`${apiBaseUrl}/v1/licenses/protected-install-intent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          packageId: 'pkg.creator.bundle',
+          protectedAssetId: '0123456789abcdef0123456789abcdef',
+          projectId: '0123456789abcdef0123456789abcdef',
+          machineFingerprint: 'machine-fingerprint-1234',
+          manifestBindingSha256: 'f'.repeat(64),
+          licenseToken: 'license-token',
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toEqual({
+      success: true,
+      installIntentToken: 'install-intent-token',
+      expiresAt: 1234567890,
+    });
+  });
+
   it('models the full public runtime flow end-to-end across manifest, token, job, grant, and download routes', async () => {
     const licenseClaims: LicenseClaims = {
       iss: buildPublicAuthIssuer(apiBaseUrl),
@@ -374,7 +416,9 @@ describe('coupling license routes', () => {
     );
     expect(manifestResponse?.status).toBe(200);
     const manifestJson = (await manifestResponse?.json()) as Record<string, unknown>;
-    expect(manifestJson.downloadUrl).toBe('https://api.creators.yucp.club/v1/licenses/coupling-runtime');
+    expect(manifestJson.downloadUrl).toBe(
+      'https://api.creators.yucp.club/v1/licenses/coupling-runtime'
+    );
 
     const runtimePackageResponse = await routes.handleRequest(
       new Request(`${apiBaseUrl}/v1/licenses/runtime-package-token`, {

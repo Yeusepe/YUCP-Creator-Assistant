@@ -226,8 +226,9 @@ export default function DashboardForensics() {
     certificatesQuery.isError && !isDashboardAuthError(certificatesQuery.error);
   const hasQueryError = packagesQuery.isError && !isDashboardAuthError(packagesQuery.error);
 
-  const verdictKind =
-    lookupResult ? getVerdictKind(lookupResult.lookupStatus, matchedBuyers.length) : null;
+  const verdictKind = lookupResult
+    ? getVerdictKind(lookupResult.lookupStatus, matchedBuyers.length)
+    : null;
 
   /* ── Guards ── */
 
@@ -501,7 +502,9 @@ export default function DashboardForensics() {
                           <p className="forensics-dropzone-label">
                             {isDragOver ? 'Drop to upload' : 'Click to upload or drag & drop'}
                           </p>
-                          <p className="forensics-dropzone-hint">.unitypackage or .zip · max 100 MB</p>
+                          <p className="forensics-dropzone-hint">
+                            .unitypackage or .zip · max 100 MB
+                          </p>
                         </div>
                       </label>
                     )}
@@ -553,7 +556,9 @@ export default function DashboardForensics() {
                   </div>
                   <div className="forensics-verdict-copy">
                     <p className="forensics-verdict-title">
-                      {matchedBuyers.length === 1 ? 'Buyer identified' : `${matchedBuyers.length} buyers identified`}
+                      {matchedBuyers.length === 1
+                        ? 'Buyer identified'
+                        : `${matchedBuyers.length} buyers identified`}
                     </p>
                     <p className="forensics-verdict-desc">
                       {matchedBuyers.length === 1
@@ -577,7 +582,10 @@ export default function DashboardForensics() {
                         {buyer.provider && (
                           <div className="forensics-buyer-meta-row">
                             <dt className="forensics-buyer-meta-key">Store</dt>
-                            <dd className="forensics-buyer-meta-val" style={{ textTransform: 'capitalize' }}>
+                            <dd
+                              className="forensics-buyer-meta-val"
+                              style={{ textTransform: 'capitalize' }}
+                            >
                               {buyer.provider}
                             </dd>
                           </div>
@@ -585,7 +593,9 @@ export default function DashboardForensics() {
 
                         <div className="forensics-buyer-meta-row">
                           <dt className="forensics-buyer-meta-key">Trace recorded</dt>
-                          <dd className="forensics-buyer-meta-val">{formatBuyerDate(buyer.createdAt)}</dd>
+                          <dd className="forensics-buyer-meta-val">
+                            {formatBuyerDate(buyer.createdAt)}
+                          </dd>
                         </div>
 
                         {buyer.licenseKey && (
@@ -627,7 +637,9 @@ export default function DashboardForensics() {
 
                         {buyer.machineFingerprintHash && (
                           <div className="forensics-buyer-meta-row forensics-buyer-meta-row--full">
-                            <dt className="forensics-buyer-meta-key">Machine fingerprint (SHA-256)</dt>
+                            <dt className="forensics-buyer-meta-key">
+                              Machine fingerprint (SHA-256)
+                            </dt>
                             <dd className="forensics-buyer-meta-val forensics-buyer-meta-val--mono">
                               {buyer.machineFingerprintHash}
                             </dd>

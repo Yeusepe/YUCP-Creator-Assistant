@@ -455,14 +455,14 @@ describe('Auth Configuration', () => {
 
       try {
         const config: AuthConfig = {
-          baseUrl: 'https://dsktp.tailc472f7.ts.net',
+          baseUrl: 'https://public-api.test.example',
           trustedOrigin: 'https://creators.yucp.club',
           convexSiteUrl: 'https://test-123.convex.site',
           convexUrl: 'https://test-123.convex.site',
         };
         const auth = createAuth(config);
         const req = new Request(
-          'https://dsktp.tailc472f7.ts.net/api/connect/creator/certificates/checkout',
+          'https://public-api.test.example/api/connect/creator/certificates/checkout',
           {
             method: 'POST',
             headers: {

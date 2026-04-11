@@ -373,10 +373,16 @@ export const getConnectionStatus = query({
   returns: v.record(v.string(), v.boolean()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const connections = await ctx.db
-      .query('provider_connections')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .collect();
+    const [connections, collaboratorConnections] = await Promise.all([
+      ctx.db
+        .query('provider_connections')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+        .collect(),
+      ctx.db
+        .query('collaborator_connections')
+        .withIndex('by_owner_status', (q) => q.eq('ownerAuthUserId', args.authUserId).eq('status', 'active'))
+        .collect(),
+    ]);
 
     const result: Record<string, boolean> = {};
     await Promise.all(
@@ -391,6 +397,9 @@ export const getConnectionStatus = query({
         result[providerKey] = !!credValue;
       })
     );
+    for (const connection of collaboratorConnections) {
+      result[connection.provider] = true;
+    }
     return result;
   },
 });

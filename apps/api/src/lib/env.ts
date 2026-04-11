@@ -4,10 +4,9 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-
-import { parse as parseDotenv } from 'dotenv';
 import type { EnvConfig } from '@yucp/shared';
 import { resolveConvexSiteUrl as resolveSharedConvexSiteUrl } from '@yucp/shared';
+import { parse as parseDotenv } from 'dotenv';
 import { logger } from './logger';
 
 export interface LocalEnv {

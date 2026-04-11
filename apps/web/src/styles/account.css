@@ -2187,7 +2187,7 @@
   color: #f1f5f9;
 }
 .forensics-buyer-meta-val--mono {
-  font-family: var(--font-mono, ui-monospace, 'SFMono-Regular', Menlo, monospace);
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
   font-size: 12px;
 }
 

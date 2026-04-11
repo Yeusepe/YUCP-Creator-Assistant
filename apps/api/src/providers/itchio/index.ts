@@ -23,6 +23,17 @@ const itchioRuntime = createItchioProviderModule({
   async decryptCredential(encryptedCredential, ctx) {
     return await decrypt(encryptedCredential, ctx.encryptionSecret, PURPOSES.credential);
   },
+  async listCollaboratorConnections(ctx) {
+    return (await ctx.convex.query(api.collaboratorInvites.getCollabConnectionsForVerification, {
+      apiSecret: ctx.apiSecret,
+      ownerAuthUserId: ctx.authUserId,
+    })) as Array<{
+      id: string;
+      provider: string;
+      credentialEncrypted?: string;
+      collaboratorDisplayName?: string;
+    }>;
+  },
 });
 
 const itchioProvider = defineApiProviderEntry({

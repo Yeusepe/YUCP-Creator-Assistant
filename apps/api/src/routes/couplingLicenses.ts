@@ -1,5 +1,5 @@
-import { api } from '../../../../convex/_generated/api';
 import { buildPublicAuthIssuer } from '@yucp/shared/publicAuthority';
+import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
 import {
   buildRuntimeArtifactDownloadUrl,
@@ -7,11 +7,11 @@ import {
   type RuntimeArtifactKey,
 } from '../lib/couplingRuntimeArtifacts';
 import {
+  type CouplingRuntimeClaims,
+  type CouplingRuntimePackageClaims,
   getPublicKeyFromPrivate,
   signCouplingRuntimeJwt,
   signCouplingRuntimePackageJwt,
-  type CouplingRuntimeClaims,
-  type CouplingRuntimePackageClaims,
   verifyLicenseJwt,
 } from '../lib/yucpRuntimeCrypto';
 
@@ -57,7 +57,9 @@ async function getRootPublicKey(): Promise<string> {
     throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
   }
 
-  return process.env.YUCP_ROOT_PUBLIC_KEY?.trim() || (await getPublicKeyFromPrivate(rootPrivateKey));
+  return (
+    process.env.YUCP_ROOT_PUBLIC_KEY?.trim() || (await getPublicKeyFromPrivate(rootPrivateKey))
+  );
 }
 
 async function signRuntimeArtifactToken(
@@ -242,7 +244,13 @@ async function issueCouplingJob(
   }
 
   const { packageId, projectId, machineFingerprint, licenseToken, assetPaths } = body ?? {};
-  if (!packageId || !projectId || !machineFingerprint || !licenseToken || !Array.isArray(assetPaths)) {
+  if (
+    !packageId ||
+    !projectId ||
+    !machineFingerprint ||
+    !licenseToken ||
+    !Array.isArray(assetPaths)
+  ) {
     return errorResponse(
       'packageId, projectId, machineFingerprint, licenseToken, and assetPaths are required',
       400
@@ -254,10 +262,7 @@ async function issueCouplingJob(
 
   const artifact = await resolveRuntimeArtifact(config, 'coupling-runtime');
   if (!artifact.success) {
-    return errorResponse(
-      artifact.error ?? 'Coupling runtime is not configured on the server',
-      503
-    );
+    return errorResponse(artifact.error ?? 'Coupling runtime is not configured on the server', 503);
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
@@ -372,10 +377,7 @@ async function issueProtectedMaterializationGrant(
 
   const artifact = await resolveRuntimeArtifact(config, 'coupling-runtime');
   if (!artifact.success) {
-    return errorResponse(
-      artifact.error ?? 'Coupling runtime is not configured on the server',
-      503
-    );
+    return errorResponse(artifact.error ?? 'Coupling runtime is not configured on the server', 503);
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
@@ -404,6 +406,78 @@ async function issueProtectedMaterializationGrant(
   return jsonResponse({
     success: true,
     grant: result.grant,
+    expiresAt: result.expiresAt,
+  });
+}
+
+async function issueProtectedInstallIntent(
+  request: Request,
+  config: CouplingLicenseConfig
+): Promise<Response> {
+  let body: {
+    packageId: string;
+    protectedAssetId: string;
+    projectId: string;
+    machineFingerprint: string;
+    manifestBindingSha256: string;
+    licenseToken: string;
+  };
+
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return errorResponse('Invalid JSON body', 400);
+  }
+
+  const {
+    packageId,
+    protectedAssetId,
+    projectId,
+    machineFingerprint,
+    manifestBindingSha256,
+    licenseToken,
+  } = body ?? {};
+  if (
+    !packageId ||
+    !protectedAssetId ||
+    !projectId ||
+    !machineFingerprint ||
+    !manifestBindingSha256 ||
+    !licenseToken
+  ) {
+    return errorResponse(
+      'packageId, protectedAssetId, projectId, machineFingerprint, manifestBindingSha256, and licenseToken are required',
+      400
+    );
+  }
+  if (!PROJECT_ID_RE.test(projectId)) {
+    return errorResponse('Invalid projectId format', 400);
+  }
+
+  const convex = getConvexClientFromUrl(config.convexUrl);
+  const result = (await convex.action(api.yucpLicenses.issueProtectedInstallIntentForApi, {
+    apiSecret: config.convexApiSecret,
+    packageId,
+    protectedAssetId,
+    machineFingerprint,
+    projectId,
+    manifestBindingSha256,
+    licenseToken,
+    issuerBaseUrl: getIssuerBaseUrl(config),
+  })) as {
+    success: boolean;
+    installIntentToken?: string;
+    expiresAt?: number;
+    error?: string;
+  };
+
+  if (!result.success) {
+    return jsonResponse({ error: result.error }, 422);
+  }
+
+  return jsonResponse({
+    success: true,
+    installIntentToken: result.installIntentToken,
     expiresAt: result.expiresAt,
   });
 }
@@ -437,8 +511,14 @@ export function createCouplingLicenseRoutes(config: CouplingLicenseConfig) {
       if (request.method === 'POST' && url.pathname === '/v1/licenses/coupling-job') {
         return await issueCouplingJob(request, config);
       }
-      if (request.method === 'POST' && url.pathname === '/v1/licenses/protected-materialization-grant') {
+      if (
+        request.method === 'POST' &&
+        url.pathname === '/v1/licenses/protected-materialization-grant'
+      ) {
         return await issueProtectedMaterializationGrant(request, config);
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/licenses/protected-install-intent') {
+        return await issueProtectedInstallIntent(request, config);
       }
       if (request.method === 'GET' && url.pathname === '/v1/runtime-artifacts/manifest') {
         return await getRuntimeArtifactManifest(request, config);
