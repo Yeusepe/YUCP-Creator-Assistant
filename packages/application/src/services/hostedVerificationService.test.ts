@@ -16,7 +16,7 @@ function createProviders(): HostedVerificationProviderPort {
               completion: 'immediate',
               actionLabel: 'Verify license',
               defaultTitle: 'Gumroad license',
-              defaultDescription: 'Enter the Gumroad license key for this product.',
+              defaultDescription: 'Enter the Gumroad license key you received for this product.',
               input: {
                 kind: 'license_key',
                 label: 'License Key',
@@ -36,7 +36,7 @@ function createProviders(): HostedVerificationProviderPort {
               completion: 'immediate',
               actionLabel: 'Verify license',
               defaultTitle: 'Jinxxy license',
-              defaultDescription: 'Enter the Jinxxy license key for this product.',
+              defaultDescription: 'Enter the Jinxxy license key you received for this product.',
               input: {
                 kind: 'license_key',
                 label: 'License Key',
@@ -91,7 +91,7 @@ describe('HostedVerificationService', () => {
       providerKey: 'gumroad',
       kind: 'manual_license',
       title: 'Gumroad license',
-      description: 'Enter the Gumroad license key for this product.',
+      description: 'Enter the Gumroad license key you received for this product.',
       providerProductRef: 'abc123',
     });
   });

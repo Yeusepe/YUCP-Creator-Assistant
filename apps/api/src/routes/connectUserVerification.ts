@@ -7,10 +7,11 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
 import {
   getConnectedAccountProviderDisplay,
-  listUserLinkProviderDisplays,
+  listHostedVerificationProviderDisplays,
 } from '../providers/display';
 import type { ConnectConfig } from '../providers/types';
 import {
+  buildLinkedEntitlementRequirements,
   type HostedVerificationIntentRecord,
   mapHostedVerificationIntentResponse,
   verifyHostedBuyerProviderLinkIntent,
@@ -33,6 +34,70 @@ export function createConnectUserVerificationRoutes({
   config,
   isTenantOwnedBySessionUser,
 }: CreateConnectUserVerificationRoutesOptions) {
+  async function reconcileBuyerVerificationAccounts(
+    convex: ReturnType<typeof getConvexClientFromUrl>,
+    authUserId: string
+  ) {
+    await convex.mutation(api.subjects.reconcileBuyerProviderLinksForAuthUser, {
+      apiSecret: config.convexApiSecret,
+      authUserId,
+    });
+    return await convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+      apiSecret: config.convexApiSecret,
+      authUserId,
+    });
+  }
+
+  async function ensureLinkedEntitlementRequirements(
+    convex: ReturnType<typeof getConvexClientFromUrl>,
+    intent: HostedVerificationIntentRecord,
+    authUserId: string
+  ): Promise<HostedVerificationIntentRecord> {
+    const links = await reconcileBuyerVerificationAccounts(convex, authUserId);
+    const derivedRequirements = buildLinkedEntitlementRequirements(
+      intent,
+      links
+        .filter((link: (typeof links)[number]) => link.status === 'active')
+        .map((link: (typeof links)[number]) => link.provider),
+      async (requirement) => {
+        if (!requirement.providerProductRef) {
+          return null;
+        }
+
+        const product = await convex.query(api.yucpLicenses.lookupProductByProviderRef, {
+          apiSecret: config.convexApiSecret,
+          provider: requirement.providerKey,
+          providerProductRef: requirement.providerProductRef,
+        });
+
+        if (!product) {
+          return null;
+        }
+
+        return {
+          creatorAuthUserId: product.authUserId,
+          productId: product.productId,
+        };
+      }
+    );
+    const resolvedRequirements = await derivedRequirements;
+    if (resolvedRequirements.length === 0) {
+      return intent;
+    }
+
+    await convex.mutation(api.verificationIntents.appendVerificationIntentRequirements, {
+      apiSecret: config.convexApiSecret,
+      authUserId,
+      intentId: intent._id,
+      requirements: resolvedRequirements,
+    });
+
+    return {
+      ...intent,
+      requirements: [...intent.requirements, ...resolvedRequirements],
+    };
+  }
+
   async function getUserConnections(request: Request): Promise<Response> {
     const session = await auth.getSession(request);
     if (!session) {
@@ -76,10 +141,7 @@ export function createConnectUserVerificationRoutes({
     }
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const links = await convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
-        apiSecret: config.convexApiSecret,
-        authUserId: session.user.id,
-      });
+      const links = await reconcileBuyerVerificationAccounts(convex, session.user.id);
       return Response.json({
         connections: links.map((link: (typeof links)[number]) => ({
           id: String(link.id),
@@ -142,7 +204,7 @@ export function createConnectUserVerificationRoutes({
   }
 
   function getUserProviders(_request: Request): Response {
-    return Response.json({ providers: listUserLinkProviderDisplays() });
+    return Response.json({ providers: listHostedVerificationProviderDisplays() });
   }
 
   async function postUserVerifyStart(request: Request): Promise<Response> {
@@ -228,11 +290,18 @@ export function createConnectUserVerificationRoutes({
         authUserId: session.user.id,
       });
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const intent = await convex.action(api.verificationIntents.getVerificationIntent, {
+      const storedIntent = await convex.action(api.verificationIntents.getVerificationIntent, {
         apiSecret: config.convexApiSecret,
         authUserId: session.user.id,
         intentId: intentId as Id<'verification_intents'>,
       });
+      const intent = storedIntent
+        ? await ensureLinkedEntitlementRequirements(
+            convex,
+            storedIntent as HostedVerificationIntentRecord,
+            session.user.id
+          )
+        : null;
       if (!intent) {
         const diagnostic = await convex.query(api.verificationIntents.getIntentAccessDiagnostic, {
           apiSecret: config.convexApiSecret,
@@ -330,6 +399,18 @@ export function createConnectUserVerificationRoutes({
         methodKey: body.methodKey,
       });
       const convex = getConvexClientFromUrl(config.convexUrl);
+      const storedIntent = await convex.action(api.verificationIntents.getVerificationIntent, {
+        apiSecret: config.convexApiSecret,
+        authUserId: session.user.id,
+        intentId: intentId as Id<'verification_intents'>,
+      });
+      if (storedIntent) {
+        await ensureLinkedEntitlementRequirements(
+          convex,
+          storedIntent as HostedVerificationIntentRecord,
+          session.user.id
+        );
+      }
       const result = await convex.action(
         api.verificationIntents.verifyIntentWithExistingEntitlement,
         {

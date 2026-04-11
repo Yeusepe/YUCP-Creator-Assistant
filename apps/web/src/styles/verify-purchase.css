@@ -8,10 +8,8 @@
 .vp-page {
   background: #afcde5;
   min-height: 100vh;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: none;
-  -webkit-overflow-scrolling: touch;
+  position: relative;
+  overflow: hidden;
   color: var(--text-primary);
   font-family: "AirbnbCereal", sans-serif;
 }
@@ -23,7 +21,7 @@
 .vp-wrapper {
   color: var(--text-primary);
   font-family: "AirbnbCereal", sans-serif;
-  min-height: 100dvh;
+  height: 100dvh;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -32,11 +30,13 @@
   padding: 2rem 1rem 3rem;
   box-sizing: border-box;
   overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 @media (min-width: 640px) {
   .vp-wrapper {
-    align-items: center;
     padding: 2.5rem 1.5rem;
   }
 }
@@ -177,8 +177,8 @@
 }
 
 .vp-oauth-row--verified {
-  background: rgba(0, 230, 118, 0.06);
-  border-color: rgba(0, 230, 118, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.09);
 }
 
 .vp-oauth-row-left {
@@ -366,8 +366,8 @@
 }
 
 .vp-method-row--verified {
-  background: rgba(0, 230, 118, 0.06);
-  border-color: rgba(0, 230, 118, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .vp-method-row-info {
@@ -451,7 +451,7 @@
   padding: 0.55rem 1.25rem;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   color: #ffffff;
@@ -470,8 +470,8 @@
 }
 
 .vp-action-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.24);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
   transform: translateY(-1px);
 }

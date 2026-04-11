@@ -32,9 +32,14 @@
 import { sha256Hex } from '@yucp/shared/crypto';
 import { symmetricDecrypt } from 'better-auth/crypto';
 import { ConvexError, v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
 import { internal } from './_generated/api';
-import { action, internalAction, internalMutation, internalQuery } from './_generated/server';
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  query,
+} from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { BILLING_CAPABILITY_KEYS } from './lib/billingCapabilities';
 import {
@@ -65,6 +70,11 @@ const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
 const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
+type ProductByProviderRefResult = {
+  authUserId: string;
+  productId: string;
+  displayName?: string;
+} | null;
 const PROTECTED_ASSET_REGISTRATION = v.object({
   protectedAssetId: v.string(),
   unlockMode: v.union(v.literal('wrapped_content_key'), v.literal('content_key_b64')),
@@ -104,6 +114,29 @@ export const getProductByProviderRef = internalQuery({
       .first();
     if (!row) return null;
     return { authUserId: row.authUserId, productId: row.productId, displayName: row.displayName };
+  },
+});
+
+export const lookupProductByProviderRef = query({
+  args: {
+    apiSecret: v.string(),
+    provider: v.string(),
+    providerProductRef: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      authUserId: v.string(),
+      productId: v.string(),
+      displayName: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args): Promise<ProductByProviderRefResult> => {
+    requireApiSecret(args.apiSecret);
+    return await ctx.runQuery(internal.yucpLicenses.getProductByProviderRef, {
+      provider: args.provider,
+      providerProductRef: args.providerProductRef,
+    });
   },
 });
 

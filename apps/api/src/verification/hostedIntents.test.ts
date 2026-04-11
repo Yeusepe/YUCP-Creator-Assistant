@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  buildLinkedEntitlementRequirements,
   decorateHostedVerificationRequirement,
   normalizeHostedVerificationRequirements,
 } from './hostedIntents';
@@ -20,7 +21,7 @@ describe('hostedIntents', () => {
       providerKey: 'gumroad',
       kind: 'manual_license',
       title: 'Gumroad license',
-      description: 'Enter the Gumroad license key for this product.',
+      description: 'Enter the Gumroad license key you received for this product.',
       providerProductRef: 'abc123',
     });
   });
@@ -154,5 +155,67 @@ describe('hostedIntents', () => {
         },
       ])
     ).toThrow("Provider 'payhip' does not support hosted manual license verification");
+  });
+
+  it('derives linked entitlement requirements from provider-specific product mappings', async () => {
+    const derived = await buildLinkedEntitlementRequirements(
+      {
+        _id: 'intent_123',
+        authUserId: 'buyer_123',
+        packageId: 'pkg_123',
+        returnUrl: 'http://127.0.0.1/callback',
+        requirements: [
+          {
+            methodKey: 'existing-entitlement',
+            providerKey: 'yucp',
+            kind: 'existing_entitlement',
+            title: 'Connected YUCP access',
+            creatorAuthUserId: 'creator_123',
+            productId: 'product_123',
+          },
+          {
+            methodKey: 'jinxxy-license',
+            providerKey: 'jinxxy',
+            kind: 'manual_license',
+            title: 'Jinxxy license',
+            providerProductRef: 'prod_jinxxy',
+          },
+          {
+            methodKey: 'gumroad-oauth',
+            providerKey: 'gumroad',
+            kind: 'buyer_provider_link',
+            title: 'Gumroad account',
+            creatorAuthUserId: 'creator_123',
+            productId: 'product_123',
+            providerProductRef: 'prod_gumroad',
+          },
+        ],
+        status: 'pending',
+        expiresAt: Date.now() + 60_000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      ['jinxxy', 'gumroad', 'payhip'],
+      async (requirement) =>
+        requirement.providerKey === 'jinxxy' && requirement.providerProductRef === 'prod_jinxxy'
+          ? {
+              creatorAuthUserId: 'creator_123',
+              productId: 'product_jinxxy_123',
+            }
+          : null
+    );
+
+    expect(derived).toEqual([
+      {
+        methodKey: 'jinxxy-existing-entitlement',
+        providerKey: 'jinxxy',
+        kind: 'existing_entitlement',
+        title: 'Jinxxy access',
+        description: 'Check whether your linked Jinxxy access already grants this package.',
+        creatorAuthUserId: 'creator_123',
+        productId: 'product_jinxxy_123',
+        providerProductRef: undefined,
+      },
+    ]);
   });
 });

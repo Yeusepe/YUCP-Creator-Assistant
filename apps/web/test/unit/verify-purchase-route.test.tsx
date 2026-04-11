@@ -72,7 +72,7 @@ function createWrapper() {
 
 describe('verify purchase route', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mockUseSearch.mockReturnValue({
       intent: 'intent_gumroad_multi',
       connected: undefined,
@@ -284,5 +284,118 @@ describe('verify purchase route', () => {
         'discord-account-link'
       )
     );
+  });
+
+  it('shows linked non-OAuth providers in the sign-in section when an account is already synced', async () => {
+    mockUseSearch.mockReturnValue({
+      intent: 'intent_jinxxy_linked',
+      connected: undefined,
+    });
+
+    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
+      object: 'verification_intent',
+      id: 'intent_jinxxy_linked',
+      packageId: 'pkg-jinxxy-1',
+      packageName: 'Jinxxy Package',
+      status: 'pending',
+      verificationUrl: '/verify/purchase?intent=intent_jinxxy_linked',
+      returnUrl: 'https://localhost:3000/callback',
+      requirements: [
+        {
+          methodKey: 'jinxxy-entitlement',
+          providerKey: 'jinxxy',
+          providerLabel: 'Jinxxy',
+          kind: 'existing_entitlement',
+          title: 'Jinxxy access',
+          description: 'Use your linked Jinxxy account to verify access.',
+          creatorAuthUserId: 'creator-1',
+          productId: 'product-jinxxy-1',
+          providerProductRef: null,
+          capability: {
+            methodKind: 'existing_entitlement',
+            completion: 'immediate',
+            actionLabel: 'Check access',
+          },
+        },
+        {
+          methodKey: 'jinxxy-license',
+          providerKey: 'jinxxy',
+          providerLabel: 'Jinxxy',
+          kind: 'manual_license',
+          title: 'Jinxxy license',
+          description: 'Enter your Jinxxy license key.',
+          creatorAuthUserId: null,
+          productId: null,
+          providerProductRef: 'jinxxy-product-1',
+          capability: {
+            methodKind: 'manual_license',
+            completion: 'immediate',
+            actionLabel: 'Verify',
+            input: {
+              kind: 'license_key',
+              label: 'License key',
+              placeholder: 'Enter license key',
+              masked: false,
+              submitLabel: 'Verify',
+            },
+          },
+        },
+      ],
+      verifiedMethodKey: null,
+      errorCode: null,
+      errorMessage: null,
+      grantToken: null,
+      grantAvailable: false,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    vi.mocked(dashboardApi.listUserProviders).mockResolvedValue([
+      {
+        id: 'jinxxy',
+        label: 'Jinxxy',
+        icon: 'Jinxxy.png',
+        color: '#5a8cff',
+        description: 'Store',
+      },
+    ]);
+
+    vi.mocked(dashboardApi.listUserAccounts).mockResolvedValue([
+      {
+        id: 'jinxxy-link-1',
+        provider: 'jinxxy',
+        label: 'Main Jinxxy',
+        connectionType: 'verification',
+        status: 'active',
+        webhookConfigured: false,
+        hasApiKey: false,
+        hasAccessToken: false,
+        providerUserId: 'jinxxy-user-1',
+        providerUsername: 'jinxxy-main',
+        verificationMethod: 'account_link',
+        linkedAt: 10,
+        lastValidatedAt: 12,
+        expiresAt: null,
+        createdAt: 10,
+        updatedAt: 12,
+      },
+    ]);
+
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(accountApi.getUserVerificationIntent).toHaveBeenCalled());
+    await waitFor(() => expect(dashboardApi.listUserAccounts).toHaveBeenCalled());
+
+    expect((await screen.findAllByText(/sign in to verify/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/jinxxy-main/i)).toBeInTheDocument();
+    expect(
+      (await screen.findAllByRole('button', { name: /verify purchase/i })).length
+    ).toBeGreaterThan(0);
   });
 });

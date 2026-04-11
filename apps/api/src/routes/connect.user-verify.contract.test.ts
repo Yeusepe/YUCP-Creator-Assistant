@@ -19,7 +19,7 @@ const sessionManagerSource = readFileSync(
 describe('connect user-verify contracts', () => {
   it('supports OAuth-capable buyer-link providers through the shared verification begin route', () => {
     expect(connectRouteSource).toContain('createConnectUserVerificationRoutes({');
-    expect(connectUserVerificationSource).toContain('listUserLinkProviderDisplays()');
+    expect(connectUserVerificationSource).toContain('listHostedVerificationProviderDisplays()');
     expect(providerDisplaySource).toContain('createApplicationServices({');
     expect(providerDisplaySource).toContain(
       'isVerificationAvailable: (providerKey) => getVerificationConfig(providerKey) !== null'
@@ -39,6 +39,14 @@ describe('connect user-verify contracts', () => {
   });
 
   it('preserves buyer account response shaping in the extracted route module', () => {
+    expect(connectUserVerificationSource).toContain(
+      'api.subjects.reconcileBuyerProviderLinksForAuthUser'
+    );
+    expect(connectUserVerificationSource).toContain('buildLinkedEntitlementRequirements');
+    expect(connectUserVerificationSource).toContain('api.yucpLicenses.lookupProductByProviderRef');
+    expect(connectUserVerificationSource).toContain(
+      'api.verificationIntents.appendVerificationIntentRequirements'
+    );
     expect(connectUserVerificationSource).toContain("connectionType: 'verification'");
     expect(connectUserVerificationSource).toContain(
       'providerDisplay: getConnectedAccountProviderDisplay(link.provider)'
@@ -60,5 +68,14 @@ describe('connect user-verify contracts', () => {
     expect(sessionManagerSource).toMatch(
       /syncUserFromProvider,\s*\{\s*apiSecret,\s*authUserId,\s*provider: providerId,/s
     );
+  });
+
+  it('stores buyer provider links after manual license verification too', () => {
+    expect(connectUserVerificationSource).toContain(
+      'api.subjects.reconcileBuyerProviderLinksForAuthUser'
+    );
+    expect(
+      readFileSync(resolve(import.meta.dir, '../../../../convex/licenseVerification.ts'), 'utf8')
+    ).toContain('upsertBuyerProviderLinkRecord');
   });
 });

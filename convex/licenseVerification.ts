@@ -13,12 +13,13 @@
  * 5. Enqueue outbox jobs for role sync
  */
 
-import { ConvexError, v } from 'convex/values';
 import { canReactivate } from '@yucp/shared/entitlement/service';
+import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { mutation } from './_generated/server';
-import { LicenseProviderV } from './lib/providers';
 import { requireApiSecret } from './lib/apiAuth';
+import { LicenseProviderV } from './lib/providers';
+import { upsertBuyerProviderLinkRecord } from './subjects';
 
 // ============================================================================
 // TYPES
@@ -146,6 +147,13 @@ export const completeLicenseVerification = mutation({
         updatedAt: now,
       });
     }
+
+    await upsertBuyerProviderLinkRecord(ctx, {
+      subjectId: args.subjectId,
+      provider: args.provider,
+      externalAccountId,
+      verificationMethod: 'account_link',
+    });
 
     // 3. Upsert provider_customer
     const normalizedEmailHash = args.providerMetadata?.emailHash;

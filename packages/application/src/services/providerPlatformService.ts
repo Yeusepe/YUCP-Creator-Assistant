@@ -112,6 +112,35 @@ export class ProviderPlatformService {
     return providers;
   }
 
+  listHostedVerificationProviderDisplays(): ConnectedAccountProviderDisplay[] {
+    const seenProviderKeys = new Set<string>();
+    const providers: ConnectedAccountProviderDisplay[] = [];
+
+    for (const runtimeSurface of this.providerPlatformPort.listRuntimeConnectSurfaces()) {
+      const descriptor = getProviderDescriptor(runtimeSurface.providerKey);
+      if (!descriptor || descriptor.buyerVerificationMethods.length === 0) continue;
+
+      seenProviderKeys.add(runtimeSurface.providerKey);
+      providers.push(
+        buildConnectedAccountProviderDisplay(runtimeSurface.providerKey, runtimeSurface, undefined)
+      );
+    }
+
+    for (const providerKey of PROVIDER_KEYS) {
+      if (seenProviderKeys.has(providerKey)) continue;
+      const descriptor = getProviderDescriptor(providerKey);
+      if (!descriptor || descriptor.buyerVerificationMethods.length === 0) continue;
+
+      const fallbackDisplay = this.providerPlatformPort.getVerificationOnlyDisplay(providerKey);
+      if (!fallbackDisplay) continue;
+
+      seenProviderKeys.add(providerKey);
+      providers.push(buildConnectedAccountProviderDisplay(providerKey, undefined, fallbackDisplay));
+    }
+
+    return providers;
+  }
+
   listDashboardProviderDisplays(): DashboardProviderDisplay[] {
     return this.providerPlatformPort.listRuntimeConnectSurfaces().flatMap((runtimeSurface) => {
       const providerDisplay = buildDashboardProviderDisplay(runtimeSurface);

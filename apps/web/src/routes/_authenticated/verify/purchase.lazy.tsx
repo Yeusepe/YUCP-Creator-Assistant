@@ -18,6 +18,7 @@ import {
   startUserVerify,
   type UserAccountConnection,
   type UserProvider,
+  type UserProviderDisplay,
 } from '@/lib/dashboard';
 import {
   getPurchaseIntentLoadErrorState,
@@ -67,6 +68,15 @@ interface OAuthButtonProps {
 
 function getLinkedAccountLabel(account: UserAccountConnection): string | null {
   return account.providerUsername ?? account.providerUserId ?? account.label ?? null;
+}
+
+function getProviderVisual(
+  provider: UserProvider | null,
+  linkedAccounts: UserAccountConnection[]
+): UserProvider | UserProviderDisplay | null {
+  return (
+    provider ?? linkedAccounts.find((account) => account.providerDisplay)?.providerDisplay ?? null
+  );
 }
 
 function OAuthMethodButton({
@@ -141,8 +151,9 @@ function OAuthMethodButton({
     },
   });
 
-  const iconSrc = provider ? getProviderIconPath(provider) : null;
-  const brandColor = provider?.color ?? null;
+  const providerVisual = getProviderVisual(provider, linkedAccounts);
+  const iconSrc = providerVisual ? getProviderIconPath(providerVisual) : null;
+  const brandColor = providerVisual?.color ?? null;
 
   // Verified state ΓÇö green row
   if (isVerified) {
@@ -294,6 +305,132 @@ function OAuthMethodButton({
       {connectMut.isError ? (
         <p className="vp-method-error vp-method-error--full">
           Could not connect — please try again
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+interface LinkedEntitlementButtonProps {
+  intentId: string;
+  requirement: UserVerificationIntentRequirement;
+  linkedAccounts: UserAccountConnection[];
+  provider: UserProvider | null;
+  verifiedMethodKey: string | null;
+  onSuccess: () => void;
+}
+
+function LinkedEntitlementMethodButton({
+  intentId,
+  requirement,
+  linkedAccounts,
+  provider,
+  verifiedMethodKey,
+  onSuccess,
+}: LinkedEntitlementButtonProps) {
+  const queryClient = useQueryClient();
+  const isVerified = verifiedMethodKey === requirement.methodKey;
+  const activeLinks = linkedAccounts.filter((account) => account.status === 'active');
+  const linkedAccountsForDisplay = activeLinks
+    .map((account) => {
+      const label = getLinkedAccountLabel(account);
+      if (!label) {
+        return null;
+      }
+
+      return {
+        id: account.id,
+        label,
+      };
+    })
+    .filter((entry): entry is { id: string; label: string } => entry !== null);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['vp-intent', intentId] });
+    onSuccess();
+  };
+
+  const entitlementMut = useMutation({
+    mutationFn: () => verifyUserVerificationEntitlement(intentId, requirement.methodKey),
+    onSuccess: invalidate,
+  });
+
+  const isVerifyLoading = entitlementMut.isPending || (entitlementMut.isSuccess && !isVerified);
+  const providerVisual = getProviderVisual(provider, linkedAccounts);
+  const iconSrc = providerVisual ? getProviderIconPath(providerVisual) : null;
+  const brandColor = providerVisual?.color ?? null;
+
+  if (linkedAccountsForDisplay.length === 0) {
+    return null;
+  }
+
+  const accountCountLabel =
+    linkedAccountsForDisplay.length > 1
+      ? `${linkedAccountsForDisplay.length} accounts connected`
+      : 'Connected account';
+
+  if (isVerified) {
+    return (
+      <div className="vp-oauth-row vp-oauth-row--verified">
+        <div className="vp-oauth-row-left">
+          {iconSrc ? (
+            <img src={iconSrc} alt="" className="vp-oauth-icon" aria-hidden="true" />
+          ) : null}
+          <div className="vp-oauth-row-text">
+            <span className="vp-oauth-label">{requirement.providerLabel}</span>
+            <span className="vp-oauth-account">{accountCountLabel}</span>
+            {linkedAccountsForDisplay.map((account) => (
+              <span key={account.id} className="vp-oauth-account">
+                @{account.label}
+              </span>
+            ))}
+          </div>
+        </div>
+        <span className="vp-status-badge vp-status-badge--connected">
+          <svg viewBox="0 0 16 16" aria-hidden="true" className="vp-status-badge-icon">
+            <polyline points="3 8 6 11 13 5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Verified
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="vp-oauth-row">
+      <div className="vp-oauth-row-left">
+        {iconSrc ? <img src={iconSrc} alt="" className="vp-oauth-icon" aria-hidden="true" /> : null}
+        <div className="vp-oauth-row-text">
+          <span className="vp-oauth-label">{requirement.providerLabel}</span>
+          <span className="vp-oauth-account">{accountCountLabel}</span>
+          {linkedAccountsForDisplay.map((account) => (
+            <span key={account.id} className="vp-oauth-account">
+              @{account.label}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="vp-oauth-row-right">
+        <button
+          type="button"
+          className={`vp-oauth-verify-btn${isVerifyLoading ? ' btn-loading' : ''}`}
+          onClick={() => entitlementMut.mutate()}
+          disabled={isVerifyLoading}
+          style={brandColor ? ({ '--brand': brandColor } as React.CSSProperties) : undefined}
+        >
+          {isVerifyLoading ? (
+            <>
+              <span className="btn-loading-spinner" aria-hidden="true" />
+              Verifying...
+            </>
+          ) : (
+            'Verify purchase'
+          )}
+        </button>
+      </div>
+      {entitlementMut.isError ? (
+        <p className="vp-method-error vp-method-error--full">
+          Uh oh, we didn&apos;t find a purchase. Make sure you bought on this account.
         </p>
       ) : null}
     </div>
@@ -762,10 +899,28 @@ function VerifyPurchasePage() {
   const licenseMethods = intent.requirements.filter((r) => r.kind === 'manual_license');
   const entitlementMethods = intent.requirements.filter((r) => r.kind === 'existing_entitlement');
   const verifiedMethodKey = intent.verifiedMethodKey ?? null;
+  const oauthProviderKeys = new Set(oauthMethods.map((method) => method.providerKey));
+  const linkedEntitlementMethods = entitlementMethods.filter((requirement) => {
+    if (requirement.providerKey === 'yucp' || oauthProviderKeys.has(requirement.providerKey)) {
+      return false;
+    }
+
+    return (accountsByProvider.get(requirement.providerKey) ?? []).some(
+      (account) => account.status === 'active'
+    );
+  });
+  const standaloneEntitlementMethods = entitlementMethods.filter(
+    (requirement) =>
+      !linkedEntitlementMethods.some(
+        (linkedRequirement) => linkedRequirement.methodKey === requirement.methodKey
+      )
+  );
 
   const hasOAuth = oauthMethods.length > 0;
+  const hasLinkedEntitlement = linkedEntitlementMethods.length > 0;
+  const hasSignInMethods = hasOAuth || hasLinkedEntitlement;
   const hasLicense = licenseMethods.length > 0;
-  const hasEntitlement = entitlementMethods.length > 0;
+  const hasEntitlement = standaloneEntitlementMethods.length > 0;
   const visibleErrorMessage = getVisiblePurchaseVerificationError({
     errorCode: intent.errorCode,
     errorMessage: intent.errorMessage,
@@ -792,7 +947,7 @@ function VerifyPurchasePage() {
       ) : (
         <>
           {/* OAuth sign-in section */}
-          {hasOAuth ? (
+          {hasSignInMethods ? (
             <div className="vp-oauth-section">
               <p className="vp-section-eyebrow">Sign in to verify</p>
               <p className="vp-section-desc">Choose the store where you purchased this product.</p>
@@ -810,12 +965,23 @@ function VerifyPurchasePage() {
                     onSuccess={invalidateIntent}
                   />
                 ))}
+                {linkedEntitlementMethods.map((req) => (
+                  <LinkedEntitlementMethodButton
+                    key={req.methodKey}
+                    intentId={intentId}
+                    requirement={req}
+                    linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
+                    provider={providersByKey.get(req.providerKey) ?? null}
+                    verifiedMethodKey={verifiedMethodKey}
+                    onSuccess={invalidateIntent}
+                  />
+                ))}
               </div>
             </div>
           ) : null}
 
           {/* Divider between OAuth and license */}
-          {hasOAuth && hasLicense ? (
+          {hasSignInMethods && hasLicense ? (
             <div className="vp-methods-divider">
               <span className="vp-methods-divider-label">or enter license key</span>
             </div>
@@ -823,8 +989,8 @@ function VerifyPurchasePage() {
 
           {/* License key section */}
           {hasLicense ? (
-            <div className={`vp-section${!hasOAuth ? ' vp-section--top' : ''}`}>
-              {!hasOAuth ? <p className="vp-section-title">Enter license key</p> : null}
+            <div className={`vp-section${!hasSignInMethods ? ' vp-section--top' : ''}`}>
+              {!hasSignInMethods ? <p className="vp-section-title">Enter license key</p> : null}
               {licenseMethods.map((req) => (
                 <LicenseMethodRow
                   key={req.methodKey}
@@ -839,9 +1005,9 @@ function VerifyPurchasePage() {
           ) : null}
 
           {/* Entitlement check rows (shown only if no OAuth or they failed) */}
-          {hasEntitlement && !hasOAuth && !hasLicense ? (
+          {hasEntitlement && !hasSignInMethods && !hasLicense ? (
             <div className="vp-section">
-              {entitlementMethods.map((req) => (
+              {standaloneEntitlementMethods.map((req) => (
                 <EntitlementRow
                   key={req.methodKey}
                   intentId={intentId}

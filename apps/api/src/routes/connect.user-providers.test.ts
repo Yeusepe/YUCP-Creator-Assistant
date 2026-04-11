@@ -21,7 +21,7 @@ const auth = {
 } as unknown as Auth;
 
 describe('GET /api/connect/user/providers', () => {
-  it('only exposes hosted verification providers as connectable account links', async () => {
+  it('exposes the full hosted verification provider display list', async () => {
     const routes = createConnectRoutes(auth, testConfig);
     const response = await routes.getUserProviders(
       new Request('http://localhost:3001/api/connect/user/providers')
@@ -40,18 +40,25 @@ describe('GET /api/connect/user/providers', () => {
 
     // OAuth marketplace providers
     expect(providerIds).toContain('gumroad');
+    expect(providerIds).toContain('itchio');
 
     // Verification-only OAuth providers (no marketplace plugin, but OAuth buyer identity)
     expect(providerIds).toContain('discord');
 
-    // Non-OAuth or non-verification providers must not appear
-    expect(providerIds).not.toContain('jinxxy');
-    expect(providerIds).not.toContain('vrchat');
+    // Non-OAuth hosted verification providers still need display metadata for the purchase page.
+    expect(providerIds).toContain('jinxxy');
+    expect(providerIds).toContain('lemonsqueezy');
+    expect(providerIds).toContain('payhip');
+    expect(providerIds).toContain('vrchat');
 
     // Discord should carry icon and color so the purchase page can display it
     const discord = body.providers.find((p) => p.id === 'discord');
     expect(discord?.icon).toBe('Discord.png');
     expect(discord?.color).toBe('#5865F2');
+
+    const jinxxy = body.providers.find((p) => p.id === 'jinxxy');
+    expect(jinxxy?.icon).toBe('Jinxxy.png');
+    expect(jinxxy?.color).toBe('#9146FF');
   });
 
   it('rejects direct buyer-link connect attempts for Jinxxy', async () => {

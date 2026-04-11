@@ -209,6 +209,61 @@ describe('verification intents buyer provider links', () => {
     });
     expect(linksAfterRevoke).toHaveLength(0);
   });
+
+  it('lists buyer provider links across every active subject for the auth user', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-buyer-link-multi-subject';
+    const primarySubjectId = await seedSubject(t, {
+      authUserId,
+      primaryDiscordUserId: 'discord-buyer-link-primary',
+    });
+    const secondarySubjectId = await seedSubject(t, {
+      authUserId,
+      primaryDiscordUserId: 'discord-buyer-link-secondary',
+    });
+
+    const gumroadAccountId = await seedExternalAccount(t, {
+      provider: 'gumroad',
+      providerUserId: 'gumroad-user-123',
+      providerUsername: 'PrimaryBuyer',
+    });
+    const jinxxyAccountId = await seedExternalAccount(t, {
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-456',
+      providerUsername: 'SecondaryBuyer',
+    });
+
+    await t.mutation(api.subjects.upsertBuyerProviderLink, {
+      apiSecret: API_SECRET,
+      subjectId: primarySubjectId,
+      provider: 'gumroad',
+      externalAccountId: gumroadAccountId,
+      verificationMethod: 'oauth',
+    });
+    await t.mutation(api.subjects.upsertBuyerProviderLink, {
+      apiSecret: API_SECRET,
+      subjectId: secondarySubjectId,
+      provider: 'jinxxy',
+      externalAccountId: jinxxyAccountId,
+      verificationMethod: 'account_link',
+    });
+
+    const links = await t.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+      apiSecret: API_SECRET,
+      authUserId,
+    });
+
+    expect(links.map((link: (typeof links)[number]) => link.provider).sort()).toEqual([
+      'gumroad',
+      'jinxxy',
+    ]);
+    expect(links.find((link: (typeof links)[number]) => link.provider === 'jinxxy')).toMatchObject({
+      providerUserId: 'jinxxy-user-456',
+      providerUsername: 'SecondaryBuyer',
+      verificationMethod: 'account_link',
+      status: 'active',
+    });
+  });
 });
 
 describe('verification intents redemption issuer', () => {

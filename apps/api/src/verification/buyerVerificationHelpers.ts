@@ -88,7 +88,7 @@ export function createManualLicenseCapability(
     completion: 'immediate',
     actionLabel: 'Verify license',
     defaultTitle: `${providerLabel} license`,
-    defaultDescription: `Enter the ${providerLabel} license key for this product.`,
+    defaultDescription: `Enter the ${providerLabel} license key you received for this product.`,
     input: {
       kind: 'license_key',
       label: descriptor?.licenseKey?.inputLabel ?? 'License Key',

@@ -429,6 +429,52 @@ export const cancelVerificationIntent = mutation({
   },
 });
 
+export const appendVerificationIntentRequirements = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    intentId: v.id('verification_intents'),
+    requirements: v.array(VerificationIntentRequirementV),
+  },
+  returns: v.object({ appended: v.number() }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    if (args.requirements.length === 0) {
+      return { appended: 0 };
+    }
+
+    validateRequirements(args.requirements);
+
+    const intent = await ctx.db.get(args.intentId);
+    if (!intent || intent.authUserId !== args.authUserId) {
+      return { appended: 0 };
+    }
+    if (intent.status !== 'pending' || intent.expiresAt <= Date.now()) {
+      return { appended: 0 };
+    }
+
+    const existingMethodKeys = new Set(
+      intent.requirements.map((requirement) => requirement.methodKey)
+    );
+    const requirementsToAppend = args.requirements.filter(
+      (requirement) => !existingMethodKeys.has(requirement.methodKey)
+    );
+    if (requirementsToAppend.length === 0) {
+      return { appended: 0 };
+    }
+
+    const nextRequirements = [...intent.requirements, ...requirementsToAppend];
+    validateRequirements(nextRequirements);
+
+    await ctx.db.patch(args.intentId, {
+      requirements: nextRequirements,
+      updatedAt: Date.now(),
+    });
+
+    return { appended: requirementsToAppend.length };
+  },
+});
+
 export const expireVerificationIntent = internalMutation({
   args: {
     intentId: v.id('verification_intents'),

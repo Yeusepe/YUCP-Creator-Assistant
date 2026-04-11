@@ -45,6 +45,11 @@ export type {
   VerificationIntentRequirementInput,
 };
 
+type DerivedEntitlementContext = {
+  creatorAuthUserId: string;
+  productId: string;
+};
+
 export function normalizeHostedVerificationRequirements(
   requirements: VerificationIntentRequirementInput[]
 ): StoredVerificationIntentRequirement[] {
@@ -62,6 +67,98 @@ export function decorateHostedVerificationRequirement(
   requirement: StoredVerificationIntentRequirement
 ) {
   return hostedVerificationService.decorateRequirement(requirement);
+}
+
+export async function buildLinkedEntitlementRequirements(
+  intent: HostedVerificationIntentRecord,
+  linkedProviders: Iterable<string>,
+  resolveEntitlementContext?: (
+    requirement: StoredVerificationIntentRequirement
+  ) => Promise<DerivedEntitlementContext | null>
+): Promise<StoredVerificationIntentRequirement[]> {
+  const linkedProviderSet = new Set(
+    Array.from(linkedProviders, (provider) => provider.trim()).filter(Boolean)
+  );
+  if (linkedProviderSet.size === 0) {
+    return [];
+  }
+
+  const existingEntitlementProviders = new Set(
+    intent.requirements
+      .filter((requirement) => requirement.kind === 'existing_entitlement')
+      .map((requirement) => requirement.providerKey)
+  );
+  const buyerProviderLinkProviders = new Set(
+    intent.requirements
+      .filter((requirement) => requirement.kind === 'buyer_provider_link')
+      .map((requirement) => requirement.providerKey)
+  );
+  const seenMethodKeys = new Set(intent.requirements.map((requirement) => requirement.methodKey));
+  const explicitEntitlementContexts = new Map(
+    intent.requirements.flatMap((requirement) =>
+      requirement.kind === 'existing_entitlement' &&
+      requirement.providerKey !== 'yucp' &&
+      requirement.creatorAuthUserId &&
+      requirement.productId
+        ? [
+            [
+              requirement.providerKey,
+              {
+                creatorAuthUserId: requirement.creatorAuthUserId,
+                productId: requirement.productId,
+              } satisfies DerivedEntitlementContext,
+            ] as const,
+          ]
+        : []
+    )
+  );
+  const manualLicenseRequirements = intent.requirements.filter(
+    (requirement): requirement is StoredVerificationIntentRequirement =>
+      requirement.kind === 'manual_license'
+  );
+
+  const derivedRequirements: VerificationIntentRequirementInput[] = [];
+  for (const manualRequirement of manualLicenseRequirements) {
+    const providerKey = manualRequirement.providerKey;
+    const descriptor = getProviderDescriptor(providerKey);
+    if (!descriptor?.buyerVerificationMethods.includes('account_link')) {
+      continue;
+    }
+    if (!linkedProviderSet.has(providerKey)) {
+      continue;
+    }
+    if (existingEntitlementProviders.has(providerKey)) {
+      continue;
+    }
+    if (buyerProviderLinkProviders.has(providerKey)) {
+      continue;
+    }
+
+    const resolvedContext =
+      explicitEntitlementContexts.get(providerKey) ??
+      (resolveEntitlementContext ? await resolveEntitlementContext(manualRequirement) : null);
+    if (!resolvedContext) {
+      continue;
+    }
+
+    let methodKey = `${providerKey}-existing-entitlement`;
+    let suffix = 2;
+    while (seenMethodKeys.has(methodKey)) {
+      methodKey = `${providerKey}-existing-entitlement-${suffix}`;
+      suffix += 1;
+    }
+    seenMethodKeys.add(methodKey);
+
+    derivedRequirements.push({
+      methodKey,
+      providerKey,
+      kind: 'existing_entitlement',
+      creatorAuthUserId: resolvedContext.creatorAuthUserId,
+      productId: resolvedContext.productId,
+    });
+  }
+
+  return normalizeHostedVerificationRequirements(derivedRequirements);
 }
 
 export async function verifyHostedManualLicenseIntent(input: {

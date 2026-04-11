@@ -70,6 +70,10 @@ export function listUserLinkProviderDisplays(): ProviderDisplaySummary[] {
   return providerPlatformService.listUserLinkProviderDisplays();
 }
 
+export function listHostedVerificationProviderDisplays(): ProviderDisplaySummary[] {
+  return providerPlatformService.listHostedVerificationProviderDisplays();
+}
+
 export function listDashboardProviderDisplays(): DashboardProviderSummary[] {
   return providerPlatformService.listDashboardProviderDisplays();
 }
