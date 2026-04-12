@@ -15,6 +15,8 @@
   --dashboard-content-inner-radius: 16px;
   /* Extra padding on the seam edge of the sidebar (toward main) so the rail lines up with content-area inset */
   --dashboard-sidebar-seam-inset: 0px;
+  /* Wordmark: keep under server pill row height (~36px); width follows aspect ratio (no horizontal squish) */
+  --dashboard-sidebar-logo-max-height: 30px;
 
   /* Dot matrix (content-area backdrop) */
   --dashboard-dot-matrix-size: 22px;

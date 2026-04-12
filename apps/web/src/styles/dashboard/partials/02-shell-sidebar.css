@@ -186,13 +186,15 @@
 .sidebar-brand img,
 .sidebar-logo-img,
 .sidebar-logo-img-light {
-  /* Full width of the padded logo column so the mark lines up with the server pill and nav */
-  width: 100%;
-  max-width: 100%;
+  /* Do not set width: 100% (stretches wide assets and looks vertically squashed). Size from height cap + intrinsic ratio. */
+  width: auto;
+  max-width: 94%;
   height: auto;
+  max-height: var(--dashboard-sidebar-logo-max-height);
   display: block;
   flex-shrink: 0;
   object-fit: contain;
+  object-position: left center;
 }
 
 .sidebar-brand-name {
@@ -412,7 +414,9 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding: 14px var(--sidebar-pad-x);
+  padding-block: 14px;
+  padding-inline-start: var(--sidebar-pad-x);
+  padding-inline-end: calc(var(--sidebar-pad-x) + var(--dashboard-sidebar-seam-inset));
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   flex-shrink: 0;
   /* Subtle dark frost so white "My Account" text stays legible over any bg */

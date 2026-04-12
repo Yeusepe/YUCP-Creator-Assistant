@@ -186,6 +186,14 @@
     padding: 24px 24px 64px;
   }
 
+  /* Match the tighter main horizontal padding so the sidebar rail lines up with content-area */
+  @media (min-width: 768px) {
+    .sidebar {
+      --sidebar-pad-x: 16px;
+      --dashboard-sidebar-seam-inset: 8px;
+    }
+  }
+
   .b-4 {
     grid-column: span 6;
   }

@@ -14,6 +14,20 @@
   padding-bottom: 0;
 }
 
+/*
+ * 768px–1023px: base bento is a 3-column grid; bento-col-4 is only one column (~⅓ width),
+ * which crushes sidebar-style cards. Stack 8/4 and 7/5 rows full-width like certificates.
+ */
+@media (max-width: 1023px) {
+  .account-bento-grid .bento-col-8,
+  .account-bento-grid .bento-col-7,
+  .account-bento-grid .bento-col-6,
+  .account-bento-grid .bento-col-5,
+  .account-bento-grid .bento-col-4 {
+    grid-column: 1 / -1;
+  }
+}
+
 .account-surface-card {
   min-width: 0;
 }
