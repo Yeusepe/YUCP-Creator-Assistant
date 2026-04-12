@@ -1,3 +1,5 @@
+import { captureHyperdxException } from '@/lib/hyperdx';
+
 export interface WebDiagnosticsEnv {
   NODE_ENV?: string;
   CONVEX_URL?: string;
@@ -148,6 +150,10 @@ export function logWebError(
   error: unknown,
   context: Record<string, unknown> = {}
 ): void {
+  captureHyperdxException(error, {
+    event,
+    ...context,
+  });
   console.error(`[web] ${event}`, compactRecord({ ...context, error: serializeError(error) }));
 }
 

@@ -15,6 +15,7 @@ import { createStructuredLogger, type StructuredLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import { Client, GuildMember, RESTJSONErrorCodes } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import { withBotSpan } from '../lib/observability';
 import { sendDashboardNotification } from '../lib/notifications';
 import { buildVerifyPromptMessage, getEnabledProviders } from '../lib/verifyPrompt';
 import { buildVerifyPromptAccessPreview } from '../lib/verifyPromptAccess';
@@ -334,79 +335,85 @@ export class RoleSyncService {
    * Process a single outbox job.
    */
   private async processJob(job: OutboxJob): Promise<void> {
-    this.logger.info('Processing job', {
-      jobId: job._id,
-      jobType: job.jobType,
-      retryCount: job.retryCount,
-    });
-
-    // Mark job as in progress
-    await this.updateJobStatus(job._id, 'in_progress');
-
-    try {
-      if (job.jobType === 'creator_alert') {
-        await this.processCreatorAlertJob(job);
-        await this.updateJobStatus(job._id, 'completed');
-        this.logger.info('Creator alert job completed', { jobId: job._id });
-        return;
-      }
-
-      if (job.jobType === 'retroactive_rule_sync') {
-        await this.processRetroactiveRuleSyncJob(job);
-        await this.updateJobStatus(job._id, 'completed');
-        this.logger.info('Retroactive rule sync job completed', { jobId: job._id });
-        return;
-      }
-
-      if (job.jobType === 'verify_prompt_refresh') {
-        await this.processVerifyPromptRefreshJob(job);
-        await this.updateJobStatus(job._id, 'completed');
-        this.logger.info('Verify prompt refresh job completed', { jobId: job._id });
-        return;
-      }
-
-      let result: RoleSyncResult;
-
-      if (job.jobType === 'role_sync') {
-        result = await this.processRoleSyncJob(job);
-      } else if (job.jobType === 'role_removal') {
-        result = await this.processRoleRemovalJob(job);
-      } else {
-        throw new Error(`Unknown job type: ${(job as OutboxJob).jobType}`);
-      }
-
-      if (result.success) {
-        // Mark job as completed
-        await this.updateJobStatus(job._id, 'completed');
-
-        // Emit audit event
-        await this.emitAuditEvent(job, result);
-
-        this.logger.info('Job completed successfully', {
+    await withBotSpan(
+      'discord.role_sync.job',
+      {
+        authUserId: job.authUserId,
+        jobId: job._id,
+        jobType: job.jobType,
+        retryCount: job.retryCount,
+        targetGuildId: job.targetGuildId,
+      },
+      async () => {
+        this.logger.info('Processing job', {
           jobId: job._id,
-          rolesAdded: result.rolesAdded,
-          rolesRemoved: result.rolesRemoved,
+          jobType: job.jobType,
+          retryCount: job.retryCount,
         });
 
-        // Notify the creator dashboard (fire-and-forget)
-        if (job.jobType === 'role_sync' && result.rolesAdded.length > 0 && result.guildId) {
-          const roleCount = result.rolesAdded.length;
-          sendDashboardNotification({
-            authUserId: job.authUserId,
-            guildId: result.guildId,
-            type: 'info',
-            title: 'Roles synced',
-            message: `${roleCount} role${roleCount !== 1 ? 's' : ''} assigned${result.discordUserId ? ` to <@${result.discordUserId}>` : ''}.`,
-          });
+        await this.updateJobStatus(job._id, 'in_progress');
+
+        try {
+          if (job.jobType === 'creator_alert') {
+            await this.processCreatorAlertJob(job);
+            await this.updateJobStatus(job._id, 'completed');
+            this.logger.info('Creator alert job completed', { jobId: job._id });
+            return;
+          }
+
+          if (job.jobType === 'retroactive_rule_sync') {
+            await this.processRetroactiveRuleSyncJob(job);
+            await this.updateJobStatus(job._id, 'completed');
+            this.logger.info('Retroactive rule sync job completed', { jobId: job._id });
+            return;
+          }
+
+          if (job.jobType === 'verify_prompt_refresh') {
+            await this.processVerifyPromptRefreshJob(job);
+            await this.updateJobStatus(job._id, 'completed');
+            this.logger.info('Verify prompt refresh job completed', { jobId: job._id });
+            return;
+          }
+
+          let result: RoleSyncResult;
+
+          if (job.jobType === 'role_sync') {
+            result = await this.processRoleSyncJob(job);
+          } else if (job.jobType === 'role_removal') {
+            result = await this.processRoleRemovalJob(job);
+          } else {
+            throw new Error(`Unknown job type: ${(job as OutboxJob).jobType}`);
+          }
+
+          if (result.success) {
+            await this.updateJobStatus(job._id, 'completed');
+            await this.emitAuditEvent(job, result);
+
+            this.logger.info('Job completed successfully', {
+              jobId: job._id,
+              rolesAdded: result.rolesAdded,
+              rolesRemoved: result.rolesRemoved,
+            });
+
+            if (job.jobType === 'role_sync' && result.rolesAdded.length > 0 && result.guildId) {
+              const roleCount = result.rolesAdded.length;
+              sendDashboardNotification({
+                authUserId: job.authUserId,
+                guildId: result.guildId,
+                type: 'info',
+                title: 'Roles synced',
+                message: `${roleCount} role${roleCount !== 1 ? 's' : ''} assigned${result.discordUserId ? ` to <@${result.discordUserId}>` : ''}.`,
+              });
+            }
+          } else {
+            await this.handleJobFailure(job, result.error ?? 'Unknown error');
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          await this.handleJobFailure(job, errorMessage);
         }
-      } else {
-        // Handle failure with retry
-        await this.handleJobFailure(job, result.error ?? 'Unknown error');
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      await this.handleJobFailure(job, errorMessage);
-    }
+    );
   }
 
   /**

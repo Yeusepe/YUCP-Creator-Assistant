@@ -26,6 +26,7 @@ Secrets are organized by service and access scope:
 │   └── discord/     # Discord-specific credentials
 └── infra/           # Infrastructure secrets
     ├── convex/      # Convex deployment
+    ├── observability/# HyperDX / OpenTelemetry local and hosted endpoints
     └── signing/     # Webhook signing keys
 ```
 
@@ -89,6 +90,11 @@ Each service has its own machine identity with least-privilege access:
 |------------|-------------|----------|
 | `CONVEX_URL` | Convex deployment URL | Never (public-ish) |
 | `CONVEX_DEPLOY_KEY` | Convex deployment token | On compromise / 90 days |
+| `HYPERDX_API_KEY` | Public ingest key for browser/session-replay SDKs when HyperDX instrumentation is enabled | On compromise / 90 days |
+| `HYPERDX_APP_URL` | HyperDX UI base URL (e.g. `http://localhost:8080` for local dev) | On topology change |
+| `HYPERDX_OTLP_HTTP_URL` | OTLP HTTP collector URL (e.g. `http://localhost:4318`) | On topology change |
+| `HYPERDX_OTLP_GRPC_URL` | OTLP gRPC collector host/port (e.g. `localhost:4317`) | On topology change |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Default OTLP exporter endpoint for local SDK wiring | On topology change |
 | `INTERNAL_RPC_SHARED_SECRET` | Shared bearer secret for web, API, and bot internal RPC/authenticated proxy calls. Required in production, optional in local dev because services share a built-in dev secret. | On compromise / 90 days |
 | `WEBHOOK_SIGNING_SECRET` | Webhook signature key | On compromise / 90 days |
 
@@ -115,6 +121,11 @@ EMAIL_FROM=/api/integrations/email/EMAIL_FROM
 
 # Infrastructure
 CONVEX_URL=/infra/convex/CONVEX_URL
+HYPERDX_API_KEY=/infra/observability/HYPERDX_API_KEY
+HYPERDX_APP_URL=/infra/observability/HYPERDX_APP_URL
+HYPERDX_OTLP_HTTP_URL=/infra/observability/HYPERDX_OTLP_HTTP_URL
+HYPERDX_OTLP_GRPC_URL=/infra/observability/HYPERDX_OTLP_GRPC_URL
+OTEL_EXPORTER_OTLP_ENDPOINT=/infra/observability/OTEL_EXPORTER_OTLP_ENDPOINT
 INTERNAL_RPC_SHARED_SECRET=/infra/signing/INTERNAL_RPC_SHARED_SECRET
 WEBHOOK_SIGNING_SECRET=/infra/signing/WEBHOOK_SIGNING_SECRET
 ```

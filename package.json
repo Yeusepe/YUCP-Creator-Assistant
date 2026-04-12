@@ -47,6 +47,8 @@
     "build": "bun run --filter '*' build",
     "dev": "bun run ops/dev-supervisor.ts",
     "dev:infisical": "bun run ops/dev-supervisor.ts --infisical",
+    "dev:hyperdx": "bun run ops/hyperdx-dev.ts",
+    "dev:hyperdx:infisical": "bun run --env-file=.env.infisical ops/hyperdx-dev.ts",
     "sync:convex:env": "bun run --env-file=.env.infisical ops/sync-convex-env.ts",
     "sync:convex:env:prod": "bun run --env-file=.env.infisical ops/sync-convex-env.ts --prod",
     "infisical:convex": "bun run --env-file=.env.infisical ops/infisical-convex-run.ts",

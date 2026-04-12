@@ -10,6 +10,9 @@ import { parse as parseDotenv } from 'dotenv';
 const execFileAsync = promisify(execFile);
 const ROOT_DIR = process.cwd();
 const DEV_FRONTEND_URL = 'http://localhost:3000';
+const DEV_HYPERDX_APP_URL = 'http://localhost:8080';
+const DEV_HYPERDX_OTLP_HTTP_URL = 'http://localhost:4318';
+const DEV_HYPERDX_OTLP_GRPC_URL = 'http://localhost:4317';
 const PREFIX_RESET = '\u001B[0m';
 const PREFIX_COLORS = {
   blue: '\u001B[34m',
@@ -41,6 +44,7 @@ const DEFAULT_COMMANDS: readonly DevCommandSpec[] = [
   { name: 'api', color: 'magenta', command: 'bun run dev:api' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot' },
   { name: 'web', color: 'yellow', command: 'bun run dev:web' },
+  { name: 'hyperdx', color: 'cyan', command: 'bun run dev:hyperdx' },
   { name: 'coupling', color: 'red', command: 'bun run dev', cwd: COUPLING_SERVICE_DIR },
   { name: 'tunnel', color: 'cyan', command: 'tailscale funnel 3001' },
 ];
@@ -50,6 +54,7 @@ const INFISICAL_COMMANDS: readonly DevCommandSpec[] = [
   { name: 'api', color: 'magenta', command: 'bun run dev:api:infisical' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot:infisical' },
   { name: 'web', color: 'yellow', command: 'bun run dev:web:infisical' },
+  { name: 'hyperdx', color: 'cyan', command: 'bun run dev:hyperdx:infisical' },
   { name: 'coupling', color: 'red', command: 'bun run dev:infisical', cwd: COUPLING_SERVICE_DIR },
   { name: 'tunnel', color: 'cyan', command: 'tailscale funnel 3001' },
 ];
@@ -316,14 +321,27 @@ async function runCommandStep(step: DevCommandSpec, env: NodeJS.ProcessEnv): Pro
   }
 }
 
+export function applyLocalDevDefaults(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...baseEnv,
+    FRONTEND_URL: baseEnv.FRONTEND_URL ?? DEV_FRONTEND_URL,
+    HYPERDX_API_KEY: baseEnv.HYPERDX_API_KEY ?? 'local',
+    HYPERDX_APP_URL: baseEnv.HYPERDX_APP_URL ?? DEV_HYPERDX_APP_URL,
+    HYPERDX_OTLP_HTTP_URL: baseEnv.HYPERDX_OTLP_HTTP_URL ?? DEV_HYPERDX_OTLP_HTTP_URL,
+    HYPERDX_OTLP_GRPC_URL: baseEnv.HYPERDX_OTLP_GRPC_URL ?? DEV_HYPERDX_OTLP_GRPC_URL,
+    OTEL_EXPORTER_OTLP_ENDPOINT:
+      baseEnv.OTEL_EXPORTER_OTLP_ENDPOINT ?? baseEnv.HYPERDX_OTLP_HTTP_URL ?? DEV_HYPERDX_OTLP_HTTP_URL,
+    OTEL_EXPORTER_OTLP_PROTOCOL: baseEnv.OTEL_EXPORTER_OTLP_PROTOCOL ?? 'http/protobuf',
+  };
+}
+
 async function loadInfisicalEnv(): Promise<NodeJS.ProcessEnv> {
   const envFilePath = path.join(ROOT_DIR, '.env.infisical');
   const envFile = existsSync(envFilePath) ? await readFile(envFilePath, 'utf8') : '';
-  return {
+  return applyLocalDevDefaults({
     ...process.env,
     ...parseDotenv(envFile),
-    FRONTEND_URL: process.env.FRONTEND_URL ?? DEV_FRONTEND_URL,
-  };
+  });
 }
 
 function signalExitCode(signal: NodeJS.Signals): number {
@@ -332,7 +350,7 @@ function signalExitCode(signal: NodeJS.Signals): number {
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const infisical = argv.includes('--infisical');
-  const env = infisical ? await loadInfisicalEnv() : process.env;
+  const env = infisical ? await loadInfisicalEnv() : applyLocalDevDefaults(process.env);
   const supervisor = new DevSupervisor(infisical ? INFISICAL_COMMANDS : DEFAULT_COMMANDS, env, {
     prefixOutput: true,
   });

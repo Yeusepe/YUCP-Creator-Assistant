@@ -1,3 +1,5 @@
+import { addHyperdxAction, captureHyperdxException } from '@/lib/hyperdx';
+
 const API_BASE = '';
 
 type FetchOptions = RequestInit & {
@@ -43,7 +45,20 @@ async function apiFetch<T = unknown>(path: string, options: FetchOptions = {}): 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const requestId = response.headers.get('X-Request-Id') ?? undefined;
-    throw new ApiError(response.status, body, requestId);
+    const error = new ApiError(response.status, body, requestId);
+    captureHyperdxException(error, {
+      path,
+      method: init.method ?? 'GET',
+      requestId: requestId ?? 'unknown',
+      status: String(response.status),
+    });
+    addHyperdxAction('api.request.failed', {
+      path,
+      method: init.method ?? 'GET',
+      requestId: requestId ?? 'unknown',
+      status: String(response.status),
+    });
+    throw error;
   }
 
   if (response.status === 204) {

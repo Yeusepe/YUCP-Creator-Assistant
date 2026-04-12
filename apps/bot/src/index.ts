@@ -1,6 +1,7 @@
 // Discord bot entrypoint
 
 import { setDefaultResultOrder } from 'node:dns';
+import { SpanKind } from '@opentelemetry/api';
 import { createLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import { startBot } from './client';
@@ -8,6 +9,7 @@ import { registerCommands } from './commands';
 import { handleGuildMemberAdd } from './handlers/guildMemberAdd';
 import { handleInteraction } from './handlers/interactions';
 import { loadEnvAsync, validateBotEnv } from './lib/env';
+import { initBotObservability, withBotSpan } from './lib/observability';
 import { startHeartbeat } from './services/heartbeat';
 import {
   getLienedDownloadsInvitePermissions,
@@ -105,6 +107,7 @@ async function discordPreflight(token: string): Promise<void> {
 
 async function main() {
   const env = await loadEnvAsync();
+  initBotObservability(process.env);
   validateBotEnv(env);
   const discordBotToken = env.DISCORD_BOT_TOKEN;
   const convexUrl = env.CONVEX_URL;
@@ -128,10 +131,22 @@ async function main() {
     });
   }
 
-  await discordPreflight(discordBotToken);
+  await withBotSpan(
+    'discord.preflight',
+    {
+      phase: 'discord-preflight',
+    },
+    () => discordPreflight(discordBotToken)
+  );
 
   const LOGIN_TIMEOUT_MS = Number.parseInt(process.env.BOT_LOGIN_TIMEOUT_MS ?? '30000', 10);
-  const client = await withTimeout(startBot(discordBotToken), LOGIN_TIMEOUT_MS, 'Discord login');
+  const client = await withBotSpan(
+    'discord.login',
+    {
+      phase: 'discord-login',
+    },
+    () => withTimeout(startBot(discordBotToken), LOGIN_TIMEOUT_MS, 'Discord login')
+  );
 
   const READY_TIMEOUT_MS = 30_000;
 
@@ -175,7 +190,14 @@ async function main() {
     throw new Error('Discord client is ready but user ID is missing');
   }
   const guildId = env.DISCORD_GUILD_ID;
-  await registerCommands(discordBotToken, clientId, guildId);
+  await withBotSpan(
+    'discord.register_commands',
+    {
+      clientId,
+      guildId: guildId ?? 'global',
+    },
+    () => registerCommands(discordBotToken, clientId, guildId)
+  );
   logger.info('Slash commands registered', { guildId: guildId ?? 'global' });
 
   const invitePermissions = getLienedDownloadsInvitePermissions();
@@ -201,7 +223,20 @@ async function main() {
         interaction.isChannelSelectMenu() ||
         interaction.isUserSelectMenu()
       ) {
-        await handleInteraction(interaction, interactionCtx);
+        await withBotSpan(
+          'discord.interaction',
+          {
+            interactionType: interaction.type,
+            commandName:
+              'commandName' in interaction && typeof interaction.commandName === 'string'
+                ? interaction.commandName
+                : interaction.customId ?? String(interaction.type),
+            guildId: interaction.guildId ?? 'dm',
+            userId: interaction.user.id,
+          },
+          () => handleInteraction(interaction, interactionCtx),
+          SpanKind.CONSUMER
+        );
       }
     } catch (err) {
       logger.error('Unhandled interaction error', {
@@ -212,12 +247,29 @@ async function main() {
   });
 
   client.on('guildMemberAdd', async (member) => {
-    await handleGuildMemberAdd(member, interactionCtx);
+    await withBotSpan(
+      'discord.guild_member_add',
+      {
+        guildId: member.guild.id,
+        userId: member.user.id,
+      },
+      () => handleGuildMemberAdd(member, interactionCtx),
+      SpanKind.CONSUMER
+    );
   });
 
   client.on('messageCreate', async (message) => {
     try {
-      await lienedDownloadsService.handleMessage(message);
+      await withBotSpan(
+        'discord.message',
+        {
+          guildId: message.guildId ?? 'dm',
+          channelId: message.channelId,
+          authorId: message.author.id,
+        },
+        () => lienedDownloadsService.handleMessage(message),
+        SpanKind.CONSUMER
+      );
     } catch (err) {
       logger.error('Liened Downloads message handler failed', {
         message: err instanceof Error ? err.message : String(err),

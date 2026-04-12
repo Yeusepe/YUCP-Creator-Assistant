@@ -16,6 +16,12 @@ import {
   isLegacyFrontendAsset,
 } from './lib/legacyFrontend';
 import { logger } from './lib/logger';
+import {
+  annotateApiSpan,
+  getActiveTraceIds,
+  initApiObservability,
+  withApiRequestSpan,
+} from './lib/observability';
 import { detectTunnelUrl } from './lib/tunnel';
 import {
   createConnectRoutes,
@@ -1089,31 +1095,47 @@ async function routeRequest(request: Request): Promise<Response> {
  * Handles CORS for the frontend subdomain, then delegates to routeRequest.
  */
 async function handleRequest(request: Request): Promise<Response> {
-  // Build CORS headers for approved browser origins used by the app UI.
-  const corsHeaders: Record<string, string> = {};
+  const requestId = request.headers.get('x-request-id')?.trim() || crypto.randomUUID();
   const origin = request.headers.get('origin');
-  if (origin && allowedCorsOrigins.has(origin)) {
-    corsHeaders['Access-Control-Allow-Origin'] = origin;
-    corsHeaders['Access-Control-Allow-Credentials'] = 'true';
-    corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS';
-    corsHeaders['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
-    corsHeaders.Vary = 'Origin';
-  }
 
-  // CORS preflight - respond immediately.
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
-  }
+  return withApiRequestSpan(request, requestId, async () => {
+    // Build CORS headers for approved browser origins used by the app UI.
+    const corsHeaders: Record<string, string> = {};
+    if (origin && allowedCorsOrigins.has(origin)) {
+      corsHeaders['Access-Control-Allow-Origin'] = origin;
+      corsHeaders['Access-Control-Allow-Credentials'] = 'true';
+      corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS';
+      corsHeaders['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, Traceparent';
+      corsHeaders['Access-Control-Expose-Headers'] = 'X-Request-Id, X-Trace-Id';
+      corsHeaders['Timing-Allow-Origin'] = origin;
+      corsHeaders.Vary = 'Origin';
+    }
 
-  const response = await routeRequest(request);
+    annotateApiSpan({
+      requestId,
+      origin: origin ?? 'none',
+    });
 
-  // Append CORS headers to every response when the request came from the frontend origin.
-  if (Object.keys(corsHeaders).length > 0) {
+    // CORS preflight - respond immediately.
+    if (request.method === 'OPTIONS') {
+      const preflightResponse = new Response(null, { status: 204, headers: corsHeaders });
+      preflightResponse.headers.set('X-Request-Id', requestId);
+      return preflightResponse;
+    }
+
+    const response = await routeRequest(request);
+    const traceIds = getActiveTraceIds();
+
     const next = new Response(response.body, response);
-    for (const [k, v] of Object.entries(corsHeaders)) next.headers.set(k, v);
+    next.headers.set('X-Request-Id', requestId);
+    if (traceIds.traceId) {
+      next.headers.set('X-Trace-Id', traceIds.traceId);
+    }
+    for (const [k, v] of Object.entries(corsHeaders)) {
+      next.headers.set(k, v);
+    }
     return next;
-  }
-  return response;
+  });
 }
 
 /**
@@ -1121,6 +1143,7 @@ async function handleRequest(request: Request): Promise<Response> {
  */
 async function main() {
   const env = await loadEnvAsync();
+  initApiObservability(process.env);
 
   logger.info('Starting YUCP API server', {
     nodeEnv: env.NODE_ENV,

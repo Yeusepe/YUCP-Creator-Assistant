@@ -7,6 +7,7 @@ import { type ReactNode, useEffect } from 'react';
 import { CookiePreferencesPrompt } from '@/components/ui/CookiePreferencesPrompt';
 import { ToastProvider } from '@/components/ui/Toast';
 import { installChunkErrorRecovery } from '@/lib/chunkErrorRecovery';
+import { initializeHyperdxBrowser } from '@/lib/hyperdx';
 import { useVersionPoller } from '@/lib/versionPoller';
 import { logRootRenderError } from '@/lib/webDiagnostics';
 
@@ -52,6 +53,7 @@ function RootComponent() {
 function AppEffects() {
   useEffect(() => {
     installChunkErrorRecovery();
+    initializeHyperdxBrowser();
   }, []);
 
   useVersionPoller();

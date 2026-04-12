@@ -18,7 +18,9 @@
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.11.0",
+    "@hyperdx/node-opentelemetry": "^0.20.1",
     "@infisical/sdk": "^4.0.6",
+    "@opentelemetry/api": "^1.9.0",
     "@react-email/components": "^0.0.30",
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",

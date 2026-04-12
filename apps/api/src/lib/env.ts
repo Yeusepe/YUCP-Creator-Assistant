@@ -64,6 +64,12 @@ export interface LocalEnv {
   YUCP_COUPLING_SERVICE_BASE_URL?: string;
   YUCP_COUPLING_SERVICE_SHARED_SECRET?: string;
   COUPLING_SERVICE_SECRET?: string;
+  HYPERDX_API_KEY?: string;
+  HYPERDX_APP_URL?: string;
+  HYPERDX_OTLP_HTTP_URL?: string;
+  HYPERDX_OTLP_GRPC_URL?: string;
+  OTEL_EXPORTER_OTLP_ENDPOINT?: string;
+  OTEL_EXPORTER_OTLP_PROTOCOL?: string;
 }
 
 async function fetchFromInfisical(): Promise<Record<string, string>> {
@@ -192,6 +198,12 @@ function loadFromEnv(): LocalEnv {
     YUCP_COUPLING_SERVICE_BASE_URL: process.env.YUCP_COUPLING_SERVICE_BASE_URL,
     YUCP_COUPLING_SERVICE_SHARED_SECRET: resolveCouplingServiceSharedSecret(process.env),
     COUPLING_SERVICE_SECRET: process.env.COUPLING_SERVICE_SECRET,
+    HYPERDX_API_KEY: process.env.HYPERDX_API_KEY,
+    HYPERDX_APP_URL: process.env.HYPERDX_APP_URL,
+    HYPERDX_OTLP_HTTP_URL: process.env.HYPERDX_OTLP_HTTP_URL,
+    HYPERDX_OTLP_GRPC_URL: process.env.HYPERDX_OTLP_GRPC_URL,
+    OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    OTEL_EXPORTER_OTLP_PROTOCOL: process.env.OTEL_EXPORTER_OTLP_PROTOCOL,
   };
 }
 

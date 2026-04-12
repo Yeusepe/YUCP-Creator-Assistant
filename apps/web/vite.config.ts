@@ -55,6 +55,11 @@ export default defineConfig(async () => {
     // The value comes from Infisical bootstrap (process.env.CONVEX_URL).
     define: {
       'import.meta.env.CONVEX_URL': JSON.stringify(process.env.CONVEX_URL),
+      'import.meta.env.HYPERDX_API_KEY': JSON.stringify(process.env.HYPERDX_API_KEY),
+      'import.meta.env.HYPERDX_OTLP_HTTP_URL': JSON.stringify(
+        process.env.HYPERDX_OTLP_HTTP_URL ?? process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+      ),
+      'import.meta.env.HYPERDX_APP_URL': JSON.stringify(process.env.HYPERDX_APP_URL),
       // Injected at build time for version skew detection (see versionPoller.ts).
       // In CI/CD, set BUILD_ID to the git SHA or pipeline run ID.
       'import.meta.env.VITE_BUILD_ID': JSON.stringify(process.env.BUILD_ID ?? 'dev'),
